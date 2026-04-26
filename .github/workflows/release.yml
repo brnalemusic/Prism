@@ -26,10 +26,11 @@ jobs:
         run: npm install
 
       - name: Build App
-        run: npm run build:win
+        run: npm run build:win -- --publish never
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
