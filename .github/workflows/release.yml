@@ -7,24 +7,14 @@ on:
 
 jobs:
   build:
-    name: Build for ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-        include:
-          - os: windows-latest
-            platform: win
-          - os: macos-latest
-            platform: mac
-          - os: ubuntu-latest
-            platform: linux
+    name: Build for Windows
+    runs-on: windows-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Necessário para ler tags e histórico
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -36,7 +26,7 @@ jobs:
         run: npm install
 
       - name: Build App
-        run: npm run build:${{ matrix.platform }}
+        run: npm run build:win
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -44,18 +34,14 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: artifacts-${{ matrix.platform }}
+          name: artifacts-win
           path: |
             dist/*.exe
-            dist/*.dmg
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.snap
             dist/*.zip
             dist/*.blockmap
-            dist/*.yml
-            dist/*.json
+            dist/latest.yml
           if-no-files-found: warn
+
 
   release:
     name: Create GitHub Release
