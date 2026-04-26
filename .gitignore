@@ -1,0 +1,13 @@
+node_modules
+dist
+out
+.DS_Store
+.eslintcache
+*.log*
+
+.env
+.geminiignore
+PROTOTYPE.md
+DESIGN.md
+RESOLVING_COT.md
+Token Usage/
