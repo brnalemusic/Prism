@@ -75,10 +75,12 @@ jobs:
 
       - name: Generate and Sign Checksums
         shell: bash
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           cd release-artifacts
           sha256sum * > SHASUMS256.txt
-          gpg --batch --yes --pinentry-mode loopback --clearsign SHASUMS256.txt
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" --clearsign SHASUMS256.txt
 
 
       - name: Create Release
