@@ -9,9 +9,21 @@ export function QuickLauncher(): React.JSX.Element {
   const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false)
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [activeModelId, setActiveModelId] = useState('gemma-3-27b-it')
   const [shortcut, setShortcut] = useState('CommandOrControl+M')
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const commands = [
+    { cmd: '/search', desc: 'Force web search', action: () => { setQuery('/search '); inputRef.current?.focus() } },
+    { cmd: '/clear', desc: 'Clear current chat', action: () => { window.api.submitLauncher('/clear'); setQuery(''); } }
+  ]
+
+  const showSlashMenu = query === '/'
+
+  useEffect(() => {
+    if (showSlashMenu) setSlashSelectedIndex(0)
+  }, [showSlashMenu])
 
   useEffect(() => {
     // Initial config load
@@ -66,6 +78,23 @@ export function QuickLauncher(): React.JSX.Element {
         return
       }
 
+      if (showSlashMenu) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          setSlashSelectedIndex((prev) => (prev + 1) % commands.length)
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          setSlashSelectedIndex((prev) => (prev - 1 + commands.length) % commands.length)
+        } else if (e.key === 'Enter') {
+          e.preventDefault()
+          commands[slashSelectedIndex].action()
+        } else if (e.key === 'Escape') {
+          e.preventDefault()
+          setQuery('')
+        }
+        return
+      }
+
       if (isModelSelectorOpen) {
         if (e.key === 'ArrowDown') {
           e.preventDefault()
@@ -102,7 +131,7 @@ export function QuickLauncher(): React.JSX.Element {
       document.body.style.backgroundColor = ''
       document.documentElement.style.backgroundColor = ''
     }
-  }, [isModelSelectorOpen, selectedIndex, activeModelId, shortcut])
+  }, [isModelSelectorOpen, selectedIndex, activeModelId, shortcut, showSlashMenu, slashSelectedIndex])
 
   const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault()
@@ -234,6 +263,31 @@ export function QuickLauncher(): React.JSX.Element {
             </div>
           )}
         </div>
+
+        {/* Slash Menu */}
+        {showSlashMenu && (
+          <div className="absolute top-[calc(100%+12px)] left-0 w-72 bg-background-secondary/95 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 z-50">
+            <div className="px-4 py-3 border-b border-white/5 bg-white/5 text-[10px] uppercase tracking-[0.2em] font-black text-text-muted">
+              Commands
+            </div>
+            <div className="py-2">
+              {commands.map((c, i) => (
+                <button
+                  key={c.cmd}
+                  onClick={() => c.action()}
+                  onMouseEnter={() => setSlashSelectedIndex(i)}
+                  className={clsx(
+                    "w-full text-left px-4 py-3 text-sm flex items-center gap-3 transition-colors",
+                    slashSelectedIndex === i ? 'bg-accent-primary/20 text-accent-primary' : 'text-text-primary hover:bg-white/5'
+                  )}
+                >
+                  <span className={clsx("font-bold", c.cmd === '/clear' ? 'text-red-400' : 'text-accent-secondary')}>{c.cmd}</span>
+                  <span className="text-text-secondary text-xs">— {c.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

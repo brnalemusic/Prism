@@ -9,7 +9,7 @@
 A desktop AI that doesn't just answer — it *acts*.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-6C63FF?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Windows_·_macOS_·_Linux-C084FC?style=flat-square)](#installation)
+[![Platform](https://img.shields.io/badge/Platform-Windows-C084FC?style=flat-square)](#installation)
 [![Made with](https://img.shields.io/badge/Powered_by-Gemma-F0F0F5?style=flat-square&logo=google&logoColor=white)](#models)
 
 </div>
@@ -69,14 +69,15 @@ All actions are executed from the main process — the API key and OS access nev
 
 ## Models
 
-Prism wraps open-weight Gemma models behind its own naming scheme. You can switch models at any time via the UI or the Quick Launcher (<kbd>Ctrl</kbd>+<kbd>M</kbd>).
+Prism wraps various AI models behind its own naming scheme. You can switch models at any time via the UI or the Quick Launcher (<kbd>Ctrl</kbd>+<kbd>M</kbd>).
 
 | Model | Internal ID | Best for |
 |---|---|---|
-| **Prism 1.5 Think** | `gemma-4-31b-it` | Advanced logic, complex multi-step tasks |
-| **Prism 1.1 Think** | `gemma-4-26b-a4b-it` | Balanced reasoning & precision |
-| **Prism 1.1 Fast** | `gemma-3-27b-it` | Quick daily tasks, simple automation |
-| **Prism 1.1 Think Mini** | `gemma-3-12b-it` | Lightweight execution, fast responses |
+| **Prism 2 Think** | `gemma-4-31b-it` | Advanced logic, complex multi-step tasks |
+| **Prism 1.5 Think** | `gemma-4-26b-a4b-it` | Balanced reasoning & precision |
+| **Prism 1.5 Fast** | `gemini-3.1-flash-lite-preview` | Quick daily tasks, simple automation |
+| **Prism 1.1 Fast** | `gemma-3-27b-it` | Quick responses, lightweight tasks |
+| **Prism 1.1 Think Mini** | `gemma-3-12b-it` | Minimal resource usage, ultra-fast responses |
 
 ---
 
@@ -87,8 +88,6 @@ Prism wraps open-weight Gemma models behind its own naming scheme. You can switc
 Download the latest installer from [**Releases**](https://github.com/brnalemusic/Prism/releases):
 
 - **Windows** — `.exe` (NSIS installer)
-- **macOS** — `.dmg`
-- **Linux** — `.AppImage` / `.deb` / `.snap`
 
 ### From source
 
@@ -110,12 +109,10 @@ Run in development mode:
 npm run dev
 ```
 
-Build for your platform:
+Build for Windows:
 
 ```bash
 npm run build:win    # Windows
-npm run build:mac    # macOS
-npm run build:linux  # Linux
 ```
 
 ---

@@ -5,15 +5,16 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import { toolsManifest } from './toolsManifest'
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 /**
  * Executes a terminal command and returns the output.
  */
 export async function runTerminalCommand(command: string): Promise<string> {
   const isWindows = process.platform === 'win32'
-  const normalizedCommand = isWindows ? `chcp 65001 > nul ; ${command}` : command
+  const normalizedCommand = isWindows ? `chcp 65001 > nul & ${command}` : command
 
-  return new Promise((resolve) => {
-    exec(normalizedCommand, (error, stdout, stderr) => {
+  return new Promise((resolve) => {    exec(normalizedCommand, (error, stdout, stderr) => {
       if (error) {
         resolve(`Error executing command: ${error.message}\n${stderr}`)
         return
@@ -210,6 +211,54 @@ export async function openBrowserLink(url: string): Promise<string> {
 }
 
 /**
+ * Removes HTML tags, scripts, and styles from a string.
+ */
+function stripHtml(html: string): string {
+  let text = html
+  let previous
+  do {
+    previous = text
+    text = text
+      .replace(/<script[^>]*>([\s\S]*?)<\/script>/gim, '')
+      .replace(/<style[^>]*>([\s\S]*?)<\/style>/gim, '')
+      .replace(/<[^>]*>/g, ' ')
+  } while (text !== previous)
+  return text
+}
+
+/**
+ * Fetches and returns text content from a URL.
+ */
+export async function sawLinkFromUrl(url: string): Promise<string> {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    })
+
+    if (!response.ok) {
+      return `Error: Website returned status ${response.status}`
+    }
+
+    const html = await response.text()
+    // Simple cleaning: remove scripts, styles and HTML tags
+    const text = stripHtml(html)
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    await sleep(1000)
+
+    const MAX_CONTENT = 20000
+    return text.length > MAX_CONTENT ? text.substring(0, MAX_CONTENT) + '... (truncated)' : text
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return `Error fetching URL: ${message}`
+  }
+}
+
+/**
  * Performs a web search using DuckDuckGo HTML version.
  */
 export async function webSearch(query: string): Promise<string> {
@@ -247,9 +296,9 @@ export async function webSearch(query: string): Promise<string> {
 
       if (titleMatch && linkMatch) {
         results.push({
-          title: titleMatch[1].replace(/<[^>]*>?/gm, '').trim(),
+          title: stripHtml(titleMatch[1]).trim(),
           link: linkMatch[1],
-          snippet: snippetMatch ? snippetMatch[1].replace(/<[^>]*>?/gm, '').trim() : ''
+          snippet: snippetMatch ? stripHtml(snippetMatch[1]).trim() : ''
         })
       }
     }
@@ -282,13 +331,16 @@ export function getSystemToolsPrompt(modelKey: string): string {
   } else if (modelKey === 'gemma-3-27b-it') {
     technical = 'pce-1.1-fast'
     modelName = 'Prism 1.1 Fast'
+  } else if (modelKey === 'gemini-3.1-flash-lite-preview') {
+    technical = 'pce-1.5-fast'
+    modelName = 'Prism 1.5 Fast'
   } else if (modelKey === 'gemma-4-26b-a4b-it') {
-    technical = 'pce-1.1-think'
-    modelName = 'Prism 1.1 Think'
-  } else if (modelKey === 'gemma-4-31b-it') {
-    model = 'Prism Compute Execution .5'
     technical = 'pce-1.5-think'
     modelName = 'Prism 1.5 Think'
+  } else if (modelKey === 'gemma-4-31b-it') {
+    model = 'Prism Compute Execution .5'
+    technical = 'pce-2-think'
+    modelName = 'Prism 2 Think'
   }
 
   const toolsPrompt = toolsManifest
@@ -322,6 +374,8 @@ ${toolsPrompt}
   ACTION-ORIENTED MODE:
   - Be extremely confident and direct.
   - If the user sends a LINK (e.g., "https://...", "www...", or any clear URL), IMMEDIATELY use the \`open_browser_link\` tool. Do not ask "should I search or open?", just OPEN IT.
+  - If you perform a \`web_search\` and find a relevant link, IMMEDIATELY use the \`saw_link_from_url\` tool to explore its content before providing a final answer.
+  - QUALITY CHECK: After exploring a page with \`saw_link_from_url\`, evaluate the content quality. If the page is a login screen, shows an error, or lacks useful information compared to your goal, do NOT settle for it. Use \`web_search\` again or choose another link from the initial search results to find better information. If you have exhausted relevant options without finding useful information, inform the user that you could not find a suitable source.
   - If the user sends a single word or short phrase that looks like an application name (e.g., "Notepad++", "Chrome", "Calc"), IMMEDIATELY use a tool to try and open it. Do not ask for confirmation.
   - If the query is simple (e.g., "4+4", "What time is it?"), respond with ONLY the answer. No conversational filler or polite phrasing.
   - GREETINGS & CONVERSATION: Normal human greetings (e.g., "Oi", "Hello", "How are you?") and general conversation are valid. Respond naturally and politely to these, but stay ready to switch back to action mode as soon as a task is requested.

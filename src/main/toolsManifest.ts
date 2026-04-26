@@ -105,6 +105,14 @@ export const toolsManifest: ToolDefinition[] = [
     }
   },
   {
+    name: 'saw_link_from_url',
+    description: 'Exploring Page: Fetches and reads the text content of a webpage.',
+    usage: '<tool_call><name>saw_link_from_url</name><url>URL</url></tool_call>',
+    parameters: {
+      url: 'The URL to fetch content from.'
+    }
+  },
+  {
     name: 'open_browser_link',
     description: 'Opens a URL directly in the user\'s default system browser. Use this IMMEDIATELY when the user sends a link.',
     usage: '<tool_call><name>open_browser_link</name><url>URL</url></tool_call>',

@@ -161,7 +161,7 @@ function toggleLauncher(): void {
 }
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('com.prism.app')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -203,7 +203,10 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('get-config', () => {
-    return currentConfig
+    return {
+      ...currentConfig,
+      envGeminiKey: process.env.GEMINI_API_KEY
+    }
   })
 
   ipcMain.handle('save-config', (_event, config: AppConfig) => {

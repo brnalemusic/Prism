@@ -8,6 +8,7 @@ import {
   openApplication,
   openBrowserLink,
   webSearch,
+  sawLinkFromUrl,
   computerCreateFile,
   computerCreateDirectory,
   computerRemoveFile,
@@ -19,15 +20,16 @@ import {
 } from './systemTools'
 
 // Load environment variables from .env
-dotenv.config()
+dotenv.config({ path: require('path').join(__dirname, '../../.env') })
 
 // Modelo selecionado atualmente
-let currentModelKey = 'gemma-4-26b-a4b-it'
+let currentModelKey = 'gemini-3.1-flash-lite-preview'
 
 // Ordem de fallback dos modelos (do maior para o menor)
 const MODEL_FALLBACK_ORDER = [
-  'gemma-4-31b-it',     // Prism 1.5 Think
-  'gemma-4-26b-a4b-it', // Prism 1.1 Think
+  'gemma-4-31b-it',     // Prism 2 Think
+  'gemma-4-26b-a4b-it', // Prism 1.5 Think
+  'gemini-3.1-flash-lite-preview', // Prism 1.5 Fast
   'gemma-3-27b-it',     // Prism 1.1 Fast
   'gemma-3-12b-it'      // Prism 1.1 Think Mini
 ]
@@ -37,8 +39,9 @@ const MODEL_FALLBACK_ORDER = [
  */
 function getModelFriendlyName(modelKey: string): string {
   const names: Record<string, string> = {
-    'gemma-4-31b-it': 'Prism 1.5 Think',
-    'gemma-4-26b-a4b-it': 'Prism 1.1 Think',
+    'gemma-4-31b-it': 'Prism 2 Think',
+    'gemma-4-26b-a4b-it': 'Prism 1.5 Think',
+    'gemini-3.1-flash-lite-preview': 'Prism 1.5 Fast',
     'gemma-3-27b-it': 'Prism 1.1 Fast',
     'gemma-3-12b-it': 'Prism 1.1 Think Mini'
   }
@@ -75,6 +78,7 @@ const toolFunctions: Record<string, (args: ToolArgs) => Promise<string>> = {
   open_application: (args) => openApplication(args.appPath || ''),
   open_browser_link: (args) => openBrowserLink(args.url || ''),
   web_search: (args) => webSearch(args.query || ''),
+  saw_link_from_url: (args) => sawLinkFromUrl(args.url || ''),
   computer_use_create_file: (args) => computerCreateFile(args.path || '', args.content || ''),
   computer_use_create_directory: (args) => computerCreateDirectory(args.path || ''),
   computer_use_remove_file: (args) => computerRemoveFile(args.path || ''),
@@ -128,7 +132,9 @@ export async function handleChatMessage(event: IpcMainEvent, message: string): P
   const apiKey = userApiKey || process.env.GEMINI_API_KEY
   
   if (!apiKey || apiKey.trim() === '' || apiKey === 'your_api_key_here') {
-    event.sender.send('chat-reply-error', 'Error: Gemini API Key missing.')
+    // Se não houver chave, enviamos uma mensagem de erro específica para que o front-end
+    // possa disparar o modal de API Key se necessário.
+    event.sender.send('chat-reply-error', 'API_KEY_MISSING')
     return
   }
 

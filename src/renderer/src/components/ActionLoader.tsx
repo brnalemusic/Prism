@@ -5,7 +5,7 @@ export interface ToolCall {
   name: string
   args: Record<string, unknown>
   result?: string
-  status: 'writing' | 'running' | 'done' | 'error'
+  status: 'writing' | 'running' | 'cooldown' | 'done' | 'error'
 }
 
 interface ActionLoaderProps {
@@ -18,6 +18,8 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
   let displayTitle = 'Processing...'
   if (toolCall.status === 'writing') {
     displayTitle = toolCall.name === 'search' ? 'WRITING THE SEARCH' : 'WRITING TASK'
+  } else if (toolCall.name === 'saw_link_from_url') {
+    displayTitle = toolCall.status === 'cooldown' ? 'COOLING DOWN...' : 'EXPLORING PAGE'
   } else if (toolCall.name.startsWith('computer_use_')) {
     displayTitle = 'COMPUTER USE'
   } else if (toolCall.name === 'execute_terminal_command') {
@@ -34,6 +36,7 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
 
   const isDone = toolCall.status === 'done' || toolCall.status === 'error'
   const isWriting = toolCall.status === 'writing'
+  const isCooldown = toolCall.status === 'cooldown'
 
   return (
     <div className="flex flex-col gap-2 my-2 w-full max-w-2xl">
@@ -42,10 +45,12 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
         className={clsx(
           'flex items-center gap-3 px-4 py-2 rounded-xl border transition-all duration-300',
           isDone
-            ? 'bg-surface/10 border-surface/20 cursor-pointer hover:bg-surface/20'
+            ? 'bg-[#111118]/60 border-[#1E1E2E] cursor-pointer hover:bg-[#111118]'
             : isWriting
-              ? 'bg-status-warning/10 border-status-warning/30 animate-pulse'
-              : 'bg-surface/20 border-accent-primary/20 animate-in fade-in slide-in-from-bottom-1'
+              ? 'bg-[#111118]/80 border-[#FACC15]/30 animate-pulse'
+              : isCooldown
+                ? 'bg-[#111118]/80 border-[#6C63FF]/30'
+                : 'bg-[#111118]/80 border-[#6C63FF]/20 animate-in fade-in slide-in-from-bottom-1'
         )}
       >
         <div className="relative flex items-center justify-center w-4 h-4 shrink-0">
@@ -53,15 +58,18 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
             <div
               className={clsx(
                 'w-2 h-2 rounded-full',
-                toolCall.status === 'done' ? 'bg-status-success/60' : 'bg-status-error/60'
+                toolCall.status === 'done' ? 'bg-[#4ADE80]' : 'bg-[#F87171]'
               )}
             />
-          ) : isWriting ? (
-            <div className="w-2 h-2 rounded-full bg-status-warning animate-ping" />
+          ) : isWriting || isCooldown ? (
+            <div className={clsx(
+              "w-2 h-2 rounded-full",
+              isCooldown ? "bg-[#6C63FF] animate-pulse" : "bg-[#FACC15] animate-ping"
+            )} />
           ) : (
             <>
-              <div className="absolute inset-0 rounded-full border border-accent-primary/10"></div>
-              <div className="absolute inset-0 rounded-full border border-accent-primary border-t-transparent animate-spin"></div>
+              <div className="absolute inset-0 rounded-full border border-[#6C63FF]/10"></div>
+              <div className="absolute inset-0 rounded-full border border-[#6C63FF] border-t-transparent animate-spin"></div>
             </>
           )}
         </div>
@@ -69,7 +77,7 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
         <span
           className={clsx(
             'text-[11px] font-bold tracking-wider uppercase',
-            isDone ? 'text-text-secondary/70' : isWriting ? 'text-status-warning' : 'text-text-primary'
+            isDone ? 'text-[#8888A0]' : isWriting ? 'text-[#FACC15]' : isCooldown ? 'text-[#C084FC]' : 'text-[#F0F0F5]'
           )}
         >
           {displayTitle} {isDone && toolCall.status === 'done' && '• Completed'}
@@ -81,19 +89,19 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
             <span
               className={clsx(
                 'w-0.5 h-0.5 rounded-full animate-bounce [animation-delay:-0.3s]',
-                isWriting ? 'bg-status-warning/60' : 'bg-accent-primary/60'
+                isWriting ? 'bg-[#FACC15]/60' : isCooldown ? 'bg-[#C084FC]/60' : 'bg-[#6C63FF]/60'
               )}
             ></span>
             <span
               className={clsx(
                 'w-0.5 h-0.5 rounded-full animate-bounce [animation-delay:-0.15s]',
-                isWriting ? 'bg-status-warning/60' : 'bg-accent-primary/60'
+                isWriting ? 'bg-[#FACC15]/60' : isCooldown ? 'bg-[#C084FC]/60' : 'bg-[#6C63FF]/60'
               )}
             ></span>
             <span
               className={clsx(
                 'w-0.5 h-0.5 rounded-full animate-bounce',
-                isWriting ? 'bg-status-warning/60' : 'bg-accent-primary/60'
+                isWriting ? 'bg-[#FACC15]/60' : isCooldown ? 'bg-[#C084FC]/60' : 'bg-[#6C63FF]/60'
               )}
             ></span>
           </div>
@@ -111,7 +119,7 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
             strokeLinecap="round"
             strokeLinejoin="round"
             className={clsx(
-              'ml-auto text-text-secondary/40 transition-transform duration-300',
+              'ml-auto text-[#8888A0]/40 transition-transform duration-300',
               isExpanded && 'rotate-180'
             )}
           >
@@ -121,14 +129,14 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
       </div>
 
       {isExpanded && toolCall.result && (
-        <div className="w-full overflow-hidden rounded-xl border border-surface/30 bg-black/40 backdrop-blur-md duration-200">
-          <div className="px-4 py-2 border-b border-surface/20 flex items-center justify-between bg-surface/10">
-            <span className="text-[9px] uppercase tracking-widest font-bold text-text-secondary/50">
+        <div className="w-full overflow-hidden rounded-xl border border-[#1E1E2E] bg-[#0A0A0F]/80 backdrop-blur-md duration-200">
+          <div className="px-4 py-2 border-b border-[#1E1E2E] flex items-center justify-between bg-[#111118]">
+            <span className="text-[9px] uppercase tracking-widest font-bold text-[#8888A0]">
               Tool Output
             </span>
           </div>
-          <div className="p-4 font-mono text-[11px] leading-relaxed text-text-secondary/80 overflow-x-auto max-h-[400px]">
-            <pre className="whitespace-pre-wrap break-all text-accent-secondary/90">
+          <div className="p-4 font-mono text-[11px] leading-relaxed text-[#8888A0] overflow-x-auto max-h-[400px]">
+            <pre className="whitespace-pre-wrap break-all text-[#F0F0F5]/90">
               {toolCall.result}
             </pre>
           </div>

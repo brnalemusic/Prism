@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
 import { PrismBackground } from './components/PrismBackground'
 import { IntroScreen } from './components/IntroScreen'
 import { Sidebar } from './components/Sidebar'
@@ -12,9 +14,45 @@ import { TitleBar } from './components/TitleBar'
 import { ErrorMessage } from './components/ErrorMessage'
 import { SettingsView } from './components/SettingsView'
 import { ApiKeyModal } from './components/ApiKeyModal'
+import { MissingKeyBanner } from './components/MissingKeyBanner'
 import clsx from 'clsx'
 
+const MarkdownComponents: any = {
+  a: ({ href, children, ...props }: any) => {
+    const imageExtensions = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i;
+    if (href && imageExtensions.test(href)) {
+      return (
+        <img
+          src={href}
+          alt={typeof children === 'string' ? children : 'Image'}
+          className="max-w-full h-auto rounded-xl my-4 border border-surface/50 shadow-lg"
+        />
+      );
+    }
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-accent-primary hover:underline"
+        {...props}
+      >
+        {children}
+      </a>
+    );
+  },
+  img: ({ src, alt, ...props }: any) => (
+    <img
+      src={src}
+      alt={alt}
+      className="max-w-full h-auto rounded-xl my-4 border border-surface/50 shadow-lg"
+      {...props}
+    />
+  ),
+};
+
 interface Message {
+
   role: 'user' | 'ai'
   content: string
   thoughts?: string
@@ -73,7 +111,13 @@ function App(): React.JSX.Element {
   const inputBarRef = useRef<InputBarHandle>(null)
 
   const handleSend = (text: string): void => {
-    // Para a UI, removemos a tag feia se ela existir (caso venha do launcher com tag, ou se o usuário digitou)
+    // Processamento de comandos
+    if (text === '/clear') {
+       handleClearChat()
+       return
+    }
+
+    // Para a UI, removemos a tag feia se ela existir
     const displayContent = text.replace(/^\[FORCE_SEARCH\]\s*/i, '')
     setMessages((prev) => [...prev, { role: 'user', content: displayContent }])
     
@@ -192,6 +236,12 @@ function App(): React.JSX.Element {
 
     window.api.onChatError((error) => {
       setIsProcessing(false)
+      
+      if (error === 'API_KEY_MISSING') {
+        setIsApiKeyModalOpen(true)
+        return
+      }
+
       setMessages((prev) => {
         const newMessages = [...prev]
         const lastMsg = newMessages[newMessages.length - 1]
@@ -346,7 +396,11 @@ function App(): React.JSX.Element {
                   key={`text-${index}`}
                   className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[13px] prose-p:font-light prose-p:text-[16px] lg:prose-p:text-[19px] xl:prose-p:text-[20px]"
                 >
-                  <ReactMarkdown>{part}</ReactMarkdown>
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]} 
+                    rehypePlugins={[rehypeRaw]}
+                    components={MarkdownComponents}
+                  >{part}</ReactMarkdown>
                 </div>
               )
             }
@@ -375,6 +429,8 @@ function App(): React.JSX.Element {
       </div>
     )
   }
+
+  const isKeyMissing = !config?.userGeminiKey && (config?.envGeminiKey === 'none' || !config?.envGeminiKey)
 
   if (route === '#launcher') {
     return <QuickLauncher />
@@ -450,10 +506,13 @@ function App(): React.JSX.Element {
         <div className="flex-1 overflow-y-auto flex flex-col">
           {activeView === 'chat' ? (
             <div className="flex-1 flex flex-col py-8">
+              {isKeyMissing && (
+                <MissingKeyBanner onAddKey={() => setIsApiKeyModalOpen(true)} />
+              )}
               {messages.length === 0 ? (
                 <div className="flex-1 flex items-center justify-center">
                   <p className="text-text-secondary text-sm font-medium tracking-wide">
-                    Prism is ready.
+                    {isKeyMissing ? 'Prism is Awaiting Gemini API Key Configuration.' : 'Prism is ready.'}
                   </p>
                 </div>
               ) : (
@@ -518,7 +577,7 @@ function App(): React.JSX.Element {
                                       : 'text-text-secondary/70 border-surface/30 bg-black/5'
                                   )}
                                 >
-                                  <ReactMarkdown>{msg.thoughts}</ReactMarkdown>
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>{msg.thoughts}</ReactMarkdown>
                                 </div>
                               </details>
                             </div>
@@ -559,7 +618,7 @@ function App(): React.JSX.Element {
 
         {activeView === 'chat' && (
           <div className="pb-6 pt-2 bg-gradient-to-t from-background-main via-background-main to-transparent shrink-0">
-            <InputBar ref={inputBarRef} onSend={handleSend} disabled={isProcessing} />
+            <InputBar ref={inputBarRef} onSend={handleSend} disabled={isProcessing || isKeyMissing} />
           </div>
         )}
       </main>

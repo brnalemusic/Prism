@@ -16,13 +16,18 @@ export const MODELS: Model[] = [
     description: 'Quick & efficient for daily tasks'
   },
   {
+    id: 'gemini-3.1-flash-lite-preview',
+    name: 'Prism 1.5 Fast',
+    description: 'Prism Compute Execution'
+  },
+  {
     id: 'gemma-4-26b-a4b-it',
-    name: 'Prism 1.1 Think',
+    name: 'Prism 1.5 Think',
     description: 'Balanced reasoning & precision'
   },
   {
     id: 'gemma-4-31b-it',
-    name: 'Prism 1.5 Think',
+    name: 'Prism 2 Think',
     description: 'Advanced logic for complex problems'
   }
 ]

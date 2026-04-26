@@ -70,7 +70,7 @@ export function ErrorMessage({ error, onFixClick }: ErrorMessageProps): React.JS
               onClick={onFixClick}
               className="mr-4 px-3 py-1.5 rounded-lg bg-status-error/20 text-status-error text-[10px] uppercase tracking-wider font-bold hover:bg-status-error/30 transition-colors"
             >
-              Usar minha chave
+              Trocar Chave API
             </button>
           )}
         </div>
