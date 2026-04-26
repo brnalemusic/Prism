@@ -78,7 +78,8 @@ jobs:
         run: |
           cd release-artifacts
           sha256sum * > SHASUMS256.txt
-          gpg --clearsign SHASUMS256.txt
+          gpg --batch --yes --pinentry-mode loopback --clearsign SHASUMS256.txt
+
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
