@@ -62,11 +62,6 @@ jobs:
           path: release-artifacts
           merge-multiple: true
 
-      - name: Get Tag Message
-        id: tag_message
-        run: |
-          echo "subject=$(git tag -l --format='%(contents:subject)' ${{ github.ref_name }})" >> $GITHUB_OUTPUT
-
       - name: Import GPG Key
         uses: crazy-max/ghaction-import-gpg@v6
         with:
@@ -82,11 +77,10 @@ jobs:
           sha256sum * > SHASUMS256.txt
           gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" --clearsign SHASUMS256.txt
 
-
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ steps.tag_message.outputs.subject }}
+          name: ${{ github.ref_name }}
           files: |
             release-artifacts/**
             release-artifacts/SHASUMS256.txt.asc
