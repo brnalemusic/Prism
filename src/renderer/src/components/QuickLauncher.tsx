@@ -16,6 +16,7 @@ export function QuickLauncher(): React.JSX.Element {
 
   const commands = [
     { cmd: '/search', desc: 'Force web search', action: () => { setQuery('/search '); inputRef.current?.focus() } },
+    { cmd: '/youtube', desc: 'YouTube search & play', action: () => { setQuery('/youtube '); inputRef.current?.focus() } },
     { cmd: '/clear', desc: 'Clear current chat', action: () => { window.api.submitLauncher('/clear'); setQuery(''); } }
   ]
 
@@ -247,8 +248,8 @@ export function QuickLauncher(): React.JSX.Element {
                 isModelSelectorOpen
                   ? 'Select a model...'
                   : isSearchEnabled 
-                    ? 'O que você quer pesquisar na web?'
-                    : 'O que o Prism pode fazer por você hoje?'
+                    ? 'What do you want to search on the web?'
+                    : 'What can Prism do for you today?'
               }
               className={clsx(
                 "w-full bg-transparent border-none outline-none text-xl font-medium transition-colors duration-300",

@@ -62,7 +62,7 @@ export function ApiKeyModal({ isOpen, onClose, onSave }: ApiKeyModalProps): Reac
               </div>
               <div className="flex flex-col">
                 <h2 className="text-lg font-bold text-text-primary tracking-tight">Gemini API Key</h2>
-                <span className="text-[10px] uppercase tracking-widest font-bold text-accent-secondary/60">Configure seu próprio acesso</span>
+                <span className="text-[10px] uppercase tracking-widest font-bold text-accent-secondary/60">Configure your own access</span>
               </div>
             </div>
             <button 
@@ -75,7 +75,7 @@ export function ApiKeyModal({ isOpen, onClose, onSave }: ApiKeyModalProps): Reac
 
           <div className="flex flex-col gap-4">
             <p className="text-sm text-text-secondary leading-relaxed">
-              Para continuar usando o Prism sem interrupções, você pode configurar sua própria chave de API.
+              To continue using Prism without interruptions, you can configure your own API key.
             </p>
 
             <div className="relative">
@@ -83,7 +83,7 @@ export function ApiKeyModal({ isOpen, onClose, onSave }: ApiKeyModalProps): Reac
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Insira sua Gemini API Key aqui..."
+                placeholder="Insert your Gemini API Key here..."
                 className="w-full bg-[#111118] border border-surface/60 rounded-xl px-4 py-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-primary/50 focus:ring-1 focus:ring-accent-primary/30 transition-all"
               />
             </div>
@@ -92,9 +92,9 @@ export function ApiKeyModal({ isOpen, onClose, onSave }: ApiKeyModalProps): Reac
               <div className="flex items-start gap-3 p-4 bg-status-success/5 border border-status-success/10 rounded-xl">
                 <Shield size={16} className="text-status-success shrink-0 mt-0.5" />
                 <div className="flex flex-col gap-1">
-                  <span className="text-xs font-bold text-status-success/90">Segurança Total</span>
+                  <span className="text-xs font-bold text-status-success/90">Total Security</span>
                   <p className="text-[11px] text-status-success/70 leading-normal">
-                    Sua chave é salva apenas localmente no seu computador e criptografada pelo sistema. O Prism usa sua própria conexão de internet para falar com a API, sem passar por nenhum serviço intermediário ou telemetria.
+                    Your key is saved only locally on your computer and encrypted by the system. Prism uses its own internet connection to speak with the API, without passing through any intermediate service or telemetry.
                   </p>
                 </div>
               </div>
@@ -102,9 +102,9 @@ export function ApiKeyModal({ isOpen, onClose, onSave }: ApiKeyModalProps): Reac
               <div className="flex items-start gap-3 p-4 bg-accent-primary/5 border border-accent-primary/10 rounded-xl">
                 <Info size={16} className="text-accent-secondary shrink-0 mt-0.5" />
                 <div className="flex flex-col gap-1">
-                  <span className="text-xs font-bold text-accent-secondary/90">Como obter?</span>
+                  <span className="text-xs font-bold text-accent-secondary/90">How to get?</span>
                   <p className="text-[11px] text-accent-secondary/70 leading-normal">
-                    Você pode criar uma chave gratuita no <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="underline hover:text-accent-secondary transition-colors">Google AI Studio</a>.
+                    You can create a free key at <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="underline hover:text-accent-secondary transition-colors">Google AI Studio</a>.
                   </p>
                 </div>
               </div>
@@ -116,14 +116,14 @@ export function ApiKeyModal({ isOpen, onClose, onSave }: ApiKeyModalProps): Reac
               onClick={onClose}
               className="flex-1 px-4 py-3 rounded-xl border border-surface/60 text-sm font-bold text-text-secondary hover:bg-surface/10 hover:text-text-primary transition-all"
             >
-              Cancelar
+              Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={!apiKey.trim()}
               className="flex-1 px-4 py-3 rounded-xl bg-accent-primary text-sm font-bold text-[#fff] hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(108,99,255,0.2)]"
             >
-              Salvar Chave
+              Save Key
             </button>
           </div>
         </div>

@@ -1,6 +1,6 @@
 {
     "name":  "prism",
-    "version":  "0.2.0",
+    "version":  "0.3.0",
     "description":  "An Electron application with React and TypeScript",
     "main":  "./out/main/index.js",
     "author":  "Breno",
@@ -29,10 +29,13 @@
                          "dotenv":  "^17.4.2",
                          "electron-updater":  "^6.3.9",
                          "get-installed-apps":  "^1.1.1",
+                         "katex":  "^0.16.45",
                          "lucide-react":  "^1.11.0",
                          "react-markdown":  "^10.1.0",
+                         "rehype-katex":  "^7.0.1",
                          "rehype-raw":  "^7.0.0",
                          "remark-gfm":  "^4.0.1",
+                         "remark-math":  "^6.0.0",
                          "tailwind-merge":  "^3.5.0"
                      },
     "devDependencies":  {

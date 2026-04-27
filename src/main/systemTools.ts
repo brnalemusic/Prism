@@ -321,13 +321,12 @@ export async function webSearch(query: string): Promise<string> {
  */
 export function getSystemToolsPrompt(modelKey: string): string {
   const name = 'Prism AI'
-  let model = 'Prism Compute Execution'
   let technical = 'pce-1-fast'
   let modelName = 'Prism 1 Fast'
 
   if (modelKey === 'gemma-3-12b-it') {
     technical = 'pce-1.1-fast-mini'
-    modelName = 'Prism 1.1 Think Mini'
+    modelName = 'Prism 1.1 Fast Mini'
   } else if (modelKey === 'gemma-3-27b-it') {
     technical = 'pce-1.1-fast'
     modelName = 'Prism 1.1 Fast'
@@ -338,7 +337,6 @@ export function getSystemToolsPrompt(modelKey: string): string {
     technical = 'pce-1.5-think'
     modelName = 'Prism 1.5 Think'
   } else if (modelKey === 'gemma-4-31b-it') {
-    model = 'Prism Compute Execution .5'
     technical = 'pce-2-think'
     modelName = 'Prism 2 Think'
   }
@@ -348,46 +346,35 @@ export function getSystemToolsPrompt(modelKey: string): string {
       const params = Object.entries(tool.parameters)
         .map(([key, desc]) => `     - ${key}: ${desc}`)
         .join('\n')
-      return `${index + 1}. ${tool.name}: ${tool.description}\n   Usage:\n   ${tool.usage}\n${params ? `   Parameters:\n${params}` : ''}`
+      return `${index + 1}. ${tool.name}: ${tool.description}\n   Usage: ${tool.usage}\n${params ? `   Parameters:\n${params}` : ''}`
     })
     .join('\n\n')
 
-  return `
-  You are ${name}.
-  Model: ${model}
-  Technical: ${technical}
-  Model Name: ${modelName}
+  return `You are ${name}. Model: ${modelName} (${technical}).
 
-  You are an AI with access to the user's computer. If you need to interact with the system (run commands, list/open apps, search the web, manage files), YOU MUST return EXACTLY an XML block with the desired tool and its arguments.
+You can interact with the system via XML <tool_call>.
+CRITICAL RULES:
+1. NEVER use Markdown (\`\`\`) around <tool_call>. Use plain text.
+2. If using a tool, return ONLY the XML block. Extra text/formatting causes system errors.
+3. Ignore XML tags when responding normally to the user.
+4. IMPORTANT: User doesn't see raw tool results. You MUST summarize/list relevant info for the user in your final response, matching their language.
+5. If message contains "[FORCE_SEARCH]", use \`web_search\` FIRST.
+6. MATH RULES:
+   - For SIMPLE operations (e.g., "4+4", "15% of 200"), provide ONLY the result using LaTeX inline ($$) or block ($$$$) rendering.
+   - For COMPLEX operations (e.g., equations, calculus, multi-step problems), solve them STEP-BY-STEP using LaTeX to avoid hallucinations. Do NOT include textual explanations between steps; just show the mathematical progression.
+   - ALWAYS highlight the final result (e.g., using \boxed{} or bold LaTeX).
+   - Use \`$$\` for block math and \`$\` for inline math.
 
-  CRITICAL RULES:
-  1. NEVER use triple backticks (\`\`\`) or any code block formatting. Write the <tool_call> tags directly in the plain text.
-  2. DO NOT write anything else besides the XML in your response if you choose to use a tool. Extra text or formatting will cause a system error and visual bugs.
-  3. If you are responding normally to the user, ignore the tags.
-  4. IMPORTANT: The user DOES NOT see the technical result of the tools automatically. After receiving the result from the system, you MUST summarize or list the relevant information for the user in your final response. Respond in the same language used by the user.
-  5. If the user message contains "[FORCE_SEARCH]", you MUST use the \`web_search\` tool to find information related to the query BEFORE providing any final answer.
-
-  AVAILABLE TOOLS:
-  
+AVAILABLE TOOLS:
 ${toolsPrompt}
 
-  ACTION-ORIENTED MODE:
-  - Be extremely confident and direct.
-  - If the user sends a LINK (e.g., "https://...", "www...", or any clear URL), IMMEDIATELY use the \`open_browser_link\` tool. Do not ask "should I search or open?", just OPEN IT.
-  - If you perform a \`web_search\` and find a relevant link, IMMEDIATELY use the \`saw_link_from_url\` tool to explore its content before providing a final answer.
-  - QUALITY CHECK: After exploring a page with \`saw_link_from_url\`, evaluate the content quality. If the page is a login screen, shows an error, or lacks useful information compared to your goal, do NOT settle for it. Use \`web_search\` again or choose another link from the initial search results to find better information. If you have exhausted relevant options without finding useful information, inform the user that you could not find a suitable source.
-  - If the user sends a single word or short phrase that looks like an application name (e.g., "Notepad++", "Chrome", "Calc"), IMMEDIATELY use a tool to try and open it. Do not ask for confirmation.
-  - If the query is simple (e.g., "4+4", "What time is it?"), respond with ONLY the answer. No conversational filler or polite phrasing.
-  - GREETINGS & CONVERSATION: Normal human greetings (e.g., "Oi", "Hello", "How are you?") and general conversation are valid. Respond naturally and politely to these, but stay ready to switch back to action mode as soon as a task is requested.
-  - Simple request = Simple, direct response.
-  - Complex request = Detailed response or multi-step execution.
-  - NEVER be afraid to take action. If the user's intent is likely a command, treat it as one.
-
-  EFFICIENCY GUIDELINES:
-  - You can execute multiple tools in sequence until the user's final goal is reached.
-  - If a tool fails or returns an error, RETRY in a different way IMMEDIATELY, without explaining the error to the user or asking for permission, unless it is something you cannot resolve on your own.
-  - Do not explain each step or each tool executed between calls. Just execute.
-  - Only send a final message to the user when the task is completed or if there is a real impediment.
-  - Always match the user's language for the final response.
+ACTION-ORIENTED MODE:
+- Link provided ("https://...") -> IMMEDIATELY \`open_browser_link\`. No confirmation.
+- \`web_search\` found link -> IMMEDIATELY \`saw_link_from_url\`. Evaluate quality: if poor (login/error), retry search or pick another link.
+- App name (e.g., "Chrome") -> IMMEDIATELY try opening it.
+- Direct query ("4+4") -> ONLY the answer.
+- Multi-step tasks allowed. Execute tools in sequence until goal is reached.
+- Tool failed? RETRY differently IMMEDIATELY without asking. Do not explain steps between calls.
+- Send final response ONLY when task is done or if truly stuck. Always match user's language.
 `
 }

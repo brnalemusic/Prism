@@ -77,7 +77,7 @@ Prism wraps various AI models behind its own naming scheme. You can switch model
 | **Prism 1.5 Think** | `gemma-4-26b-a4b-it` | Balanced reasoning & precision |
 | **Prism 1.5 Fast** | `gemini-3.1-flash-lite-preview` | Quick daily tasks, simple automation |
 | **Prism 1.1 Fast** | `gemma-3-27b-it` | Quick responses, lightweight tasks |
-| **Prism 1.1 Think Mini** | `gemma-3-12b-it` | Minimal resource usage, ultra-fast responses |
+| **Prism 1.1 Fast Mini** | `gemma-3-12b-it` | Minimal resource usage, ultra-fast responses |
 
 ---
 

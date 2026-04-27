@@ -12,16 +12,16 @@ import {
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { initGemini, handleChatMessage, setGeminiModel, setUserApiKey } from './gemini'
+import { initGemini, handleChatMessage, setGeminiModel, setUserApiKey, cancelChatMessage } from './gemini'
 import { loadConfig, saveConfig, AppConfig } from './config'
 
 import { initAutoUpdater } from './updater'
 
+let currentConfig: AppConfig
 let mainWindow: BrowserWindow | null = null
 let launcherWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
-let currentConfig: AppConfig = loadConfig()
 
 function createTray(): void {
   const trayIcon = nativeImage.createFromPath(icon)
@@ -163,6 +163,9 @@ function toggleLauncher(): void {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.prism.app')
 
+  // Load config after app is ready
+  currentConfig = loadConfig()
+
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
@@ -174,6 +177,7 @@ app.whenReady().then(() => {
     mainWindow?.webContents.send('model-changed', modelKey)
   })
   ipcMain.on('clear-chat', () => initGemini())
+  ipcMain.on('chat-cancel', () => cancelChatMessage())
 
   ipcMain.on('launcher-submit', (_event, message) => {
     launcherWindow?.hide()

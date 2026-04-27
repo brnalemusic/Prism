@@ -1,17 +1,20 @@
 import { useState, useRef, useImperativeHandle, forwardRef, useEffect } from 'react'
-import { SendHorizontal, Globe } from 'lucide-react'
+import { SendHorizontal, Globe, Square } from 'lucide-react'
 import clsx from 'clsx'
 
 interface InputBarProps {
   onSend: (message: string) => void
+  onCancel?: () => void
   disabled?: boolean
+  isProcessing?: boolean
+  isKeyMissing?: boolean
 }
 
 export interface InputBarHandle {
   focus: () => void
 }
 
-export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, disabled }, ref) => {
+export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, onCancel, disabled, isProcessing, isKeyMissing }, ref) => {
   const [text, setText] = useState('')
   const [isFocused, setIsFocused] = useState(false)
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
@@ -20,6 +23,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, dis
 
   const commands = [
     { cmd: '/search', desc: 'Force web search', action: () => { setText('/search '); inputRef.current?.focus() } },
+    { cmd: '/youtube', desc: 'YouTube search & play', action: () => { setText('/youtube '); inputRef.current?.focus() } },
     { cmd: '/clear', desc: 'Clear current chat', action: () => { onSend('/clear'); setText(''); } }
   ]
 
@@ -99,6 +103,13 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, dis
     }
   }
 
+  const getPlaceholder = (): string => {
+    if (isKeyMissing) return "API Key Required..."
+    if (isProcessing) return "Awaiting AI Response..."
+    if (isSearchEnabled) return "Search web with Prism..."
+    return "Ask Prism..."
+  }
+
   return (
     <div className="w-full px-6 sm:px-12 z-20">
       {/* Slash Menu */}
@@ -125,7 +136,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, dis
       <div
         className={clsx(
           'relative flex items-end gap-2 bg-background-secondary/40 backdrop-blur-xl rounded-xl border p-2 transition-all duration-300',
-          disabled && 'opacity-60 cursor-not-allowed border-surface/30',
+          disabled && 'opacity-60 border-surface/30',
           !disabled && isFocused
             ? 'border-accent-primary/60 shadow-[0_0_20px_rgba(108,99,255,0.15)] bg-background-secondary/60'
             : 'border-surface/50 hover:border-surface',
@@ -135,8 +146,8 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, dis
           !disabled && isSearchEnabled && isFocused && 'border-accent-secondary/60 shadow-[0_0_20px_rgba(0,212,255,0.15)]'
         )}
       >
-        {disabled && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-background-main/20 backdrop-blur-[2px] rounded-xl">
+        {isKeyMissing && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-background-main/20 backdrop-blur-[2px] rounded-xl cursor-not-allowed">
              <div className="bg-surface/80 p-2 rounded-full border border-surface shadow-2xl">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
              </div>
@@ -157,7 +168,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, dis
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           onKeyDown={handleKeyDown}
-          placeholder={disabled ? "API Key Required..." : (isSearchEnabled ? "Search web with Prism..." : "Ask Prism...")}
+          placeholder={getPlaceholder()}
           disabled={disabled}
           className="flex-1 max-h-48 min-h-[44px] bg-transparent text-text-primary placeholder-text-muted outline-none resize-none py-3 px-4 text-sm disabled:cursor-not-allowed relative z-10"
           rows={1}
@@ -173,7 +184,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, dis
               isSearchEnabled
                 ? 'bg-accent-secondary/20 text-accent-secondary shadow-[0_0_15px_rgba(0,212,255,0.2)]'
                 : 'bg-surface/20 text-text-muted hover:bg-surface/40',
-              disabled && 'opacity-50 cursor-not-allowed hover:bg-surface/20'
+              disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-surface/40'
             )}
           >
             {isSearchEnabled && (
@@ -185,20 +196,30 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, dis
             )} />
           </button>
 
-          <button
-            onClick={() => handleSend()}
-            disabled={!text.trim() || disabled}
-            className={clsx(
-              'p-3 rounded-lg flex-shrink-0 transition-all duration-300',
-              text.trim() && !disabled
-                ? isSearchEnabled 
-                  ? 'bg-accent-secondary text-white shadow-[0_0_15px_rgba(0,212,255,0.4)] hover:shadow-[0_0_20px_rgba(0,212,255,0.6)] hover:scale-105'
-                  : 'bg-accent-primary text-white shadow-[0_0_15px_rgba(108,99,255,0.4)] hover:shadow-[0_0_20px_rgba(108,99,255,0.6)] hover:scale-105'
-                : 'bg-surface/50 text-text-muted cursor-not-allowed'
-            )}
-          >
-            <SendHorizontal size={18} />
-          </button>
+          {isProcessing ? (
+            <button
+              onClick={() => onCancel?.()}
+              className="p-3 rounded-lg flex-shrink-0 transition-all duration-300 bg-status-error/20 text-status-error hover:bg-status-error/30 hover:scale-105 shadow-[0_0_15px_rgba(239,68,68,0.2)] cursor-pointer active:scale-95"
+              title="Stop Generation"
+            >
+              <Square size={18} fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              onClick={() => handleSend()}
+              disabled={!text.trim() || disabled}
+              className={clsx(
+                'p-3 rounded-lg flex-shrink-0 transition-all duration-300',
+                text.trim() && !disabled
+                  ? isSearchEnabled 
+                    ? 'bg-accent-secondary text-white shadow-[0_0_15px_rgba(0,212,255,0.4)] hover:shadow-[0_0_20px_rgba(0,212,255,0.6)] hover:scale-105'
+                    : 'bg-accent-primary text-white shadow-[0_0_15px_rgba(108,99,255,0.4)] hover:shadow-[0_0_20px_rgba(108,99,255,0.6)] hover:scale-105'
+                  : 'bg-surface/50 text-text-muted cursor-not-allowed'
+              )}
+            >
+              <SendHorizontal size={18} />
+            </button>
+          )}
         </div>
       </div>
       

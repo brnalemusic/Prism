@@ -13,7 +13,7 @@ export interface AppConfig {
 const DEFAULT_CONFIG: AppConfig = {
   launcherShortcut: 'CommandOrControl+Space',
   modelSelectionShortcut: 'CommandOrControl+M',
-  defaultModel: 'gemma-3-27b-it',
+  defaultModel: 'gemini-3.1-flash-lite-preview',
   minimizeToTray: false,
   userGeminiKey: ''
 }

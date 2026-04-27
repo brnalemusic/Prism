@@ -3,14 +3,14 @@ import { autoUpdater } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
 
 export function initAutoUpdater(mainWindow: BrowserWindow): void {
-  // Desabilita auto-download para que possamos perguntar ao usuário antes
+  // Disable auto-download so we can ask the user first
   autoUpdater.autoDownload = false
   
-  // No modo de desenvolvimento, geralmente não queremos checar updates
-  // a menos que estejamos testando especificamente o updater
+  // In development mode, we generally don't want to check for updates
+  // unless we are specifically testing the updater
   if (is.dev) {
-    // Para testar em dev, você pode comentar o return abaixo
-    // Mas lembre-se que o electron-updater precisa de um app empacotado para funcionar 100%
+    // To test in dev, you can comment out the return below
+    // But remember that electron-updater needs a packaged app to work 100%
     return
   }
 
@@ -18,9 +18,9 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
     dialog
       .showMessageBox(mainWindow, {
         type: 'info',
-        title: 'Atualização Disponível',
-        message: `Uma nova versão (${info.version}) do Prism está disponível. Deseja baixar agora?`,
-        buttons: ['Sim', 'Depois'],
+        title: 'Update Available',
+        message: `A new version (${info.version}) of Prism is available. Would you like to download it now?`,
+        buttons: ['Yes', 'Later'],
         defaultId: 0,
         cancelId: 1
       })
@@ -35,9 +35,9 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
     dialog
       .showMessageBox(mainWindow, {
         type: 'info',
-        title: 'Atualização Pronta',
-        message: `A versão ${info.version} foi baixada e está pronta para ser instalada. Deseja reiniciar e instalar agora?`,
-        buttons: ['Reiniciar e Instalar', 'Depois'],
+        title: 'Update Ready',
+        message: `Version ${info.version} has been downloaded and is ready to be installed. Would you like to restart and install now?`,
+        buttons: ['Restart and Install', 'Later'],
         defaultId: 0,
         cancelId: 1
       })
@@ -49,9 +49,9 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
   })
 
   autoUpdater.on('error', (err) => {
-    console.error('Erro no Auto-Updater:', err)
+    console.error('Auto-Updater Error:', err)
   })
 
-  // Inicia a checagem
+  // Start the check
   autoUpdater.checkForUpdatesAndNotify()
 }

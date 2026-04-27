@@ -6,16 +6,18 @@ export interface PrismAPI {
   sendChatMessage: (message: string) => void
   setModel: (modelKey: string) => void
   clearChat: () => void
-  onChatStart: (callback: () => void) => void
-  onChatChunk: (callback: (data: StructuredChatResponse) => void) => void
-  onChatEnd: (callback: (data: StructuredChatResponse) => void) => void
-  onChatError: (callback: (error: string) => void) => void
-  onToolStart: (callback: (data: { name: string; args: Record<string, unknown> }) => void) => void
-  onToolEnd: (callback: (data: { name: string; result: string }) => void) => void
-  onLauncherMessage: (callback: (message: string) => void) => void
-  onLauncherFocus: (callback: () => void) => void
-  onModelChanged: (callback: (modelKey: string) => void) => void
-  onConfigChanged: (callback: (config: AppConfig) => void) => void
+  cancelChat: () => void
+  onChatStart: (callback: () => void) => () => void
+
+  onChatChunk: (callback: (data: StructuredChatResponse) => void) => () => void
+  onChatEnd: (callback: (data: StructuredChatResponse) => void) => () => void
+  onChatError: (callback: (error: string) => void) => () => void
+  onToolStart: (callback: (data: { name: string; args: Record<string, unknown> }) => void) => () => void
+  onToolEnd: (callback: (data: { name: string; result: string }) => void) => () => void
+  onLauncherMessage: (callback: (message: string) => void) => () => void
+  onLauncherFocus: (callback: () => void) => () => void
+  onModelChanged: (callback: (modelKey: string) => void) => () => void
+  onConfigChanged: (callback: (config: AppConfig) => void) => () => void
   submitLauncher: (message: string) => void
   hideLauncher: () => void
   minimizeApp: () => void

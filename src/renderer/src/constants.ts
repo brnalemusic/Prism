@@ -7,7 +7,7 @@ export interface Model {
 export const MODELS: Model[] = [
   {
     id: 'gemma-3-12b-it',
-    name: 'Prism 1.1 Think Mini',
+    name: 'Prism 1.1 Fast Mini',
     description: 'Fast execution with Prism Compute logic'
   },
   {

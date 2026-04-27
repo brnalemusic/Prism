@@ -8,7 +8,7 @@ export function SettingsView(): React.JSX.Element {
   const [config, setConfig] = useState({
     launcherShortcut: 'CommandOrControl+Space',
     modelSelectionShortcut: 'CommandOrControl+M',
-    defaultModel: 'gemma-3-27b-it',
+    defaultModel: 'gemini-3.1-flash-lite-preview',
     minimizeToTray: false
   })
   const [isSaving, setIsSaving] = useState(false)
@@ -30,9 +30,9 @@ export function SettingsView(): React.JSX.Element {
     setIsSaving(false)
 
     if (success) {
-      setMessage({ text: 'Configurações salvas com sucesso!', type: 'success' })
+      setMessage({ text: 'Settings saved successfully!', type: 'success' })
     } else {
-      setMessage({ text: 'Erro ao salvar configurações.', type: 'error' })
+      setMessage({ text: 'Error saving settings.', type: 'error' })
     }
 
     setTimeout(() => setMessage({ text: '', type: '' }), 3000)
@@ -42,7 +42,7 @@ export function SettingsView(): React.JSX.Element {
     setConfig({
       launcherShortcut: 'CommandOrControl+Space',
       modelSelectionShortcut: 'CommandOrControl+M',
-      defaultModel: 'gemma-3-27b-it',
+      defaultModel: 'gemini-3.1-flash-lite-preview',
       minimizeToTray: false
     })
   }
@@ -55,24 +55,24 @@ export function SettingsView(): React.JSX.Element {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-text-primary tracking-tight">
-            Preferências do Sistema
+            System Preferences
           </h1>
-          <p className="text-text-secondary/60 text-sm">Personalize sua experiênca com o Prism.</p>
+          <p className="text-text-secondary/60 text-sm">Personalize your experience with Prism.</p>
         </div>
       </div>
 
       <div className="space-y-8">
-        {/* Atalhos */}
+        {/* Shortcuts */}
         <section className="bg-background-secondary/30 rounded-2xl border border-surface/50 p-6 backdrop-blur-sm">
           <div className="flex items-center gap-3 mb-6">
             <Keyboard size={20} className="text-accent-primary" />
-            <h2 className="text-lg font-semibold text-text-primary">Atalhos de Teclado</h2>
+            <h2 className="text-lg font-semibold text-text-primary">Keyboard Shortcuts</h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="flex flex-col gap-2">
               <label className="text-xs uppercase tracking-widest font-black text-text-secondary/50">
-                Abrir Quick Launcher
+                Open Quick Launcher
               </label>
               <ShortcutRecorder
                 value={config.launcherShortcut}
@@ -82,7 +82,7 @@ export function SettingsView(): React.JSX.Element {
 
             <div className="flex flex-col gap-2">
               <label className="text-xs uppercase tracking-widest font-black text-text-secondary/50">
-                Seleção de Modelo (No Launcher)
+                Model Selection (In Launcher)
               </label>
               <ShortcutRecorder
                 value={config.modelSelectionShortcut}
@@ -94,17 +94,17 @@ export function SettingsView(): React.JSX.Element {
           </div>
         </section>
 
-        {/* Modelo Padrão */}
+        {/* Default Model */}
         <section className="bg-background-secondary/30 rounded-2xl border border-surface/50 p-6 backdrop-blur-sm">
           <div className="flex items-center gap-3 mb-6">
             <Bot size={20} className="text-accent-secondary" />
-            <h2 className="text-lg font-semibold text-text-primary">Inteligência Padrão</h2>
+            <h2 className="text-lg font-semibold text-text-primary">Default Intelligence</h2>
           </div>
 
           <div className="space-y-4">
             <div className="flex flex-col gap-2">
               <label className="text-xs uppercase tracking-widest font-black text-text-secondary/50">
-                Modelo ao Iniciar
+                Model at Startup
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {MODELS.map((model) => (
@@ -142,20 +142,20 @@ export function SettingsView(): React.JSX.Element {
         <section className="bg-background-secondary/30 rounded-2xl border border-surface/50 p-6 backdrop-blur-sm">
           <div className="flex items-center gap-3 mb-6">
             <Key size={20} className="text-accent-primary" />
-            <h2 className="text-lg font-semibold text-text-primary">Chave de API (Gemini)</h2>
+            <h2 className="text-lg font-semibold text-text-primary">API Key (Gemini)</h2>
           </div>
 
           <div className="space-y-4">
             <div className="flex flex-col gap-2">
               <label className="text-xs uppercase tracking-widest font-black text-text-secondary/50">
-                Sua Gemini API Key
+                Your Gemini API Key
               </label>
               <div className="relative group">
                 <input
                   type="password"
                   value={(config as any).userGeminiKey || ''}
                   onChange={(e) => setConfig({ ...config, userGeminiKey: e.target.value } as any)}
-                  placeholder="Se deixado em branco, o Prism usará a chave padrão (se disponível)"
+                  placeholder="If left blank, Prism will use the default key (if available)"
                   className="w-full bg-surface/20 border border-surface/50 rounded-xl px-4 py-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-primary/50 transition-all"
                 />
                 <div className="mt-3 flex items-start gap-2 p-3 bg-accent-primary/5 border border-accent-primary/10 rounded-lg">
@@ -163,7 +163,7 @@ export function SettingsView(): React.JSX.Element {
                     <Shield size={14} />
                   </div>
                   <p className="text-[10px] text-text-secondary/60 leading-normal">
-                    Sua chave é salva localmente de forma criptografada. O Prism não coleta nem compartilha suas chaves de API.
+                    Your key is saved locally in an encrypted format. Prism does not collect or share your API keys.
                   </p>
                 </div>
               </div>
@@ -171,21 +171,21 @@ export function SettingsView(): React.JSX.Element {
           </div>
         </section>
 
-        {/* Comportamento */}
+        {/* Behavior */}
         <section className="bg-background-secondary/30 rounded-2xl border border-surface/50 p-6 backdrop-blur-sm">
           <div className="flex items-center gap-3 mb-6">
             <Monitor size={20} className="text-accent-primary" />
-            <h2 className="text-lg font-semibold text-text-primary">Comportamento</h2>
+            <h2 className="text-lg font-semibold text-text-primary">System Behavior</h2>
           </div>
 
           <div className="space-y-4">
             <div className="flex items-center justify-between p-4 rounded-xl bg-surface/20 border border-surface/50">
               <div className="flex flex-col gap-1">
                 <span className="text-sm font-bold text-text-primary">
-                  Minimizar para a Bandeja
+                  Minimize to Tray
                 </span>
                 <span className="text-[10px] text-text-secondary/60 leading-tight">
-                  Ao clicar em fechar, o Prism continuará executando na bandeja do sistema.
+                  When clicking close, Prism will continue running in the system tray.
                 </span>
               </div>
               <button
@@ -206,14 +206,14 @@ export function SettingsView(): React.JSX.Element {
           </div>
         </section>
 
-        {/* Rodapé de Ações */}
+        {/* Action Footer */}
         <div className="flex items-center justify-between pt-6 border-t border-surface/10">
           <button
             onClick={handleReset}
             className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-text-secondary/60 hover:text-text-primary transition-colors"
           >
             <RotateCcw size={14} />
-            Restaurar Padrões
+            Restore Defaults
           </button>
 
           <div className="flex items-center gap-4">
@@ -233,7 +233,7 @@ export function SettingsView(): React.JSX.Element {
               className="flex items-center gap-2 px-6 py-2.5 bg-accent-primary text-white rounded-xl font-bold text-sm hover:bg-accent-primary/90 transition-all shadow-lg shadow-accent-primary/20 disabled:opacity-50"
             >
               <Save size={18} />
-              {isSaving ? 'Salvando...' : 'Salvar Alterações'}
+              {isSaving ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </div>

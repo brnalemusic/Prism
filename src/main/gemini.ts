@@ -31,11 +31,11 @@ const MODEL_FALLBACK_ORDER = [
   'gemma-4-26b-a4b-it', // Prism 1.5 Think
   'gemini-3.1-flash-lite-preview', // Prism 1.5 Fast
   'gemma-3-27b-it',     // Prism 1.1 Fast
-  'gemma-3-12b-it'      // Prism 1.1 Think Mini
+  'gemma-3-12b-it'      // Prism 1.1 Fast Mini
 ]
 
 /**
- * Retorna o nome amigável do modelo com base na chave.
+ * Returns the friendly name of the model based on the key.
  */
 function getModelFriendlyName(modelKey: string): string {
   const names: Record<string, string> = {
@@ -43,12 +43,12 @@ function getModelFriendlyName(modelKey: string): string {
     'gemma-4-26b-a4b-it': 'Prism 1.5 Think',
     'gemini-3.1-flash-lite-preview': 'Prism 1.5 Fast',
     'gemma-3-27b-it': 'Prism 1.1 Fast',
-    'gemma-3-12b-it': 'Prism 1.1 Think Mini'
+    'gemma-3-12b-it': 'Prism 1.1 Fast Mini'
   }
   return names[modelKey] || 'Prism AI'
 }
 
-// Histórico persistente em memória para a sessão atual
+// Persistent history in memory for the current session
 let chatHistory: Content[] = []
 
 export interface StructuredChatResponse {
@@ -91,7 +91,7 @@ const toolFunctions: Record<string, (args: ToolArgs) => Promise<string>> = {
 }
 
 /**
- * Inicializa ou limpa o histórico com as instruções de sistema.
+ * Initializes or clears the history with system instructions.
  */
 export function initGemini(): boolean {
   chatHistory = [
@@ -109,50 +109,90 @@ export function initGemini(): boolean {
 }
 
 /**
- * Altera o modelo atual. O histórico NÃO é reiniciado.
+ * Changes the current model. The history is NOT restarted.
  */
 export function setGeminiModel(modelKey: string): boolean {
   currentModelKey = modelKey
-  // initGemini() foi removido para manter o histórico entre trocas
+  // initGemini() was removed to maintain history between changes
   return true
 }
 
-// API Key fornecida pelo usuário manualmente
+// API Key provided by the user manually
 let userApiKey: string | null = null
 
 /**
- * Define a chave de API do usuário manualmente.
+ * Sets the user's API key manually.
  */
 export function setUserApiKey(key: string): void {
   userApiKey = key
 }
 
+let abortController: AbortController | null = null
+
+const CANCEL_MESSAGE = '-------------- You cancelled AI response ----------------'
+
+export function cancelChatMessage(): void {
+  if (abortController) {
+    abortController.abort()
+  }
+}
+
 export async function handleChatMessage(event: IpcMainEvent, message: string): Promise<void> {
-  // Prioridade: Chave do usuário > Chave do ambiente
+  // Priority: User key > Environment key
   const apiKey = userApiKey || process.env.GEMINI_API_KEY
   
   if (!apiKey || apiKey.trim() === '' || apiKey === 'your_api_key_here') {
-    // Se não houver chave, enviamos uma mensagem de erro específica para que o front-end
-    // possa disparar o modal de API Key se necessário.
+    // If there is no key, we send a specific error message so that the front-end
+    // can trigger the API Key modal if necessary.
     event.sender.send('chat-reply-error', 'API_KEY_MISSING')
     return
   }
 
-  // Inicializa o histórico se estiver vazio
+  // Initialize history if empty
   if (chatHistory.length === 0) {
     initGemini()
   }
 
-  // Adiciona a pergunta real do usuário ao histórico manual
+  // Detect if it is the /youtube command
+  const isYoutube = message.startsWith('/youtube')
+  const basePrompt = getSystemToolsPrompt(currentModelKey)
+  
+  if (isYoutube) {
+    const youtubeInstructions = `----------- IMPORTANT: USER USED A SLASH COMMAND, DO WHAT I WILL SAY -------------
+The user wants to search and play something on YouTube. Use web_search to find the most relevant YouTube video or album link, and then use open_browser_link to open the link found.
+---------- FINISHED SLASH COMMAND REQUIREMENT ---------
+
+`
+    if (chatHistory.length > 0 && chatHistory[0].role === 'user') {
+      chatHistory[0].parts[0].text = youtubeInstructions + basePrompt
+    }
+  } else {
+    // Ensure the prompt returns to normal if not /youtube
+    if (chatHistory.length > 0 && chatHistory[0].role === 'user') {
+      chatHistory[0].parts[0].text = basePrompt
+    }
+  }
+
+  // Add the user's real question to the manual history
   chatHistory.push({ role: 'user', parts: [{ text: message }] })
 
   let usedFallback = false
   let success = false
 
-  // Notifica o início da resposta APENAS UMA VEZ
+  // Notify the start of the response ONLY ONCE
   event.sender.send('chat-reply-start')
 
+  // Create abort controller for this request session
+  abortController = new AbortController()
+
   while (!success) {
+    // Check if aborted before starting/restarting
+    if (abortController?.signal.aborted) {
+      event.sender.send('chat-reply-error', CANCEL_MESSAGE)
+      abortController = null
+      return
+    }
+
     try {
       const genAI = new GoogleGenerativeAI(apiKey)
       const model = genAI.getGenerativeModel({ model: currentModelKey })
@@ -164,14 +204,23 @@ export async function handleChatMessage(event: IpcMainEvent, message: string): P
 
       while (iterationCount < MAX_ITERATIONS) {
         iterationCount++
-        // Enviamos TODO o conteúdo do histórico manualmente a cada iteração
-        const result = await model.generateContentStream({ contents: chatHistory })
+        
+        // Check if aborted before each AI call
+        if (abortController?.signal.aborted) throw new Error('AbortError')
+
+        // We send ALL content of the history manually at each iteration
+        const result = await model.generateContentStream({ 
+          contents: chatHistory 
+        }, { signal: abortController?.signal })
 
         let currentThoughts = ''
         let currentFinalResponse = ''
         let isThinking = false
 
         for await (const chunk of result.stream) {
+          // Check if aborted during stream processing
+          if (abortController?.signal.aborted) throw new Error('AbortError')
+
           const parts = chunk.candidates?.[0]?.content?.parts || []
           for (const part of parts) {
             // Check for thought property in a type-safe way
@@ -206,14 +255,14 @@ export async function handleChatMessage(event: IpcMainEvent, message: string): P
           }
         }
 
-        // Adiciona a resposta da IA (seja texto ou Tool Call) ao histórico
+        // Add the AI response (whether text or Tool Call) to history
         const fullAiResponse = currentThoughts + currentFinalResponse
         chatHistory.push({ role: 'model', parts: [{ text: fullAiResponse }] })
 
         accumulatedThoughts += currentThoughts
         accumulatedFinalResponse += currentFinalResponse
 
-        // Busca por todas as tags <tool_call> na resposta
+        // Search for all <tool_call> tags in the response
         const toolCallRegex = /<tool_call>([\s\S]*?)<\/tool_call>/gi
         const toolMatches = Array.from(fullAiResponse.matchAll(toolCallRegex))
 
@@ -249,6 +298,8 @@ export async function handleChatMessage(event: IpcMainEvent, message: string): P
 
               let toolResult = ''
               try {
+                // Check if aborted before running tool
+                if (abortController?.signal.aborted) throw new Error('AbortError')
                 toolResult = await toolFunctions[name](toolArgs)
               } catch (err) {
                 toolResult = `Error: ${err instanceof Error ? err.message : String(err)}`
@@ -275,36 +326,48 @@ export async function handleChatMessage(event: IpcMainEvent, message: string): P
           isThinking: false
         })
         success = true
+        abortController = null
         return // Exit function after success
       }
       
-      // Se sair do loop de iterações sem sucesso (ex: atingiu MAX_ITERATIONS)
+      // If exiting the iteration loop without success (e.g. reached MAX_ITERATIONS)
       success = true
+      abortController = null
     } catch (error) {
+      // Robust check for user-initiated abort
+      if (abortController?.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+        console.log('Chat request aborted by user')
+        event.sender.send('chat-reply-error', CANCEL_MESSAGE)
+        success = true
+        abortController = null
+        return
+      }
+
       console.error('Gemini API Error:', error)
 
       // Fallback Logic
       const currentIndex = MODEL_FALLBACK_ORDER.indexOf(currentModelKey)
       if (currentIndex !== -1 && currentIndex < MODEL_FALLBACK_ORDER.length - 1) {
-        // Tenta o próximo modelo
+        // Try the next model
         currentModelKey = MODEL_FALLBACK_ORDER[currentIndex + 1]
         usedFallback = true
 
         const friendlyName = getModelFriendlyName(currentModelKey)
-        const fallbackInstruction = `[SYSTEM: FALLBACK] Ocorreu um erro na API com o modelo anterior. Você foi ativado como ${friendlyName} para dar continuidade. Por favor, analise o histórico acima e prossiga com a tarefa de onde ela parou. Informe ao usuário brevemente que houve uma troca de modelo técnica para garantir a conclusão do pedido.`
+        const fallbackInstruction = `[SYSTEM: FALLBACK] An API error occurred with the previous model. You have been activated as ${friendlyName} to continue. Please analyze the history above and proceed with the task from where it left off. Briefly inform the user that a technical model switch occurred to ensure completion of the request.`
 
         chatHistory.push({ role: 'user', parts: [{ text: fallbackInstruction }] })
 
-        // Notifica a UI sobre a mudança de modelo (opcional, mas bom manter sincronizado)
+        // Notify the UI about the model change (optional, but good to keep in sync)
         event.sender.send('model-changed', currentModelKey)
         
-        console.log(`Fallback ativado: Novo modelo ${currentModelKey}`)
-        continue // Tenta novamente com o novo modelo (success continua false)
+        console.log(`Fallback activated: New model ${currentModelKey}`)
+        continue // Try again with the new model (success remains false)
       } else {
-        // Todos os modelos falharam
+        // All models failed
         const errorMessage = error instanceof Error ? error.message : String(error)
         event.sender.send('chat-reply-error', errorMessage)
-        success = true // Encerra o loop de qualquer forma
+        success = true // End the loop anyway
+        abortController = null
       }
     }
   }

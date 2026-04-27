@@ -8,37 +8,58 @@ const api = {
   sendChatMessage: (message: string): void => ipcRenderer.send('chat-message', message),
   setModel: (modelKey: string): void => ipcRenderer.send('set-model', modelKey),
   clearChat: (): void => ipcRenderer.send('clear-chat'),
-  onChatStart: (callback: () => void): void => {
-    ipcRenderer.on('chat-reply-start', () => callback())
+  cancelChat: (): void => ipcRenderer.send('chat-cancel'),
+  onChatStart: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('chat-reply-start', listener)
+    return () => ipcRenderer.removeListener('chat-reply-start', listener)
   },
-  onChatChunk: (callback: (data: StructuredChatResponse) => void): void => {
-    ipcRenderer.on('chat-reply-chunk', (_event, data) => callback(data))
+  onChatChunk: (callback: (data: StructuredChatResponse) => void): (() => void) => {
+    const listener = (_event: any, data: StructuredChatResponse): void => callback(data)
+    ipcRenderer.on('chat-reply-chunk', listener)
+    return () => ipcRenderer.removeListener('chat-reply-chunk', listener)
   },
-  onChatEnd: (callback: (data: StructuredChatResponse) => void): void => {
-    ipcRenderer.on('chat-reply-end', (_event, data) => callback(data))
+  onChatEnd: (callback: (data: StructuredChatResponse) => void): (() => void) => {
+    const listener = (_event: any, data: StructuredChatResponse): void => callback(data)
+    ipcRenderer.on('chat-reply-end', listener)
+    return () => ipcRenderer.removeListener('chat-reply-end', listener)
   },
-  onChatError: (callback: (error: string) => void): void => {
-    ipcRenderer.on('chat-reply-error', (_event, error) => callback(error))
+  onChatError: (callback: (error: string) => void): (() => void) => {
+    const listener = (_event: any, error: string): void => callback(error)
+    ipcRenderer.on('chat-reply-error', listener)
+    return () => ipcRenderer.removeListener('chat-reply-error', listener)
   },
   onToolStart: (
     callback: (data: { name: string; args: Record<string, unknown> }) => void
-  ): void => {
-    ipcRenderer.on('chat-tool-start', (_event, data) => callback(data))
+  ): (() => void) => {
+    const listener = (_event: any, data: { name: string; args: Record<string, unknown> }): void => callback(data)
+    ipcRenderer.on('chat-tool-start', listener)
+    return () => ipcRenderer.removeListener('chat-tool-start', listener)
   },
-  onToolEnd: (callback: (data: { name: string; result: string }) => void): void => {
-    ipcRenderer.on('chat-tool-end', (_event, data) => callback(data))
+  onToolEnd: (callback: (data: { name: string; result: string }) => void): (() => void) => {
+    const listener = (_event: any, data: { name: string; result: string }): void => callback(data)
+    ipcRenderer.on('chat-tool-end', listener)
+    return () => ipcRenderer.removeListener('chat-tool-end', listener)
   },
-  onLauncherMessage: (callback: (message: string) => void): void => {
-    ipcRenderer.on('launcher-message', (_event, message) => callback(message))
+  onLauncherMessage: (callback: (message: string) => void): (() => void) => {
+    const listener = (_event: any, message: string): void => callback(message)
+    ipcRenderer.on('launcher-message', listener)
+    return () => ipcRenderer.removeListener('launcher-message', listener)
   },
-  onLauncherFocus: (callback: () => void): void => {
-    ipcRenderer.on('launcher-focus', () => callback())
+  onLauncherFocus: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('launcher-focus', listener)
+    return () => ipcRenderer.removeListener('launcher-focus', listener)
   },
-  onModelChanged: (callback: (modelKey: string) => void): void => {
-    ipcRenderer.on('model-changed', (_event, modelKey) => callback(modelKey))
+  onModelChanged: (callback: (modelKey: string) => void): (() => void) => {
+    const listener = (_event: any, modelKey: string): void => callback(modelKey)
+    ipcRenderer.on('model-changed', listener)
+    return () => ipcRenderer.removeListener('model-changed', listener)
   },
-  onConfigChanged: (callback: (config: AppConfig) => void): void => {
-    ipcRenderer.on('config-changed', (_event, config) => callback(config))
+  onConfigChanged: (callback: (config: AppConfig) => void): (() => void) => {
+    const listener = (_event: any, config: AppConfig): void => callback(config)
+    ipcRenderer.on('config-changed', listener)
+    return () => ipcRenderer.removeListener('config-changed', listener)
   },
   submitLauncher: (message: string): void => ipcRenderer.send('launcher-submit', message),
   hideLauncher: (): void => ipcRenderer.send('hide-launcher'),

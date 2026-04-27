@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import rehypeRaw from 'rehype-raw'
+import rehypeKatex from 'rehype-katex'
+import 'katex/dist/katex.min.css'
 import { PrismBackground } from './components/PrismBackground'
 import { IntroScreen } from './components/IntroScreen'
 import { Sidebar } from './components/Sidebar'
@@ -80,6 +83,7 @@ function App(): React.JSX.Element {
   const [selectedModel, setSelectedModel] = useState('gemma-4-26b-a4b-it')
   const [activeView, setActiveView] = useState('chat')
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false)
+  const [isYoutubeMode, setIsYoutubeMode] = useState(false)
   const [config, setConfig] = useState<any>(null)
 
   useEffect(() => {
@@ -117,6 +121,11 @@ function App(): React.JSX.Element {
        return
     }
 
+    if (isProcessing) return
+
+    setIsProcessing(true)
+    setIsYoutubeMode(text.startsWith('/youtube'))
+
     // Para a UI, removemos a tag feia se ela existir
     const displayContent = text.replace(/^\[FORCE_SEARCH\]\s*/i, '')
     setMessages((prev) => [...prev, { role: 'user', content: displayContent }])
@@ -130,7 +139,7 @@ function App(): React.JSX.Element {
     window.addEventListener('hashchange', handleHashChange)
 
     // Listen for launcher messages
-    window.api.onLauncherMessage((message) => {
+    const removeLauncherListener = window.api.onLauncherMessage((message) => {
       setActiveView('chat')
       // Se a mensagem do launcher vier com a tag, o handleSend cuidará de ocultar na UI
       handleSend(message)
@@ -140,14 +149,16 @@ function App(): React.JSX.Element {
       }, 100)
     })
 
-    window.api.onModelChanged((modelKey) => {
+    const removeModelListener = window.api.onModelChanged((modelKey) => {
       setSelectedModel(modelKey)
     })
 
     return () => {
       window.removeEventListener('hashchange', handleHashChange)
+      removeLauncherListener()
+      removeModelListener()
     }
-  }, [])
+  }, [isProcessing])
 
   const scrollToBottom = (): void => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -163,6 +174,10 @@ function App(): React.JSX.Element {
     setMessages([])
     setTasks([])
     window.api.clearChat()
+  }
+
+  const handleCancel = (): void => {
+    window.api.cancelChat()
   }
 
   const handleSaveApiKey = async (key: string): Promise<void> => {
@@ -181,7 +196,7 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     // Set up IPC listeners from our Context Bridge
-    window.api.onChatStart(() => {
+    const removeChatStartListener = window.api.onChatStart(() => {
       setIsProcessing(true)
       setIsFinishing(false)
       // Add an empty AI message to start streaming into
@@ -198,7 +213,7 @@ function App(): React.JSX.Element {
       ])
     })
 
-    window.api.onChatChunk(({ thoughts, finalResponse, usedFallback, isThinking, isWritingToolCall, toolType }) => {
+    const removeChatChunkListener = window.api.onChatChunk(({ thoughts, finalResponse, usedFallback, isThinking, isWritingToolCall, toolType }) => {
       setMessages((prev) => {
         const newMessages = [...prev]
         const lastMsg = newMessages[newMessages.length - 1]
@@ -214,8 +229,9 @@ function App(): React.JSX.Element {
       })
     })
 
-    window.api.onChatEnd(({ thoughts, finalResponse, usedFallback }) => {
+    const removeChatEndListener = window.api.onChatEnd(({ thoughts, finalResponse, usedFallback }) => {
       setIsProcessing(false)
+      setIsYoutubeMode(false)
       setIsFinishing(true)
       setTimeout(() => setIsFinishing(false), 2000)
 
@@ -234,8 +250,9 @@ function App(): React.JSX.Element {
       })
     })
 
-    window.api.onChatError((error) => {
+    const removeChatErrorListener = window.api.onChatError((error) => {
       setIsProcessing(false)
+      setIsYoutubeMode(false)
       
       if (error === 'API_KEY_MISSING') {
         setIsApiKeyModalOpen(true)
@@ -245,6 +262,11 @@ function App(): React.JSX.Element {
       setMessages((prev) => {
         const newMessages = [...prev]
         const lastMsg = newMessages[newMessages.length - 1]
+
+        // Se a última mensagem já for um erro IGUAL, não duplica
+        if (lastMsg && lastMsg.isError && lastMsg.content === error) {
+          return prev
+        }
 
         // Se a última mensagem for AI e estava processando, atualiza ela com o erro
         if (lastMsg && lastMsg.role === 'ai' && (lastMsg.isStreaming || lastMsg.isThinking)) {
@@ -267,7 +289,7 @@ function App(): React.JSX.Element {
       })
     })
 
-    window.api.onToolStart((data) => {
+    const removeToolStartListener = window.api.onToolStart((data) => {
       const taskId = crypto.randomUUID()
       const newTask: Task = {
         ...data,
@@ -301,7 +323,7 @@ function App(): React.JSX.Element {
       })
     })
 
-    window.api.onToolEnd((data) => {
+    const removeToolEndListener = window.api.onToolEnd((data) => {
       setTasks((prev) => {
         const newTasks = [...prev]
         const lastTaskIndex = newTasks.findLastIndex(
@@ -343,7 +365,12 @@ function App(): React.JSX.Element {
     })
 
     return () => {
-      window.api.removeAllChatListeners()
+      removeChatStartListener()
+      removeChatChunkListener()
+      removeChatEndListener()
+      removeChatErrorListener()
+      removeToolStartListener()
+      removeToolEndListener()
     }
   }, [])
 
@@ -397,8 +424,8 @@ function App(): React.JSX.Element {
                   className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[13px] prose-p:font-light prose-p:text-[16px] lg:prose-p:text-[19px] xl:prose-p:text-[20px]"
                 >
                   <ReactMarkdown 
-                    remarkPlugins={[remarkGfm]} 
-                    rehypePlugins={[rehypeRaw]}
+                    remarkPlugins={[remarkGfm, remarkMath]} 
+                    rehypePlugins={[rehypeRaw, rehypeKatex]}
                     components={MarkdownComponents}
                   >{part}</ReactMarkdown>
                 </div>
@@ -449,6 +476,7 @@ function App(): React.JSX.Element {
         isFocused={isFocused}
         isProcessing={isProcessing}
         isFinishing={isFinishing}
+        isYoutubeMode={isYoutubeMode}
       />
 
       <Sidebar
@@ -577,7 +605,7 @@ function App(): React.JSX.Element {
                                       : 'text-text-secondary/70 border-surface/30 bg-black/5'
                                   )}
                                 >
-                                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>{msg.thoughts}</ReactMarkdown>
+                                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeRaw, rehypeKatex]}>{msg.thoughts}</ReactMarkdown>
                                 </div>
                               </details>
                             </div>
@@ -618,7 +646,14 @@ function App(): React.JSX.Element {
 
         {activeView === 'chat' && (
           <div className="pb-6 pt-2 bg-gradient-to-t from-background-main via-background-main to-transparent shrink-0">
-            <InputBar ref={inputBarRef} onSend={handleSend} disabled={isProcessing || isKeyMissing} />
+            <InputBar 
+              ref={inputBarRef} 
+              onSend={handleSend} 
+              onCancel={handleCancel}
+              isProcessing={isProcessing}
+              isKeyMissing={isKeyMissing}
+              disabled={isProcessing || isKeyMissing} 
+            />
           </div>
         )}
       </main>
