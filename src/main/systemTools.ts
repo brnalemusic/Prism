@@ -3,6 +3,7 @@ import { shell } from 'electron'
 import { getInstalledApps } from 'get-installed-apps'
 import * as fs from 'fs/promises'
 import * as path from 'path'
+import * as os from 'os'
 import { toolsManifest } from './toolsManifest'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -368,13 +369,27 @@ export function getSystemToolsPrompt(modelKey: string): string {
     })
     .join('\n')
 
+  const username = os.userInfo().username
+  const platform = process.platform
+  const homeDir = os.homedir()
+  const cwd = process.cwd()
+  const date = new Date().toLocaleString()
+
   return `Role: ${name} (${modelName}). Use <tool_call> XML (no md).
+Environment Context:
+- Date/Time: ${date}
+- Platform: ${platform}
+- Current User: ${username}
+- Home Directory: ${homeDir}
+- Working Directory: ${cwd}
+
 Rules:
 - Summarize hidden tool results in user lang.
 - [FORCE_SEARCH] -> web_search first.
 - Math: Simple? Result only. Complex? LaTeX steps (no text). \boxed{} final. $$ block, $ inline.
 - Nav: URL->open_browser_link | Search->saw_link_from_url | App->open_application | Query->direct.
 - Workflow: Sequence tools, retry on fail. No meta-talk. Respond ONLY when finished/stuck. Match lang.
+- Path Integrity: Use EXACT paths from Environment Context. NEVER use placeholders like 'YourUsername'.
 - Parallel: Use <run_subagents>.
   - Sub-agents can't use run_subagents.
   - Radio Bus: agent_message(to, content), agent_wait(target, sec).
