@@ -10,12 +10,17 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 /**
  * Executes a terminal command and returns the output.
  */
-export async function runTerminalCommand(command: string): Promise<string> {
+export async function runTerminalCommand(command: string, signal?: AbortSignal): Promise<string> {
   const isWindows = process.platform === 'win32'
   const normalizedCommand = isWindows ? `chcp 65001 > nul & ${command}` : command
 
-  return new Promise((resolve) => {    exec(normalizedCommand, (error, stdout, stderr) => {
+  return new Promise((resolve, reject) => {
+    exec(normalizedCommand, { signal }, (error, stdout, stderr) => {
       if (error) {
+        if (error.name === 'AbortError') {
+          reject(error)
+          return
+        }
         resolve(`Error executing command: ${error.message}\n${stderr}`)
         return
       }
@@ -34,13 +39,18 @@ export async function runTerminalCommand(command: string): Promise<string> {
 /**
  * COMPUTER USE: Create a new file with content.
  */
-export async function computerCreateFile(filePath: string, content: string): Promise<string> {
+export async function computerCreateFile(
+  filePath: string,
+  content: string,
+  signal?: AbortSignal
+): Promise<string> {
   try {
     const fullPath = path.resolve(filePath)
     await fs.mkdir(path.dirname(fullPath), { recursive: true })
-    await fs.writeFile(fullPath, content, 'utf8')
+    await fs.writeFile(fullPath, content, { encoding: 'utf8', signal })
     return `File created successfully: ${fullPath}`
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
     return `Error creating file: ${error instanceof Error ? error.message : String(error)}`
   }
 }
@@ -48,12 +58,13 @@ export async function computerCreateFile(filePath: string, content: string): Pro
 /**
  * COMPUTER USE: Create a new directory.
  */
-export async function computerCreateDirectory(dirPath: string): Promise<string> {
+export async function computerCreateDirectory(dirPath: string, signal?: AbortSignal): Promise<string> {
   try {
     const fullPath = path.resolve(dirPath)
-    await fs.mkdir(fullPath, { recursive: true })
+    await (fs.mkdir as any)(fullPath, { recursive: true, signal })
     return `Directory created successfully: ${fullPath}`
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
     return `Error creating directory: ${error instanceof Error ? error.message : String(error)}`
   }
 }
@@ -61,12 +72,13 @@ export async function computerCreateDirectory(dirPath: string): Promise<string> 
 /**
  * COMPUTER USE: Remove a file.
  */
-export async function computerRemoveFile(filePath: string): Promise<string> {
+export async function computerRemoveFile(filePath: string, signal?: AbortSignal): Promise<string> {
   try {
     const fullPath = path.resolve(filePath)
-    await fs.unlink(fullPath)
+    await (fs.unlink as any)(fullPath, { signal })
     return `File removed successfully: ${fullPath}`
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
     return `Error removing file: ${error instanceof Error ? error.message : String(error)}`
   }
 }
@@ -74,12 +86,13 @@ export async function computerRemoveFile(filePath: string): Promise<string> {
 /**
  * COMPUTER USE: Remove a directory.
  */
-export async function computerRemoveDirectory(dirPath: string): Promise<string> {
+export async function computerRemoveDirectory(dirPath: string, signal?: AbortSignal): Promise<string> {
   try {
     const fullPath = path.resolve(dirPath)
-    await fs.rm(fullPath, { recursive: true, force: true })
+    await (fs.rm as any)(fullPath, { recursive: true, force: true, signal })
     return `Directory removed successfully: ${fullPath}`
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
     return `Error removing directory: ${error instanceof Error ? error.message : String(error)}`
   }
 }
@@ -87,12 +100,17 @@ export async function computerRemoveDirectory(dirPath: string): Promise<string> 
 /**
  * COMPUTER USE: Save/Overwrite a file.
  */
-export async function computerSaveFile(filePath: string, content: string): Promise<string> {
+export async function computerSaveFile(
+  filePath: string,
+  content: string,
+  signal?: AbortSignal
+): Promise<string> {
   try {
     const fullPath = path.resolve(filePath)
-    await fs.writeFile(fullPath, content, 'utf8')
+    await fs.writeFile(fullPath, content, { encoding: 'utf8', signal })
     return `File saved successfully: ${fullPath}`
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
     return `Error saving file: ${error instanceof Error ? error.message : String(error)}`
   }
 }
@@ -103,18 +121,20 @@ export async function computerSaveFile(filePath: string, content: string): Promi
 export async function computerReplaceInFile(
   filePath: string,
   oldText: string,
-  newText: string
+  newText: string,
+  signal?: AbortSignal
 ): Promise<string> {
   try {
     const fullPath = path.resolve(filePath)
-    const content = await fs.readFile(fullPath, 'utf8')
+    const content = await fs.readFile(fullPath, { encoding: 'utf8', signal })
     if (!content.includes(oldText)) {
       return `Error: Text to replace not found in file.`
     }
     const updatedContent = content.replace(new RegExp(escapeRegExp(oldText), 'g'), newText)
-    await fs.writeFile(fullPath, updatedContent, 'utf8')
+    await fs.writeFile(fullPath, updatedContent, { encoding: 'utf8', signal })
     return `Text replaced successfully in: ${fullPath}`
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
     return `Error replacing text: ${error instanceof Error ? error.message : String(error)}`
   }
 }
@@ -126,13 +146,14 @@ function escapeRegExp(string: string): string {
 /**
  * COMPUTER USE: List directory contents.
  */
-export async function computerListDirectory(dirPath: string): Promise<string> {
+export async function computerListDirectory(dirPath: string, signal?: AbortSignal): Promise<string> {
   try {
     const fullPath = path.resolve(dirPath)
-    const files = await fs.readdir(fullPath, { withFileTypes: true })
-    const list = files.map((f) => `${f.isDirectory() ? '[DIR]' : '[FILE]'} ${f.name}`)
+    const files = await (fs.readdir as any)(fullPath, { withFileTypes: true, signal })
+    const list = files.map((f: any) => `${f.isDirectory() ? '[DIR]' : '[FILE]'} ${f.name}`)
     return list.join('\n') || 'Directory is empty.'
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
     return `Error listing directory: ${error instanceof Error ? error.message : String(error)}`
   }
 }
@@ -140,12 +161,13 @@ export async function computerListDirectory(dirPath: string): Promise<string> {
 /**
  * COMPUTER USE: Read file content.
  */
-export async function computerReadFile(filePath: string): Promise<string> {
+export async function computerReadFile(filePath: string, signal?: AbortSignal): Promise<string> {
   try {
     const fullPath = path.resolve(filePath)
-    const content = await fs.readFile(fullPath, 'utf8')
+    const content = await fs.readFile(fullPath, { encoding: 'utf8', signal })
     return content
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
     return `Error reading file: ${error instanceof Error ? error.message : String(error)}`
   }
 }
@@ -229,9 +251,10 @@ function stripHtml(html: string): string {
 /**
  * Fetches and returns text content from a URL.
  */
-export async function sawLinkFromUrl(url: string): Promise<string> {
+export async function sawLinkFromUrl(url: string, signal?: AbortSignal): Promise<string> {
   try {
     const response = await fetch(url, {
+      signal,
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -253,6 +276,7 @@ export async function sawLinkFromUrl(url: string): Promise<string> {
     const MAX_CONTENT = 20000
     return text.length > MAX_CONTENT ? text.substring(0, MAX_CONTENT) + '... (truncated)' : text
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
     const message = error instanceof Error ? error.message : String(error)
     return `Error fetching URL: ${message}`
   }
@@ -261,11 +285,12 @@ export async function sawLinkFromUrl(url: string): Promise<string> {
 /**
  * Performs a web search using DuckDuckGo HTML version.
  */
-export async function webSearch(query: string): Promise<string> {
+export async function webSearch(query: string, signal?: AbortSignal): Promise<string> {
   try {
     const response = await fetch(
       `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
       {
+        signal,
         headers: {
           'User-Agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -311,6 +336,7 @@ export async function webSearch(query: string): Promise<string> {
       .map((r, i) => `${i + 1}. ${r.title}\n   Link: ${r.link}\n   Snippet: ${r.snippet}`)
       .join('\n\n')
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
     const message = error instanceof Error ? error.message : String(error)
     return `Error performing web search: ${message}`
   }
@@ -321,60 +347,40 @@ export async function webSearch(query: string): Promise<string> {
  */
 export function getSystemToolsPrompt(modelKey: string): string {
   const name = 'Prism AI'
-  let technical = 'pce-1-fast'
   let modelName = 'Prism 1 Fast'
 
-  if (modelKey === 'gemma-3-12b-it') {
-    technical = 'pce-1.1-fast-mini'
-    modelName = 'Prism 1.1 Fast Mini'
-  } else if (modelKey === 'gemma-3-27b-it') {
-    technical = 'pce-1.1-fast'
-    modelName = 'Prism 1.1 Fast'
-  } else if (modelKey === 'gemini-3.1-flash-lite-preview') {
-    technical = 'pce-1.5-fast'
-    modelName = 'Prism 1.5 Fast'
-  } else if (modelKey === 'gemma-4-26b-a4b-it') {
-    technical = 'pce-1.5-think'
-    modelName = 'Prism 1.5 Think'
-  } else if (modelKey === 'gemma-4-31b-it') {
-    technical = 'pce-2-think'
-    modelName = 'Prism 2 Think'
+  if (modelKey === 'prism-2') {
+    modelName = 'Prism 2'
+  } else if (modelKey === 'prism-2.5') {
+    modelName = 'Prism 2.5'
+  } else if (modelKey === 'prism-3') {
+    modelName = 'Prism 3'
+  } else if (modelKey === 'prism-3.1') {
+    modelName = 'Prism 3.1'
   }
 
   const toolsPrompt = toolsManifest
-    .map((tool, index) => {
-      const params = Object.entries(tool.parameters)
-        .map(([key, desc]) => `     - ${key}: ${desc}`)
-        .join('\n')
-      return `${index + 1}. ${tool.name}: ${tool.description}\n   Usage: ${tool.usage}\n${params ? `   Parameters:\n${params}` : ''}`
+    .map((t) => {
+      const p = Object.entries(t.parameters)
+        .map(([k, d]) => `${k}:${d}`)
+        .join(',')
+      return `${t.name}: ${t.description} | ${t.usage}${p ? ` | ${p}` : ''}`
     })
-    .join('\n\n')
+    .join('\n')
 
-  return `You are ${name}. Model: ${modelName} (${technical}).
+  return `Role: ${name} (${modelName}). Use <tool_call> XML (no md).
+Rules:
+- Summarize hidden tool results in user lang.
+- [FORCE_SEARCH] -> web_search first.
+- Math: Simple? Result only. Complex? LaTeX steps (no text). \boxed{} final. $$ block, $ inline.
+- Nav: URL->open_browser_link | Search->saw_link_from_url | App->open_application | Query->direct.
+- Workflow: Sequence tools, retry on fail. No meta-talk. Respond ONLY when finished/stuck. Match lang.
+- Parallel: Use <run_subagents>.
+  - Sub-agents can't use run_subagents.
+  - Radio Bus: agent_message(to, content), agent_wait(target, sec).
+  - Wait for ALL to finish.
+  - Define team protocol & ask for detailed outputs.
 
-You can interact with the system via XML <tool_call>.
-CRITICAL RULES:
-1. NEVER use Markdown (\`\`\`) around <tool_call>. Use plain text.
-2. If using a tool, return ONLY the XML block. Extra text/formatting causes system errors.
-3. Ignore XML tags when responding normally to the user.
-4. IMPORTANT: User doesn't see raw tool results. You MUST summarize/list relevant info for the user in your final response, matching their language.
-5. If message contains "[FORCE_SEARCH]", use \`web_search\` FIRST.
-6. MATH RULES:
-   - For SIMPLE operations (e.g., "4+4", "15% of 200"), provide ONLY the result using LaTeX inline ($$) or block ($$$$) rendering.
-   - For COMPLEX operations (e.g., equations, calculus, multi-step problems), solve them STEP-BY-STEP using LaTeX to avoid hallucinations. Do NOT include textual explanations between steps; just show the mathematical progression.
-   - ALWAYS highlight the final result (e.g., using \boxed{} or bold LaTeX).
-   - Use \`$$\` for block math and \`$\` for inline math.
-
-AVAILABLE TOOLS:
-${toolsPrompt}
-
-ACTION-ORIENTED MODE:
-- Link provided ("https://...") -> IMMEDIATELY \`open_browser_link\`. No confirmation.
-- \`web_search\` found link -> IMMEDIATELY \`saw_link_from_url\`. Evaluate quality: if poor (login/error), retry search or pick another link.
-- App name (e.g., "Chrome") -> IMMEDIATELY try opening it.
-- Direct query ("4+4") -> ONLY the answer.
-- Multi-step tasks allowed. Execute tools in sequence until goal is reached.
-- Tool failed? RETRY differently IMMEDIATELY without asking. Do not explain steps between calls.
-- Send final response ONLY when task is done or if truly stuck. Always match user's language.
-`
+Tools:
+${toolsPrompt}`
 }

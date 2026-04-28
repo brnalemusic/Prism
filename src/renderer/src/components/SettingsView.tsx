@@ -8,8 +8,9 @@ export function SettingsView(): React.JSX.Element {
   const [config, setConfig] = useState({
     launcherShortcut: 'CommandOrControl+Space',
     modelSelectionShortcut: 'CommandOrControl+M',
-    defaultModel: 'gemini-3.1-flash-lite-preview',
-    minimizeToTray: false
+    defaultModel: 'prism-3',
+    minimizeToTray: false,
+    userGeminiKey: ''
   })
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState({ text: '', type: '' })
@@ -18,7 +19,10 @@ export function SettingsView(): React.JSX.Element {
     async function load(): Promise<void> {
       const savedConfig = await window.api.getConfig()
       if (savedConfig) {
-        setConfig(savedConfig)
+        setConfig({
+          ...savedConfig,
+          userGeminiKey: savedConfig.userGeminiKey || ''
+        })
       }
     }
     load()
@@ -42,8 +46,9 @@ export function SettingsView(): React.JSX.Element {
     setConfig({
       launcherShortcut: 'CommandOrControl+Space',
       modelSelectionShortcut: 'CommandOrControl+M',
-      defaultModel: 'gemini-3.1-flash-lite-preview',
-      minimizeToTray: false
+      defaultModel: 'prism-3',
+      minimizeToTray: false,
+      userGeminiKey: ''
     })
   }
 
@@ -121,9 +126,10 @@ export function SettingsView(): React.JSX.Element {
                     <span
                       className={clsx(
                         'text-sm font-bold mb-1',
-                        config.defaultModel === model.id
+                        model.id === 'prism-3' && 'prism-3-gradient animate-gradient-x',
+                        config.defaultModel === model.id && model.id !== 'prism-3'
                           ? 'text-accent-primary'
-                          : 'text-text-primary'
+                          : config.defaultModel !== model.id && model.id !== 'prism-3' && 'text-text-primary'
                       )}
                     >
                       {model.name}

@@ -6,28 +6,23 @@ export interface Model {
 
 export const MODELS: Model[] = [
   {
-    id: 'gemma-3-12b-it',
-    name: 'Prism 1.1 Fast Mini',
-    description: 'Fast execution with Prism Compute logic'
+    id: 'prism-2',
+    name: 'Prism 2',
+    description: 'Ultra-fast. For simple daily tasks.'
   },
   {
-    id: 'gemma-3-27b-it',
-    name: 'Prism 1.1 Fast',
-    description: 'Quick & efficient for daily tasks'
+    id: 'prism-2.5',
+    name: 'Prism 2.5',
+    description: 'Extremely fast for medium automation.'
   },
   {
-    id: 'gemini-3.1-flash-lite-preview',
-    name: 'Prism 1.5 Fast',
-    description: 'Prism Compute Execution'
+    id: 'prism-3',
+    name: 'Prism 3',
+    description: 'Real automation agent for fast complex tasks.'
   },
   {
-    id: 'gemma-4-26b-a4b-it',
-    name: 'Prism 1.5 Think',
-    description: 'Balanced reasoning & precision'
-  },
-  {
-    id: 'gemma-4-31b-it',
-    name: 'Prism 2 Think',
-    description: 'Advanced logic for complex problems'
+    id: 'prism-3.1',
+    name: 'Prism 3.1',
+    description: 'Improved engine. For extreme complexity.'
   }
 ]

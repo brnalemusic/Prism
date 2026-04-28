@@ -80,10 +80,11 @@ function App(): React.JSX.Element {
   const [isProcessing, setIsProcessing] = useState(false)
   const [isFinishing, setIsFinishing] = useState(false)
   const [isFocused, setIsFocused] = useState(true)
-  const [selectedModel, setSelectedModel] = useState('gemma-4-26b-a4b-it')
+  const [selectedModel, setSelectedModel] = useState('prism-3')
   const [activeView, setActiveView] = useState('chat')
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false)
   const [isYoutubeMode, setIsYoutubeMode] = useState(false)
+  const [isThinkMode, setIsThinkMode] = useState(false)
   const [config, setConfig] = useState<any>(null)
 
   useEffect(() => {
@@ -114,7 +115,7 @@ function App(): React.JSX.Element {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputBarRef = useRef<InputBarHandle>(null)
 
-  const handleSend = (text: string): void => {
+  const handleSend = (text: string, thinkMode?: boolean): void => {
     // Processamento de comandos
     if (text === '/clear') {
        handleClearChat()
@@ -125,13 +126,18 @@ function App(): React.JSX.Element {
 
     setIsProcessing(true)
     setIsYoutubeMode(text.startsWith('/youtube'))
+    
+    // If thinkMode is provided (e.g. from Launcher), update App state
+    if (thinkMode !== undefined) {
+      setIsThinkMode(thinkMode)
+    }
 
     // Para a UI, removemos a tag feia se ela existir
     const displayContent = text.replace(/^\[FORCE_SEARCH\]\s*/i, '')
     setMessages((prev) => [...prev, { role: 'user', content: displayContent }])
     
-    // Para a API, enviamos o texto original (que pode conter a tag)
-    window.api.sendChatMessage(text)
+    // Para a API, enviamos o texto original e o thinkMode (seja o atual ou o vindo do launcher)
+    window.api.sendChatMessage({ message: text, thinkMode: thinkMode ?? isThinkMode })
   }
 
   useEffect(() => {
@@ -139,10 +145,10 @@ function App(): React.JSX.Element {
     window.addEventListener('hashchange', handleHashChange)
 
     // Listen for launcher messages
-    const removeLauncherListener = window.api.onLauncherMessage((message) => {
+    const removeLauncherListener = window.api.onLauncherMessage((data) => {
       setActiveView('chat')
       // Se a mensagem do launcher vier com a tag, o handleSend cuidará de ocultar na UI
-      handleSend(message)
+      handleSend(data.message, data.thinkMode)
       // Ensure focus after message is sent
       setTimeout(() => {
         inputBarRef.current?.focus()
@@ -153,10 +159,18 @@ function App(): React.JSX.Element {
       setSelectedModel(modelKey)
     })
 
+    const removeConfigListener = window.api.onConfigChanged((cfg) => {
+      setConfig(cfg)
+      if (cfg.defaultModel) {
+        setSelectedModel(cfg.defaultModel)
+      }
+    })
+
     return () => {
       window.removeEventListener('hashchange', handleHashChange)
       removeLauncherListener()
       removeModelListener()
+      removeConfigListener()
     }
   }, [isProcessing])
 
@@ -364,6 +378,49 @@ function App(): React.JSX.Element {
       })
     })
 
+    const removeToolUpdateListener = window.api.onToolUpdate((data) => {
+      setTasks((prev) => {
+        const newTasks = [...prev]
+        const lastTaskIndex = newTasks.findLastIndex(
+          (t) => t.name === data.toolCallName && t.status === 'running'
+        )
+        if (lastTaskIndex !== -1) {
+          const task = { ...newTasks[lastTaskIndex] }
+          task.agentUpdates = {
+            ...(task.agentUpdates || {}),
+            [data.update.agentIndex]: data.update
+          }
+          newTasks[lastTaskIndex] = task
+        }
+        return newTasks
+      })
+
+      setMessages((prev) => {
+        const newMessages = [...prev]
+        const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
+
+        if (lastMsgIndex !== -1 && newMessages[lastMsgIndex].toolCalls) {
+          const lastMsg = { ...newMessages[lastMsgIndex] }
+          const toolCalls = [...(lastMsg.toolCalls || [])]
+          const lastToolIndex = toolCalls.findLastIndex(
+            (t) => t.name === data.toolCallName && t.status === 'running'
+          )
+
+          if (lastToolIndex !== -1) {
+            const toolCall = { ...toolCalls[lastToolIndex] }
+            toolCall.agentUpdates = {
+              ...(toolCall.agentUpdates || {}),
+              [data.update.agentIndex]: data.update
+            }
+            toolCalls[lastToolIndex] = toolCall
+            lastMsg.toolCalls = toolCalls
+            newMessages[lastMsgIndex] = lastMsg
+          }
+        }
+        return newMessages
+      })
+    })
+
     return () => {
       removeChatStartListener()
       removeChatChunkListener()
@@ -371,6 +428,7 @@ function App(): React.JSX.Element {
       removeChatErrorListener()
       removeToolStartListener()
       removeToolEndListener()
+      removeToolUpdateListener()
     }
   }, [])
 
@@ -652,6 +710,8 @@ function App(): React.JSX.Element {
               onCancel={handleCancel}
               isProcessing={isProcessing}
               isKeyMissing={isKeyMissing}
+              isThinkMode={isThinkMode}
+              onThinkModeToggle={setIsThinkMode}
               disabled={isProcessing || isKeyMissing} 
             />
           </div>

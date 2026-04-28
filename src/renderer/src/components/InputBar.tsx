@@ -1,5 +1,6 @@
 import { useState, useRef, useImperativeHandle, forwardRef, useEffect } from 'react'
-import { SendHorizontal, Globe, Square } from 'lucide-react'
+import { SendHorizontal, Globe, Square, Brain } from 'lucide-react'
+import youtubeLogo from '../assets/youtube.png'
 import clsx from 'clsx'
 
 interface InputBarProps {
@@ -8,18 +9,30 @@ interface InputBarProps {
   disabled?: boolean
   isProcessing?: boolean
   isKeyMissing?: boolean
+  isThinkMode?: boolean
+  onThinkModeToggle?: (val: boolean) => void
 }
 
 export interface InputBarHandle {
   focus: () => void
 }
 
-export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, onCancel, disabled, isProcessing, isKeyMissing }, ref) => {
+export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ 
+  onSend, 
+  onCancel, 
+  disabled, 
+  isProcessing, 
+  isKeyMissing,
+  isThinkMode = false,
+  onThinkModeToggle
+}, ref) => {
   const [text, setText] = useState('')
   const [isFocused, setIsFocused] = useState(false)
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  const isYoutubeMode = text.startsWith('/youtube')
 
   const commands = [
     { cmd: '/search', desc: 'Force web search', action: () => { setText('/search '); inputRef.current?.focus() } },
@@ -27,11 +40,15 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, onC
     { cmd: '/clear', desc: 'Clear current chat', action: () => { onSend('/clear'); setText(''); } }
   ]
 
-  const showSlashMenu = text === '/'
+  const filteredCommands = text.startsWith('/') 
+    ? commands.filter(c => c.cmd.toLowerCase().startsWith(text.toLowerCase().split(' ')[0]))
+    : []
+
+  const showSlashMenu = text.startsWith('/') && filteredCommands.length > 0 && !text.includes(' ')
 
   useEffect(() => {
     if (showSlashMenu) setSlashSelectedIndex(0)
-  }, [showSlashMenu])
+  }, [showSlashMenu, text])
 
   useImperativeHandle(ref, () => ({
     focus: (): void => {
@@ -39,17 +56,23 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, onC
     }
   }))
 
-  // Keyboard shortcut for Ctrl+S
+  // Keyboard shortcuts
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent): void => {
+      // Ctrl+S for Search
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
         setIsSearchEnabled((prev) => !prev)
       }
+      // Ctrl+T for Think Mode
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't') {
+        e.preventDefault()
+        onThinkModeToggle?.(!isThinkMode)
+      }
     }
     window.addEventListener('keydown', handleGlobalKeyDown)
     return () => window.removeEventListener('keydown', handleGlobalKeyDown)
-  }, [])
+  }, [isThinkMode, onThinkModeToggle])
 
   // Auto-focus when re-enabled
   useEffect(() => {
@@ -86,13 +109,13 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, onC
     if (showSlashMenu) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setSlashSelectedIndex((prev) => (prev + 1) % commands.length)
+        setSlashSelectedIndex((prev) => (prev + 1) % filteredCommands.length)
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
-        setSlashSelectedIndex((prev) => (prev - 1 + commands.length) % commands.length)
+        setSlashSelectedIndex((prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length)
       } else if (e.key === 'Enter') {
         e.preventDefault()
-        commands[slashSelectedIndex].action()
+        filteredCommands[slashSelectedIndex].action()
       }
       return
     }
@@ -106,17 +129,26 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, onC
   const getPlaceholder = (): string => {
     if (isKeyMissing) return "API Key Required..."
     if (isProcessing) return "Awaiting AI Response..."
+    if (isYoutubeMode) return "Search on YouTube..."
     if (isSearchEnabled) return "Search web with Prism..."
+    if (isThinkMode) return "Think with Prism..."
     return "Ask Prism..."
   }
 
   return (
-    <div className="w-full px-6 sm:px-12 z-20">
+    <div className="w-full px-6 sm:px-12 z-20 relative">
+      {/* YouTube Logo Overlay - Bottom */}
+      {isYoutubeMode && (
+        <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-4 w-48 h-48 pointer-events-none animate-fade-in z-0 opacity-10">
+          <img src={youtubeLogo} alt="YouTube" className="w-full h-full object-contain" />
+        </div>
+      )}
+
       {/* Slash Menu */}
       {showSlashMenu && (
         <div className="mb-2 bg-background-secondary border border-surface rounded-lg shadow-xl overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
           <div className="px-3 py-2 text-[10px] uppercase tracking-widest font-bold text-text-muted border-b border-surface">Commands</div>
-          {commands.map((c, i) => (
+          {filteredCommands.map((c, i) => (
             <button 
               key={c.cmd}
               onClick={() => c.action()} 
@@ -135,15 +167,21 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, onC
 
       <div
         className={clsx(
-          'relative flex items-end gap-2 bg-background-secondary/40 backdrop-blur-xl rounded-xl border p-2 transition-all duration-300',
+          'relative flex items-end gap-2 bg-background-secondary/40 backdrop-blur-xl rounded-xl border p-2 transition-all duration-700 overflow-hidden',
           disabled && 'opacity-60 border-surface/30',
           !disabled && isFocused
-            ? 'border-accent-primary/60 shadow-[0_0_20px_rgba(108,99,255,0.15)] bg-background-secondary/60'
-            : 'border-surface/50 hover:border-surface',
+            ? isYoutubeMode ? 'border-red-500/60 shadow-[0_0_20px_rgba(239,68,68,0.15)] bg-background-secondary/60' :
+              isSearchEnabled ? 'border-accent-secondary/60 shadow-[0_0_20px_rgba(0,212,255,0.15)] bg-background-secondary/60' :
+              isThinkMode ? 'border-yellow-500/50 shadow-[0_0_25px_rgba(234,179,8,0.2)] bg-background-secondary/70' :
+              'border-accent-primary/60 shadow-[0_0_20px_rgba(108,99,255,0.15)] bg-background-secondary/60'
+            : isThinkMode ? 'border-yellow-500/30 shadow-[0_0_15px_rgba(234,179,8,0.1)]' : 'border-surface/50 hover:border-surface',
           !disabled && text.trim() &&
             isFocused &&
-            'shadow-[0_0_25px_rgba(108,99,255,0.25)] border-accent-primary',
-          !disabled && isSearchEnabled && isFocused && 'border-accent-secondary/60 shadow-[0_0_20px_rgba(0,212,255,0.15)]'
+            (isYoutubeMode ? 'shadow-[0_0_25px_rgba(239,68,68,0.25)] border-red-500' :
+             isSearchEnabled ? 'shadow-[0_0_25px_rgba(0,212,255,0.25)] border-accent-secondary' :
+             isThinkMode ? 'shadow-[0_0_35px_rgba(234,179,8,0.3)] border-yellow-400' :
+             'shadow-[0_0_25px_rgba(108,99,255,0.25)] border-accent-primary'),
+          isThinkMode && 'ring-1 ring-yellow-500/20'
         )}
       >
         {isKeyMissing && (
@@ -154,10 +192,19 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, onC
           </div>
         )}
 
+        {/* Improved Glow Effect for Think Mode - Now contained within overflow-hidden parent */}
+        {!disabled && isThinkMode && (
+          <div className="absolute inset-0 rounded-xl pointer-events-none z-0">
+             <div className="absolute inset-0 rounded-xl border border-yellow-500/40 animate-pulse" />
+             <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-transparent via-yellow-500/10 to-transparent animate-[shimmer_2s_infinite] opacity-50" 
+                  style={{ backgroundSize: '200% 100%' }} />
+          </div>
+        )}
+
         {!disabled && text.length > 0 && isFocused && (
           <div className={clsx(
             "absolute inset-0 rounded-xl pointer-events-none animate-pulse",
-            isSearchEnabled ? "bg-accent-secondary/5" : "bg-accent-primary/5"
+            isYoutubeMode ? "bg-red-500/5" : isSearchEnabled ? "bg-accent-secondary/5" : isThinkMode ? "bg-yellow-500/5" : "bg-accent-primary/5"
           )} />
         )}
 
@@ -170,29 +217,55 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, onC
           onKeyDown={handleKeyDown}
           placeholder={getPlaceholder()}
           disabled={disabled}
-          className="flex-1 max-h-48 min-h-[44px] bg-transparent text-text-primary placeholder-text-muted outline-none resize-none py-3 px-4 text-sm disabled:cursor-not-allowed relative z-10"
+          className={clsx(
+            "flex-1 max-h-48 min-h-[44px] bg-transparent placeholder-text-muted outline-none resize-none py-3 px-4 text-sm disabled:cursor-not-allowed relative z-10 transition-colors duration-500",
+            isYoutubeMode ? "text-red-500" : (isThinkMode && !isFocused) ? "text-yellow-500/80" : "text-text-primary"
+          )}
           rows={1}
         />
 
         <div className="flex gap-2 mb-[2px] mr-[2px] relative z-10">
+          <button
+            onClick={() => onThinkModeToggle?.(!isThinkMode)}
+            disabled={disabled}
+            title="Toggle Think Mode (Ctrl+T)"
+            className={clsx(
+              'p-3 rounded-lg flex-shrink-0 transition-all duration-300 relative group overflow-hidden',
+              isThinkMode
+                ? 'bg-yellow-500/20 text-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.2)]'
+                : 'bg-surface/20 text-text-muted hover:bg-surface/40',
+              disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-surface/40'
+            )}
+          >
+            {isThinkMode && (
+              <span className="absolute inset-0 animate-pulse bg-yellow-500/10" />
+            )}
+            <Brain size={18} className={clsx(
+              "transition-all duration-500",
+              isThinkMode && "scale-110 rotate-[10deg]"
+            )} />
+          </button>
+
           <button
             onClick={() => setIsSearchEnabled(!isSearchEnabled)}
             disabled={disabled}
             title="Toggle Web Search (Ctrl+S)"
             className={clsx(
               'p-3 rounded-lg flex-shrink-0 transition-all duration-300 relative group overflow-hidden',
+              isYoutubeMode ? 'bg-red-500/20 text-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)]' :
               isSearchEnabled
                 ? 'bg-accent-secondary/20 text-accent-secondary shadow-[0_0_15px_rgba(0,212,255,0.2)]'
                 : 'bg-surface/20 text-text-muted hover:bg-surface/40',
               disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-surface/40'
             )}
           >
-            {isSearchEnabled && (
-              <span className="absolute inset-0 bg-accent-secondary/10 animate-pulse" />
+            {(isSearchEnabled || isYoutubeMode) && (
+              <span className={clsx("absolute inset-0 animate-pulse", isYoutubeMode ? "bg-red-500/10" : "bg-accent-secondary/10")} />
             )}
             <Globe size={18} className={clsx(
               "transition-transform duration-500",
-              isSearchEnabled && "rotate-[360deg] scale-110"
+              (isSearchEnabled || isYoutubeMode) && "rotate-[360deg] scale-110",
+              isYoutubeMode && "text-red-500"
             )} />
           </button>
 
@@ -211,9 +284,13 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, onC
               className={clsx(
                 'p-3 rounded-lg flex-shrink-0 transition-all duration-300',
                 text.trim() && !disabled
-                  ? isSearchEnabled 
-                    ? 'bg-accent-secondary text-white shadow-[0_0_15px_rgba(0,212,255,0.4)] hover:shadow-[0_0_20px_rgba(0,212,255,0.6)] hover:scale-105'
-                    : 'bg-accent-primary text-white shadow-[0_0_15px_rgba(108,99,255,0.4)] hover:shadow-[0_0_20px_rgba(108,99,255,0.6)] hover:scale-105'
+                  ? isYoutubeMode 
+                    ? 'bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)] hover:shadow-[0_0_20px_rgba(239,68,68,0.6)] hover:scale-105'
+                    : isSearchEnabled 
+                      ? 'bg-accent-secondary text-white shadow-[0_0_15px_rgba(0,212,255,0.4)] hover:shadow-[0_0_20px_rgba(0,212,255,0.6)] hover:scale-105'
+                      : isThinkMode
+                        ? 'bg-yellow-500 text-white shadow-[0_0_15px_rgba(234,179,8,0.4)] hover:shadow-[0_0_20px_rgba(234,179,8,0.6)] hover:scale-105'
+                        : 'bg-accent-primary text-white shadow-[0_0_15px_rgba(108,99,255,0.4)] hover:shadow-[0_0_20px_rgba(108,99,255,0.6)] hover:scale-105'
                   : 'bg-surface/50 text-text-muted cursor-not-allowed'
               )}
             >
@@ -223,11 +300,14 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({ onSend, onC
         </div>
       </div>
       
-      {isSearchEnabled && (
+      {(isSearchEnabled || isYoutubeMode || isThinkMode) && (
         <div className="flex justify-center mt-2 animate-in fade-in slide-in-from-top-1 duration-300">
-           <span className="text-[9px] uppercase tracking-[0.2em] font-black text-accent-secondary/60 flex items-center gap-2">
-             <span className="w-1 h-1 rounded-full bg-accent-secondary animate-ping" />
-             Web Search Active
+           <span className={clsx(
+             "text-[9px] uppercase tracking-[0.2em] font-black flex items-center gap-2",
+             isYoutubeMode ? "text-red-500/60" : isSearchEnabled ? "text-accent-secondary/60" : "text-yellow-500/60"
+           )}>
+             <span className={clsx("w-1 h-1 rounded-full animate-ping", isYoutubeMode ? "bg-red-500" : isSearchEnabled ? "bg-accent-secondary" : "bg-yellow-500")} />
+             {isYoutubeMode ? 'YouTube Search Active' : isSearchEnabled ? 'Web Search Active' : 'Think Mode Active'}
            </span>
         </div>
       )}

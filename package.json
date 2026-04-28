@@ -1,6 +1,6 @@
 {
     "name":  "prism",
-    "version":  "0.3.0",
+    "version":  "0.4.0",
     "description":  "An Electron application with React and TypeScript",
     "main":  "./out/main/index.js",
     "author":  "Breno",
@@ -36,7 +36,8 @@
                          "rehype-raw":  "^7.0.0",
                          "remark-gfm":  "^4.0.1",
                          "remark-math":  "^6.0.0",
-                         "tailwind-merge":  "^3.5.0"
+                         "tailwind-merge":  "^3.5.0",
+                         "undici":  "^8.1.0"
                      },
     "devDependencies":  {
                             "@electron-toolkit/eslint-config-prettier":  "^3.0.0",

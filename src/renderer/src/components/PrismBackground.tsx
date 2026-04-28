@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import youtubeLogo from '../assets/youtube.png'
 
 interface PrismBackgroundProps {
   isFocused?: boolean
@@ -20,7 +21,8 @@ export function PrismBackground({
       {/* Abstract Prism Geometric Shapes */}
       <div
         className={clsx(
-          'absolute top-[-10%] right-[-5%] w-[80vw] h-[80vw] rounded-full transition-all duration-[3000ms] ease-in-out',
+          'absolute top-[-10%] right-[-5%] w-[80vw] h-[80vw] rounded-full transition-all ease-in-out',
+          isYoutubeMode ? 'duration-500' : 'duration-1000',
           isYoutubeMode 
             ? 'bg-gradient-to-br from-red-600/20 to-red-900/10 blur-[120px]'
             : 'bg-gradient-to-br from-accent-primary/20 to-accent-secondary/10 blur-[120px]',
@@ -32,7 +34,8 @@ export function PrismBackground({
       />
       <div
         className={clsx(
-          'absolute bottom-[-10%] left-[-10%] w-[70vw] h-[70vw] rounded-full transition-all duration-[3000ms] ease-in-out delay-500',
+          'absolute bottom-[-10%] left-[-10%] w-[70vw] h-[70vw] rounded-full transition-all ease-in-out delay-500',
+          isYoutubeMode ? 'duration-500' : 'duration-1000',
           isYoutubeMode
             ? 'bg-gradient-to-tr from-red-700/15 to-red-900/5 blur-[100px]'
             : 'bg-gradient-to-tr from-accent-secondary/15 to-accent-primary/5 blur-[100px]',
@@ -42,6 +45,28 @@ export function PrismBackground({
             'animate-slow-pulse delay-1000 scale-105 from-accent-secondary/25 to-accent-primary/15',
           isActive && isYoutubeMode &&
             'animate-slow-pulse delay-1000 scale-105 from-red-600/25 to-red-500/15'
+        )}
+      />
+
+      {/* YouTube Background Logo */}
+      <div
+        className={clsx(
+          'absolute -right-[25%] top-1/2 -translate-y-1/2 w-[50%] aspect-square pointer-events-none transition-all ease-in-out z-0',
+          isYoutubeMode 
+            ? 'opacity-10 scale-100 duration-[800ms] delay-[400ms]' 
+            : 'opacity-0 scale-110 duration-1000'
+        )}
+      >
+        <img src={youtubeLogo} alt="" className="w-full h-full object-contain" />
+      </div>
+
+      {/* YouTube Red Overlay */}
+      <div
+        className={clsx(
+          'absolute inset-0 transition-opacity ease-in-out z-0',
+          isYoutubeMode 
+            ? 'opacity-100 duration-500 bg-red-500/5' 
+            : 'opacity-0 duration-1000'
         )}
       />
 

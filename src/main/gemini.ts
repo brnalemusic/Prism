@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI, Content } from '@google/generative-ai'
 import * as dotenv from 'dotenv'
 import { IpcMainEvent } from 'electron'
+import { Agent, setGlobalDispatcher } from 'undici'
 import {
   getSystemToolsPrompt,
   runTerminalCommand,
@@ -22,28 +23,56 @@ import {
 // Load environment variables from .env
 dotenv.config({ path: require('path').join(__dirname, '../../.env') })
 
-// Modelo selecionado atualmente
-let currentModelKey = 'gemini-3.1-flash-lite-preview'
+// Configuração de Keep-Alive para melhor latência
+const networkAgent = new Agent({
+  keepAliveTimeout: 60000,
+  keepAliveMaxTimeout: 60000
+})
+setGlobalDispatcher(networkAgent)
 
-// Ordem de fallback dos modelos (do maior para o menor)
-const MODEL_FALLBACK_ORDER = [
-  'gemma-4-31b-it',     // Prism 2 Think
-  'gemma-4-26b-a4b-it', // Prism 1.5 Think
-  'gemini-3.1-flash-lite-preview', // Prism 1.5 Fast
-  'gemma-3-27b-it',     // Prism 1.1 Fast
-  'gemma-3-12b-it'      // Prism 1.1 Fast Mini
-]
+// Modelo selecionado atualmente
+let currentModelKey = 'prism-3'
+
+interface ModelConfig {
+  apiModel: string
+  thinkingConfig?: {
+    thinkingBudget?: number
+    thinkingLevel?: 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH'
+    includeThoughts?: boolean
+  }
+}
+
+const MODEL_CONFIGS: Record<string, ModelConfig> = {
+  'prism-2': {
+    apiModel: 'gemini-2.5-flash-lite',
+    thinkingConfig: { thinkingBudget: 0, includeThoughts: true }
+  },
+  'prism-2.5': {
+    apiModel: 'gemini-3.1-flash-lite-preview',
+    thinkingConfig: { thinkingLevel: 'MINIMAL', includeThoughts: true }
+  },
+  'prism-3': {
+    apiModel: 'gemma-4-26b-a4b-it',
+    thinkingConfig: { thinkingLevel: 'MINIMAL', includeThoughts: true }
+  },
+  'prism-3.1': {
+    apiModel: 'gemma-4-31b-it',
+    thinkingConfig: { thinkingLevel: 'MINIMAL', includeThoughts: false }
+  }
+}
+
+// Fallback order of models (from highest to lowest)
+const MODEL_FALLBACK_ORDER = ['prism-3.1', 'prism-3', 'prism-2.5', 'prism-2']
 
 /**
  * Returns the friendly name of the model based on the key.
  */
 function getModelFriendlyName(modelKey: string): string {
   const names: Record<string, string> = {
-    'gemma-4-31b-it': 'Prism 2 Think',
-    'gemma-4-26b-a4b-it': 'Prism 1.5 Think',
-    'gemini-3.1-flash-lite-preview': 'Prism 1.5 Fast',
-    'gemma-3-27b-it': 'Prism 1.1 Fast',
-    'gemma-3-12b-it': 'Prism 1.1 Fast Mini'
+    'prism-2': 'Prism 2',
+    'prism-2.5': 'Prism 2.5',
+    'prism-3': 'Prism 3',
+    'prism-3.1': 'Prism 3.1'
   }
   return names[modelKey] || 'Prism AI'
 }
@@ -61,7 +90,7 @@ export interface StructuredChatResponse {
   toolType?: 'task' | 'search'
 }
 
-interface ToolArgs {
+interface ToolArgs extends Record<string, string | undefined> {
   command?: string
   appPath?: string
   url?: string
@@ -70,24 +99,298 @@ interface ToolArgs {
   content?: string
   oldText?: string
   newText?: string
+  quantity?: string
 }
 
-const toolFunctions: Record<string, (args: ToolArgs) => Promise<string>> = {
-  execute_terminal_command: (args) => runTerminalCommand(args.command || ''),
+const toolFunctions: Record<
+  string,
+  (args: ToolArgs, event: IpcMainEvent, apiKey: string, signal?: AbortSignal) => Promise<string>
+> = {
+  execute_terminal_command: (args, _event, _apiKey, signal) =>
+    runTerminalCommand(args.command || '', signal),
   list_installed_applications: () => listApplications(),
   open_application: (args) => openApplication(args.appPath || ''),
   open_browser_link: (args) => openBrowserLink(args.url || ''),
-  web_search: (args) => webSearch(args.query || ''),
-  saw_link_from_url: (args) => sawLinkFromUrl(args.url || ''),
-  computer_use_create_file: (args) => computerCreateFile(args.path || '', args.content || ''),
-  computer_use_create_directory: (args) => computerCreateDirectory(args.path || ''),
-  computer_use_remove_file: (args) => computerRemoveFile(args.path || ''),
-  computer_use_remove_directory: (args) => computerRemoveDirectory(args.path || ''),
-  computer_use_save_file: (args) => computerSaveFile(args.path || '', args.content || ''),
-  computer_use_replace_in_file: (args) =>
-    computerReplaceInFile(args.path || '', args.oldText || '', args.newText || ''),
-  computer_use_list_directory: (args) => computerListDirectory(args.path || ''),
-  computer_use_read_file: (args) => computerReadFile(args.path || '')
+  web_search: (args, _event, _apiKey, signal) => webSearch(args.query || '', signal),
+  saw_link_from_url: (args, _event, _apiKey, signal) => sawLinkFromUrl(args.url || '', signal),
+  computer_use_create_file: (args, _event, _apiKey, signal) =>
+    computerCreateFile(args.path || '', args.content || '', signal),
+  computer_use_create_directory: (args, _event, _apiKey, signal) =>
+    computerCreateDirectory(args.path || '', signal),
+  computer_use_remove_file: (args, _event, _apiKey, signal) =>
+    computerRemoveFile(args.path || '', signal),
+  computer_use_remove_directory: (args, _event, _apiKey, signal) =>
+    computerRemoveDirectory(args.path || '', signal),
+  computer_use_save_file: (args, _event, _apiKey, signal) =>
+    computerSaveFile(args.path || '', args.content || '', signal),
+  computer_use_replace_in_file: (args, _event, _apiKey, signal) =>
+    computerReplaceInFile(args.path || '', args.oldText || '', args.newText || '', signal),
+  computer_use_list_directory: (args, _event, _apiKey, signal) =>
+    computerListDirectory(args.path || '', signal),
+  computer_use_read_file: (args, _event, _apiKey, signal) =>
+    computerReadFile(args.path || '', signal),
+  run_subagents: (args, event, apiKey, signal) => runSubagents(args, event, apiKey, signal),
+  // These tools are handled internally within runSubagents
+  agent_message: async () => 'Error: agent_message can only be used by sub-agents.',
+  agent_wait: async () => 'Error: agent_wait can only be used by sub-agents.'
+}
+
+interface BlackboardMessage {
+  sender: number
+  recipient: number | 'all'
+  content: string
+  timestamp: number
+  readBy: number[]
+}
+
+/**
+ * Runs multiple sub-agents in parallel to perform specific tasks.
+ */
+async function runSubagents(
+  args: ToolArgs,
+  event: IpcMainEvent,
+  apiKey: string,
+  parentSignal?: AbortSignal
+): Promise<string> {
+  const quantity = parseInt(args.quantity || '1')
+  const prompts: string[] = []
+  for (let i = 1; i <= 20; i++) {
+    const p = args[`prompt:${i}`]
+    if (p) prompts.push(p)
+  }
+
+  if (prompts.length === 0) return 'Error: No prompts provided for agents.'
+
+  const blackboard: BlackboardMessage[] = []
+
+  const agentPromises = prompts.slice(0, quantity).map(async (prompt, index) => {
+    try {
+      if (parentSignal?.aborted) throw new Error('AbortError')
+
+      const genAI = new GoogleGenerativeAI(apiKey)
+      const model = genAI.getGenerativeModel({
+        model: MODEL_CONFIGS['prism-3.1'].apiModel,
+        generationConfig: {
+          thinkingConfig: MODEL_CONFIGS['prism-3.1'].thinkingConfig
+        }
+      } as any)
+
+      const otherAgents = Array.from({ length: quantity }, (_, i) => i).filter(i => i !== index)
+      const identityPrompt = `\n\n[IDENTITY]: Agent #${index}. Team: ${otherAgents.map(i => `Agent #${i}`).join(', ')}.
+[RADIO BUS]: Use agent_message(to, content) & agent_wait(target, sec) for real-time sync.
+[RULES]:
+1. PLAN: agent_message strategy before tool use.
+2. SYNC: Keep team updated on actions.
+3. EXIT: Message "all" to check for needs + agent_wait(any, 10) before finishing. End only if ALL CLEAR.`
+
+      const subAgentSystemPrompt = getSystemToolsPrompt('prism-3.1') + 
+        '\n\n[MODE]: Autonomous unit.' + identityPrompt + 
+        '\n\n[OUTPUT]: Thoughts private. FINAL RESPONSE is mission report. Team must finish together.'
+      
+      const history: Content[] = [
+        { role: 'user', parts: [{ text: subAgentSystemPrompt }] },
+        { role: 'model', parts: [{ text: `Agent #${index} checking in. Radio link established. Awaiting initial task...` }] },
+        { role: 'user', parts: [{ text: `[YOUR ASSIGNED TASK]: ${prompt}\n\nInitiate team planning phase now.` }] }
+      ]
+
+      let iteration = 0
+      const MAX_AGENT_ITERATIONS = 12
+      let finalOutput = ''
+
+      while (iteration < MAX_AGENT_ITERATIONS) {
+        iteration++
+        
+        if (parentSignal?.aborted) throw new Error('AbortError')
+
+        // 1. Context Injection: Check for unread messages
+        const unreadMessages = blackboard.filter(m => 
+          (m.recipient === index || m.recipient === 'all') && 
+          !m.readBy.includes(index)
+        )
+
+        if (unreadMessages.length > 0) {
+          let teamUpdate = '[INCOMING RADIO LOG]:\n'
+          for (const msg of unreadMessages) {
+            teamUpdate += `[FROM Agent #${msg.sender}]: "${msg.content}"\n`
+            msg.readBy.push(index)
+          }
+          teamUpdate += '\nRespond to your team or proceed with your task based on this information.'
+          history.push({ role: 'user', parts: [{ text: teamUpdate }] })
+        }
+
+        event.sender.send('chat-tool-update', {
+          toolCallName: 'run_subagents',
+          update: { agentIndex: index, phase: 'thinking' }
+        })
+
+        const result = await model.generateContent({ contents: history }, { signal: parentSignal })
+        const responseText = result.response.text()
+        
+        // Add to history
+        history.push({ role: 'model', parts: [{ text: responseText }] })
+        
+        // Extract final text (filtered from thoughts later)
+        finalOutput = responseText
+
+        const toolCallRegex = /<tool_call>([\s\S]*?)<\/tool_call>/gi
+        const toolMatches = Array.from(responseText.matchAll(toolCallRegex))
+
+        if (toolMatches.length > 0) {
+          let allResults = ''
+          for (const match of toolMatches) {
+            const content = match[1]
+            const name = content.match(/<name>(.*?)<\/name>/i)?.[1]?.trim()
+            
+            if (name === 'run_subagents') {
+              allResults += '\n[ERROR]: Sub-agents are forbidden from using run_subagents tool.\n'
+              continue
+            }
+
+            const subArgs: ToolArgs = {}
+            const dynamicArgRegex = /<([^>]+)>([\s\S]*?)<\/\1>/gi
+            let argMatch
+            while ((argMatch = dynamicArgRegex.exec(content)) !== null) {
+              const tag = argMatch[1].trim()
+              if (tag !== 'name') subArgs[tag] = argMatch[2].trim()
+            }
+
+            if (name === 'agent_message') {
+              const recipient = subArgs.recipient === 'all' ? 'all' : parseInt(subArgs.recipient || '-1')
+              const msgContent = subArgs.content || ''
+              
+              blackboard.push({
+                sender: index,
+                recipient: recipient as any,
+                content: msgContent,
+                timestamp: Date.now(),
+                readBy: []
+              })
+
+              const isListening = recipient === 'all' ? true : blackboard.some(m => m.readBy.includes(recipient as number)) // simplistic check
+
+              event.sender.send('chat-tool-update', {
+                toolCallName: 'run_subagents',
+                update: { 
+                  agentIndex: index, 
+                  phase: 'tool_use', 
+                  command: `MESSAGE TO ${recipient}: "${msgContent}"` 
+                }
+              })
+              
+              allResults += `\n[SYSTEM]: Message sent to ${recipient}. Status: ${isListening ? 'Delivered' : 'Pending'}.\n`
+              continue
+            }
+
+            if (name === 'agent_wait') {
+              const target = subArgs.targetAgent === 'any' ? 'any' : parseInt(subArgs.targetAgent || '-1')
+              const timeout = Math.min(parseInt(subArgs.timeoutSeconds || '50'), 50)
+              
+              event.sender.send('chat-tool-update', {
+                toolCallName: 'run_subagents',
+                update: { 
+                  agentIndex: index, 
+                  phase: 'tool_use', 
+                  command: `WAITING FOR ${target}...` 
+                }
+              })
+
+              const startTime = Date.now()
+              let receivedMessage: BlackboardMessage | undefined = undefined
+
+              while (Date.now() - startTime < timeout * 1000) {
+                if (parentSignal?.aborted) throw new Error('AbortError')
+
+                receivedMessage = blackboard.find(m => 
+                  (target === 'any' || m.sender === target) && 
+                  (m.recipient === index || m.recipient === 'all') &&
+                  !m.readBy.includes(index)
+                )
+
+                if (receivedMessage) break
+                await new Promise(r => setTimeout(r, 1000))
+              }
+
+              if (receivedMessage) {
+                receivedMessage.readBy.push(index)
+                allResults += `\n[MESSAGE_RECEIVED] from Agent #${receivedMessage.sender}: "${receivedMessage.content}"\n`
+                event.sender.send('chat-tool-update', {
+                  toolCallName: 'run_subagents',
+                  update: { 
+                    agentIndex: index, 
+                    phase: 'tool_use', 
+                    command: `RECEIVED FROM #${receivedMessage.sender}` 
+                  }
+                })
+              } else {
+                allResults += `\n[SYSTEM: WAIT_TIMEOUT] No message received within ${timeout}s.\n`
+              }
+              continue
+            }
+
+            if (name && toolFunctions[name]) {
+              if (parentSignal?.aborted) throw new Error('AbortError')
+
+              event.sender.send('chat-tool-update', {
+                toolCallName: 'run_subagents',
+                update: { 
+                  agentIndex: index, 
+                  phase: 'tool_use', 
+                  command: `${name} (${JSON.stringify(subArgs)})` 
+                }
+              })
+
+              const toolResult = await toolFunctions[name](subArgs, event, apiKey, parentSignal)
+              allResults += `\n[RESULT FOR ${name}]:\n${toolResult}\n`
+              
+              if (parentSignal?.aborted) throw new Error('AbortError')
+
+              event.sender.send('chat-tool-update', {
+                toolCallName: 'run_subagents',
+                update: { 
+                  agentIndex: index, 
+                  phase: 'tool_use', 
+                  command: `${name}`,
+                  output: toolResult.substring(0, 100) + (toolResult.length > 100 ? '...' : '')
+                }
+              })
+            }
+          }
+
+          history.push({ role: 'user', parts: [{ text: `[SYSTEM: TOOL RESULTS]${allResults}\nProceed.` }] })
+          continue
+        }
+        
+        break // No tool calls, agent finished
+      }
+
+      event.sender.send('chat-tool-update', {
+        toolCallName: 'run_subagents',
+        update: { agentIndex: index, phase: 'done', output: 'Task completed.' }
+      })
+
+      // Clean final output from thoughts
+      const cleanedOutput = finalOutput.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim()
+      return `[AGENT #${index} FINAL REPORT]:\n${cleanedOutput}`
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') throw err
+
+      event.sender.send('chat-tool-update', {
+        toolCallName: 'run_subagents',
+        update: { agentIndex: index, phase: 'error', output: String(err) }
+      })
+      return `[AGENT #${index} ERROR]:\n${err instanceof Error ? err.message : String(err)}`
+    }
+  })
+
+  try {
+    const results = await Promise.all(agentPromises)
+    return results.join('\n\n' + '='.repeat(30) + '\n\n')
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      return 'Sub-agents execution was cancelled by user.'
+    }
+    throw err
+  }
 }
 
 /**
@@ -137,7 +440,13 @@ export function cancelChatMessage(): void {
   }
 }
 
-export async function handleChatMessage(event: IpcMainEvent, message: string): Promise<void> {
+export async function handleChatMessage(
+  event: IpcMainEvent,
+  data: string | { message: string; thinkMode?: boolean }
+): Promise<void> {
+  const message = typeof data === 'string' ? data : data.message
+  const thinkMode = typeof data === 'object' ? !!data.thinkMode : false
+
   // Priority: User key > Environment key
   const apiKey = userApiKey || process.env.GEMINI_API_KEY
   
@@ -194,8 +503,31 @@ The user wants to search and play something on YouTube. Use web_search to find t
     }
 
     try {
+      const config = { ...(MODEL_CONFIGS[currentModelKey] || MODEL_CONFIGS['prism-3']) }
+      
+      // Dynamic Thinking Config
+      if (thinkMode) {
+        if (currentModelKey === 'prism-2') {
+          config.thinkingConfig = { thinkingBudget: -1, includeThoughts: true }
+        } else {
+          config.thinkingConfig = { thinkingLevel: 'HIGH', includeThoughts: true }
+        }
+      } else {
+        if (currentModelKey === 'prism-2') {
+          config.thinkingConfig = { thinkingBudget: 0, includeThoughts: true }
+        } else {
+          const defaultInclude = MODEL_CONFIGS[currentModelKey]?.thinkingConfig?.includeThoughts ?? true
+          config.thinkingConfig = { thinkingLevel: 'MINIMAL', includeThoughts: defaultInclude }
+        }
+      }
+
       const genAI = new GoogleGenerativeAI(apiKey)
-      const model = genAI.getGenerativeModel({ model: currentModelKey })
+      const model = genAI.getGenerativeModel({
+        model: config.apiModel,
+        generationConfig: {
+          thinkingConfig: config.thinkingConfig
+        }
+      } as any) // Type cast since thinkingConfig might not be in the official types yet
 
       let accumulatedThoughts = ''
       let accumulatedFinalResponse = ''
@@ -277,21 +609,14 @@ The user wants to search and play something on YouTube. Use web_search to find t
             if (name && toolFunctions[name]) {
               const toolArgs: ToolArgs = {}
 
-              // Extract all potential arguments
-              const argTags = [
-                'command',
-                'appPath',
-                'url',
-                'query',
-                'path',
-                'content',
-                'oldText',
-                'newText'
-              ]
-              for (const tag of argTags) {
-                const regex = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i')
-                const m = toolContent.match(regex)
-                if (m) toolArgs[tag] = m[1].trim()
+              // Extract all potential arguments dynamically
+              const dynamicArgRegex = /<([^>]+)>([\s\S]*?)<\/\1>/gi
+              let argMatch
+              while ((argMatch = dynamicArgRegex.exec(toolContent)) !== null) {
+                const tag = argMatch[1].trim()
+                if (tag !== 'name') {
+                  toolArgs[tag] = argMatch[2].trim()
+                }
               }
 
               event.sender.send('chat-tool-start', { name, args: toolArgs })
@@ -299,9 +624,11 @@ The user wants to search and play something on YouTube. Use web_search to find t
               let toolResult = ''
               try {
                 // Check if aborted before running tool
-                if (abortController?.signal.aborted) throw new Error('AbortError')
-                toolResult = await toolFunctions[name](toolArgs)
+                const signal = abortController?.signal
+                if (signal?.aborted) throw new Error('AbortError')
+                toolResult = await toolFunctions[name](toolArgs, event, apiKey, signal)
               } catch (err) {
+                if (err instanceof Error && err.name === 'AbortError') throw err
                 toolResult = `Error: ${err instanceof Error ? err.message : String(err)}`
               }
 
@@ -325,6 +652,13 @@ The user wants to search and play something on YouTube. Use web_search to find t
           usedFallback: usedFallback,
           isThinking: false
         })
+
+        // Auto-minimize logic: if simple task (<= 100 chars excluding tools)
+        const cleanResponse = accumulatedFinalResponse.replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '').trim()
+        if (cleanResponse.length <= 100) {
+          event.sender.send('auto-minimize-trigger')
+        }
+
         success = true
         abortController = null
         return // Exit function after success

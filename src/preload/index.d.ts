@@ -2,8 +2,18 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 import type { StructuredChatResponse } from '../main/gemini'
 import type { AppConfig } from '../main/config'
 
+export interface ToolUpdate {
+  toolCallName: string
+  update: {
+    agentIndex: number
+    phase: 'thinking' | 'tool_use' | 'done' | 'error'
+    command?: string
+    output?: string
+  }
+}
+
 export interface PrismAPI {
-  sendChatMessage: (message: string) => void
+  sendChatMessage: (data: { message: string; thinkMode?: boolean }) => void
   setModel: (modelKey: string) => void
   clearChat: () => void
   cancelChat: () => void
@@ -14,11 +24,12 @@ export interface PrismAPI {
   onChatError: (callback: (error: string) => void) => () => void
   onToolStart: (callback: (data: { name: string; args: Record<string, unknown> }) => void) => () => void
   onToolEnd: (callback: (data: { name: string; result: string }) => void) => () => void
-  onLauncherMessage: (callback: (message: string) => void) => () => void
+  onToolUpdate: (callback: (data: ToolUpdate) => void) => () => void
+  onLauncherMessage: (callback: (data: { message: string; thinkMode?: boolean }) => void) => () => void
   onLauncherFocus: (callback: () => void) => () => void
   onModelChanged: (callback: (modelKey: string) => void) => () => void
   onConfigChanged: (callback: (config: AppConfig) => void) => () => void
-  submitLauncher: (message: string) => void
+  submitLauncher: (data: { message: string; thinkMode?: boolean }) => void
   hideLauncher: () => void
   minimizeApp: () => void
   closeApp: () => void

@@ -159,9 +159,10 @@ export function ModelSelector({
                 <span
                   className={clsx(
                     'text-sm font-bold tracking-tight',
-                    selectedModel === model.id
+                    model.id === 'prism-3' && 'prism-3-gradient animate-gradient-x',
+                    selectedModel === model.id && model.id !== 'prism-3'
                       ? 'text-accent-primary'
-                      : 'text-text-primary group-hover:text-accent-primary/80'
+                      : selectedModel !== model.id && model.id !== 'prism-3' && 'text-text-primary group-hover:text-accent-primary/80'
                   )}
                 >
                   {model.name}

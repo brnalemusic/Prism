@@ -3,6 +3,9 @@ import { autoUpdater } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
 
 export function initAutoUpdater(mainWindow: BrowserWindow): void {
+  // Set logger
+  autoUpdater.logger = console
+  
   // Disable auto-download so we can ask the user first
   autoUpdater.autoDownload = false
   
@@ -15,6 +18,7 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
   }
 
   autoUpdater.on('update-available', (info) => {
+    console.log('Update available:', info)
     dialog
       .showMessageBox(mainWindow, {
         type: 'info',
@@ -31,7 +35,12 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
       })
   })
 
+  autoUpdater.on('update-not-available', (info) => {
+    console.log('Update not available:', info)
+  })
+
   autoUpdater.on('update-downloaded', (info) => {
+    console.log('Update downloaded:', info)
     dialog
       .showMessageBox(mainWindow, {
         type: 'info',
@@ -50,6 +59,10 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
 
   autoUpdater.on('error', (err) => {
     console.error('Auto-Updater Error:', err)
+  })
+
+  autoUpdater.on('download-progress', (progressObj) => {
+    console.log(`Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}% (${progressObj.transferred}/${progressObj.total})`)
   })
 
   // Start the check

@@ -6,6 +6,11 @@ export interface ToolCall {
   args: Record<string, unknown>
   result?: string
   status: 'writing' | 'running' | 'cooldown' | 'done' | 'error'
+  agentUpdates?: Record<number, {
+    phase: 'thinking' | 'tool_use' | 'done' | 'error'
+    command?: string
+    output?: string
+  }>
 }
 
 interface ActionLoaderProps {
@@ -32,6 +37,8 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
     displayTitle = 'List Apps'
   } else if (toolCall.name === 'web_search') {
     displayTitle = 'Web Search'
+  } else if (toolCall.name === 'run_subagents') {
+    displayTitle = 'ORCHESTRATING AGENTS'
   }
 
   const isDone = toolCall.status === 'done' || toolCall.status === 'error'
@@ -140,6 +147,66 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
               {toolCall.result}
             </pre>
           </div>
+        </div>
+      )}
+
+      {toolCall.name === 'run_subagents' && toolCall.status === 'running' && (
+        <div className="w-full mt-2 grid grid-cols-1 gap-2 animate-in fade-in slide-in-from-top-2 duration-500">
+          {Object.entries(toolCall.agentUpdates || {}).map(([index, update]) => (
+            <div 
+              key={index} 
+              className="bg-[#0A0A0F]/60 border border-[#1E1E2E] rounded-lg p-3 flex flex-col gap-2 transition-all duration-300"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-[#6C63FF] uppercase tracking-widest">
+                  Agent #{index}
+                </span>
+                <div className="flex items-center gap-2">
+                   <span className={clsx(
+                    "text-[9px] font-black uppercase px-2 py-0.5 rounded",
+                    update.phase === 'thinking' ? "bg-accent-primary/10 text-accent-primary" :
+                    update.phase === 'tool_use' ? "bg-[#FACC15]/10 text-[#FACC15]" :
+                    update.phase === 'done' ? "bg-[#4ADE80]/10 text-[#4ADE80]" :
+                    "bg-[#F87171]/10 text-[#F87171]"
+                  )}>
+                    {update.command?.includes('WAITING') ? 'LISTENING' : 
+                     update.command?.includes('MESSAGE TO') ? 'SENDING' : 
+                     update.phase.replace('_', ' ')}
+                  </span>
+                </div>
+              </div>
+              
+              {update.command && (
+                <div className={clsx(
+                  "flex items-start gap-2 p-2 rounded border",
+                  update.command.includes('MESSAGE TO') ? "bg-accent-primary/5 border-accent-primary/20" :
+                  update.command.includes('RECEIVED FROM') ? "bg-status-success/5 border-status-success/20" :
+                  update.command.includes('WAITING') ? "bg-blue-500/5 border-blue-500/20 animate-pulse" :
+                  "bg-black/40 border-white/5"
+                )}>
+                  <span className="text-[9px] text-[#8888A0] font-mono mt-0.5 whitespace-nowrap">
+                    {update.command.includes('MESSAGE TO') ? '➔ RADIO:' : 
+                     update.command.includes('RECEIVED FROM') ? '⇠ RADIO:' : 
+                     update.command.includes('WAITING') ? '📡 SCAN:' : 'ACTION:'}
+                  </span>
+                  <code className={clsx(
+                    "text-[10px] font-mono break-all leading-tight",
+                    update.command.includes('MESSAGE TO') ? "text-accent-primary" :
+                    update.command.includes('RECEIVED FROM') ? "text-status-success" :
+                    "text-[#F0F0F5]/80"
+                  )}>
+                    {update.command}
+                  </code>
+                </div>
+              )}
+              
+              {update.output && (
+                <div className="text-[10px] text-[#8888A0] font-mono italic truncate opacity-60 px-1">
+                  {update.output}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>

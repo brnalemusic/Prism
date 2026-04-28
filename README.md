@@ -57,10 +57,12 @@ Prism can interact with your computer through a set of built-in tools:
 
 | Tool | What it does |
 |---|---|
+| **Autonomous Agents** | Spawn multiple AI units to coordinate and solve complex tasks in parallel |
 | **Terminal** | Execute shell commands (PowerShell, Bash, etc.) |
 | **File System** | Create, read, edit, and delete files and directories |
-| **Applications** | List installed apps and launch them |
+| **Web Reader** | Fetch and extract clean text content from any URL |
 | **Web Search** | Search the web via DuckDuckGo for real-time answers |
+| **Applications** | List installed apps and launch them |
 | **Browser** | Open URLs directly in your default browser |
 
 All actions are executed from the main process — the API key and OS access never touch the renderer.
@@ -71,13 +73,14 @@ All actions are executed from the main process — the API key and OS access nev
 
 Prism wraps various AI models behind its own naming scheme. You can switch models at any time via the UI or the Quick Launcher (<kbd>Ctrl</kbd>+<kbd>M</kbd>).
 
-| Model | Internal ID | Best for |
+| Model | Underlying Engine | Best for |
 |---|---|---|
-| **Prism 2 Think** | `gemma-4-31b-it` | Advanced logic, complex multi-step tasks |
-| **Prism 1.5 Think** | `gemma-4-26b-a4b-it` | Balanced reasoning & precision |
-| **Prism 1.5 Fast** | `gemini-3.1-flash-lite-preview` | Quick daily tasks, simple automation |
-| **Prism 1.1 Fast** | `gemma-3-27b-it` | Quick responses, lightweight tasks |
-| **Prism 1.1 Fast Mini** | `gemma-3-12b-it` | Minimal resource usage, ultra-fast responses |
+| **Prism 3.1** | `Gemma 4 31B` | Extreme complexity and improved reasoning |
+| **Prism 3** | `Gemma 4 26B` | **(Recommended)** Real automation agent, complex & fast |
+| **Prism 2.5** | `Gemini 3.1 Flash Lite` | Medium automation tasks, balanced speed |
+| **Prism 2** | `Gemini 2.5 Flash Lite` | Ultra-fast responses for simple daily tasks |
+
+> **Note:** All models support **Think Mode** (<kbd>Ctrl</kbd>+<kbd>T</kbd>), which elevates their logic and reasoning capabilities on demand using specialized inference budgets.
 
 ---
 

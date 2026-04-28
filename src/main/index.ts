@@ -175,17 +175,18 @@ app.whenReady().then(() => {
   ipcMain.on('set-model', (_event, modelKey) => {
     setGeminiModel(modelKey)
     mainWindow?.webContents.send('model-changed', modelKey)
+    launcherWindow?.webContents.send('model-changed', modelKey)
   })
   ipcMain.on('clear-chat', () => initGemini())
   ipcMain.on('chat-cancel', () => cancelChatMessage())
 
-  ipcMain.on('launcher-submit', (_event, message) => {
+  ipcMain.on('launcher-submit', (_event, data) => {
     launcherWindow?.hide()
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
       mainWindow.focus()
-      mainWindow.webContents.send('launcher-message', message)
+      mainWindow.webContents.send('launcher-message', data)
     }
   })
 
@@ -195,6 +196,12 @@ app.whenReady().then(() => {
 
   ipcMain.on('minimize-app', () => {
     mainWindow?.minimize()
+  })
+
+  ipcMain.on('auto-minimize-trigger', () => {
+    setTimeout(() => {
+      mainWindow?.minimize()
+    }, 200)
   })
 
   ipcMain.on('close-app', () => {

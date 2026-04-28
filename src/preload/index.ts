@@ -5,7 +5,7 @@ import type { AppConfig } from '../main/config'
 
 // Custom APIs for renderer
 const api = {
-  sendChatMessage: (message: string): void => ipcRenderer.send('chat-message', message),
+  sendChatMessage: (data: { message: string; thinkMode?: boolean }): void => ipcRenderer.send('chat-message', data),
   setModel: (modelKey: string): void => ipcRenderer.send('set-model', modelKey),
   clearChat: (): void => ipcRenderer.send('clear-chat'),
   cancelChat: (): void => ipcRenderer.send('chat-cancel'),
@@ -41,8 +41,13 @@ const api = {
     ipcRenderer.on('chat-tool-end', listener)
     return () => ipcRenderer.removeListener('chat-tool-end', listener)
   },
-  onLauncherMessage: (callback: (message: string) => void): (() => void) => {
-    const listener = (_event: any, message: string): void => callback(message)
+  onToolUpdate: (callback: (data: any) => void): (() => void) => {
+    const listener = (_event: any, data: any): void => callback(data)
+    ipcRenderer.on('chat-tool-update', listener)
+    return () => ipcRenderer.removeListener('chat-tool-update', listener)
+  },
+  onLauncherMessage: (callback: (data: { message: string; thinkMode?: boolean }) => void): (() => void) => {
+    const listener = (_event: any, data: { message: string; thinkMode?: boolean }): void => callback(data)
     ipcRenderer.on('launcher-message', listener)
     return () => ipcRenderer.removeListener('launcher-message', listener)
   },
@@ -61,7 +66,7 @@ const api = {
     ipcRenderer.on('config-changed', listener)
     return () => ipcRenderer.removeListener('config-changed', listener)
   },
-  submitLauncher: (message: string): void => ipcRenderer.send('launcher-submit', message),
+  submitLauncher: (data: { message: string; thinkMode?: boolean }): void => ipcRenderer.send('launcher-submit', data),
   hideLauncher: (): void => ipcRenderer.send('hide-launcher'),
   minimizeApp: (): void => ipcRenderer.send('minimize-app'),
   closeApp: (): void => ipcRenderer.send('close-app'),
@@ -78,6 +83,7 @@ const api = {
     ipcRenderer.removeAllListeners('chat-reply-error')
     ipcRenderer.removeAllListeners('chat-tool-start')
     ipcRenderer.removeAllListeners('chat-tool-end')
+    ipcRenderer.removeAllListeners('chat-tool-update')
     ipcRenderer.removeAllListeners('launcher-message')
     ipcRenderer.removeAllListeners('launcher-focus')
     ipcRenderer.removeAllListeners('model-changed')

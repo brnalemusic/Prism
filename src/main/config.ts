@@ -13,7 +13,7 @@ export interface AppConfig {
 const DEFAULT_CONFIG: AppConfig = {
   launcherShortcut: 'CommandOrControl+Space',
   modelSelectionShortcut: 'CommandOrControl+M',
-  defaultModel: 'gemini-3.1-flash-lite-preview',
+  defaultModel: 'prism-3',
   minimizeToTray: false,
   userGeminiKey: ''
 }
@@ -38,13 +38,19 @@ export function loadConfig(): AppConfig {
     const data = fs.readFileSync(CONFIG_FILE, 'utf-8')
     const config = { ...DEFAULT_CONFIG, ...JSON.parse(data) }
 
-    // Decrypt API key if it exists and safeStorage is available
-    if (config.userGeminiKey && safeStorage.isEncryptionAvailable()) {
-      try {
-        const buffer = Buffer.from(config.userGeminiKey, 'hex')
-        config.userGeminiKey = safeStorage.decryptString(buffer)
-      } catch (e) {
-        console.error('Failed to decrypt userGeminiKey:', e)
+    // Decrypt API key if it exists
+    if (config.userGeminiKey) {
+      const isHex = /^[0-9a-fA-F]+$/.test(config.userGeminiKey)
+      if (safeStorage.isEncryptionAvailable() && isHex) {
+        try {
+          const buffer = Buffer.from(config.userGeminiKey, 'hex')
+          config.userGeminiKey = safeStorage.decryptString(buffer)
+        } catch (e) {
+          console.error('Failed to decrypt userGeminiKey:', e)
+          config.userGeminiKey = ''
+        }
+      } else if (isHex && !safeStorage.isEncryptionAvailable()) {
+        // Prevent using raw encrypted hex string as API key if encryption is not available
         config.userGeminiKey = ''
       }
     }
