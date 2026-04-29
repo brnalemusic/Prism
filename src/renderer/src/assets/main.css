@@ -61,11 +61,25 @@
       0 0 20px rgba(108, 99, 255, 0.25);
   }
 
+  .bubble-glow {
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.3), 0 0 1px 1px rgba(255, 255, 255, 0.03);
+  }
+
   .glass-surface {
     background: linear-gradient(180deg, rgba(17, 17, 24, 0.4) 0%, rgba(10, 10, 15, 0.4) 100%);
     backdrop-filter: blur(16px);
     border: 1px solid rgba(255, 255, 255, 0.05);
   }
+
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-message {
+    animation: slide-up 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  }
+
 
   @keyframes slow-pulse {
     0%,

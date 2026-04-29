@@ -18,6 +18,7 @@ import { ErrorMessage } from './components/ErrorMessage'
 import { SettingsView } from './components/SettingsView'
 import { ApiKeyModal } from './components/ApiKeyModal'
 import { MissingKeyBanner } from './components/MissingKeyBanner'
+import { SubagentChat } from './components/SubagentChat'
 import clsx from 'clsx'
 
 const MarkdownComponents: any = {
@@ -82,6 +83,7 @@ function App(): React.JSX.Element {
   const [isFocused, setIsFocused] = useState(true)
   const [selectedModel, setSelectedModel] = useState('prism-3')
   const [activeView, setActiveView] = useState('chat')
+  const [currentChatId, setCurrentChatId] = useState<string | undefined>(undefined)
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false)
   const [isYoutubeMode, setIsYoutubeMode] = useState(false)
   const [isThinkMode, setIsThinkMode] = useState(false)
@@ -111,17 +113,12 @@ function App(): React.JSX.Element {
     init()
   }, [])
 
-  const [route, setRoute] = useState(window.location.hash)
+  const route = window.location.hash
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputBarRef = useRef<InputBarHandle>(null)
+  const modelSelectorRef = useRef<any>(null)
 
   const handleSend = (text: string, thinkMode?: boolean): void => {
-    // Processamento de comandos
-    if (text === '/clear') {
-       handleClearChat()
-       return
-    }
-
     if (isProcessing) return
 
     setIsProcessing(true)
@@ -141,9 +138,6 @@ function App(): React.JSX.Element {
   }
 
   useEffect(() => {
-    const handleHashChange = (): void => setRoute(window.location.hash)
-    window.addEventListener('hashchange', handleHashChange)
-
     // Listen for launcher messages
     const removeLauncherListener = window.api.onLauncherMessage((data) => {
       setActiveView('chat')
@@ -167,7 +161,6 @@ function App(): React.JSX.Element {
     })
 
     return () => {
-      window.removeEventListener('hashchange', handleHashChange)
       removeLauncherListener()
       removeModelListener()
       removeConfigListener()
@@ -183,15 +176,151 @@ function App(): React.JSX.Element {
     window.api.setModel(newModel)
   }
 
-  const handleClearChat = (): void => {
-    if (isProcessing) return
-    setMessages([])
-    setTasks([])
-    window.api.clearChat()
-  }
-
   const handleCancel = (): void => {
     window.api.cancelChat()
+  }
+
+  const handleLoadChat = async (id: string): Promise<void> => {
+    if (isProcessing) return
+    const history = await window.api.loadChat(id)
+    if (history) {
+      const mappedMessages: Message[] = []
+
+      for (const m of history) {
+        const text = m.parts[0].text || ''
+        const isSystemResults = m.role === 'user' && text.startsWith('[SYSTEM: TOOL RESULTS]')
+
+        if (isSystemResults) {
+          // Find last AI message to attach results
+          const lastAiMsg = [...mappedMessages].reverse().find((m) => m.role === 'ai')
+          if (lastAiMsg && lastAiMsg.toolCalls) {
+            const resultRegex =
+              /\[RESULT FOR ([a-zA-Z0-9_]+)\]:\n([\s\S]*?)(?=\n\[RESULT FOR |\nAnalyze these results|$)/g
+            let match
+            while ((match = resultRegex.exec(text)) !== null) {
+              const toolName = match[1]
+              const result = match[2].trim()
+              // Find matching tool call that doesn't have a result yet
+              const toolCall = lastAiMsg.toolCalls.find((tc) => tc.name === toolName && !tc.result)
+              if (toolCall) {
+                toolCall.result = result
+                toolCall.status = 'done'
+
+                // Parse subagent messages if present
+                const chatLogRegex = /<subagent_chat>([\s\S]*?)<\/subagent_chat>/gi
+                const chatLogMatch = chatLogRegex.exec(result)
+                if (chatLogMatch) {
+                  try {
+                    ;(toolCall as ToolCall).subagentMessages = JSON.parse(chatLogMatch[1])
+                  } catch (e) {
+                    console.error('Failed to parse subagent chat log', e)
+                  }
+                }
+              }
+            }
+          }
+          continue // Don't add system results to UI as separate bubbles
+        }
+
+        if (m.role === 'user') {
+          // Filter out internal prompt
+          if (text.startsWith('Role: Prism AI')) continue
+
+          mappedMessages.push({
+            role: 'user',
+            content: text,
+            isStreaming: false
+          })
+        } else if (m.role === 'model') {
+          // Filter out initial system greeting if it's the very first message
+          if (text.includes('automation AI') && mappedMessages.length === 0) continue
+
+          let aiMsg: Message | undefined = mappedMessages[mappedMessages.length - 1]
+
+          if (!aiMsg || aiMsg.role !== 'ai') {
+            aiMsg = {
+              role: 'ai',
+              content: '',
+              thoughts: '',
+              toolCalls: [],
+              isStreaming: false
+            }
+            mappedMessages.push(aiMsg)
+          }
+
+          // Parse Thoughts and extract them from content
+          const thoughtsRegex = /<thought>([\s\S]*?)<\/thought>/gi
+          let thoughtsMatch
+          while ((thoughtsMatch = thoughtsRegex.exec(text)) !== null) {
+            aiMsg.thoughts = (aiMsg.thoughts || '') + thoughtsMatch[1].trim() + '\n\n'
+          }
+          
+          // Remove thoughts from the text that will become content
+          const textWithoutThoughts = text.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim()
+
+          // Parse Tool Calls (DO NOT remove from content, as renderAiMessage needs them as markers)
+          const toolCallRegex = /<tool_call>([\s\S]*?)<\/tool_call>/gi
+          let toolMatch
+          while ((toolMatch = toolCallRegex.exec(textWithoutThoughts)) !== null) {
+            const tcContent = toolMatch[1]
+            const nameMatch = tcContent.match(/<name>([\s\S]*?)<\/name>/i)
+            if (nameMatch) {
+              const name = nameMatch[1].trim()
+              const args: Record<string, any> = {}
+              const argRegex = /<([a-zA-Z0-9_]+)>([\s\S]*?)<\/\1>/gi
+              let argMatch
+              while ((argMatch = argRegex.exec(tcContent)) !== null) {
+                const argName = argMatch[1]
+                if (argName !== 'name') {
+                  args[argName] = argMatch[2].trim()
+                }
+              }
+
+              if (!aiMsg.toolCalls) aiMsg.toolCalls = []
+              aiMsg.toolCalls.push({
+                name,
+                args,
+                status: 'done' // Default to done for history
+              })
+            }
+          }
+
+          if (textWithoutThoughts) {
+            aiMsg.content = (aiMsg.content ? aiMsg.content + '\n\n' : '') + textWithoutThoughts
+          }
+        }
+      }
+
+      // Cleanup trailing whitespace in thoughts and populate tasks
+      const allTasks: Task[] = []
+      mappedMessages.forEach((m) => {
+        if (m.thoughts) m.thoughts = m.thoughts.trim()
+        if (m.role === 'ai' && m.toolCalls) {
+          m.toolCalls.forEach((tc) => {
+            allTasks.push({
+              ...tc,
+              id: crypto.randomUUID(),
+              timestamp: new Date() // Actual history entry timestamp isn't per-tool
+            })
+          })
+        }
+      })
+
+      setMessages(mappedMessages)
+      setTasks(allTasks)
+      setCurrentChatId(id)
+    }
+  }
+
+  const handleNewChat = (force = false): void => {
+    if (isProcessing && !force) return
+    if (force) {
+      window.api.cancelChat()
+    }
+    setMessages([])
+    setTasks([])
+    setCurrentChatId(undefined)
+    window.api.clearChat()
   }
 
   const handleSaveApiKey = async (key: string): Promise<void> => {
@@ -273,9 +402,26 @@ function App(): React.JSX.Element {
         return
       }
 
+      const isCancel = error.includes('cancelled')
+
+      if (isCancel) {
+        setTasks((prev) =>
+          prev.map((t) => (t.status === 'running' ? { ...t, status: 'cancelled' as any } : t))
+        )
+      }
+
       setMessages((prev) => {
         const newMessages = [...prev]
         const lastMsg = newMessages[newMessages.length - 1]
+
+        // Cleanup running tool calls in last message
+        if (isCancel && lastMsg && lastMsg.role === 'ai' && lastMsg.toolCalls) {
+          lastMsg.toolCalls = lastMsg.toolCalls.map((tc) =>
+            tc.status === 'running'
+              ? { ...tc, status: 'cancelled' as any, result: 'Cancelled by user.' }
+              : tc
+          )
+        }
 
         // Se a última mensagem já for um erro IGUAL, não duplica
         if (lastMsg && lastMsg.isError && lastMsg.content === error) {
@@ -309,7 +455,7 @@ function App(): React.JSX.Element {
         ...data,
         id: taskId,
         status: 'running',
-        timestamp: new Date()
+        timestamp: data.timestamp ? new Date(data.timestamp) : new Date()
       }
       setTasks((prev) => [...prev, newTask])
 
@@ -381,40 +527,88 @@ function App(): React.JSX.Element {
     const removeToolUpdateListener = window.api.onToolUpdate((data) => {
       setTasks((prev) => {
         const newTasks = [...prev]
-        const lastTaskIndex = newTasks.findLastIndex(
-          (t) => t.name === data.toolCallName && t.status === 'running'
+        const taskIndex = newTasks.findLastIndex(
+          (t) => t.name === data.toolCallName && (t.status === 'running' || t.status === 'done')
         )
-        if (lastTaskIndex !== -1) {
-          const task = { ...newTasks[lastTaskIndex] }
+        if (taskIndex !== -1) {
+          const task = { ...newTasks[taskIndex] }
+          const prevUpdate = task.agentUpdates?.[data.update.agentIndex]
           task.agentUpdates = {
             ...(task.agentUpdates || {}),
-            [data.update.agentIndex]: data.update
+            [data.update.agentIndex]: {
+              ...prevUpdate,
+              ...data.update
+            }
           }
-          newTasks[lastTaskIndex] = task
+          newTasks[taskIndex] = task
         }
         return newTasks
       })
 
       setMessages((prev) => {
         const newMessages = [...prev]
-        const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
-
-        if (lastMsgIndex !== -1 && newMessages[lastMsgIndex].toolCalls) {
-          const lastMsg = { ...newMessages[lastMsgIndex] }
-          const toolCalls = [...(lastMsg.toolCalls || [])]
-          const lastToolIndex = toolCalls.findLastIndex(
-            (t) => t.name === data.toolCallName && t.status === 'running'
-          )
-
-          if (lastToolIndex !== -1) {
-            const toolCall = { ...toolCalls[lastToolIndex] }
-            toolCall.agentUpdates = {
-              ...(toolCall.agentUpdates || {}),
-              [data.update.agentIndex]: data.update
+        // Search all AI messages since updates might belong to historical tool calls
+        for (let i = newMessages.length - 1; i >= 0; i--) {
+          const msg = newMessages[i]
+          if (msg.role === 'ai' && msg.toolCalls) {
+            const toolCallIndex = msg.toolCalls.findLastIndex(
+              (t) => t.name === data.toolCallName && (t.status === 'running' || t.status === 'done')
+            )
+            if (toolCallIndex !== -1) {
+              const lastMsg = { ...msg }
+              const toolCalls = [...(lastMsg.toolCalls || [])]
+              const toolCall = { ...toolCalls[toolCallIndex] }
+              const prevUpdate = toolCall.agentUpdates?.[data.update.agentIndex]
+              toolCall.agentUpdates = {
+                ...(toolCall.agentUpdates || {}),
+                [data.update.agentIndex]: {
+                  ...prevUpdate,
+                  ...data.update
+                }
+              }
+              toolCalls[toolCallIndex] = toolCall
+              lastMsg.toolCalls = toolCalls
+              newMessages[i] = lastMsg
+              return newMessages // Found and updated
             }
-            toolCalls[lastToolIndex] = toolCall
-            lastMsg.toolCalls = toolCalls
-            newMessages[lastMsgIndex] = lastMsg
+          }
+        }
+        return newMessages
+      })
+    })
+
+    const removeSubagentMessageListener = window.api.onSubagentMessage((data) => {
+      setTasks((prev) => {
+        const newTasks = [...prev]
+        const taskIndex = newTasks.findLastIndex(
+          (t) => t.name === 'run_subagents' && (t.status === 'running' || t.status === 'done')
+        )
+        if (taskIndex !== -1) {
+          const task = { ...newTasks[taskIndex] }
+          task.subagentMessages = [...(task.subagentMessages || []), data]
+          newTasks[taskIndex] = task
+        }
+        return newTasks
+      })
+
+      setMessages((prev) => {
+        const newMessages = [...prev]
+        for (let i = newMessages.length - 1; i >= 0; i--) {
+          const msg = newMessages[i]
+          if (msg.role === 'ai' && msg.toolCalls) {
+            const toolCallIndex = msg.toolCalls.findLastIndex(
+              (t) => t.name === 'run_subagents' && (t.status === 'running' || t.status === 'done')
+            )
+            if (toolCallIndex !== -1) {
+              const lastMsg = { ...msg }
+              const toolCalls = [...(lastMsg.toolCalls || [])]
+              const toolCall = { ...toolCalls[toolCallIndex] }
+              toolCall.subagentMessages = [...(toolCall.subagentMessages || []), data]
+              toolCalls[toolCallIndex] = toolCall
+              lastMsg.toolCalls = toolCalls
+              newMessages[i] = lastMsg
+              return newMessages
+            }
           }
         }
         return newMessages
@@ -429,12 +623,23 @@ function App(): React.JSX.Element {
       removeToolStartListener()
       removeToolEndListener()
       removeToolUpdateListener()
+      removeSubagentMessageListener()
     }
   }, [])
 
   const renderAiMessage = (msg: Message): React.JSX.Element | null => {
     if (msg.isError) {
-      return <ErrorMessage error={msg.content} onFixClick={() => setIsApiKeyModalOpen(true)} />
+      const isRateLimit = msg.content.includes('429')
+      
+      const handleFix = (): void => {
+        if (isRateLimit) {
+          modelSelectorRef.current?.open()
+        } else {
+          setIsApiKeyModalOpen(true)
+        }
+      }
+
+      return <ErrorMessage error={msg.content} onFixClick={handleFix} />
     }
 
     if (!msg.content && !msg.toolCalls?.length && !msg.isWritingToolCall) {
@@ -521,6 +726,10 @@ function App(): React.JSX.Element {
     return <QuickLauncher />
   }
 
+  if (route === '#subagents') {
+    return <SubagentChat />
+  }
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background-main font-sans selection:bg-accent-primary/30 pt-10">
       {showIntro && <IntroScreen onComplete={() => setShowIntro(false)} />}
@@ -540,6 +749,9 @@ function App(): React.JSX.Element {
       <Sidebar
         activeView={activeView}
         onViewChange={setActiveView}
+        onLoadChat={handleLoadChat}
+        onNewChat={handleNewChat}
+        currentChatId={currentChatId}
         runningTasksCount={tasks.filter((t) => t.status === 'running').length}
       />
 
@@ -556,6 +768,7 @@ function App(): React.JSX.Element {
 
           <div className="flex items-center gap-3">
             <ModelSelector
+              ref={modelSelectorRef}
               selectedModel={selectedModel}
               onModelChange={handleModelChange}
               disabled={isProcessing}
@@ -563,29 +776,7 @@ function App(): React.JSX.Element {
           </div>
 
           <div className="flex-1 flex justify-end">
-            <button
-              onClick={handleClearChat}
-              disabled={isProcessing || messages.length === 0}
-              className="flex items-center gap-2 px-3 py-1.5 text-[10px] uppercase tracking-wider font-bold text-text-secondary/60 hover:text-status-error/80 transition-colors disabled:opacity-0 disabled:pointer-events-none"
-              title="Clear History"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                <line x1="10" y1="11" x2="10" y2="17" />
-                <line x1="14" y1="11" x2="14" y2="17" />
-              </svg>
-              <span>Clear</span>
-            </button>
+            {/* Clear button removed - session management is now in Sidebar */}
           </div>
         </div>
 
@@ -608,7 +799,7 @@ function App(): React.JSX.Element {
                       <div key={i} className="flex flex-col w-full transition-all duration-700">
                         <div
                           className={clsx(
-                            'w-full px-6 sm:px-12 py-8 flex flex-col transition-transform duration-700',
+                            'w-full px-6 sm:px-12 py-8 flex flex-col transition-all duration-700 animate-message',
                             msg.role === 'user' ? 'items-end' : 'items-start'
                           )}
                         >
@@ -616,7 +807,7 @@ function App(): React.JSX.Element {
                             <div className="w-full max-w-5xl">
                               <details
                                 className={clsx(
-                                  'group mb-4 w-full overflow-hidden rounded-xl border transition-all duration-300',
+                                  'group mb-4 w-full overflow-hidden rounded-xl border transition-all duration-300 bubble-glow',
                                   msg.isThinking
                                     ? 'border-status-success/30 bg-status-success/5 backdrop-blur-md shadow-[0_0_15px_-3px_rgba(34,197,94,0.1)]'
                                     : 'border-surface/40 bg-surface/20 backdrop-blur-sm'

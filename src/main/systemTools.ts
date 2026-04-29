@@ -183,21 +183,55 @@ interface AppInfo {
 }
 
 /**
- * Lists installed applications on the system.
+ * Lists installed applications on the system, including manual scans of common Windows paths.
  */
 export async function listApplications(): Promise<string> {
   try {
     const apps = (await getInstalledApps()) as AppInfo[]
-    // Limits the amount of information to not overflow the AI context
-    const simplifiedApps = apps
-      .map((app) => ({
-        name: app.appName || app.DisplayName,
-        version: app.appVersion || app.DisplayVersion,
-        path: app.InstallLocation || app.path
-      }))
-      .slice(0, 50)
+    const simplifiedApps = apps.map((app) => ({
+      name: app.appName || app.DisplayName,
+      version: app.appVersion || app.DisplayVersion,
+      path: app.InstallLocation || app.path
+    }))
 
-    return JSON.stringify(simplifiedApps, null, 2)
+    // Manual scan of common Windows paths to find apps not in registry
+    const commonPaths = [
+      path.join(process.env.ProgramFiles || 'C:\\Program Files'),
+      path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'),
+      path.join(os.homedir(), 'AppData\\Local\\Programs'),
+      path.join(process.env.ProgramData || 'C:\\ProgramData', 'Microsoft\\Windows\\Start Menu\\Programs'),
+      path.join(os.homedir(), 'AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs')
+    ]
+
+    const manualApps: any[] = []
+    
+    for (const dir of commonPaths) {
+      try {
+        const entries = await fs.readdir(dir, { withFileTypes: true })
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            manualApps.push({ name: entry.name, path: path.join(dir, entry.name) })
+          } else if (entry.name.endsWith('.lnk') || entry.name.endsWith('.exe')) {
+            manualApps.push({ name: entry.name.replace(/\.(lnk|exe)$/i, ''), path: path.join(dir, entry.name) })
+          }
+        }
+      } catch {
+        // Skip directories that can't be read
+      }
+    }
+
+    // Merge and deduplicate (by name)
+    const allApps = [...simplifiedApps, ...manualApps]
+    const seenNames = new Set()
+    const finalApps = allApps
+      .filter((app) => {
+        if (!app.name || seenNames.has(app.name.toLowerCase())) return false
+        seenNames.add(app.name.toLowerCase())
+        return true
+      })
+      .slice(0, 100) // Slightly higher limit than before
+
+    return JSON.stringify(finalApps, null, 2)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return `Error listing applications: ${message}`
@@ -285,7 +319,6 @@ export async function sawLinkFromUrl(url: string, signal?: AbortSignal): Promise
 
 /**
  * Performs a web search using DuckDuckGo HTML version.
- * Fallbacks to Mojeek if DuckDuckGo fails.
  */
 export async function webSearch(query: string, signal?: AbortSignal): Promise<string> {
   const userAgent =
@@ -305,26 +338,46 @@ export async function webSearch(query: string, signal?: AbortSignal): Promise<st
     const html = await response.text()
     const results: { title: string; link: string; snippet: string }[] = []
     
-    // Improved regex to be more resilient to structural changes
-    // We look for the main result containers
-    const resultRegex = /<div[^>]*class="[^"]*result__body[^"]*"[^>]*>([\s\S]*?)(?:<div[^>]*class="[^"]*clear[^"]*"[^>]*>|<\/div>\s*<\/div>)/g
-    let match
+    // Improved logic to be more resilient to structural changes
+    // We split by result containers to avoid premature regex termination from nested divs
+    const resultBlocks = html.split(/<div[^>]*class="[^"]*result(?:__body|s_links| )[^"]*"[^>]*>/i).slice(1)
 
-    while ((match = resultRegex.exec(html)) !== null && results.length < 5) {
-      const body = match[1]
+    for (const body of resultBlocks) {
+      if (results.length >= 5) break
 
       const titleMatch = body.match(/<a[^>]*class="[^"]*result__a[^"]*"[^>]*>([\s\S]*?)<\/a>/)
-      const linkMatch = body.match(/href="([^"]*)"[^>]*class="[^"]*result__a[^"]*"/) || 
+      let linkMatch = body.match(/href="([^"]*)"[^>]*class="[^"]*result__a[^"]*"/) ||
                         body.match(/class="[^"]*result__a[^"]*"[^>]*href="([^"]*)"/) ||
                         body.match(/href="([^"]*)"/)
 
-      const snippetMatch = body.match(/<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/) ||
+      let snippetMatch = body.match(/<[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/(?:a|div|span|p)>/i) ||
+                           body.match(/<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/) ||
                            body.match(/<div[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/div>/)
 
+      // Structural fallback: if class-based matching fails, try to extract content between title and extras
+      if (!snippetMatch) {
+        const fallbackMatch = body.match(/<\/h2>([\s\S]*?)<div[^>]*class="[^"]*result__extras/i) ||
+                              body.match(/<\/a>([\s\S]*?)<div[^>]*class="[^"]*result__extras/i)
+        if (fallbackMatch) snippetMatch = fallbackMatch
+      }
+
       if (titleMatch && linkMatch) {
+        let rawLink = linkMatch[1]
+        
+        // Extract raw link from DuckDuckGo redirect if present (uddg parameter)
+        try {
+          const urlObj = new URL(rawLink.startsWith('//') ? `https:${rawLink}` : rawLink.startsWith('/') ? `https://duckduckgo.com${rawLink}` : rawLink)
+          const uddg = urlObj.searchParams.get('uddg')
+          if (uddg) {
+            rawLink = decodeURIComponent(uddg)
+          }
+        } catch (e) {
+          // If URL parsing fails, keep the original link
+        }
+
         results.push({
           title: stripHtml(titleMatch[1]).trim(),
-          link: linkMatch[1].startsWith('//') ? `https:${linkMatch[1]}` : linkMatch[1],
+          link: rawLink,
           snippet: snippetMatch ? stripHtml(snippetMatch[1]).trim() : ''
         })
       }
@@ -332,61 +385,8 @@ export async function webSearch(query: string, signal?: AbortSignal): Promise<st
     return results
   }
 
-  async function tryMojeek(): Promise<{ title: string; link: string; snippet: string }[]> {
-    const response = await fetch(
-      `https://www.mojeek.com/search?q=${encodeURIComponent(query)}`,
-      {
-        signal,
-        headers: { 'User-Agent': userAgent }
-      }
-    )
-
-    if (!response.ok) return []
-
-    const html = await response.text()
-    const results: { title: string; link: string; snippet: string }[] = []
-    
-    // Mojeek results are in <li> elements with class r1, r2, etc.
-    const liRegex = /<li[^>]*class="r\d+[^"]*"[^>]*>([\s\S]*?)<\/li>/g
-    let match
-
-    while ((match = liRegex.exec(html)) !== null && results.length < 5) {
-      const body = match[1]
-      const titleMatch = body.match(/class="title"[^>]*>([\s\S]*?)<\/a>/)
-      const linkMatch = body.match(/href="([^"]*)"/)
-      
-      // Mojeek has class="i" for breadcrumbs and class="s" for snippets.
-      // We want class="s".
-      let snippet = ''
-      const sMatch = body.match(/<p[^>]*class="s"[^>]*>([\s\S]*?)<\/p>/)
-      if (sMatch) {
-        snippet = stripHtml(sMatch[1]).trim()
-      } else {
-        // Fallback: search for any paragraph that isn't the breadcrumb (class="i")
-        const allParagraphs = body.match(/<p[^>]*>([\s\S]*?)<\/p>/g)
-        if (allParagraphs && allParagraphs.length > 1) {
-          snippet = stripHtml(allParagraphs[allParagraphs.length - 1]).trim()
-        }
-      }
-
-      if (titleMatch && linkMatch) {
-        results.push({
-          title: stripHtml(titleMatch[1]).trim(),
-          link: linkMatch[1],
-          snippet: snippet
-        })
-      }
-    }
-    return results
-  }
-
   try {
-    let results = await tryMojeek()
-
-    if (results.length === 0) {
-      // Fallback to DuckDuckGo
-      results = await tryDuckDuckGo()
-    }
+    const results = await tryDuckDuckGo()
 
     if (results.length === 0) {
       return 'No results found.'
@@ -405,7 +405,7 @@ export async function webSearch(query: string, signal?: AbortSignal): Promise<st
 /**
  * Returns the system prompt configured with the correct model identity.
  */
-export function getSystemToolsPrompt(modelKey: string): string {
+export function getSystemToolsPrompt(modelKey: string, target: 'main' | 'subagent' | 'both' = 'main'): string {
   const name = 'Prism AI'
   let modelName = 'Prism 1 Fast'
 
@@ -420,6 +420,7 @@ export function getSystemToolsPrompt(modelKey: string): string {
   }
 
   const toolsPrompt = toolsManifest
+    .filter((t) => !t.target || t.target === 'both' || t.target === target)
     .map((t) => {
       const p = Object.entries(t.parameters)
         .map(([k, d]) => `${k}:${d}`)
@@ -432,29 +433,59 @@ export function getSystemToolsPrompt(modelKey: string): string {
   const platform = process.platform
   const homeDir = os.homedir()
   const cwd = process.cwd()
-  const date = new Date().toLocaleString()
+  const date = new Date().toLocaleString('pt-BR', {
+    timeZoneName: 'short',
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
+
+  const parallelRule = target === 'main'
+    ? '- Parallel: <run_subagents> (agents use Group Chat for async sync). Wait for all.'
+    : "- Collaboration: Use 'send_group_message' and 'wait_for_updates' for Group Chat sync."
 
   return `Role: ${name} (${modelName}). Use <tool_call> XML (no md).
-Environment Context:
-- Date/Time: ${date}
-- Platform: ${platform}
-- Current User: ${username}
-- Home Directory: ${homeDir}
-- Working Directory: ${cwd}
+Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd}
 
 Rules:
-- Summarize hidden tool results in user lang.
+- Summarize tool results in user lang.
 - [FORCE_SEARCH] -> web_search first.
-- Math: Simple? Result only. Complex? LaTeX steps (no text). \boxed{} final. $$ block, $ inline.
+- Math: Simple? Result only. Complex? LaTeX steps (no text), \boxed{} final. $$ block, $ inline.
 - Nav: URL->open_browser_link | Search->saw_link_from_url | App->open_application | Query->direct.
-- Workflow: Sequence tools, retry on fail. No meta-talk. Respond ONLY when finished/stuck. Match lang.
-- Path Integrity: Use EXACT paths from Environment Context. NEVER use placeholders like 'YourUsername'.
-- Parallel: Use <run_subagents>.
-  - Sub-agents can't use run_subagents.
-  - Radio Bus: agent_message(to, content), agent_wait(target, sec [80-240s recommended]).
-  - Wait for ALL to finish.
-  - Define team protocol & ask for detailed outputs.
+- Deep Research: For complex topics, ALWAYS use 'saw_link_from_url' on the top 1-2 results from 'web_search' to provide in-depth, accurate answers. Only rely on snippets for extremely simple or factual queries (e.g., "who is X").
+- Workflow: No meta-talk. Respond ONLY when done/stuck. Match user lang.
+- Apps: If open_application fails, list_installed_applications or scan paths to find the real exe.
+- Paths: Use EXACT paths. NO placeholders.
+${parallelRule}
+- Memory: Use <search_chat_history> for context/preferences. Use CSV keywords (e.g., "IRQL, erro, blue screen"). Search in user lang + English. Mix specific/general terms for best scoring.
 
 Tools:
 ${toolsPrompt}`
+}
+
+/**
+ * Returns a specialized system prompt for sub-agents.
+ */
+export function getSubagentSystemPrompt(modelKey: string, index: number, total: number): string {
+  const basePrompt = getSystemToolsPrompt(modelKey, 'subagent')
+  const otherAgents = Array.from({ length: total }, (_, i) => i).filter((i) => i !== index)
+
+  return `${basePrompt}
+
+[IDENTITY]: Agent #${index}.
+[TEAM]: ${otherAgents.length > 0 ? otherAgents.map((i) => `Agent #${i}`).join(', ') : 'Solo'}.
+
+[GROUP CHAT RULES]:
+1. ASYNC COLLABORATION: Use 'send_group_message' to update the team. 
+2. STAYING ALIVE: You are ONLY active as long as you use tools. If you send a message and want to wait for a reply, you MUST call 'wait_for_updates' in the same response, otherwise you will terminate immediately.
+3. CONTEXT INJECTION: New messages from others appear as [UNREAD MESSAGES]. Read them to stay synced.
+4. EFFICIENCY: Use 'wait_for_updates' to pause instead of polling or idle thinking.
+5. TERMINATION: ALWAYS send a final message with status="done" or status="error" when your task is complete.
+6. NO SUBAGENTS: You cannot spawn more agents. Focus on your assigned task.
+
+[OUTPUT]: Your thoughts are private. Your FINAL RESPONSE should be a concise mission report for the Main Agent.`
 }

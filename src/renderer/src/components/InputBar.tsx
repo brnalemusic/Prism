@@ -36,8 +36,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(({
 
   const commands = [
     { cmd: '/search', desc: 'Force web search', action: () => { setText('/search '); inputRef.current?.focus() } },
-    { cmd: '/youtube', desc: 'YouTube search & play', action: () => { setText('/youtube '); inputRef.current?.focus() } },
-    { cmd: '/clear', desc: 'Clear current chat', action: () => { onSend('/clear'); setText(''); } }
+    { cmd: '/youtube', desc: 'YouTube search & play', action: () => { setText('/youtube '); inputRef.current?.focus() } }
   ]
 
   const filteredCommands = text.startsWith('/') 

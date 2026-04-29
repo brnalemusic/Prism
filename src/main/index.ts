@@ -12,14 +12,16 @@ import {
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { initGemini, handleChatMessage, setGeminiModel, setUserApiKey, cancelChatMessage } from './gemini'
+import { initGemini, handleChatMessage, setGeminiModel, setUserApiKey, cancelChatMessage, loadChatIntoHistory } from './gemini'
 import { loadConfig, saveConfig, AppConfig } from './config'
+import { listChatSessions, deleteChatSession } from './history'
 
 import { initAutoUpdater } from './updater'
 
 let currentConfig: AppConfig
 let mainWindow: BrowserWindow | null = null
 let launcherWindow: BrowserWindow | null = null
+let subagentsWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 
@@ -56,6 +58,48 @@ function createTray(): void {
   tray.on('double-click', () => {
     mainWindow?.show()
   })
+}
+
+function createSubagentsWindow(initialMessages?: any[]): void {
+  if (subagentsWindow) {
+    subagentsWindow.show()
+    subagentsWindow.focus()
+    if (initialMessages) {
+      subagentsWindow.webContents.send('subagent-initial-messages', initialMessages)
+    }
+    return
+  }
+
+  subagentsWindow = new BrowserWindow({
+    width: 400,
+    height: 650,
+    show: false,
+    autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    backgroundColor: '#0A0A0F',
+    ...(process.platform === 'linux' || process.platform === 'win32' ? { icon } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+
+  subagentsWindow.on('ready-to-show', () => {
+    subagentsWindow?.show()
+    if (initialMessages) {
+      subagentsWindow?.webContents.send('subagent-initial-messages', initialMessages)
+    }
+  })
+
+  subagentsWindow.on('closed', () => {
+    subagentsWindow = null
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    subagentsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#subagents`)
+  } else {
+    subagentsWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: 'subagents' })
+  }
 }
 
 function registerLauncherShortcut(shortcut: string): void {
@@ -180,6 +224,18 @@ app.whenReady().then(() => {
   ipcMain.on('clear-chat', () => initGemini())
   ipcMain.on('chat-cancel', () => cancelChatMessage())
 
+  ipcMain.handle('get-chats', () => {
+    return listChatSessions()
+  })
+
+  ipcMain.handle('load-chat', (_event, id: string) => {
+    return loadChatIntoHistory(id)
+  })
+
+  ipcMain.handle('delete-chat', (_event, id: string) => {
+    return deleteChatSession(id)
+  })
+
   ipcMain.on('launcher-submit', (_event, data) => {
     launcherWindow?.hide()
     if (mainWindow) {
@@ -196,6 +252,23 @@ app.whenReady().then(() => {
 
   ipcMain.on('minimize-app', () => {
     mainWindow?.minimize()
+  })
+
+  ipcMain.on('minimize-subagents-window', () => {
+    subagentsWindow?.minimize()
+  })
+
+  ipcMain.on('close-subagents-window', () => {
+    subagentsWindow?.close()
+  })
+
+  ipcMain.on('open-subagents-window', (_event, initialMessages) => {
+    createSubagentsWindow(initialMessages)
+  })
+
+  ipcMain.on('subagent-message-broadcast', (_event, data) => {
+    subagentsWindow?.webContents.send('subagent-message', data)
+    mainWindow?.webContents.send('subagent-message', data)
   })
 
   ipcMain.on('auto-minimize-trigger', () => {

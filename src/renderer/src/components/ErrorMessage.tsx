@@ -34,6 +34,7 @@ export function ErrorMessage({ error, onFixClick }: ErrorMessageProps): React.JS
 
   const errorCode = getErrorCode(error)
   const summary = getErrorSummary(error)
+  const isRateLimit = errorCode === '429'
 
   return (
     <div className="w-full max-w-2xl my-2 animate-in fade-in slide-in-from-top-2 duration-300">
@@ -86,9 +87,14 @@ export function ErrorMessage({ error, onFixClick }: ErrorMessageProps): React.JS
           {onFixClick && !isCancellation && (
             <button
               onClick={onFixClick}
-              className="mr-4 px-3 py-1.5 rounded-lg bg-status-error/20 text-status-error text-[10px] uppercase tracking-wider font-bold hover:bg-status-error/30 transition-colors"
+              className={clsx(
+                "mr-4 px-3 py-1.5 rounded-lg text-[10px] uppercase tracking-wider font-bold transition-colors",
+                isRateLimit 
+                  ? "bg-accent-primary/20 text-accent-primary hover:bg-accent-primary/30"
+                  : "bg-status-error/20 text-status-error hover:bg-status-error/30"
+              )}
             >
-              Change API Key
+              {isRateLimit ? 'Change Model' : 'Change API Key'}
             </button>
           )}
         </div>

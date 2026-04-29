@@ -1,13 +1,15 @@
 import React, { useState } from 'react'
 import { clsx } from 'clsx'
+import { Smartphone } from 'lucide-react'
 
 export interface ToolCall {
   name: string
   args: Record<string, unknown>
   result?: string
-  status: 'writing' | 'running' | 'cooldown' | 'done' | 'error'
+  status: 'writing' | 'running' | 'cooldown' | 'done' | 'error' | 'cancelled'
+  subagentMessages?: any[]
   agentUpdates?: Record<number, {
-    phase: 'thinking' | 'tool_use' | 'done' | 'error'
+    phase: 'thinking' | 'tool_use' | 'done' | 'error' | 'cancelled'
     command?: string
     output?: string
   }>
@@ -37,11 +39,13 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
     displayTitle = 'List Apps'
   } else if (toolCall.name === 'web_search') {
     displayTitle = 'Web Search'
+  } else if (toolCall.name === 'search_chat_history') {
+    displayTitle = 'Memory Search'
   } else if (toolCall.name === 'run_subagents') {
     displayTitle = 'ORCHESTRATING AGENTS'
   }
 
-  const isDone = toolCall.status === 'done' || toolCall.status === 'error'
+  const isDone = toolCall.status === 'done' || toolCall.status === 'error' || toolCall.status === 'cancelled'
   const isWriting = toolCall.status === 'writing'
   const isCooldown = toolCall.status === 'cooldown'
 
@@ -65,7 +69,8 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
             <div
               className={clsx(
                 'w-2 h-2 rounded-full',
-                toolCall.status === 'done' ? 'bg-[#4ADE80]' : 'bg-[#F87171]'
+                toolCall.status === 'done' ? 'bg-[#4ADE80]' : 
+                toolCall.status === 'cancelled' ? 'bg-[#94A3B8]' : 'bg-[#F87171]'
               )}
             />
           ) : isWriting || isCooldown ? (
@@ -89,50 +94,66 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
         >
           {displayTitle} {isDone && toolCall.status === 'done' && '• Completed'}
           {isDone && toolCall.status === 'error' && '• Error'}
+          {isDone && toolCall.status === 'cancelled' && '• Cancelled'}
         </span>
 
-        {!isDone && (
-          <div className="flex gap-0.5">
-            <span
-              className={clsx(
-                'w-0.5 h-0.5 rounded-full animate-bounce [animation-delay:-0.3s]',
-                isWriting ? 'bg-[#FACC15]/60' : isCooldown ? 'bg-[#C084FC]/60' : 'bg-[#6C63FF]/60'
-              )}
-            ></span>
-            <span
-              className={clsx(
-                'w-0.5 h-0.5 rounded-full animate-bounce [animation-delay:-0.15s]',
-                isWriting ? 'bg-[#FACC15]/60' : isCooldown ? 'bg-[#C084FC]/60' : 'bg-[#6C63FF]/60'
-              )}
-            ></span>
-            <span
-              className={clsx(
-                'w-0.5 h-0.5 rounded-full animate-bounce',
-                isWriting ? 'bg-[#FACC15]/60' : isCooldown ? 'bg-[#C084FC]/60' : 'bg-[#6C63FF]/60'
-              )}
-            ></span>
-          </div>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {toolCall.name === 'run_subagents' && (toolCall.status === 'running' || toolCall.status === 'done' || toolCall.status === 'cancelled') && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                window.api.openSubagentsWindow(toolCall.subagentMessages)
+              }}
+              className="p-1.5 rounded-lg bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary border border-accent-primary/20 transition-all hover:scale-105 active:scale-95 group/phone cursor-pointer"
+              title="Open Subagent Chat"
+            >
+              <Smartphone size={14} />
+            </button>
+          )}
 
-        {isDone && (
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={clsx(
-              'ml-auto text-[#8888A0]/40 transition-transform duration-300',
-              isExpanded && 'rotate-180'
-            )}
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
-        )}
+          {!isDone && (
+            <div className="flex gap-0.5">
+              <span
+                className={clsx(
+                  'w-0.5 h-0.5 rounded-full animate-bounce [animation-delay:-0.3s]',
+                  isWriting ? 'bg-[#FACC15]/60' : isCooldown ? 'bg-[#C084FC]/60' : 'bg-[#6C63FF]/60'
+                )}
+              ></span>
+              <span
+                className={clsx(
+                  'w-0.5 h-0.5 rounded-full animate-bounce [animation-delay:-0.15s]',
+                  isWriting ? 'bg-[#FACC15]/60' : isCooldown ? 'bg-[#C084FC]/60' : 'bg-[#6C63FF]/60'
+                )}
+              ></span>
+              <span
+                className={clsx(
+                  'w-0.5 h-0.5 rounded-full animate-bounce',
+                  isWriting ? 'bg-[#FACC15]/60' : isCooldown ? 'bg-[#C084FC]/60' : 'bg-[#6C63FF]/60'
+                )}
+              ></span>
+            </div>
+          )}
+
+          {isDone && (
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={clsx(
+                'text-[#8888A0]/40 transition-transform duration-300',
+                isExpanded && 'rotate-180'
+              )}
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          )}
+        </div>
       </div>
 
       {isExpanded && toolCall.result && (
@@ -150,7 +171,7 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
         </div>
       )}
 
-      {toolCall.name === 'run_subagents' && toolCall.status === 'running' && (
+      {toolCall.name === 'run_subagents' && (toolCall.status === 'running' || toolCall.status === 'done' || toolCall.status === 'cancelled') && (
         <div className="w-full mt-2 grid grid-cols-1 gap-2 animate-in fade-in slide-in-from-top-2 duration-500">
           {Object.entries(toolCall.agentUpdates || {}).map(([index, update]) => (
             <div 

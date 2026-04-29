@@ -66,12 +66,34 @@ const api = {
     ipcRenderer.on('config-changed', listener)
     return () => ipcRenderer.removeListener('config-changed', listener)
   },
+  onChatSessionCreated: (callback: (data: { id: string }) => void): (() => void) => {
+    const listener = (_event: any, data: { id: string }): void => callback(data)
+    ipcRenderer.on('chat-session-created', listener)
+    return () => ipcRenderer.removeListener('chat-session-created', listener)
+  },
+  onChatTitleReceived: (callback: (data: { id: string; title: string }) => void): (() => void) => {
+    const listener = (_event: any, data: { id: string; title: string }): void => callback(data)
+    ipcRenderer.on('chat-title-received', listener)
+    return () => ipcRenderer.removeListener('chat-title-received', listener)
+  },
+  onSubagentMessage: (callback: (data: any) => void): (() => void) => {
+    const listener = (_event: any, data: any): void => callback(data)
+    ipcRenderer.on('subagent-message', listener)
+    return () => ipcRenderer.removeListener('subagent-message', listener)
+  },
   submitLauncher: (data: { message: string; thinkMode?: boolean }): void => ipcRenderer.send('launcher-submit', data),
   hideLauncher: (): void => ipcRenderer.send('hide-launcher'),
   minimizeApp: (): void => ipcRenderer.send('minimize-app'),
+  minimizeSubagentsWindow: (): void => ipcRenderer.send('minimize-subagents-window'),
+  openSubagentsWindow: (initialMessages?: any[]): void => ipcRenderer.send('open-subagents-window', initialMessages),
+  broadcastSubagentMessage: (data: any): void => ipcRenderer.send('subagent-message-broadcast', data),
   closeApp: (): void => ipcRenderer.send('close-app'),
+  closeSubagentsWindow: (): void => ipcRenderer.send('close-subagents-window'),
   getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('get-config'),
   saveConfig: (config: AppConfig): Promise<boolean> => ipcRenderer.invoke('save-config', config),
+  getChats: (): Promise<any[]> => ipcRenderer.invoke('get-chats'),
+  loadChat: (id: string): Promise<any[]> => ipcRenderer.invoke('load-chat', id),
+  deleteChat: (id: string): Promise<boolean> => ipcRenderer.invoke('delete-chat', id),
   removeLauncherListeners: (): void => {
     ipcRenderer.removeAllListeners('launcher-message')
     ipcRenderer.removeAllListeners('launcher-focus')

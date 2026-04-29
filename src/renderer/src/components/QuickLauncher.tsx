@@ -20,8 +20,7 @@ export function QuickLauncher(): React.JSX.Element {
 
   const commands = [
     { cmd: '/search', desc: 'Force web search', action: () => { setQuery('/search '); inputRef.current?.focus() } },
-    { cmd: '/youtube', desc: 'YouTube search & play', action: () => { setQuery('/youtube '); inputRef.current?.focus() } },
-    { cmd: '/clear', desc: 'Clear current chat', action: () => { window.api.submitLauncher({ message: '/clear' }); setQuery(''); } }
+    { cmd: '/youtube', desc: 'YouTube search & play', action: () => { setQuery('/youtube '); inputRef.current?.focus() } }
   ]
 
   const filteredCommands = query.startsWith('/') 

@@ -1,9 +1,10 @@
 import { GoogleGenerativeAI, Content } from '@google/generative-ai'
 import * as dotenv from 'dotenv'
-import { IpcMainEvent } from 'electron'
+import { IpcMainEvent, ipcMain } from 'electron'
 import { Agent, setGlobalDispatcher } from 'undici'
 import {
   getSystemToolsPrompt,
+  getSubagentSystemPrompt,
   runTerminalCommand,
   listApplications,
   openApplication,
@@ -19,14 +20,15 @@ import {
   computerListDirectory,
   computerReadFile
 } from './systemTools'
+import { saveChatSession, loadChatSession, searchChatHistory } from './history'
 
 // Load environment variables from .env
 dotenv.config({ path: require('path').join(__dirname, '../../.env') })
 
-// Configuração de Keep-Alive para melhor latência
+// Configuração de Keep-Alive para melhor latência (3.5 minutos)
 const networkAgent = new Agent({
-  keepAliveTimeout: 60000,
-  keepAliveMaxTimeout: 60000
+  keepAliveTimeout: 210000,
+  keepAliveMaxTimeout: 210000
 })
 setGlobalDispatcher(networkAgent)
 
@@ -79,6 +81,7 @@ function getModelFriendlyName(modelKey: string): string {
 
 // Persistent history in memory for the current session
 let chatHistory: Content[] = []
+let currentSessionId: string = Date.now().toString()
 
 export interface StructuredChatResponse {
   thoughts: string
@@ -130,16 +133,20 @@ const toolFunctions: Record<
   computer_use_read_file: (args, _event, _apiKey, signal) =>
     computerReadFile(args.path || '', signal),
   run_subagents: (args, event, apiKey, signal) => runSubagents(args, event, apiKey, signal),
-  // These tools are handled internally within runSubagents
-  agent_message: async () => 'Error: agent_message can only be used by sub-agents.',
-  agent_wait: async () => 'Error: agent_wait can only be used by sub-agents.'
+  search_chat_history: (args) => searchChatHistory(args.query || ''),
+  // Group Chat tools (handled internally within runSubagents)
+  send_group_message: async () => 'Error: send_group_message can only be used by sub-agents.',
+  read_group_messages: async () => 'Error: read_group_messages can only be used by sub-agents.',
+  wait_for_updates: async () => 'Error: wait_for_updates can only be used by sub-agents.',
+  agent_message: async () => 'Error: agent_message is deprecated. Use send_group_message.',
+  agent_wait: async () => 'Error: agent_wait is deprecated. Use wait_for_updates.'
 }
 
-interface BlackboardMessage {
+interface GroupMessage {
   sender: number
-  recipient: number | 'all'
   content: string
   timestamp: number
+  status: 'working' | 'done' | 'error'
   readBy: number[]
 }
 
@@ -161,11 +168,39 @@ async function runSubagents(
 
   if (prompts.length === 0) return 'Error: No prompts provided for agents.'
 
-  const blackboard: BlackboardMessage[] = []
+  const blackboard: GroupMessage[] = []
+  const waiters: (() => void)[] = []
+  const subagentChatLog: any[] = []
+
+  const notifyWaiters = () => {
+    while (waiters.length > 0) {
+      const resolve = waiters.shift()
+      if (resolve) resolve()
+    }
+  }
+
+  // Listener for external messages (from UI/User)
+  const externalMessageListener = (_event: any, data: any) => {
+    if (data && data.agentIndex === -1) {
+      blackboard.push({
+        sender: -1,
+        content: data.content,
+        timestamp: Date.now(),
+        status: 'working',
+        readBy: []
+      })
+      subagentChatLog.push(data)
+    }
+    notifyWaiters()
+  }
+  ipcMain.on('subagent-message-broadcast', externalMessageListener)
 
   const agentPromises = prompts.slice(0, quantity).map(async (prompt, index) => {
     try {
       if (parentSignal?.aborted) throw new Error('AbortError')
+
+      // Small delay to ensure ToolStart event is processed by the frontend before sub-events
+      await new Promise(r => setTimeout(r, 100))
 
       const genAI = new GoogleGenerativeAI(apiKey)
       const model = genAI.getGenerativeModel({
@@ -178,49 +213,51 @@ async function runSubagents(
         }
       } as any)
 
-      const otherAgents = Array.from({ length: quantity }, (_, i) => i).filter(i => i !== index)
-      const identityPrompt = `\n\n[IDENTITY]: Agent #${index}. Team: ${otherAgents.map(i => `Agent #${i}`).join(', ')}.
-[RADIO BUS]: Use agent_message(to, content) & agent_wait(target, sec) for real-time sync.
-[RULES]:
-1. PLAN: agent_message strategy before tool use.
-2. SYNC: Keep team updated on actions.
-3. EXIT: Message "all" to check for needs + agent_wait(any, 60) before finishing. End only if ALL CLEAR.`
+      const subAgentSystemPrompt = getSubagentSystemPrompt('prism-3.1', index, quantity)
 
-      const subAgentSystemPrompt = getSystemToolsPrompt('prism-3.1') + 
-        '\n\n[MODE]: Autonomous unit.' + identityPrompt + 
-        '\n\n[OUTPUT]: Thoughts private. FINAL RESPONSE is mission report. Team must finish together.'
-      
+      // Notify UI about agent check-in
+      const checkInData = {
+        agentIndex: index,
+        content: 'Checking in. Joined Group Chat.',
+        status: 'working',
+        timestamp: Date.now()
+      }
+      if (parentSignal?.aborted) throw new Error('AbortError')
+      event.sender.send('subagent-message', checkInData)
+      ipcMain.emit('subagent-message-broadcast', null, checkInData)
+      subagentChatLog.push(checkInData)
+
       const history: Content[] = [
         { role: 'user', parts: [{ text: subAgentSystemPrompt }] },
-        { role: 'model', parts: [{ text: `Agent #${index} checking in. Radio link established. Awaiting initial task...` }] },
-        { role: 'user', parts: [{ text: `[YOUR ASSIGNED TASK]: ${prompt}\n\nInitiate team planning phase now.` }] }
+        { role: 'model', parts: [{ text: `Agent #${index} checking in. Joined Group Chat. Awaiting initial task...` }] },
+        { role: 'user', parts: [{ text: `[YOUR ASSIGNED TASK]: ${prompt}\n\nInitiate your work now.` }] }
       ]
 
       let iteration = 0
-      const MAX_AGENT_ITERATIONS = 12
+      const MAX_AGENT_ITERATIONS = 15
       let finalOutput = ''
+      let isAgentFinished = false
+      let readCursor = 0
 
-      while (iteration < MAX_AGENT_ITERATIONS) {
+      while (iteration < MAX_AGENT_ITERATIONS && !isAgentFinished) {
         iteration++
-        
+
         if (parentSignal?.aborted) throw new Error('AbortError')
 
         // 1. Context Injection: Check for unread messages
-        const unreadMessages = blackboard.filter(m => 
-          (m.recipient === index || m.recipient === 'all') && 
-          !m.readBy.includes(index)
-        )
+        const unreadMessages = blackboard.slice(readCursor).filter((m) => m.sender !== index)
+        readCursor = blackboard.length
 
         if (unreadMessages.length > 0) {
-          let teamUpdate = '[INCOMING RADIO LOG]:\n'
+          let teamUpdate = '[UNREAD MESSAGES]:\n'
           for (const msg of unreadMessages) {
-            teamUpdate += `[FROM Agent #${msg.sender}]: "${msg.content}"\n`
-            msg.readBy.push(index)
+            const senderName = msg.sender === -1 ? 'User' : `Agent #${msg.sender}`
+            teamUpdate += `[FROM ${senderName} (${msg.status})]: "${msg.content}"\n`
           }
-          teamUpdate += '\nRespond to your team or proceed with your task based on this information.'
           history.push({ role: 'user', parts: [{ text: teamUpdate }] })
         }
 
+        if (parentSignal?.aborted) throw new Error('AbortError')
         event.sender.send('chat-tool-update', {
           toolCallName: 'run_subagents',
           update: { agentIndex: index, phase: 'thinking' }
@@ -228,11 +265,9 @@ async function runSubagents(
 
         const result = await model.generateContent({ contents: history }, { signal: parentSignal })
         const responseText = result.response.text()
-        
+
         // Add to history
         history.push({ role: 'model', parts: [{ text: responseText }] })
-        
-        // Extract final text (filtered from thoughts later)
         finalOutput = responseText
 
         const toolCallRegex = /<tool_call>([\s\S]*?)<\/tool_call>/gi
@@ -243,11 +278,6 @@ async function runSubagents(
           for (const match of toolMatches) {
             const content = match[1]
             const name = content.match(/<name>(.*?)<\/name>/i)?.[1]?.trim()
-            
-            if (name === 'run_subagents') {
-              allResults += '\n[ERROR]: Sub-agents are forbidden from using run_subagents tool.\n'
-              continue
-            }
 
             const subArgs: ToolArgs = {}
             const dynamicArgRegex = /<([^>]+)>([\s\S]*?)<\/\1>/gi
@@ -257,76 +287,90 @@ async function runSubagents(
               if (tag !== 'name') subArgs[tag] = argMatch[2].trim()
             }
 
-            if (name === 'agent_message') {
-              const recipient = subArgs.recipient === 'all' ? 'all' : parseInt(subArgs.recipient || '-1')
+            if (name === 'send_group_message') {
               const msgContent = subArgs.content || ''
-              
+              const status = (subArgs.status || 'working') as 'working' | 'done' | 'error'
+
               blackboard.push({
                 sender: index,
-                recipient: recipient as any,
                 content: msgContent,
                 timestamp: Date.now(),
-                readBy: []
+                status,
+                readBy: [index]
               })
+              notifyWaiters()
 
-              const isListening = recipient === 'all' ? true : blackboard.some(m => m.readBy.includes(recipient as number)) // simplistic check
+              // Broadcast message to UI
+              const messageData = {
+                agentIndex: index,
+                content: msgContent,
+                status,
+                timestamp: Date.now()
+              }
+              if (parentSignal?.aborted) throw new Error('AbortError')
+              event.sender.send('subagent-message', messageData)
+              ipcMain.emit('subagent-message-broadcast', null, messageData)
+              subagentChatLog.push(messageData)
 
+              if (parentSignal?.aborted) throw new Error('AbortError')
               event.sender.send('chat-tool-update', {
                 toolCallName: 'run_subagents',
-                update: { 
-                  agentIndex: index, 
-                  phase: 'tool_use', 
-                  command: `MESSAGE TO ${recipient}: "${msgContent}"` 
+                update: {
+                  agentIndex: index,
+                  phase: 'tool_use',
+                  command: `POST TO GROUP (${status}): "${msgContent}"`
                 }
               })
-              
-              allResults += `\n[SYSTEM]: Message sent to ${recipient}. Status: ${isListening ? 'Delivered' : 'Pending'}.\n`
+
+              if (status !== 'working') isAgentFinished = true
+              allResults += `\n[SYSTEM]: Message broadcasted. Status set to ${status}.\n`
               continue
             }
 
-            if (name === 'agent_wait') {
-              const target = subArgs.targetAgent === 'any' ? 'any' : parseInt(subArgs.targetAgent || '-1')
-              const timeout = Math.min(parseInt(subArgs.timeoutSeconds || '240'), 240)
-              
+            if (name === 'read_group_messages') {
+              const since = parseInt(subArgs.sinceTimestamp || '0')
+              const limit = parseInt(subArgs.limit || '10')
+              const filtered = blackboard.filter((m) => m.timestamp > since).slice(-limit)
+
+              allResults += `\n[GROUP CHAT HISTORY]:\n${filtered
+                .map((m) => {
+                  const senderName = m.sender === -1 ? 'User' : `Agent #${m.sender}`
+                  return `${senderName} (${m.status}): ${m.content}`
+                })
+                .join('\n')}\n`
+              continue
+            }
+
+            if (name === 'wait_for_updates') {
+              const timeout = Math.min(parseInt(subArgs.timeoutSeconds || '180'), 180)
+
+              // Check if there are already unread messages to avoid race condition
+              const hasUnread = blackboard.slice(readCursor).some(m => m.sender !== index)
+              if (hasUnread) {
+                allResults += `\n[SYSTEM]: Resuming immediately as new messages were found.\n`
+                continue
+              }
+
+              if (parentSignal?.aborted) throw new Error('AbortError')
               event.sender.send('chat-tool-update', {
                 toolCallName: 'run_subagents',
-                update: { 
-                  agentIndex: index, 
-                  phase: 'tool_use', 
-                  command: `WAITING FOR ${target}...` 
+                update: {
+                  agentIndex: index,
+                  phase: 'tool_use',
+                  command: `WAITING FOR UPDATES...`
                 }
               })
 
-              const startTime = Date.now()
-              let receivedMessage: BlackboardMessage | undefined = undefined
-
-              while (Date.now() - startTime < timeout * 1000) {
-                if (parentSignal?.aborted) throw new Error('AbortError')
-
-                receivedMessage = blackboard.find(m => 
-                  (target === 'any' || m.sender === target) && 
-                  (m.recipient === index || m.recipient === 'all') &&
-                  !m.readBy.includes(index)
-                )
-
-                if (receivedMessage) break
-                await new Promise(r => setTimeout(r, 1000))
-              }
-
-              if (receivedMessage) {
-                receivedMessage.readBy.push(index)
-                allResults += `\n[MESSAGE_RECEIVED] from Agent #${receivedMessage.sender}: "${receivedMessage.content}"\n`
-                event.sender.send('chat-tool-update', {
-                  toolCallName: 'run_subagents',
-                  update: { 
-                    agentIndex: index, 
-                    phase: 'tool_use', 
-                    command: `RECEIVED FROM #${receivedMessage.sender}` 
-                  }
+              await Promise.race([
+                new Promise<void>((r) => waiters.push(r)),
+                new Promise<void>((r) => setTimeout(r, timeout * 1000)),
+                new Promise<void>((_, reject) => {
+                  if (parentSignal?.aborted) reject(new Error('AbortError'))
+                  parentSignal?.addEventListener('abort', () => reject(new Error('AbortError')))
                 })
-              } else {
-                allResults += `\n[SYSTEM: WAIT_TIMEOUT] No message received within ${timeout}s.\n`
-              }
+              ])
+
+              allResults += `\n[SYSTEM]: Resuming after update or timeout.\n`
               continue
             }
 
@@ -335,23 +379,23 @@ async function runSubagents(
 
               event.sender.send('chat-tool-update', {
                 toolCallName: 'run_subagents',
-                update: { 
-                  agentIndex: index, 
-                  phase: 'tool_use', 
-                  command: `${name} (${JSON.stringify(subArgs)})` 
+                update: {
+                  agentIndex: index,
+                  phase: 'tool_use',
+                  command: `${name} (${JSON.stringify(subArgs)})`
                 }
               })
 
               const toolResult = await toolFunctions[name](subArgs, event, apiKey, parentSignal)
               allResults += `\n[RESULT FOR ${name}]:\n${toolResult}\n`
-              
+
               if (parentSignal?.aborted) throw new Error('AbortError')
 
               event.sender.send('chat-tool-update', {
                 toolCallName: 'run_subagents',
-                update: { 
-                  agentIndex: index, 
-                  phase: 'tool_use', 
+                update: {
+                  agentIndex: index,
+                  phase: 'tool_use',
                   command: `${name}`,
                   output: toolResult.substring(0, 100) + (toolResult.length > 100 ? '...' : '')
                 }
@@ -362,10 +406,11 @@ async function runSubagents(
           history.push({ role: 'user', parts: [{ text: `[SYSTEM: TOOL RESULTS]${allResults}\nProceed.` }] })
           continue
         }
-        
-        break // No tool calls, agent finished
+
+        break // No tool calls, agent finished normally
       }
 
+      if (parentSignal?.aborted) throw new Error('AbortError')
       event.sender.send('chat-tool-update', {
         toolCallName: 'run_subagents',
         update: { agentIndex: index, phase: 'done', output: 'Task completed.' }
@@ -375,7 +420,9 @@ async function runSubagents(
       const cleanedOutput = finalOutput.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim()
       return `[AGENT #${index} FINAL REPORT]:\n${cleanedOutput}`
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') throw err
+      if (parentSignal?.aborted || (err instanceof Error && (err.name === 'AbortError' || err.name === 'GoogleGenerativeAIAbortError'))) {
+        throw new Error('AbortError')
+      }
 
       event.sender.send('chat-tool-update', {
         toolCallName: 'run_subagents',
@@ -387,19 +434,26 @@ async function runSubagents(
 
   try {
     const results = await Promise.all(agentPromises)
-    return results.join('\n\n' + '='.repeat(30) + '\n\n')
+    const combinedReport = results.join('\n\n' + '='.repeat(30) + '\n\n')
+    
+    // Append subagent chat log for persistence
+    return `${combinedReport}\n\n<subagent_chat>${JSON.stringify(subagentChatLog)}</subagent_chat>`
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       return 'Sub-agents execution was cancelled by user.'
     }
     throw err
+  } finally {
+    ipcMain.removeListener('subagent-message-broadcast', externalMessageListener)
   }
 }
+
 
 /**
  * Initializes or clears the history with system instructions.
  */
 export function initGemini(): boolean {
+  currentSessionId = Date.now().toString()
   chatHistory = [
     { role: 'user', parts: [{ text: getSystemToolsPrompt(currentModelKey) }] },
     {
@@ -412,6 +466,32 @@ export function initGemini(): boolean {
     }
   ]
   return true
+}
+
+/**
+ * Loads a past session into the current history.
+ */
+export function loadChatIntoHistory(id: string): Content[] {
+  const session = loadChatSession(id)
+  if (session) {
+    currentSessionId = session.id
+    // Prepend system messages to the history loaded from disk
+    chatHistory = [
+      { role: 'user', parts: [{ text: getSystemToolsPrompt(currentModelKey) }] },
+      {
+        role: 'model',
+        parts: [
+          {
+            text: 'Understood. I am Prism, your automation AI. I will use <tool_call> to interact with the system when necessary, staying focused on your initial goal.'
+          }
+        ]
+      },
+      ...session.messages
+    ]
+
+    return chatHistory
+  }
+  return []
 }
 
 /**
@@ -443,6 +523,30 @@ export function cancelChatMessage(): void {
   }
 }
 
+/**
+ * Generates a short title for the chat session based on the first message.
+ */
+async function generateChatTitle(
+  apiKey: string,
+  firstMessage: string
+): Promise<string> {
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey)
+    const model = genAI.getGenerativeModel({
+      model: 'gemma-3-27b-it'
+    })
+
+    const prompt = `Crie um título curtíssimo (máximo 5 palavras) para esta conversa baseada na mensagem: "${firstMessage}". Responda APENAS o título, sem aspas. O título DEVE estar no mesmo idioma do pedido do usuário.`
+
+    const result = await model.generateContent(prompt)
+    const fullTitle = result.response.text().trim()
+    return fullTitle || 'Nova Conversa'
+  } catch (error) {
+    console.error('Failed to generate chat title:', error)
+    return 'Nova Conversa'
+  }
+}
+
 export async function handleChatMessage(
   event: IpcMainEvent,
   data: string | { message: string; thinkMode?: boolean }
@@ -465,6 +569,9 @@ export async function handleChatMessage(
     initGemini()
   }
 
+  // A session is considered "new" for title generation if it only has the initial system/model messages
+  const isFirstUserMessage = chatHistory.length <= 2
+  
   // Detect if it is the /youtube command
   const isYoutube = message.startsWith('/youtube')
   const basePrompt = getSystemToolsPrompt(currentModelKey)
@@ -487,6 +594,21 @@ The user wants to search and play something on YouTube. Use web_search to find t
 
   // Add the user's real question to the manual history
   chatHistory.push({ role: 'user', parts: [{ text: message }] })
+
+  // If it's the first message, prepare the UI and start title generation
+  if (isFirstUserMessage && apiKey) {
+    // Save session with EMPTY title to trigger loading state in sidebar if refreshed from disk
+    saveChatSession(currentSessionId, chatHistory, '')
+    event.sender.send('chat-session-created', { id: currentSessionId })
+    
+    generateChatTitle(apiKey, message).then((finalTitle) => {
+      event.sender.send('chat-title-received', { id: currentSessionId, title: finalTitle })
+      saveChatSession(currentSessionId, chatHistory, finalTitle)
+    })
+  } else {
+    // Regular save for existing sessions
+    saveChatSession(currentSessionId, chatHistory)
+  }
 
   let usedFallback = false
   let success = false
@@ -575,7 +697,10 @@ The user wants to search and play something on YouTube. Use web_search to find t
             let toolType: 'task' | 'search' | undefined = undefined
 
             if (isWritingToolCall) {
-              toolType = fullResponse.includes('<name>web_search</name>') ? 'search' : 'task'
+              const isSearch = 
+                fullResponse.includes('<name>web_search</name>') || 
+                fullResponse.includes('<name>search_chat_history</name>')
+              toolType = isSearch ? 'search' : 'task'
             }
 
             event.sender.send('chat-reply-chunk', {
@@ -622,7 +747,7 @@ The user wants to search and play something on YouTube. Use web_search to find t
                 }
               }
 
-              event.sender.send('chat-tool-start', { name, args: toolArgs })
+              event.sender.send('chat-tool-start', { name, args: toolArgs, timestamp: Date.now() })
 
               let toolResult = ''
               try {
@@ -631,7 +756,11 @@ The user wants to search and play something on YouTube. Use web_search to find t
                 if (signal?.aborted) throw new Error('AbortError')
                 toolResult = await toolFunctions[name](toolArgs, event, apiKey, signal)
               } catch (err) {
-                if (err instanceof Error && err.name === 'AbortError') throw err
+                if (abortController?.signal.aborted || (err instanceof Error && (err.name === 'AbortError' || err.name === 'GoogleGenerativeAIAbortError'))) {
+                  toolResult = 'Cancelled by user.'
+                  event.sender.send('chat-tool-end', { name, result: toolResult })
+                  throw new Error('AbortError')
+                }
                 toolResult = `Error: ${err instanceof Error ? err.message : String(err)}`
               }
 
@@ -656,6 +785,9 @@ The user wants to search and play something on YouTube. Use web_search to find t
           isThinking: false
         })
 
+        // Save session after AI response
+        saveChatSession(currentSessionId, chatHistory)
+
         // Auto-minimize logic: if simple task (<= 100 chars excluding tools)
         const cleanResponse = accumulatedFinalResponse.replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '').trim()
         if (cleanResponse.length <= 100) {
@@ -672,7 +804,7 @@ The user wants to search and play something on YouTube. Use web_search to find t
       abortController = null
     } catch (error) {
       // Robust check for user-initiated abort
-      if (abortController?.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+      if (abortController?.signal.aborted || (error instanceof Error && (error.name === 'AbortError' || error.name === 'GoogleGenerativeAIAbortError'))) {
         console.log('Chat request aborted by user')
         event.sender.send('chat-reply-error', CANCEL_MESSAGE)
         success = true
