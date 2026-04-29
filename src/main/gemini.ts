@@ -171,7 +171,10 @@ async function runSubagents(
       const model = genAI.getGenerativeModel({
         model: MODEL_CONFIGS['prism-3.1'].apiModel,
         generationConfig: {
-          thinkingConfig: MODEL_CONFIGS['prism-3.1'].thinkingConfig
+          thinkingConfig: {
+            thinkingLevel: 'HIGH',
+            includeThoughts: false
+          }
         }
       } as any)
 
@@ -181,7 +184,7 @@ async function runSubagents(
 [RULES]:
 1. PLAN: agent_message strategy before tool use.
 2. SYNC: Keep team updated on actions.
-3. EXIT: Message "all" to check for needs + agent_wait(any, 10) before finishing. End only if ALL CLEAR.`
+3. EXIT: Message "all" to check for needs + agent_wait(any, 60) before finishing. End only if ALL CLEAR.`
 
       const subAgentSystemPrompt = getSystemToolsPrompt('prism-3.1') + 
         '\n\n[MODE]: Autonomous unit.' + identityPrompt + 
@@ -283,7 +286,7 @@ async function runSubagents(
 
             if (name === 'agent_wait') {
               const target = subArgs.targetAgent === 'any' ? 'any' : parseInt(subArgs.targetAgent || '-1')
-              const timeout = Math.min(parseInt(subArgs.timeoutSeconds || '50'), 50)
+              const timeout = Math.min(parseInt(subArgs.timeoutSeconds || '240'), 240)
               
               event.sender.send('chat-tool-update', {
                 toolCallName: 'run_subagents',

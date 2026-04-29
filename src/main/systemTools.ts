@@ -392,7 +392,7 @@ Rules:
 - Path Integrity: Use EXACT paths from Environment Context. NEVER use placeholders like 'YourUsername'.
 - Parallel: Use <run_subagents>.
   - Sub-agents can't use run_subagents.
-  - Radio Bus: agent_message(to, content), agent_wait(target, sec).
+  - Radio Bus: agent_message(to, content), agent_wait(target, sec [80-240s recommended]).
   - Wait for ALL to finish.
   - Define team protocol & ask for detailed outputs.
 
