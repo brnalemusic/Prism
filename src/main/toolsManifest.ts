@@ -126,7 +126,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'web_search',
-    description: 'DuckDuckGo web search for real-time info.',
+    description: 'Web search using Mojeek and DuckDuckGo for real-time info.',
     usage: '<tool_call><name>web_search</name><query>QUERY</query></tool_call>',
     parameters: {
       query: 'Search query.'

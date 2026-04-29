@@ -258,7 +258,7 @@ export async function sawLinkFromUrl(url: string, signal?: AbortSignal): Promise
       signal,
       headers: {
         'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       }
     })
 
@@ -285,48 +285,107 @@ export async function sawLinkFromUrl(url: string, signal?: AbortSignal): Promise
 
 /**
  * Performs a web search using DuckDuckGo HTML version.
+ * Fallbacks to Mojeek if DuckDuckGo fails.
  */
 export async function webSearch(query: string, signal?: AbortSignal): Promise<string> {
-  try {
+  const userAgent =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+
+  async function tryDuckDuckGo(): Promise<{ title: string; link: string; snippet: string }[]> {
     const response = await fetch(
       `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
       {
         signal,
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
+        headers: { 'User-Agent': userAgent }
       }
     )
 
-    if (!response.ok) {
-      return `Error: DuckDuckGo returned status ${response.status}`
-    }
+    if (!response.ok) return []
 
     const html = await response.text()
-
-    // Basic regex to extract results from DuckDuckGo HTML
-    // Looking for results in <div class="result__body">...</div>
     const results: { title: string; link: string; snippet: string }[] = []
-    const resultRegex = /<div[^>]*class="[^"]*result__body[^"]*"[^>]*>([\s\S]*?)<div[^>]*class="[^"]*clear[^"]*"[^>]*>/g
+    
+    // Improved regex to be more resilient to structural changes
+    // We look for the main result containers
+    const resultRegex = /<div[^>]*class="[^"]*result__body[^"]*"[^>]*>([\s\S]*?)(?:<div[^>]*class="[^"]*clear[^"]*"[^>]*>|<\/div>\s*<\/div>)/g
     let match
 
     while ((match = resultRegex.exec(html)) !== null && results.length < 5) {
       const body = match[1]
 
       const titleMatch = body.match(/<a[^>]*class="[^"]*result__a[^"]*"[^>]*>([\s\S]*?)<\/a>/)
-      const linkMatch = body.match(/<a[^>]*href="([^"]*)"[^>]*class="[^"]*result__a[^"]*"/) || 
-                        body.match(/<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]*)"/)
+      const linkMatch = body.match(/href="([^"]*)"[^>]*class="[^"]*result__a[^"]*"/) || 
+                        body.match(/class="[^"]*result__a[^"]*"[^>]*href="([^"]*)"/) ||
+                        body.match(/href="([^"]*)"/)
 
-      const snippetMatch = body.match(/<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/)
+      const snippetMatch = body.match(/<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/) ||
+                           body.match(/<div[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/div>/)
+
+      if (titleMatch && linkMatch) {
+        results.push({
+          title: stripHtml(titleMatch[1]).trim(),
+          link: linkMatch[1].startsWith('//') ? `https:${linkMatch[1]}` : linkMatch[1],
+          snippet: snippetMatch ? stripHtml(snippetMatch[1]).trim() : ''
+        })
+      }
+    }
+    return results
+  }
+
+  async function tryMojeek(): Promise<{ title: string; link: string; snippet: string }[]> {
+    const response = await fetch(
+      `https://www.mojeek.com/search?q=${encodeURIComponent(query)}`,
+      {
+        signal,
+        headers: { 'User-Agent': userAgent }
+      }
+    )
+
+    if (!response.ok) return []
+
+    const html = await response.text()
+    const results: { title: string; link: string; snippet: string }[] = []
+    
+    // Mojeek results are in <li> elements with class r1, r2, etc.
+    const liRegex = /<li[^>]*class="r\d+[^"]*"[^>]*>([\s\S]*?)<\/li>/g
+    let match
+
+    while ((match = liRegex.exec(html)) !== null && results.length < 5) {
+      const body = match[1]
+      const titleMatch = body.match(/class="title"[^>]*>([\s\S]*?)<\/a>/)
+      const linkMatch = body.match(/href="([^"]*)"/)
+      
+      // Mojeek has class="i" for breadcrumbs and class="s" for snippets.
+      // We want class="s".
+      let snippet = ''
+      const sMatch = body.match(/<p[^>]*class="s"[^>]*>([\s\S]*?)<\/p>/)
+      if (sMatch) {
+        snippet = stripHtml(sMatch[1]).trim()
+      } else {
+        // Fallback: search for any paragraph that isn't the breadcrumb (class="i")
+        const allParagraphs = body.match(/<p[^>]*>([\s\S]*?)<\/p>/g)
+        if (allParagraphs && allParagraphs.length > 1) {
+          snippet = stripHtml(allParagraphs[allParagraphs.length - 1]).trim()
+        }
+      }
 
       if (titleMatch && linkMatch) {
         results.push({
           title: stripHtml(titleMatch[1]).trim(),
           link: linkMatch[1],
-          snippet: snippetMatch ? stripHtml(snippetMatch[1]).trim() : ''
+          snippet: snippet
         })
       }
+    }
+    return results
+  }
+
+  try {
+    let results = await tryMojeek()
+
+    if (results.length === 0) {
+      // Fallback to DuckDuckGo
+      results = await tryDuckDuckGo()
     }
 
     if (results.length === 0) {
