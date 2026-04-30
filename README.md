@@ -8,7 +8,7 @@
 
 A desktop AI that doesn't just answer — it *acts*.
 
-[![License](https://img.shields.io/badge/License-GPL v3.0-6C63FF?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/badge/License-GPL%20v3.0-6C63FF?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows-C084FC?style=flat-square)](#installation)
 [![Made with](https://img.shields.io/badge/Powered_by-Gemma-F0F0F5?style=flat-square&logo=google&logoColor=white)](#models)
 
