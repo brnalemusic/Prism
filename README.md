@@ -152,7 +152,7 @@ npm run build:win    # Windows
 
 ## License
 
-Prism is released under the [GNU V3.0](LICENSE).
+Prism is released under the [GPL-3.0 License](LICENSE).
 
 ---
 
