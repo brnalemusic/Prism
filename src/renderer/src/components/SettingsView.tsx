@@ -1,5 +1,14 @@
 import { useState, useEffect } from 'react'
-import { Save, Settings as SettingsIcon, Keyboard, Bot, RotateCcw, Monitor, Key, Shield } from 'lucide-react'
+import {
+  Save,
+  Settings as SettingsIcon,
+  Keyboard,
+  Bot,
+  RotateCcw,
+  Monitor,
+  Key,
+  Shield
+} from 'lucide-react'
 import { MODELS } from '../constants'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import clsx from 'clsx'
@@ -8,7 +17,8 @@ export function SettingsView(): React.JSX.Element {
   const [config, setConfig] = useState({
     launcherShortcut: 'CommandOrControl+Space',
     modelSelectionShortcut: 'CommandOrControl+M',
-    defaultModel: 'prism-3',
+    defaultModel: 'prism-5',
+    subagentModel: 'prism-4.2',
     minimizeToTray: false,
     userGeminiKey: ''
   })
@@ -46,29 +56,28 @@ export function SettingsView(): React.JSX.Element {
     setConfig({
       launcherShortcut: 'CommandOrControl+Space',
       modelSelectionShortcut: 'CommandOrControl+M',
-      defaultModel: 'prism-3',
+      defaultModel: 'prism-5',
+      subagentModel: 'prism-4.2',
       minimizeToTray: false,
       userGeminiKey: ''
     })
   }
 
   return (
-    <div className="flex-1 flex flex-col max-w-4xl mx-auto w-full py-12 px-8 overflow-y-auto animate-in fade-in duration-500">
-      <div className="flex items-center gap-4 mb-10">
-        <div className="w-12 h-12 rounded-2xl bg-accent-primary/20 flex items-center justify-center text-accent-primary">
+    <div className="flex-1 flex flex-col max-w-4xl mx-auto w-full py-10 px-8 overflow-y-auto animate-soft-pop">
+      <div className="flex items-center gap-4 mb-8">
+        <div className="flex h-12 w-12 items-center justify-center rounded-[20px] border border-white/10 bg-white/[0.055] text-accent-primary">
           <SettingsIcon size={28} />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-text-primary tracking-tight">
-            System Preferences
-          </h1>
-          <p className="text-text-secondary/60 text-sm">Personalize your experience with Prism.</p>
+          <h1 className="text-2xl font-semibold text-text-primary">System Preferences</h1>
+          <p className="text-text-secondary/70 text-sm">Tune Prism for your workflow.</p>
         </div>
       </div>
 
-      <div className="space-y-8">
+      <div className="space-y-6">
         {/* Shortcuts */}
-        <section className="bg-background-secondary/30 rounded-2xl border border-surface/50 p-6 backdrop-blur-sm">
+        <section className="premium-panel-soft rounded-[28px] p-6">
           <div className="flex items-center gap-3 mb-6">
             <Keyboard size={20} className="text-accent-primary" />
             <h2 className="text-lg font-semibold text-text-primary">Keyboard Shortcuts</h2>
@@ -76,7 +85,7 @@ export function SettingsView(): React.JSX.Element {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="flex flex-col gap-2">
-              <label className="text-xs uppercase tracking-widest font-black text-text-secondary/50">
+              <label className="text-xs font-semibold text-text-secondary/70">
                 Open Quick Launcher
               </label>
               <ShortcutRecorder
@@ -86,7 +95,7 @@ export function SettingsView(): React.JSX.Element {
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="text-xs uppercase tracking-widest font-black text-text-secondary/50">
+              <label className="text-xs font-semibold text-text-secondary/70">
                 Model Selection (In Launcher)
               </label>
               <ShortcutRecorder
@@ -100,7 +109,7 @@ export function SettingsView(): React.JSX.Element {
         </section>
 
         {/* Default Model */}
-        <section className="bg-background-secondary/30 rounded-2xl border border-surface/50 p-6 backdrop-blur-sm">
+        <section className="premium-panel-soft rounded-[28px] p-6">
           <div className="flex items-center gap-3 mb-6">
             <Bot size={20} className="text-accent-secondary" />
             <h2 className="text-lg font-semibold text-text-primary">Default Intelligence</h2>
@@ -108,7 +117,7 @@ export function SettingsView(): React.JSX.Element {
 
           <div className="space-y-4">
             <div className="flex flex-col gap-2">
-              <label className="text-xs uppercase tracking-widest font-black text-text-secondary/50">
+              <label className="text-xs font-semibold text-text-secondary/70">
                 Model at Startup
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -117,24 +126,31 @@ export function SettingsView(): React.JSX.Element {
                     key={model.id}
                     onClick={() => setConfig({ ...config, defaultModel: model.id })}
                     className={clsx(
-                      'flex flex-col items-start p-4 rounded-xl border transition-all text-left',
-                      config.defaultModel === model.id
-                        ? 'bg-accent-primary/10 border-accent-primary/40 shadow-[0_0_15px_-5px_rgba(108,99,255,0.2)]'
-                        : 'bg-surface/20 border-surface/50 hover:bg-surface/40 hover:border-surface'
+                      'relative flex flex-col items-start rounded-[20px] border p-4 text-left transition-all duration-200 active:scale-[0.98]',
+                      model.id === 'prism-5'
+                        ? [
+                            'prism-5-model-option prism-5-settings-option',
+                            config.defaultModel === model.id && 'prism-5-model-option-active'
+                          ]
+                        : config.defaultModel === model.id
+                          ? 'border-accent-primary/30 bg-accent-primary/[0.09]'
+                          : 'border-white/[0.08] bg-white/[0.035] hover:bg-white/[0.055]'
                     )}
                   >
                     <span
                       className={clsx(
-                        'text-sm font-bold mb-1',
-                        model.id === 'prism-3' && 'prism-3-gradient animate-gradient-x',
-                        config.defaultModel === model.id && model.id !== 'prism-3'
+                        'mb-1 text-sm font-semibold',
+                        model.id === 'prism-5' && 'prism-5-title-gradient',
+                        config.defaultModel === model.id && model.id !== 'prism-5'
                           ? 'text-accent-primary'
-                          : config.defaultModel !== model.id && model.id !== 'prism-3' && 'text-text-primary'
+                          : config.defaultModel !== model.id &&
+                              model.id !== 'prism-5' &&
+                              'text-text-primary'
                       )}
                     >
                       {model.name}
                     </span>
-                    <span className="text-[10px] text-text-secondary/60 leading-tight">
+                    <span className="text-xs text-text-secondary/70 leading-tight">
                       {model.description}
                     </span>
                   </button>
@@ -144,8 +160,58 @@ export function SettingsView(): React.JSX.Element {
           </div>
         </section>
 
+        {/* Subagent Model */}
+        <section className="premium-panel-soft rounded-[28px] p-6">
+          <div className="mb-6 flex items-center gap-3">
+            <Bot size={20} className="text-accent-primary" />
+            <h2 className="text-lg font-semibold text-text-primary">Subagent Intelligence</h2>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-semibold text-text-secondary/70">
+              Model for Orchestration
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {MODELS.map((model) => (
+                <button
+                  key={model.id}
+                  onClick={() => setConfig({ ...config, subagentModel: model.id })}
+                  className={clsx(
+                    'relative flex flex-col items-start rounded-[20px] border p-4 text-left transition-all duration-200 active:scale-[0.98]',
+                    model.id === 'prism-5'
+                      ? [
+                          'prism-5-model-option prism-5-settings-option',
+                          config.subagentModel === model.id && 'prism-5-model-option-active'
+                        ]
+                      : config.subagentModel === model.id
+                        ? 'border-accent-primary/30 bg-accent-primary/[0.09]'
+                        : 'border-white/[0.08] bg-white/[0.035] hover:bg-white/[0.055]'
+                  )}
+                >
+                  <span
+                    className={clsx(
+                      'mb-1 text-sm font-semibold',
+                      model.id === 'prism-5' && 'prism-5-title-gradient',
+                      config.subagentModel === model.id && model.id !== 'prism-5'
+                        ? 'text-accent-primary'
+                        : config.subagentModel !== model.id &&
+                            model.id !== 'prism-5' &&
+                            'text-text-primary'
+                    )}
+                  >
+                    {model.name}
+                  </span>
+                  <span className="text-xs text-text-secondary/70 leading-tight">
+                    {model.description}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* API Key */}
-        <section className="bg-background-secondary/30 rounded-2xl border border-surface/50 p-6 backdrop-blur-sm">
+        <section className="premium-panel-soft rounded-[28px] p-6">
           <div className="flex items-center gap-3 mb-6">
             <Key size={20} className="text-accent-primary" />
             <h2 className="text-lg font-semibold text-text-primary">API Key (Gemini)</h2>
@@ -153,7 +219,7 @@ export function SettingsView(): React.JSX.Element {
 
           <div className="space-y-4">
             <div className="flex flex-col gap-2">
-              <label className="text-xs uppercase tracking-widest font-black text-text-secondary/50">
+              <label className="text-xs font-semibold text-text-secondary/70">
                 Your Gemini API Key
               </label>
               <div className="relative group">
@@ -162,14 +228,15 @@ export function SettingsView(): React.JSX.Element {
                   value={(config as any).userGeminiKey || ''}
                   onChange={(e) => setConfig({ ...config, userGeminiKey: e.target.value } as any)}
                   placeholder="If left blank, Prism will use the default key (if available)"
-                  className="w-full bg-surface/20 border border-surface/50 rounded-xl px-4 py-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-primary/50 transition-all"
+                  className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
                 />
-                <div className="mt-3 flex items-start gap-2 p-3 bg-accent-primary/5 border border-accent-primary/10 rounded-lg">
+                <div className="mt-3 flex items-start gap-2 rounded-[18px] border border-accent-primary/10 bg-accent-primary/[0.045] p-3">
                   <div className="text-accent-secondary shrink-0 mt-0.5">
                     <Shield size={14} />
                   </div>
-                  <p className="text-[10px] text-text-secondary/60 leading-normal">
-                    Your key is saved locally in an encrypted format. Prism does not collect or share your API keys.
+                  <p className="text-[11px] text-text-secondary/70 leading-normal">
+                    Your key is saved locally in an encrypted format. Prism does not collect or
+                    share your API keys.
                   </p>
                 </div>
               </div>
@@ -178,33 +245,33 @@ export function SettingsView(): React.JSX.Element {
         </section>
 
         {/* Behavior */}
-        <section className="bg-background-secondary/30 rounded-2xl border border-surface/50 p-6 backdrop-blur-sm">
+        <section className="premium-panel-soft rounded-[28px] p-6">
           <div className="flex items-center gap-3 mb-6">
             <Monitor size={20} className="text-accent-primary" />
             <h2 className="text-lg font-semibold text-text-primary">System Behavior</h2>
           </div>
 
           <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 rounded-xl bg-surface/20 border border-surface/50">
+            <div className="flex items-center justify-between rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-4">
               <div className="flex flex-col gap-1">
-                <span className="text-sm font-bold text-text-primary">
-                  Minimize to Tray
-                </span>
-                <span className="text-[10px] text-text-secondary/60 leading-tight">
+                <span className="text-sm font-bold text-text-primary">Minimize to Tray</span>
+                <span className="text-xs text-text-secondary/70 leading-tight">
                   When clicking close, Prism will continue running in the system tray.
                 </span>
               </div>
               <button
                 onClick={() => setConfig({ ...config, minimizeToTray: !config.minimizeToTray })}
+                role="switch"
+                aria-checked={config.minimizeToTray}
                 className={clsx(
-                  'w-12 h-6 rounded-full transition-all relative flex items-center px-1',
-                  config.minimizeToTray ? 'bg-accent-primary' : 'bg-surface/60'
+                  'relative flex h-7 w-12 items-center rounded-full px-1 transition-all duration-200 hover:opacity-90',
+                  config.minimizeToTray ? 'bg-accent-primary' : 'bg-white/[0.12]'
                 )}
               >
                 <div
                   className={clsx(
-                    'w-4 h-4 rounded-full bg-white transition-all shadow-md',
-                    config.minimizeToTray ? 'translate-x-6' : 'translate-x-0'
+                    'h-5 w-5 rounded-full bg-white shadow-md transition-all duration-200',
+                    config.minimizeToTray ? 'translate-x-5' : 'translate-x-0'
                   )}
                 />
               </button>
@@ -213,10 +280,10 @@ export function SettingsView(): React.JSX.Element {
         </section>
 
         {/* Action Footer */}
-        <div className="flex items-center justify-between pt-6 border-t border-surface/10">
+        <div className="flex items-center justify-between border-t border-white/[0.055] pt-6">
           <button
             onClick={handleReset}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-text-secondary/60 hover:text-text-primary transition-colors"
+            className="flex items-center gap-2 rounded-[16px] px-4 py-2 text-xs font-semibold text-text-secondary/70 transition-colors hover:bg-white/[0.04] hover:text-text-primary"
           >
             <RotateCcw size={14} />
             Restore Defaults
@@ -226,7 +293,7 @@ export function SettingsView(): React.JSX.Element {
             {message.text && (
               <span
                 className={clsx(
-                  'text-xs font-bold animate-in fade-in slide-in-from-right-2 duration-300',
+                  'text-xs font-semibold animate-soft-pop',
                   message.type === 'success' ? 'text-status-success' : 'text-status-error'
                 )}
               >
@@ -236,7 +303,7 @@ export function SettingsView(): React.JSX.Element {
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="flex items-center gap-2 px-6 py-2.5 bg-accent-primary text-white rounded-xl font-bold text-sm hover:bg-accent-primary/90 transition-all shadow-lg shadow-accent-primary/20 disabled:opacity-50"
+              className="flex items-center gap-2 rounded-[18px] bg-text-primary px-6 py-2.5 text-sm font-semibold text-black transition-all hover:bg-white disabled:opacity-50"
             >
               <Save size={18} />
               {isSaving ? 'Saving...' : 'Save Changes'}

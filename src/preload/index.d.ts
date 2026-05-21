@@ -18,11 +18,14 @@ export interface ToolCall {
   result?: string
   status: 'writing' | 'running' | 'cooldown' | 'done' | 'error'
   subagentMessages?: any[]
-  agentUpdates?: Record<number, {
-    phase: 'thinking' | 'tool_use' | 'done' | 'error'
-    command?: string
-    output?: string
-  }>
+  agentUpdates?: Record<
+    number,
+    {
+      phase: 'thinking' | 'tool_use' | 'done' | 'error'
+      command?: string
+      output?: string
+    }
+  >
 }
 
 export interface PrismAPI {
@@ -35,10 +38,14 @@ export interface PrismAPI {
   onChatChunk: (callback: (data: StructuredChatResponse) => void) => () => void
   onChatEnd: (callback: (data: StructuredChatResponse) => void) => () => void
   onChatError: (callback: (error: string) => void) => () => void
-  onToolStart: (callback: (data: { name: string; args: Record<string, unknown>; timestamp?: number }) => void) => () => void
+  onToolStart: (
+    callback: (data: { name: string; args: Record<string, unknown>; timestamp?: number }) => void
+  ) => () => void
   onToolEnd: (callback: (data: { name: string; result: string }) => void) => () => void
   onToolUpdate: (callback: (data: ToolUpdate) => void) => () => void
-  onLauncherMessage: (callback: (data: { message: string; thinkMode?: boolean }) => void) => () => void
+  onLauncherMessage: (
+    callback: (data: { message: string; thinkMode?: boolean }) => void
+  ) => () => void
   onLauncherFocus: (callback: () => void) => () => void
   onModelChanged: (callback: (modelKey: string) => void) => () => void
   onConfigChanged: (callback: (config: AppConfig) => void) => () => void
@@ -50,9 +57,11 @@ export interface PrismAPI {
   minimizeApp: () => void
   minimizeSubagentsWindow: () => void
   openSubagentsWindow: (initialMessages?: any[]) => void
+  openSubagentSettingsWindow: () => void
   broadcastSubagentMessage: (data: any) => void
   closeApp: () => void
   closeSubagentsWindow: () => void
+  closeSubagentSettingsWindow: () => void
   getConfig: () => Promise<AppConfig>
   saveConfig: (config: AppConfig) => Promise<boolean>
   getChats: () => Promise<any[]>

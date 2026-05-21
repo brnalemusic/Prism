@@ -8,7 +8,11 @@ interface ApiKeyModalProps {
   onSave: (key: string) => void
 }
 
-export function ApiKeyModal({ isOpen, onClose, onSave }: ApiKeyModalProps): React.JSX.Element | null {
+export function ApiKeyModal({
+  isOpen,
+  onClose,
+  onSave
+}: ApiKeyModalProps): React.JSX.Element | null {
   const [apiKey, setApiKey] = useState('')
   const [isVisible, setIsVisible] = useState(false)
 
@@ -39,35 +43,33 @@ export function ApiKeyModal({ isOpen, onClose, onSave }: ApiKeyModalProps): Reac
       )}
     >
       {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-[#000]/60 backdrop-blur-md" 
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/[0.55] backdrop-blur-xl" onClick={onClose} />
 
       {/* Modal */}
       <div
+        role="dialog"
+        aria-modal="true"
         className={clsx(
-          'relative w-full max-w-md bg-[#0A0A0F] border border-surface/40 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden transition-all duration-300 transform',
+          'premium-panel relative w-full max-w-md overflow-hidden rounded-[30px] transition-all duration-300 transform',
           isOpen ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'
         )}
       >
-        {/* Glow effect */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-[1px] bg-gradient-to-r from-transparent via-accent-primary/50 to-transparent" />
-        
         <div className="p-8 flex flex-col gap-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-accent-primary/10 flex items-center justify-center text-accent-primary border border-accent-primary/20">
+              <div className="flex h-10 w-10 items-center justify-center rounded-[18px] border border-accent-primary/20 bg-accent-primary/[0.08] text-accent-primary">
                 <Key size={20} />
               </div>
               <div className="flex flex-col">
-                <h2 className="text-lg font-bold text-text-primary tracking-tight">Gemini API Key</h2>
-                <span className="text-[10px] uppercase tracking-widest font-bold text-accent-secondary/60">Configure your own access</span>
+                <h2 className="text-lg font-semibold text-text-primary">Gemini API Key</h2>
+                <span className="text-xs font-medium text-accent-secondary/70">
+                  Configure your own access
+                </span>
               </div>
             </div>
-            <button 
+            <button
               onClick={onClose}
-              className="text-text-secondary/40 hover:text-text-primary transition-colors"
+              className="rounded-xl p-1 text-text-secondary/50 transition-colors hover:bg-white/[0.06] hover:text-text-primary"
             >
               <X size={20} />
             </button>
@@ -84,27 +86,38 @@ export function ApiKeyModal({ isOpen, onClose, onSave }: ApiKeyModalProps): Reac
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="Insert your Gemini API Key here..."
-                className="w-full bg-[#111118] border border-surface/60 rounded-xl px-4 py-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent-primary/50 focus:ring-1 focus:ring-accent-primary/30 transition-all"
+                className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
               />
             </div>
 
             <div className="flex flex-col gap-3">
-              <div className="flex items-start gap-3 p-4 bg-status-success/5 border border-status-success/10 rounded-xl">
+              <div className="flex items-start gap-3 rounded-[20px] border border-status-success/10 bg-status-success/[0.045] p-4">
                 <Shield size={16} className="text-status-success shrink-0 mt-0.5" />
                 <div className="flex flex-col gap-1">
                   <span className="text-xs font-bold text-status-success/90">Total Security</span>
                   <p className="text-[11px] text-status-success/70 leading-normal">
-                    Your key is saved only locally on your computer and encrypted by the system. Prism uses its own internet connection to speak with the API, without passing through any intermediate service or telemetry.
+                    Your key is saved only locally on your computer and encrypted by the system.
+                    Prism uses its own internet connection to speak with the API, without passing
+                    through any intermediate service or telemetry.
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-start gap-3 p-4 bg-accent-primary/5 border border-accent-primary/10 rounded-xl">
+              <div className="flex items-start gap-3 rounded-[20px] border border-accent-primary/10 bg-accent-primary/[0.045] p-4">
                 <Info size={16} className="text-accent-secondary shrink-0 mt-0.5" />
                 <div className="flex flex-col gap-1">
                   <span className="text-xs font-bold text-accent-secondary/90">How to get?</span>
                   <p className="text-[11px] text-accent-secondary/70 leading-normal">
-                    You can create a free key at <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="underline hover:text-accent-secondary transition-colors">Google AI Studio</a>.
+                    You can create a free key at{' '}
+                    <a
+                      href="https://aistudio.google.com/"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline hover:text-accent-secondary transition-colors"
+                    >
+                      Google AI Studio
+                    </a>
+                    .
                   </p>
                 </div>
               </div>
@@ -114,14 +127,14 @@ export function ApiKeyModal({ isOpen, onClose, onSave }: ApiKeyModalProps): Reac
           <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="flex-1 px-4 py-3 rounded-xl border border-surface/60 text-sm font-bold text-text-secondary hover:bg-surface/10 hover:text-text-primary transition-all"
+              className="flex-1 rounded-[18px] border border-white/[0.08] px-4 py-3 text-sm font-semibold text-text-secondary transition-all hover:bg-white/[0.055] hover:text-text-primary active:scale-[0.98]"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={!apiKey.trim()}
-              className="flex-1 px-4 py-3 rounded-xl bg-accent-primary text-sm font-bold text-[#fff] hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(108,99,255,0.2)]"
+              className="flex-1 rounded-[18px] bg-text-primary px-4 py-3 text-sm font-semibold text-black transition-all hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98]"
             >
               Save Key
             </button>

@@ -1,13 +1,29 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import clsx from 'clsx'
 
 export function IntroScreen({ onComplete }: { onComplete: () => void }): React.JSX.Element {
-  const [stage, setStage] = useState<'initial' | 'animate' | 'exit'>('initial')
+  const [stage, setStage] = useState<'initial' | 'active' | 'exit'>('initial')
+
+  const barColors = [
+    'rgba(143,180,255,0.15), rgba(143,180,255,0.5), rgba(143,180,255,0.85)',
+    'rgba(255,255,255,0.15), rgba(255,255,255,0.5), rgba(255,255,255,0.9)',
+    'rgba(120,224,194,0.15), rgba(120,224,194,0.5), rgba(120,224,194,0.85)',
+    'rgba(228,187,106,0.15), rgba(228,187,106,0.5), rgba(228,187,106,0.8)',
+    'rgba(239,127,120,0.15), rgba(239,127,120,0.5), rgba(239,127,120,0.8)'
+  ]
+  const barHeights = [0.72, 1, 0.82, 0.58, 0.9]
+
+  const handleSkip = useCallback(() => {
+    if (stage === 'active') {
+      setStage('exit')
+      setTimeout(() => onComplete(), 600)
+    }
+  }, [stage, onComplete])
 
   useEffect(() => {
-    const timer1 = setTimeout(() => setStage('animate'), 100)
-    const timer2 = setTimeout(() => setStage('exit'), 2800)
-    const timer3 = setTimeout(() => onComplete(), 3500)
+    const timer1 = setTimeout(() => setStage('active'), 80)
+    const timer2 = setTimeout(() => setStage('exit'), 2350)
+    const timer3 = setTimeout(() => onComplete(), 2950)
 
     return () => {
       clearTimeout(timer1)
@@ -18,128 +34,90 @@ export function IntroScreen({ onComplete }: { onComplete: () => void }): React.J
 
   return (
     <div
+      onClick={handleSkip}
       className={clsx(
-        'fixed inset-0 z-[9999] flex items-center justify-center bg-[#0A0A0F] transition-opacity duration-700 ease-in-out',
+        'fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden bg-[#0b0c0f] transition-opacity duration-700 ease-out gpu-composed cursor-pointer',
         stage === 'exit' ? 'opacity-0' : 'opacity-100'
       )}
     >
-      {/* Background Refraction Shapes */}
-      <div
-        className={clsx(
-          'absolute w-[40vw] h-[40vw] rounded-full bg-accent-primary/20 blur-[100px] transition-all duration-[2000ms] ease-out',
-          stage === 'animate' ? 'scale-150 opacity-40' : 'scale-50 opacity-0'
-        )}
-      />
-      <div
-        className={clsx(
-          'absolute w-[30vw] h-[30vw] rounded-full bg-accent-secondary/20 blur-[80px] transition-all duration-[2500ms] ease-out delay-300',
-          stage === 'animate'
-            ? 'translate-x-20 -translate-y-20 scale-125 opacity-30'
-            : 'scale-50 opacity-0'
-        )}
-      />
+      <div className="absolute inset-0 hairline-grid opacity-35" />
+      <div className="absolute inset-x-10 top-8 h-px bg-gradient-to-r from-transparent via-white/12 to-transparent" />
+      <div className="absolute inset-x-10 bottom-8 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
 
-      {/* Main Logo/Text Container */}
-      <div className="relative flex flex-col items-center">
+      <div
+        className={clsx(
+          'relative flex w-[min(520px,80vw)] flex-col items-center rounded-[28px] px-12 py-12 premium-panel gpu-composed',
+          stage === 'active' && 'animate-[intro-shell_900ms_cubic-bezier(0.2,0.82,0.2,1)_both]',
+          stage === 'initial' && 'opacity-0 scale-[0.985]'
+        )}
+      >
+        {/* Radial glow behind bars */}
         <div
           className={clsx(
-            'relative transition-all duration-1000 ease-out',
-            stage === 'animate' ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+            'absolute inset-0 pointer-events-none transition-opacity duration-1000',
+            stage === 'active' ? 'opacity-100' : 'opacity-0'
           )}
         >
-          {/* Logo Prism Shape */}
-          <div className="relative w-32 h-32 mb-8 mx-auto">
-            <div
-              className={clsx(
-                'absolute inset-0 border-2 border-accent-primary/40 rotate-45 transition-all duration-[2000ms] ease-out',
-                stage === 'animate'
-                  ? 'rotate-[225deg] scale-100 opacity-100'
-                  : 'rotate-45 scale-50 opacity-0'
-              )}
-            />
-            <div
-              className={clsx(
-                'absolute inset-0 border-2 border-accent-secondary/40 -rotate-45 transition-all duration-[2000ms] ease-out delay-150',
-                stage === 'animate'
-                  ? 'rotate-[-225deg] scale-90 opacity-80'
-                  : '-rotate-45 scale-50 opacity-0'
-              )}
-            />
-            <div
-              className={clsx(
-                'absolute inset-4 bg-gradient-to-br from-accent-primary to-accent-secondary blur-2xl opacity-20 transition-all duration-1000 delay-500',
-                stage === 'animate' ? 'scale-110 opacity-40' : 'scale-50 opacity-0'
-              )}
-            />
-          </div>
+          <div className="absolute left-1/2 top-[38%] -translate-x-1/2 -translate-y-1/2 h-48 w-48 rounded-full bg-accent-primary/[0.08] blur-[60px]" />
+        </div>
 
-          {/* Text with Refraction Effect */}
-          <div className="relative px-12 py-4">
-            <h1 className="relative text-7xl font-black tracking-[0.3em] text-white overflow-hidden">
-              <span className="relative z-10">PRISM</span>
-              {/* Refraction layers */}
-              <span
-                className={clsx(
-                  'absolute inset-0 z-0 text-accent-primary/40 blur-[4px] mix-blend-screen transition-all duration-[2500ms] ease-out',
-                  stage === 'animate'
-                    ? 'translate-x-2 -translate-y-1 scale-110 opacity-100'
-                    : 'translate-x-0 translate-y-0 scale-100 opacity-0'
-                )}
-              >
-                PRISM
-              </span>
-              <span
-                className={clsx(
-                  'absolute inset-0 z-0 text-accent-secondary/40 blur-[8px] mix-blend-screen transition-all duration-[3000ms] ease-out',
-                  stage === 'animate'
-                    ? '-translate-x-2 translate-y-1 scale-125 opacity-100'
-                    : 'translate-x-0 translate-y-0 scale-100 opacity-0'
-                )}
-              >
-                PRISM
-              </span>
-
-              {/* Shiny scanline effect */}
-              <div
-                className={clsx(
-                  'absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -skew-x-12 transition-all duration-[1500ms] ease-in-out',
-                  stage === 'animate' ? 'translate-x-[200%]' : '-translate-x-full'
-                )}
-              />
-            </h1>
-          </div>
-
-          {/* Subtitle / Line */}
+        <div className="absolute inset-x-10 top-0 h-px overflow-hidden">
           <div
             className={clsx(
-              'mt-2 h-px bg-gradient-to-r from-transparent via-accent-primary/50 to-transparent mx-auto transition-all duration-[2000ms] ease-in-out delay-700',
-              stage === 'animate' ? 'w-80 opacity-100' : 'w-0 opacity-0'
+              'h-px w-full bg-gradient-to-r from-transparent via-accent-primary to-transparent',
+              stage === 'active' &&
+                'animate-[line-sweep_1800ms_cubic-bezier(0.2,0.82,0.2,1)_220ms_both]'
             )}
           />
-          <p
+        </div>
+
+        <div className="mb-8 flex h-20 items-end gap-2">
+          {barHeights.map((scale, index) => (
+            <span
+              key={index}
+              className={clsx(
+                'block w-3 origin-bottom rounded-full shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] gpu-composed',
+                stage === 'active' && 'animate-[intro-bar_820ms_cubic-bezier(0.2,0.82,0.2,1)_both]',
+                stage === 'initial' && 'opacity-0'
+              )}
+              style={{
+                height: `${54 * scale}px`,
+                animationDelay: `${160 + index * 95}ms`,
+                background: `linear-gradient(to top, ${barColors[index]})`
+              }}
+            />
+          ))}
+        </div>
+
+        <div className="relative overflow-hidden px-2 pb-1">
+          <h1
             className={clsx(
-              'mt-4 text-[10px] uppercase tracking-[0.5em] text-text-secondary/40 text-center font-bold transition-all duration-1000 delay-1000',
-              stage === 'animate' ? 'opacity-100 tracking-[0.8em]' : 'opacity-0 tracking-[0.5em]'
+              'text-[54px] font-semibold leading-none text-text-primary gpu-composed',
+              stage === 'active' &&
+                'animate-[intro-word_760ms_cubic-bezier(0.2,0.82,0.2,1)_620ms_both]',
+              stage === 'initial' && 'opacity-0'
             )}
           >
-            Intelligence Refracted
-          </p>
+            Prism
+          </h1>
         </div>
-      </div>
 
-      {/* Decorative lines */}
-      <div
-        className={clsx(
-          'absolute top-0 left-1/4 w-px h-full bg-gradient-to-b from-transparent via-accent-primary/10 to-transparent transition-all duration-[2000ms] ease-in-out',
-          stage === 'animate' ? 'opacity-100' : 'opacity-0'
-        )}
-      />
-      <div
-        className={clsx(
-          'absolute top-0 right-1/4 w-px h-full bg-gradient-to-b from-transparent via-accent-secondary/10 to-transparent transition-all duration-[2000ms] ease-in-out delay-300',
-          stage === 'animate' ? 'opacity-100' : 'opacity-0'
-        )}
-      />
+        <div
+          className={clsx(
+            'mt-5 h-[3px] w-28 rounded-full bg-gradient-to-r from-accent-primary via-status-warning/60 to-accent-secondary transition-all duration-700 ease-out gpu-composed',
+            stage === 'active' ? 'opacity-100 scale-x-100' : 'opacity-0 scale-x-50'
+          )}
+        />
+
+        <p
+          className={clsx(
+            'mt-5 text-xs font-medium text-text-secondary transition-all duration-700 ease-out gpu-composed',
+            stage === 'active' ? 'opacity-80 translate-y-0' : 'opacity-0 translate-y-2'
+          )}
+        >
+          Ready for precise work.
+        </p>
+      </div>
     </div>
   )
 }

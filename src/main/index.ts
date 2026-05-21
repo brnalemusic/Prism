@@ -10,9 +10,18 @@ import {
   nativeImage
 } from 'electron'
 import { join } from 'path'
+import os from 'os'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { initGemini, handleChatMessage, setGeminiModel, setUserApiKey, cancelChatMessage, loadChatIntoHistory } from './gemini'
+import {
+  initGemini,
+  handleChatMessage,
+  setGeminiModel,
+  setSubagentModel,
+  setUserApiKey,
+  cancelChatMessage,
+  loadChatIntoHistory
+} from './gemini'
 import { loadConfig, saveConfig, AppConfig } from './config'
 import { listChatSessions, deleteChatSession } from './history'
 
@@ -22,6 +31,7 @@ let currentConfig: AppConfig
 let mainWindow: BrowserWindow | null = null
 let launcherWindow: BrowserWindow | null = null
 let subagentsWindow: BrowserWindow | null = null
+let subagentSettingsWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 
@@ -102,6 +112,47 @@ function createSubagentsWindow(initialMessages?: any[]): void {
   }
 }
 
+function createSubagentSettingsWindow(): void {
+  if (subagentSettingsWindow) {
+    subagentSettingsWindow.show()
+    subagentSettingsWindow.focus()
+    return
+  }
+
+  subagentSettingsWindow = new BrowserWindow({
+    width: 430,
+    height: 560,
+    show: false,
+    autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    backgroundColor: '#0A0A0F',
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    ...(process.platform === 'linux' || process.platform === 'win32' ? { icon } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+
+  subagentSettingsWindow.on('ready-to-show', () => {
+    subagentSettingsWindow?.show()
+  })
+
+  subagentSettingsWindow.on('closed', () => {
+    subagentSettingsWindow = null
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    subagentSettingsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#subagent-settings`)
+  } else {
+    subagentSettingsWindow.loadFile(join(__dirname, '../renderer/index.html'), {
+      hash: 'subagent-settings'
+    })
+  }
+}
+
 function registerLauncherShortcut(shortcut: string): void {
   globalShortcut.unregisterAll()
   try {
@@ -125,6 +176,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     titleBarStyle: 'hidden',
+    backgroundColor: '#0b0c0f',
     resizable: false,
     maximizable: false,
     fullscreenable: false,
@@ -266,6 +318,14 @@ app.whenReady().then(() => {
     createSubagentsWindow(initialMessages)
   })
 
+  ipcMain.on('open-subagent-settings-window', () => {
+    createSubagentSettingsWindow()
+  })
+
+  ipcMain.on('close-subagent-settings-window', () => {
+    subagentSettingsWindow?.close()
+  })
+
   ipcMain.on('subagent-message-broadcast', (_event, data) => {
     subagentsWindow?.webContents.send('subagent-message', data)
     mainWindow?.webContents.send('subagent-message', data)
@@ -289,17 +349,19 @@ app.whenReady().then(() => {
   ipcMain.handle('get-config', () => {
     return {
       ...currentConfig,
-      envGeminiKey: process.env.GEMINI_API_KEY
+      envGeminiKey: process.env.GEMINI_API_KEY,
+      username: os.userInfo().username
     }
   })
 
   ipcMain.handle('save-config', (_event, config: AppConfig) => {
     currentConfig = config
-    
+
     // Update the API key in the gemini module
     if (config.userGeminiKey) {
       setUserApiKey(config.userGeminiKey)
     }
+    setSubagentModel(config.subagentModel)
 
     const success = saveConfig(config)
     if (success) {
@@ -307,13 +369,15 @@ app.whenReady().then(() => {
       // Notify both windows
       mainWindow?.webContents.send('config-changed', config)
       launcherWindow?.webContents.send('config-changed', config)
+      subagentSettingsWindow?.webContents.send('config-changed', config)
     }
     return success
   })
 
   registerLauncherShortcut(currentConfig.launcherShortcut)
   setGeminiModel(currentConfig.defaultModel)
-  
+  setSubagentModel(currentConfig.subagentModel)
+
   if (currentConfig.userGeminiKey) {
     setUserApiKey(currentConfig.userGeminiKey)
   }

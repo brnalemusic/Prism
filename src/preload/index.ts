@@ -5,7 +5,8 @@ import type { AppConfig } from '../main/config'
 
 // Custom APIs for renderer
 const api = {
-  sendChatMessage: (data: { message: string; thinkMode?: boolean }): void => ipcRenderer.send('chat-message', data),
+  sendChatMessage: (data: { message: string; thinkMode?: boolean }): void =>
+    ipcRenderer.send('chat-message', data),
   setModel: (modelKey: string): void => ipcRenderer.send('set-model', modelKey),
   clearChat: (): void => ipcRenderer.send('clear-chat'),
   cancelChat: (): void => ipcRenderer.send('chat-cancel'),
@@ -32,7 +33,8 @@ const api = {
   onToolStart: (
     callback: (data: { name: string; args: Record<string, unknown> }) => void
   ): (() => void) => {
-    const listener = (_event: any, data: { name: string; args: Record<string, unknown> }): void => callback(data)
+    const listener = (_event: any, data: { name: string; args: Record<string, unknown> }): void =>
+      callback(data)
     ipcRenderer.on('chat-tool-start', listener)
     return () => ipcRenderer.removeListener('chat-tool-start', listener)
   },
@@ -46,8 +48,11 @@ const api = {
     ipcRenderer.on('chat-tool-update', listener)
     return () => ipcRenderer.removeListener('chat-tool-update', listener)
   },
-  onLauncherMessage: (callback: (data: { message: string; thinkMode?: boolean }) => void): (() => void) => {
-    const listener = (_event: any, data: { message: string; thinkMode?: boolean }): void => callback(data)
+  onLauncherMessage: (
+    callback: (data: { message: string; thinkMode?: boolean }) => void
+  ): (() => void) => {
+    const listener = (_event: any, data: { message: string; thinkMode?: boolean }): void =>
+      callback(data)
     ipcRenderer.on('launcher-message', listener)
     return () => ipcRenderer.removeListener('launcher-message', listener)
   },
@@ -81,14 +86,19 @@ const api = {
     ipcRenderer.on('subagent-message', listener)
     return () => ipcRenderer.removeListener('subagent-message', listener)
   },
-  submitLauncher: (data: { message: string; thinkMode?: boolean }): void => ipcRenderer.send('launcher-submit', data),
+  submitLauncher: (data: { message: string; thinkMode?: boolean }): void =>
+    ipcRenderer.send('launcher-submit', data),
   hideLauncher: (): void => ipcRenderer.send('hide-launcher'),
   minimizeApp: (): void => ipcRenderer.send('minimize-app'),
   minimizeSubagentsWindow: (): void => ipcRenderer.send('minimize-subagents-window'),
-  openSubagentsWindow: (initialMessages?: any[]): void => ipcRenderer.send('open-subagents-window', initialMessages),
-  broadcastSubagentMessage: (data: any): void => ipcRenderer.send('subagent-message-broadcast', data),
+  openSubagentsWindow: (initialMessages?: any[]): void =>
+    ipcRenderer.send('open-subagents-window', initialMessages),
+  openSubagentSettingsWindow: (): void => ipcRenderer.send('open-subagent-settings-window'),
+  broadcastSubagentMessage: (data: any): void =>
+    ipcRenderer.send('subagent-message-broadcast', data),
   closeApp: (): void => ipcRenderer.send('close-app'),
   closeSubagentsWindow: (): void => ipcRenderer.send('close-subagents-window'),
+  closeSubagentSettingsWindow: (): void => ipcRenderer.send('close-subagent-settings-window'),
   getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('get-config'),
   saveConfig: (config: AppConfig): Promise<boolean> => ipcRenderer.invoke('save-config', config),
   getChats: (): Promise<any[]> => ipcRenderer.invoke('get-chats'),

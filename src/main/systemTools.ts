@@ -1,12 +1,12 @@
 import { exec } from 'child_process'
-import { shell } from 'electron'
+import { shell, BrowserWindow } from 'electron'
 import { getInstalledApps } from 'get-installed-apps'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as os from 'os'
 import { toolsManifest } from './toolsManifest'
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
  * Executes a terminal command and returns the output.
@@ -37,6 +37,66 @@ export async function runTerminalCommand(command: string, signal?: AbortSignal):
   })
 }
 
+function resolveRequiredPath(input: string, label: string): string {
+  const cleaned = input.trim()
+  if (!cleaned) {
+    throw new Error(`Missing required ${label}. Provide a complete path.`)
+  }
+
+  if (/^(PATH|FILE|DIR|DIRECTORY|SOURCE|DESTINATION|TARGET)([_-]?\w+)?$/i.test(cleaned)) {
+    throw new Error(`Invalid ${label}: "${input}". Replace placeholders with a real path.`)
+  }
+
+  return path.resolve(cleaned)
+}
+
+function assertNotRootPath(fullPath: string, label: string): void {
+  const normalized = path.normalize(fullPath)
+  const root = path.parse(normalized).root
+  if (normalized === root) {
+    throw new Error(`Refusing to operate on filesystem root as ${label}: ${fullPath}`)
+  }
+}
+
+function parseToolBoolean(value: string | undefined, defaultValue: boolean): boolean {
+  if (value === undefined) return defaultValue
+  return /^(true|1|yes|y|sim)$/i.test(value.trim())
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return
+  const error = new Error('AbortError')
+  error.name = 'AbortError'
+  throw error
+}
+
+function describeStats(fullPath: string, stats: Awaited<ReturnType<typeof fs.stat>>): string {
+  const type = stats.isFile()
+    ? 'file'
+    : stats.isDirectory()
+      ? 'directory'
+      : stats.isSymbolicLink()
+        ? 'symlink'
+        : 'other'
+
+  return JSON.stringify(
+    {
+      path: fullPath,
+      name: path.basename(fullPath),
+      parent: path.dirname(fullPath),
+      type,
+      extension: path.extname(fullPath),
+      sizeBytes: stats.size,
+      createdAt: stats.birthtime.toISOString(),
+      modifiedAt: stats.mtime.toISOString(),
+      accessedAt: stats.atime.toISOString(),
+      permissions: `0${(Number(stats.mode) & 0o777).toString(8)}`
+    },
+    null,
+    2
+  )
+}
+
 /**
  * COMPUTER USE: Create a new file with content.
  */
@@ -46,9 +106,10 @@ export async function computerCreateFile(
   signal?: AbortSignal
 ): Promise<string> {
   try {
-    const fullPath = path.resolve(filePath)
+    const fullPath = resolveRequiredPath(filePath, 'path')
+    assertNotRootPath(fullPath, 'path')
     await fs.mkdir(path.dirname(fullPath), { recursive: true })
-    await fs.writeFile(fullPath, content, { encoding: 'utf8', signal })
+    await fs.writeFile(fullPath, content, { encoding: 'utf8', flag: 'wx', signal })
     return `File created successfully: ${fullPath}`
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
@@ -59,10 +120,16 @@ export async function computerCreateFile(
 /**
  * COMPUTER USE: Create a new directory.
  */
-export async function computerCreateDirectory(dirPath: string, signal?: AbortSignal): Promise<string> {
+export async function computerCreateDirectory(
+  dirPath: string,
+  signal?: AbortSignal
+): Promise<string> {
   try {
-    const fullPath = path.resolve(dirPath)
-    await (fs.mkdir as any)(fullPath, { recursive: true, signal })
+    const fullPath = resolveRequiredPath(dirPath, 'path')
+    assertNotRootPath(fullPath, 'path')
+    throwIfAborted(signal)
+    await fs.mkdir(fullPath, { recursive: true })
+    throwIfAborted(signal)
     return `Directory created successfully: ${fullPath}`
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
@@ -75,8 +142,11 @@ export async function computerCreateDirectory(dirPath: string, signal?: AbortSig
  */
 export async function computerRemoveFile(filePath: string, signal?: AbortSignal): Promise<string> {
   try {
-    const fullPath = path.resolve(filePath)
-    await (fs.unlink as any)(fullPath, { signal })
+    const fullPath = resolveRequiredPath(filePath, 'path')
+    assertNotRootPath(fullPath, 'path')
+    throwIfAborted(signal)
+    await fs.unlink(fullPath)
+    throwIfAborted(signal)
     return `File removed successfully: ${fullPath}`
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
@@ -87,10 +157,16 @@ export async function computerRemoveFile(filePath: string, signal?: AbortSignal)
 /**
  * COMPUTER USE: Remove a directory.
  */
-export async function computerRemoveDirectory(dirPath: string, signal?: AbortSignal): Promise<string> {
+export async function computerRemoveDirectory(
+  dirPath: string,
+  signal?: AbortSignal
+): Promise<string> {
   try {
-    const fullPath = path.resolve(dirPath)
-    await (fs.rm as any)(fullPath, { recursive: true, force: true, signal })
+    const fullPath = resolveRequiredPath(dirPath, 'path')
+    assertNotRootPath(fullPath, 'path')
+    throwIfAborted(signal)
+    await fs.rm(fullPath, { recursive: true, force: false })
+    throwIfAborted(signal)
     return `Directory removed successfully: ${fullPath}`
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
@@ -107,7 +183,9 @@ export async function computerSaveFile(
   signal?: AbortSignal
 ): Promise<string> {
   try {
-    const fullPath = path.resolve(filePath)
+    const fullPath = resolveRequiredPath(filePath, 'path')
+    assertNotRootPath(fullPath, 'path')
+    await fs.mkdir(path.dirname(fullPath), { recursive: true })
     await fs.writeFile(fullPath, content, { encoding: 'utf8', signal })
     return `File saved successfully: ${fullPath}`
   } catch (error) {
@@ -126,7 +204,11 @@ export async function computerReplaceInFile(
   signal?: AbortSignal
 ): Promise<string> {
   try {
-    const fullPath = path.resolve(filePath)
+    const fullPath = resolveRequiredPath(filePath, 'path')
+    assertNotRootPath(fullPath, 'path')
+    if (!oldText) {
+      return 'Error replacing text: oldText is required and cannot be empty.'
+    }
     const content = await fs.readFile(fullPath, { encoding: 'utf8', signal })
     if (!content.includes(oldText)) {
       return `Error: Text to replace not found in file.`
@@ -140,6 +222,117 @@ export async function computerReplaceInFile(
   }
 }
 
+/**
+ * COMPUTER USE: Append text to a file.
+ */
+export async function computerAppendToFile(
+  filePath: string,
+  content: string,
+  signal?: AbortSignal
+): Promise<string> {
+  try {
+    const fullPath = resolveRequiredPath(filePath, 'path')
+    assertNotRootPath(fullPath, 'path')
+    await fs.mkdir(path.dirname(fullPath), { recursive: true })
+    throwIfAborted(signal)
+    await fs.appendFile(fullPath, content, { encoding: 'utf8' })
+    throwIfAborted(signal)
+    return `Content appended successfully to: ${fullPath}`
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
+    return `Error appending to file: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+/**
+ * COMPUTER USE: Copy a file or directory.
+ */
+export async function computerCopyFile(
+  sourcePath: string,
+  destinationPath: string,
+  overwrite: string | undefined,
+  signal?: AbortSignal
+): Promise<string> {
+  try {
+    const sourceFullPath = resolveRequiredPath(sourcePath, 'sourcePath')
+    const destinationFullPath = resolveRequiredPath(destinationPath, 'destinationPath')
+    assertNotRootPath(sourceFullPath, 'sourcePath')
+    assertNotRootPath(destinationFullPath, 'destinationPath')
+
+    throwIfAborted(signal)
+    await fs.stat(sourceFullPath)
+    await fs.mkdir(path.dirname(destinationFullPath), { recursive: true })
+
+    const shouldOverwrite = parseToolBoolean(overwrite, false)
+    await fs.cp(sourceFullPath, destinationFullPath, {
+      recursive: true,
+      force: shouldOverwrite,
+      errorOnExist: !shouldOverwrite,
+      verbatimSymlinks: true
+    })
+
+    throwIfAborted(signal)
+    return `Copied successfully: ${sourceFullPath} -> ${destinationFullPath}`
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
+    return `Error copying file: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+/**
+ * COMPUTER USE: Move or rename a file or directory.
+ */
+export async function computerMoveFile(
+  sourcePath: string,
+  destinationPath: string,
+  overwrite: string | undefined,
+  signal?: AbortSignal
+): Promise<string> {
+  try {
+    const sourceFullPath = resolveRequiredPath(sourcePath, 'sourcePath')
+    const destinationFullPath = resolveRequiredPath(destinationPath, 'destinationPath')
+    assertNotRootPath(sourceFullPath, 'sourcePath')
+    assertNotRootPath(destinationFullPath, 'destinationPath')
+
+    throwIfAborted(signal)
+    await fs.stat(sourceFullPath)
+    await fs.mkdir(path.dirname(destinationFullPath), { recursive: true })
+
+    const shouldOverwrite = parseToolBoolean(overwrite, false)
+    try {
+      await fs.stat(destinationFullPath)
+      if (!shouldOverwrite) {
+        return `Error moving file: destination already exists: ${destinationFullPath}`
+      }
+      await fs.rm(destinationFullPath, { recursive: true, force: true })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+
+    await fs.rename(sourceFullPath, destinationFullPath)
+    throwIfAborted(signal)
+    return `Moved successfully: ${sourceFullPath} -> ${destinationFullPath}`
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
+    return `Error moving file: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+/**
+ * COMPUTER USE: Get file or directory metadata.
+ */
+export async function computerGetFileInfo(filePath: string, signal?: AbortSignal): Promise<string> {
+  try {
+    const fullPath = resolveRequiredPath(filePath, 'path')
+    throwIfAborted(signal)
+    const stats = await fs.stat(fullPath)
+    return describeStats(fullPath, stats)
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
+    return `Error getting file info: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
 function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -147,11 +340,16 @@ function escapeRegExp(string: string): string {
 /**
  * COMPUTER USE: List directory contents.
  */
-export async function computerListDirectory(dirPath: string, signal?: AbortSignal): Promise<string> {
+export async function computerListDirectory(
+  dirPath: string,
+  signal?: AbortSignal
+): Promise<string> {
   try {
-    const fullPath = path.resolve(dirPath)
-    const files = await (fs.readdir as any)(fullPath, { withFileTypes: true, signal })
-    const list = files.map((f: any) => `${f.isDirectory() ? '[DIR]' : '[FILE]'} ${f.name}`)
+    const fullPath = resolveRequiredPath(dirPath, 'path')
+    throwIfAborted(signal)
+    const files = await fs.readdir(fullPath, { withFileTypes: true })
+    throwIfAborted(signal)
+    const list = files.map((f) => `${f.isDirectory() ? '[DIR]' : '[FILE]'} ${f.name}`)
     return list.join('\n') || 'Directory is empty.'
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
@@ -164,7 +362,7 @@ export async function computerListDirectory(dirPath: string, signal?: AbortSigna
  */
 export async function computerReadFile(filePath: string, signal?: AbortSignal): Promise<string> {
   try {
-    const fullPath = path.resolve(filePath)
+    const fullPath = resolveRequiredPath(filePath, 'path')
     const content = await fs.readFile(fullPath, { encoding: 'utf8', signal })
     return content
   } catch (error) {
@@ -199,12 +397,15 @@ export async function listApplications(): Promise<string> {
       path.join(process.env.ProgramFiles || 'C:\\Program Files'),
       path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'),
       path.join(os.homedir(), 'AppData\\Local\\Programs'),
-      path.join(process.env.ProgramData || 'C:\\ProgramData', 'Microsoft\\Windows\\Start Menu\\Programs'),
+      path.join(
+        process.env.ProgramData || 'C:\\ProgramData',
+        'Microsoft\\Windows\\Start Menu\\Programs'
+      ),
       path.join(os.homedir(), 'AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs')
     ]
 
-    const manualApps: any[] = []
-    
+    const manualApps: { name: string; path: string }[] = []
+
     for (const dir of commonPaths) {
       try {
         const entries = await fs.readdir(dir, { withFileTypes: true })
@@ -212,7 +413,10 @@ export async function listApplications(): Promise<string> {
           if (entry.isDirectory()) {
             manualApps.push({ name: entry.name, path: path.join(dir, entry.name) })
           } else if (entry.name.endsWith('.lnk') || entry.name.endsWith('.exe')) {
-            manualApps.push({ name: entry.name.replace(/\.(lnk|exe)$/i, ''), path: path.join(dir, entry.name) })
+            manualApps.push({
+              name: entry.name.replace(/\.(lnk|exe)$/i, ''),
+              path: path.join(dir, entry.name)
+            })
           }
         }
       } catch {
@@ -283,6 +487,77 @@ function stripHtml(html: string): string {
   return text
 }
 
+async function fetchWithHiddenBrowser(url: string, signal?: AbortSignal): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const win = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        offscreen: true,
+        nodeIntegration: false,
+        contextIsolation: true
+      }
+    })
+
+    let resolved = false
+
+    const cleanUp = (): void => {
+      if (!resolved) {
+        resolved = true
+        try {
+          win.webContents.stop()
+        } catch {
+          // Best-effort cleanup only.
+        }
+        setTimeout(() => {
+          try {
+            win.destroy()
+          } catch {
+            // Best-effort cleanup only.
+          }
+        }, 100)
+      }
+    }
+
+    const timeout = setTimeout(() => {
+      cleanUp()
+      reject(new Error('Timeout loading page in offscreen browser window'))
+    }, 15000)
+
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        clearTimeout(timeout)
+        cleanUp()
+        reject(new Error('AbortError'))
+      })
+    }
+
+    win.webContents.on('did-finish-load', async () => {
+      try {
+        const text = await win.webContents.executeJavaScript('document.body.innerText || ""')
+        clearTimeout(timeout)
+        cleanUp()
+        resolve(text)
+      } catch (err) {
+        clearTimeout(timeout)
+        cleanUp()
+        reject(err)
+      }
+    })
+
+    win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+      clearTimeout(timeout)
+      cleanUp()
+      reject(new Error(`Browser load failed: ${errorDescription} (code: ${errorCode})`))
+    })
+
+    win.loadURL(url).catch((err) => {
+      clearTimeout(timeout)
+      cleanUp()
+      reject(err)
+    })
+  })
+}
+
 /**
  * Fetches and returns text content from a URL.
  */
@@ -292,28 +567,49 @@ export async function sawLinkFromUrl(url: string, signal?: AbortSignal): Promise
       signal,
       headers: {
         'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7',
+        'Cache-Control': 'no-cache',
+        Pragma: 'no-cache',
+        'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1'
       }
     })
 
     if (!response.ok) {
-      return `Error: Website returned status ${response.status}`
+      throw new Error(`Website returned status ${response.status}`)
     }
 
     const html = await response.text()
-    // Simple cleaning: remove scripts, styles and HTML tags
-    const text = stripHtml(html)
-      .replace(/\s+/g, ' ')
-      .trim()
+    const text = stripHtml(html).replace(/\s+/g, ' ').trim()
 
-    await sleep(1000)
+    await sleep(500)
 
     const MAX_CONTENT = 20000
     return text.length > MAX_CONTENT ? text.substring(0, MAX_CONTENT) + '... (truncated)' : text
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
-    const message = error instanceof Error ? error.message : String(error)
-    return `Error fetching URL: ${message}`
+
+    // Fallback to hidden browser window load
+    try {
+      const text = await fetchWithHiddenBrowser(url, signal)
+      const cleaned = text.replace(/\s+/g, ' ').trim()
+      const MAX_CONTENT = 20000
+      return cleaned.length > MAX_CONTENT
+        ? cleaned.substring(0, MAX_CONTENT) + '... (truncated)'
+        : cleaned
+    } catch (browserError) {
+      if (browserError instanceof Error && browserError.name === 'AbortError') throw browserError
+      return `Error fetching URL: ${error instanceof Error ? error.message : String(error)} (Fallback browser failed: ${browserError instanceof Error ? browserError.message : String(browserError)})`
+    }
   }
 }
 
@@ -337,41 +633,54 @@ export async function webSearch(query: string, signal?: AbortSignal): Promise<st
 
     const html = await response.text()
     const results: { title: string; link: string; snippet: string }[] = []
-    
+
     // Improved logic to be more resilient to structural changes
     // We split by result containers to avoid premature regex termination from nested divs
-    const resultBlocks = html.split(/<div[^>]*class="[^"]*result(?:__body|s_links| )[^"]*"[^>]*>/i).slice(1)
+    const resultBlocks = html
+      .split(/<div[^>]*class="[^"]*result(?:__body|s_links| )[^"]*"[^>]*>/i)
+      .slice(1)
 
     for (const body of resultBlocks) {
       if (results.length >= 5) break
 
       const titleMatch = body.match(/<a[^>]*class="[^"]*result__a[^"]*"[^>]*>([\s\S]*?)<\/a>/)
-      let linkMatch = body.match(/href="([^"]*)"[^>]*class="[^"]*result__a[^"]*"/) ||
-                        body.match(/class="[^"]*result__a[^"]*"[^>]*href="([^"]*)"/) ||
-                        body.match(/href="([^"]*)"/)
+      const linkMatch =
+        body.match(/href="([^"]*)"[^>]*class="[^"]*result__a[^"]*"/) ||
+        body.match(/class="[^"]*result__a[^"]*"[^>]*href="([^"]*)"/) ||
+        body.match(/href="([^"]*)"/)
 
-      let snippetMatch = body.match(/<[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/(?:a|div|span|p)>/i) ||
-                           body.match(/<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/) ||
-                           body.match(/<div[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/div>/)
+      let snippetMatch =
+        body.match(
+          /<[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/(?:a|div|span|p)>/i
+        ) ||
+        body.match(/<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/) ||
+        body.match(/<div[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/div>/)
 
       // Structural fallback: if class-based matching fails, try to extract content between title and extras
       if (!snippetMatch) {
-        const fallbackMatch = body.match(/<\/h2>([\s\S]*?)<div[^>]*class="[^"]*result__extras/i) ||
-                              body.match(/<\/a>([\s\S]*?)<div[^>]*class="[^"]*result__extras/i)
+        const fallbackMatch =
+          body.match(/<\/h2>([\s\S]*?)<div[^>]*class="[^"]*result__extras/i) ||
+          body.match(/<\/a>([\s\S]*?)<div[^>]*class="[^"]*result__extras/i)
         if (fallbackMatch) snippetMatch = fallbackMatch
       }
 
       if (titleMatch && linkMatch) {
         let rawLink = linkMatch[1]
-        
+
         // Extract raw link from DuckDuckGo redirect if present (uddg parameter)
         try {
-          const urlObj = new URL(rawLink.startsWith('//') ? `https:${rawLink}` : rawLink.startsWith('/') ? `https://duckduckgo.com${rawLink}` : rawLink)
+          const urlObj = new URL(
+            rawLink.startsWith('//')
+              ? `https:${rawLink}`
+              : rawLink.startsWith('/')
+                ? `https://duckduckgo.com${rawLink}`
+                : rawLink
+          )
           const uddg = urlObj.searchParams.get('uddg')
           if (uddg) {
             rawLink = decodeURIComponent(uddg)
           }
-        } catch (e) {
+        } catch {
           // If URL parsing fails, keep the original link
         }
 
@@ -405,19 +714,19 @@ export async function webSearch(query: string, signal?: AbortSignal): Promise<st
 /**
  * Returns the system prompt configured with the correct model identity.
  */
-export function getSystemToolsPrompt(modelKey: string, target: 'main' | 'subagent' | 'both' = 'main'): string {
+export function getSystemToolsPrompt(
+  modelKey: string,
+  target: 'main' | 'subagent' | 'both' = 'main'
+): string {
   const name = 'Prism AI'
-  let modelName = 'Prism 1 Fast'
-
-  if (modelKey === 'prism-2') {
-    modelName = 'Prism 2'
-  } else if (modelKey === 'prism-2.5') {
-    modelName = 'Prism 2.5'
-  } else if (modelKey === 'prism-3') {
-    modelName = 'Prism 3'
-  } else if (modelKey === 'prism-3.1') {
-    modelName = 'Prism 3.1'
+  const modelNames: Record<string, string> = {
+    'prism-4': 'Prism 4',
+    'prism-4.1': 'Prism 4.1',
+    'prism-4.2': 'Prism 4.2',
+    'prism-4.3': 'Prism 4.3',
+    'prism-5': 'Prism 5'
   }
+  const modelName = modelNames[modelKey] || 'Prism 4'
 
   const toolsPrompt = toolsManifest
     .filter((t) => !t.target || t.target === 'both' || t.target === target)
@@ -444,9 +753,14 @@ export function getSystemToolsPrompt(modelKey: string, target: 'main' | 'subagen
     second: '2-digit'
   })
 
-  const parallelRule = target === 'main'
-    ? '- Parallel: <run_subagents> (agents use Group Chat for async sync). Wait for all.'
-    : "- Collaboration: Use 'send_group_message' and 'wait_for_updates' for Group Chat sync."
+  const parallelRule =
+    target === 'main'
+      ? '- Parallel: You can run multiple <tool_call> blocks in a single response to execute them concurrently. Use <run_subagents> to delegate.'
+      : "- Collaboration: Use 'send_group_message' and 'wait_for_updates' for Group Chat sync. You can output multiple tool calls in parallel."
+  const humanUserRule =
+    target === 'subagent'
+      ? '- Human user messages: Any group message from "User (human operator)" is a direct message from the Prism user, not another agent. Treat it as human input and respond through send_group_message when relevant.'
+      : ''
 
   return `Role: ${name} (${modelName}). Use <tool_call> XML (no md).
 Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd}
@@ -456,15 +770,47 @@ Rules:
 - [FORCE_SEARCH] -> web_search first.
 - Math: Simple? Result only. Complex? LaTeX steps (no text), \boxed{} final. $$ block, $ inline.
 - Nav: URL->open_browser_link | Search->saw_link_from_url | App->open_application | Query->direct.
-- Deep Research: For complex topics, ALWAYS use 'saw_link_from_url' on the top 1-2 results from 'web_search' to provide in-depth, accurate answers. Only rely on snippets for extremely simple or factual queries (e.g., "who is X").
+- Proactive Deep Research: For ANY research-oriented request, you are strictly FORBIDDEN from answering using only search snippets. You MUST perform deep, proactive research:
+  1. Always run multiple searches using different search terms/keywords to gather diverse perspectives and cross-reference information.
+  2. You MUST use 'saw_link_from_url' to visit, extract, and read the actual content of the top 3-5 pages across your searches before providing an answer.
+  3. Verify facts across multiple independent sources to ensure reliability. If sources conflict or information is missing, explicitly point this out to the user.
+  4. If your search yields no reliable information or you cannot find a definitive answer after exhaustive attempts, you MUST explicitly state that the information was not found or is unavailable, rather than making guesses or using outdated/partial knowledge.
+  5. Never settle for a "quick glance". You must be proactive and exhaust all search paths before presenting a final answer.
+  6. If a URL fails to load (e.g., returns a 403, timeout, or error), do NOT give up. Immediately try alternative links from your search results until you successfully gather enough information. If, and only if, all attempts fail, all links are broken, or you absolutely cannot find the information, then you may give up and clearly inform the user that you have run out of options.
 - Workflow: No meta-talk. Respond ONLY when done/stuck. Match user lang.
 - Apps: If open_application fails, list_installed_applications or scan paths to find the real exe.
 - Paths: Use EXACT paths. NO placeholders.
+- Computer Use contract:
+  1. Use only the exact computer_use_* tool names listed below. Do not invent names like make_directory, view_file, copy, move, or delete.
+  2. Every path/sourcePath/destinationPath is required and must be a real complete path. Prefer absolute paths built from Home or CWD. Never send PATH, FILE, DESTINATION, or blanks.
+  3. File actions: view/read -> computer_use_read_file; create -> computer_use_create_file; overwrite/full rewrite -> computer_use_save_file; targeted edit -> computer_use_edit_file; append -> computer_use_append_file; delete file -> computer_use_remove_file; delete folder -> computer_use_remove_directory; copy -> computer_use_copy_file; move/rename -> computer_use_move_file; info/stat -> computer_use_get_file_info; list folder -> computer_use_list_directory.
+  4. For create/save/edit/append, include the full text in the required content/oldText/newText tags. For multiline code or XML-like text, wrap the value in <![CDATA[...]]> inside the tag so it is preserved exactly.
+  5. If a required path is unknown, first inspect with computer_use_list_directory or ask the user. Do not run a destructive tool with an inferred or missing path.
 ${parallelRule}
+${humanUserRule}
 - Memory: Use <search_chat_history> for context/preferences. Use CSV keywords (e.g., "IRQL, erro, blue screen"). Search in user lang + English. Mix specific/general terms for best scoring.
 
 Tools:
 ${toolsPrompt}`
+}
+
+/**
+ * Returns a specialized system prompt for the Master Coordinator Agent.
+ */
+export function getMasterAgentSystemPrompt(modelKey: string, totalSubagents: number): string {
+  const basePrompt = getSystemToolsPrompt(modelKey, 'subagent')
+  return `${basePrompt}
+
+[IDENTITY]: Master Coordinator.
+[ROLE]: You are the supreme coordinator of the bot swarm. Your role is NOT to execute files or terminal tasks directly, but to direct, analyze, and synthesize the work of the ${totalSubagents} worker subagents.
+
+[MANDATORY SWARM PROTOCOL]:
+1. REAL-TIME ASSESSMENT: Read group chat messages to track worker progress.
+2. COLLABORATION & INSTRUCTIONS: Direct workers by broadcasting goals and asking for specific outputs. You MUST use 'send_group_message' with status="working" to post updates, instructions, and feedback.
+3. ASYNC SLEEP: If you are waiting for subagents to complete or respond, you MUST call 'wait_for_updates' in the same response to sleep and let workers run. Do not poll.
+4. SWARM TERMINATION: When you have verified that the overall goal has been successfully completed by the subagents (or has failed), you MUST send a final summary to the group chat via 'send_group_message' with status="done" or status="error". This will terminate the entire swarm.
+5. MANDATORY COMMUNICATION: At EVERY iteration, you must communicate. Do not perform private work without updating the team.
+`
 }
 
 /**
@@ -477,15 +823,16 @@ export function getSubagentSystemPrompt(modelKey: string, index: number, total: 
   return `${basePrompt}
 
 [IDENTITY]: Agent #${index}.
-[TEAM]: ${otherAgents.length > 0 ? otherAgents.map((i) => `Agent #${i}`).join(', ') : 'Solo'}.
+[TEAM]: Master Coordinator, ${otherAgents.length > 0 ? otherAgents.map((i) => `Agent #${i}`).join(', ') : 'Solo'}.
 
 [GROUP CHAT RULES]:
-1. ASYNC COLLABORATION: Use 'send_group_message' to update the team. 
-2. STAYING ALIVE: You are ONLY active as long as you use tools. If you send a message and want to wait for a reply, you MUST call 'wait_for_updates' in the same response, otherwise you will terminate immediately.
-3. CONTEXT INJECTION: New messages from others appear as [UNREAD MESSAGES]. Read them to stay synced.
-4. EFFICIENCY: Use 'wait_for_updates' to pause instead of polling or idle thinking.
-5. TERMINATION: ALWAYS send a final message with status="done" or status="error" when your task is complete.
-6. NO SUBAGENTS: You cannot spawn more agents. Focus on your assigned task.
+1. ASYNC COLLABORATION: Use 'send_group_message' to update the Master Coordinator and team.
+2. STAYING ALIVE: You are ONLY active as long as you use tools. If you want to wait for others or the Master Coordinator, you MUST call 'wait_for_updates' in the same response, otherwise you will terminate immediately.
+3. MANDATORY COMMUNICATION: Communication is ABSOLUTELY MANDATORY. You must report your plan to the group chat before running any computer or search tools, and report the summaries of your tool results.
+4. CONTEXT INJECTION: New messages from others appear as [UNREAD MESSAGES]. Read them to stay synced.
+5. EFFICIENCY: Use 'wait_for_updates' to pause instead of polling or idle thinking.
+6. TERMINATION: When your assigned task is complete (or failed), update the group chat. Note that the swarm will be terminated when the Master Coordinator determines it is done.
+7. NO SUBAGENTS: You cannot spawn more agents. Focus on your assigned task.
 
 [OUTPUT]: Your thoughts are private. Your FINAL RESPONSE should be a concise mission report for the Main Agent.`
 }

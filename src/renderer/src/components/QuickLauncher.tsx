@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { Command, ChevronRight, Cpu, Globe, Brain } from 'lucide-react'
+import { Command, ChevronRight, Cpu, Search, Brain, CirclePlay, Check, Bot } from 'lucide-react'
 import { MODELS } from '../constants'
 import { isShortcutPressed } from '../utils'
 import youtubeLogo from '../assets/youtube.png'
 import clsx from 'clsx'
+
+type LauncherBadge = 'youtube' | 'search' | 'think'
 
 export function QuickLauncher(): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -12,19 +14,56 @@ export function QuickLauncher(): React.JSX.Element {
   const [isThinkMode, setIsThinkMode] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
-  const [activeModelId, setActiveModelId] = useState('prism-3')
+  const [activeModelId, setActiveModelId] = useState('prism-5')
   const [shortcut, setShortcut] = useState('CommandOrControl+M')
   const inputRef = useRef<HTMLInputElement>(null)
 
   const isYoutubeMode = query.startsWith('/youtube')
+  const activeMode = isYoutubeMode
+    ? 'youtube'
+    : isSearchEnabled
+      ? 'search'
+      : isThinkMode
+        ? 'think'
+        : 'default'
+  const activeBadges: LauncherBadge[] = [
+    ...(isYoutubeMode ? (['youtube'] as const) : []),
+    ...(isSearchEnabled ? (['search'] as const) : []),
+    ...(isThinkMode ? (['think'] as const) : [])
+  ]
+  const isSearchAndThinkMode = isSearchEnabled && isThinkMode
+  const activeModel = MODELS.find((m) => m.id === activeModelId) || MODELS[0]
 
   const commands = [
-    { cmd: '/search', desc: 'Force web search', action: () => { setQuery('/search '); inputRef.current?.focus() } },
-    { cmd: '/youtube', desc: 'YouTube search & play', action: () => { setQuery('/youtube '); inputRef.current?.focus() } }
+    {
+      cmd: '/search',
+      desc: 'Force a web search',
+      action: () => {
+        setQuery('/search ')
+        inputRef.current?.focus()
+      }
+    },
+    {
+      cmd: '/youtube',
+      desc: 'Find and play a YouTube result',
+      action: () => {
+        setQuery('/youtube ')
+        inputRef.current?.focus()
+      }
+    },
+    {
+      cmd: '/subagents',
+      desc: 'Change the subagent model',
+      action: () => {
+        window.api.openSubagentSettingsWindow()
+        window.api.hideLauncher()
+        setQuery('')
+      }
+    }
   ]
 
-  const filteredCommands = query.startsWith('/') 
-    ? commands.filter(c => c.cmd.toLowerCase().startsWith(query.toLowerCase().split(' ')[0]))
+  const filteredCommands = query.startsWith('/')
+    ? commands.filter((c) => c.cmd.toLowerCase().startsWith(query.toLowerCase().split(' ')[0]))
     : []
 
   const showSlashMenu = query.startsWith('/') && filteredCommands.length > 0 && !query.includes(' ')
@@ -34,8 +73,7 @@ export function QuickLauncher(): React.JSX.Element {
   }, [showSlashMenu, query])
 
   useEffect(() => {
-    // Initial config load
-    window.api.getConfig().then(config => {
+    window.api.getConfig().then((config) => {
       if (config.modelSelectionShortcut) {
         setShortcut(config.modelSelectionShortcut)
       }
@@ -44,7 +82,6 @@ export function QuickLauncher(): React.JSX.Element {
       }
     })
 
-    // Listen for config changes
     window.api.onConfigChanged((config) => {
       if (config.modelSelectionShortcut) {
         setShortcut(config.modelSelectionShortcut)
@@ -54,19 +91,16 @@ export function QuickLauncher(): React.JSX.Element {
       }
     })
 
-    // Listen for model changes from other parts of the app
     window.api.onModelChanged((modelId) => {
       setActiveModelId(modelId)
     })
   }, [])
 
-  // 1. Lifecycle & IPC Focus Effect: Resets only on launch or IPC signal
   useEffect(() => {
     const handleInitialFocus = (): void => {
-      // Launcher always starts with Think Mode OFF ONLY on a fresh launch/focus signal
       setIsThinkMode(false)
       setIsSearchEnabled(false)
-      
+
       setTimeout(() => {
         if (inputRef.current) {
           inputRef.current.focus()
@@ -76,10 +110,7 @@ export function QuickLauncher(): React.JSX.Element {
       }, 50)
     }
 
-    // Call on mount
     handleInitialFocus()
-
-    // Listen for global focus signal from main process
     const removeFocusListener = window.api.onLauncherFocus(handleInitialFocus)
 
     return () => {
@@ -87,28 +118,29 @@ export function QuickLauncher(): React.JSX.Element {
     }
   }, [])
 
-  // 2. Main Interaction & Keyboard Effect
   useEffect(() => {
-    document.body.style.backgroundColor = 'transparent'
-    document.documentElement.style.backgroundColor = 'transparent'
-    
+    document.body.style.background = 'transparent'
+    document.documentElement.style.background = 'transparent'
+
     const handleKeyDown = (e: KeyboardEvent): void => {
-      // Toggle Model Selector with configurable shortcut
       if (isShortcutPressed(e, shortcut)) {
         e.preventDefault()
         setIsModelSelectorOpen((prev) => !prev)
-        setSelectedIndex(MODELS.findIndex((m) => m.id === activeModelId))
+        setSelectedIndex(
+          Math.max(
+            0,
+            MODELS.findIndex((m) => m.id === activeModelId)
+          )
+        )
         return
       }
 
-      // Ctrl+S to toggle Web Search
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
         setIsSearchEnabled((prev) => !prev)
         return
       }
 
-      // Ctrl+T to toggle Think Mode
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't') {
         e.preventDefault()
         setIsThinkMode((prev) => !prev)
@@ -121,7 +153,9 @@ export function QuickLauncher(): React.JSX.Element {
           setSlashSelectedIndex((prev) => (prev + 1) % filteredCommands.length)
         } else if (e.key === 'ArrowUp') {
           e.preventDefault()
-          setSlashSelectedIndex((prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length)
+          setSlashSelectedIndex(
+            (prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length
+          )
         } else if (e.key === 'Enter') {
           e.preventDefault()
           filteredCommands[slashSelectedIndex].action()
@@ -162,140 +196,217 @@ export function QuickLauncher(): React.JSX.Element {
     return () => {
       window.api.removeLauncherListeners()
       window.removeEventListener('keydown', handleKeyDown)
-      document.body.style.backgroundColor = ''
-      document.documentElement.style.backgroundColor = ''
+      document.body.style.background = ''
+      document.documentElement.style.background = ''
     }
-  }, [isModelSelectorOpen, selectedIndex, activeModelId, shortcut, showSlashMenu, slashSelectedIndex, query])
+  }, [
+    isModelSelectorOpen,
+    selectedIndex,
+    activeModelId,
+    shortcut,
+    showSlashMenu,
+    slashSelectedIndex,
+    query,
+    filteredCommands
+  ])
+
+  const buildMessage = (): string => {
+    const trimmed = query.trim()
+    if (trimmed.startsWith('/search ')) return `[FORCE_SEARCH] ${trimmed.substring(8).trim()}`
+    if (trimmed === '/search') return '[FORCE_SEARCH] '
+    return isSearchEnabled ? `[FORCE_SEARCH] ${trimmed}` : trimmed
+  }
 
   const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault()
     if (query.trim()) {
-      const finalMessage = isSearchEnabled ? `[FORCE_SEARCH] ${query.trim()}` : query.trim()
-      window.api.submitLauncher({ message: finalMessage, thinkMode: isThinkMode })
+      if (query.trim() === '/subagents') {
+        window.api.openSubagentSettingsWindow()
+        window.api.hideLauncher()
+        setQuery('')
+        return
+      }
+
+      window.api.submitLauncher({ message: buildMessage(), thinkMode: isThinkMode })
       setQuery('')
     }
   }
 
+  const modeClasses = {
+    youtube: 'border-red-400/30 bg-red-500/[0.055] text-red-300',
+    search: isSearchAndThinkMode
+      ? 'border-[#8ee8b0]/25 bg-[linear-gradient(110deg,rgba(45,212,191,0.06),rgba(245,158,11,0.065))] text-[#d9c77a]'
+      : 'border-accent-secondary/30 bg-accent-secondary/[0.055] text-accent-secondary',
+    think: 'border-status-warning/30 bg-status-warning/[0.055] text-status-warning',
+    default: 'border-white/[0.09] bg-white/[0.045] text-text-primary'
+  }[activeMode]
+
   return (
-    <div 
-      className="w-screen h-screen flex flex-col items-center justify-start bg-black/40 backdrop-blur-[20px] p-10 pt-[20vh] font-sans"
+    <div
+      className="flex h-screen w-screen flex-col items-center justify-start bg-transparent p-8 pt-[20vh] font-sans"
       onClick={() => window.api.hideLauncher()}
     >
-      <div className="relative w-full max-w-[680px]" onClick={(e) => e.stopPropagation()}>
-        {/* YouTube Logo Overlay - Bottom */}
+      <div className="relative w-full max-w-[720px]" onClick={(e) => e.stopPropagation()}>
         {isYoutubeMode && (
-          <div className="absolute left-1/2 -translate-x-1/2 top-full mt-4 w-48 h-48 pointer-events-none animate-fade-in z-0 opacity-10">
-            <img src={youtubeLogo} alt="YouTube" className="w-full h-full object-contain" />
+          <div className="pointer-events-none absolute left-1/2 top-full z-0 mt-5 h-36 w-36 -translate-x-1/2 opacity-[0.08] animate-fade-in">
+            <img src={youtubeLogo} alt="YouTube" className="h-full w-full object-contain" />
           </div>
         )}
 
-        {/* Status Indicator */}
         <div
           className={clsx(
-            'absolute -top-10 left-1/2 -translate-x-1/2 transition-all duration-300 flex items-center gap-2 px-4 py-1.5 rounded-full border backdrop-blur-md z-40',
-            isYoutubeMode
-              ? 'opacity-100 translate-y-0 bg-red-500/10 border-red-500/30 text-red-500 shadow-[0_0_20px_rgba(239,68,68,0.1)]'
-              : isSearchEnabled
-                ? 'opacity-100 translate-y-0 bg-accent-secondary/10 border-accent-secondary/30 text-accent-secondary shadow-[0_0_20px_rgba(0,212,255,0.1)]'
-                : isThinkMode
-                  ? 'opacity-100 translate-y-0 bg-yellow-500/10 border-yellow-500/30 text-yellow-500 shadow-[0_0_20px_rgba(234,179,8,0.1)]'
-                  : 'opacity-0 translate-y-2 pointer-events-none bg-surface/10 border-surface/20 text-text-secondary/40'
+            'absolute -top-12 left-1/2 z-40 flex -translate-x-1/2 items-center justify-center gap-2 transition-all duration-200',
+            activeBadges.length === 0
+              ? 'pointer-events-none translate-y-2 opacity-0'
+              : 'translate-y-0 opacity-100'
           )}
         >
-          {isThinkMode ? <Brain size={12} className="animate-pulse" /> : <Globe size={12} className="animate-pulse" />}
-          <span className="text-[10px] font-black uppercase tracking-[0.2em]">
-            {isYoutubeMode ? 'YouTube Search Active' : isSearchEnabled ? 'Web Search Active' : 'Think Mode Active'}
-          </span>
-        </div>
-
-        {/* Model Selector Popover */}
-        <div
-          className={clsx(
-            'absolute top-full left-0 mt-3 w-72 bg-background-secondary/95 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 origin-top-left z-50',
-            isModelSelectorOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-4 pointer-events-none'
-          )}
-        >
-          <div className="px-4 py-3 border-b border-white/5 bg-white/5">
-            <span className="text-[10px] uppercase tracking-[0.2em] font-black text-accent-primary flex items-center gap-2">
-              <Cpu size={12} />
-              Switch Intelligence
+          {activeBadges.map((badge) => (
+            <span
+              key={badge}
+              className={clsx(
+                'flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold whitespace-nowrap',
+                isSearchAndThinkMode && badge !== 'youtube'
+                  ? 'border-transparent bg-gradient-to-r from-accent-secondary/[0.14] via-[#b8d56e]/[0.12] to-status-warning/[0.15] text-[#d9c77a] shadow-[0_0_22px_rgba(245,158,11,0.09)]'
+                  : badge === 'youtube'
+                    ? 'border-red-400/20 bg-red-500/[0.08] text-red-300'
+                    : badge === 'search'
+                      ? 'border-accent-secondary/20 bg-accent-secondary/[0.08] text-accent-secondary'
+                      : 'border-status-warning/20 bg-status-warning/[0.08] text-status-warning'
+              )}
+            >
+              {badge === 'youtube' ? (
+                <CirclePlay size={13} />
+              ) : badge === 'search' ? (
+                <Search size={13} />
+              ) : (
+                <Brain size={13} />
+              )}
+              {badge === 'youtube'
+                ? 'YouTube command active'
+                : badge === 'search'
+                  ? 'Search enabled'
+                  : 'Thinking enabled'}
             </span>
-          </div>
-          <div className="py-2">
-            {MODELS.map((model, index) => (
-              <button
-                key={model.id}
-                onMouseEnter={() => setSelectedIndex(index)}
-                onClick={() => {
-                  setActiveModelId(model.id)
-                  window.api.setModel(model.id)
-                  setIsModelSelectorOpen(false)
-                }}
-                className={clsx(
-                  'w-full px-4 py-3 flex items-center justify-between transition-all duration-150 relative',
-                  selectedIndex === index ? 'bg-accent-primary/20' : 'hover:bg-white/5'
-                )}
-              >
-                <div className="flex flex-col items-start text-left">
-                  <span
-                    className={clsx(
-                      'text-sm font-bold tracking-tight',
-                      model.id === 'prism-3' && 'prism-3-gradient animate-gradient-x',
-                      activeModelId === model.id && model.id !== 'prism-3'
-                        ? 'text-accent-primary'
-                        : activeModelId !== model.id && model.id !== 'prism-3' && 'text-text-primary'
-                    )}
-                  >
-                    {model.name}
-                  </span>
-                  <span className="text-[10px] text-text-secondary/60 font-medium">
-                    {model.description}
-                  </span>
-                </div>
-                {activeModelId === model.id && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-accent-primary rounded-r" />
-                )}
-              </button>
-            ))}
-          </div>
+          ))}
         </div>
 
-        {/* Main Launcher Bar */}
         <div
           className={clsx(
-            'relative w-full bg-background-secondary/95 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] flex items-center px-6 py-5 gap-4 ring-1 ring-white/10 transition-all duration-500 overflow-hidden',
-            isModelSelectorOpen && 'ring-accent-primary/40 border-accent-primary/20',
-            isYoutubeMode ? 'ring-red-500/40 border-red-500/20 shadow-[0_10px_40px_rgba(239,68,68,0.15)]' :
-            isSearchEnabled ? 'ring-accent-secondary/40 border-accent-secondary/20 shadow-[0_10px_40px_rgba(0,212,255,0.15)]' :
-            isThinkMode ? 'ring-yellow-500/40 border-yellow-500/30 shadow-[0_10px_40px_rgba(234,179,8,0.2)]' : ''
+            'model-menu-panel absolute left-0 top-full z-50 mt-3 w-80 origin-top overflow-hidden rounded-[24px] py-2 transition-all duration-200',
+            isModelSelectorOpen
+              ? 'translate-y-0 scale-100 opacity-100'
+              : 'pointer-events-none -translate-y-2 scale-[0.98] opacity-0'
           )}
         >
-          {/* Improved Glow Effect for Think Mode */}
-          {isThinkMode && (
-            <div className="absolute inset-0 rounded-2xl pointer-events-none z-0">
-               <div className="absolute inset-0 rounded-2xl border border-yellow-500/30 animate-pulse" />
-               <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-transparent via-yellow-500/10 to-transparent animate-[shimmer_2s_infinite] opacity-30" 
-                    style={{ backgroundSize: '200% 100%' }} />
+          <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-3 text-xs font-semibold text-text-secondary/70">
+            <Cpu size={14} className="text-accent-primary" />
+            Prism engines
+          </div>
+          {MODELS.map((model, index) => (
+            <button
+              key={model.id}
+              onMouseEnter={() => setSelectedIndex(index)}
+              onClick={() => {
+                setActiveModelId(model.id)
+                window.api.setModel(model.id)
+                setIsModelSelectorOpen(false)
+              }}
+              className={clsx(
+                'relative flex w-full items-start gap-3 px-4 py-3 text-left transition-all duration-200',
+                model.id === 'prism-5'
+                  ? [
+                      'prism-5-model-option prism-5-menu-option',
+                      selectedIndex === index && 'prism-5-model-option-active'
+                    ]
+                  : selectedIndex === index
+                    ? 'bg-white/[0.065]'
+                    : 'hover:bg-white/[0.04]'
+              )}
+            >
+              <span
+                className={clsx(
+                  'mt-1 h-2.5 w-2.5 shrink-0 rounded-full',
+                  model.id === 'prism-5'
+                    ? ['prism-5-dot', activeModelId === model.id ? 'opacity-100' : 'opacity-70']
+                    : activeModelId === model.id
+                      ? 'bg-accent-secondary'
+                      : 'bg-white/[0.18]'
+                )}
+              />
+              <span className="min-w-0 flex-1">
+                <span
+                  className={clsx(
+                    'block text-sm font-semibold',
+                    model.id === 'prism-5' ? 'prism-5-title-gradient' : 'text-text-primary'
+                  )}
+                >
+                  {model.name}
+                </span>
+                <span className="mt-0.5 block text-xs leading-snug text-text-secondary/70">
+                  {model.description}
+                </span>
+              </span>
+              {activeModelId === model.id && (
+                <Check size={15} className="mt-0.5 text-accent-secondary" />
+              )}
+            </button>
+          ))}
+        </div>
+
+        <div
+          className={clsx(
+            'premium-panel relative flex w-full items-center gap-4 overflow-hidden rounded-[30px] border px-4 py-4 transition-all duration-300',
+            modeClasses,
+            isModelSelectorOpen && 'prism-glow'
+          )}
+        >
+          {activeMode !== 'default' && (
+            <div className="pointer-events-none absolute inset-x-6 top-0 h-px overflow-hidden">
+              <div
+                className={clsx(
+                  'h-px w-full animate-[line-sweep_1600ms_cubic-bezier(0.2,0.82,0.2,1)_infinite] opacity-80',
+                  isSearchAndThinkMode
+                    ? 'bg-gradient-to-r from-transparent via-accent-secondary to-status-warning'
+                    : 'bg-gradient-to-r from-transparent via-current to-transparent'
+                )}
+              />
             </div>
           )}
 
           <button
-            onClick={() => setIsModelSelectorOpen(!isModelSelectorOpen)}
+            onClick={() => {
+              setIsModelSelectorOpen(!isModelSelectorOpen)
+              setSelectedIndex(
+                Math.max(
+                  0,
+                  MODELS.findIndex((m) => m.id === activeModelId)
+                )
+              )
+            }}
             className={clsx(
-              'relative z-10 flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all duration-300',
-              isModelSelectorOpen 
-                ? 'bg-accent-primary/20 border-accent-primary/40 text-accent-primary' 
-                : 'bg-white/5 border-white/10 text-text-secondary hover:bg-white/10 hover:border-white/20'
+              'flex h-10 shrink-0 items-center gap-2 rounded-[16px] border px-3 text-sm font-semibold transition-all duration-200',
+              isModelSelectorOpen
+                ? 'border-accent-primary/35 bg-accent-primary/[0.12] text-accent-primary'
+                : 'border-white/[0.08] bg-white/[0.045] text-text-secondary hover:bg-white/[0.07] hover:text-text-primary'
             )}
           >
-            <Command size={14} />
-            <span className="text-xs font-bold tracking-tight">
-              {MODELS.find(m => m.id === activeModelId)?.name.replace('Prism ', '')}
+            <Command size={15} />
+            <span
+              className={activeModel.id === 'prism-5' ? 'prism-top-gradient' : 'text-text-primary'}
+            >
+              {activeModel.name.replace('Prism ', '')}
             </span>
-            <ChevronRight size={14} className={clsx('transition-transform duration-300', isModelSelectorOpen && 'rotate-90')} />
+            <ChevronRight
+              size={15}
+              className={clsx(
+                'transition-transform duration-200',
+                isModelSelectorOpen && 'rotate-90'
+              )}
+            />
           </button>
 
-          <form onSubmit={handleSubmit} className="flex-1 relative z-10">
+          <form onSubmit={handleSubmit} className="relative z-10 flex-1">
             <input
               ref={inputRef}
               type="text"
@@ -304,57 +415,90 @@ export function QuickLauncher(): React.JSX.Element {
               onChange={(e) => setQuery(e.target.value)}
               placeholder={
                 isModelSelectorOpen
-                  ? 'Select a model...'
+                  ? 'Select a Prism model'
                   : isYoutubeMode
-                    ? 'Search on YouTube...'
-                    : isSearchEnabled 
-                      ? 'What do you want to search on the web?'
+                    ? 'Search YouTube'
+                    : isSearchEnabled
+                      ? 'Search the web'
                       : isThinkMode
-                        ? 'Think with Prism...'
-                        : 'What can Prism do for you today?'
+                        ? 'Think with Prism'
+                        : 'What should Prism do?'
               }
               className={clsx(
-                "w-full bg-transparent border-none outline-none text-xl font-medium transition-colors duration-500",
-                isYoutubeMode ? "text-red-500 placeholder:text-red-500/30" :
-                isSearchEnabled ? "text-accent-secondary placeholder:text-accent-secondary/30" : 
-                isThinkMode ? "text-yellow-500 placeholder:text-yellow-500/30" : "text-text-primary placeholder:text-text-secondary/40"
+                'w-full border-none bg-transparent text-[22px] font-medium outline-none transition-colors duration-200 placeholder:text-text-muted',
+                activeMode === 'youtube'
+                  ? 'text-red-200 placeholder:text-red-300/40'
+                  : isSearchAndThinkMode
+                    ? 'text-[#d9c77a] placeholder:text-[#d9c77a]/45'
+                    : activeMode === 'search'
+                    ? 'text-accent-secondary placeholder:text-accent-secondary/40'
+                    : activeMode === 'think'
+                      ? 'text-status-warning placeholder:text-status-warning/40'
+                      : 'text-text-primary'
               )}
             />
           </form>
 
-          {(isSearchEnabled || isYoutubeMode || isThinkMode) && (
-            <div className={clsx(
-              "relative z-10 flex items-center justify-center w-9 h-9 animate-in zoom-in duration-300",
-              isYoutubeMode ? "text-red-500" : isSearchEnabled ? "text-accent-secondary" : "text-yellow-500"
-            )}>
-               {isThinkMode ? (
-                 <Brain size={20} className="animate-pulse" />
-               ) : (
-                 <Globe size={20} className={clsx("animate-[spin_10s_linear_infinite]", isYoutubeMode && "text-red-500")} />
-               )}
+          {activeBadges.length > 0 && (
+            <div
+              className={clsx(
+                'relative z-10 flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[16px] border px-2',
+                isSearchAndThinkMode
+                  ? 'border-transparent bg-gradient-to-r from-accent-secondary/[0.13] to-status-warning/[0.15] text-[#d9c77a]'
+                  : 'border-current/20 bg-current/[0.08]'
+              )}
+            >
+              {activeBadges.map((badge) =>
+                badge === 'youtube' ? (
+                  <CirclePlay key={badge} size={19} />
+                ) : badge === 'search' ? (
+                  <Search key={badge} size={19} className="animate-slow-pulse" />
+                ) : (
+                  <Brain key={badge} size={19} className="animate-slow-pulse" />
+                )
+              )}
             </div>
           )}
         </div>
 
-        {/* Slash Menu */}
         {showSlashMenu && (
-          <div className="absolute top-[calc(100%+12px)] left-0 w-72 bg-background-secondary/95 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 z-50">
-            <div className="px-4 py-3 border-b border-white/5 bg-white/5 text-[10px] uppercase tracking-[0.2em] font-black text-text-muted">
-              Commands
+          <div className="premium-panel-soft absolute left-0 top-[calc(100%+12px)] z-50 w-80 overflow-hidden rounded-[24px] animate-soft-pop">
+            <div className="border-b border-white/[0.055] px-4 py-3 text-xs font-semibold text-text-secondary/70">
+              Slash commands
             </div>
-            <div className="py-2">
+            <div className="py-1">
               {filteredCommands.map((c, i) => (
                 <button
                   key={c.cmd}
                   onClick={() => c.action()}
                   onMouseEnter={() => setSlashSelectedIndex(i)}
                   className={clsx(
-                    "w-full text-left px-4 py-3 text-sm flex items-center gap-3 transition-colors",
-                    slashSelectedIndex === i ? 'bg-accent-primary/20 text-accent-primary' : 'text-text-primary hover:bg-white/5'
+                    'flex w-full items-center gap-3 px-4 py-3 text-sm transition-colors',
+                    slashSelectedIndex === i
+                      ? 'bg-white/[0.065] text-text-primary'
+                      : 'text-text-secondary hover:bg-white/[0.04]'
                   )}
                 >
-                  <span className={clsx("font-bold", c.cmd === '/clear' ? 'text-red-400' : 'text-accent-secondary')}>{c.cmd}</span>
-                  <span className="text-text-secondary text-xs">— {c.desc}</span>
+                  <span
+                    className={clsx(
+                      'flex h-8 w-8 items-center justify-center rounded-2xl',
+                      c.cmd === '/youtube'
+                        ? 'bg-red-500/[0.12] text-red-300'
+                        : c.cmd === '/subagents'
+                          ? 'bg-accent-primary/[0.12] text-accent-primary'
+                        : 'bg-accent-secondary/[0.12] text-accent-secondary'
+                    )}
+                  >
+                    {c.cmd === '/youtube' ? (
+                      <CirclePlay size={16} />
+                    ) : c.cmd === '/subagents' ? (
+                      <Bot size={16} />
+                    ) : (
+                      <Search size={16} />
+                    )}
+                  </span>
+                  <span className="font-semibold text-text-primary">{c.cmd}</span>
+                  <span className="text-xs text-text-secondary/70">{c.desc}</span>
                 </button>
               ))}
             </div>

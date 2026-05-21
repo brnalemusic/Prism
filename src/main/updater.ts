@@ -5,10 +5,10 @@ import { is } from '@electron-toolkit/utils'
 export function initAutoUpdater(mainWindow: BrowserWindow): void {
   // Set logger
   autoUpdater.logger = console
-  
+
   // Disable auto-download so we can ask the user first
   autoUpdater.autoDownload = false
-  
+
   // In development mode, we generally don't want to check for updates
   // unless we are specifically testing the updater
   if (is.dev) {
@@ -62,7 +62,9 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
   })
 
   autoUpdater.on('download-progress', (progressObj) => {
-    console.log(`Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}% (${progressObj.transferred}/${progressObj.total})`)
+    console.log(
+      `Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}% (${progressObj.transferred}/${progressObj.total})`
+    )
   })
 
   // Start the check

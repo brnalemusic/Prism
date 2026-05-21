@@ -98,8 +98,8 @@ export function ShortcutRecorder({ value, onChange }: ShortcutRecorderProps): Re
   const displayValue = isRecording
     ? recordedKeys.length > 0
       ? recordedKeys.join(' + ')
-      : 'Pressione as teclas...'
-    : value || 'Nenhum atalho definido'
+      : 'Press keys...'
+    : value || 'No shortcut set'
 
   return (
     <div className="flex flex-col gap-2">
@@ -107,10 +107,10 @@ export function ShortcutRecorder({ value, onChange }: ShortcutRecorderProps): Re
         ref={containerRef}
         onClick={startRecording}
         className={clsx(
-          'relative group cursor-pointer bg-surface/50 border rounded-xl px-4 py-3 transition-all flex items-center justify-between',
+          'premium-control relative group flex cursor-pointer items-center justify-between rounded-[18px] border px-4 py-3 transition-all',
           isRecording
-            ? 'border-accent-primary ring-2 ring-accent-primary/20 bg-accent-primary/5'
-            : 'border-surface/50 hover:border-accent-primary/50'
+            ? 'border-accent-primary/40 bg-accent-primary/[0.07] ring-2 ring-accent-primary/15'
+            : 'border-white/[0.08] hover:border-accent-primary/35'
         )}
       >
         <div className="flex items-center gap-3">
@@ -134,15 +134,15 @@ export function ShortcutRecorder({ value, onChange }: ShortcutRecorderProps): Re
 
         {isRecording ? (
           <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase tracking-wider font-bold text-accent-primary animate-pulse">
-              Gravando
+            <span className="text-[11px] font-semibold text-accent-primary animate-pulse">
+              Recording
             </span>
             <button
               onClick={(e) => {
                 e.stopPropagation()
                 stopRecording()
               }}
-              className="p-1 hover:bg-surface rounded-md transition-colors"
+              className="rounded-xl p-1 transition-colors hover:bg-white/[0.08]"
             >
               <X size={14} />
             </button>
@@ -154,16 +154,16 @@ export function ShortcutRecorder({ value, onChange }: ShortcutRecorderProps): Re
                 e.stopPropagation()
                 onChange('')
               }}
-              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-surface rounded-md transition-colors text-text-secondary/40 hover:text-text-primary"
+              className="rounded-xl p-1 text-text-secondary/40 opacity-0 transition-colors hover:bg-white/[0.08] hover:text-text-primary group-hover:opacity-100"
             >
               <X size={14} />
             </button>
           )
         )}
       </div>
-      <p className="text-[10px] text-text-secondary/40 italic flex justify-between">
-        <span>{isRecording ? 'Pressione ESC para cancelar' : 'Clique para alterar o atalho'}</span>
-        {value && !isRecording && <span>Backspace para limpar</span>}
+      <p className="flex justify-between text-[11px] text-text-secondary/50">
+        <span>{isRecording ? 'Press ESC to cancel' : 'Click to change shortcut'}</span>
+        {value && !isRecording && <span>Backspace to clear</span>}
       </p>
     </div>
   )

@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
-import { Content } from '@google/generative-ai'
+import { Content } from '@google/genai'
 
 export interface ChatSession {
   id: string
@@ -76,7 +76,7 @@ export function loadChatSession(id: string): ChatSession | null {
 export function saveChatSession(id: string, messages: Content[], title?: string): boolean {
   ensureChatsDir()
   const filePath = path.join(CHATS_DIR, `chat_${id}.json`)
-  
+
   try {
     let sessionTitle = title
 
@@ -85,10 +85,15 @@ export function saveChatSession(id: string, messages: Content[], title?: string)
       if (fs.existsSync(filePath)) {
         try {
           const existingData = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
-          if (existingData.title && !existingData.title.startsWith(messages[0]?.parts[0]?.text?.substring(0, 5) || '___')) {
+          if (
+            existingData.title &&
+            !existingData.title.startsWith(messages[0]?.parts?.[0]?.text?.substring(0, 5) || '___')
+          ) {
             sessionTitle = existingData.title
           }
-        } catch (e) { /* ignore parse errors */ }
+        } catch (e) {
+          /* ignore parse errors */
+        }
       }
 
       if (!sessionTitle && messages.length > 0) {
@@ -96,10 +101,10 @@ export function saveChatSession(id: string, messages: Content[], title?: string)
         const firstRealUserMsg = messages.find(
           (m) =>
             m.role === 'user' &&
-            typeof m.parts[0].text === 'string' &&
-            !m.parts[0].text.startsWith('Role: Prism AI')
+            typeof m.parts?.[0]?.text === 'string' &&
+            !m.parts?.[0]?.text.startsWith('Role: Prism AI')
         )
-        const text = firstRealUserMsg?.parts[0]?.text
+        const text = firstRealUserMsg?.parts?.[0]?.text
         if (typeof text === 'string') {
           sessionTitle = text.substring(0, 40) + (text.length > 40 ? '...' : '')
         }
@@ -107,7 +112,7 @@ export function saveChatSession(id: string, messages: Content[], title?: string)
     }
 
     const messagesToSave = messages.filter((m) => {
-      const text = m.parts[0].text
+      const text = m.parts?.[0]?.text
       if (typeof text !== 'string') return true
       // Filter out System Prompt
       if (text.startsWith('Role: Prism AI')) return false
@@ -185,7 +190,7 @@ export async function searchChatHistory(query: string): Promise<string> {
 
       for (let i = 0; i < session.messages.length; i++) {
         const msg = session.messages[i]
-        const text = msg.parts[0].text
+        const text = msg.parts?.[0]?.text
 
         if (typeof text === 'string') {
           // Ignore ONLY the main system prompt to avoid polluting history with rules
@@ -194,7 +199,7 @@ export async function searchChatHistory(query: string): Promise<string> {
           }
 
           const lowerText = text.toLowerCase()
-          
+
           // Calculate score: how many unique keywords match?
           let matchCount = 0
           for (const kw of keywords) {
@@ -202,11 +207,11 @@ export async function searchChatHistory(query: string): Promise<string> {
               matchCount++
             }
           }
-          
+
           if (matchCount > 0) {
             // Found a match. Try to get the context pair.
             let context = ''
-            
+
             const formatRole = (role: string, content: string) => {
               if (role === 'user') {
                 if (content.startsWith('[SYSTEM:')) return `[System]:\n${content}`
@@ -223,13 +228,15 @@ export async function searchChatHistory(query: string): Promise<string> {
               context = formatRole('user', text)
               const nextMsg = session.messages[i + 1]
               if (nextMsg && nextMsg.role === 'model') {
-                const nextText = typeof nextMsg.parts[0].text === 'string' ? nextMsg.parts[0].text : ''
+                const nextText =
+                  typeof nextMsg.parts?.[0]?.text === 'string' ? nextMsg.parts?.[0]?.text : ''
                 context += `\n${formatRole('model', nextText)}`
               }
             } else if (msg.role === 'model') {
               const prevMsg = session.messages[i - 1]
               if (prevMsg && prevMsg.role === 'user') {
-                const prevText = typeof prevMsg.parts[0].text === 'string' ? prevMsg.parts[0].text : ''
+                const prevText =
+                  typeof prevMsg.parts?.[0]?.text === 'string' ? prevMsg.parts?.[0]?.text : ''
                 context = `${formatRole('user', prevText)}\n`
               }
               context += formatRole('model', text)
@@ -251,14 +258,14 @@ export async function searchChatHistory(query: string): Promise<string> {
   }
 
   if (allMatches.length === 0) {
-    return "No relevant history found for this query."
+    return 'No relevant history found for this query.'
   }
 
   // Sort by score (descending), then by date (newest first)
   const results = allMatches
     .sort((a, b) => b.score - a.score || b.timestamp - a.timestamp)
     .slice(0, 10)
-    .map(m => m.context)
+    .map((m) => m.context)
 
   return results.join('\n\n')
 }
