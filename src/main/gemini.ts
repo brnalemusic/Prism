@@ -86,7 +86,11 @@ function getSubagentModelConfig(modelKey = currentSubagentModelKey): ModelConfig
   const config = MODEL_CONFIGS[modelKey] || MODEL_CONFIGS[DEFAULT_SUBAGENT_MODEL_KEY]
   return {
     apiModel: config.apiModel,
-    thinkingConfig: config.thinkingConfig
+    thinkingConfig: {
+      ...config.thinkingConfig,
+      thinkingLevel: ThinkingLevel.HIGH,
+      includeThoughts: false
+    }
   }
 }
 
