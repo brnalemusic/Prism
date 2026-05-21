@@ -23,13 +23,41 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Sync version from tag
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$') {
+            throw "Tag '${{ github.ref_name }}' is not a valid semver version"
+          }
+
+          npm version $version --no-git-tag-version --allow-same-version
+          Set-Content -Path version.txt -Value $version -NoNewline
+          Write-Host "Building Prism version $version"
 
       - name: Build App
         run: npm run build:win -- --publish never
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Validate updater metadata
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $latestYml = Get-Content dist/latest.yml -Raw
+
+          if ($latestYml -notmatch "version:\s*$([regex]::Escape($version))(\r?\n|$)") {
+            throw "dist/latest.yml does not match package version $version`n$latestYml"
+          }
+
+          $installerPath = "dist/prism-$version-setup.exe"
+          if (-not (Test-Path $installerPath)) {
+            throw "Missing expected installer artifact: $installerPath"
+          }
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -40,7 +68,7 @@ jobs:
             dist/*.zip
             dist/*.blockmap
             dist/latest.yml
-          if-no-files-found: warn
+          if-no-files-found: error
 
   release:
     name: Create GitHub Release
