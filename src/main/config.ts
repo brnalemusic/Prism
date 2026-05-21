@@ -6,16 +6,39 @@ export interface AppConfig {
   launcherShortcut: string
   modelSelectionShortcut: string
   defaultModel: string
+  subagentModel: string
   minimizeToTray: boolean
   userGeminiKey?: string
+  username?: string
 }
 
 const DEFAULT_CONFIG: AppConfig = {
   launcherShortcut: 'CommandOrControl+Space',
   modelSelectionShortcut: 'CommandOrControl+M',
-  defaultModel: 'prism-3',
+  defaultModel: 'prism-5',
+  subagentModel: 'prism-4.2',
   minimizeToTray: false,
   userGeminiKey: ''
+}
+
+const VALID_MODEL_KEYS = new Set([
+  'prism-5',
+  'prism-4.3',
+  'prism-4.2',
+  'prism-4.1',
+  'prism-4'
+])
+
+function normalizeConfig(config: AppConfig): AppConfig {
+  return {
+    ...config,
+    defaultModel: VALID_MODEL_KEYS.has(config.defaultModel)
+      ? config.defaultModel
+      : DEFAULT_CONFIG.defaultModel,
+    subagentModel: VALID_MODEL_KEYS.has(config.subagentModel)
+      ? config.subagentModel
+      : DEFAULT_CONFIG.subagentModel
+  }
 }
 
 const CONFIG_DIR = path.join(
@@ -36,7 +59,17 @@ export function loadConfig(): AppConfig {
     }
 
     const data = fs.readFileSync(CONFIG_FILE, 'utf-8')
-    const config = { ...DEFAULT_CONFIG, ...JSON.parse(data) }
+    const parsedConfig = JSON.parse(data)
+    const config = normalizeConfig({ ...DEFAULT_CONFIG, ...parsedConfig })
+
+    if (
+      !parsedConfig.defaultModel ||
+      !VALID_MODEL_KEYS.has(parsedConfig.defaultModel) ||
+      !parsedConfig.subagentModel ||
+      !VALID_MODEL_KEYS.has(parsedConfig.subagentModel)
+    ) {
+      fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2))
+    }
 
     // Decrypt API key if it exists
     if (config.userGeminiKey) {
@@ -68,7 +101,7 @@ export function saveConfig(config: AppConfig): boolean {
       fs.mkdirSync(CONFIG_DIR, { recursive: true })
     }
 
-    const configToSave = { ...config }
+    const configToSave = normalizeConfig({ ...config })
 
     // Encrypt API key if it exists and safeStorage is available
     if (configToSave.userGeminiKey && safeStorage.isEncryptionAvailable()) {

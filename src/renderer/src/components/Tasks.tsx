@@ -22,20 +22,20 @@ interface TasksProps {
 
 export function Tasks({ tasks }: TasksProps): React.JSX.Element {
   return (
-    <div className="flex flex-col h-full w-full max-w-5xl mx-auto px-6 py-8">
+    <div className="flex h-full w-full max-w-5xl flex-col mx-auto px-6 py-8">
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-text-primary tracking-tight">System Tasks</h2>
-        <p className="text-text-secondary text-sm mt-1">
+        <h2 className="text-2xl font-semibold text-text-primary">System Tasks</h2>
+        <p className="mt-1 text-sm text-text-secondary/70">
           A history of actions performed by Prism during this session.
         </p>
       </div>
 
       {tasks.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center opacity-40 grayscale">
-          <div className="w-16 h-16 rounded-full border-2 border-dashed border-text-secondary flex items-center justify-center mb-4">
+        <div className="premium-panel-soft flex flex-1 flex-col items-center justify-center rounded-[30px] opacity-80">
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-[24px] border border-white/[0.08] bg-white/[0.035]">
             <CheckCircle2 size={32} className="text-text-secondary" />
           </div>
-          <p className="text-text-secondary font-medium italic">No tasks recorded yet.</p>
+          <p className="font-medium text-text-secondary">No tasks recorded yet.</p>
         </div>
       ) : (
         <div className="flex flex-col gap-4">
@@ -45,18 +45,18 @@ export function Tasks({ tasks }: TasksProps): React.JSX.Element {
             .map((task) => (
               <div
                 key={task.id}
-                className="group relative flex flex-col bg-surface/5 border border-surface/20 rounded-2xl p-5 transition-all hover:bg-surface/10 hover:border-surface/40"
+                className="premium-panel-soft group relative flex flex-col rounded-[24px] p-5 transition-all duration-200"
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
                     <div
                       className={clsx(
-                        'p-2.5 rounded-xl flex items-center justify-center',
+                        'flex items-center justify-center rounded-[18px] border p-2.5',
                         task.status === 'running'
-                          ? 'bg-accent-primary/10 text-accent-primary'
+                          ? 'border-accent-primary/20 bg-accent-primary/[0.09] text-accent-primary'
                           : task.status === 'done'
-                            ? 'bg-status-success/10 text-status-success'
-                            : 'bg-status-error/10 text-status-error'
+                            ? 'border-status-success/20 bg-status-success/[0.09] text-status-success'
+                            : 'border-status-error/20 bg-status-error/[0.09] text-status-error'
                       )}
                     >
                       {task.name === 'execute_terminal_command' && <Terminal size={18} />}
@@ -67,23 +67,23 @@ export function Tasks({ tasks }: TasksProps): React.JSX.Element {
                     </div>
 
                     <div>
-                      <h3 className="text-[15px] font-bold text-text-primary leading-tight">
+                      <h3 className="text-[15px] font-semibold text-text-primary leading-tight">
                         {task.name.startsWith('computer_use_')
                           ? 'Computer Use'
                           : task.name.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
                       </h3>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="text-[10px] uppercase tracking-widest font-bold text-text-secondary/50">
+                        <span className="text-[11px] font-semibold text-text-secondary/50">
                           {task.timestamp.toLocaleTimeString([], {
                             hour: '2-digit',
                             minute: '2-digit',
                             second: '2-digit'
                           })}
                         </span>
-                        <span className="text-text-secondary/30">•</span>
+                        <span className="text-text-secondary/30">/</span>
                         <span
                           className={clsx(
-                            'text-[10px] uppercase tracking-widest font-black',
+                            'text-[11px] font-semibold',
                             task.status === 'running'
                               ? 'text-accent-primary animate-pulse'
                               : task.status === 'done'
@@ -109,8 +109,8 @@ export function Tasks({ tasks }: TasksProps): React.JSX.Element {
                 </div>
 
                 <div className="mt-2 flex flex-col gap-2">
-                  <div className="bg-black/20 rounded-lg p-3 border border-surface/10">
-                    <span className="text-[9px] uppercase tracking-widest font-bold text-text-secondary/40 block mb-1.5">
+                  <div className="rounded-[18px] border border-white/[0.055] bg-black/15 p-3">
+                    <span className="mb-1.5 block text-[11px] font-semibold text-text-secondary/50">
                       Parameters
                     </span>
                     <pre className="text-[12px] font-mono text-text-primary/90 whitespace-pre-wrap break-all leading-relaxed">
@@ -119,11 +119,11 @@ export function Tasks({ tasks }: TasksProps): React.JSX.Element {
                   </div>
 
                   {task.result && (
-                    <div className="bg-black/40 rounded-lg p-3 border border-surface/10 mt-1">
-                      <span className="text-[9px] uppercase tracking-widest font-bold text-text-secondary/40 block mb-1.5">
+                    <div className="mt-1 rounded-[18px] border border-white/[0.055] bg-black/20 p-3">
+                      <span className="mb-1.5 block text-[11px] font-semibold text-text-secondary/50">
                         Output
                       </span>
-                      <pre className="text-[11px] font-mono text-accent-secondary/80 whitespace-pre-wrap break-all max-h-[150px] overflow-y-auto leading-relaxed custom-scrollbar">
+                      <pre className="max-h-[150px] overflow-y-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-accent-secondary/80">
                         {task.result}
                       </pre>
                     </div>

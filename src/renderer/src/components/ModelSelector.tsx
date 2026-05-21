@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
+import { ChevronDown, Check, Cpu } from 'lucide-react'
 import { clsx } from 'clsx'
 import { MODELS } from '../constants'
 import { isShortcutPressed } from '../utils'
@@ -24,7 +25,12 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
       open: () => {
         if (!disabled) {
           setIsOpen(true)
-          setSelectedIndex(MODELS.findIndex((m) => m.id === selectedModel))
+          setSelectedIndex(
+            Math.max(
+              0,
+              MODELS.findIndex((m) => m.id === selectedModel)
+            )
+          )
         }
       }
     }))
@@ -32,14 +38,12 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
     const currentModel = MODELS.find((m) => m.id === selectedModel) || MODELS[0]
 
     useEffect(() => {
-      // Load config for shortcut
       window.api.getConfig().then((config) => {
         if (config.modelSelectionShortcut) {
           setShortcut(config.modelSelectionShortcut)
         }
       })
 
-      // Listen for config changes
       window.api.onConfigChanged((config) => {
         if (config.modelSelectionShortcut) {
           setShortcut(config.modelSelectionShortcut)
@@ -57,13 +61,17 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
       const handleKeyDown = (e: KeyboardEvent): void => {
         if (disabled) return
 
-        // Toggle with shortcut
         if (isShortcutPressed(e, shortcut)) {
           e.preventDefault()
           const newIsOpen = !isOpen
           setIsOpen(newIsOpen)
           if (newIsOpen) {
-            setSelectedIndex(MODELS.findIndex((m) => m.id === selectedModel))
+            setSelectedIndex(
+              Math.max(
+                0,
+                MODELS.findIndex((m) => m.id === selectedModel)
+              )
+            )
           }
           return
         }
@@ -105,51 +113,48 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
             const newIsOpen = !isOpen
             setIsOpen(newIsOpen)
             if (newIsOpen) {
-              setSelectedIndex(MODELS.findIndex((m) => m.id === selectedModel))
+              setSelectedIndex(
+                Math.max(
+                  0,
+                  MODELS.findIndex((m) => m.id === selectedModel)
+                )
+              )
             }
           }}
           className={clsx(
-            'flex items-center gap-3 px-4 py-2 rounded-xl border transition-all duration-300 outline-none',
-            'bg-surface/30 backdrop-blur-md',
-            isOpen
-              ? 'border-accent-primary/50 prism-glow'
-              : 'border-surface/50 hover:border-surface hover:bg-surface/50',
-            disabled && 'opacity-50 cursor-not-allowed'
+            'premium-control flex min-w-[218px] items-center gap-3 rounded-[18px] px-4 py-2.5 text-left outline-none transition-all duration-200 hover:border-white/[0.15]',
+            isOpen && 'prism-glow',
+            disabled && 'cursor-not-allowed opacity-50'
           )}
         >
-          <div className="flex flex-col items-start">
-            <span className="text-[10px] uppercase tracking-widest text-text-secondary/60 font-bold leading-none mb-1">
-              Active Intelligence
-            </span>
-            <span className="text-sm font-medium text-text-primary tracking-tight">
+          <span className="flex h-8 w-8 items-center justify-center rounded-2xl bg-white/[0.055] text-accent-primary">
+            <Cpu size={16} />
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="text-[11px] font-medium text-text-secondary/70">Active Model</span>
+            <span
+              className={clsx(
+                'truncate text-sm font-semibold',
+                currentModel.id === 'prism-5' ? 'prism-top-gradient' : 'text-text-primary'
+              )}
+            >
               {currentModel.name}
             </span>
-          </div>
-
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+          </span>
+          <ChevronDown
+            size={16}
             className={clsx(
-              'text-text-secondary/50 transition-transform duration-300 ml-2',
+              'text-text-secondary/50 transition-transform duration-200',
               isOpen && 'rotate-180'
             )}
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
+          />
         </button>
 
         {isOpen && (
-          <div className="absolute top-full right-0 mt-2 w-72 rounded-2xl border border-surface/50 bg-background-secondary/95 backdrop-blur-xl shadow-2xl py-2 z-50 animate-in fade-in zoom-in-95 duration-200 origin-top">
-            <div className="px-4 py-2 mb-1 border-b border-surface/20">
-              <span className="text-[9px] uppercase tracking-[0.2em] font-black text-text-secondary/40">
-                Select Intelligence
+          <div className="model-menu-panel absolute left-1/2 top-full z-50 mt-2 w-80 -translate-x-1/2 origin-top overflow-hidden rounded-[24px] py-2 animate-soft-pop">
+            <div className="border-b border-white/[0.06] px-4 py-3">
+              <span className="text-xs font-semibold text-text-secondary/70">
+                Choose Prism engine
               </span>
             </div>
             {MODELS.map((model, index) => (
@@ -161,32 +166,42 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
                   setIsOpen(false)
                 }}
                 className={clsx(
-                  'w-full px-4 py-3 flex flex-col items-start transition-all duration-200 group relative overflow-hidden',
-                  selectedIndex === index ? 'bg-accent-primary/10' : 'hover:bg-surface/40'
+                  'relative flex w-full items-start gap-3 px-4 py-3 text-left transition-all duration-150 active:bg-white/[0.09]',
+                  model.id === 'prism-5'
+                    ? [
+                        'prism-5-model-option prism-5-menu-option',
+                        selectedIndex === index && 'prism-5-model-option-active'
+                      ]
+                    : selectedIndex === index
+                      ? 'bg-white/[0.065]'
+                      : 'hover:bg-white/[0.04]'
                 )}
               >
-                <div className="flex items-center gap-2 mb-0.5">
+                <span
+                  className={clsx(
+                    'mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full',
+                    model.id === 'prism-5'
+                      ? ['prism-5-dot', selectedModel === model.id ? 'opacity-100' : 'opacity-70']
+                      : selectedModel === model.id
+                        ? 'bg-accent-secondary'
+                        : 'bg-white/[0.18]'
+                  )}
+                />
+                <span className="flex min-w-0 flex-1 flex-col">
                   <span
                     className={clsx(
-                      'text-sm font-bold tracking-tight',
-                      model.id === 'prism-3' && 'prism-3-gradient animate-gradient-x',
-                      selectedModel === model.id && model.id !== 'prism-3'
-                        ? 'text-accent-primary'
-                        : selectedModel !== model.id && model.id !== 'prism-3' && 'text-text-primary group-hover:text-accent-primary/80'
+                      'text-sm font-semibold',
+                      model.id === 'prism-5' ? 'prism-5-title-gradient' : 'text-text-primary'
                     )}
                   >
                     {model.name}
                   </span>
-                  {selectedModel === model.id && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-accent-primary animate-pulse" />
-                  )}
-                </div>
-                <span className="text-[11px] text-text-secondary/70 font-medium leading-snug">
-                  {model.description}
+                  <span className="mt-0.5 text-xs leading-snug text-text-secondary/70">
+                    {model.description}
+                  </span>
                 </span>
-
                 {selectedModel === model.id && (
-                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-accent-primary" />
+                  <Check size={15} className="mt-0.5 text-accent-secondary" />
                 )}
               </button>
             ))}

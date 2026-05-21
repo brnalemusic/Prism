@@ -10,39 +10,30 @@ export function TitleBar(): React.JSX.Element {
   }
 
   return (
-    <div className="h-10 w-full flex items-center justify-between px-4 bg-background-main/50 backdrop-blur-md border-b border-white/5 select-none drag-region fixed top-0 left-0 z-[100]">
-      <div className="flex items-center gap-2">
-        <div className="w-3 h-3 rounded-full bg-accent-primary opacity-50" />
-        <span className="text-[10px] font-bold tracking-widest text-text-secondary/60 uppercase">
-          Prism System
-        </span>
+    <div className="fixed left-0 top-0 z-[100] flex h-10 w-full select-none items-center justify-between border-b border-white/[0.055] bg-background-main/[0.72] px-4 backdrop-blur-2xl drag-region">
+      <div className="flex items-center gap-2.5 no-drag-region">
+        <div className="flex h-6 w-6 items-center justify-center rounded-lg border border-white/[0.09] bg-white/[0.07]">
+          <span className="text-[11px] font-bold prism-top-gradient">P</span>
+        </div>
+        <span className="text-[12px] font-semibold text-text-secondary/80">Prism</span>
       </div>
 
       <div className="flex items-center no-drag-region">
         <button
           onClick={handleMinimize}
-          className="p-2 hover:bg-white/5 text-text-secondary hover:text-text-primary transition-colors"
+          className="flex h-8 w-10 items-center justify-center rounded-lg text-text-secondary/70 transition-all duration-150 hover:bg-white/[0.08] hover:text-text-primary active:scale-95"
           title="Minimize"
         >
           <Minus size={14} />
         </button>
         <button
           onClick={handleClose}
-          className="p-2 hover:bg-status-error/20 text-text-secondary hover:text-status-error transition-colors"
+          className="flex h-8 w-10 items-center justify-center rounded-lg text-text-secondary/70 transition-all duration-150 hover:bg-[#e81123] hover:text-white active:scale-95"
           title="Close"
         >
           <X size={14} />
         </button>
       </div>
-
-      <style>{`
-        .drag-region {
-          -webkit-app-region: drag;
-        }
-        .no-drag-region {
-          -webkit-app-region: no-drag;
-        }
-      `}</style>
     </div>
   )
 }

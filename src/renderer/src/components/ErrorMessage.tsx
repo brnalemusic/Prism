@@ -37,15 +37,15 @@ export function ErrorMessage({ error, onFixClick }: ErrorMessageProps): React.JS
   const isRateLimit = errorCode === '429'
 
   return (
-    <div className="w-full max-w-2xl my-2 animate-in fade-in slide-in-from-top-2 duration-300">
+    <div className="my-2 w-full max-w-2xl animate-soft-pop">
       <div
         className={clsx(
-          'overflow-hidden rounded-xl border transition-all duration-300',
-          isCancellation 
-            ? 'border-surface/20 bg-surface/5'
+          'premium-panel-soft overflow-hidden rounded-[22px] border transition-all duration-300',
+          isCancellation
+            ? 'border-white/[0.06]'
             : isOpen
-              ? 'border-status-error/40 bg-status-error/10 shadow-[0_0_20px_-5px_rgba(248,113,113,0.2)]'
-              : 'border-status-error/20 bg-status-error/5 hover:bg-status-error/10 hover:border-status-error/30'
+              ? 'border-status-error/35 bg-status-error/[0.08]'
+              : 'border-status-error/20 bg-status-error/[0.045] hover:bg-status-error/[0.07] hover:border-status-error/30'
         )}
       >
         {/* Header/Dropdown Trigger */}
@@ -54,23 +54,29 @@ export function ErrorMessage({ error, onFixClick }: ErrorMessageProps): React.JS
             onClick={() => !isCancellation && setIsOpen(!isOpen)}
             disabled={isCancellation}
             className={clsx(
-              "flex-1 px-4 py-3 flex items-center justify-between gap-3 text-left",
-              isCancellation ? "cursor-default" : "cursor-pointer"
+              'flex-1 px-4 py-3 flex items-center justify-between gap-3 text-left',
+              isCancellation ? 'cursor-default' : 'cursor-pointer'
             )}
           >
             <div className="flex items-center gap-3">
-              <div className={clsx(
-                "flex items-center justify-center w-8 h-8 rounded-lg shrink-0",
-                isCancellation ? "bg-surface/20 text-text-muted" : "bg-status-error/20 text-status-error"
-              )}>
+              <div
+                className={clsx(
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-[16px] border',
+                  isCancellation
+                    ? 'border-white/[0.08] bg-white/[0.035] text-text-muted'
+                    : 'border-status-error/20 bg-status-error/[0.12] text-status-error'
+                )}
+              >
                 <AlertCircle size={18} />
               </div>
               <div className="flex flex-col">
-                <span className={clsx(
-                  "text-[10px] uppercase tracking-widest font-black leading-none mb-1",
-                  isCancellation ? "text-text-muted/70" : "text-status-error/70"
-                )}>
-                  {isCancellation ? "User Action" : "Prism Exception"}
+                <span
+                  className={clsx(
+                    'mb-1 text-[11px] font-semibold leading-none',
+                    isCancellation ? 'text-text-muted/70' : 'text-status-error/70'
+                  )}
+                >
+                  {isCancellation ? 'User Action' : 'Prism Exception'}
                 </span>
                 <span className="text-sm font-semibold text-text-primary/90">
                   {isCancellation ? summary : `Error ${errorCode}: ${summary}`}
@@ -83,15 +89,15 @@ export function ErrorMessage({ error, onFixClick }: ErrorMessageProps): React.JS
               </div>
             )}
           </button>
-          
+
           {onFixClick && !isCancellation && (
             <button
               onClick={onFixClick}
               className={clsx(
-                "mr-4 px-3 py-1.5 rounded-lg text-[10px] uppercase tracking-wider font-bold transition-colors",
-                isRateLimit 
-                  ? "bg-accent-primary/20 text-accent-primary hover:bg-accent-primary/30"
-                  : "bg-status-error/20 text-status-error hover:bg-status-error/30"
+                'mr-4 rounded-[14px] px-3 py-1.5 text-[11px] font-semibold transition-colors',
+                isRateLimit
+                  ? 'bg-accent-primary/[0.12] text-accent-primary hover:bg-accent-primary/[0.18]'
+                  : 'bg-status-error/[0.12] text-status-error hover:bg-status-error/[0.18]'
               )}
             >
               {isRateLimit ? 'Change Model' : 'Change API Key'}
@@ -111,9 +117,9 @@ export function ErrorMessage({ error, onFixClick }: ErrorMessageProps): React.JS
               <div className="px-4 pb-4 pt-1 ml-11">
                 <div className="relative group">
                   <div className="absolute -left-3 top-0 bottom-0 w-[2px] bg-status-error/20" />
-                  <div className="bg-black/20 rounded-lg p-3 border border-white/5 flex flex-col gap-2">
+                  <div className="flex flex-col gap-2 rounded-[18px] border border-white/[0.055] bg-black/15 p-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-[9px] uppercase tracking-wider font-bold text-text-secondary/50 flex items-center gap-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] font-semibold text-text-secondary/50">
                         <Terminal size={10} />
                         Raw Provider Response
                       </span>

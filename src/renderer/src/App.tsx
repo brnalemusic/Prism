@@ -19,11 +19,13 @@ import { SettingsView } from './components/SettingsView'
 import { ApiKeyModal } from './components/ApiKeyModal'
 import { MissingKeyBanner } from './components/MissingKeyBanner'
 import { SubagentChat } from './components/SubagentChat'
+import { SubagentModelSettings } from './components/SubagentModelSettings'
 import clsx from 'clsx'
+import { ArrowDown } from 'lucide-react'
 
 const MarkdownComponents: any = {
   a: ({ href, children, ...props }: any) => {
-    const imageExtensions = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i;
+    const imageExtensions = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i
     if (href && imageExtensions.test(href)) {
       return (
         <img
@@ -31,7 +33,7 @@ const MarkdownComponents: any = {
           alt={typeof children === 'string' ? children : 'Image'}
           className="max-w-full h-auto rounded-xl my-4 border border-surface/50 shadow-lg"
         />
-      );
+      )
     }
     return (
       <a
@@ -43,7 +45,7 @@ const MarkdownComponents: any = {
       >
         {children}
       </a>
-    );
+    )
   },
   img: ({ src, alt, ...props }: any) => (
     <img
@@ -52,11 +54,10 @@ const MarkdownComponents: any = {
       className="max-w-full h-auto rounded-xl my-4 border border-surface/50 shadow-lg"
       {...props}
     />
-  ),
-};
+  )
+}
 
 interface Message {
-
   role: 'user' | 'ai'
   content: string
   thoughts?: string
@@ -67,6 +68,7 @@ interface Message {
   toolCalls?: ToolCall[]
   isWritingToolCall?: boolean
   toolType?: 'task' | 'search'
+  isConnecting?: boolean
 }
 
 interface Task extends ToolCall {
@@ -81,7 +83,7 @@ function App(): React.JSX.Element {
   const [isProcessing, setIsProcessing] = useState(false)
   const [isFinishing, setIsFinishing] = useState(false)
   const [isFocused, setIsFocused] = useState(true)
-  const [selectedModel, setSelectedModel] = useState('prism-3')
+  const [selectedModel, setSelectedModel] = useState('prism-5')
   const [activeView, setActiveView] = useState('chat')
   const [currentChatId, setCurrentChatId] = useState<string | undefined>(undefined)
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false)
@@ -113,17 +115,32 @@ function App(): React.JSX.Element {
     init()
   }, [])
 
+  useEffect(() => {
+    if (selectedModel === 'prism-4.3') {
+      setIsThinkMode(true)
+    }
+  }, [selectedModel])
+
   const route = window.location.hash
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const isAtBottomRef = useRef(true)
+  const [showScrollButton, setShowScrollButton] = useState(false)
   const inputBarRef = useRef<InputBarHandle>(null)
   const modelSelectorRef = useRef<any>(null)
+
+  const getGreeting = (): string => {
+    const rawName = config?.username || 'usuário'
+    const formattedName = rawName.charAt(0).toUpperCase() + rawName.slice(1)
+    return `Olá, ${formattedName}. Em que podemos trabalhar?`
+  }
 
   const handleSend = (text: string, thinkMode?: boolean): void => {
     if (isProcessing) return
 
     setIsProcessing(true)
     setIsYoutubeMode(text.startsWith('/youtube'))
-    
+
     // If thinkMode is provided (e.g. from Launcher), update App state
     if (thinkMode !== undefined) {
       setIsThinkMode(thinkMode)
@@ -132,7 +149,7 @@ function App(): React.JSX.Element {
     // Para a UI, removemos a tag feia se ela existir
     const displayContent = text.replace(/^\[FORCE_SEARCH\]\s*/i, '')
     setMessages((prev) => [...prev, { role: 'user', content: displayContent }])
-    
+
     // Para a API, enviamos o texto original e o thinkMode (seja o atual ou o vindo do launcher)
     window.api.sendChatMessage({ message: text, thinkMode: thinkMode ?? isThinkMode })
   }
@@ -167,13 +184,35 @@ function App(): React.JSX.Element {
     }
   }, [isProcessing])
 
-  const scrollToBottom = (): void => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth'): void => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({
+        top: scrollContainerRef.current.scrollHeight,
+        behavior
+      })
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior })
+    }
+  }
+
+  const handleScroll = (): void => {
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    const { scrollTop, scrollHeight, clientHeight } = container
+    const atBottom = scrollHeight - scrollTop - clientHeight < 50
+    isAtBottomRef.current = atBottom
+
+    setShowScrollButton(!atBottom && scrollHeight > clientHeight)
   }
 
   const handleModelChange = (newModel: string): void => {
     setSelectedModel(newModel)
     window.api.setModel(newModel)
+  }
+
+  const handleOpenSubagentSettings = (): void => {
+    window.api.openSubagentSettingsWindow()
   }
 
   const handleCancel = (): void => {
@@ -184,6 +223,8 @@ function App(): React.JSX.Element {
     if (isProcessing) return
     const history = await window.api.loadChat(id)
     if (history) {
+      isAtBottomRef.current = true
+      setShowScrollButton(false)
       const mappedMessages: Message[] = []
 
       for (const m of history) {
@@ -243,7 +284,9 @@ function App(): React.JSX.Element {
               content: '',
               thoughts: '',
               toolCalls: [],
-              isStreaming: false
+              isStreaming: false,
+              isThinking: false,
+              isConnecting: false
             }
             mappedMessages.push(aiMsg)
           }
@@ -254,7 +297,7 @@ function App(): React.JSX.Element {
           while ((thoughtsMatch = thoughtsRegex.exec(text)) !== null) {
             aiMsg.thoughts = (aiMsg.thoughts || '') + thoughtsMatch[1].trim() + '\n\n'
           }
-          
+
           // Remove thoughts from the text that will become content
           const textWithoutThoughts = text.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim()
 
@@ -317,6 +360,8 @@ function App(): React.JSX.Element {
     if (force) {
       window.api.cancelChat()
     }
+    isAtBottomRef.current = true
+    setShowScrollButton(false)
     setMessages([])
     setTasks([])
     setCurrentChatId(undefined)
@@ -334,7 +379,15 @@ function App(): React.JSX.Element {
   }
 
   useEffect(() => {
-    scrollToBottom()
+    const lastMessage = messages[messages.length - 1]
+    const isUserMsg = lastMessage?.role === 'user'
+    const isAiStreaming = lastMessage?.role === 'ai' && lastMessage?.isStreaming
+
+    if (isAtBottomRef.current || isUserMsg) {
+      scrollToBottom(isAiStreaming ? 'auto' : 'smooth')
+      isAtBottomRef.current = true
+      setShowScrollButton(false)
+    }
   }, [messages])
 
   useEffect(() => {
@@ -351,52 +404,59 @@ function App(): React.JSX.Element {
           thoughts: '',
           isStreaming: true,
           isThinking: false,
+          isConnecting: true,
           toolCalls: []
         }
       ])
     })
 
-    const removeChatChunkListener = window.api.onChatChunk(({ thoughts, finalResponse, usedFallback, isThinking, isWritingToolCall, toolType }) => {
-      setMessages((prev) => {
-        const newMessages = [...prev]
-        const lastMsg = newMessages[newMessages.length - 1]
-        if (lastMsg && lastMsg.role === 'ai' && lastMsg.isStreaming) {
-          lastMsg.thoughts = thoughts
-          lastMsg.content = finalResponse
-          lastMsg.usedFallback = usedFallback
-          lastMsg.isThinking = isThinking
-          lastMsg.isWritingToolCall = isWritingToolCall
-          lastMsg.toolType = toolType
-        }
-        return newMessages
-      })
-    })
+    const removeChatChunkListener = window.api.onChatChunk(
+      ({ thoughts, finalResponse, usedFallback, isThinking, isWritingToolCall, toolType }) => {
+        setMessages((prev) => {
+          const newMessages = [...prev]
+          const lastMsg = newMessages[newMessages.length - 1]
+          if (lastMsg && lastMsg.role === 'ai' && lastMsg.isStreaming) {
+            lastMsg.thoughts = thoughts
+            lastMsg.content = finalResponse
+            lastMsg.usedFallback = usedFallback
+            lastMsg.isThinking = isThinking
+            lastMsg.isWritingToolCall = isWritingToolCall
+            lastMsg.toolType = toolType
+            lastMsg.isConnecting = false
+          }
+          return newMessages
+        })
+      }
+    )
 
-    const removeChatEndListener = window.api.onChatEnd(({ thoughts, finalResponse, usedFallback }) => {
-      setIsProcessing(false)
-      setIsYoutubeMode(false)
-      setIsFinishing(true)
-      setTimeout(() => setIsFinishing(false), 2000)
+    const removeChatEndListener = window.api.onChatEnd(
+      ({ thoughts, finalResponse, usedFallback }) => {
+        setIsProcessing(false)
+        setIsYoutubeMode(false)
+        setIsFinishing(true)
+        setTimeout(() => setIsFinishing(false), 2000)
 
-      setMessages((prev) => {
-        const newMessages = [...prev]
-        const lastMsg = newMessages[newMessages.length - 1]
-        if (lastMsg && lastMsg.role === 'ai') {
-          lastMsg.thoughts = thoughts
-          lastMsg.content = finalResponse
-          lastMsg.usedFallback = usedFallback
-          lastMsg.isStreaming = false
-          lastMsg.isThinking = false
-          lastMsg.isWritingToolCall = false
-        }
-        return newMessages
-      })
-    })
+        setMessages((prev) => {
+          const newMessages = [...prev]
+          const lastMsg = newMessages[newMessages.length - 1]
+          if (lastMsg && lastMsg.role === 'ai') {
+            lastMsg.thoughts = thoughts
+            lastMsg.content = finalResponse
+            lastMsg.usedFallback = usedFallback
+            lastMsg.isStreaming = false
+            lastMsg.isThinking = false
+            lastMsg.isWritingToolCall = false
+            lastMsg.isConnecting = false
+          }
+          return newMessages
+        })
+      }
+    )
 
     const removeChatErrorListener = window.api.onChatError((error) => {
       setIsProcessing(false)
       setIsYoutubeMode(false)
-      
+
       if (error === 'API_KEY_MISSING') {
         setIsApiKeyModalOpen(true)
         return
@@ -433,6 +493,7 @@ function App(): React.JSX.Element {
           lastMsg.content = error
           lastMsg.isStreaming = false
           lastMsg.isThinking = false
+          lastMsg.isConnecting = false
           lastMsg.isError = true
         } else {
           // Se não houver uma mensagem de AI ativa, cria uma nova para o erro
@@ -442,6 +503,7 @@ function App(): React.JSX.Element {
             isError: true,
             isStreaming: false,
             isThinking: false,
+            isConnecting: false,
             toolCalls: []
           })
         }
@@ -630,7 +692,7 @@ function App(): React.JSX.Element {
   const renderAiMessage = (msg: Message): React.JSX.Element | null => {
     if (msg.isError) {
       const isRateLimit = msg.content.includes('429')
-      
+
       const handleFix = (): void => {
         if (isRateLimit) {
           modelSelectorRef.current?.open()
@@ -642,18 +704,24 @@ function App(): React.JSX.Element {
       return <ErrorMessage error={msg.content} onFixClick={handleFix} />
     }
 
+    if (msg.isConnecting) {
+      return (
+        <div className="flex items-center gap-2 text-text-secondary/70 font-mono text-[13px] py-2">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full rounded-full bg-accent-primary/40 animate-ping"></span>
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-accent-primary"></span>
+          </span>
+          <span>Connecting...</span>
+          <span className="flex items-center gap-1">
+            <span className="thinking-dot h-1.5 w-1.5 rounded-full bg-accent-primary [animation-delay:-0.22s]" />
+            <span className="thinking-dot h-1.5 w-1.5 rounded-full bg-accent-secondary [animation-delay:-0.11s]" />
+            <span className="thinking-dot h-1.5 w-1.5 rounded-full bg-white/70" />
+          </span>
+        </div>
+      )
+    }
+
     if (!msg.content && !msg.toolCalls?.length && !msg.isWritingToolCall) {
-      if (msg.isStreaming) {
-        return (
-          <div className="flex flex-col gap-4">
-            <div className="flex gap-1.5 py-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-accent-primary/40 animate-bounce [animation-delay:-0.3s]" />
-              <span className="w-1.5 h-1.5 rounded-full bg-accent-primary/40 animate-bounce [animation-delay:-0.15s]" />
-              <span className="w-1.5 h-1.5 rounded-full bg-accent-primary/40 animate-bounce" />
-            </div>
-          </div>
-        )
-      }
       return null
     }
 
@@ -686,11 +754,13 @@ function App(): React.JSX.Element {
                   key={`text-${index}`}
                   className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[13px] prose-p:font-light prose-p:text-[16px] lg:prose-p:text-[19px] xl:prose-p:text-[20px]"
                 >
-                  <ReactMarkdown 
-                    remarkPlugins={[remarkGfm, remarkMath]} 
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm, remarkMath]}
                     rehypePlugins={[rehypeRaw, rehypeKatex]}
                     components={MarkdownComponents}
-                  >{part}</ReactMarkdown>
+                  >
+                    {part}
+                  </ReactMarkdown>
                 </div>
               )
             }
@@ -720,7 +790,8 @@ function App(): React.JSX.Element {
     )
   }
 
-  const isKeyMissing = !config?.userGeminiKey && (config?.envGeminiKey === 'none' || !config?.envGeminiKey)
+  const isKeyMissing =
+    !config?.userGeminiKey && (config?.envGeminiKey === 'none' || !config?.envGeminiKey)
 
   if (route === '#launcher') {
     return <QuickLauncher />
@@ -728,6 +799,10 @@ function App(): React.JSX.Element {
 
   if (route === '#subagents') {
     return <SubagentChat />
+  }
+
+  if (route === '#subagent-settings') {
+    return <SubagentModelSettings />
   }
 
   return (
@@ -757,11 +832,11 @@ function App(): React.JSX.Element {
 
       <main className="flex-1 flex flex-col relative z-10 min-w-0 h-full">
         {/* Model Selector Bar */}
-        <div className="w-full px-6 py-3 flex justify-between items-center border-b border-surface/10 bg-background-main/50 backdrop-blur-sm sticky top-0 z-30">
+        <div className="sticky top-0 z-30 flex w-full items-center justify-between border-b border-white/[0.055] bg-background-main/[0.72] px-6 py-3 backdrop-blur-2xl">
           <div className="flex-1">
             {activeView === 'tasks' && (
-              <span className="text-[10px] uppercase tracking-widest font-black text-accent-primary ml-2">
-                Monitoring System
+              <span className="ml-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-semibold text-accent-primary">
+                Monitoring
               </span>
             )}
           </div>
@@ -780,17 +855,41 @@ function App(): React.JSX.Element {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto flex flex-col">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto flex flex-col"
+        >
           {activeView === 'chat' ? (
             <div className="flex-1 flex flex-col py-8">
-              {isKeyMissing && (
-                <MissingKeyBanner onAddKey={() => setIsApiKeyModalOpen(true)} />
-              )}
+              {isKeyMissing && <MissingKeyBanner onAddKey={() => setIsApiKeyModalOpen(true)} />}
               {messages.length === 0 ? (
-                <div className="flex-1 flex items-center justify-center">
-                  <p className="text-text-secondary text-sm font-medium tracking-wide">
-                    {isKeyMissing ? 'Prism is Awaiting Gemini API Key Configuration.' : 'Prism is ready.'}
-                  </p>
+                <div className="flex-1 flex flex-col items-center justify-center px-4 relative select-none">
+                  {/* Radial glow similar to the image */}
+                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                    <div className="h-[380px] w-[580px] rounded-full bg-[radial-gradient(circle,rgba(30,58,138,0.12)_0%,rgba(49,46,129,0.18)_50%,transparent_100%)] blur-[90px] opacity-80" />
+                  </div>
+
+                  <div className="relative z-10 flex flex-col items-center w-full max-w-2xl text-center gap-7">
+                    <h1 className="text-[28px] sm:text-[36px] font-light tracking-tight text-white/90 select-none leading-tight">
+                      {getGreeting()}
+                    </h1>
+
+                    <div className="w-full">
+                      <InputBar
+                        ref={inputBarRef}
+                        onSend={handleSend}
+                        onCancel={handleCancel}
+                        isProcessing={isProcessing}
+                        isKeyMissing={isKeyMissing}
+                        isThinkMode={isThinkMode}
+                        onThinkModeToggle={setIsThinkMode}
+                        onOpenSubagentSettings={handleOpenSubagentSettings}
+                        disabled={isProcessing || isKeyMissing}
+                        selectedModel={selectedModel}
+                      />
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="w-full flex flex-col">
@@ -803,58 +902,82 @@ function App(): React.JSX.Element {
                             msg.role === 'user' ? 'items-end' : 'items-start'
                           )}
                         >
-                          {msg.role === 'ai' && msg.thoughts && (
+                          {msg.role === 'ai' && (msg.isThinking || msg.thoughts) && (
                             <div className="w-full max-w-5xl">
                               <details
                                 className={clsx(
-                                  'group mb-4 w-full overflow-hidden rounded-xl border transition-all duration-300 bubble-glow',
+                                  'group mb-4 w-full overflow-hidden rounded-[22px] border transition-all duration-300 bubble-glow',
                                   msg.isThinking
-                                    ? 'border-status-success/30 bg-status-success/5 backdrop-blur-md shadow-[0_0_15px_-3px_rgba(34,197,94,0.1)]'
-                                    : 'border-surface/40 bg-surface/20 backdrop-blur-sm'
+                                    ? 'border-accent-secondary/30 bg-accent-secondary/[0.045] backdrop-blur-xl'
+                                    : 'border-white/[0.08] bg-white/[0.035] backdrop-blur-xl'
                                 )}
                               >
                                 <summary
                                   className={clsx(
-                                    'flex cursor-pointer list-none items-center px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.2em] transition-colors',
+                                    'flex cursor-pointer list-none items-center px-4 py-3 font-mono text-[11px] font-semibold transition-colors',
                                     msg.isThinking
-                                      ? 'text-status-success'
-                                      : 'text-text-secondary/60 hover:text-text-primary/90'
+                                      ? 'text-accent-secondary'
+                                      : 'text-text-secondary/75 hover:text-text-primary/90'
                                   )}
                                 >
                                   <span className="flex items-center gap-2">
-                                    <span className="relative flex h-1.5 w-1.5">
+                                    <span className="relative flex h-2 w-2">
                                       <span
                                         className={clsx(
-                                          'absolute inline-flex h-full w-full rounded-sm transition-opacity duration-500',
+                                          'absolute inline-flex h-full w-full rounded-full transition-opacity duration-500',
                                           msg.isThinking
-                                            ? 'opacity-100 bg-status-success/40 animate-ping'
+                                            ? 'opacity-100 bg-accent-secondary/50 animate-ping'
                                             : 'opacity-0 group-open:opacity-100 bg-accent-primary/40'
                                         )}
                                       ></span>
                                       <span
                                         className={clsx(
-                                          'relative inline-flex h-1.5 w-1.5 rounded-sm transition-colors duration-300',
+                                          'relative inline-flex h-2 w-2 rounded-full transition-colors duration-300',
                                           msg.isThinking
-                                            ? 'bg-status-success'
-                                            : 'bg-text-secondary/40 group-open:bg-accent-primary/60'
+                                            ? 'bg-accent-secondary'
+                                            : 'bg-text-secondary/50 group-open:bg-accent-primary/70'
                                         )}
                                       ></span>
                                     </span>
-                                    Thoughts{' '}
+                                    {(() => {
+                                      // Extract bold outlines like "**Initiating Black Hole Analysis**"
+                                      // We look for all occurrences of **Text** and take the last one or the first one,
+                                      // depending on what's active. Let's extract all matches.
+                                      const outlineMatches = Array.from(
+                                        (msg.thoughts || '').matchAll(/\*\*(.*?)\*\*/g)
+                                      )
+                                      if (outlineMatches.length > 0) {
+                                        // Take the last match to show current thinking step
+                                        return outlineMatches[outlineMatches.length - 1][1]
+                                      }
+                                      return 'Thinking'
+                                    })()}
                                     {msg.isThinking && (
-                                      <span className="ml-2 animate-pulse">Streaming...</span>
+                                      <span className="flex items-center gap-1.5 text-text-secondary/60 ml-1">
+                                        Streaming
+                                        <span className="flex items-center gap-1 ml-1">
+                                          <span className="thinking-dot h-1 w-1 rounded-full bg-accent-primary [animation-delay:-0.22s]" />
+                                          <span className="thinking-dot h-1 w-1 rounded-full bg-accent-secondary [animation-delay:-0.11s]" />
+                                          <span className="thinking-dot h-1 w-1 rounded-full bg-white/70" />
+                                        </span>
+                                      </span>
                                     )}
                                   </span>
                                 </summary>
                                 <div
                                   className={clsx(
-                                    'px-4 pb-4 font-mono text-[11.5px] leading-relaxed border-t mt-1 pt-3 opacity-0 group-open:opacity-100 transition-all duration-500',
+                                    'mx-3 mb-3 rounded-[16px] border px-4 py-3 font-mono text-[11.5px] leading-relaxed opacity-0 transition-all duration-500 group-open:opacity-100',
                                     msg.isThinking
-                                      ? 'text-status-success/80 border-status-success/20 bg-status-success/5'
-                                      : 'text-text-secondary/70 border-surface/30 bg-black/5'
+                                      ? 'border-accent-secondary/20 bg-accent-secondary/[0.035] text-accent-secondary/80'
+                                      : 'border-white/[0.055] bg-black/10 text-text-secondary/80'
                                   )}
                                 >
-                                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeRaw, rehypeKatex]}>{msg.thoughts}</ReactMarkdown>
+                                  <ReactMarkdown
+                                    remarkPlugins={[remarkGfm, remarkMath]}
+                                    rehypePlugins={[rehypeRaw, rehypeKatex]}
+                                  >
+                                    {msg.thoughts || ''}
+                                  </ReactMarkdown>
                                 </div>
                               </details>
                             </div>
@@ -869,7 +992,7 @@ function App(): React.JSX.Element {
                             {msg.role === 'ai' ? (
                               renderAiMessage(msg)
                             ) : (
-                              <div className="bg-surface/80 backdrop-blur-sm text-text-primary border border-surface/50 rounded-2xl rounded-tr-sm px-6 py-4 shadow-xl max-w-[90%] sm:max-w-[80%] lg:max-w-[70%] whitespace-pre-wrap font-medium text-[15px] sm:text-[16px]">
+                              <div className="premium-panel-soft max-w-[90%] whitespace-pre-wrap rounded-[24px] rounded-tr-[8px] px-5 py-3.5 text-[15px] font-medium text-text-primary sm:max-w-[80%] sm:text-[16px] lg:max-w-[70%]">
                                 {msg.content}
                               </div>
                             )}
@@ -893,17 +1016,45 @@ function App(): React.JSX.Element {
           )}
         </div>
 
-        {activeView === 'chat' && (
-          <div className="pb-6 pt-2 bg-gradient-to-t from-background-main via-background-main to-transparent shrink-0">
-            <InputBar 
-              ref={inputBarRef} 
-              onSend={handleSend} 
+        {activeView === 'chat' && messages.length > 0 && (
+          <div className="shrink-0 bg-gradient-to-t from-background-main via-background-main/96 to-transparent pb-6 pt-2 relative">
+            {/* Scroll to bottom button */}
+            {showScrollButton && (
+              <div className="absolute left-0 right-0 -top-6 flex justify-center pointer-events-none z-20 animate-soft-pop">
+                <button
+                  onClick={() => {
+                    isAtBottomRef.current = true
+                    scrollToBottom('smooth')
+                    setShowScrollButton(false)
+                  }}
+                  className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-background-secondary/90 text-text-secondary shadow-lg backdrop-blur-md transition-all duration-200 hover:bg-white/[0.08] hover:text-text-primary active:scale-95"
+                  title="Scroll to bottom"
+                >
+                  <ArrowDown size={16} />
+                </button>
+              </div>
+            )}
+
+            {/* Shadow above input bar */}
+            <div
+              className={clsx(
+                'absolute inset-x-0 -top-8 h-8 pointer-events-none bg-gradient-to-t from-black/40 to-transparent transition-opacity duration-300 z-10',
+                showScrollButton ? 'opacity-100' : 'opacity-0'
+              )}
+            />
+
+            <InputBar
+              ref={inputBarRef}
+              onSend={handleSend}
               onCancel={handleCancel}
               isProcessing={isProcessing}
               isKeyMissing={isKeyMissing}
               isThinkMode={isThinkMode}
               onThinkModeToggle={setIsThinkMode}
-              disabled={isProcessing || isKeyMissing} 
+              onOpenSubagentSettings={handleOpenSubagentSettings}
+              disabled={isProcessing || isKeyMissing}
+              selectedModel={selectedModel}
+              showModeBadge={false}
             />
           </div>
         )}

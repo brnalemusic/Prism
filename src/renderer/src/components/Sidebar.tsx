@@ -31,12 +31,11 @@ export function Sidebar({
 
   const refreshChats = async (): Promise<void> => {
     const history = await window.api.getChats()
-    // Don't overwrite chats that are currently streaming
-    setChats(prev => {
+    setChats((prev) => {
       const streamingIds = Object.keys(streamingIntervals.current)
-      return history.map(h => {
+      return history.map((h) => {
         if (streamingIds.includes(h.id)) {
-          const existing = prev.find(p => p.id === h.id)
+          const existing = prev.find((p) => p.id === h.id)
           return existing || h
         }
         return h
@@ -46,52 +45,45 @@ export function Sidebar({
 
   useEffect(() => {
     refreshChats()
-    // Refresh history periodically or when view changes to chat
     const interval = setInterval(refreshChats, 10000)
 
-    // Listen for new session creation to show loading state immediately
     const removeCreatedListener = window.api.onChatSessionCreated(({ id }) => {
-      setChats(prev => {
-        if (prev.some(c => c.id === id)) return prev
-        // Add to the top of the list with empty title (triggers loading state)
+      setChats((prev) => {
+        if (prev.some((c) => c.id === id)) return prev
         return [{ id, title: '', lastUpdated: Date.now() }, ...prev]
       })
     })
 
-    // Listen for title received to simulate streaming
     const removeTitleReceivedListener = window.api.onChatTitleReceived(({ id, title }) => {
-      // Clear existing interval for this chat if any
       if (streamingIntervals.current[id]) {
         clearInterval(streamingIntervals.current[id])
       }
 
       let currentIndex = 0
       const fullTitle = title
-      
+
       streamingIntervals.current[id] = setInterval(() => {
-        setChats(prev => prev.map(c => {
-          if (c.id === id) {
-            const newTitle = fullTitle.substring(0, currentIndex + 1)
-            return { ...c, title: newTitle }
-          }
-          return c
-        }))
-        
+        setChats((prev) =>
+          prev.map((c) => {
+            if (c.id === id) {
+              return { ...c, title: fullTitle.substring(0, currentIndex + 1) }
+            }
+            return c
+          })
+        )
+
         currentIndex++
         if (currentIndex >= fullTitle.length) {
-          if (streamingIntervals.current[id]) {
-            clearInterval(streamingIntervals.current[id])
-            delete streamingIntervals.current[id]
-          }
+          clearInterval(streamingIntervals.current[id])
+          delete streamingIntervals.current[id]
         }
-      }, 50) // 20 characters per second = 50ms per character
+      }, 50)
     })
 
     return () => {
       clearInterval(interval)
       removeCreatedListener()
       removeTitleReceivedListener()
-      // Clear all streaming intervals on unmount
       Object.values(streamingIntervals.current).forEach(clearInterval)
     }
   }, [activeView])
@@ -101,7 +93,7 @@ export function Sidebar({
     setIsDeleting(id)
     const success = await window.api.deleteChat(id)
     if (success) {
-      setChats(prev => prev.filter(c => c.id !== id))
+      setChats((prev) => prev.filter((c) => c.id !== id))
       if (id === currentChatId) {
         onNewChat(true)
       }
@@ -110,28 +102,35 @@ export function Sidebar({
   }
 
   return (
-    <aside className="w-[260px] h-full hidden md:flex flex-col bg-background-secondary/30 backdrop-blur-xl z-20 relative border-r border-surface/20 transition-all duration-300">
-      <div className="p-8 pb-4 shrink-0">
-        <h1 className="text-text-primary font-black text-3xl tracking-tighter">
-          PRISM
-          <span className="block h-1 w-8 bg-accent-primary mt-1 rounded-full shadow-[0_0_10px_rgba(108,99,255,0.5)]"></span>
-        </h1>
+    <aside className="relative z-20 hidden h-full w-[278px] flex-col border-r border-white/[0.055] bg-background-main/[0.62] backdrop-blur-2xl md:flex">
+      <div className="px-5 pb-4 pt-7">
+        <div className="premium-panel-soft rounded-[28px] px-5 py-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.055] text-accent-primary">
+              <span className="text-base font-semibold">P</span>
+            </div>
+            <div>
+              <h1 className="text-xl font-semibold text-text-primary">Prism</h1>
+              <p className="text-xs text-text-secondary/60">Desktop AI</p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="px-4 py-4 shrink-0">
+      <div className="px-5 py-2">
         <button
           onClick={() => onNewChat()}
-          className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary rounded-xl border border-accent-primary/30 transition-all duration-300 font-bold text-sm"
+          className="flex w-full items-center justify-center gap-2 rounded-[18px] border border-accent-primary/25 bg-accent-primary/[0.09] px-4 py-3 text-sm font-semibold text-accent-primary transition-all duration-200 hover:border-accent-primary/40 hover:bg-accent-primary/[0.13] active:scale-[0.99]"
         >
           <Plus size={16} />
           New Chat
         </button>
       </div>
 
-      <nav className="px-4 py-2 flex flex-col gap-2 shrink-0">
+      <nav className="flex shrink-0 flex-col gap-2 px-5 py-4">
         <NavItem
           icon={<MessageSquare size={16} />}
-          label="Active Chat"
+          label="Chat"
           active={activeView === 'chat'}
           onClick={(): void => onViewChange('chat')}
         />
@@ -145,16 +144,14 @@ export function Sidebar({
         />
       </nav>
 
-      <div className="h-px bg-surface/20 mx-4 my-4 shrink-0" />
+      <div className="mx-5 h-px bg-white/[0.055]" />
 
-      <div className="flex-1 px-4 overflow-hidden flex flex-col min-h-0">
-        <div className="flex flex-col gap-1 overflow-y-auto pr-2 custom-scrollbar h-full">
-          {chats.length > 0 && (
-            <div className="px-4 py-2 text-[10px] uppercase tracking-widest font-black text-text-secondary/40 flex items-center gap-2 sticky top-0 bg-background-secondary/5 z-10 backdrop-blur-sm">
-              <Clock size={10} />
-              Recent History
-            </div>
-          )}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4">
+        <div className="mb-2 flex items-center gap-2 px-2 text-xs font-semibold text-text-secondary/60">
+          <Clock size={13} />
+          History
+        </div>
+        <div className="flex h-full flex-col gap-1.5 overflow-y-auto pr-1">
           {chats.map((chat) => (
             <div key={chat.id} className="group relative">
               <button
@@ -163,20 +160,20 @@ export function Sidebar({
                   onLoadChat(chat.id)
                 }}
                 className={clsx(
-                  'w-full text-left px-4 py-2.5 rounded-xl text-xs font-medium transition-all duration-300 pr-10 truncate min-h-[36px]',
+                  'min-h-[38px] w-full truncate rounded-[18px] border px-3.5 py-2.5 pr-10 text-left text-xs font-medium transition-all duration-200 active:scale-[0.98]',
                   currentChatId === chat.id
-                    ? 'bg-surface/60 text-text-primary border border-surface shadow-lg'
-                    : 'text-text-secondary hover:bg-surface/30 hover:text-text-primary border border-transparent'
+                    ? 'border-accent-primary/20 bg-accent-primary/[0.09] text-text-primary'
+                    : 'border-transparent text-text-secondary/75 hover:border-white/[0.07] hover:bg-white/[0.04] hover:text-text-primary'
                 )}
                 title={chat.title}
               >
                 {chat.title ? (
                   chat.title
                 ) : (
-                  <div className="flex gap-1 items-center h-full py-1">
-                    <span className="w-1 h-1 rounded-full bg-accent-primary/40 animate-bounce [animation-delay:-0.3s]" />
-                    <span className="w-1 h-1 rounded-full bg-accent-primary/40 animate-bounce [animation-delay:-0.15s]" />
-                    <span className="w-1 h-1 rounded-full bg-accent-primary/40 animate-bounce" />
+                  <div className="flex h-full items-center gap-1.5 py-1">
+                    <span className="thinking-dot h-1 w-1 rounded-full bg-accent-primary/70 [animation-delay:-0.22s]" />
+                    <span className="thinking-dot h-1 w-1 rounded-full bg-accent-secondary/70 [animation-delay:-0.11s]" />
+                    <span className="thinking-dot h-1 w-1 rounded-full bg-white/60" />
                   </div>
                 )}
               </button>
@@ -184,9 +181,10 @@ export function Sidebar({
                 onClick={(e) => handleDelete(e, chat.id)}
                 disabled={isDeleting === chat.id}
                 className={clsx(
-                  'absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-status-error/10 hover:text-status-error transition-all duration-300',
+                  'absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-text-secondary/40 opacity-0 transition-all duration-300 hover:bg-status-error/[0.15] hover:text-status-error group-hover:opacity-100 active:scale-90',
                   isDeleting === chat.id && 'opacity-100 animate-pulse'
                 )}
+                title="Delete chat"
               >
                 <Trash2 size={12} />
               </button>
@@ -195,7 +193,7 @@ export function Sidebar({
         </div>
       </div>
 
-      <div className="p-4 mt-auto shrink-0">
+      <div className="mt-auto p-5">
         <NavItem
           icon={<Settings size={16} />}
           label="Settings"
@@ -226,32 +224,28 @@ function NavItem({
     <button
       onClick={onClick}
       className={clsx(
-        'w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 relative group overflow-hidden',
+        'group relative flex w-full items-center gap-3 overflow-hidden rounded-[18px] border px-3.5 py-3 text-sm font-semibold transition-all duration-200',
         active
-          ? 'bg-surface/50 text-text-primary shadow-[inset_0_0_20px_rgba(255,255,255,0.02)] border border-surface'
-          : 'text-text-secondary hover:bg-surface/30 hover:text-text-primary border border-transparent'
+          ? 'border-white/[0.09] bg-white/[0.07] text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
+          : 'border-transparent text-text-secondary/70 hover:border-white/[0.07] hover:bg-white/[0.04] hover:text-text-primary'
       )}
     >
-      {active && (
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-accent-primary rounded-r-full shadow-[0_0_10px_rgba(108,99,255,0.5)]" />
-      )}
+      {active && <div className="absolute inset-y-2 left-1 w-1 rounded-full bg-accent-primary" />}
 
       <span
         className={clsx(
-          'transition-all duration-300',
-          active
-            ? 'text-accent-primary scale-110'
-            : 'opacity-60 group-hover:opacity-100 group-hover:scale-110',
-          pulse && 'animate-pulse text-accent-primary'
+          'ml-1 transition-all duration-200',
+          active ? 'text-accent-primary' : 'opacity-70 group-hover:opacity-100',
+          pulse && 'animate-pulse text-accent-secondary'
         )}
       >
         {icon}
       </span>
 
-      <span className="tracking-tight">{label}</span>
+      <span>{label}</span>
 
       {badge !== undefined && (
-        <span className="ml-auto bg-accent-primary text-white text-[10px] font-black px-1.5 py-0.5 rounded-lg min-w-[20px] flex items-center justify-center shadow-[0_0_15px_rgba(108,99,255,0.4)]">
+        <span className="ml-auto flex min-w-[22px] items-center justify-center rounded-full bg-accent-secondary/[0.18] px-2 py-0.5 text-[11px] font-semibold text-accent-secondary">
           {badge}
         </span>
       )}

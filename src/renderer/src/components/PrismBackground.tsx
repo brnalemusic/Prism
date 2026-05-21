@@ -17,91 +17,63 @@ export function PrismBackground({
   const isActive = isProcessing || isFinishing
 
   return (
-    <div className="fixed inset-0 pointer-events-none overflow-hidden z-0 bg-[#0A0A0F]">
-      {/* Abstract Prism Geometric Shapes */}
+    <div className="fixed inset-0 pointer-events-none overflow-hidden z-0 bg-background-main">
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.055)_0%,rgba(255,255,255,0.015)_42%,rgba(0,0,0,0.22)_100%)]" />
       <div
         className={clsx(
-          'absolute top-[-10%] right-[-5%] w-[80vw] h-[80vw] rounded-full transition-all ease-in-out',
-          isYoutubeMode ? 'duration-500' : 'duration-1000',
-          isYoutubeMode 
-            ? 'bg-gradient-to-br from-red-600/20 to-red-900/10 blur-[120px]'
-            : 'bg-gradient-to-br from-accent-primary/20 to-accent-secondary/10 blur-[120px]',
-          isFocused ? 'opacity-100 scale-100' : 'opacity-40 scale-90',
-          isFocused && 'animate-drift',
-          isActive && !isYoutubeMode && 'animate-slow-pulse scale-110 from-accent-primary/30 to-accent-secondary/20',
-          isActive && isYoutubeMode && 'animate-slow-pulse scale-110 from-red-500/30 to-red-600/20'
-        )}
-      />
-      <div
-        className={clsx(
-          'absolute bottom-[-10%] left-[-10%] w-[70vw] h-[70vw] rounded-full transition-all ease-in-out delay-500',
-          isYoutubeMode ? 'duration-500' : 'duration-1000',
-          isYoutubeMode
-            ? 'bg-gradient-to-tr from-red-700/15 to-red-900/5 blur-[100px]'
-            : 'bg-gradient-to-tr from-accent-secondary/15 to-accent-primary/5 blur-[100px]',
-          isFocused ? 'opacity-100 scale-100 translate-x-0' : 'opacity-30 scale-95 -translate-x-10',
-          isFocused && 'animate-drift [animation-direction:reverse] [animation-duration:15s]',
-          isActive && !isYoutubeMode &&
-            'animate-slow-pulse delay-1000 scale-105 from-accent-secondary/25 to-accent-primary/15',
-          isActive && isYoutubeMode &&
-            'animate-slow-pulse delay-1000 scale-105 from-red-600/25 to-red-500/15'
+          'absolute inset-0 hairline-grid transition-opacity duration-700',
+          isFocused ? 'opacity-35' : 'opacity-12'
         )}
       />
 
-      {/* YouTube Background Logo */}
+      <div className="absolute left-[260px] top-0 hidden h-full w-px bg-white/[0.045] md:block" />
+      <div className="absolute inset-x-0 top-10 h-px bg-white/[0.055]" />
+      <div className="absolute inset-x-0 bottom-28 h-px bg-white/[0.035]" />
+
       <div
         className={clsx(
-          'absolute -right-[25%] top-1/2 -translate-y-1/2 w-[50%] aspect-square pointer-events-none transition-all ease-in-out z-0',
-          isYoutubeMode 
-            ? 'opacity-10 scale-100 duration-[800ms] delay-[400ms]' 
-            : 'opacity-0 scale-110 duration-1000'
+          'absolute left-[18%] right-[10%] top-[18%] h-[42%] rounded-[36px] border border-white/[0.035] bg-white/[0.018] transition-all duration-700',
+          isFocused ? 'opacity-100 translate-y-0' : 'opacity-35 translate-y-2',
+          isActive && 'border-accent-primary/15 bg-accent-primary/[0.025]'
+        )}
+      />
+
+      <div
+        className={clsx(
+          'absolute left-[18%] right-[10%] top-[18%] h-px overflow-hidden transition-opacity duration-500',
+          isActive ? 'opacity-100' : 'opacity-0'
         )}
       >
-        <img src={youtubeLogo} alt="" className="w-full h-full object-contain" />
+        <div
+          className={clsx(
+            'h-px w-full bg-gradient-to-r from-transparent via-accent-primary to-transparent',
+            isActive && 'animate-[line-sweep_1900ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]'
+          )}
+        />
       </div>
 
-      {/* YouTube Red Overlay */}
       <div
         className={clsx(
-          'absolute inset-0 transition-opacity ease-in-out z-0',
-          isYoutubeMode 
-            ? 'opacity-100 duration-500 bg-red-500/5' 
-            : 'opacity-0 duration-1000'
+          'absolute right-0 top-10 h-[calc(100%-7rem)] w-[96px] border-l transition-all duration-500',
+          isYoutubeMode
+            ? 'border-red-400/20 bg-red-500/[0.055] opacity-100'
+            : 'border-white/[0.035] bg-white/[0.018] opacity-70'
         )}
       />
 
-      {/* Angular Prism Accents - Refraction lines */}
       <div
         className={clsx(
-          'absolute top-1/4 left-1/4 w-px h-[40vh] bg-accent-primary/10 rotate-[30deg] blur-sm transition-all duration-[2000ms]',
-          isYoutubeMode && 'bg-red-500/20',
-          isFocused ? 'opacity-100 translate-y-0' : 'opacity-20 translate-y-10',
-          isProcessing && 'animate-pulse h-[50vh] opacity-30'
+          'absolute right-8 top-1/2 h-28 w-28 -translate-y-1/2 transition-all duration-500',
+          isYoutubeMode ? 'opacity-[0.14] scale-100' : 'opacity-0 scale-95'
         )}
-      />
-      <div
-        className={clsx(
-          'absolute bottom-1/3 right-1/4 w-px h-[30vh] bg-accent-secondary/10 rotate-[-45deg] blur-sm transition-all duration-[2000ms] delay-300',
-          isYoutubeMode && 'bg-red-600/20',
-          isFocused ? 'opacity-100 translate-x-0' : 'opacity-20 translate-x-10',
-          isProcessing && 'animate-pulse delay-300 h-[40vh] opacity-30'
-        )}
-      />
+      >
+        <img src={youtubeLogo} alt="" className="h-full w-full object-contain" />
+      </div>
 
-      {/* Subtle Scanline Overlay - Only when focused */}
       <div
         className={clsx(
-          'absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.02),rgba(0,255,0,0.01),rgba(0,0,255,0.02))] z-10 bg-[length:100%_2px,3px_100%] pointer-events-none transition-opacity duration-1000',
-          isFocused ? 'opacity-20' : 'opacity-0'
-        )}
-      />
-
-      {/* AI Working Glow Center */}
-      <div
-        className={clsx(
-          'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80vw] h-[40vh] blur-[120px] rounded-full transition-all duration-[1500ms] ease-in-out',
-          isYoutubeMode ? 'bg-red-500/10' : 'bg-accent-primary/10',
-          isActive ? 'opacity-100 scale-100' : 'opacity-0 scale-50'
+          'absolute inset-0 transition-opacity duration-500',
+          isYoutubeMode ? 'opacity-100 bg-red-500/[0.025]' : 'opacity-0'
         )}
       />
     </div>
