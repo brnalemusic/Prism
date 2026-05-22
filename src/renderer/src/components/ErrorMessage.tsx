@@ -37,7 +37,7 @@ export function ErrorMessage({ error, onFixClick }: ErrorMessageProps): React.JS
   const isRateLimit = errorCode === '429'
 
   return (
-    <div className="my-2 w-full max-w-2xl animate-soft-pop">
+    <div className="my-2 w-full animate-soft-pop">
       <div
         className={clsx(
           'premium-panel-soft overflow-hidden rounded-[22px] border transition-all duration-300',

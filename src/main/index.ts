@@ -20,10 +20,12 @@ import {
   setSubagentModel,
   setUserApiKey,
   cancelChatMessage,
-  loadChatIntoHistory
+  loadChatIntoHistory,
+  activeRuns
 } from './gemini'
 import { loadConfig, saveConfig, AppConfig } from './config'
 import { listChatSessions, deleteChatSession } from './history'
+import { SubagentMessage } from '../shared/types'
 
 import { initAutoUpdater } from './updater'
 
@@ -34,6 +36,53 @@ let subagentsWindow: BrowserWindow | null = null
 let subagentSettingsWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
+
+const miniAppWindows = new Map<string, BrowserWindow>()
+
+function createMiniAppWindow(
+  id: string,
+  title: string,
+  html: string,
+  css: string,
+  js: string
+): void {
+  if (miniAppWindows.has(id)) {
+    miniAppWindows.get(id)?.focus()
+    return
+  }
+
+  const miniAppWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    show: false,
+    autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    backgroundColor: '#0b0c0f',
+    ...(process.platform === 'linux' || process.platform === 'win32' ? { icon } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+
+  miniAppWindows.set(id, miniAppWindow)
+
+  miniAppWindow.on('ready-to-show', () => {
+    miniAppWindow.show()
+    miniAppWindow.webContents.send('mini-app-data', { id, title, html, css, js })
+  })
+
+  miniAppWindow.on('closed', () => {
+    miniAppWindows.delete(id)
+    mainWindow?.webContents.send('mini-app-window-closed', id)
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    miniAppWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#mini-app`)
+  } else {
+    miniAppWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: 'mini-app' })
+  }
+}
 
 function createTray(): void {
   const trayIcon = nativeImage.createFromPath(icon)
@@ -49,7 +98,14 @@ function createTray(): void {
     {
       label: 'Alternar Launcher',
       click: (): void => {
-        toggleLauncher()
+        launcherWindow?.show()
+      }
+    },
+    {
+      label: 'Configurações',
+      click: (): void => {
+        mainWindow?.show()
+        mainWindow?.webContents.send('open-settings')
       }
     },
     { type: 'separator' },
@@ -62,7 +118,7 @@ function createTray(): void {
     }
   ])
 
-  tray.setToolTip('Prism System')
+  tray.setToolTip('Prism')
   tray.setContextMenu(contextMenu)
 
   tray.on('double-click', () => {
@@ -70,7 +126,7 @@ function createTray(): void {
   })
 }
 
-function createSubagentsWindow(initialMessages?: any[]): void {
+function createSubagentsWindow(initialMessages?: SubagentMessage[]): void {
   if (subagentsWindow) {
     subagentsWindow.show()
     subagentsWindow.focus()
@@ -274,7 +330,7 @@ app.whenReady().then(() => {
     launcherWindow?.webContents.send('model-changed', modelKey)
   })
   ipcMain.on('clear-chat', () => initGemini())
-  ipcMain.on('chat-cancel', () => cancelChatMessage())
+  ipcMain.on('chat-cancel', (_event, chatId?: string) => cancelChatMessage(chatId))
 
   ipcMain.handle('get-chats', () => {
     return listChatSessions()
@@ -285,7 +341,12 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('delete-chat', (_event, id: string) => {
+    cancelChatMessage(id)
     return deleteChatSession(id)
+  })
+
+  ipcMain.handle('get-running-chats', () => {
+    return Array.from(activeRuns.keys())
   })
 
   ipcMain.on('launcher-submit', (_event, data) => {
@@ -335,6 +396,20 @@ app.whenReady().then(() => {
     setTimeout(() => {
       mainWindow?.minimize()
     }, 200)
+  })
+
+  ipcMain.on('open-mini-app-window', (_event, { id, title, html, css, js }) => {
+    createMiniAppWindow(id, title, html, css, js)
+  })
+
+  ipcMain.on('close-mini-app-window', (_event, id) => {
+    const win = miniAppWindows.get(id)
+    if (win) win.close()
+  })
+
+  ipcMain.on('minimize-mini-app-window', (_event, id) => {
+    const win = miniAppWindows.get(id)
+    if (win) win.minimize()
   })
 
   ipcMain.on('close-app', () => {

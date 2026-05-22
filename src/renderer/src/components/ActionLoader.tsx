@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { clsx } from 'clsx'
+import { Spinner } from './Spinner'
+import { SubagentMessage } from '../../../shared/types'
 import {
   Smartphone,
   Search,
@@ -13,7 +15,8 @@ import {
   Loader2,
   ChevronDown,
   CirclePlay,
-  FileText
+  FileText,
+  AppWindow
 } from 'lucide-react'
 
 export interface ToolCall {
@@ -21,7 +24,7 @@ export interface ToolCall {
   args: Record<string, unknown>
   result?: string
   status: 'writing' | 'running' | 'cooldown' | 'done' | 'error' | 'cancelled'
-  subagentMessages?: any[]
+  subagentMessages?: SubagentMessage[]
   agentUpdates?: Record<
     string | number,
     {
@@ -37,15 +40,39 @@ interface ActionLoaderProps {
 }
 
 const phaseColorCodes = {
-  thinking: { color: '#c084fc', fill: 'rgba(192, 132, 252, 0.05)', border: '#a855f7' },
-  tool_use: { color: '#fbbf24', fill: 'rgba(251, 191, 36, 0.05)', border: '#f59e0b' },
-  done: { color: '#34d399', fill: 'rgba(52, 211, 153, 0.05)', border: '#10b981' },
-  error: { color: '#f87171', fill: 'rgba(248, 113, 113, 0.05)', border: '#ef4444' },
-  cancelled: { color: '#94a3b8', fill: 'rgba(148, 163, 184, 0.05)', border: '#64748b' },
-  idle: { color: '#4b5563', fill: 'rgba(75, 85, 99, 0.02)', border: '#4b5563' }
+  thinking: {
+    color: 'var(--color-accent-primary)',
+    fill: 'rgba(110, 140, 255, 0.05)',
+    border: 'var(--color-accent-primary)'
+  },
+  tool_use: {
+    color: 'var(--color-status-warning)',
+    fill: 'rgba(251, 191, 36, 0.05)',
+    border: 'var(--color-status-warning)'
+  },
+  done: {
+    color: 'var(--color-status-success)',
+    fill: 'rgba(74, 222, 128, 0.05)',
+    border: 'var(--color-status-success)'
+  },
+  error: {
+    color: 'var(--color-status-error)',
+    fill: 'rgba(248, 113, 113, 0.05)',
+    border: 'var(--color-status-error)'
+  },
+  cancelled: {
+    color: 'var(--color-text-secondary)',
+    fill: 'rgba(142, 142, 150, 0.05)',
+    border: 'var(--color-text-secondary)'
+  },
+  idle: {
+    color: 'var(--color-text-muted)',
+    fill: 'rgba(85, 85, 94, 0.02)',
+    border: 'var(--color-text-muted)'
+  }
 }
 
-const getPhaseStyle = (phase: string) => {
+const getPhaseStyle = (phase: string): { color: string; fill: string; border: string } => {
   return phaseColorCodes[phase as keyof typeof phaseColorCodes] || phaseColorCodes.idle
 }
 
@@ -67,12 +94,21 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
   let tone: 'default' | 'search' | 'think' | 'success' | 'error' | 'youtube' = 'default'
 
   if (toolCall.status === 'writing') {
-    displayTitle = toolCall.name === 'search' ? 'Preparing Search' : 'Preparing Action'
+    displayTitle =
+      toolCall.name === 'search'
+        ? 'Preparing Search'
+        : toolCall.name === 'mini-app'
+          ? 'Designing Mini App'
+          : 'Preparing Action'
     displayDetail =
-      toolCall.name === 'search' ? 'Composing a web search.' : 'Composing a tool call.'
+      toolCall.name === 'search'
+        ? 'Composing a web search.'
+        : toolCall.name === 'mini-app'
+          ? 'Building interactive interface.'
+          : 'Composing a tool call.'
     tone = toolCall.name === 'search' ? 'search' : 'think'
   } else if (toolCall.name === 'web_search') {
-    displayTitle = isYoutube ? 'Searching YouTube' : 'Searching Web'
+    displayTitle = isYoutube ? 'Searching Video' : 'Searching Web'
     displayDetail = query || 'Collecting web results.'
     tone = isYoutube ? 'youtube' : 'search'
   } else if (toolCall.name === 'search_chat_history') {
@@ -93,7 +129,7 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
     displayTitle = 'Opening App'
     displayDetail = getStringArg(toolCall.args, 'appPath') || 'Launching application.'
   } else if (toolCall.name === 'open_browser_link') {
-    displayTitle = isYoutube ? 'Opening YouTube' : 'Opening Link'
+    displayTitle = isYoutube ? 'Opening Video' : 'Opening Link'
     displayDetail = url || 'Opening in browser.'
     tone = isYoutube ? 'youtube' : 'default'
   } else if (toolCall.name === 'list_installed_applications') {
@@ -119,7 +155,7 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
     think: 'border-status-warning/25 bg-status-warning/[0.05] text-status-warning',
     success: 'border-status-success/20 bg-status-success/[0.045] text-status-success',
     error: 'border-status-error/25 bg-status-error/[0.05] text-status-error',
-    youtube: 'border-red-400/25 bg-red-500/[0.05] text-red-300'
+    youtube: 'border-accent-primary/25 bg-accent-primary/[0.05] text-accent-primary'
   }[tone]
 
   const renderIcon = (): React.JSX.Element => {
@@ -128,7 +164,11 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
       return <XCircle size={16} />
     }
 
-    if (isWriting) return <Brain size={16} className="animate-slow-pulse" />
+    if (isWriting) {
+      if (toolCall.name === 'mini-app')
+        return <AppWindow size={16} className="animate-slow-pulse" />
+      return <Brain size={16} className="animate-slow-pulse" />
+    }
     if (toolCall.name === 'web_search' || toolCall.name === 'search_chat_history')
       return <Search size={16} className="animate-slow-pulse" />
     if (isYoutube) return <CirclePlay size={16} className="animate-slow-pulse" />
@@ -171,13 +211,13 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
   const masterY = 30
   const workerY = 110
 
-  const getWorkerX = (index: number, total: number) => {
+  const getWorkerX = (index: number, total: number): number => {
     if (total <= 1) return 200
     return 50 + (index * 300) / (total - 1)
   }
 
   return (
-    <div className="my-2 flex w-full max-w-2xl flex-col gap-2">
+    <div className="my-2 flex w-full flex-col gap-2">
       <style>{`
         @keyframes swarmDash {
           to {
@@ -227,13 +267,7 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
               </button>
             )}
 
-          {isRunning && (
-            <div className="flex gap-1">
-              <span className="thinking-dot h-1 w-1 rounded-full bg-current [animation-delay:-0.22s]" />
-              <span className="thinking-dot h-1 w-1 rounded-full bg-current [animation-delay:-0.11s]" />
-              <span className="thinking-dot h-1 w-1 rounded-full bg-current" />
-            </div>
-          )}
+          {isRunning && <Spinner size="xs" />}
 
           {isDone && (
             <ChevronDown
@@ -264,12 +298,12 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
         (toolCall.status === 'running' ||
           toolCall.status === 'done' ||
           toolCall.status === 'cancelled') && (
-          <div className="w-full mt-2 flex flex-col gap-3 p-4 rounded-xl border border-[#1E1E2E] bg-[#07070B]/50 backdrop-blur-md">
+          <div className="premium-panel-soft w-full mt-2 flex flex-col gap-3 p-4 rounded-[20px] border">
             {hasAgentUpdates ? (
               <>
                 {/* Sleek SVG Swarm Graph */}
-                <div className="w-full relative flex justify-center py-2 bg-[#000000]/10 rounded-lg border border-white/5">
-                  <svg viewBox="0 0 400 150" className="w-full max-w-[340px] select-none">
+                <div className="w-full relative flex justify-center py-2 bg-black/20 rounded-xl border border-white/[0.04]">
+                  <svg viewBox="0 0 400 150" className="w-full select-none">
                     {/* Connection Lines */}
                     {workerKeys.map((key, idx) => {
                       const phase = toolCall.agentUpdates?.[key]?.phase || 'idle'
@@ -325,7 +359,7 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
                             cx={masterX}
                             cy={masterY}
                             r={15}
-                            fill="#0D0D14"
+                            fill="var(--color-background-secondary)"
                             stroke={style.border}
                             strokeWidth={isSelected ? 2.5 : 1.5}
                             className="transition-all duration-300"
@@ -374,7 +408,7 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
                             cx={x}
                             cy={workerY}
                             r={11}
-                            fill="#0D0D14"
+                            fill="var(--color-background-secondary)"
                             stroke={style.border}
                             strokeWidth={isSelected ? 2.5 : 1.5}
                             className="transition-all duration-300"
@@ -398,9 +432,9 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
 
                 {/* Agent Detail Card */}
                 {activeAgent && (
-                  <div className="flex flex-col gap-2.5 p-3 rounded-xl border border-white/5 bg-white/[0.02] transition-all duration-300 animate-in fade-in slide-in-from-top-1">
+                  <div className="flex flex-col gap-2.5 p-3 rounded-xl border border-white/[0.04] bg-white/[0.01] transition-all duration-300 animate-in fade-in slide-in-from-top-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-text-secondary uppercase tracking-widest flex items-center gap-1.5">
                         {activeKey === 'master'
                           ? '👑 Master Coordinator'
                           : `🤖 Worker Agent #${activeKey}`}
@@ -409,12 +443,12 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
                         className={clsx(
                           'text-[9px] font-black uppercase px-2 py-0.5 rounded tracking-wider',
                           activeAgent.phase === 'thinking'
-                            ? 'bg-purple-500/10 text-purple-400'
+                            ? 'bg-accent-primary/10 text-accent-primary'
                             : activeAgent.phase === 'tool_use'
-                              ? 'bg-amber-500/10 text-amber-400'
+                              ? 'bg-status-warning/10 text-status-warning'
                               : activeAgent.phase === 'done'
-                                ? 'bg-emerald-500/10 text-emerald-400'
-                                : 'bg-red-500/10 text-red-400'
+                                ? 'bg-status-success/10 text-status-success'
+                                : 'bg-status-error/10 text-status-error'
                         )}
                       >
                         {activeAgent.command?.includes('WAITING')
@@ -430,10 +464,10 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
                         className={clsx(
                           'flex items-start gap-2 p-2 rounded border font-mono text-[9.5px]',
                           activeAgent.command.includes('POST TO GROUP')
-                            ? 'bg-purple-500/5 border-purple-500/15'
+                            ? 'bg-accent-primary/5 border-accent-primary/15'
                             : activeAgent.command.includes('WAITING')
-                              ? 'bg-blue-500/5 border-blue-500/15 animate-pulse'
-                              : 'bg-black/30 border-white/5'
+                              ? 'bg-accent-primary/5 border-accent-primary/15 animate-pulse'
+                              : 'bg-black/30 border-white/[0.04]'
                         )}
                       >
                         <span className="text-[#8888A0] font-bold uppercase tracking-wider whitespace-nowrap mt-0.5">
@@ -447,8 +481,8 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
                           className={clsx(
                             'break-all leading-relaxed',
                             activeAgent.command.includes('POST TO GROUP')
-                              ? 'text-purple-300'
-                              : 'text-slate-200'
+                              ? 'text-accent-primary'
+                              : 'text-text-primary'
                           )}
                         >
                           {activeAgent.command}
@@ -457,11 +491,11 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
                     )}
 
                     {activeAgent.output && (
-                      <div className="flex flex-col gap-1 p-2 rounded border border-white/5 bg-black/15 font-mono text-[9px]">
+                      <div className="flex flex-col gap-1 p-2 rounded border border-white/[0.04] bg-black/15 font-mono text-[9px]">
                         <span className="text-[#8888A0] font-bold uppercase tracking-wider">
                           Output Log
                         </span>
-                        <div className="text-slate-400 break-words line-clamp-2 italic">
+                        <div className="text-text-secondary break-words line-clamp-2 italic">
                           {activeAgent.output}
                         </div>
                       </div>
@@ -471,7 +505,7 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
               </>
             ) : (
               <div className="flex flex-col items-center justify-center py-6">
-                <div className="w-6 h-6 rounded-full border border-purple-500/30 border-t-purple-500 animate-spin mb-3"></div>
+                <Spinner size="md" className="mb-3" />
                 <span className="text-[10px] tracking-wider uppercase font-bold text-[#8888A0] animate-pulse">
                   Synchronizing Swarm Network...
                 </span>

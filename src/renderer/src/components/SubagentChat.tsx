@@ -169,7 +169,11 @@ export function SubagentChat(): React.JSX.Element {
                     <span
                       className={clsx(
                         'px-1 text-[11px] font-semibold opacity-60',
-                        isUser ? 'text-right' : isMaster ? 'text-left text-purple-400' : 'text-left'
+                        isUser
+                          ? 'text-right'
+                          : isMaster
+                            ? 'text-left text-accent-primary'
+                            : 'text-left'
                       )}
                     >
                       {isUser
@@ -184,7 +188,7 @@ export function SubagentChat(): React.JSX.Element {
                         isUser
                           ? 'bg-white/[0.055] border-white/10 rounded-br-[8px]'
                           : isMaster
-                            ? 'bg-[#0D0D14] border-purple-500/30 text-purple-200 rounded-[20px] rounded-bl-[8px] shadow-purple-500/5'
+                            ? 'bg-background-secondary border-accent-primary/20 text-text-primary rounded-[20px] rounded-bl-[8px] shadow-accent-primary/5'
                             : 'bg-white/[0.035] border-white/[0.06] rounded-bl-[8px]'
                       )}
                     >
@@ -227,7 +231,7 @@ export function SubagentChat(): React.JSX.Element {
 
       {/* Input Field */}
       <div className="flex items-center gap-3 border-t border-white/[0.055] bg-background-main/[0.72] p-4 backdrop-blur-2xl">
-        <div className="flex h-10 flex-1 items-center rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4">
+        <div className="flex h-10 flex-1 items-center rounded-[18px] border border-white/[0.08] bg-white/[0.03] focus-within:border-accent-primary/40 focus-within:shadow-[0_0_12px_rgba(110,140,255,0.12)] px-4 transition-all">
           <input
             type="text"
             value={inputValue}

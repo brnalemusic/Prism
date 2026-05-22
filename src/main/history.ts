@@ -91,7 +91,7 @@ export function saveChatSession(id: string, messages: Content[], title?: string)
           ) {
             sessionTitle = existingData.title
           }
-        } catch (e) {
+        } catch {
           /* ignore parse errors */
         }
       }
@@ -99,10 +99,7 @@ export function saveChatSession(id: string, messages: Content[], title?: string)
       if (!sessionTitle && messages.length > 0) {
         // Fallback title generation from first REAL user message
         const firstRealUserMsg = messages.find(
-          (m) =>
-            m.role === 'user' &&
-            typeof m.parts?.[0]?.text === 'string' &&
-            !m.parts?.[0]?.text.startsWith('Role: Prism AI')
+          (m) => m.role === 'user' && typeof m.parts?.[0]?.text === 'string'
         )
         const text = firstRealUserMsg?.parts?.[0]?.text
         if (typeof text === 'string') {
@@ -111,19 +108,7 @@ export function saveChatSession(id: string, messages: Content[], title?: string)
       }
     }
 
-    const messagesToSave = messages.filter((m) => {
-      const text = m.parts?.[0]?.text
-      if (typeof text !== 'string') return true
-      // Filter out System Prompt
-      if (text.startsWith('Role: Prism AI')) return false
-      // Filter out standard AI acknowledgement
-      if (
-        text ===
-        'Understood. I am Prism, your automation AI. I will use <tool_call> to interact with the system when necessary, staying focused on your initial goal.'
-      )
-        return false
-      return true
-    })
+    const messagesToSave = messages
 
     const session: ChatSession = {
       id,
@@ -181,7 +166,7 @@ export async function searchChatHistory(query: string): Promise<string> {
     context: string
     timestamp: number
   }
-  const allMatches: ScoredMatch[] = []
+  const allMatches: Map<string, ScoredMatch> = new Map()
 
   for (const file of files) {
     try {
@@ -193,8 +178,8 @@ export async function searchChatHistory(query: string): Promise<string> {
         const text = msg.parts?.[0]?.text
 
         if (typeof text === 'string') {
-          // Ignore ONLY the main system prompt to avoid polluting history with rules
-          if (text.startsWith('Role: Prism AI')) {
+          // Ignore ANY system role message to avoid polluting history with rules or internal feedback
+          if (msg.role === 'system') {
             continue
           }
 
@@ -212,7 +197,7 @@ export async function searchChatHistory(query: string): Promise<string> {
             // Found a match. Try to get the context pair.
             let context = ''
 
-            const formatRole = (role: string, content: string) => {
+            const formatRole = (role: string, content: string): string => {
               if (role === 'user') {
                 if (content.startsWith('[SYSTEM:')) return `[System]:\n${content}`
                 return `[User]: ${content}`
@@ -243,11 +228,17 @@ export async function searchChatHistory(query: string): Promise<string> {
             }
 
             if (context) {
-              allMatches.push({
-                score: matchCount,
-                context: `--- Context from chat "${session.title}" (${new Date(session.lastUpdated).toLocaleDateString()}):\n${context}`,
-                timestamp: session.lastUpdated
-              })
+              const fullContext = `--- Context from chat "${session.title}" (${new Date(session.lastUpdated).toLocaleDateString()}):\n${context}`
+              if (allMatches.has(fullContext)) {
+                const existing = allMatches.get(fullContext)!
+                existing.score = Math.max(existing.score, matchCount)
+              } else {
+                allMatches.set(fullContext, {
+                  score: matchCount,
+                  context: fullContext,
+                  timestamp: session.lastUpdated
+                })
+              }
             }
           }
         }
@@ -257,12 +248,12 @@ export async function searchChatHistory(query: string): Promise<string> {
     }
   }
 
-  if (allMatches.length === 0) {
+  if (allMatches.size === 0) {
     return 'No relevant history found for this query.'
   }
 
   // Sort by score (descending), then by date (newest first)
-  const results = allMatches
+  const results = Array.from(allMatches.values())
     .sort((a, b) => b.score - a.score || b.timestamp - a.timestamp)
     .slice(0, 10)
     .map((m) => m.context)

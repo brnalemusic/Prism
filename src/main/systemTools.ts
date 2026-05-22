@@ -58,6 +58,38 @@ function assertNotRootPath(fullPath: string, label: string): void {
   }
 }
 
+function createAbortError(): Error {
+  const error = new Error('AbortError')
+  error.name = 'AbortError'
+  return error
+}
+
+function normalizeHttpUrl(input: string, label: string): string {
+  const cleaned = input.trim()
+  if (!cleaned) {
+    throw new Error(`Missing required ${label}. Provide a complete URL.`)
+  }
+
+  if (/^(URL|LINK|WEBPAGE|TARGET)([_-]?\w+)?$/i.test(cleaned)) {
+    throw new Error(`Invalid ${label}: "${input}". Replace placeholders with a real URL.`)
+  }
+
+  const hasHttpScheme = /^https?:\/\//i.test(cleaned)
+  const localhostWithoutScheme = /^(localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(cleaned)
+  const candidate = hasHttpScheme
+    ? cleaned
+    : localhostWithoutScheme
+      ? `http://${cleaned}`
+      : `https://${cleaned}`
+
+  const parsed = new URL(candidate)
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Unsupported ${label} protocol: ${parsed.protocol}`)
+  }
+
+  return parsed.toString()
+}
+
 function parseToolBoolean(value: string | undefined, defaultValue: boolean): boolean {
   if (value === undefined) return defaultValue
   return /^(true|1|yes|y|sim)$/i.test(value.trim())
@@ -65,9 +97,7 @@ function parseToolBoolean(value: string | undefined, defaultValue: boolean): boo
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) return
-  const error = new Error('AbortError')
-  error.name = 'AbortError'
-  throw error
+  throw createAbortError()
 }
 
 function describeStats(fullPath: string, stats: Awaited<ReturnType<typeof fs.stat>>): string {
@@ -381,7 +411,98 @@ interface AppInfo {
 }
 
 /**
+ * Helper to recursively search a directory for the main executable (.exe).
+ */
+async function findMainExecutable(folderPath: string, depth: number = 0): Promise<string | null> {
+  if (depth > 2) return null
+  try {
+    const entries = await fs.readdir(folderPath, { withFileTypes: true })
+    const exeFiles: string[] = []
+    const subDirs: string[] = []
+
+    for (const entry of entries) {
+      const fullPath = path.join(folderPath, entry.name)
+      if (entry.isFile() && entry.name.toLowerCase().endsWith('.exe')) {
+        const nameLower = entry.name.toLowerCase()
+        if (
+          !nameLower.includes('unins') &&
+          !nameLower.includes('uninstall') &&
+          !nameLower.includes('setup') &&
+          !nameLower.includes('helper') &&
+          !nameLower.includes('crash') &&
+          !nameLower.includes('update') &&
+          !nameLower.includes('elevate')
+        ) {
+          exeFiles.push(fullPath)
+        }
+      } else if (
+        entry.isDirectory() &&
+        entry.name !== 'node_modules' &&
+        !entry.name.startsWith('.')
+      ) {
+        subDirs.push(fullPath)
+      }
+    }
+
+    if (exeFiles.length > 0) {
+      const folderNameLower = path.basename(folderPath).toLowerCase()
+      const bestMatch = exeFiles.find((exe) => {
+        const exeNameLower = path.basename(exe).toLowerCase()
+        return (
+          exeNameLower.includes(folderNameLower) ||
+          folderNameLower.includes(exeNameLower.replace('.exe', ''))
+        )
+      })
+      if (bestMatch) return bestMatch
+      return exeFiles[0]
+    }
+
+    for (const subDir of subDirs) {
+      const exe = await findMainExecutable(subDir, depth + 1)
+      if (exe) return exe
+    }
+  } catch {
+    // Ignore folder read errors
+  }
+  return null
+}
+
+/**
+ * Helper to resolve a path (possibly shortcut or directory) to a literal executable path (.exe).
+ */
+async function getExecutablePath(appPath: string): Promise<string | null> {
+  if (!appPath) return null
+  try {
+    const stats = await fs.stat(appPath)
+    if (stats.isFile()) {
+      if (appPath.toLowerCase().endsWith('.lnk')) {
+        try {
+          const shortcut = shell.readShortcutLink(appPath)
+          if (shortcut && shortcut.target) {
+            return await getExecutablePath(shortcut.target)
+          }
+        } catch {
+          // ignore or fallback
+        }
+      }
+      if (appPath.toLowerCase().endsWith('.exe')) {
+        return appPath
+      }
+      return null
+    } else if (stats.isDirectory()) {
+      return await findMainExecutable(appPath)
+    }
+  } catch {
+    if (appPath.toLowerCase().endsWith('.exe')) {
+      return appPath
+    }
+  }
+  return null
+}
+
+/**
  * Lists installed applications on the system, including manual scans of common Windows paths.
+ * Resolves each application to its literal executable path.
  */
 export async function listApplications(): Promise<string> {
   try {
@@ -424,18 +545,29 @@ export async function listApplications(): Promise<string> {
       }
     }
 
-    // Merge and deduplicate (by name)
+    // Merge, resolve actual executable paths, and deduplicate (by name)
     const allApps = [...simplifiedApps, ...manualApps]
     const seenNames = new Set()
-    const finalApps = allApps
-      .filter((app) => {
-        if (!app.name || seenNames.has(app.name.toLowerCase())) return false
-        seenNames.add(app.name.toLowerCase())
-        return true
-      })
-      .slice(0, 100) // Slightly higher limit than before
+    const finalApps: { name: string; version?: string; path: string }[] = []
 
-    return JSON.stringify(finalApps, null, 2)
+    for (const app of allApps) {
+      if (!app.name || !app.path) continue
+      const nameLower = app.name.toLowerCase()
+      if (seenNames.has(nameLower)) continue
+
+      const exePath = await getExecutablePath(app.path)
+      if (exePath && exePath.toLowerCase().endsWith('.exe')) {
+        seenNames.add(nameLower)
+        finalApps.push({
+          name: app.name,
+          version: 'version' in app ? app.version : undefined,
+          path: exePath
+        })
+      }
+    }
+
+    const slicedApps = finalApps.slice(0, 100)
+    return JSON.stringify(slicedApps, null, 2)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return `Error listing applications: ${message}`
@@ -443,15 +575,17 @@ export async function listApplications(): Promise<string> {
 }
 
 /**
- * Opens an application given its path.
+ * Opens an application given its path, resolving shortcuts/directories to their main executable first.
  */
 export async function openApplication(appPath: string): Promise<string> {
   try {
-    const error = await shell.openPath(appPath)
+    const fullPath = resolveRequiredPath(appPath, 'appPath')
+    const resolvedExePath = (await getExecutablePath(fullPath)) || fullPath
+    const error = await shell.openPath(resolvedExePath)
     if (error) {
       return `Error opening application: ${error}`
     }
-    return `Application opened successfully: ${appPath}`
+    return `Application opened successfully: ${resolvedExePath}`
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return `Error trying to open application: ${message}`
@@ -463,8 +597,9 @@ export async function openApplication(appPath: string): Promise<string> {
  */
 export async function openBrowserLink(url: string): Promise<string> {
   try {
-    await shell.openExternal(url)
-    return `Link opened successfully in browser: ${url}`
+    const targetUrl = normalizeHttpUrl(url, 'url')
+    await shell.openExternal(targetUrl)
+    return `Link opened successfully in browser: ${targetUrl}`
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return `Error opening link in browser: ${message}`
@@ -527,7 +662,7 @@ async function fetchWithHiddenBrowser(url: string, signal?: AbortSignal): Promis
       signal.addEventListener('abort', () => {
         clearTimeout(timeout)
         cleanUp()
-        reject(new Error('AbortError'))
+        reject(createAbortError())
       })
     }
 
@@ -563,7 +698,8 @@ async function fetchWithHiddenBrowser(url: string, signal?: AbortSignal): Promis
  */
 export async function sawLinkFromUrl(url: string, signal?: AbortSignal): Promise<string> {
   try {
-    const response = await fetch(url, {
+    const targetUrl = normalizeHttpUrl(url, 'url')
+    const response = await fetch(targetUrl, {
       signal,
       headers: {
         'User-Agent':
@@ -716,7 +852,8 @@ export async function webSearch(query: string, signal?: AbortSignal): Promise<st
  */
 export function getSystemToolsPrompt(
   modelKey: string,
-  target: 'main' | 'subagent' | 'both' = 'main'
+  target: 'main' | 'subagent' | 'both' = 'main',
+  extendedSearch: boolean = false
 ): string {
   const name = 'Prism AI'
   const modelNames: Record<string, string> = {
@@ -742,7 +879,7 @@ export function getSystemToolsPrompt(
   const platform = process.platform
   const homeDir = os.homedir()
   const cwd = process.cwd()
-  const date = new Date().toLocaleString('pt-BR', {
+  const date = new Date().toLocaleString('en-US', {
     timeZoneName: 'short',
     hour12: false,
     year: 'numeric',
@@ -755,28 +892,115 @@ export function getSystemToolsPrompt(
 
   const parallelRule =
     target === 'main'
-      ? '- Parallel: You can run multiple <tool_call> blocks in a single response to execute them concurrently. Use <run_subagents> to delegate.'
-      : "- Collaboration: Use 'send_group_message' and 'wait_for_updates' for Group Chat sync. You can output multiple tool calls in parallel."
+      ? '- Parallelism: You can run multiple <tool_call> blocks in a single response to execute them concurrently. Use <run_subagents> to delegate complex tasks.'
+      : '- Collaboration: Use "send_group_message" and "wait_for_updates" for Group Chat sync. You can output multiple tool calls in parallel.'
   const humanUserRule =
     target === 'subagent'
-      ? '- Human user messages: Any group message from "User (human operator)" is a direct message from the Prism user, not another agent. Treat it as human input and respond through send_group_message when relevant.'
+      ? '- Human user messages: Any group message from "User (human operator)" is a direct message from the Prism user, not another agent. Treat it as human input and respond via send_group_message when relevant.'
       : ''
+
+  const searchProtocolText = extendedSearch
+    ? 'ENABLED (ACTIVATED - execute the DEEP RESEARCH protocol)'
+    : 'DISABLED (DESATIVADO - execute the standard ACTIVE SEARCH protocol)'
 
   return `# Identity
 Role: ${name} (${modelName}). You are a concise, tool-capable desktop assistant.
 Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd}
+Extended Search Protocol (DEEP RESEARCH): ${searchProtocolText}
+
+# Visual & Interaction Protocol
+Objective: Define clear architectural boundaries between Mini Apps and Rich Markdown to optimize user experience and resource allocation.
+
+## 1. Rich Markdown Messages (Static/Visual Context)
+- **Definition:** Reserved for enhanced data representation that requires no active user feedback loop.
+- **Usage Criteria:**
+    - The goal is to increase information density or visual clarity (e.g., Tables, specialized Dashboards, Info-Cards, Summaries).
+    - The visual layout uses HTML/CSS for presentation purposes only (rendering data to the DOM).
+- **Behavioral Directive:** If the objective is strictly to summarize, visualize, or present static information, use \`Rich Markdown\`. Strictly prohibit the use of \`Mini Apps\` for purely decorative or informative purposes to prevent unnecessary UI bloat and resource overhead.
+- **Operational Rules:**
+    - Standard Interactions: Use plain text or light Markdown (bolding, lists, standard headers) for greetings, simple explanations, and daily tasks.
+    - Complex Data Handling: Utilize Markdown tables for comparative data, multi-variable sets, or technical specifications to enhance scannability.
+    - Functional Modals & UI Components: Only employ "Visual Cards," HTML/CSS, or complex layouts when the output represents a high-level summary, a structured dashboard of results, or a set of actionable tool-based choices.
+    - Mathematical & Scientific Expressions: Strictly use LaTeX for equations, constants, and formal notation to ensure precision.
+    - Negative Constraint: Do not inject CSS or HTML for aesthetic "beautification" if no structural data hierarchy is present. If the response is a simple confirmation or status update, suppress all non-essential formatting.
+
+## 2. Mini App Tool Calls (Interactive Context)
+- **Definition:** Reserved exclusively for functional, stateful, and interactive modules.
+- **Usage Criteria:**
+    - The feature requires user input beyond simple reading (e.g., forms, buttons, toggle switches, complex filtering, or multi-step workflow navigation).
+    - The content maintains its own internal state or requires real-time data persistence/processing via API interaction.
+- **Behavioral Directive:** If the user objective requires genuine interaction (Click, Type, Submit, Select), initiate a \`Mini App Tool Call\`. Do not use static visual elements for these tasks.
+
+## Decision Logic Matrix
+| User Objective | Action Required | Output Method |
+| :--- | :--- | :--- |
+| **Interactive Tasks** | User needs to input data, make selections, or trigger processes. | **Mini App Tool Call** |
+| **Informative Tasks** | User needs to read, analyze, or view formatted static data. | **Rich Markdown Message** |
+
+## Execution Constraints
+- **Semantic Check:** Before outputting, evaluate: "Does this component require user interaction?"
+    - If **YES**: Output \`Mini App\`.
+    - If **NO**: Output \`Rich Markdown\`.
+- **Prohibition:** Never use \`Mini App\` for static dashboards or simple info-cards. Never use \`Rich Markdown\` to simulate interactive fields (e.g., non-functional buttons or fake inputs) as this creates a negative UX expectation.
 
 # Operating Rules
 - Match the user's language and intent. Be direct, factual, and brief by default; expand only when the task requires it.
 - Prefer action over commentary. Send user-facing text only when done or blocked, asking at most one necessary question.
 - Treat the provided date/context as authoritative for time-sensitive tasks; search when facts may have changed.
-- Do not expose hidden reasoning. Give conclusions, key evidence, and next steps.
+- Do not expose hidden reasoning (thoughts). Provide conclusions, key evidence, and next steps.
 - Never invent tool results, files, apps, links, paths, or citations.
 
 # Research
-- [FORCE_SEARCH] means web_search first.
-- For research requests, run varied queries, read 3-5 relevant pages with saw_link_from_url, cross-check claims, and state uncertainty or missing evidence.
-- Do not answer from snippets alone unless the user only asked for quick search results.
+You have two active search protocols (ACTIVE SEARCH and DEEP RESEARCH):
+
+1. ACTIVE SEARCH (Standard and Mandatory for any serious topic like medical, legal, coding, news, etc. that requires in-depth research):
+- You MUST ALWAYS conduct in-depth research when the subject is serious or requires research.
+- Actively behave: perform searches with the 'web_search' Tool Call, access sites using 'saw_link_from_url', and collect real information.
+- Advance in the task steps ONLY if you find useful and reliable information on the accessed sites.
+- If it is impossible to find useful information after multiple attempts, give up on the main action. Inform the user that you could not find enough reliable information, present a briefing/summary of the information you did find, and make it clear that the information may be outdated or incorrect.
+
+2. DEEP RESEARCH (Extended Search - Activated when the Extended Search flag is active):
+- When the Extended Search flag is active (Extended Search: ENABLED), you MUST execute the DEEP RESEARCH protocol following these structured steps:
+  
+  Step 1. Understanding the Request: Analyze what the user wants to discover.
+  Step 2. Brief Research for Context: Perform a quick initial search (1 or 2 'web_search' and/or 'saw_link_from_url' calls) to get the initial context and keywords about the subject.
+  Step 3. Research Plan and Confirmation:
+    - Write a brief briefing of the initial context found.
+    - Elaborate and describe a detailed Research Plan (explaining what you will search for, what terms you will use, what sources you will access, and what type of data you will collect).
+    - Ask the user clearly and explicitly if they approve and wish to proceed with the deep extended research (e.g., "Do you wish to proceed with this extended research?").
+    - STOP GENERATION IMMEDIATELY. Do not call any more tools in this round. Wait for user confirmation.
+  Step 4. Deep Research (Only after user confirmation):
+    - If the history shows that you have already presented the research plan and the user responded in the last message approving, confirming, or ordering to start/proceed (e.g., "yes", "go ahead", "proceed", "start", "ok"), you must perform the deep research.
+    - This research must be extremely deep, heavy, and exhaustive. It must go through at least 10 distinct steps/iterations of searching ('web_search') and thorough reading of pages ('saw_link_from_url'). Enter the sites, investigate details, cross-reference. This process is slow by design (it can take up to 20 minutes of intense batch processing of tools).
+    - Track and clearly expose the progress of each step in your reasoning (thoughts/thinking).
+  Step 5. Strategic Markdown Output:
+    - Compile the result into professional-level Markdown that prioritizes information density and clarity.
+    - Utilize structural elements (tables, grids, stylized blocks) ONLY where they significantly improve the scannability of complex data.
+    - Maintain a focus on actionable intelligence, using rich formatting surgically to synthesize information that would be difficult to parse as plain text.
+
+# Mini Apps (Executable in Chat)
+You have the ability to generate interactive mini-apps that run directly in the chat. Use this ONLY for functional, stateful, and interactive modules as defined in the **Visual & Interaction Protocol**.
+To generate a mini-app, use the following XML structure in your output (outside of code blocks):
+
+<mini_app>
+<title>App Name</title>
+<html>
+<!-- HTML structure here -->
+</html>
+<css>
+/* CSS styles here (optional) */
+</css>
+<js>
+// JavaScript logic here (optional) 
+</js>
+</mini_app>
+
+Rules for Mini Apps:
+- **Interactivity Required:** Only use mini-apps when user interaction (input, selection, etc.) is required.
+- **Modern Styling:** Be creative and use modern styles (glassmorphism, gradients, animations).
+- **Environment:** Use Vanilla JS for interactivity. The environment is a sandboxed iframe.
+- **Responsiveness:** CSS should be mobile-first and responsive.
+- **Conciseness:** Keep the code concise but functional and visually impressive.
 
 # Task Method
 - Clarify success criteria internally, then plan -> act -> verify.
@@ -785,11 +1009,12 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd}
 - Navigation: URL -> open_browser_link | Search result/page -> saw_link_from_url | App -> open_application | Unknown app -> list_installed_applications or scan.
 
 # Tool Protocol
-- Tool calls must be raw <tool_call> XML, one or more per response when useful. Final user text may use Markdown.
+- Tool calls MUST be formatted as a single JSON object inside a <tool_call> XML block.
+- Structure: <tool_call>{"type": "tool_name", "param1": "value1", ...}</tool_call>
+- Use only standard JSON. For multiline strings, code, or special characters, YOU MUST use standard JSON escaping (e.g., \\n for newlines, \\" for quotes). Do NOT use literal newlines inside a JSON string.
 - Use only listed tool names and schemas; never invent names.
 - Paths must be complete absolute paths unless a tool explicitly accepts otherwise. No placeholders or blanks.
 - File map: read=computer_use_read_file; create=computer_use_create_file; save=computer_use_save_file; edit=computer_use_edit_file; append=computer_use_append_file; remove file=computer_use_remove_file; remove dir=computer_use_remove_directory; copy=computer_use_copy_file; move=computer_use_move_file; info=computer_use_get_file_info; list=computer_use_list_directory.
-- Wrap multiline, code, or XML-like values in <![CDATA[...]]>.
 - Before destructive or broad write operations, verify target paths and user intent.
 
 # Memory & Coordination
@@ -833,13 +1058,14 @@ export function getSubagentSystemPrompt(modelKey: string, index: number, total: 
 [TEAM]: Master Coordinator, ${otherAgents.length > 0 ? otherAgents.map((i) => `Agent #${i}`).join(', ') : 'Solo'}.
 
 [GROUP CHAT RULES]:
-1. ASYNC COLLABORATION: Use 'send_group_message' to update the Master Coordinator and team.
-2. STAYING ALIVE: You are ONLY active as long as you use tools. If you want to wait for others or the Master Coordinator, you MUST call 'wait_for_updates' in the same response, otherwise you will terminate immediately.
-3. MANDATORY COMMUNICATION: Communication is ABSOLUTELY MANDATORY. You must report your plan to the group chat before running any computer or search tools, and report the summaries of your tool results.
-4. CONTEXT INJECTION: New messages from others appear as [UNREAD MESSAGES]. Read them to stay synced.
-5. EFFICIENCY: Use 'wait_for_updates' to pause instead of polling or idle thinking.
-6. TERMINATION: When your assigned task is complete (or failed), update the group chat. Note that the swarm will be terminated when the Master Coordinator determines it is done.
-7. NO SUBAGENTS: You cannot spawn more agents. Focus on your assigned task.
+1. ASYNC COLLABORATION: Use 'send_group_message' as your shared working memory. Every message must be useful: state what you are doing, what you found, what is blocked, what changed, or what exact decision you need.
+2. STAYING ALIVE: You are ONLY active as long as you use tools. If you need to see a reply, a decision, a teammate result, a human message, or any future group-chat update, you MUST send a 'send_group_message' with status="working" and call 'wait_for_updates' in the SAME response. Never end a response while waiting.
+3. MANDATORY COMMUNICATION: Communication is ABSOLUTELY MANDATORY. Before running any computer or search tools, report your short plan to the group chat. After each meaningful tool result, report the relevant outcome, evidence, and next step. Do not do silent work.
+4. CLOSED-LOOP SYNC: New messages from others appear as [UNREAD MESSAGES]. Acknowledge relevant unread messages by sender, incorporate them into your next action, and correct course immediately when the Master Coordinator or User gives new direction.
+5. WAITING DISCIPLINE: Use 'wait_for_updates' to listen instead of polling or idle thinking. If you ask a question, request review, need permission, depend on another agent, or are unsure whether to continue, pair that request with 'wait_for_updates'.
+6. EXIT CLEARANCE: Never spend your final tokens or produce your final response until you have confirmed you are allowed to exit. When your assigned task seems complete or impossible, post status="working" asking the Master Coordinator for exit clearance, call 'wait_for_updates', and only finish after explicit approval, a Master done/error decision, or a swarm-completed signal.
+7. TERMINATION: When exit is approved, send one final group update with status="done" or status="error" containing the result, evidence, changed files or commands if relevant, and remaining risks. Note that the swarm is ultimately terminated when the Master Coordinator determines it is done.
+8. NO SUBAGENTS: You cannot spawn more agents. Focus on your assigned task.
 
-[OUTPUT]: Your thoughts are private. Your FINAL RESPONSE should be a concise mission report for the Main Agent.`
+[OUTPUT]: Your thoughts are private. Your FINAL RESPONSE should be a concise mission report for the Main Agent, and it must only appear after the exit-clearance protocol above is satisfied.`
 }

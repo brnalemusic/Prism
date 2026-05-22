@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -9,6 +9,8 @@ import { PrismBackground } from './components/PrismBackground'
 import { IntroScreen } from './components/IntroScreen'
 import { Sidebar } from './components/Sidebar'
 import { InputBar, InputBarHandle } from './components/InputBar'
+import { LoadingDots } from './components/LoadingDots'
+import { Spinner } from './components/Spinner'
 import { ActionLoader, ToolCall } from './components/ActionLoader'
 import { ModelSelector } from './components/ModelSelector'
 import { Tasks } from './components/Tasks'
@@ -20,10 +22,79 @@ import { ApiKeyModal } from './components/ApiKeyModal'
 import { MissingKeyBanner } from './components/MissingKeyBanner'
 import { SubagentChat } from './components/SubagentChat'
 import { SubagentModelSettings } from './components/SubagentModelSettings'
+import { MiniAppRenderer } from './components/MiniAppRenderer'
 import clsx from 'clsx'
-import { ArrowDown } from 'lucide-react'
+import { ArrowDown, Menu } from 'lucide-react'
+import { AppConfig } from '../../main/config'
 
-const MarkdownComponents: any = {
+function disableIndentedCode(this: any): void {
+  const data = this.data()
+  const micromarkExtensions = data.micromarkExtensions || (data.micromarkExtensions = [])
+  micromarkExtensions.push({
+    disable: {
+      null: ['codeIndented']
+    }
+  })
+}
+
+function rehypeParseMath(): (tree: any) => void {
+  return (tree: any) => {
+    function transform(node: any): void {
+      if (!node.children) return
+
+      const newChildren: any[] = []
+      for (const child of node.children) {
+        if (child.type === 'element' && (child.tagName === 'pre' || child.tagName === 'code')) {
+          transform(child)
+          newChildren.push(child)
+          continue
+        }
+
+        if (child.type === 'text') {
+          const text = child.value
+          const regex = /(\$\$[\s\S]+?\$\$|\$[^\s$][^$]*?[^\s$]\$|\$[^\s$]\$)/g
+          const parts = text.split(regex)
+
+          if (parts.length > 1) {
+            for (const part of parts) {
+              if (!part) continue
+
+              if (part.startsWith('$$') && part.endsWith('$$')) {
+                const equation = part.slice(2, -2).trim()
+                newChildren.push({
+                  type: 'element',
+                  tagName: 'div',
+                  properties: { className: ['math', 'math-display'] },
+                  children: [{ type: 'text', value: equation }]
+                })
+              } else if (part.startsWith('$') && part.endsWith('$')) {
+                const equation = part.slice(1, -1).trim()
+                newChildren.push({
+                  type: 'element',
+                  tagName: 'span',
+                  properties: { className: ['math', 'math-inline'] },
+                  children: [{ type: 'text', value: equation }]
+                })
+              } else {
+                newChildren.push({ type: 'text', value: part })
+              }
+            }
+          } else {
+            newChildren.push(child)
+          }
+        } else {
+          transform(child)
+          newChildren.push(child)
+        }
+      }
+      node.children = newChildren
+    }
+
+    transform(tree)
+  }
+}
+
+const MarkdownComponents: Record<string, React.FC<any>> = {
   a: ({ href, children, ...props }: any) => {
     const imageExtensions = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i
     if (href && imageExtensions.test(href)) {
@@ -67,7 +138,7 @@ interface Message {
   usedFallback?: boolean
   toolCalls?: ToolCall[]
   isWritingToolCall?: boolean
-  toolType?: 'task' | 'search'
+  toolType?: 'task' | 'search' | 'mini-app'
   isConnecting?: boolean
 }
 
@@ -80,16 +151,63 @@ function App(): React.JSX.Element {
   const [showIntro, setShowIntro] = useState(true)
   const [messages, setMessages] = useState<Message[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
+
+  // Dedicated Mini-app Window Logic
+  const [miniAppData, setMiniAppData] = useState<{
+    id: string
+    title: string
+    html: string
+    css: string
+    js: string
+  } | null>(null)
+
+  useEffect(() => {
+    if (window.location.hash === '#mini-app') {
+      const removeListener = window.api.onMiniAppData((data) => {
+        setMiniAppData(data)
+      })
+      return () => removeListener()
+    }
+    return undefined
+  }, [])
+
   const [isProcessing, setIsProcessing] = useState(false)
   const [isFinishing, setIsFinishing] = useState(false)
   const [isFocused, setIsFocused] = useState(true)
   const [selectedModel, setSelectedModel] = useState('prism-5')
   const [activeView, setActiveView] = useState('chat')
   const [currentChatId, setCurrentChatId] = useState<string | undefined>(undefined)
+  const [runningChats, setRunningChats] = useState<Record<string, boolean>>({})
+  const currentChatIdRef = useRef<string | undefined>(undefined)
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false)
   const [isYoutubeMode, setIsYoutubeMode] = useState(false)
   const [isThinkMode, setIsThinkMode] = useState(false)
-  const [config, setConfig] = useState<any>(null)
+  const [config, setConfig] = useState<AppConfig | null>(null)
+  const [inputText, setInputText] = useState('')
+  const [isSearchEnabled, setIsSearchEnabled] = useState(false)
+  const [isExtendedSearch, setIsExtendedSearch] = useState(false)
+  const [isFullscreenInput, setIsFullscreenInput] = useState(false)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+
+  useEffect(() => {
+    currentChatIdRef.current = currentChatId
+  }, [currentChatId])
+
+  useEffect(() => {
+    async function initRunningChats(): Promise<void> {
+      try {
+        const running = await window.api.getRunningChats()
+        const runningMap: Record<string, boolean> = {}
+        running.forEach((id) => {
+          runningMap[id] = true
+        })
+        setRunningChats(runningMap)
+      } catch (e) {
+        console.error('Failed to get running chats:', e)
+      }
+    }
+    initRunningChats()
+  }, [])
 
   useEffect(() => {
     const handleFocus = (): void => setIsFocused(true)
@@ -115,12 +233,6 @@ function App(): React.JSX.Element {
     init()
   }, [])
 
-  useEffect(() => {
-    if (selectedModel === 'prism-4.3') {
-      setIsThinkMode(true)
-    }
-  }, [selectedModel])
-
   const route = window.location.hash
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -135,24 +247,43 @@ function App(): React.JSX.Element {
     return `Olá, ${formattedName}. Em que podemos trabalhar?`
   }
 
-  const handleSend = (text: string, thinkMode?: boolean): void => {
-    if (isProcessing) return
+  const handleSend = useCallback(
+    (text: string, thinkMode?: boolean): void => {
+      if (isProcessing) return
 
-    setIsProcessing(true)
-    setIsYoutubeMode(text.startsWith('/youtube'))
+      setIsProcessing(true)
+      setIsYoutubeMode(text.startsWith('/youtube'))
 
-    // If thinkMode is provided (e.g. from Launcher), update App state
-    if (thinkMode !== undefined) {
-      setIsThinkMode(thinkMode)
-    }
+      // If thinkMode is provided (e.g. from Launcher), update App state
+      if (thinkMode !== undefined) {
+        setIsThinkMode(thinkMode)
+      }
 
-    // Para a UI, removemos a tag feia se ela existir
-    const displayContent = text.replace(/^\[FORCE_SEARCH\]\s*/i, '')
-    setMessages((prev) => [...prev, { role: 'user', content: displayContent }])
+      // Generate a unique chatId if not set
+      let chatId = currentChatId
+      if (!chatId) {
+        chatId = Date.now().toString()
+        setCurrentChatId(chatId)
+        currentChatIdRef.current = chatId
+      }
 
-    // Para a API, enviamos o texto original e o thinkMode (seja o atual ou o vindo do launcher)
-    window.api.sendChatMessage({ message: text, thinkMode: thinkMode ?? isThinkMode })
-  }
+      // Update running status
+      setRunningChats((prev) => ({ ...prev, [chatId!]: true }))
+
+      // Para a UI, removemos a tag feia se ela existir
+      const displayContent = text.replace(/^\[FORCE_SEARCH\]\s*/i, '')
+      setMessages((prev) => [...prev, { role: 'user', content: displayContent }])
+
+      // Para a API, enviamos o texto original, thinkMode e o extendedSearch
+      window.api.sendChatMessage({
+        message: text,
+        thinkMode: thinkMode ?? isThinkMode,
+        extendedSearch: isExtendedSearch,
+        chatId
+      })
+    },
+    [isProcessing, isThinkMode, isExtendedSearch, currentChatId]
+  )
 
   useEffect(() => {
     // Listen for launcher messages
@@ -182,7 +313,7 @@ function App(): React.JSX.Element {
       removeModelListener()
       removeConfigListener()
     }
-  }, [isProcessing])
+  }, [handleSend])
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth'): void => {
     if (scrollContainerRef.current) {
@@ -216,11 +347,15 @@ function App(): React.JSX.Element {
   }
 
   const handleCancel = (): void => {
-    window.api.cancelChat()
+    if (currentChatId) {
+      window.api.cancelChat(currentChatId)
+    } else {
+      window.api.cancelChat()
+    }
   }
 
   const handleLoadChat = async (id: string): Promise<void> => {
-    if (isProcessing) return
+    if (id === currentChatId) return
     const history = await window.api.loadChat(id)
     if (history) {
       isAtBottomRef.current = true
@@ -228,7 +363,9 @@ function App(): React.JSX.Element {
       const mappedMessages: Message[] = []
 
       for (const m of history) {
-        const text = m.parts[0].text || ''
+        if (m.role === 'system') continue
+
+        const text = m.parts?.[0]?.text || ''
         const isSystemResults = m.role === 'user' && text.startsWith('[SYSTEM: TOOL RESULTS]')
 
         if (isSystemResults) {
@@ -264,18 +401,12 @@ function App(): React.JSX.Element {
         }
 
         if (m.role === 'user') {
-          // Filter out internal prompt
-          if (text.startsWith('Role: Prism AI')) continue
-
           mappedMessages.push({
             role: 'user',
             content: text,
             isStreaming: false
           })
         } else if (m.role === 'model') {
-          // Filter out initial system greeting if it's the very first message
-          if (text.includes('automation AI') && mappedMessages.length === 0) continue
-
           let aiMsg: Message | undefined = mappedMessages[mappedMessages.length - 1]
 
           if (!aiMsg || aiMsg.role !== 'ai') {
@@ -334,6 +465,23 @@ function App(): React.JSX.Element {
         }
       }
 
+      // If this chat is currently running, we need to mark it as streaming
+      const isRunning = !!runningChats[id]
+      setIsProcessing(isRunning)
+
+      if (isRunning && mappedMessages.length > 0) {
+        const lastMsg = mappedMessages[mappedMessages.length - 1]
+        if (lastMsg.role === 'ai') {
+          lastMsg.isStreaming = true
+          if (lastMsg.toolCalls && lastMsg.toolCalls.length > 0) {
+            const lastTool = lastMsg.toolCalls[lastMsg.toolCalls.length - 1]
+            if (!lastTool.result) {
+              lastTool.status = 'running'
+            }
+          }
+        }
+      }
+
       // Cleanup trailing whitespace in thoughts and populate tasks
       const allTasks: Task[] = []
       mappedMessages.forEach((m) => {
@@ -352,19 +500,23 @@ function App(): React.JSX.Element {
       setMessages(mappedMessages)
       setTasks(allTasks)
       setCurrentChatId(id)
+      currentChatIdRef.current = id
     }
   }
 
   const handleNewChat = (force = false): void => {
-    if (isProcessing && !force) return
-    if (force) {
-      window.api.cancelChat()
+    if (force && currentChatId) {
+      window.api.cancelChat(currentChatId)
     }
     isAtBottomRef.current = true
     setShowScrollButton(false)
     setMessages([])
     setTasks([])
     setCurrentChatId(undefined)
+    currentChatIdRef.current = undefined
+    setIsProcessing(false)
+    setInputText('')
+    setIsFullscreenInput(false)
     window.api.clearChat()
   }
 
@@ -392,26 +544,39 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     // Set up IPC listeners from our Context Bridge
-    const removeChatStartListener = window.api.onChatStart(() => {
-      setIsProcessing(true)
-      setIsFinishing(false)
-      // Add an empty AI message to start streaming into
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'ai',
-          content: '',
-          thoughts: '',
-          isStreaming: true,
-          isThinking: false,
-          isConnecting: true,
-          toolCalls: []
-        }
-      ])
+    const removeChatStartListener = window.api.onChatStart((data) => {
+      const { chatId } = data
+      setRunningChats((prev) => ({ ...prev, [chatId]: true }))
+      if (chatId === currentChatIdRef.current) {
+        setIsProcessing(true)
+        setIsFinishing(false)
+        // Add an empty AI message to start streaming into
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'ai',
+            content: '',
+            thoughts: '',
+            isStreaming: true,
+            isThinking: false,
+            isConnecting: true,
+            toolCalls: []
+          }
+        ])
+      }
     })
 
-    const removeChatChunkListener = window.api.onChatChunk(
-      ({ thoughts, finalResponse, usedFallback, isThinking, isWritingToolCall, toolType }) => {
+    const removeChatChunkListener = window.api.onChatChunk((data) => {
+      const {
+        chatId,
+        thoughts,
+        finalResponse,
+        usedFallback,
+        isThinking,
+        isWritingToolCall,
+        toolType
+      } = data
+      if (chatId === currentChatIdRef.current) {
         setMessages((prev) => {
           const newMessages = [...prev]
           const lastMsg = newMessages[newMessages.length - 1]
@@ -427,10 +592,12 @@ function App(): React.JSX.Element {
           return newMessages
         })
       }
-    )
+    })
 
-    const removeChatEndListener = window.api.onChatEnd(
-      ({ thoughts, finalResponse, usedFallback }) => {
+    const removeChatEndListener = window.api.onChatEnd((data) => {
+      const { chatId, thoughts, finalResponse, usedFallback } = data
+      setRunningChats((prev) => ({ ...prev, [chatId]: false }))
+      if (chatId === currentChatIdRef.current) {
         setIsProcessing(false)
         setIsYoutubeMode(false)
         setIsFinishing(true)
@@ -451,230 +618,247 @@ function App(): React.JSX.Element {
           return newMessages
         })
       }
-    )
+    })
 
-    const removeChatErrorListener = window.api.onChatError((error) => {
-      setIsProcessing(false)
-      setIsYoutubeMode(false)
+    const removeChatErrorListener = window.api.onChatError((data) => {
+      const { error, chatId } = data
+      setRunningChats((prev) => ({ ...prev, [chatId]: false }))
+      if (chatId === currentChatIdRef.current) {
+        setIsProcessing(false)
+        setIsYoutubeMode(false)
 
-      if (error === 'API_KEY_MISSING') {
-        setIsApiKeyModalOpen(true)
-        return
-      }
+        if (error === 'API_KEY_MISSING') {
+          setIsApiKeyModalOpen(true)
+          return
+        }
 
-      const isCancel = error.includes('cancelled')
+        const isCancel = error.includes('cancelled')
 
-      if (isCancel) {
-        setTasks((prev) =>
-          prev.map((t) => (t.status === 'running' ? { ...t, status: 'cancelled' as any } : t))
-        )
-      }
-
-      setMessages((prev) => {
-        const newMessages = [...prev]
-        const lastMsg = newMessages[newMessages.length - 1]
-
-        // Cleanup running tool calls in last message
-        if (isCancel && lastMsg && lastMsg.role === 'ai' && lastMsg.toolCalls) {
-          lastMsg.toolCalls = lastMsg.toolCalls.map((tc) =>
-            tc.status === 'running'
-              ? { ...tc, status: 'cancelled' as any, result: 'Cancelled by user.' }
-              : tc
+        if (isCancel) {
+          setTasks((prev) =>
+            prev.map((t) => (t.status === 'running' ? { ...t, status: 'cancelled' as any } : t))
           )
         }
 
-        // Se a última mensagem já for um erro IGUAL, não duplica
-        if (lastMsg && lastMsg.isError && lastMsg.content === error) {
-          return prev
-        }
+        setMessages((prev) => {
+          const newMessages = [...prev]
+          const lastMsg = newMessages[newMessages.length - 1]
 
-        // Se a última mensagem for AI e estava processando, atualiza ela com o erro
-        if (lastMsg && lastMsg.role === 'ai' && (lastMsg.isStreaming || lastMsg.isThinking)) {
-          lastMsg.content = error
-          lastMsg.isStreaming = false
-          lastMsg.isThinking = false
-          lastMsg.isConnecting = false
-          lastMsg.isError = true
-        } else {
-          // Se não houver uma mensagem de AI ativa, cria uma nova para o erro
-          newMessages.push({
-            role: 'ai',
-            content: error,
-            isError: true,
-            isStreaming: false,
-            isThinking: false,
-            isConnecting: false,
-            toolCalls: []
-          })
-        }
-        return newMessages
-      })
+          // Cleanup running tool calls in last message
+          if (isCancel && lastMsg && lastMsg.role === 'ai' && lastMsg.toolCalls) {
+            lastMsg.toolCalls = lastMsg.toolCalls.map((tc) =>
+              tc.status === 'running'
+                ? { ...tc, status: 'cancelled' as any, result: 'Cancelled by user.' }
+                : tc
+            )
+          }
+
+          // Se a última mensagem já for um erro IGUAL, não duplica
+          if (lastMsg && lastMsg.isError && lastMsg.content === error) {
+            return prev
+          }
+
+          // Se a última mensagem for AI e estava processando, atualiza ela com o erro
+          if (lastMsg && lastMsg.role === 'ai' && (lastMsg.isStreaming || lastMsg.isThinking)) {
+            lastMsg.content = error
+            lastMsg.isStreaming = false
+            lastMsg.isThinking = false
+            lastMsg.isConnecting = false
+            lastMsg.isError = true
+          } else {
+            // Se não houver uma mensagem de AI ativa, cria uma nova para o erro
+            newMessages.push({
+              role: 'ai',
+              content: error,
+              isError: true,
+              isStreaming: false,
+              isThinking: false,
+              isConnecting: false,
+              toolCalls: []
+            })
+          }
+          return newMessages
+        })
+      }
     })
 
     const removeToolStartListener = window.api.onToolStart((data) => {
-      const taskId = crypto.randomUUID()
-      const newTask: Task = {
-        ...data,
-        id: taskId,
-        status: 'running',
-        timestamp: data.timestamp ? new Date(data.timestamp) : new Date()
-      }
-      setTasks((prev) => [...prev, newTask])
-
-      setMessages((prev) => {
-        const newMessages = [...prev]
-        const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
-
-        if (lastMsgIndex !== -1) {
-          const lastMsg = { ...newMessages[lastMsgIndex] }
-          const toolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
-
-          const isDuplicate = toolCalls.some(
-            (t) =>
-              t.name === data.name &&
-              JSON.stringify(t.args) === JSON.stringify(data.args) &&
-              t.status === 'running'
-          )
-
-          if (!isDuplicate) {
-            lastMsg.toolCalls = [...toolCalls, { ...data, status: 'running' }]
-            newMessages[lastMsgIndex] = lastMsg
-          }
+      const { chatId } = data
+      if (chatId === currentChatIdRef.current) {
+        const taskId = crypto.randomUUID()
+        const newTask: Task = {
+          ...data,
+          id: taskId,
+          status: 'running',
+          timestamp: data.timestamp ? new Date(data.timestamp) : new Date()
         }
-        return newMessages
-      })
+        setTasks((prev) => [...prev, newTask])
+
+        setMessages((prev) => {
+          const newMessages = [...prev]
+          const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
+
+          if (lastMsgIndex !== -1) {
+            const lastMsg = { ...newMessages[lastMsgIndex] }
+            const toolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
+
+            const isDuplicate = toolCalls.some(
+              (t) =>
+                t.name === data.name &&
+                JSON.stringify(t.args) === JSON.stringify(data.args) &&
+                t.status === 'running'
+            )
+
+            if (!isDuplicate) {
+              lastMsg.toolCalls = [...toolCalls, { ...data, status: 'running' }]
+              newMessages[lastMsgIndex] = lastMsg
+            }
+          }
+          return newMessages
+        })
+      }
     })
 
     const removeToolEndListener = window.api.onToolEnd((data) => {
-      setTasks((prev) => {
-        const newTasks = [...prev]
-        const lastTaskIndex = newTasks.findLastIndex(
-          (t) => t.name === data.name && t.status === 'running'
-        )
-        if (lastTaskIndex !== -1) {
-          newTasks[lastTaskIndex] = {
-            ...newTasks[lastTaskIndex],
-            status: data.result.startsWith('Error') ? 'error' : 'done',
-            result: data.result
-          }
-        }
-        return newTasks
-      })
-
-      setMessages((prev) => {
-        const newMessages = [...prev]
-        const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
-
-        if (lastMsgIndex !== -1 && newMessages[lastMsgIndex].toolCalls) {
-          const lastMsg = { ...newMessages[lastMsgIndex] }
-          const toolCalls = [...(lastMsg.toolCalls || [])]
-          const lastToolIndex = toolCalls.findLastIndex(
+      const { chatId } = data
+      if (chatId === currentChatIdRef.current) {
+        setTasks((prev) => {
+          const newTasks = [...prev]
+          const lastTaskIndex = newTasks.findLastIndex(
             (t) => t.name === data.name && t.status === 'running'
           )
-
-          if (lastToolIndex !== -1) {
-            toolCalls[lastToolIndex] = {
-              ...toolCalls[lastToolIndex],
+          if (lastTaskIndex !== -1) {
+            newTasks[lastTaskIndex] = {
+              ...newTasks[lastTaskIndex],
               status: data.result.startsWith('Error') ? 'error' : 'done',
               result: data.result
             }
-            lastMsg.toolCalls = toolCalls
-            newMessages[lastMsgIndex] = lastMsg
           }
-        }
-        return newMessages
-      })
+          return newTasks
+        })
+
+        setMessages((prev) => {
+          const newMessages = [...prev]
+          const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
+
+          if (lastMsgIndex !== -1 && newMessages[lastMsgIndex].toolCalls) {
+            const lastMsg = { ...newMessages[lastMsgIndex] }
+            const toolCalls = [...(lastMsg.toolCalls || [])]
+            const lastToolIndex = toolCalls.findLastIndex(
+              (t) => t.name === data.name && t.status === 'running'
+            )
+
+            if (lastToolIndex !== -1) {
+              toolCalls[lastToolIndex] = {
+                ...toolCalls[lastToolIndex],
+                status: data.result.startsWith('Error') ? 'error' : 'done',
+                result: data.result
+              }
+              lastMsg.toolCalls = toolCalls
+              newMessages[lastMsgIndex] = lastMsg
+            }
+          }
+          return newMessages
+        })
+      }
     })
 
     const removeToolUpdateListener = window.api.onToolUpdate((data) => {
-      setTasks((prev) => {
-        const newTasks = [...prev]
-        const taskIndex = newTasks.findLastIndex(
-          (t) => t.name === data.toolCallName && (t.status === 'running' || t.status === 'done')
-        )
-        if (taskIndex !== -1) {
-          const task = { ...newTasks[taskIndex] }
-          const prevUpdate = task.agentUpdates?.[data.update.agentIndex]
-          task.agentUpdates = {
-            ...(task.agentUpdates || {}),
-            [data.update.agentIndex]: {
-              ...prevUpdate,
-              ...data.update
-            }
-          }
-          newTasks[taskIndex] = task
-        }
-        return newTasks
-      })
-
-      setMessages((prev) => {
-        const newMessages = [...prev]
-        // Search all AI messages since updates might belong to historical tool calls
-        for (let i = newMessages.length - 1; i >= 0; i--) {
-          const msg = newMessages[i]
-          if (msg.role === 'ai' && msg.toolCalls) {
-            const toolCallIndex = msg.toolCalls.findLastIndex(
-              (t) => t.name === data.toolCallName && (t.status === 'running' || t.status === 'done')
-            )
-            if (toolCallIndex !== -1) {
-              const lastMsg = { ...msg }
-              const toolCalls = [...(lastMsg.toolCalls || [])]
-              const toolCall = { ...toolCalls[toolCallIndex] }
-              const prevUpdate = toolCall.agentUpdates?.[data.update.agentIndex]
-              toolCall.agentUpdates = {
-                ...(toolCall.agentUpdates || {}),
-                [data.update.agentIndex]: {
-                  ...prevUpdate,
-                  ...data.update
-                }
+      const { chatId } = data
+      if (chatId === currentChatIdRef.current) {
+        setTasks((prev) => {
+          const newTasks = [...prev]
+          const taskIndex = newTasks.findLastIndex(
+            (t) => t.name === data.toolCallName && (t.status === 'running' || t.status === 'done')
+          )
+          if (taskIndex !== -1) {
+            const task = { ...newTasks[taskIndex] }
+            const prevUpdate = task.agentUpdates?.[data.update.agentIndex]
+            task.agentUpdates = {
+              ...(task.agentUpdates || {}),
+              [data.update.agentIndex]: {
+                ...prevUpdate,
+                ...data.update
               }
-              toolCalls[toolCallIndex] = toolCall
-              lastMsg.toolCalls = toolCalls
-              newMessages[i] = lastMsg
-              return newMessages // Found and updated
+            }
+            newTasks[taskIndex] = task
+          }
+          return newTasks
+        })
+
+        setMessages((prev) => {
+          const newMessages = [...prev]
+          // Search all AI messages since updates might belong to historical tool calls
+          for (let i = newMessages.length - 1; i >= 0; i--) {
+            const msg = newMessages[i]
+            if (msg.role === 'ai' && msg.toolCalls) {
+              const toolCallIndex = msg.toolCalls.findLastIndex(
+                (t) =>
+                  t.name === data.toolCallName && (t.status === 'running' || t.status === 'done')
+              )
+              if (toolCallIndex !== -1) {
+                const lastMsg = { ...msg }
+                const toolCalls = [...(lastMsg.toolCalls || [])]
+                const toolCall = { ...toolCalls[toolCallIndex] }
+                const prevUpdate = toolCall.agentUpdates?.[data.update.agentIndex]
+                toolCall.agentUpdates = {
+                  ...(toolCall.agentUpdates || {}),
+                  [data.update.agentIndex]: {
+                    ...prevUpdate,
+                    ...data.update
+                  }
+                }
+                toolCalls[toolCallIndex] = toolCall
+                lastMsg.toolCalls = toolCalls
+                newMessages[i] = lastMsg
+                return newMessages // Found and updated
+              }
             }
           }
-        }
-        return newMessages
-      })
+          return newMessages
+        })
+      }
     })
 
     const removeSubagentMessageListener = window.api.onSubagentMessage((data) => {
-      setTasks((prev) => {
-        const newTasks = [...prev]
-        const taskIndex = newTasks.findLastIndex(
-          (t) => t.name === 'run_subagents' && (t.status === 'running' || t.status === 'done')
-        )
-        if (taskIndex !== -1) {
-          const task = { ...newTasks[taskIndex] }
-          task.subagentMessages = [...(task.subagentMessages || []), data]
-          newTasks[taskIndex] = task
-        }
-        return newTasks
-      })
+      const { chatId } = data
+      if (chatId === currentChatIdRef.current) {
+        setTasks((prev) => {
+          const newTasks = [...prev]
+          const taskIndex = newTasks.findLastIndex(
+            (t) => t.name === 'run_subagents' && (t.status === 'running' || t.status === 'done')
+          )
+          if (taskIndex !== -1) {
+            const task = { ...newTasks[taskIndex] }
+            task.subagentMessages = [...(task.subagentMessages || []), data]
+            newTasks[taskIndex] = task
+          }
+          return newTasks
+        })
 
-      setMessages((prev) => {
-        const newMessages = [...prev]
-        for (let i = newMessages.length - 1; i >= 0; i--) {
-          const msg = newMessages[i]
-          if (msg.role === 'ai' && msg.toolCalls) {
-            const toolCallIndex = msg.toolCalls.findLastIndex(
-              (t) => t.name === 'run_subagents' && (t.status === 'running' || t.status === 'done')
-            )
-            if (toolCallIndex !== -1) {
-              const lastMsg = { ...msg }
-              const toolCalls = [...(lastMsg.toolCalls || [])]
-              const toolCall = { ...toolCalls[toolCallIndex] }
-              toolCall.subagentMessages = [...(toolCall.subagentMessages || []), data]
-              toolCalls[toolCallIndex] = toolCall
-              lastMsg.toolCalls = toolCalls
-              newMessages[i] = lastMsg
-              return newMessages
+        setMessages((prev) => {
+          const newMessages = [...prev]
+          for (let i = newMessages.length - 1; i >= 0; i--) {
+            const msg = newMessages[i]
+            if (msg.role === 'ai' && msg.toolCalls) {
+              const toolCallIndex = msg.toolCalls.findLastIndex(
+                (t) => t.name === 'run_subagents' && (t.status === 'running' || t.status === 'done')
+              )
+              if (toolCallIndex !== -1) {
+                const lastMsg = { ...msg }
+                const toolCalls = [...(lastMsg.toolCalls || [])]
+                const toolCall = { ...toolCalls[toolCallIndex] }
+                toolCall.subagentMessages = [...(toolCall.subagentMessages || []), data]
+                toolCalls[toolCallIndex] = toolCall
+                lastMsg.toolCalls = toolCalls
+                newMessages[i] = lastMsg
+                return newMessages
+              }
             }
           }
-        }
-        return newMessages
-      })
+          return newMessages
+        })
+      }
     })
 
     return () => {
@@ -707,16 +891,8 @@ function App(): React.JSX.Element {
     if (msg.isConnecting) {
       return (
         <div className="flex items-center gap-2 text-text-secondary/70 font-mono text-[13px] py-2">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full rounded-full bg-accent-primary/40 animate-ping"></span>
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-accent-primary"></span>
-          </span>
+          <Spinner size="sm" />
           <span>Connecting...</span>
-          <span className="flex items-center gap-1">
-            <span className="thinking-dot h-1.5 w-1.5 rounded-full bg-accent-primary [animation-delay:-0.22s]" />
-            <span className="thinking-dot h-1.5 w-1.5 rounded-full bg-accent-secondary [animation-delay:-0.11s]" />
-            <span className="thinking-dot h-1.5 w-1.5 rounded-full bg-white/70" />
-          </span>
         </div>
       )
     }
@@ -725,8 +901,10 @@ function App(): React.JSX.Element {
       return null
     }
 
-    // Split content by tool calls
-    const parts = msg.content.split(/(<tool_call>[\s\S]*?(?:<\/tool_call>|$))/gi)
+    // Split content by tool calls and mini apps
+    const parts = msg.content.split(
+      /(<tool_call>[\s\S]*?(?:<\/tool_call>|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
+    )
     let toolCallIndex = 0
 
     return (
@@ -746,17 +924,40 @@ function App(): React.JSX.Element {
                   return <ActionLoader key={`tc-${index}`} toolCall={tc} />
                 }
               }
-              // If it's an open tool call being streamed, we might show the writing indicator here or at the end
+              return null
+            } else if (part.startsWith('<mini_app>')) {
+              if (part.includes('</mini_app>')) {
+                const titleMatch = part.match(/<title>([\s\S]*?)<\/title>/i)
+                const htmlMatch = part.match(/<html>([\s\S]*?)<\/html>/i)
+                const cssMatch = part.match(/<css>([\s\S]*?)<\/css>/i)
+                const jsMatch = part.match(/<js>([\s\S]*?)<\/js>/i)
+
+                // Use a simple hash of the content as part of the ID to keep it stable
+                const contentHash = part.length.toString(36)
+                const miniAppId = `mini-app-${index}-${contentHash}`
+
+                return (
+                  <div key={miniAppId} className="w-full my-4 px-0">
+                    <MiniAppRenderer
+                      id={miniAppId}
+                      title={titleMatch ? titleMatch[1].trim() : 'Mini App'}
+                      html={htmlMatch ? htmlMatch[1].trim() : ''}
+                      css={cssMatch ? cssMatch[1].trim() : ''}
+                      js={jsMatch ? jsMatch[1].trim() : ''}
+                    />
+                  </div>
+                )
+              }
               return null
             } else if (part.trim() !== '') {
               return (
                 <div
                   key={`text-${index}`}
-                  className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[13px] prose-p:font-light prose-p:text-[16px] lg:prose-p:text-[19px] xl:prose-p:text-[20px]"
+                  className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
                 >
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkMath]}
-                    rehypePlugins={[rehypeRaw, rehypeKatex]}
+                    remarkPlugins={[remarkGfm, remarkMath, disableIndentedCode]}
+                    rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
                     components={MarkdownComponents}
                   >
                     {part}
@@ -793,6 +994,35 @@ function App(): React.JSX.Element {
   const isKeyMissing =
     !config?.userGeminiKey && (config?.envGeminiKey === 'none' || !config?.envGeminiKey)
 
+  if (window.location.hash === '#mini-app') {
+    return (
+      <div className="h-screen w-screen bg-[#0b0c0f] flex flex-col overflow-hidden">
+        <TitleBar
+          onClose={() => miniAppData && window.api.closeMiniAppWindow(miniAppData.id)}
+          onMinimize={() => miniAppData && window.api.minimizeMiniAppWindow(miniAppData.id)}
+        />
+        <div className="flex-1 relative">
+          {miniAppData ? (
+            <div className="h-full w-full p-0">
+              <MiniAppRenderer
+                id={miniAppData.id}
+                title={miniAppData.title}
+                html={miniAppData.html}
+                css={miniAppData.css}
+                js={miniAppData.js}
+              />
+            </div>
+          ) : (
+            <div className="h-full w-full flex flex-col items-center justify-center gap-4 text-text-secondary font-mono">
+              <Spinner size="lg" />
+              <span>Loading Mini App...</span>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   if (route === '#launcher') {
     return <QuickLauncher />
   }
@@ -828,221 +1058,45 @@ function App(): React.JSX.Element {
         onNewChat={handleNewChat}
         currentChatId={currentChatId}
         runningTasksCount={tasks.filter((t) => t.status === 'running').length}
+        runningChats={runningChats}
+        className="hidden md:flex shrink-0"
+      />
+
+      {/* Mobile Drawer Backdrop */}
+      {isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden animate-fade-in"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Mobile Drawer Sidebar */}
+      <Sidebar
+        activeView={activeView}
+        onViewChange={(view) => {
+          setActiveView(view)
+          setIsMobileMenuOpen(false)
+        }}
+        onLoadChat={(id) => {
+          handleLoadChat(id)
+          setIsMobileMenuOpen(false)
+        }}
+        onNewChat={(force) => {
+          handleNewChat(force)
+          setIsMobileMenuOpen(false)
+        }}
+        currentChatId={currentChatId}
+        runningTasksCount={tasks.filter((t) => t.status === 'running').length}
+        runningChats={runningChats}
+        className={clsx(
+          'fixed inset-y-0 left-0 z-50 flex border-r border-white/[0.08] bg-background-main/95 transition-transform duration-300 md:hidden w-[278px]',
+          isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+        )}
       />
 
       <main className="flex-1 flex flex-col relative z-10 min-w-0 h-full">
-        {/* Model Selector Bar */}
-        <div className="sticky top-0 z-30 flex w-full items-center justify-between border-b border-white/[0.055] bg-background-main/[0.72] px-6 py-3 backdrop-blur-2xl">
-          <div className="flex-1">
-            {activeView === 'tasks' && (
-              <span className="ml-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-semibold text-accent-primary">
-                Monitoring
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <ModelSelector
-              ref={modelSelectorRef}
-              selectedModel={selectedModel}
-              onModelChange={handleModelChange}
-              disabled={isProcessing}
-            />
-          </div>
-
-          <div className="flex-1 flex justify-end">
-            {/* Clear button removed - session management is now in Sidebar */}
-          </div>
-        </div>
-
-        <div
-          ref={scrollContainerRef}
-          onScroll={handleScroll}
-          className="flex-1 overflow-y-auto flex flex-col"
-        >
-          {activeView === 'chat' ? (
-            <div className="flex-1 flex flex-col py-8">
-              {isKeyMissing && <MissingKeyBanner onAddKey={() => setIsApiKeyModalOpen(true)} />}
-              {messages.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center px-4 relative select-none">
-                  {/* Radial glow similar to the image */}
-                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                    <div className="h-[380px] w-[580px] rounded-full bg-[radial-gradient(circle,rgba(30,58,138,0.12)_0%,rgba(49,46,129,0.18)_50%,transparent_100%)] blur-[90px] opacity-80" />
-                  </div>
-
-                  <div className="relative z-10 flex flex-col items-center w-full max-w-2xl text-center gap-7">
-                    <h1 className="text-[28px] sm:text-[36px] font-light tracking-tight text-white/90 select-none leading-tight">
-                      {getGreeting()}
-                    </h1>
-
-                    <div className="w-full">
-                      <InputBar
-                        ref={inputBarRef}
-                        onSend={handleSend}
-                        onCancel={handleCancel}
-                        isProcessing={isProcessing}
-                        isKeyMissing={isKeyMissing}
-                        isThinkMode={isThinkMode}
-                        onThinkModeToggle={setIsThinkMode}
-                        onOpenSubagentSettings={handleOpenSubagentSettings}
-                        disabled={isProcessing || isKeyMissing}
-                        selectedModel={selectedModel}
-                      />
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="w-full flex flex-col">
-                  {messages.map((msg, i) => {
-                    return (
-                      <div key={i} className="flex flex-col w-full transition-all duration-700">
-                        <div
-                          className={clsx(
-                            'w-full px-6 sm:px-12 py-8 flex flex-col transition-all duration-700 animate-message',
-                            msg.role === 'user' ? 'items-end' : 'items-start'
-                          )}
-                        >
-                          {msg.role === 'ai' && (msg.isThinking || msg.thoughts) && (
-                            <div className="w-full max-w-5xl">
-                              <details
-                                className={clsx(
-                                  'group mb-4 w-full overflow-hidden rounded-[22px] border transition-all duration-300 bubble-glow',
-                                  msg.isThinking
-                                    ? 'border-accent-secondary/30 bg-accent-secondary/[0.045] backdrop-blur-xl'
-                                    : 'border-white/[0.08] bg-white/[0.035] backdrop-blur-xl'
-                                )}
-                              >
-                                <summary
-                                  className={clsx(
-                                    'flex cursor-pointer list-none items-center px-4 py-3 font-mono text-[11px] font-semibold transition-colors',
-                                    msg.isThinking
-                                      ? 'text-accent-secondary'
-                                      : 'text-text-secondary/75 hover:text-text-primary/90'
-                                  )}
-                                >
-                                  <span className="flex items-center gap-2">
-                                    <span className="relative flex h-2 w-2">
-                                      <span
-                                        className={clsx(
-                                          'absolute inline-flex h-full w-full rounded-full transition-opacity duration-500',
-                                          msg.isThinking
-                                            ? 'opacity-100 bg-accent-secondary/50 animate-ping'
-                                            : 'opacity-0 group-open:opacity-100 bg-accent-primary/40'
-                                        )}
-                                      ></span>
-                                      <span
-                                        className={clsx(
-                                          'relative inline-flex h-2 w-2 rounded-full transition-colors duration-300',
-                                          msg.isThinking
-                                            ? 'bg-accent-secondary'
-                                            : 'bg-text-secondary/50 group-open:bg-accent-primary/70'
-                                        )}
-                                      ></span>
-                                    </span>
-                                    {(() => {
-                                      // Extract bold outlines like "**Initiating Black Hole Analysis**"
-                                      // We look for all occurrences of **Text** and take the last one or the first one,
-                                      // depending on what's active. Let's extract all matches.
-                                      const outlineMatches = Array.from(
-                                        (msg.thoughts || '').matchAll(/\*\*(.*?)\*\*/g)
-                                      )
-                                      if (outlineMatches.length > 0) {
-                                        // Take the last match to show current thinking step
-                                        return outlineMatches[outlineMatches.length - 1][1]
-                                      }
-                                      return 'Thinking'
-                                    })()}
-                                    {msg.isThinking && (
-                                      <span className="flex items-center gap-1.5 text-text-secondary/60 ml-1">
-                                        Streaming
-                                        <span className="flex items-center gap-1 ml-1">
-                                          <span className="thinking-dot h-1 w-1 rounded-full bg-accent-primary [animation-delay:-0.22s]" />
-                                          <span className="thinking-dot h-1 w-1 rounded-full bg-accent-secondary [animation-delay:-0.11s]" />
-                                          <span className="thinking-dot h-1 w-1 rounded-full bg-white/70" />
-                                        </span>
-                                      </span>
-                                    )}
-                                  </span>
-                                </summary>
-                                <div
-                                  className={clsx(
-                                    'mx-3 mb-3 rounded-[16px] border px-4 py-3 font-mono text-[11.5px] leading-relaxed opacity-0 transition-all duration-500 group-open:opacity-100',
-                                    msg.isThinking
-                                      ? 'border-accent-secondary/20 bg-accent-secondary/[0.035] text-accent-secondary/80'
-                                      : 'border-white/[0.055] bg-black/10 text-text-secondary/80'
-                                  )}
-                                >
-                                  <ReactMarkdown
-                                    remarkPlugins={[remarkGfm, remarkMath]}
-                                    rehypePlugins={[rehypeRaw, rehypeKatex]}
-                                  >
-                                    {msg.thoughts || ''}
-                                  </ReactMarkdown>
-                                </div>
-                              </details>
-                            </div>
-                          )}
-
-                          <div
-                            className={clsx(
-                              'w-full',
-                              msg.role === 'user' ? 'flex flex-col items-end' : 'text-text-primary'
-                            )}
-                          >
-                            {msg.role === 'ai' ? (
-                              renderAiMessage(msg)
-                            ) : (
-                              <div className="premium-panel-soft max-w-[90%] whitespace-pre-wrap rounded-[24px] rounded-tr-[8px] px-5 py-3.5 text-[15px] font-medium text-text-primary sm:max-w-[80%] sm:text-[16px] lg:max-w-[70%]">
-                                {msg.content}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                  <div ref={messagesEndRef} className="h-4" />
-                </div>
-              )}
-            </div>
-          ) : activeView === 'tasks' ? (
-            <Tasks tasks={tasks} />
-          ) : activeView === 'settings' ? (
-            <SettingsView />
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-text-secondary">
-              View coming soon...
-            </div>
-          )}
-        </div>
-
-        {activeView === 'chat' && messages.length > 0 && (
-          <div className="shrink-0 bg-gradient-to-t from-background-main via-background-main/96 to-transparent pb-6 pt-2 relative">
-            {/* Scroll to bottom button */}
-            {showScrollButton && (
-              <div className="absolute left-0 right-0 -top-6 flex justify-center pointer-events-none z-20 animate-soft-pop">
-                <button
-                  onClick={() => {
-                    isAtBottomRef.current = true
-                    scrollToBottom('smooth')
-                    setShowScrollButton(false)
-                  }}
-                  className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-background-secondary/90 text-text-secondary shadow-lg backdrop-blur-md transition-all duration-200 hover:bg-white/[0.08] hover:text-text-primary active:scale-95"
-                  title="Scroll to bottom"
-                >
-                  <ArrowDown size={16} />
-                </button>
-              </div>
-            )}
-
-            {/* Shadow above input bar */}
-            <div
-              className={clsx(
-                'absolute inset-x-0 -top-8 h-8 pointer-events-none bg-gradient-to-t from-black/40 to-transparent transition-opacity duration-300 z-10',
-                showScrollButton ? 'opacity-100' : 'opacity-0'
-              )}
-            />
-
+        {activeView === 'chat' && isFullscreenInput ? (
+          <div className="flex-1 flex flex-col h-full bg-background-main">
             <InputBar
               ref={inputBarRef}
               onSend={handleSend}
@@ -1054,9 +1108,244 @@ function App(): React.JSX.Element {
               onOpenSubagentSettings={handleOpenSubagentSettings}
               disabled={isProcessing || isKeyMissing}
               selectedModel={selectedModel}
-              showModeBadge={false}
+              text={inputText}
+              setText={setInputText}
+              isSearchEnabled={isSearchEnabled}
+              setIsSearchEnabled={setIsSearchEnabled}
+              isExtendedSearch={isExtendedSearch}
+              setIsExtendedSearch={setIsExtendedSearch}
+              isFullscreen={true}
+              onFullscreenToggle={() => setIsFullscreenInput(false)}
             />
           </div>
+        ) : (
+          <>
+            {/* Model Selector Bar */}
+            <div className="sticky top-0 z-30 flex w-full items-center justify-between border-b border-white/[0.055] bg-background-main/[0.72] px-6 py-3 backdrop-blur-2xl">
+              <div className="flex-1 flex items-center gap-2">
+                <button
+                  onClick={() => setIsMobileMenuOpen(true)}
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.035] text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-all duration-200 md:hidden"
+                  title="Menu"
+                >
+                  <Menu size={16} />
+                </button>
+                {activeView === 'tasks' && (
+                  <span className="ml-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-semibold text-accent-primary">
+                    Monitoring
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <ModelSelector
+                  ref={modelSelectorRef}
+                  selectedModel={selectedModel}
+                  onModelChange={handleModelChange}
+                  disabled={isProcessing}
+                />
+              </div>
+
+              <div className="flex-1 flex justify-end">
+                {/* Clear button removed - session management is now in Sidebar */}
+              </div>
+            </div>
+
+            <div
+              ref={scrollContainerRef}
+              onScroll={handleScroll}
+              className="flex-1 overflow-y-auto flex flex-col"
+            >
+              {activeView === 'chat' ? (
+                <div className="flex-1 flex flex-col py-8">
+                  {isKeyMissing && <MissingKeyBanner onAddKey={() => setIsApiKeyModalOpen(true)} />}
+                  {messages.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center px-4 relative select-none">
+                      {/* Radial glow similar to the image */}
+                      <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                        <div className="h-[380px] w-[580px] rounded-full bg-[radial-gradient(circle,rgba(30,58,138,0.12)_0%,rgba(49,46,129,0.18)_50%,transparent_100%)] blur-[90px] opacity-80" />
+                      </div>
+
+                      <div className="relative z-10 flex flex-col items-center w-full max-w-4xl text-center gap-7">
+                        <h1 className="text-[28px] sm:text-[36px] font-light tracking-tight text-white/90 select-none leading-tight">
+                          {getGreeting()}
+                        </h1>
+
+                        <div className="w-full">
+                          <InputBar
+                            ref={inputBarRef}
+                            onSend={handleSend}
+                            onCancel={handleCancel}
+                            isProcessing={isProcessing}
+                            isKeyMissing={isKeyMissing}
+                            isThinkMode={isThinkMode}
+                            onThinkModeToggle={setIsThinkMode}
+                            onOpenSubagentSettings={handleOpenSubagentSettings}
+                            disabled={isProcessing || isKeyMissing}
+                            selectedModel={selectedModel}
+                            text={inputText}
+                            setText={setInputText}
+                            isSearchEnabled={isSearchEnabled}
+                            setIsSearchEnabled={setIsSearchEnabled}
+                            isExtendedSearch={isExtendedSearch}
+                            setIsExtendedSearch={setIsExtendedSearch}
+                            isFullscreen={false}
+                            onFullscreenToggle={() => setIsFullscreenInput(true)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="w-full flex flex-col max-w-4xl mx-auto">
+                      {messages.map((msg, i) => {
+                        return (
+                          <div key={i} className="flex flex-col w-full transition-all duration-700">
+                            <div
+                              className={clsx(
+                                'w-full px-6 sm:px-12 py-8 flex flex-col transition-all duration-700 animate-message',
+                                msg.role === 'user' ? 'items-end' : 'items-start'
+                              )}
+                            >
+                              {msg.role === 'ai' && (msg.isThinking || msg.thoughts) && (
+                                <div className="w-full">
+                                  <details
+                                    className={clsx(
+                                      'group mb-4 w-full overflow-hidden rounded-[22px] border transition-all duration-300 bubble-glow',
+                                      msg.isThinking
+                                        ? 'border-accent-secondary/30 bg-accent-secondary/[0.045] backdrop-blur-xl'
+                                        : 'border-white/[0.08] bg-white/[0.035] backdrop-blur-xl'
+                                    )}
+                                  >
+                                    <summary
+                                      className={clsx(
+                                        'flex cursor-pointer list-none items-center px-4 py-3 font-mono text-[11px] font-semibold transition-colors',
+                                        msg.isThinking
+                                          ? 'text-accent-secondary'
+                                          : 'text-text-secondary/75 hover:text-text-primary/90'
+                                      )}
+                                    >
+                                      <span className="flex items-center gap-2">
+                                        {msg.isThinking && <LoadingDots size="xs" />}
+                                        {(() => {
+                                          // Extract bold outlines like "**Initiating Black Hole Analysis**"
+                                          // We look for all occurrences of **Text** and take the last one or the first one,
+                                          // depending on what's active. Let's extract all matches.
+                                          const outlineMatches = Array.from(
+                                            (msg.thoughts || '').matchAll(/\*\*(.*?)\*\*/g)
+                                          )
+                                          if (outlineMatches.length > 0) {
+                                            // Take the last match to show current thinking step
+                                            return outlineMatches[outlineMatches.length - 1][1]
+                                          }
+                                          return 'Thinking'
+                                        })()}
+                                      </span>
+                                    </summary>
+                                    <div
+                                      className={clsx(
+                                        'mx-3 mb-3 rounded-[16px] border px-4 py-3 font-mono text-[11.5px] leading-relaxed opacity-0 transition-all duration-500 group-open:opacity-100',
+                                        msg.isThinking
+                                          ? 'border-accent-secondary/20 bg-accent-secondary/[0.035] text-accent-secondary/80'
+                                          : 'border-white/[0.055] bg-black/10 text-text-secondary/80'
+                                      )}
+                                    >
+                                      <ReactMarkdown
+                                        remarkPlugins={[remarkGfm, remarkMath, disableIndentedCode]}
+                                        rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
+                                      >
+                                        {msg.thoughts || ''}
+                                      </ReactMarkdown>
+                                    </div>
+                                  </details>
+                                </div>
+                              )}
+
+                              <div
+                                className={clsx(
+                                  'w-full',
+                                  msg.role === 'user'
+                                    ? 'flex flex-col items-end'
+                                    : 'text-text-primary'
+                                )}
+                              >
+                                {msg.role === 'ai' ? (
+                                  renderAiMessage(msg)
+                                ) : (
+                                  <div className="premium-panel-soft max-w-[90%] whitespace-pre-wrap rounded-[24px] rounded-tr-[8px] px-5 py-3.5 text-sm md:text-base font-medium text-text-primary sm:max-w-[80%] lg:max-w-[70%]">
+                                    {msg.content}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                      <div ref={messagesEndRef} className="h-4" />
+                    </div>
+                  )}
+                </div>
+              ) : activeView === 'tasks' ? (
+                <Tasks tasks={tasks} />
+              ) : activeView === 'settings' ? (
+                <SettingsView />
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-text-secondary">
+                  View coming soon...
+                </div>
+              )}
+            </div>
+
+            {activeView === 'chat' && messages.length > 0 && (
+              <div className="shrink-0 bg-gradient-to-t from-background-main via-background-main/96 to-transparent pb-6 pt-2 relative">
+                {/* Scroll to bottom button */}
+                {showScrollButton && (
+                  <div className="absolute left-0 right-0 -top-6 flex justify-center pointer-events-none z-20 animate-soft-pop">
+                    <button
+                      onClick={() => {
+                        isAtBottomRef.current = true
+                        scrollToBottom('smooth')
+                        setShowScrollButton(false)
+                      }}
+                      className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-background-secondary/90 text-text-secondary shadow-lg backdrop-blur-md transition-all duration-200 hover:bg-white/[0.08] hover:text-text-primary active:scale-95"
+                      title="Scroll to bottom"
+                    >
+                      <ArrowDown size={16} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Shadow above input bar */}
+                <div
+                  className={clsx(
+                    'absolute inset-x-0 -top-8 h-8 pointer-events-none bg-gradient-to-t from-black/40 to-transparent transition-opacity duration-300 z-10',
+                    showScrollButton ? 'opacity-100' : 'opacity-0'
+                  )}
+                />
+
+                <InputBar
+                  ref={inputBarRef}
+                  onSend={handleSend}
+                  onCancel={handleCancel}
+                  isProcessing={isProcessing}
+                  isKeyMissing={isKeyMissing}
+                  isThinkMode={isThinkMode}
+                  onThinkModeToggle={setIsThinkMode}
+                  onOpenSubagentSettings={handleOpenSubagentSettings}
+                  disabled={isProcessing || isKeyMissing}
+                  selectedModel={selectedModel}
+                  showModeBadge={false}
+                  text={inputText}
+                  setText={setInputText}
+                  isSearchEnabled={isSearchEnabled}
+                  setIsSearchEnabled={setIsSearchEnabled}
+                  isExtendedSearch={isExtendedSearch}
+                  setIsExtendedSearch={setIsExtendedSearch}
+                  isFullscreen={false}
+                  onFullscreenToggle={() => setIsFullscreenInput(true)}
+                />
+              </div>
+            )}
+          </>
         )}
       </main>
     </div>

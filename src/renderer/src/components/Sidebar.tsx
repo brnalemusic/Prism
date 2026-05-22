@@ -1,6 +1,8 @@
 import { MessageSquare, Settings, CheckSquare, Plus, Trash2, Clock } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
+import { LoadingDots } from './LoadingDots'
+import { Spinner } from './Spinner'
 
 interface ChatSession {
   id: string
@@ -15,6 +17,8 @@ interface SidebarProps {
   onNewChat: (force?: boolean) => void
   runningTasksCount?: number
   currentChatId?: string
+  runningChats?: Record<string, boolean>
+  className?: string
 }
 
 export function Sidebar({
@@ -23,7 +27,9 @@ export function Sidebar({
   onLoadChat,
   onNewChat,
   runningTasksCount = 0,
-  currentChatId
+  currentChatId,
+  runningChats = {},
+  className
 }: SidebarProps): React.JSX.Element {
   const [chats, setChats] = useState<ChatSession[]>([])
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
@@ -102,7 +108,12 @@ export function Sidebar({
   }
 
   return (
-    <aside className="relative z-20 hidden h-full w-[278px] flex-col border-r border-white/[0.055] bg-background-main/[0.62] backdrop-blur-2xl md:flex">
+    <aside
+      className={clsx(
+        'relative z-20 h-full w-[278px] flex-col border-r border-white/[0.055] bg-background-main/[0.62] backdrop-blur-2xl',
+        className
+      )}
+    >
       <div className="px-5 pb-4 pt-7">
         <div className="premium-panel-soft rounded-[28px] px-5 py-5">
           <div className="flex items-center gap-3">
@@ -167,16 +178,13 @@ export function Sidebar({
                 )}
                 title={chat.title}
               >
-                {chat.title ? (
-                  chat.title
-                ) : (
-                  <div className="flex h-full items-center gap-1.5 py-1">
-                    <span className="thinking-dot h-1 w-1 rounded-full bg-accent-primary/70 [animation-delay:-0.22s]" />
-                    <span className="thinking-dot h-1 w-1 rounded-full bg-accent-secondary/70 [animation-delay:-0.11s]" />
-                    <span className="thinking-dot h-1 w-1 rounded-full bg-white/60" />
-                  </div>
-                )}
+                {chat.title ? chat.title : <LoadingDots className="h-full py-1" size="xs" />}
               </button>
+              {runningChats[chat.id] && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none transition-opacity duration-300 group-hover:opacity-0">
+                  <Spinner size="xxs" />
+                </div>
+              )}
               <button
                 onClick={(e) => handleDelete(e, chat.id)}
                 disabled={isDeleting === chat.id}

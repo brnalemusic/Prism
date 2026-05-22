@@ -211,3 +211,5 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
     )
   }
 )
+
+ModelSelector.displayName = 'ModelSelector'

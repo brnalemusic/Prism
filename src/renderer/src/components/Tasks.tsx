@@ -22,7 +22,7 @@ interface TasksProps {
 
 export function Tasks({ tasks }: TasksProps): React.JSX.Element {
   return (
-    <div className="flex h-full w-full max-w-5xl flex-col mx-auto px-6 py-8">
+    <div className="flex h-full w-full max-w-4xl flex-col mx-auto px-6 py-8">
       <div className="mb-8">
         <h2 className="text-2xl font-semibold text-text-primary">System Tasks</h2>
         <p className="mt-1 text-sm text-text-secondary/70">

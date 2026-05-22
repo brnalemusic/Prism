@@ -1,48 +1,37 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type { StructuredChatResponse } from '../main/gemini'
 import type { AppConfig } from '../main/config'
-
-export interface ToolUpdate {
-  toolCallName: string
-  update: {
-    agentIndex: number
-    phase: 'thinking' | 'tool_use' | 'done' | 'error'
-    command?: string
-    output?: string
-  }
-}
-
-export interface ToolCall {
-  name: string
-  args: Record<string, unknown>
-  result?: string
-  status: 'writing' | 'running' | 'cooldown' | 'done' | 'error'
-  subagentMessages?: any[]
-  agentUpdates?: Record<
-    number,
-    {
-      phase: 'thinking' | 'tool_use' | 'done' | 'error'
-      command?: string
-      output?: string
-    }
-  >
-}
+import type { ChatSession } from '../main/history'
+import type { Content } from '@google/genai'
+import type { SubagentMessage, MiniAppData, ToolUpdate } from '../shared/types'
 
 export interface PrismAPI {
-  sendChatMessage: (data: { message: string; thinkMode?: boolean }) => void
+  sendChatMessage: (data: {
+    message: string
+    thinkMode?: boolean
+    chatId?: string
+    extendedSearch?: boolean
+  }) => void
   setModel: (modelKey: string) => void
   clearChat: () => void
-  cancelChat: () => void
-  onChatStart: (callback: () => void) => () => void
+  cancelChat: (chatId?: string) => void
+  onChatStart: (callback: (data: { chatId: string }) => void) => () => void
 
-  onChatChunk: (callback: (data: StructuredChatResponse) => void) => () => void
-  onChatEnd: (callback: (data: StructuredChatResponse) => void) => () => void
-  onChatError: (callback: (error: string) => void) => () => void
+  onChatChunk: (callback: (data: StructuredChatResponse & { chatId: string }) => void) => () => void
+  onChatEnd: (callback: (data: StructuredChatResponse & { chatId: string }) => void) => () => void
+  onChatError: (callback: (data: { error: string; chatId: string }) => void) => () => void
   onToolStart: (
-    callback: (data: { name: string; args: Record<string, unknown>; timestamp?: number }) => void
+    callback: (data: {
+      name: string
+      args: Record<string, unknown>
+      timestamp?: number
+      chatId: string
+    }) => void
   ) => () => void
-  onToolEnd: (callback: (data: { name: string; result: string }) => void) => () => void
-  onToolUpdate: (callback: (data: ToolUpdate) => void) => () => void
+  onToolEnd: (
+    callback: (data: { name: string; result: string; chatId: string }) => void
+  ) => () => void
+  onToolUpdate: (callback: (data: ToolUpdate & { chatId: string }) => void) => () => void
   onLauncherMessage: (
     callback: (data: { message: string; thinkMode?: boolean }) => void
   ) => () => void
@@ -51,22 +40,28 @@ export interface PrismAPI {
   onConfigChanged: (callback: (config: AppConfig) => void) => () => void
   onChatSessionCreated: (callback: (data: { id: string }) => void) => () => void
   onChatTitleReceived: (callback: (data: { id: string; title: string }) => void) => () => void
-  onSubagentMessage: (callback: (data: any) => void) => () => void
+  onSubagentMessage: (callback: (data: SubagentMessage) => void) => () => void
   submitLauncher: (data: { message: string; thinkMode?: boolean }) => void
   hideLauncher: () => void
   minimizeApp: () => void
   minimizeSubagentsWindow: () => void
-  openSubagentsWindow: (initialMessages?: any[]) => void
+  openSubagentsWindow: (initialMessages?: SubagentMessage[]) => void
   openSubagentSettingsWindow: () => void
-  broadcastSubagentMessage: (data: any) => void
+  broadcastSubagentMessage: (data: SubagentMessage) => void
   closeApp: () => void
   closeSubagentsWindow: () => void
   closeSubagentSettingsWindow: () => void
+  openMiniAppWindow: (data: MiniAppData) => void
+  closeMiniAppWindow: (id: string) => void
+  minimizeMiniAppWindow: (id: string) => void
+  onMiniAppData: (callback: (data: MiniAppData) => void) => () => void
+  onMiniAppWindowClosed: (callback: (id: string) => void) => () => void
   getConfig: () => Promise<AppConfig>
   saveConfig: (config: AppConfig) => Promise<boolean>
-  getChats: () => Promise<any[]>
-  loadChat: (id: string) => Promise<any[]>
+  getChats: () => Promise<Omit<ChatSession, 'messages'>[]>
+  loadChat: (id: string) => Promise<Content[]>
   deleteChat: (id: string) => Promise<boolean>
+  getRunningChats: () => Promise<string[]>
   removeLauncherListeners: () => void
   removeAllChatListeners: () => void
 }

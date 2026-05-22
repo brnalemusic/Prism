@@ -13,8 +13,18 @@ import { MODELS } from '../constants'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import clsx from 'clsx'
 
+interface Config {
+  launcherShortcut: string
+  modelSelectionShortcut: string
+  defaultModel: string
+  subagentModel: string
+  minimizeToTray: boolean
+  userGeminiKey: string
+  username?: string
+}
+
 export function SettingsView(): React.JSX.Element {
-  const [config, setConfig] = useState({
+  const [config, setConfig] = useState<Config>({
     launcherShortcut: 'CommandOrControl+Space',
     modelSelectionShortcut: 'CommandOrControl+M',
     defaultModel: 'prism-5',
@@ -225,8 +235,8 @@ export function SettingsView(): React.JSX.Element {
               <div className="relative group">
                 <input
                   type="password"
-                  value={(config as any).userGeminiKey || ''}
-                  onChange={(e) => setConfig({ ...config, userGeminiKey: e.target.value } as any)}
+                  value={config.userGeminiKey || ''}
+                  onChange={(e) => setConfig({ ...config, userGeminiKey: e.target.value })}
                   placeholder="If left blank, Prism will use the default key (if available)"
                   className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
                 />

@@ -18,12 +18,12 @@ export function ApiKeyModal({
 
   useEffect(() => {
     if (isOpen) {
-      setIsVisible(true)
+      const timer = setTimeout(() => setIsVisible(true), 0)
+      return () => clearTimeout(timer)
     } else {
       const timer = setTimeout(() => setIsVisible(false), 300)
       return () => clearTimeout(timer)
     }
-    return undefined
   }, [isOpen])
 
   if (!isVisible && !isOpen) return null

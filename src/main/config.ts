@@ -9,6 +9,7 @@ export interface AppConfig {
   subagentModel: string
   minimizeToTray: boolean
   userGeminiKey?: string
+  envGeminiKey?: string
   username?: string
 }
 
@@ -21,13 +22,7 @@ const DEFAULT_CONFIG: AppConfig = {
   userGeminiKey: ''
 }
 
-const VALID_MODEL_KEYS = new Set([
-  'prism-5',
-  'prism-4.3',
-  'prism-4.2',
-  'prism-4.1',
-  'prism-4'
-])
+const VALID_MODEL_KEYS = new Set(['prism-5', 'prism-4.3', 'prism-4.2', 'prism-4.1', 'prism-4'])
 
 function normalizeConfig(config: AppConfig): AppConfig {
   return {

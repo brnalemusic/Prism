@@ -1,11 +1,25 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Command, ChevronRight, Cpu, Search, Brain, CirclePlay, Check, Bot } from 'lucide-react'
 import { MODELS } from '../constants'
 import { isShortcutPressed } from '../utils'
-import youtubeLogo from '../assets/youtube.png'
 import clsx from 'clsx'
 
 type LauncherBadge = 'youtube' | 'search' | 'think'
+
+const COMMANDS = [
+  {
+    cmd: '/search',
+    desc: 'Force a web search'
+  },
+  {
+    cmd: '/youtube',
+    desc: 'Find and play a video'
+  },
+  {
+    cmd: '/subagents',
+    desc: 'Change the subagent model'
+  }
+]
 
 export function QuickLauncher(): React.JSX.Element {
   const [query, setQuery] = useState('')
@@ -16,7 +30,22 @@ export function QuickLauncher(): React.JSX.Element {
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [activeModelId, setActiveModelId] = useState('prism-5')
   const [shortcut, setShortcut] = useState('CommandOrControl+M')
+  const [isFocused, setIsFocused] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleCommandAction = (cmd: string): void => {
+    if (cmd === '/search') {
+      setQuery('/search ')
+      inputRef.current?.focus()
+    } else if (cmd === '/youtube') {
+      setQuery('/youtube ')
+      inputRef.current?.focus()
+    } else if (cmd === '/subagents') {
+      window.api.openSubagentSettingsWindow()
+      window.api.hideLauncher()
+      setQuery('')
+    }
+  }
 
   const isYoutubeMode = query.startsWith('/youtube')
   const activeMode = isYoutubeMode
@@ -34,43 +63,15 @@ export function QuickLauncher(): React.JSX.Element {
   const isSearchAndThinkMode = isSearchEnabled && isThinkMode
   const activeModel = MODELS.find((m) => m.id === activeModelId) || MODELS[0]
 
-  const commands = [
-    {
-      cmd: '/search',
-      desc: 'Force a web search',
-      action: () => {
-        setQuery('/search ')
-        inputRef.current?.focus()
-      }
-    },
-    {
-      cmd: '/youtube',
-      desc: 'Find and play a YouTube result',
-      action: () => {
-        setQuery('/youtube ')
-        inputRef.current?.focus()
-      }
-    },
-    {
-      cmd: '/subagents',
-      desc: 'Change the subagent model',
-      action: () => {
-        window.api.openSubagentSettingsWindow()
-        window.api.hideLauncher()
-        setQuery('')
-      }
-    }
-  ]
-
-  const filteredCommands = query.startsWith('/')
-    ? commands.filter((c) => c.cmd.toLowerCase().startsWith(query.toLowerCase().split(' ')[0]))
-    : []
+  const filteredCommands = useMemo(
+    () =>
+      query.startsWith('/')
+        ? COMMANDS.filter((c) => c.cmd.toLowerCase().startsWith(query.toLowerCase().split(' ')[0]))
+        : [],
+    [query]
+  )
 
   const showSlashMenu = query.startsWith('/') && filteredCommands.length > 0 && !query.includes(' ')
-
-  useEffect(() => {
-    if (showSlashMenu) setSlashSelectedIndex(0)
-  }, [showSlashMenu, query])
 
   useEffect(() => {
     window.api.getConfig().then((config) => {
@@ -158,7 +159,7 @@ export function QuickLauncher(): React.JSX.Element {
           )
         } else if (e.key === 'Enter') {
           e.preventDefault()
-          filteredCommands[slashSelectedIndex].action()
+          handleCommandAction(filteredCommands[slashSelectedIndex].cmd)
         } else if (e.key === 'Escape') {
           e.preventDefault()
           setQuery('')
@@ -233,7 +234,7 @@ export function QuickLauncher(): React.JSX.Element {
   }
 
   const modeClasses = {
-    youtube: 'border-red-400/30 bg-red-500/[0.055] text-red-300',
+    youtube: 'border-accent-primary/30 bg-accent-primary/[0.055] text-accent-primary',
     search: isSearchAndThinkMode
       ? 'border-[#8ee8b0]/25 bg-[linear-gradient(110deg,rgba(45,212,191,0.06),rgba(245,158,11,0.065))] text-[#d9c77a]'
       : 'border-accent-secondary/30 bg-accent-secondary/[0.055] text-accent-secondary',
@@ -247,12 +248,6 @@ export function QuickLauncher(): React.JSX.Element {
       onClick={() => window.api.hideLauncher()}
     >
       <div className="relative w-full max-w-[720px]" onClick={(e) => e.stopPropagation()}>
-        {isYoutubeMode && (
-          <div className="pointer-events-none absolute left-1/2 top-full z-0 mt-5 h-36 w-36 -translate-x-1/2 opacity-[0.08] animate-fade-in">
-            <img src={youtubeLogo} alt="YouTube" className="h-full w-full object-contain" />
-          </div>
-        )}
-
         <div
           className={clsx(
             'absolute -top-12 left-1/2 z-40 flex -translate-x-1/2 items-center justify-center gap-2 transition-all duration-200',
@@ -269,7 +264,7 @@ export function QuickLauncher(): React.JSX.Element {
                 isSearchAndThinkMode && badge !== 'youtube'
                   ? 'border-transparent bg-gradient-to-r from-accent-secondary/[0.14] via-[#b8d56e]/[0.12] to-status-warning/[0.15] text-[#d9c77a] shadow-[0_0_22px_rgba(245,158,11,0.09)]'
                   : badge === 'youtube'
-                    ? 'border-red-400/20 bg-red-500/[0.08] text-red-300'
+                    ? 'border-accent-primary/20 bg-accent-primary/[0.08] text-accent-primary'
                     : badge === 'search'
                       ? 'border-accent-secondary/20 bg-accent-secondary/[0.08] text-accent-secondary'
                       : 'border-status-warning/20 bg-status-warning/[0.08] text-status-warning'
@@ -283,7 +278,7 @@ export function QuickLauncher(): React.JSX.Element {
                 <Brain size={13} />
               )}
               {badge === 'youtube'
-                ? 'YouTube command active'
+                ? 'Video search active'
                 : badge === 'search'
                   ? 'Search enabled'
                   : 'Thinking enabled'}
@@ -356,9 +351,9 @@ export function QuickLauncher(): React.JSX.Element {
 
         <div
           className={clsx(
-            'premium-panel relative flex w-full items-center gap-4 overflow-hidden rounded-[30px] border px-4 py-4 transition-all duration-300',
+            'premium-panel relative flex w-full items-center gap-4 overflow-hidden rounded-[30px] border px-4 py-4 transition-all duration-300 input-border-glow',
             modeClasses,
-            isModelSelectorOpen && 'prism-glow'
+            (isModelSelectorOpen || isFocused) && 'prism-glow active'
           )}
         >
           {activeMode !== 'default' && (
@@ -412,12 +407,20 @@ export function QuickLauncher(): React.JSX.Element {
               type="text"
               autoFocus
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value
+                setQuery(val)
+                if (val.startsWith('/')) {
+                  setSlashSelectedIndex(0)
+                }
+              }}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
               placeholder={
                 isModelSelectorOpen
                   ? 'Select a Prism model'
                   : isYoutubeMode
-                    ? 'Search YouTube'
+                    ? 'Search and play videos'
                     : isSearchEnabled
                       ? 'Search the web'
                       : isThinkMode
@@ -427,14 +430,14 @@ export function QuickLauncher(): React.JSX.Element {
               className={clsx(
                 'w-full border-none bg-transparent text-[22px] font-medium outline-none transition-colors duration-200 placeholder:text-text-muted',
                 activeMode === 'youtube'
-                  ? 'text-red-200 placeholder:text-red-300/40'
+                  ? 'text-accent-primary placeholder:text-accent-primary/40'
                   : isSearchAndThinkMode
                     ? 'text-[#d9c77a] placeholder:text-[#d9c77a]/45'
                     : activeMode === 'search'
-                    ? 'text-accent-secondary placeholder:text-accent-secondary/40'
-                    : activeMode === 'think'
-                      ? 'text-status-warning placeholder:text-status-warning/40'
-                      : 'text-text-primary'
+                      ? 'text-accent-secondary placeholder:text-accent-secondary/40'
+                      : activeMode === 'think'
+                        ? 'text-status-warning placeholder:text-status-warning/40'
+                        : 'text-text-primary'
               )}
             />
           </form>
@@ -470,7 +473,7 @@ export function QuickLauncher(): React.JSX.Element {
               {filteredCommands.map((c, i) => (
                 <button
                   key={c.cmd}
-                  onClick={() => c.action()}
+                  onClick={() => handleCommandAction(c.cmd)}
                   onMouseEnter={() => setSlashSelectedIndex(i)}
                   className={clsx(
                     'flex w-full items-center gap-3 px-4 py-3 text-sm transition-colors',
@@ -483,10 +486,10 @@ export function QuickLauncher(): React.JSX.Element {
                     className={clsx(
                       'flex h-8 w-8 items-center justify-center rounded-2xl',
                       c.cmd === '/youtube'
-                        ? 'bg-red-500/[0.12] text-red-300'
+                        ? 'bg-accent-primary/[0.12] text-accent-primary'
                         : c.cmd === '/subagents'
                           ? 'bg-accent-primary/[0.12] text-accent-primary'
-                        : 'bg-accent-secondary/[0.12] text-accent-secondary'
+                          : 'bg-accent-secondary/[0.12] text-accent-secondary'
                     )}
                   >
                     {c.cmd === '/youtube' ? (
