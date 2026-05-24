@@ -7,7 +7,8 @@ import {
   ExternalLink,
   List,
   Globe,
-  HardDrive
+  HardDrive,
+  Settings
 } from 'lucide-react'
 import { ToolCall } from './ActionLoader'
 
@@ -64,6 +65,7 @@ export function Tasks({ tasks }: TasksProps): React.JSX.Element {
                       {task.name === 'list_installed_applications' && <List size={18} />}
                       {task.name === 'web_search' && <Globe size={18} />}
                       {task.name.startsWith('computer_use_') && <HardDrive size={18} />}
+                      {task.name === 'configure_prism' && <Settings size={18} />}
                     </div>
 
                     <div>

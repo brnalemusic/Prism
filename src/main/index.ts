@@ -21,8 +21,11 @@ import {
   setUserApiKey,
   cancelChatMessage,
   loadChatIntoHistory,
-  activeRuns
+  activeRuns,
+  handleLauncherChatMessage,
+  clearLauncherChat
 } from './gemini'
+import { searchWorkspaceFiles, listApplications, openApplication } from './systemTools'
 import { loadConfig, saveConfig, AppConfig } from './config'
 import { listChatSessions, deleteChatSession } from './history'
 import { SubagentMessage } from '../shared/types'
@@ -36,6 +39,7 @@ let subagentsWindow: BrowserWindow | null = null
 let subagentSettingsWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
+let cachedApps: any[] = []
 
 const miniAppWindows = new Map<string, BrowserWindow>()
 
@@ -317,6 +321,9 @@ app.whenReady().then(() => {
 
   // Load config after app is ready
   currentConfig = loadConfig()
+  
+  // Enforce auto-launch state based on loaded configuration
+  app.setLoginItemSettings({ openAtLogin: currentConfig.autoLaunch })
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -328,6 +335,18 @@ app.whenReady().then(() => {
     setGeminiModel(modelKey)
     mainWindow?.webContents.send('model-changed', modelKey)
     launcherWindow?.webContents.send('model-changed', modelKey)
+  })
+  ipcMain.on('set-think-mode', (_event, val) => {
+    mainWindow?.webContents.send('think-mode-changed', val)
+    launcherWindow?.webContents.send('think-mode-changed', val)
+  })
+  ipcMain.on('set-search-enabled', (_event, val) => {
+    mainWindow?.webContents.send('search-enabled-changed', val)
+    launcherWindow?.webContents.send('search-enabled-changed', val)
+  })
+  ipcMain.on('set-extended-search', (_event, val) => {
+    mainWindow?.webContents.send('extended-search-changed', val)
+    launcherWindow?.webContents.send('extended-search-changed', val)
   })
   ipcMain.on('clear-chat', () => initGemini())
   ipcMain.on('chat-cancel', (_event, chatId?: string) => cancelChatMessage(chatId))
@@ -347,6 +366,35 @@ app.whenReady().then(() => {
 
   ipcMain.handle('get-running-chats', () => {
     return Array.from(activeRuns.keys())
+  })
+
+  ipcMain.handle('launcher-get-apps', () => {
+    return cachedApps
+  })
+
+  ipcMain.handle('launcher-search-files', async (_event, query) => {
+    return await searchWorkspaceFiles(query)
+  })
+
+  ipcMain.handle('launcher-open-app', async (_event, appPath) => {
+    return await openApplication(appPath)
+  })
+
+  ipcMain.handle('launcher-open-file', async (_event, filePath) => {
+    try {
+      const err = await shell.openPath(filePath)
+      return err ? `Error: ${err}` : 'Success'
+    } catch (e) {
+      return `Error: ${e instanceof Error ? e.message : String(e)}`
+    }
+  })
+
+  ipcMain.on('launcher-chat-message', (event, data) => {
+    handleLauncherChatMessage(event, data)
+  })
+
+  ipcMain.on('launcher-chat-clear', () => {
+    clearLauncherChat()
   })
 
   ipcMain.on('launcher-submit', (_event, data) => {
@@ -449,6 +497,16 @@ app.whenReady().then(() => {
     return success
   })
 
+  ipcMain.on('update-config-from-tools', (_event, config: AppConfig) => {
+    currentConfig = config
+    registerLauncherShortcut(config.launcherShortcut)
+    app.setLoginItemSettings({ openAtLogin: config.autoLaunch })
+    // Notify both windows
+    mainWindow?.webContents.send('config-changed', config)
+    launcherWindow?.webContents.send('config-changed', config)
+    subagentSettingsWindow?.webContents.send('config-changed', config)
+  })
+
   registerLauncherShortcut(currentConfig.launcherShortcut)
   setGeminiModel(currentConfig.defaultModel)
   setSubagentModel(currentConfig.subagentModel)
@@ -456,6 +514,16 @@ app.whenReady().then(() => {
   if (currentConfig.userGeminiKey) {
     setUserApiKey(currentConfig.userGeminiKey)
   }
+
+  listApplications().then((res) => {
+    try {
+      cachedApps = JSON.parse(res)
+    } catch (e) {
+      console.error('Failed to parse applications list:', e)
+    }
+  }).catch((e) => {
+    console.error('Failed to cache applications:', e)
+  })
 
   initGemini()
   createWindow()

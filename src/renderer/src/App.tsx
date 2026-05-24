@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -247,8 +247,20 @@ function App(): React.JSX.Element {
     return `Olá, ${formattedName}. Em que podemos trabalhar?`
   }
 
+  const handleThinkModeToggle = useCallback((val: boolean) => {
+    window.api.setThinkMode(val)
+  }, [])
+
+  const handleSearchEnabledToggle = useCallback((val: boolean) => {
+    window.api.setSearchEnabled(val)
+  }, [])
+
+  const handleExtendedSearchToggle = useCallback((val: boolean) => {
+    window.api.setExtendedSearch(val)
+  }, [])
+
   const handleSend = useCallback(
-    (text: string, thinkMode?: boolean): void => {
+    (text: string, thinkMode?: boolean, searchEnabled?: boolean, extendedSearch?: boolean): void => {
       if (isProcessing) return
 
       setIsProcessing(true)
@@ -256,7 +268,16 @@ function App(): React.JSX.Element {
 
       // If thinkMode is provided (e.g. from Launcher), update App state
       if (thinkMode !== undefined) {
+        window.api.setThinkMode(thinkMode)
         setIsThinkMode(thinkMode)
+      }
+      if (searchEnabled !== undefined) {
+        window.api.setSearchEnabled(searchEnabled)
+        setIsSearchEnabled(searchEnabled)
+      }
+      if (extendedSearch !== undefined) {
+        window.api.setExtendedSearch(extendedSearch)
+        setIsExtendedSearch(extendedSearch)
       }
 
       // Generate a unique chatId if not set
@@ -274,46 +295,24 @@ function App(): React.JSX.Element {
       const displayContent = text.replace(/^\[FORCE_SEARCH\]\s*/i, '')
       setMessages((prev) => [...prev, { role: 'user', content: displayContent }])
 
+      // If search is enabled, ensure [FORCE_SEARCH] is prefixed for API
+      let apiMessage = text
+      const targetSearchEnabled = searchEnabled ?? isSearchEnabled
+      if (targetSearchEnabled && !apiMessage.startsWith('[FORCE_SEARCH]')) {
+        apiMessage = `[FORCE_SEARCH] ${apiMessage}`
+      }
+
       // Para a API, enviamos o texto original, thinkMode e o extendedSearch
       window.api.sendChatMessage({
-        message: text,
+        message: apiMessage,
         thinkMode: thinkMode ?? isThinkMode,
-        extendedSearch: isExtendedSearch,
+        extendedSearch: extendedSearch ?? isExtendedSearch,
         chatId
       })
     },
-    [isProcessing, isThinkMode, isExtendedSearch, currentChatId]
+    [isProcessing, isThinkMode, isSearchEnabled, isExtendedSearch, currentChatId]
   )
 
-  useEffect(() => {
-    // Listen for launcher messages
-    const removeLauncherListener = window.api.onLauncherMessage((data) => {
-      setActiveView('chat')
-      // Se a mensagem do launcher vier com a tag, o handleSend cuidará de ocultar na UI
-      handleSend(data.message, data.thinkMode)
-      // Ensure focus after message is sent
-      setTimeout(() => {
-        inputBarRef.current?.focus()
-      }, 100)
-    })
-
-    const removeModelListener = window.api.onModelChanged((modelKey) => {
-      setSelectedModel(modelKey)
-    })
-
-    const removeConfigListener = window.api.onConfigChanged((cfg) => {
-      setConfig(cfg)
-      if (cfg.defaultModel) {
-        setSelectedModel(cfg.defaultModel)
-      }
-    })
-
-    return () => {
-      removeLauncherListener()
-      removeModelListener()
-      removeConfigListener()
-    }
-  }, [handleSend])
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth'): void => {
     if (scrollContainerRef.current) {
@@ -337,24 +336,24 @@ function App(): React.JSX.Element {
     setShowScrollButton(!atBottom && scrollHeight > clientHeight)
   }
 
-  const handleModelChange = (newModel: string): void => {
+  const handleModelChange = useCallback((newModel: string): void => {
     setSelectedModel(newModel)
     window.api.setModel(newModel)
-  }
+  }, [])
 
-  const handleOpenSubagentSettings = (): void => {
+  const handleOpenSubagentSettings = useCallback((): void => {
     window.api.openSubagentSettingsWindow()
-  }
+  }, [])
 
-  const handleCancel = (): void => {
+  const handleCancel = useCallback((): void => {
     if (currentChatId) {
       window.api.cancelChat(currentChatId)
     } else {
       window.api.cancelChat()
     }
-  }
+  }, [currentChatId])
 
-  const handleLoadChat = async (id: string): Promise<void> => {
+  const handleLoadChat = useCallback(async (id: string): Promise<void> => {
     if (id === currentChatId) return
     const history = await window.api.loadChat(id)
     if (history) {
@@ -502,9 +501,9 @@ function App(): React.JSX.Element {
       setCurrentChatId(id)
       currentChatIdRef.current = id
     }
-  }
+  }, [currentChatId, runningChats])
 
-  const handleNewChat = (force = false): void => {
+  const handleNewChat = useCallback((force = false): void => {
     if (force && currentChatId) {
       window.api.cancelChat(currentChatId)
     }
@@ -518,7 +517,79 @@ function App(): React.JSX.Element {
     setInputText('')
     setIsFullscreenInput(false)
     window.api.clearChat()
-  }
+  }, [currentChatId])
+
+  useEffect(() => {
+    // Listen for launcher messages
+    const removeLauncherListener = window.api.onLauncherMessage((data) => {
+      setActiveView('chat')
+      // Se a mensagem do launcher vier com a tag, o handleSend cuidará de ocultar na UI
+      handleSend(data.message, data.thinkMode)
+      // Ensure focus after message is sent
+      setTimeout(() => {
+        inputBarRef.current?.focus()
+      }, 100)
+    })
+
+    const removeModelListener = window.api.onModelChanged((modelKey) => {
+      setSelectedModel(modelKey)
+    })
+
+    const removeConfigListener = window.api.onConfigChanged((cfg) => {
+      setConfig(cfg)
+      if (cfg.defaultModel) {
+        setSelectedModel(cfg.defaultModel)
+      }
+    })
+
+    const removeThinkModeListener = window.api.onThinkModeChanged((val) => {
+      setIsThinkMode(val)
+    })
+
+    const removeSearchEnabledListener = window.api.onSearchEnabledChanged((val) => {
+      setIsSearchEnabled(val)
+    })
+
+    const removeExtendedSearchListener = window.api.onExtendedSearchChanged((val) => {
+      setIsExtendedSearch(val)
+    })
+
+    const removeOpenMainAppListener = window.api.onOpenMainAppWithInstructions((data) => {
+      setActiveView('chat')
+      handleModelChange(data.model)
+      handleNewChat(true)
+
+      if (data.thinkMode !== undefined) {
+        window.api.setThinkMode(data.thinkMode)
+        setIsThinkMode(data.thinkMode)
+      }
+      if (data.searchEnabled !== undefined) {
+        window.api.setSearchEnabled(data.searchEnabled)
+        setIsSearchEnabled(data.searchEnabled)
+      }
+      if (data.extendedSearch !== undefined) {
+        window.api.setExtendedSearch(data.extendedSearch)
+        setIsExtendedSearch(data.extendedSearch)
+      }
+
+      setTimeout(() => {
+        handleSend(data.instructions, data.thinkMode, data.searchEnabled, data.extendedSearch)
+        setTimeout(() => {
+          inputBarRef.current?.focus()
+        }, 100)
+      }, 50)
+    })
+
+    return () => {
+      removeLauncherListener()
+      removeModelListener()
+      removeConfigListener()
+      removeThinkModeListener()
+      removeSearchEnabledListener()
+      removeExtendedSearchListener()
+      removeOpenMainAppListener()
+    }
+  }, [handleSend, handleModelChange, handleNewChat])
 
   const handleSaveApiKey = async (key: string): Promise<void> => {
     if (config) {
@@ -873,7 +944,7 @@ function App(): React.JSX.Element {
     }
   }, [])
 
-  const renderAiMessage = (msg: Message): React.JSX.Element | null => {
+  const renderAiMessage = useCallback((msg: Message): React.JSX.Element | null => {
     if (msg.isError) {
       const isRateLimit = msg.content.includes('429')
 
@@ -989,7 +1060,152 @@ function App(): React.JSX.Element {
         </div>
       </div>
     )
-  }
+  }, [])
+
+  const renderedMessages = useMemo(() => {
+    if (messages.length === 0) return null
+    return (
+      <div className="w-full flex flex-col max-w-4xl mx-auto">
+        {messages.map((msg, i) => {
+          return (
+            <div key={i} className="flex flex-col w-full transition-all duration-700">
+              <div
+                className={clsx(
+                  'w-full px-6 sm:px-12 py-8 flex flex-col transition-all duration-700 animate-message',
+                  msg.role === 'user' ? 'items-end' : 'items-start'
+                )}
+              >
+                {msg.role === 'ai' && (msg.isThinking || msg.thoughts) && (
+                  <div className="w-full">
+                    <details
+                      className={clsx(
+                        'group mb-4 w-full overflow-hidden rounded-[22px] border transition-all duration-300 bubble-glow',
+                        msg.isThinking
+                          ? 'border-accent-secondary/30 bg-accent-secondary/[0.045] backdrop-blur-xl'
+                          : 'border-white/[0.08] bg-white/[0.035] backdrop-blur-xl'
+                      )}
+                    >
+                      <summary
+                        className={clsx(
+                          'flex cursor-pointer list-none items-center px-4 py-3 font-mono text-[11px] font-semibold transition-colors',
+                          msg.isThinking
+                            ? 'text-accent-secondary'
+                            : 'text-text-secondary/75 hover:text-text-primary/90'
+                        )}
+                      >
+                        <span className="flex items-center gap-2">
+                          {msg.isThinking && <LoadingDots size="xs" />}
+                          {(() => {
+                            // Extract bold outlines like "**Initiating Black Hole Analysis**"
+                            // We look for all occurrences of **Text** and take the last one or the first one,
+                            // depending on what's active. Let's extract all matches.
+                            const outlineMatches = Array.from(
+                              (msg.thoughts || '').matchAll(/\*\*(.*?)\*\*/g)
+                            )
+                            if (outlineMatches.length > 0) {
+                              // Take the last match to show current thinking step
+                              return outlineMatches[outlineMatches.length - 1][1]
+                            }
+                            return 'Thinking'
+                          })()}
+                        </span>
+                      </summary>
+                      <div
+                        className={clsx(
+                          'mx-3 mb-3 rounded-[16px] border px-4 py-3 font-mono text-[11.5px] leading-relaxed opacity-0 transition-all duration-500 group-open:opacity-100',
+                          msg.isThinking
+                            ? 'border-accent-secondary/20 bg-accent-secondary/[0.035] text-accent-secondary/80'
+                            : 'border-white/[0.055] bg-black/10 text-text-secondary/80'
+                        )}
+                      >
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm, remarkMath, disableIndentedCode]}
+                          rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
+                        >
+                          {msg.thoughts || ''}
+                        </ReactMarkdown>
+                      </div>
+                    </details>
+                  </div>
+                )}
+
+                <div
+                  className={clsx(
+                    'w-full',
+                    msg.role === 'user'
+                      ? 'flex flex-col items-end'
+                      : 'text-text-primary'
+                  )}
+                >
+                  {msg.role === 'ai' ? (
+                    renderAiMessage(msg)
+                  ) : (
+                    <div className="premium-panel-soft max-w-[90%] whitespace-pre-wrap rounded-[24px] rounded-tr-[8px] px-5 py-3.5 text-sm md:text-base font-medium text-text-primary sm:max-w-[80%] lg:max-w-[70%]">
+                      {msg.content}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+        <div ref={messagesEndRef} className="h-4" />
+      </div>
+    )
+  }, [messages, renderAiMessage])
+
+  const renderedSidebarDesktop = useMemo(() => {
+    return (
+      <Sidebar
+        activeView={activeView}
+        onViewChange={setActiveView}
+        onLoadChat={handleLoadChat}
+        onNewChat={handleNewChat}
+        currentChatId={currentChatId}
+        runningTasksCount={tasks.filter((t) => t.status === 'running').length}
+        runningChats={runningChats}
+        className="hidden md:flex shrink-0"
+      />
+    )
+  }, [activeView, handleLoadChat, handleNewChat, currentChatId, tasks, runningChats])
+
+  const renderedSidebarMobile = useMemo(() => {
+    return (
+      <Sidebar
+        activeView={activeView}
+        onViewChange={(view) => {
+          setActiveView(view)
+          setIsMobileMenuOpen(false)
+        }}
+        onLoadChat={(id) => {
+          handleLoadChat(id)
+          setIsMobileMenuOpen(false)
+        }}
+        onNewChat={(force) => {
+          handleNewChat(force)
+          setIsMobileMenuOpen(false)
+        }}
+        currentChatId={currentChatId}
+        runningTasksCount={tasks.filter((t) => t.status === 'running').length}
+        runningChats={runningChats}
+        className={clsx(
+          'fixed inset-y-0 left-0 z-50 flex border-r border-white/[0.08] bg-background-main/95 transition-transform duration-300 md:hidden w-[278px]',
+          isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+        )}
+      />
+    )
+  }, [activeView, isMobileMenuOpen, handleLoadChat, handleNewChat, currentChatId, tasks, runningChats])
+
+  const renderedModelSelector = useMemo(() => {
+    return (
+      <ModelSelector
+        ref={modelSelectorRef}
+        selectedModel={selectedModel}
+        onModelChange={handleModelChange}
+        disabled={isProcessing}
+      />
+    )
+  }, [selectedModel, handleModelChange, isProcessing])
 
   const isKeyMissing =
     !config?.userGeminiKey && (config?.envGeminiKey === 'none' || !config?.envGeminiKey)
@@ -1051,16 +1267,7 @@ function App(): React.JSX.Element {
         isYoutubeMode={isYoutubeMode}
       />
 
-      <Sidebar
-        activeView={activeView}
-        onViewChange={setActiveView}
-        onLoadChat={handleLoadChat}
-        onNewChat={handleNewChat}
-        currentChatId={currentChatId}
-        runningTasksCount={tasks.filter((t) => t.status === 'running').length}
-        runningChats={runningChats}
-        className="hidden md:flex shrink-0"
-      />
+      {renderedSidebarDesktop}
 
       {/* Mobile Drawer Backdrop */}
       {isMobileMenuOpen && (
@@ -1071,28 +1278,7 @@ function App(): React.JSX.Element {
       )}
 
       {/* Mobile Drawer Sidebar */}
-      <Sidebar
-        activeView={activeView}
-        onViewChange={(view) => {
-          setActiveView(view)
-          setIsMobileMenuOpen(false)
-        }}
-        onLoadChat={(id) => {
-          handleLoadChat(id)
-          setIsMobileMenuOpen(false)
-        }}
-        onNewChat={(force) => {
-          handleNewChat(force)
-          setIsMobileMenuOpen(false)
-        }}
-        currentChatId={currentChatId}
-        runningTasksCount={tasks.filter((t) => t.status === 'running').length}
-        runningChats={runningChats}
-        className={clsx(
-          'fixed inset-y-0 left-0 z-50 flex border-r border-white/[0.08] bg-background-main/95 transition-transform duration-300 md:hidden w-[278px]',
-          isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
-        )}
-      />
+      {renderedSidebarMobile}
 
       <main className="flex-1 flex flex-col relative z-10 min-w-0 h-full">
         {activeView === 'chat' && isFullscreenInput ? (
@@ -1104,16 +1290,16 @@ function App(): React.JSX.Element {
               isProcessing={isProcessing}
               isKeyMissing={isKeyMissing}
               isThinkMode={isThinkMode}
-              onThinkModeToggle={setIsThinkMode}
+              onThinkModeToggle={handleThinkModeToggle}
               onOpenSubagentSettings={handleOpenSubagentSettings}
               disabled={isProcessing || isKeyMissing}
               selectedModel={selectedModel}
               text={inputText}
               setText={setInputText}
               isSearchEnabled={isSearchEnabled}
-              setIsSearchEnabled={setIsSearchEnabled}
+              setIsSearchEnabled={handleSearchEnabledToggle}
               isExtendedSearch={isExtendedSearch}
-              setIsExtendedSearch={setIsExtendedSearch}
+              setIsExtendedSearch={handleExtendedSearchToggle}
               isFullscreen={true}
               onFullscreenToggle={() => setIsFullscreenInput(false)}
             />
@@ -1138,12 +1324,7 @@ function App(): React.JSX.Element {
               </div>
 
               <div className="flex items-center gap-3">
-                <ModelSelector
-                  ref={modelSelectorRef}
-                  selectedModel={selectedModel}
-                  onModelChange={handleModelChange}
-                  disabled={isProcessing}
-                />
+                {renderedModelSelector}
               </div>
 
               <div className="flex-1 flex justify-end">
@@ -1179,16 +1360,16 @@ function App(): React.JSX.Element {
                             isProcessing={isProcessing}
                             isKeyMissing={isKeyMissing}
                             isThinkMode={isThinkMode}
-                            onThinkModeToggle={setIsThinkMode}
+                            onThinkModeToggle={handleThinkModeToggle}
                             onOpenSubagentSettings={handleOpenSubagentSettings}
                             disabled={isProcessing || isKeyMissing}
                             selectedModel={selectedModel}
                             text={inputText}
                             setText={setInputText}
                             isSearchEnabled={isSearchEnabled}
-                            setIsSearchEnabled={setIsSearchEnabled}
+                            setIsSearchEnabled={handleSearchEnabledToggle}
                             isExtendedSearch={isExtendedSearch}
-                            setIsExtendedSearch={setIsExtendedSearch}
+                            setIsExtendedSearch={handleExtendedSearchToggle}
                             isFullscreen={false}
                             onFullscreenToggle={() => setIsFullscreenInput(true)}
                           />
@@ -1196,92 +1377,7 @@ function App(): React.JSX.Element {
                       </div>
                     </div>
                   ) : (
-                    <div className="w-full flex flex-col max-w-4xl mx-auto">
-                      {messages.map((msg, i) => {
-                        return (
-                          <div key={i} className="flex flex-col w-full transition-all duration-700">
-                            <div
-                              className={clsx(
-                                'w-full px-6 sm:px-12 py-8 flex flex-col transition-all duration-700 animate-message',
-                                msg.role === 'user' ? 'items-end' : 'items-start'
-                              )}
-                            >
-                              {msg.role === 'ai' && (msg.isThinking || msg.thoughts) && (
-                                <div className="w-full">
-                                  <details
-                                    className={clsx(
-                                      'group mb-4 w-full overflow-hidden rounded-[22px] border transition-all duration-300 bubble-glow',
-                                      msg.isThinking
-                                        ? 'border-accent-secondary/30 bg-accent-secondary/[0.045] backdrop-blur-xl'
-                                        : 'border-white/[0.08] bg-white/[0.035] backdrop-blur-xl'
-                                    )}
-                                  >
-                                    <summary
-                                      className={clsx(
-                                        'flex cursor-pointer list-none items-center px-4 py-3 font-mono text-[11px] font-semibold transition-colors',
-                                        msg.isThinking
-                                          ? 'text-accent-secondary'
-                                          : 'text-text-secondary/75 hover:text-text-primary/90'
-                                      )}
-                                    >
-                                      <span className="flex items-center gap-2">
-                                        {msg.isThinking && <LoadingDots size="xs" />}
-                                        {(() => {
-                                          // Extract bold outlines like "**Initiating Black Hole Analysis**"
-                                          // We look for all occurrences of **Text** and take the last one or the first one,
-                                          // depending on what's active. Let's extract all matches.
-                                          const outlineMatches = Array.from(
-                                            (msg.thoughts || '').matchAll(/\*\*(.*?)\*\*/g)
-                                          )
-                                          if (outlineMatches.length > 0) {
-                                            // Take the last match to show current thinking step
-                                            return outlineMatches[outlineMatches.length - 1][1]
-                                          }
-                                          return 'Thinking'
-                                        })()}
-                                      </span>
-                                    </summary>
-                                    <div
-                                      className={clsx(
-                                        'mx-3 mb-3 rounded-[16px] border px-4 py-3 font-mono text-[11.5px] leading-relaxed opacity-0 transition-all duration-500 group-open:opacity-100',
-                                        msg.isThinking
-                                          ? 'border-accent-secondary/20 bg-accent-secondary/[0.035] text-accent-secondary/80'
-                                          : 'border-white/[0.055] bg-black/10 text-text-secondary/80'
-                                      )}
-                                    >
-                                      <ReactMarkdown
-                                        remarkPlugins={[remarkGfm, remarkMath, disableIndentedCode]}
-                                        rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
-                                      >
-                                        {msg.thoughts || ''}
-                                      </ReactMarkdown>
-                                    </div>
-                                  </details>
-                                </div>
-                              )}
-
-                              <div
-                                className={clsx(
-                                  'w-full',
-                                  msg.role === 'user'
-                                    ? 'flex flex-col items-end'
-                                    : 'text-text-primary'
-                                )}
-                              >
-                                {msg.role === 'ai' ? (
-                                  renderAiMessage(msg)
-                                ) : (
-                                  <div className="premium-panel-soft max-w-[90%] whitespace-pre-wrap rounded-[24px] rounded-tr-[8px] px-5 py-3.5 text-sm md:text-base font-medium text-text-primary sm:max-w-[80%] lg:max-w-[70%]">
-                                    {msg.content}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                      <div ref={messagesEndRef} className="h-4" />
-                    </div>
+                    renderedMessages
                   )}
                 </div>
               ) : activeView === 'tasks' ? (
@@ -1329,7 +1425,7 @@ function App(): React.JSX.Element {
                   isProcessing={isProcessing}
                   isKeyMissing={isKeyMissing}
                   isThinkMode={isThinkMode}
-                  onThinkModeToggle={setIsThinkMode}
+                  onThinkModeToggle={handleThinkModeToggle}
                   onOpenSubagentSettings={handleOpenSubagentSettings}
                   disabled={isProcessing || isKeyMissing}
                   selectedModel={selectedModel}
@@ -1337,9 +1433,9 @@ function App(): React.JSX.Element {
                   text={inputText}
                   setText={setInputText}
                   isSearchEnabled={isSearchEnabled}
-                  setIsSearchEnabled={setIsSearchEnabled}
+                  setIsSearchEnabled={handleSearchEnabledToggle}
                   isExtendedSearch={isExtendedSearch}
-                  setIsExtendedSearch={setIsExtendedSearch}
+                  setIsExtendedSearch={handleExtendedSearchToggle}
                   isFullscreen={false}
                   onFullscreenToggle={() => setIsFullscreenInput(true)}
                 />

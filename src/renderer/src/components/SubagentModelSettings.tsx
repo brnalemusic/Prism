@@ -10,6 +10,7 @@ const FALLBACK_CONFIG: AppConfig = {
   defaultModel: 'prism-5',
   subagentModel: 'prism-4.2',
   minimizeToTray: false,
+  autoLaunch: false,
   userGeminiKey: ''
 }
 

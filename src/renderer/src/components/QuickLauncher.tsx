@@ -1,8 +1,26 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Command, ChevronRight, Cpu, Search, Brain, CirclePlay, Check, Bot } from 'lucide-react'
+import {
+  Command,
+  ChevronRight,
+  Cpu,
+  Search,
+  Brain,
+  CirclePlay,
+  Check,
+  Calculator,
+  FileCode,
+  AppWindow,
+  Sparkles,
+  ArrowRight,
+  MessageSquare
+} from 'lucide-react'
 import { MODELS } from '../constants'
 import { isShortcutPressed } from '../utils'
 import clsx from 'clsx'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { ActionLoader, ToolCall } from './ActionLoader'
+import { LoadingDots } from './LoadingDots'
 
 type LauncherBadge = 'youtube' | 'search' | 'think'
 
@@ -21,31 +39,57 @@ const COMMANDS = [
   }
 ]
 
+function evaluateMathExpression(expr: string): string | null {
+  const sanitized = expr.replace(/\s+/g, '')
+  if (!/^[0-9+\-*/%^().]+$/.test(sanitized)) return null
+  if (/^[0-9.]+$/.test(sanitized)) return null // ignore simple numbers
+  if (/[+\-*/%^]$/.test(sanitized) || /\(\)/.test(sanitized)) return null
+  
+  try {
+    const result = new Function(`return (${sanitized.replace(/\^/g, '**')})`)()
+    if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
+      return String(result)
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
+
+interface Message {
+  role: 'user' | 'ai'
+  content: string
+  thoughts?: string
+  isError?: boolean
+  isStreaming?: boolean
+  isThinking?: boolean
+  isWritingToolCall?: boolean
+  toolType?: 'task' | 'search' | 'mini-app'
+  toolCalls?: ToolCall[]
+}
+
 export function QuickLauncher(): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false)
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
-  const [isThinkMode, setIsThinkMode] = useState(false)
+  const [isThinkMode, setIsThinkMode] = useState(true) // Think mode default enabled for launcher
   const [selectedIndex, setSelectedIndex] = useState(0)
-  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [activeModelId, setActiveModelId] = useState('prism-5')
   const [shortcut, setShortcut] = useState('CommandOrControl+M')
   const [isFocused, setIsFocused] = useState(false)
+  const [quickLauncherMode, setQuickLauncherMode] = useState<'simple' | 'advanced'>('simple')
   const inputRef = useRef<HTMLInputElement>(null)
+  const chatEndRef = useRef<HTMLDivElement>(null)
 
-  const handleCommandAction = (cmd: string): void => {
-    if (cmd === '/search') {
-      setQuery('/search ')
-      inputRef.current?.focus()
-    } else if (cmd === '/youtube') {
-      setQuery('/youtube ')
-      inputRef.current?.focus()
-    } else if (cmd === '/subagents') {
-      window.api.openSubagentSettingsWindow()
-      window.api.hideLauncher()
-      setQuery('')
-    }
-  }
+  // Local Apps & Files Suggestions
+  const [apps, setApps] = useState<any[]>([])
+  const [files, setFiles] = useState<any[]>([])
+  const [mathResult, setMathResult] = useState<string | null>(null)
+
+  // Mini-Chat Overlay State
+  const [isMiniChatOpen, setIsMiniChatOpen] = useState(false)
+  const [launcherMessages, setLauncherMessages] = useState<Message[]>([])
 
   const isYoutubeMode = query.startsWith('/youtube')
   const activeMode = isYoutubeMode
@@ -63,16 +107,70 @@ export function QuickLauncher(): React.JSX.Element {
   const isSearchAndThinkMode = isSearchEnabled && isThinkMode
   const activeModel = MODELS.find((m) => m.id === activeModelId) || MODELS[0]
 
-  const filteredCommands = useMemo(
-    () =>
-      query.startsWith('/')
-        ? COMMANDS.filter((c) => c.cmd.toLowerCase().startsWith(query.toLowerCase().split(' ')[0]))
-        : [],
-    [query]
-  )
+  const showSlashMenu = query.startsWith('/') && !query.includes(' ')
+  
+  const filteredCommands = useMemo(() => {
+    if (!showSlashMenu) return []
+    return COMMANDS.filter((c) => c.cmd.toLowerCase().startsWith(query.toLowerCase()))
+  }, [query, showSlashMenu])
 
-  const showSlashMenu = query.startsWith('/') && filteredCommands.length > 0 && !query.includes(' ')
+  // Local Application Search Matches
+  const filteredApps = useMemo(() => {
+    if (query.startsWith('/') || query.trim().length <= 1) return []
+    return apps
+      .filter((app) => app.name.toLowerCase().includes(query.toLowerCase()))
+      .slice(0, 3)
+  }, [query, apps])
 
+  // Unified Suggestions list for keyboard navigation
+  const unifiedSuggestions = useMemo(() => {
+    const list: any[] = []
+    
+    if (mathResult) {
+      list.push({ type: 'math', value: mathResult, label: `Resultado: ${mathResult}`, desc: 'Copiar resultado' })
+    }
+    
+    if (showSlashMenu) {
+      filteredCommands.forEach((c) => {
+        list.push({ type: 'command', value: c.cmd, label: c.cmd, desc: c.desc })
+      })
+    } else if (query.trim().length > 1) {
+      filteredApps.forEach((app) => {
+        list.push({ type: 'app', value: app.path, label: app.name, desc: 'Abrir Aplicativo' })
+      })
+      files.forEach((file) => {
+        list.push({ type: 'file', value: file.path, label: file.name, desc: file.relativePath })
+      })
+    }
+    
+    return list
+  }, [mathResult, showSlashMenu, filteredCommands, filteredApps, files, query])
+
+  // Debounced/Triggered workspace file search
+  useEffect(() => {
+    if (quickLauncherMode === 'simple' && query.trim().length > 1 && !query.startsWith('/')) {
+      const delay = setTimeout(() => {
+        window.api.launcherSearchFiles(query).then((res) => {
+          setFiles(res || [])
+        })
+      }, 150)
+      return () => clearTimeout(delay)
+    } else {
+      setFiles([])
+      return undefined
+    }
+  }, [query, quickLauncherMode])
+
+  // Math Evaluator Trigger
+  useEffect(() => {
+    if (query.trim().length > 1 && !query.startsWith('/')) {
+      setMathResult(evaluateMathExpression(query))
+    } else {
+      setMathResult(null)
+    }
+  }, [query])
+
+  // Fetch configs and apps list
   useEffect(() => {
     window.api.getConfig().then((config) => {
       if (config.modelSelectionShortcut) {
@@ -81,27 +179,50 @@ export function QuickLauncher(): React.JSX.Element {
       if (config.defaultModel) {
         setActiveModelId(config.defaultModel)
       }
+      if (config.quickLauncherMode) {
+        setQuickLauncherMode(config.quickLauncherMode)
+      }
     })
 
-    window.api.onConfigChanged((config) => {
+    window.api.launcherGetApps().then((res) => {
+      setApps(res || [])
+    })
+
+    const removeConfigListener = window.api.onConfigChanged((config) => {
       if (config.modelSelectionShortcut) {
         setShortcut(config.modelSelectionShortcut)
       }
       if (config.defaultModel) {
         setActiveModelId(config.defaultModel)
       }
+      if (config.quickLauncherMode) {
+        setQuickLauncherMode(config.quickLauncherMode)
+      }
     })
 
-    window.api.onModelChanged((modelId) => {
+    const removeModelListener = window.api.onModelChanged((modelId) => {
       setActiveModelId(modelId)
     })
+
+    const removeThinkModeListener = window.api.onThinkModeChanged((val) => {
+      setIsThinkMode(val)
+    })
+
+    const removeSearchEnabledListener = window.api.onSearchEnabledChanged((val) => {
+      setIsSearchEnabled(val)
+    })
+
+    return () => {
+      removeConfigListener()
+      removeModelListener()
+      removeThinkModeListener()
+      removeSearchEnabledListener()
+    }
   }, [])
 
+  // Focus trigger and reset chat history on hide
   useEffect(() => {
     const handleInitialFocus = (): void => {
-      setIsThinkMode(false)
-      setIsSearchEnabled(false)
-
       setTimeout(() => {
         if (inputRef.current) {
           inputRef.current.focus()
@@ -112,19 +233,159 @@ export function QuickLauncher(): React.JSX.Element {
     }
 
     handleInitialFocus()
-    const removeFocusListener = window.api.onLauncherFocus(handleInitialFocus)
+    const removeFocusListener = window.api.onLauncherFocus(() => {
+      handleInitialFocus()
+      // Reset chat whenever launcher is opened/focused anew
+      setLauncherMessages([])
+      setIsMiniChatOpen(false)
+      setQuery('')
+      window.api.clearLauncherChat()
+    })
 
     return () => {
       removeFocusListener()
     }
   }, [])
 
+  // Scroll to bottom of chat
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [launcherMessages])
+
+  // Preload IPC response listeners for Mini-Chat
+  useEffect(() => {
+    const removeReplyStart = window.api.onLauncherReplyStart(() => {
+      setIsMiniChatOpen(true)
+      setLauncherMessages((prev) => [
+        ...prev,
+        {
+          role: 'ai',
+          content: '',
+          thoughts: '',
+          isStreaming: true,
+          isThinking: true,
+          toolCalls: []
+        }
+      ])
+    })
+
+    const removeReplyChunk = window.api.onLauncherReplyChunk((data) => {
+      setLauncherMessages((prev) => {
+        if (prev.length === 0) return prev
+        const newMsgs = [...prev]
+        const lastMsg = { ...newMsgs[newMsgs.length - 1] }
+        if (lastMsg.role === 'ai') {
+          lastMsg.content = data.finalResponse
+          lastMsg.thoughts = data.thoughts
+          lastMsg.isThinking = data.isThinking
+          lastMsg.isWritingToolCall = data.isWritingToolCall
+          lastMsg.toolType = data.toolType
+        }
+        newMsgs[newMsgs.length - 1] = lastMsg
+        return newMsgs
+      })
+    })
+
+    const removeReplyEnd = window.api.onLauncherReplyEnd((data) => {
+      setLauncherMessages((prev) => {
+        if (prev.length === 0) return prev
+        const newMsgs = [...prev]
+        const lastMsg = { ...newMsgs[newMsgs.length - 1] }
+        if (lastMsg.role === 'ai') {
+          lastMsg.content = data.finalResponse
+          lastMsg.thoughts = data.thoughts
+          lastMsg.isStreaming = false
+          lastMsg.isThinking = false
+          lastMsg.isWritingToolCall = false
+        }
+        newMsgs[newMsgs.length - 1] = lastMsg
+        return newMsgs
+      })
+    })
+
+    const removeReplyError = window.api.onLauncherReplyError((data) => {
+      setLauncherMessages((prev) => {
+        if (prev.length === 0) return prev
+        const newMsgs = [...prev]
+        const lastMsg = { ...newMsgs[newMsgs.length - 1] }
+        if (lastMsg.role === 'ai') {
+          lastMsg.content = data.error
+          lastMsg.isError = true
+          lastMsg.isStreaming = false
+          lastMsg.isThinking = false
+          lastMsg.isWritingToolCall = false
+        }
+        newMsgs[newMsgs.length - 1] = lastMsg
+        return newMsgs
+      })
+    })
+
+    const removeToolStart = window.api.onLauncherToolStart((data) => {
+      setLauncherMessages((prev) => {
+        if (prev.length === 0) return prev
+        const newMsgs = [...prev]
+        const lastMsg = { ...newMsgs[newMsgs.length - 1] }
+        if (lastMsg.role === 'ai') {
+          const toolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
+          const isDuplicate = toolCalls.some(
+            (t) =>
+              t.name === data.name &&
+              JSON.stringify(t.args) === JSON.stringify(data.args) &&
+              t.status === 'running'
+          )
+          if (!isDuplicate) {
+            lastMsg.toolCalls = [...toolCalls, { ...data, status: 'running' } as ToolCall]
+          }
+        }
+        newMsgs[newMsgs.length - 1] = lastMsg
+        return newMsgs
+      })
+    })
+
+    const removeToolEnd = window.api.onLauncherToolEnd((data) => {
+      setLauncherMessages((prev) => {
+        if (prev.length === 0) return prev
+        const newMsgs = [...prev]
+        const lastMsg = { ...newMsgs[newMsgs.length - 1] }
+        if (lastMsg.role === 'ai' && lastMsg.toolCalls) {
+          const toolCalls = [...lastMsg.toolCalls]
+          const lastToolIndex = toolCalls.findLastIndex(
+            (t) => t.name === data.name && t.status === 'running'
+          )
+          if (lastToolIndex !== -1) {
+            toolCalls[lastToolIndex] = {
+              ...toolCalls[lastToolIndex],
+              status: data.result.startsWith('Error') ? 'error' : 'done',
+              result: data.result
+            }
+            lastMsg.toolCalls = toolCalls
+          }
+        }
+        newMsgs[newMsgs.length - 1] = lastMsg
+        return newMsgs
+      })
+    })
+
+    return () => {
+      removeReplyStart()
+      removeReplyChunk()
+      removeReplyEnd()
+      removeReplyError()
+      removeToolStart()
+      removeToolEnd()
+    }
+  }, [])
+
+  // Suggestions Navigation and Shortcuts
   useEffect(() => {
     document.body.style.background = 'transparent'
     document.documentElement.style.background = 'transparent'
 
     const handleKeyDown = (e: KeyboardEvent): void => {
-      if (isShortcutPressed(e, shortcut)) {
+      // Prevent model select shortcut in simple mode
+      if (quickLauncherMode === 'advanced' && isShortcutPressed(e, shortcut)) {
         e.preventDefault()
         setIsModelSelectorOpen((prev) => !prev)
         setSelectedIndex(
@@ -138,36 +399,38 @@ export function QuickLauncher(): React.JSX.Element {
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
-        setIsSearchEnabled((prev) => !prev)
+        window.api.setSearchEnabled(!isSearchEnabled)
         return
       }
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't') {
         e.preventDefault()
-        setIsThinkMode((prev) => !prev)
+        window.api.setThinkMode(!isThinkMode)
         return
       }
 
-      if (showSlashMenu) {
+      // Suggestions navigation
+      if (unifiedSuggestions.length > 0 && !isMiniChatOpen) {
         if (e.key === 'ArrowDown') {
           e.preventDefault()
-          setSlashSelectedIndex((prev) => (prev + 1) % filteredCommands.length)
+          setSelectedIndex((prev) => (prev + 1) % unifiedSuggestions.length)
+          return
         } else if (e.key === 'ArrowUp') {
           e.preventDefault()
-          setSlashSelectedIndex(
-            (prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length
+          setSelectedIndex(
+            (prev) => (prev - 1 + unifiedSuggestions.length) % unifiedSuggestions.length
           )
+          return
         } else if (e.key === 'Enter') {
           e.preventDefault()
-          handleCommandAction(filteredCommands[slashSelectedIndex].cmd)
-        } else if (e.key === 'Escape') {
-          e.preventDefault()
-          setQuery('')
+          const item = unifiedSuggestions[selectedIndex]
+          handleSuggestionAction(item)
+          return
         }
-        return
       }
 
-      if (isModelSelectorOpen) {
+      // Model selector keyboard nav
+      if (isModelSelectorOpen && quickLauncherMode === 'advanced') {
         if (e.key === 'ArrowDown') {
           e.preventDefault()
           setSelectedIndex((prev) => (prev + 1) % MODELS.length)
@@ -205,11 +468,37 @@ export function QuickLauncher(): React.JSX.Element {
     selectedIndex,
     activeModelId,
     shortcut,
-    showSlashMenu,
-    slashSelectedIndex,
     query,
-    filteredCommands
+    unifiedSuggestions,
+    isSearchEnabled,
+    isThinkMode,
+    quickLauncherMode,
+    isMiniChatOpen
   ])
+
+  const handleSuggestionAction = (item: any): void => {
+    if (item.type === 'math') {
+      navigator.clipboard.writeText(item.value)
+      setQuery(item.value)
+    } else if (item.type === 'command') {
+      if (item.value === '/search') {
+        setQuery('/search ')
+      } else if (item.value === '/youtube') {
+        setQuery('/youtube ')
+      } else if (item.value === '/subagents') {
+        window.api.openSubagentSettingsWindow()
+        window.api.hideLauncher()
+        setQuery('')
+      }
+    } else if (item.type === 'app') {
+      window.api.launcherOpenApp(item.value)
+      window.api.hideLauncher()
+    } else if (item.type === 'file') {
+      window.api.launcherOpenFile(item.value)
+      window.api.hideLauncher()
+    }
+    setSelectedIndex(0)
+  }
 
   const buildMessage = (): string => {
     const trimmed = query.trim()
@@ -220,16 +509,26 @@ export function QuickLauncher(): React.JSX.Element {
 
   const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault()
-    if (query.trim()) {
-      if (query.trim() === '/subagents') {
-        window.api.openSubagentSettingsWindow()
-        window.api.hideLauncher()
-        setQuery('')
-        return
-      }
+    if (!query.trim()) return
 
+    if (query.trim() === '/subagents') {
+      window.api.openSubagentSettingsWindow()
+      window.api.hideLauncher()
+      setQuery('')
+      return
+    }
+
+    if (quickLauncherMode === 'advanced') {
+      // Focus in-app directly
       window.api.submitLauncher({ message: buildMessage(), thinkMode: isThinkMode })
       setQuery('')
+    } else {
+      // Simple mode: chat inline
+      setIsMiniChatOpen(true)
+      const userMsg = buildMessage()
+      setLauncherMessages((prev) => [...prev, { role: 'user', content: query }])
+      setQuery('')
+      window.api.sendLauncherChatMessage({ message: userMsg, thinkMode: isThinkMode })
     }
   }
 
@@ -244,10 +543,11 @@ export function QuickLauncher(): React.JSX.Element {
 
   return (
     <div
-      className="flex h-screen w-screen flex-col items-center justify-start bg-transparent p-8 pt-[20vh] font-sans"
+      className="quick-launcher-overlay flex h-screen w-screen flex-col items-center justify-start p-8 pt-[20vh] font-sans"
       onClick={() => window.api.hideLauncher()}
     >
       <div className="relative w-full max-w-[720px]" onClick={(e) => e.stopPropagation()}>
+        {/* Badges Bar */}
         <div
           className={clsx(
             'absolute -top-12 left-1/2 z-40 flex -translate-x-1/2 items-center justify-center gap-2 transition-all duration-200',
@@ -262,12 +562,12 @@ export function QuickLauncher(): React.JSX.Element {
               className={clsx(
                 'flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold whitespace-nowrap',
                 isSearchAndThinkMode && badge !== 'youtube'
-                  ? 'border-transparent bg-gradient-to-r from-accent-secondary/[0.14] via-[#b8d56e]/[0.12] to-status-warning/[0.15] text-[#d9c77a] shadow-[0_0_22px_rgba(245,158,11,0.09)]'
+                  ? 'border-transparent bg-gradient-to-r from-[#172e27] via-[#212918] to-[#2c2317] text-[#d9c77a] shadow-[0_0_22px_rgba(245,158,11,0.09)]'
                   : badge === 'youtube'
-                    ? 'border-accent-primary/20 bg-accent-primary/[0.08] text-accent-primary'
+                    ? 'border-accent-primary/30 bg-[#251414] text-accent-primary'
                     : badge === 'search'
-                      ? 'border-accent-secondary/20 bg-accent-secondary/[0.08] text-accent-secondary'
-                      : 'border-status-warning/20 bg-status-warning/[0.08] text-status-warning'
+                      ? 'border-accent-secondary/30 bg-[#10221c] text-accent-secondary'
+                      : 'border-status-warning/30 bg-[#221d10] text-status-warning'
               )}
             >
               {badge === 'youtube' ? (
@@ -286,74 +586,78 @@ export function QuickLauncher(): React.JSX.Element {
           ))}
         </div>
 
-        <div
-          className={clsx(
-            'model-menu-panel absolute left-0 top-full z-50 mt-3 w-80 origin-top overflow-hidden rounded-[24px] py-2 transition-all duration-200',
-            isModelSelectorOpen
-              ? 'translate-y-0 scale-100 opacity-100'
-              : 'pointer-events-none -translate-y-2 scale-[0.98] opacity-0'
-          )}
-        >
-          <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-3 text-xs font-semibold text-text-secondary/70">
-            <Cpu size={14} className="text-accent-primary" />
-            Prism engines
-          </div>
-          {MODELS.map((model, index) => (
-            <button
-              key={model.id}
-              onMouseEnter={() => setSelectedIndex(index)}
-              onClick={() => {
-                setActiveModelId(model.id)
-                window.api.setModel(model.id)
-                setIsModelSelectorOpen(false)
-              }}
-              className={clsx(
-                'relative flex w-full items-start gap-3 px-4 py-3 text-left transition-all duration-200',
-                model.id === 'prism-5'
-                  ? [
-                      'prism-5-model-option prism-5-menu-option',
-                      selectedIndex === index && 'prism-5-model-option-active'
-                    ]
-                  : selectedIndex === index
-                    ? 'bg-white/[0.065]'
-                    : 'hover:bg-white/[0.04]'
-              )}
-            >
-              <span
+        {/* Model Menu Selector (Advanced Mode Only) */}
+        {quickLauncherMode === 'advanced' && (
+          <div
+            className={clsx(
+              'model-menu-panel absolute left-0 top-full z-50 mt-3 w-80 origin-top overflow-hidden rounded-[24px] py-2 transition-all duration-200',
+              isModelSelectorOpen
+                ? 'translate-y-0 scale-100 opacity-100'
+                : 'pointer-events-none -translate-y-2 scale-[0.98] opacity-0'
+            )}
+          >
+            <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-3 text-xs font-semibold text-text-secondary/70">
+              <Cpu size={14} className="text-accent-primary" />
+              Prism engines
+            </div>
+            {MODELS.map((model, index) => (
+              <button
+                key={model.id}
+                onMouseEnter={() => setSelectedIndex(index)}
+                onClick={() => {
+                  setActiveModelId(model.id)
+                  window.api.setModel(model.id)
+                  setIsModelSelectorOpen(false)
+                }}
                 className={clsx(
-                  'mt-1 h-2.5 w-2.5 shrink-0 rounded-full',
+                  'relative flex w-full items-start gap-3 px-4 py-3 text-left transition-all duration-200',
                   model.id === 'prism-5'
-                    ? ['prism-5-dot', activeModelId === model.id ? 'opacity-100' : 'opacity-70']
-                    : activeModelId === model.id
-                      ? 'bg-accent-secondary'
-                      : 'bg-white/[0.18]'
+                    ? [
+                        'prism-5-model-option prism-5-menu-option',
+                        selectedIndex === index && 'prism-5-model-option-active'
+                      ]
+                    : selectedIndex === index
+                      ? 'bg-[#1c1d24]'
+                      : 'hover:bg-[#15161c]'
                 )}
-              />
-              <span className="min-w-0 flex-1">
+              >
                 <span
                   className={clsx(
-                    'block text-sm font-semibold',
-                    model.id === 'prism-5' ? 'prism-5-title-gradient' : 'text-text-primary'
+                    'mt-1 h-2.5 w-2.5 shrink-0 rounded-full',
+                    model.id === 'prism-5'
+                      ? ['prism-5-dot', activeModelId === model.id ? 'opacity-100' : 'opacity-70']
+                      : activeModelId === model.id
+                        ? 'bg-accent-secondary'
+                        : 'bg-white/[0.18]'
                   )}
-                >
-                  {model.name}
+                />
+                <span className="min-w-0 flex-1">
+                  <span
+                    className={clsx(
+                      'block text-sm font-semibold',
+                      model.id === 'prism-5' ? 'prism-5-title-gradient' : 'text-text-primary'
+                    )}
+                  >
+                    {model.name}
+                  </span>
+                  <span className="mt-0.5 block text-xs leading-snug text-text-secondary/70">
+                    {model.description}
+                  </span>
                 </span>
-                <span className="mt-0.5 block text-xs leading-snug text-text-secondary/70">
-                  {model.description}
-                </span>
-              </span>
-              {activeModelId === model.id && (
-                <Check size={15} className="mt-0.5 text-accent-secondary" />
-              )}
-            </button>
-          ))}
-        </div>
+                {activeModelId === model.id && (
+                  <Check size={15} className="mt-0.5 text-accent-secondary" />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
+        {/* Input Bar */}
         <div
           className={clsx(
             'premium-panel relative flex w-full items-center gap-4 overflow-hidden rounded-[30px] border px-4 py-4 transition-all duration-300 input-border-glow',
             modeClasses,
-            (isModelSelectorOpen || isFocused) && 'prism-glow active'
+            ((isModelSelectorOpen && quickLauncherMode === 'advanced') || isFocused) && 'prism-glow active'
           )}
         >
           {activeMode !== 'default' && (
@@ -369,38 +673,47 @@ export function QuickLauncher(): React.JSX.Element {
             </div>
           )}
 
-          <button
-            onClick={() => {
-              setIsModelSelectorOpen(!isModelSelectorOpen)
-              setSelectedIndex(
-                Math.max(
-                  0,
-                  MODELS.findIndex((m) => m.id === activeModelId)
+          {/* Model selector toggle or simple mode indicator */}
+          {quickLauncherMode === 'advanced' ? (
+            <button
+              onClick={() => {
+                setIsModelSelectorOpen(!isModelSelectorOpen)
+                setSelectedIndex(
+                  Math.max(
+                    0,
+                    MODELS.findIndex((m) => m.id === activeModelId)
+                  )
                 )
-              )
-            }}
-            className={clsx(
-              'flex h-10 shrink-0 items-center gap-2 rounded-[16px] border px-3 text-sm font-semibold transition-all duration-200',
-              isModelSelectorOpen
-                ? 'border-accent-primary/35 bg-accent-primary/[0.12] text-accent-primary'
-                : 'border-white/[0.08] bg-white/[0.045] text-text-secondary hover:bg-white/[0.07] hover:text-text-primary'
-            )}
-          >
-            <Command size={15} />
-            <span
-              className={activeModel.id === 'prism-5' ? 'prism-top-gradient' : 'text-text-primary'}
-            >
-              {activeModel.name.replace('Prism ', '')}
-            </span>
-            <ChevronRight
-              size={15}
+              }}
               className={clsx(
-                'transition-transform duration-200',
-                isModelSelectorOpen && 'rotate-90'
+                'flex h-10 shrink-0 items-center gap-2 rounded-[16px] border px-3 text-sm font-semibold transition-all duration-200',
+                isModelSelectorOpen
+                  ? 'border-accent-primary/35 bg-[#251b2d] text-accent-primary'
+                  : 'border-white/[0.08] bg-[#1e2026] text-text-secondary hover:bg-[#25272e] hover:text-text-primary'
               )}
-            />
-          </button>
+            >
+              <Command size={15} />
+              <span
+                className={activeModel.id === 'prism-5' ? 'prism-top-gradient' : 'text-text-primary'}
+              >
+                {activeModel.name.replace('Prism ', '')}
+              </span>
+              <ChevronRight
+                size={15}
+                className={clsx(
+                  'transition-transform duration-200',
+                  isModelSelectorOpen && 'rotate-90'
+                )}
+              />
+            </button>
+          ) : (
+            <div className="flex h-10 shrink-0 items-center gap-2 rounded-[16px] border border-white/[0.08] bg-[#1e2026] px-3 text-sm font-semibold text-text-secondary select-none">
+              <Sparkles size={15} className="text-accent-secondary animate-pulse" />
+              <span>Prism 4</span>
+            </div>
+          )}
 
+          {/* Input field */}
           <form onSubmit={handleSubmit} className="relative z-10 flex-1">
             <input
               ref={inputRef}
@@ -408,11 +721,8 @@ export function QuickLauncher(): React.JSX.Element {
               autoFocus
               value={query}
               onChange={(e) => {
-                const val = e.target.value
-                setQuery(val)
-                if (val.startsWith('/')) {
-                  setSlashSelectedIndex(0)
-                }
+                setQuery(e.target.value)
+                setSelectedIndex(0)
               }}
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
@@ -425,7 +735,9 @@ export function QuickLauncher(): React.JSX.Element {
                       ? 'Search the web'
                       : isThinkMode
                         ? 'Think with Prism'
-                        : 'What should Prism do?'
+                        : quickLauncherMode === 'simple'
+                          ? 'Pergunte à IA rápida ou busque arquivos/apps...'
+                          : 'What should Prism do?'
               }
               className={clsx(
                 'w-full border-none bg-transparent text-[22px] font-medium outline-none transition-colors duration-200 placeholder:text-text-muted',
@@ -442,13 +754,14 @@ export function QuickLauncher(): React.JSX.Element {
             />
           </form>
 
+          {/* Indicators badges */}
           {activeBadges.length > 0 && (
             <div
               className={clsx(
                 'relative z-10 flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[16px] border px-2',
                 isSearchAndThinkMode
-                  ? 'border-transparent bg-gradient-to-r from-accent-secondary/[0.13] to-status-warning/[0.15] text-[#d9c77a]'
-                  : 'border-current/20 bg-current/[0.08]'
+                  ? 'border-transparent bg-gradient-to-r from-[#10221c] to-[#221d10] text-[#d9c77a]'
+                  : 'border-white/[0.15] bg-[#22242d]'
               )}
             >
               {activeBadges.map((badge) =>
@@ -464,46 +777,200 @@ export function QuickLauncher(): React.JSX.Element {
           )}
         </div>
 
-        {showSlashMenu && (
-          <div className="premium-panel-soft absolute left-0 top-[calc(100%+12px)] z-50 w-80 overflow-hidden rounded-[24px] animate-soft-pop">
+        {/* Suggestion list panel (When chat overlay is NOT open) */}
+        {unifiedSuggestions.length > 0 && !isMiniChatOpen && (
+          <div className="premium-panel-soft absolute left-0 top-[calc(100%+12px)] z-50 w-full overflow-hidden rounded-[24px] animate-soft-pop max-h-[300px] overflow-y-auto">
             <div className="border-b border-white/[0.055] px-4 py-3 text-xs font-semibold text-text-secondary/70">
-              Slash commands
+              Resultados e Comandos Sugeridos
             </div>
             <div className="py-1">
-              {filteredCommands.map((c, i) => (
+              {unifiedSuggestions.map((item, i) => (
                 <button
-                  key={c.cmd}
-                  onClick={() => handleCommandAction(c.cmd)}
-                  onMouseEnter={() => setSlashSelectedIndex(i)}
+                  key={i}
+                  onClick={() => handleSuggestionAction(item)}
+                  onMouseEnter={() => setSelectedIndex(i)}
                   className={clsx(
-                    'flex w-full items-center gap-3 px-4 py-3 text-sm transition-colors',
-                    slashSelectedIndex === i
-                      ? 'bg-white/[0.065] text-text-primary'
-                      : 'text-text-secondary hover:bg-white/[0.04]'
+                    'flex w-full items-center justify-between px-4 py-3 text-sm transition-colors text-left',
+                    selectedIndex === i
+                      ? 'bg-[#202127] text-text-primary'
+                      : 'text-text-secondary hover:bg-[#1a1b21]'
                   )}
                 >
-                  <span
-                    className={clsx(
-                      'flex h-8 w-8 items-center justify-center rounded-2xl',
-                      c.cmd === '/youtube'
-                        ? 'bg-accent-primary/[0.12] text-accent-primary'
-                        : c.cmd === '/subagents'
-                          ? 'bg-accent-primary/[0.12] text-accent-primary'
-                          : 'bg-accent-secondary/[0.12] text-accent-secondary'
-                    )}
-                  >
-                    {c.cmd === '/youtube' ? (
-                      <CirclePlay size={16} />
-                    ) : c.cmd === '/subagents' ? (
-                      <Bot size={16} />
-                    ) : (
-                      <Search size={16} />
-                    )}
-                  </span>
-                  <span className="font-semibold text-text-primary">{c.cmd}</span>
-                  <span className="text-xs text-text-secondary/70">{c.desc}</span>
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={clsx(
+                        'flex h-8 w-8 items-center justify-center rounded-2xl',
+                        item.type === 'math'
+                          ? 'bg-[#10221c] text-accent-secondary'
+                          : item.type === 'command'
+                            ? 'bg-[#251414] text-accent-primary'
+                            : item.type === 'app'
+                              ? 'bg-[#251414] text-accent-primary'
+                              : 'bg-[#22242d] text-text-secondary'
+                      )}
+                    >
+                      {item.type === 'math' ? (
+                        <Calculator size={16} />
+                      ) : item.type === 'command' ? (
+                        <Command size={16} />
+                      ) : item.type === 'app' ? (
+                        <AppWindow size={16} />
+                      ) : (
+                        <FileCode size={16} />
+                      )}
+                    </span>
+                    <div>
+                      <span className="font-semibold text-text-primary block leading-tight">
+                        {item.label}
+                      </span>
+                      <span className="text-xs text-text-secondary/70 leading-none">
+                        {item.desc}
+                      </span>
+                    </div>
+                  </div>
+                  {selectedIndex === i && (
+                    <ArrowRight size={15} className="text-text-muted shrink-0" />
+                  )}
                 </button>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Mini-Chat Overlay (Simple Mode Only) */}
+        {quickLauncherMode === 'simple' && isMiniChatOpen && (
+          <div className="premium-panel-soft absolute left-0 top-[calc(100%+12px)] z-50 w-full overflow-hidden rounded-[28px] animate-soft-pop flex flex-col h-[400px] border border-white/[0.06]">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-white/[0.055] px-6 py-4 bg-[#18191f]">
+              <div className="flex items-center gap-2">
+                <MessageSquare size={16} className="text-accent-secondary" />
+                <span className="text-sm font-semibold text-text-primary">Prism Launcher Chat</span>
+              </div>
+              <button
+                onClick={() => {
+                  setLauncherMessages([])
+                  setIsMiniChatOpen(false)
+                  window.api.clearLauncherChat()
+                }}
+                className="text-xs text-text-secondary/60 hover:text-text-primary transition-colors px-2 py-1 rounded-lg hover:bg-[#25272e]"
+              >
+                Limpar
+              </button>
+            </div>
+            {/* Chat Messages Log */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {launcherMessages.map((msg, i) => (
+                <div key={i} className="flex flex-col gap-2 relative">
+                  {msg.role === 'user' ? (
+                    <div className="flex flex-col max-w-[85%] rounded-[20px] px-4 py-3 text-sm leading-relaxed font-normal shadow-md ml-auto bg-[#1b2c27] text-text-primary rounded-tr-sm border border-accent-secondary/20">
+                      {msg.content}
+                    </div>
+                  ) : (
+                    <div className={clsx(
+                      "flex flex-col max-w-[85%] rounded-[20px] rounded-tl-sm border border-white/[0.04] shadow-md px-4 py-3 text-sm leading-relaxed font-normal bg-[#191a20] text-text-primary prose prose-invert",
+                      msg.isError && "bg-[#2d1b1c] text-status-error border border-status-error/25"
+                    )}>
+                      {/* Thought Section (details field just like App.tsx) */}
+                      {(msg.isThinking || msg.thoughts) && (
+                        <div className="w-full mb-3">
+                          <details
+                            className={clsx(
+                              'group w-full overflow-hidden rounded-[20px] border transition-all duration-300 bubble-glow',
+                              msg.isThinking
+                                ? 'border-accent-secondary/30 bg-accent-secondary/[0.045]'
+                                : 'border-white/[0.08] bg-white/[0.035]'
+                            )}
+                          >
+                            <summary
+                              className={clsx(
+                                'flex cursor-pointer list-none items-center px-4 py-2.5 font-mono text-[10px] font-semibold transition-colors',
+                                msg.isThinking
+                                  ? 'text-accent-secondary'
+                                  : 'text-text-secondary/75 hover:text-text-primary/90'
+                              )}
+                            >
+                              <span className="flex items-center gap-2">
+                                {msg.isThinking && <LoadingDots size="xs" />}
+                                {(() => {
+                                  const outlineMatches = Array.from(
+                                    (msg.thoughts || '').matchAll(/\*\*(.*?)\*\*/g)
+                                  )
+                                  if (outlineMatches.length > 0) {
+                                    return outlineMatches[outlineMatches.length - 1][1]
+                                  }
+                                  return 'Thinking'
+                                })()}
+                              </span>
+                            </summary>
+                            <div
+                              className={clsx(
+                                'mx-2 mb-2 rounded-[12px] border px-3 py-2 font-mono text-[10.5px] leading-relaxed opacity-0 transition-all duration-500 group-open:opacity-100',
+                                msg.isThinking
+                                  ? 'border-accent-secondary/20 bg-accent-secondary/[0.035] text-accent-secondary/80'
+                                  : 'border-white/[0.055] bg-black/10 text-text-secondary/80'
+                              )}
+                            >
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {msg.thoughts || ''}
+                              </ReactMarkdown>
+                            </div>
+                          </details>
+                        </div>
+                      )}
+
+                      {/* Content rendering: split by tool call and mini-app tags to render inline */}
+                      {(() => {
+                        const parts = msg.content.split(/(<tool_call>[\s\S]*?<\/tool_call>|<mini_app>[\s\S]*?<\/mini_app>)/g)
+                        let toolCallIndex = 0
+                        return parts.map((part, index) => {
+                          if (part.startsWith('<tool_call>')) {
+                            if (part.includes('</tool_call>')) {
+                              const tc = msg.toolCalls?.[toolCallIndex]
+                              toolCallIndex++
+                              if (tc) {
+                                return <ActionLoader key={`tc-${index}`} toolCall={tc} />
+                              }
+                            }
+                            return null
+                          } else if (part.trim() !== '') {
+                            return (
+                              <div key={`text-${index}`} className="prose prose-invert max-w-none">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                  {part}
+                                </ReactMarkdown>
+                              </div>
+                            )
+                          }
+                          return null
+                        })
+                      })()}
+
+                      {msg.isWritingToolCall && (
+                        <ActionLoader
+                          key="writing-tc"
+                          toolCall={{
+                            name: msg.toolType || 'task',
+                            status: 'writing',
+                            args: {}
+                          }}
+                        />
+                      )}
+
+                      {msg.isStreaming && !msg.isThinking && !msg.isWritingToolCall && (
+                        <span className="text-accent-secondary animate-pulse font-bold text-base mt-1">▋</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Footer / Input info */}
+            <div className="px-6 py-3 bg-[#15161b] border-t border-white/[0.04] text-[11px] text-text-secondary/50 flex justify-between items-center">
+              <span>Pressione Enter para enviar inline</span>
+              <span>Modo Simples (Prism 4)</span>
             </div>
           </div>
         )}

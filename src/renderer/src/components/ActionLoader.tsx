@@ -16,7 +16,8 @@ import {
   ChevronDown,
   CirclePlay,
   FileText,
-  AppWindow
+  AppWindow,
+  Settings
 } from 'lucide-react'
 
 export interface ToolCall {
@@ -139,6 +140,15 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
     displayTitle = 'Orchestrating Agents'
     displayDetail = 'Coordinating parallel work.'
     tone = 'think'
+  } else if (toolCall.name === 'configure_prism') {
+    displayTitle = 'Configuring Prism'
+    const changedArgs = Object.keys(toolCall.args).filter(
+      (key) => toolCall.args[key] !== undefined && toolCall.args[key] !== ''
+    )
+    displayDetail = changedArgs.length > 0
+      ? `Updating: ${changedArgs.join(', ')}`
+      : 'Applying application settings.'
+    tone = 'think'
   }
 
   const isDone =
@@ -178,6 +188,7 @@ export function ActionLoader({ toolCall }: ActionLoaderProps): React.JSX.Element
     if (toolCall.name === 'list_installed_applications') return <List size={16} />
     if (toolCall.name.startsWith('computer_use_')) return <HardDrive size={16} />
     if (toolCall.name === 'saw_link_from_url') return <FileText size={16} />
+    if (toolCall.name === 'configure_prism') return <Settings size={16} className="animate-slow-pulse" />
     return <Loader2 size={16} className="animate-spin" />
   }
 

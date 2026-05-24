@@ -8,6 +8,8 @@ export interface AppConfig {
   defaultModel: string
   subagentModel: string
   minimizeToTray: boolean
+  autoLaunch: boolean
+  quickLauncherMode?: 'simple' | 'advanced'
   userGeminiKey?: string
   envGeminiKey?: string
   username?: string
@@ -19,6 +21,8 @@ const DEFAULT_CONFIG: AppConfig = {
   defaultModel: 'prism-5',
   subagentModel: 'prism-4.2',
   minimizeToTray: false,
+  autoLaunch: false,
+  quickLauncherMode: 'simple',
   userGeminiKey: ''
 }
 

@@ -152,6 +152,24 @@ const api = {
   loadChat: (id: string): Promise<Content[]> => ipcRenderer.invoke('load-chat', id),
   deleteChat: (id: string): Promise<boolean> => ipcRenderer.invoke('delete-chat', id),
   getRunningChats: (): Promise<string[]> => ipcRenderer.invoke('get-running-chats'),
+  setThinkMode: (val: boolean): void => ipcRenderer.send('set-think-mode', val),
+  setSearchEnabled: (val: boolean): void => ipcRenderer.send('set-search-enabled', val),
+  setExtendedSearch: (val: boolean): void => ipcRenderer.send('set-extended-search', val),
+  onThinkModeChanged: (callback: (val: boolean) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, val: boolean): void => callback(val)
+    ipcRenderer.on('think-mode-changed', listener)
+    return () => ipcRenderer.removeListener('think-mode-changed', listener)
+  },
+  onSearchEnabledChanged: (callback: (val: boolean) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, val: boolean): void => callback(val)
+    ipcRenderer.on('search-enabled-changed', listener)
+    return () => ipcRenderer.removeListener('search-enabled-changed', listener)
+  },
+  onExtendedSearchChanged: (callback: (val: boolean) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, val: boolean): void => callback(val)
+    ipcRenderer.on('extended-search-changed', listener)
+    return () => ipcRenderer.removeListener('extended-search-changed', listener)
+  },
   removeLauncherListeners: (): void => {
     ipcRenderer.removeAllListeners('launcher-message')
     ipcRenderer.removeAllListeners('launcher-focus')
@@ -168,6 +186,90 @@ const api = {
     ipcRenderer.removeAllListeners('launcher-focus')
     ipcRenderer.removeAllListeners('model-changed')
     ipcRenderer.removeAllListeners('config-changed')
+    ipcRenderer.removeAllListeners('think-mode-changed')
+    ipcRenderer.removeAllListeners('search-enabled-changed')
+    ipcRenderer.removeAllListeners('extended-search-changed')
+  },
+  launcherGetApps: (): Promise<any[]> => ipcRenderer.invoke('launcher-get-apps'),
+  launcherSearchFiles: (query: string): Promise<any[]> => ipcRenderer.invoke('launcher-search-files', query),
+  launcherOpenApp: (appPath: string): Promise<string> => ipcRenderer.invoke('launcher-open-app', appPath),
+  launcherOpenFile: (filePath: string): Promise<string> => ipcRenderer.invoke('launcher-open-file', filePath),
+  sendLauncherChatMessage: (data: { message: string; thinkMode?: boolean }): void =>
+    ipcRenderer.send('launcher-chat-message', data),
+  clearLauncherChat: (): void => ipcRenderer.send('launcher-chat-clear'),
+  onLauncherReplyStart: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('launcher-reply-start', listener)
+    return () => ipcRenderer.removeListener('launcher-reply-start', listener)
+  },
+  onLauncherReplyChunk: (
+    callback: (data: {
+      thoughts: string
+      finalResponse: string
+      isThinking: boolean
+      isWritingToolCall?: boolean
+      toolType?: 'task' | 'search' | 'mini-app'
+    }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: {
+        thoughts: string
+        finalResponse: string
+        isThinking: boolean
+        isWritingToolCall?: boolean
+        toolType?: 'task' | 'search' | 'mini-app'
+      }
+    ): void => callback(data)
+    ipcRenderer.on('launcher-reply-chunk', listener)
+    return () => ipcRenderer.removeListener('launcher-reply-chunk', listener)
+  },
+  onLauncherReplyEnd: (
+    callback: (data: { thoughts: string; finalResponse: string }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: { thoughts: string; finalResponse: string }
+    ): void => callback(data)
+    ipcRenderer.on('launcher-reply-end', listener)
+    return () => ipcRenderer.removeListener('launcher-reply-end', listener)
+  },
+  onLauncherReplyError: (callback: (data: { error: string }) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: { error: string }): void => callback(data)
+    ipcRenderer.on('launcher-reply-error', listener)
+    return () => ipcRenderer.removeListener('launcher-reply-error', listener)
+  },
+  onLauncherToolStart: (callback: (data: { name: string; args: any }) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: { name: string; args: any }): void => callback(data)
+    ipcRenderer.on('launcher-tool-start', listener)
+    return () => ipcRenderer.removeListener('launcher-tool-start', listener)
+  },
+  onLauncherToolEnd: (callback: (data: { name: string; result: string }) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: { name: string; result: string }): void => callback(data)
+    ipcRenderer.on('launcher-tool-end', listener)
+    return () => ipcRenderer.removeListener('launcher-tool-end', listener)
+  },
+  onOpenMainAppWithInstructions: (
+    callback: (data: {
+      instructions: string
+      model: string
+      thinkMode?: boolean
+      searchEnabled?: boolean
+      extendedSearch?: boolean
+    }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: {
+        instructions: string
+        model: string
+        thinkMode?: boolean
+        searchEnabled?: boolean
+        extendedSearch?: boolean
+      }
+    ): void => callback(data)
+    ipcRenderer.on('open-main-app-with-instructions', listener)
+    return () => ipcRenderer.removeListener('open-main-app-with-instructions', listener)
   }
 }
 

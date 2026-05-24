@@ -3,7 +3,7 @@ export interface ToolDefinition {
   description: string
   usage: string
   parameters: Record<string, string>
-  target?: 'main' | 'subagent' | 'both'
+  target?: 'main' | 'subagent' | 'both' | 'launcher'
 }
 
 export const toolsManifest: ToolDefinition[] = [
@@ -240,6 +240,35 @@ export const toolsManifest: ToolDefinition[] = [
       '<tool_call>\n{\n  "type": "search_chat_history",\n  "query": "KEYWORDS"\n}\n</tool_call>',
     parameters: {
       query: 'Comma-separated keywords to search in history (e.g., "keyword1, keyword2").'
+    }
+  },
+  {
+    name: 'open_main_app',
+    description: 'Opens the main application window, starts a new clean chat session, and sends instructions to be executed using a specific Prism model. Use this tool if you need terminal execution, filesystem access, subagents, or if you need to generate Rich Markdown dashboards, profile cards, etc.',
+    usage: '<tool_call>\n{\n  "type": "open_main_app",\n  "instructions": "Task descriptions",\n  "model": "prism-5|prism-4.3|prism-4.2",\n  "thinkMode": "true|false",\n  "searchEnabled": "true|false",\n  "extendedSearch": "true|false"\n}\n</tool_call>',
+    parameters: {
+      instructions: 'The target instructions for the main assistant to execute.',
+      model: 'The model key to use for the main chat session (e.g. prism-5, prism-4.3, prism-4.2).',
+      thinkMode: 'Optional: Set to "true" to enable thinking mode in the main app.',
+      searchEnabled: 'Optional: Set to "true" to enable web search in the main app.',
+      extendedSearch: 'Optional: Set to "true" to enable deep research / extended web search in the main app.'
+    },
+    target: 'launcher'
+  },
+  {
+    name: 'configure_prism',
+    description: 'Configures the Prism application settings. Any combination of parameters can be specified to customize shortcuts, models, window behaviors, user personal details, and API keys.',
+    usage: '<tool_call>\n{\n  "type": "configure_prism",\n  "launcherShortcut": "Shortcut",\n  "modelSelectionShortcut": "Shortcut",\n  "defaultModel": "prism-5|prism-4.3|prism-4.2|prism-4.1|prism-4",\n  "subagentModel": "prism-5|prism-4.3|prism-4.2|prism-4.1|prism-4",\n  "minimizeToTray": "true|false",\n  "autoLaunch": "true|false",\n  "quickLauncherMode": "simple|advanced",\n  "userGeminiKey": "API_KEY",\n  "username": "Name"\n}\n</tool_call>',
+    parameters: {
+      launcherShortcut: 'Optional: Global shortcut to open/close launcher (e.g., CommandOrControl+Space).',
+      modelSelectionShortcut: 'Optional: Global shortcut to open/close model selection dialog.',
+      defaultModel: 'Optional: Default main chat model (prism-5, prism-4.3, prism-4.2, prism-4.1, prism-4).',
+      subagentModel: 'Optional: Default subagent model (prism-5, prism-4.3, prism-4.2, prism-4.1, prism-4).',
+      minimizeToTray: 'Optional: Minimize window to system tray when closed (true/false).',
+      autoLaunch: 'Optional: Start application automatically on system login (true/false).',
+      quickLauncherMode: 'Optional: Quick launcher screen mode (simple/advanced).',
+      userGeminiKey: 'Optional: Custom user Google Gemini API Key.',
+      username: 'Optional: Custom username for personalization.'
     }
   }
 ]

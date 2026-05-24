@@ -19,6 +19,8 @@ interface Config {
   defaultModel: string
   subagentModel: string
   minimizeToTray: boolean
+  autoLaunch: boolean
+  quickLauncherMode: 'simple' | 'advanced'
   userGeminiKey: string
   username?: string
 }
@@ -30,6 +32,8 @@ export function SettingsView(): React.JSX.Element {
     defaultModel: 'prism-5',
     subagentModel: 'prism-4.2',
     minimizeToTray: false,
+    autoLaunch: false,
+    quickLauncherMode: 'simple',
     userGeminiKey: ''
   })
   const [isSaving, setIsSaving] = useState(false)
@@ -41,6 +45,8 @@ export function SettingsView(): React.JSX.Element {
       if (savedConfig) {
         setConfig({
           ...savedConfig,
+          autoLaunch: savedConfig.autoLaunch ?? false,
+          quickLauncherMode: savedConfig.quickLauncherMode ?? 'simple',
           userGeminiKey: savedConfig.userGeminiKey || ''
         })
       }
@@ -69,6 +75,8 @@ export function SettingsView(): React.JSX.Element {
       defaultModel: 'prism-5',
       subagentModel: 'prism-4.2',
       minimizeToTray: false,
+      autoLaunch: false,
+      quickLauncherMode: 'simple',
       userGeminiKey: ''
     })
   }
@@ -264,6 +272,38 @@ export function SettingsView(): React.JSX.Element {
           <div className="space-y-4">
             <div className="flex items-center justify-between rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-4">
               <div className="flex flex-col gap-1">
+                <span className="text-sm font-bold text-text-primary">Modelo de IA do Quick Search</span>
+                <span className="text-xs text-text-secondary/70 leading-tight">
+                  Simples (IA integrada Prism 4 flutuante) ou Avançado (Abre o chat in-app direto).
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfig({ ...config, quickLauncherMode: 'simple' })}
+                  className={clsx(
+                    'rounded-xl px-4 py-2 text-xs font-semibold border transition-all duration-200 active:scale-[0.98]',
+                    config.quickLauncherMode === 'simple'
+                      ? 'border-accent-primary bg-accent-primary/10 text-accent-primary'
+                      : 'border-white/10 bg-white/[0.03] text-text-secondary hover:bg-white/[0.06]'
+                  )}
+                >
+                  Simples
+                </button>
+                <button
+                  onClick={() => setConfig({ ...config, quickLauncherMode: 'advanced' })}
+                  className={clsx(
+                    'rounded-xl px-4 py-2 text-xs font-semibold border transition-all duration-200 active:scale-[0.98]',
+                    config.quickLauncherMode === 'advanced'
+                      ? 'border-accent-primary bg-accent-primary/10 text-accent-primary'
+                      : 'border-white/10 bg-white/[0.03] text-text-secondary hover:bg-white/[0.06]'
+                  )}
+                >
+                  Avançado
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center justify-between rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-4">
+              <div className="flex flex-col gap-1">
                 <span className="text-sm font-bold text-text-primary">Minimize to Tray</span>
                 <span className="text-xs text-text-secondary/70 leading-tight">
                   When clicking close, Prism will continue running in the system tray.
@@ -282,6 +322,31 @@ export function SettingsView(): React.JSX.Element {
                   className={clsx(
                     'h-5 w-5 rounded-full bg-white shadow-md transition-all duration-200',
                     config.minimizeToTray ? 'translate-x-5' : 'translate-x-0'
+                  )}
+                />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-4">
+              <div className="flex flex-col gap-1">
+                <span className="text-sm font-bold text-text-primary">Start on Login</span>
+                <span className="text-xs text-text-secondary/70 leading-tight">
+                  Automatically start Prism when you sign in to your computer.
+                </span>
+              </div>
+              <button
+                onClick={() => setConfig({ ...config, autoLaunch: !config.autoLaunch })}
+                role="switch"
+                aria-checked={config.autoLaunch}
+                className={clsx(
+                  'relative flex h-7 w-12 items-center rounded-full px-1 transition-all duration-200 hover:opacity-90',
+                  config.autoLaunch ? 'bg-accent-primary' : 'bg-white/[0.12]'
+                )}
+              >
+                <div
+                  className={clsx(
+                    'h-5 w-5 rounded-full bg-white shadow-md transition-all duration-200',
+                    config.autoLaunch ? 'translate-x-5' : 'translate-x-0'
                   )}
                 />
               </button>

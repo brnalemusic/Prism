@@ -432,11 +432,35 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                   </div>
                 </button>
 
-                {isSearchEnabled && (
+                <button
+                  onClick={() => {
+                    setText('/youtube ')
+                    setIsSearchEnabled(false)
+                    setIsExtendedSearch(false)
+                    setShowSearchDropdown(false)
+                    setTimeout(() => inputRef.current?.focus(), 50)
+                  }}
+                  className={clsx(
+                    'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2.5 transition-all text-left mt-1',
+                    isYoutubeMode
+                      ? 'bg-accent-primary/[0.12] text-accent-primary border border-accent-primary/20'
+                      : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
+                  )}
+                >
+                  <div className="font-semibold text-xs text-text-primary">YouTube</div>
+                  <div className="text-[10px] text-text-secondary/70 leading-normal font-medium">
+                    Search for videos in YouTube with AI and open in your Browser
+                  </div>
+                </button>
+
+                {(isSearchEnabled || isYoutubeMode) && (
                   <button
                     onClick={() => {
                       setIsSearchEnabled(false)
                       setIsExtendedSearch(false)
+                      if (isYoutubeMode) {
+                        setText(text.replace(/^\/youtube\s*/i, ''))
+                      }
                       setShowSearchDropdown(false)
                     }}
                     className="w-full mt-2 rounded-xl px-3 py-2 text-xs font-semibold text-center text-status-error hover:bg-status-error/[0.08] transition-all border border-transparent hover:border-status-error/10"
@@ -744,11 +768,35 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 </div>
               </button>
 
-              {isSearchEnabled && (
+              <button
+                onClick={() => {
+                  setText('/youtube ')
+                  setIsSearchEnabled(false)
+                  setIsExtendedSearch(false)
+                  setShowSearchDropdown(false)
+                  setTimeout(() => inputRef.current?.focus(), 50)
+                }}
+                className={clsx(
+                  'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2.5 transition-all text-left mt-1',
+                  isYoutubeMode
+                    ? 'bg-accent-primary/[0.12] text-accent-primary border border-accent-primary/20'
+                    : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
+                )}
+              >
+                <div className="font-semibold text-xs text-text-primary">YouTube</div>
+                <div className="text-[10px] text-text-secondary/70 leading-normal font-medium">
+                  Search for videos in YouTube with AI and open in your Browser
+                </div>
+              </button>
+
+              {(isSearchEnabled || isYoutubeMode) && (
                 <button
                   onClick={() => {
                     setIsSearchEnabled(false)
                     setIsExtendedSearch(false)
+                    if (isYoutubeMode) {
+                      setText(text.replace(/^\/youtube\s*/i, ''))
+                    }
                     setShowSearchDropdown(false)
                   }}
                   className="w-full mt-2 rounded-xl px-3 py-2 text-xs font-semibold text-center text-status-error hover:bg-status-error/[0.08] transition-all border border-transparent hover:border-status-error/10"

@@ -27,6 +27,7 @@ import {
   computerReadFile
 } from './systemTools'
 import { saveChatSession, loadChatSession, searchChatHistory } from './history'
+import { loadConfig, saveConfig } from './config'
 
 // Load environment variables from .env
 dotenv.config({ path: path.join(__dirname, '../../.env') })
@@ -110,6 +111,8 @@ function getModelFriendlyName(modelKey: string): string {
 
 // Persistent history in memory for the current session
 let chatHistory: Content[] = []
+let launcherChatHistory: Content[] = []
+export let launcherAbortController: AbortController | null = null
 let currentSessionId: string = Date.now().toString()
 
 export interface ActiveRun {
@@ -144,6 +147,20 @@ interface ToolArgs extends Record<string, string | undefined> {
   destinationPath?: string
   overwrite?: string
   quantity?: string
+  launcherShortcut?: string
+  modelSelectionShortcut?: string
+  defaultModel?: string
+  subagentModel?: string
+  minimizeToTray?: string
+  autoLaunch?: string
+  quickLauncherMode?: string
+  userGeminiKey?: string
+  username?: string
+  instructions?: string
+  model?: string
+  thinkMode?: string
+  searchEnabled?: string
+  extendedSearch?: string
 }
 
 const RAW_TOOL_ARG_TAGS = new Set(['command', 'content', 'oldText', 'newText'])
@@ -479,12 +496,111 @@ const toolFunctions: Record<
   run_subagents: (args, event, apiKey, signal, chatId) =>
     runSubagents(args, event, apiKey, signal, chatId),
   search_chat_history: (args) => searchChatHistory(args.query || ''),
+  open_main_app: async (args, _event) => {
+    const { BrowserWindow } = require('electron')
+    const instructions = args.instructions || ''
+    const model = args.model || 'prism-5'
+    const thinkMode = String(args.thinkMode).trim().toLowerCase() === 'true'
+    const searchEnabled = String(args.searchEnabled).trim().toLowerCase() === 'true'
+    const extendedSearch = String(args.extendedSearch).trim().toLowerCase() === 'true'
+    
+    // Find and hide launcher
+    const launcherWin = BrowserWindow.getAllWindows().find((win) => win.getURL().includes('#launcher'))
+    if (launcherWin) {
+      launcherWin.hide()
+    }
+    
+    // Find and focus main window
+    const mainWin = BrowserWindow.getAllWindows().find((win) => {
+      const url = win.getURL()
+      return !url.includes('#launcher') && !url.includes('#subagents') && !url.includes('#subagent-settings') && !url.includes('#mini-app')
+    })
+    
+    if (mainWin) {
+      if (mainWin.isMinimized()) mainWin.restore()
+      mainWin.show()
+      mainWin.focus()
+      mainWin.webContents.send('open-main-app-with-instructions', {
+        instructions,
+        model,
+        thinkMode,
+        searchEnabled,
+        extendedSearch
+      })
+    }
+    
+    return 'Main app opened successfully with instructions.'
+  },
   // Group Chat tools (handled internally within runSubagents)
   send_group_message: async () => 'Error: send_group_message can only be used by sub-agents.',
   read_group_messages: async () => 'Error: read_group_messages can only be used by sub-agents.',
   wait_for_updates: async () => 'Error: wait_for_updates can only be used by sub-agents.',
   agent_message: async () => 'Error: agent_message is deprecated. Use send_group_message.',
-  agent_wait: async () => 'Error: agent_wait is deprecated. Use wait_for_updates.'
+  agent_wait: async () => 'Error: agent_wait is deprecated. Use wait_for_updates.',
+  configure_prism: async (args) => {
+    try {
+      const { ipcMain } = require('electron')
+      const config = loadConfig()
+      const changed: string[] = []
+
+      if (args.launcherShortcut !== undefined && args.launcherShortcut !== '') {
+        config.launcherShortcut = args.launcherShortcut
+        changed.push(`launcherShortcut: "${args.launcherShortcut}"`)
+      }
+      if (args.modelSelectionShortcut !== undefined && args.modelSelectionShortcut !== '') {
+        config.modelSelectionShortcut = args.modelSelectionShortcut
+        changed.push(`modelSelectionShortcut: "${args.modelSelectionShortcut}"`)
+      }
+      if (args.defaultModel !== undefined && args.defaultModel !== '') {
+        config.defaultModel = args.defaultModel
+        setGeminiModel(args.defaultModel)
+        changed.push(`defaultModel: "${args.defaultModel}"`)
+      }
+      if (args.subagentModel !== undefined && args.subagentModel !== '') {
+        config.subagentModel = args.subagentModel
+        setSubagentModel(args.subagentModel)
+        changed.push(`subagentModel: "${args.subagentModel}"`)
+      }
+      if (args.minimizeToTray !== undefined && args.minimizeToTray !== '') {
+        config.minimizeToTray = /^(true|1|yes|y)$/i.test(args.minimizeToTray.trim())
+        changed.push(`minimizeToTray: ${config.minimizeToTray}`)
+      }
+      if (args.autoLaunch !== undefined && args.autoLaunch !== '') {
+        config.autoLaunch = /^(true|1|yes|y)$/i.test(args.autoLaunch.trim())
+        changed.push(`autoLaunch: ${config.autoLaunch}`)
+      }
+      if (args.quickLauncherMode !== undefined && args.quickLauncherMode !== '') {
+        if (args.quickLauncherMode === 'simple' || args.quickLauncherMode === 'advanced') {
+          config.quickLauncherMode = args.quickLauncherMode
+          changed.push(`quickLauncherMode: "${args.quickLauncherMode}"`)
+        }
+      }
+      if (args.userGeminiKey !== undefined && args.userGeminiKey !== '') {
+        config.userGeminiKey = args.userGeminiKey
+        setUserApiKey(args.userGeminiKey)
+        changed.push('userGeminiKey: "[UPDATED]"')
+      }
+      if (args.username !== undefined && args.username !== '') {
+        config.username = args.username
+        changed.push(`username: "${args.username}"`)
+      }
+
+      if (changed.length === 0) {
+        return 'No settings provided to configure.'
+      }
+
+      const success = saveConfig(config)
+      if (success) {
+        // Emit to main process so it updates currentConfig and shortcut registration
+        ipcMain.emit('update-config-from-tools', null, config)
+        return `Successfully configured Prism settings:\n${changed.map((c) => `- ${c}`).join('\n')}`
+      } else {
+        return 'Error: Failed to save the updated settings.'
+      }
+    } catch (error) {
+      return `Error configuring Prism settings: ${error instanceof Error ? error.message : String(error)}`
+    }
+  }
 }
 
 interface GroupMessage {
@@ -1242,7 +1358,8 @@ User message: "${firstMessage}"`
       model: 'gemma-4-26b-a4b-it',
       contents: prompt,
       config: {
-        temperature: TITLE_GENERATION_TEMPERATURE
+        temperature: TITLE_GENERATION_TEMPERATURE,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: false }
       }
     })
     const fullTitle = (result.text || '').trim()
@@ -1597,7 +1714,6 @@ The user wants to search and play a video. Use web_search to find the most relev
           console.log(`Fallback activated: New model ${currentModelKey}`)
           continue // Try again with the new model (success remains false)
         } else {
-          // All models failed
           const errorMessage = error instanceof Error ? error.message : String(error)
           event.sender.send('chat-reply-error', { error: errorMessage, chatId })
           success = true // End the loop anyway
@@ -1608,3 +1724,260 @@ The user wants to search and play a video. Use web_search to find the most relev
     activeRuns.delete(chatId)
   }
 }
+
+/**
+ * Handles chat messages sent from the Quick Launcher mini-chat.
+ */
+export async function handleLauncherChatMessage(
+  event: IpcMainEvent,
+  data: string | { message: string; thinkMode?: boolean }
+): Promise<void> {
+  const message = typeof data === 'string' ? data : data.message
+  const thinkMode = typeof data === 'object' ? (data.thinkMode !== undefined ? !!data.thinkMode : true) : true
+
+  const apiKey = userApiKey || process.env.GEMINI_API_KEY
+  if (!apiKey || apiKey.trim() === '' || apiKey === 'your_api_key_here') {
+    event.sender.send('launcher-reply-error', { error: 'API_KEY_MISSING' })
+    return
+  }
+
+  // Cancel any active run for the launcher
+  if (launcherAbortController) {
+    launcherAbortController.abort()
+  }
+
+  const runAbortController = new AbortController()
+  launcherAbortController = runAbortController
+
+  const launcherModelKey = 'prism-4' // Always uses Prism 4 by default for launcher chat
+  
+  if (launcherChatHistory.length === 0) {
+    launcherChatHistory = [
+      {
+        role: 'system',
+        parts: [{ text: getSystemToolsPrompt(launcherModelKey, 'launcher', false) }]
+      },
+      {
+        role: 'system',
+        parts: [
+          {
+            text: 'Understood. I am Prism Launcher Chat. I will use only standard markdown for replies, and I will use only the web_search, saw_link_from_url, or open_main_app tools when necessary.'
+          }
+        ]
+      }
+    ]
+  }
+
+  launcherChatHistory.push({ role: 'user', parts: [{ text: message }] })
+
+  let success = false
+  event.sender.send('launcher-reply-start')
+
+  try {
+    while (!success) {
+      if (runAbortController.signal.aborted) {
+        event.sender.send('launcher-reply-error', { error: 'Cancelled by user.' })
+        success = true
+        return
+      }
+
+      try {
+        const config = {
+          ...(MODEL_CONFIGS[launcherModelKey] || MODEL_CONFIGS['prism-4'])
+        }
+
+        // Set Think Mode with ThinkingLevel.HIGH by default
+        if (thinkMode) {
+          config.thinkingConfig = { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: true }
+        } else {
+          config.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: false }
+        }
+        
+        const ai = new GoogleGenAI({ apiKey })
+
+        let accumulatedThoughts = ''
+        let accumulatedFinalResponse = ''
+        let iterationCount = 0
+        const MAX_ITERATIONS = 10
+
+        while (iterationCount < MAX_ITERATIONS) {
+          iterationCount++
+
+          if (runAbortController.signal.aborted) throw new Error('AbortError')
+
+          const result = await ai.models.generateContentStream({
+            model: config.apiModel,
+            contents: normalizeContentsForGemini(launcherChatHistory),
+            config: {
+              temperature: 0.7,
+              thinkingConfig: config.thinkingConfig,
+              abortSignal: runAbortController.signal
+            }
+          })
+
+          let currentThoughts = ''
+          let currentFinalResponse = ''
+          let isThinking = false
+
+          for await (const chunk of result) {
+            if (runAbortController.signal.aborted) throw new Error('AbortError')
+
+            const parts = chunk.candidates?.[0]?.content?.parts || []
+            for (const part of parts) {
+              if (part && typeof part === 'object' && 'thought' in part && part.thought) {
+                currentThoughts += part.text || ''
+                isThinking = true
+              } else if (part.text) {
+                currentFinalResponse += part.text
+                isThinking = false
+              }
+            }
+
+            if (currentThoughts || currentFinalResponse) {
+              const fullResponse = accumulatedFinalResponse + currentFinalResponse
+              const isWritingToolCall =
+                (fullResponse.includes('<tool_call>') && !fullResponse.includes('</tool_call>')) ||
+                (fullResponse.includes('<mini_app>') && !fullResponse.includes('</mini_app>'))
+
+              let toolType: 'task' | 'search' | 'mini-app' | undefined = undefined
+
+              if (isWritingToolCall) {
+                if (fullResponse.includes('<mini_app>')) {
+                  toolType = 'mini-app'
+                } else {
+                  const isSearch =
+                    fullResponse.includes('<name>web_search</name>') ||
+                    fullResponse.includes('<name>saw_link_from_url</name>')
+                  toolType = isSearch ? 'search' : 'task'
+                }
+              }
+
+              event.sender.send('launcher-reply-chunk', {
+                thoughts: (accumulatedThoughts + currentThoughts).trim(),
+                finalResponse: fullResponse.trim(),
+                isThinking,
+                isWritingToolCall,
+                toolType
+              })
+            }
+          }
+
+          const fullAiResponse = currentFinalResponse
+          if (fullAiResponse.trim()) {
+            launcherChatHistory.push({ role: 'model', parts: [{ text: fullAiResponse }] })
+          }
+
+          accumulatedThoughts += currentThoughts
+          accumulatedFinalResponse += currentFinalResponse
+
+          const toolMatches = extractToolCalls(fullAiResponse)
+
+          if (toolMatches.length > 0) {
+            let openMainAppCalled = false
+
+            const toolPromises = toolMatches.map(async (toolContent) => {
+              const { name, args: toolArgs } = parseToolCall(toolContent)
+
+              if (name && toolFunctions[name]) {
+                event.sender.send('launcher-tool-start', {
+                  name,
+                  args: toolArgs,
+                  timestamp: Date.now()
+                })
+
+                let toolResult = ''
+                try {
+                  const signal = runAbortController.signal
+                  if (signal?.aborted) throw new Error('AbortError')
+
+                  if (name === 'open_main_app') {
+                    if (toolArgs.thinkMode === undefined) {
+                      toolArgs.thinkMode = thinkMode ? 'true' : 'false'
+                    }
+                    if (toolArgs.searchEnabled === undefined) {
+                      toolArgs.searchEnabled = message.startsWith('[FORCE_SEARCH]') ? 'true' : 'false'
+                    }
+                    if (toolArgs.extendedSearch === undefined) {
+                      toolArgs.extendedSearch = message.startsWith('[FORCE_SEARCH]') ? 'true' : 'false'
+                    }
+                    openMainAppCalled = true
+                  }
+
+                  toolResult = await toolFunctions[name](toolArgs, event, apiKey, signal)
+                } catch (err) {
+                  if (
+                    runAbortController.signal.aborted ||
+                    (err instanceof Error &&
+                      (err.name === 'AbortError' || err.name === 'GoogleGenerativeAIAbortError'))
+                  ) {
+                    toolResult = 'Cancelled by user.'
+                    event.sender.send('launcher-tool-end', { name, result: toolResult })
+                    throw new Error('AbortError')
+                  }
+                  toolResult = `Error: ${err instanceof Error ? err.message : String(err)}`
+                }
+
+                event.sender.send('launcher-tool-end', { name, result: toolResult })
+                return `\n[RESULT FOR ${name}]:\n${toolResult}\n`
+              }
+              return ''
+            })
+
+            const results = await Promise.all(toolPromises)
+            const allToolResults = results.join('')
+
+            if (openMainAppCalled) {
+              success = true
+              launcherChatHistory = []
+              event.sender.send('launcher-reply-end', { thoughts: '', finalResponse: '' })
+              return
+            }
+
+            if (allToolResults) {
+              const systemFeedback = `[SYSTEM: TOOL RESULTS]${allToolResults}\nAnalyze these results and proceed. If the goal is achieved, finalize. If more steps are needed, use another tool.`
+              launcherChatHistory.push({ role: 'system', parts: [{ text: systemFeedback }] })
+              continue
+            }
+          }
+
+          event.sender.send('launcher-reply-end', {
+            thoughts: accumulatedThoughts.trim(),
+            finalResponse: accumulatedFinalResponse.trim()
+          })
+
+          success = true
+          return
+        }
+
+        success = true
+      } catch (error) {
+        if (
+          runAbortController.signal.aborted ||
+          (error instanceof Error &&
+            (error.name === 'AbortError' || error.name === 'GoogleGenerativeAIAbortError'))
+        ) {
+          event.sender.send('launcher-reply-error', { error: 'Cancelled by user.' })
+          success = true
+          return
+        }
+
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        event.sender.send('launcher-reply-error', { error: errorMessage })
+        success = true
+      }
+    }
+  } finally {
+    if (launcherAbortController === runAbortController) {
+      launcherAbortController = null
+    }
+  }
+}
+
+export function clearLauncherChat(): void {
+  launcherChatHistory = []
+  if (launcherAbortController) {
+    launcherAbortController.abort()
+    launcherAbortController = null
+  }
+}
+

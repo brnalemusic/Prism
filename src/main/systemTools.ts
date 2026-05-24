@@ -852,7 +852,7 @@ export async function webSearch(query: string, signal?: AbortSignal): Promise<st
  */
 export function getSystemToolsPrompt(
   modelKey: string,
-  target: 'main' | 'subagent' | 'both' = 'main',
+  target: 'main' | 'subagent' | 'both' | 'launcher' = 'main',
   extendedSearch: boolean = false
 ): string {
   const name = 'Prism AI'
@@ -866,7 +866,12 @@ export function getSystemToolsPrompt(
   const modelName = modelNames[modelKey] || 'Prism 4'
 
   const toolsPrompt = toolsManifest
-    .filter((t) => !t.target || t.target === 'both' || t.target === target)
+    .filter((t) => {
+      if (target === 'launcher') {
+        return t.name === 'web_search' || t.name === 'saw_link_from_url' || t.name === 'open_main_app'
+      }
+      return !t.target || t.target === 'both' || t.target === target
+    })
     .map((t) => {
       const p = Object.entries(t.parameters)
         .map(([k, d]) => `${k}:${d}`)
@@ -890,6 +895,26 @@ export function getSystemToolsPrompt(
     second: '2-digit'
   })
 
+  if (target === 'launcher') {
+    return `# Identity
+Role: Prism Mini-Chat (${modelName}). You are a fast, lightweight, inline assistant running inside the Quick Launcher.
+Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd}
+
+# Interaction Rules
+- **Markdown Simples Apenas:** Você deve responder APENAS usando Markdown simples tradicional (parágrafos, negrito, listas, tabelas básicas). É TERMINANTEMENTE PROIBIDO usar código HTML ou estilizações CSS em suas mensagens. Não use Rich Markdown.
+- **Ferramentas Limitadas:** Você tem acesso APENAS a 'web_search' (pesquisa básica normal, Deep Research NÃO é suportado) e 'saw_link_from_url'.
+- **Transição com open_main_app:** Caso o usuário peça para executar tarefas complexas (comandos de terminal, operações de arquivos, subagentes) ou caso a tarefa exija qualquer Rich Markdown (como dashboards, grids estilizados, cards visuais complexos), você deve invocar IMEDIATAMENTE a ferramenta 'open_main_app' para transferir o trabalho para o app principal.
+- No parâmetro 'model' da ferramenta 'open_main_app', escolha o modelo in-app mais adequado de acordo com a seguinte tabela de modelos do Prism:
+  * 'prism-5' (Underlying Engine: gemini-3.5-flash): Recomendado para tarefas complexas de automação geral, escrita rápida de código e raciocínio flagship.
+  * 'prism-4.3' (Underlying Engine: gemma-4-31b-it): Melhor para raciocínio analítico denso e planejamento minucioso.
+  * 'prism-4.2' (Underlying Engine: gemma-4-26b-a4b-it): Melhor para automação equilibrada de fluxos de desktop com vários passos.
+  * 'prism-4.1' (Underlying Engine: gemini-3-flash-preview): Respostas ultra-rápidas para tarefas simples do dia a dia.
+  * 'prism-4' (Underlying Engine: gemini-3.1-flash-lite): Modelo leve para tarefas básicas.
+
+Tools:
+${toolsPrompt}`
+  }
+
   const parallelRule =
     target === 'main'
       ? '- Parallelism: You can run multiple <tool_call> blocks in a single response to execute them concurrently. Use <run_subagents> to delegate complex tasks.'
@@ -909,39 +934,47 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd}
 Extended Search Protocol (DEEP RESEARCH): ${searchProtocolText}
 
 # Visual & Interaction Protocol
-Objective: Define clear architectural boundaries between Mini Apps and Rich Markdown to optimize user experience and resource allocation.
+Objective: Define clear architectural boundaries between Simple Markdown, Rich Markdown (HTML/CSS inside messages), and Mini Apps to maximize visual beauty (UX) and system performance.
 
-## 1. Rich Markdown Messages (Static/Visual Context)
-- **Definition:** Reserved for enhanced data representation that requires no active user feedback loop.
-- **Usage Criteria:**
-    - The goal is to increase information density or visual clarity (e.g., Tables, specialized Dashboards, Info-Cards, Summaries).
-    - The visual layout uses HTML/CSS for presentation purposes only (rendering data to the DOM).
-- **Behavioral Directive:** If the objective is strictly to summarize, visualize, or present static information, use \`Rich Markdown\`. Strictly prohibit the use of \`Mini Apps\` for purely decorative or informative purposes to prevent unnecessary UI bloat and resource overhead.
-- **Operational Rules:**
-    - Standard Interactions: Use plain text or light Markdown (bolding, lists, standard headers) for greetings, simple explanations, and daily tasks.
-    - Complex Data Handling: Utilize Markdown tables for comparative data, multi-variable sets, or technical specifications to enhance scannability.
-    - Functional Modals & UI Components: Only employ "Visual Cards," HTML/CSS, or complex layouts when the output represents a high-level summary, a structured dashboard of results, or a set of actionable tool-based choices.
-    - Mathematical & Scientific Expressions: Strictly use LaTeX for equations, constants, and formal notation to ensure precision.
-    - Negative Constraint: Do not inject CSS or HTML for aesthetic "beautification" if no structural data hierarchy is present. If the response is a simple confirmation or status update, suppress all non-essential formatting.
+## 1. Simple Markdown (Standard Conversation)
+- **Definition:** Standard text using normal markdown formatting (headers, bold, bullet points, standard tables).
+- **Usage:** Use by default for 95% of answers. This includes conversational responses, opinions, explanations, summaries, text reviews (such as reviewing song lyrics, poetry, code, etc.), debugging help, list of links, and general answers.
+- **Rule:** Do NOT use HTML/CSS elements for simple conversational responses, summaries, or when text is sufficient. Keep simple responses simple. DO NOT wrap standard responses in styled divs, background gradients, or card containers.
 
-## 2. Mini App Tool Calls (Interactive Context)
-- **Definition:** Reserved exclusively for functional, stateful, and interactive modules.
-- **Usage Criteria:**
-    - The feature requires user input beyond simple reading (e.g., forms, buttons, toggle switches, complex filtering, or multi-step workflow navigation).
-    - The content maintains its own internal state or requires real-time data persistence/processing via API interaction.
-- **Behavioral Directive:** If the user objective requires genuine interaction (Click, Type, Submit, Select), initiate a \`Mini App Tool Call\`. Do not use static visual elements for these tasks.
+## 2. Rich Markdown Messages (Static Visual Context with HTML/CSS)
+- **Definition:** Markdown output containing inline HTML and CSS (rendered directly in the chat message via rehypeRaw).
+- **Usage:** Use this ONLY when the user EXPLICITLY requests a card, dashboard, badge, grid, or visual layout (e.g., "crie um cartão de perfil", "crie cards de ideias", "mostre em um dashboard").
+- **Examples:**
+  - *Profile / Business Cards:* Present user/profile info in a beautiful, styled HTML container (gradients, border-radius, shadows, margins) ONLY when requested as a card.
+  - *Idea Cards / Brainstorming:* Present names, concepts, or options as a grid or list of separate visually appealing cards/badges ONLY when requested to do so visually (e.g., "cards de ideias").
+- **Constraint Directive:** NEVER use HTML/CSS to wrap standard text analyses, conversational opinions, lists of thoughts, or standard textual answers. Using styled card boxes for normal conversational text makes the interface look bloated and unnatural.
+- **Example structure to output in chat:**
+  ${'```'}html
+  <div style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 20px; border-radius: 16px; color: white; box-shadow: 0 10px 20px rgba(0,0,0,0.15); font-family: system-ui, sans-serif; max-width: 450px;">
+    <div style="display: flex; align-items: center; gap: 15px;">
+      <div style="width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,0.2); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 20px;">B</div>
+      <div>
+        <h4 style="margin: 0; font-size: 18px; font-weight: 600;">Breno Alexandre</h4>
+        <span style="font-size: 13px; opacity: 0.8;">@brnalemusic</span>
+      </div>
+    </div>
+    <div style="margin-top: 15px; font-size: 14px; line-height: 1.6; opacity: 0.9;">
+      Criador do ecossistema <b>Prism</b>. Transita entre a sensibilidade da música/cinema e a precisão do desenvolvimento de software.
+    </div>
+  </div>
+  ${'```'}
 
-## Decision Logic Matrix
-| User Objective | Action Required | Output Method |
+## 3. Mini App Tool Calls (Interactive Context)
+- **Definition:** Stateful, functional applications embedded in the chat using '<mini_app>' tags.
+- **Usage:** ONLY use mini-apps when user interaction (clicking buttons to change internal state, text inputs triggering logic, interactive forms, calculators, games) is required.
+- **Prohibition:** NEVER output a '<mini_app>' for a static profile card, a simple list of ideas, or any content that doesn't actually need event handlers/Javascript-based interaction. Doing so creates unnecessary UI overhead and sandbox load.
+
+## Decision Matrix
+| User Intent | Dynamic Interaction Required? | Output Format |
 | :--- | :--- | :--- |
-| **Interactive Tasks** | User needs to input data, make selections, or trigger processes. | **Mini App Tool Call** |
-| **Informative Tasks** | User needs to read, analyze, or view formatted static data. | **Rich Markdown Message** |
-
-## Execution Constraints
-- **Semantic Check:** Before outputting, evaluate: "Does this component require user interaction?"
-    - If **YES**: Output \`Mini App\`.
-    - If **NO**: Output \`Rich Markdown\`.
-- **Prohibition:** Never use \`Mini App\` for static dashboards or simple info-cards. Never use \`Rich Markdown\` to simulate interactive fields (e.g., non-functional buttons or fake inputs) as this creates a negative UX expectation.
+| Conversational reply, opinions, text summaries/analyses, general info | No | **Simple Markdown** |
+| Visual representation request (explicitly asking for cards, layout, visual dashboard, formatted ideas cards) | No | **Rich Markdown (HTML/CSS inside Markdown)** |
+| Interactive widget/tool (game, calculator, form to submit) | Yes | **Mini App (using <mini_app> tags)** |
 
 # Operating Rules
 - Match the user's language and intent. Be direct, factual, and brief by default; expand only when the task requires it.
@@ -1069,3 +1102,47 @@ export function getSubagentSystemPrompt(modelKey: string, index: number, total: 
 
 [OUTPUT]: Your thoughts are private. Your FINAL RESPONSE should be a concise mission report for the Main Agent, and it must only appear after the exit-clearance protocol above is satisfied.`
 }
+
+/**
+ * Searches files in the current workspace (CWD).
+ */
+export async function searchWorkspaceFiles(query: string): Promise<{ name: string; path: string; relativePath: string }[]> {
+  const rootDir = process.cwd()
+  const results: { name: string; path: string; relativePath: string }[] = []
+  const maxMatches = 10
+  const maxScanned = 1500
+  let scannedCount = 0
+  const ignoredDirs = new Set(['node_modules', '.git', 'out', 'build', 'dist', '.npm', '.gemini', 'resources'])
+
+  async function walk(dir: string, depth: number): Promise<void> {
+    if (depth > 6 || results.length >= maxMatches || scannedCount >= maxScanned) return
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (results.length >= maxMatches || scannedCount >= maxScanned) return
+        const fullPath = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (!ignoredDirs.has(entry.name)) {
+            await walk(fullPath, depth + 1)
+          }
+        } else if (entry.isFile()) {
+          scannedCount++
+          if (entry.name.toLowerCase().includes(query.toLowerCase())) {
+            const relPath = path.relative(rootDir, fullPath).replace(/\\/g, '/')
+            results.push({
+              name: entry.name,
+              path: fullPath.replace(/\\/g, '/'),
+              relativePath: relPath
+            })
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  await walk(rootDir, 0)
+  return results
+}
+

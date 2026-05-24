@@ -62,8 +62,45 @@ export interface PrismAPI {
   loadChat: (id: string) => Promise<Content[]>
   deleteChat: (id: string) => Promise<boolean>
   getRunningChats: () => Promise<string[]>
+  setThinkMode: (val: boolean) => void
+  setSearchEnabled: (val: boolean) => void
+  setExtendedSearch: (val: boolean) => void
+  onThinkModeChanged: (callback: (val: boolean) => void) => () => void
+  onSearchEnabledChanged: (callback: (val: boolean) => void) => () => void
+  onExtendedSearchChanged: (callback: (val: boolean) => void) => () => void
   removeLauncherListeners: () => void
   removeAllChatListeners: () => void
+  launcherGetApps: () => Promise<any[]>
+  launcherSearchFiles: (query: string) => Promise<any[]>
+  launcherOpenApp: (appPath: string) => Promise<string>
+  launcherOpenFile: (filePath: string) => Promise<string>
+  sendLauncherChatMessage: (data: { message: string; thinkMode?: boolean }) => void
+  clearLauncherChat: () => void
+  onLauncherReplyStart: (callback: () => void) => () => void
+  onLauncherReplyChunk: (
+    callback: (data: {
+      thoughts: string
+      finalResponse: string
+      isThinking: boolean
+      isWritingToolCall?: boolean
+      toolType?: 'task' | 'search' | 'mini-app'
+    }) => void
+  ) => () => void
+  onLauncherReplyEnd: (
+    callback: (data: { thoughts: string; finalResponse: string }) => void
+  ) => () => void
+  onLauncherReplyError: (callback: (data: { error: string }) => void) => () => void
+  onLauncherToolStart: (callback: (data: { name: string; args: any }) => void) => () => void
+  onLauncherToolEnd: (callback: (data: { name: string; result: string }) => void) => () => void
+  onOpenMainAppWithInstructions: (
+    callback: (data: {
+      instructions: string
+      model: string
+      thinkMode?: boolean
+      searchEnabled?: boolean
+      extendedSearch?: boolean
+    }) => void
+  ) => () => void
 }
 
 declare global {
