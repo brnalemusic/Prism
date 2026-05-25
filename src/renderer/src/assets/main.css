@@ -463,7 +463,7 @@
     }
   }
 
-  .intro-bar {
+  @keyframes intro-bar {
     0% {
       opacity: 0;
       transform: scaleY(0.18) translateY(12px);
