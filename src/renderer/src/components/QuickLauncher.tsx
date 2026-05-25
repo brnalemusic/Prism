@@ -261,13 +261,18 @@ export function QuickLauncher(): React.JSX.Element {
   // Focus trigger and reset chat history on hide
   useEffect(() => {
     const handleInitialFocus = (): void => {
-      setTimeout(() => {
+      const focusInput = (): void => {
         if (inputRef.current) {
           inputRef.current.focus()
           const len = inputRef.current.value.length
           inputRef.current.setSelectionRange(len, len)
         }
-      }, 50)
+      }
+      focusInput()
+      setTimeout(focusInput, 10)
+      setTimeout(focusInput, 50)
+      setTimeout(focusInput, 150)
+      setTimeout(focusInput, 300)
     }
 
     handleInitialFocus()
@@ -284,8 +289,23 @@ export function QuickLauncher(): React.JSX.Element {
       })
     })
 
+    const handleWindowFocus = (): void => {
+      handleInitialFocus()
+    }
+
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState === 'visible') {
+        handleInitialFocus()
+      }
+    }
+
+    window.addEventListener('focus', handleWindowFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
       removeFocusListener()
+      window.removeEventListener('focus', handleWindowFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [])
 

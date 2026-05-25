@@ -107,7 +107,7 @@ function createTray(): void {
     {
       label: 'Toggle Launcher',
       click: (): void => {
-        launcherWindow?.show()
+        toggleLauncher()
       }
     },
     {
@@ -298,6 +298,14 @@ function createLauncherWindow(): void {
 
   launcherWindow.on('blur', () => {
     launcherWindow?.hide()
+  })
+
+  launcherWindow.on('show', () => {
+    launcherWindow?.webContents.send('launcher-focus')
+  })
+
+  launcherWindow.on('focus', () => {
+    launcherWindow?.webContents.send('launcher-focus')
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
