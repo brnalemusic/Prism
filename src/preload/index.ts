@@ -191,6 +191,13 @@ const api = {
     ipcRenderer.removeAllListeners('extended-search-changed')
   },
   launcherGetApps: (): Promise<any[]> => ipcRenderer.invoke('launcher-get-apps'),
+  onAppsUpdated: (callback: (apps: any[]) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, apps: any[]): void => callback(apps)
+    ipcRenderer.on('launcher-apps-updated', listener)
+    return () => ipcRenderer.removeListener('launcher-apps-updated', listener)
+  },
+  launcherGetAppIcon: (appPath: string): Promise<string | null> =>
+    ipcRenderer.invoke('launcher-get-app-icon', appPath),
   launcherSearchFiles: (query: string): Promise<any[]> =>
     ipcRenderer.invoke('launcher-search-files', query),
   launcherOpenApp: (appPath: string): Promise<string> =>

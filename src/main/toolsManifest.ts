@@ -194,7 +194,8 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'list_installed_applications',
-    description: 'Lists installed Windows applications.',
+    description:
+      'Lists all installed Windows applications and games (including Steam, Epic, Valorant, Chrome, etc.) and their actual executable file paths. You MUST use this tool instead of running terminal/powershell commands (like Get-ItemProperty or Get-StartApps) to list applications, as it is cached, extremely fast, and much more complete.',
     usage: '<tool_call>\n{\n  "type": "list_installed_applications"\n}\n</tool_call>',
     parameters: {}
   },

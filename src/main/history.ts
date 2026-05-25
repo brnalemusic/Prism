@@ -112,7 +112,7 @@ export function saveChatSession(id: string, messages: Content[], title?: string)
 
     const session: ChatSession = {
       id,
-      title: sessionTitle !== undefined ? sessionTitle : 'Nova Conversa',
+      title: sessionTitle !== undefined ? sessionTitle : 'New Conversation',
       lastUpdated: Date.now(),
       messages: messagesToSave
     }

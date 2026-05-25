@@ -71,6 +71,8 @@ export interface PrismAPI {
   removeLauncherListeners: () => void
   removeAllChatListeners: () => void
   launcherGetApps: () => Promise<any[]>
+  onAppsUpdated: (callback: (apps: any[]) => void) => () => void
+  launcherGetAppIcon: (appPath: string) => Promise<string | null>
   launcherSearchFiles: (query: string) => Promise<any[]>
   launcherOpenApp: (appPath: string) => Promise<string>
   launcherOpenFile: (filePath: string) => Promise<string>

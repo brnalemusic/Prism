@@ -25,7 +25,7 @@ import {
   handleLauncherChatMessage,
   clearLauncherChat
 } from './gemini'
-import { searchWorkspaceFiles, listApplications, openApplication } from './systemTools'
+import { searchWorkspaceFiles, listApplications, openApplication, registerAppsUpdatedCallback } from './systemTools'
 import { loadConfig, saveConfig, AppConfig } from './config'
 import { listChatSessions, deleteChatSession } from './history'
 import { SubagentMessage } from '../shared/types'
@@ -94,19 +94,19 @@ function createTray(): void {
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Abrir Prism',
+      label: 'Open Prism',
       click: (): void => {
         mainWindow?.show()
       }
     },
     {
-      label: 'Alternar Launcher',
+      label: 'Toggle Launcher',
       click: (): void => {
         launcherWindow?.show()
       }
     },
     {
-      label: 'Configurações',
+      label: 'Settings',
       click: (): void => {
         mainWindow?.show()
         mainWindow?.webContents.send('open-settings')
@@ -114,7 +114,7 @@ function createTray(): void {
     },
     { type: 'separator' },
     {
-      label: 'Sair',
+      label: 'Exit',
       click: (): void => {
         isQuitting = true
         app.quit()
@@ -319,6 +319,15 @@ function toggleLauncher(): void {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.prism.app')
 
+  // Set working directory to user home directory in production/packaged mode
+  if (app.isPackaged) {
+    try {
+      process.chdir(os.homedir())
+    } catch (err) {
+      console.error('Failed to change working directory:', err)
+    }
+  }
+
   // Load config after app is ready
   currentConfig = loadConfig()
 
@@ -370,6 +379,15 @@ app.whenReady().then(() => {
 
   ipcMain.handle('launcher-get-apps', () => {
     return cachedApps
+  })
+
+  ipcMain.handle('launcher-get-app-icon', async (_event, appPath) => {
+    try {
+      const nativeImg = await app.getFileIcon(appPath, { size: 'normal' })
+      return nativeImg.toDataURL()
+    } catch {
+      return null
+    }
   })
 
   ipcMain.handle('launcher-search-files', async (_event, query) => {
@@ -514,6 +532,11 @@ app.whenReady().then(() => {
   if (currentConfig.userGeminiKey) {
     setUserApiKey(currentConfig.userGeminiKey)
   }
+
+  registerAppsUpdatedCallback((apps) => {
+    cachedApps = apps
+    launcherWindow?.webContents.send('launcher-apps-updated', cachedApps)
+  })
 
   listApplications()
     .then((res) => {

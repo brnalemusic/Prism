@@ -193,6 +193,26 @@ function App(): React.JSX.Element {
     currentChatIdRef.current = currentChatId
   }, [currentChatId])
 
+  const isProcessingRef = useRef(isProcessing)
+  useEffect(() => {
+    isProcessingRef.current = isProcessing
+  }, [isProcessing])
+
+  const isThinkModeRef = useRef(isThinkMode)
+  useEffect(() => {
+    isThinkModeRef.current = isThinkMode
+  }, [isThinkMode])
+
+  const isSearchEnabledRef = useRef(isSearchEnabled)
+  useEffect(() => {
+    isSearchEnabledRef.current = isSearchEnabled
+  }, [isSearchEnabled])
+
+  const isExtendedSearchRef = useRef(isExtendedSearch)
+  useEffect(() => {
+    isExtendedSearchRef.current = isExtendedSearch
+  }, [isExtendedSearch])
+
   useEffect(() => {
     async function initRunningChats(): Promise<void> {
       try {
@@ -242,9 +262,9 @@ function App(): React.JSX.Element {
   const modelSelectorRef = useRef<any>(null)
 
   const getGreeting = (): string => {
-    const rawName = config?.username || 'usuário'
+    const rawName = config?.username || 'user'
     const formattedName = rawName.charAt(0).toUpperCase() + rawName.slice(1)
-    return `Olá, ${formattedName}. Em que podemos trabalhar?`
+    return `Hello, ${formattedName}. What are we working on?`
   }
 
   const handleThinkModeToggle = useCallback((val: boolean) => {
@@ -266,27 +286,31 @@ function App(): React.JSX.Element {
       searchEnabled?: boolean,
       extendedSearch?: boolean
     ): void => {
-      if (isProcessing) return
+      if (isProcessingRef.current) return
 
       setIsProcessing(true)
+      isProcessingRef.current = true
       setIsYoutubeMode(text.startsWith('/youtube'))
 
       // If thinkMode is provided (e.g. from Launcher), update App state
       if (thinkMode !== undefined) {
         window.api.setThinkMode(thinkMode)
         setIsThinkMode(thinkMode)
+        isThinkModeRef.current = thinkMode
       }
       if (searchEnabled !== undefined) {
         window.api.setSearchEnabled(searchEnabled)
         setIsSearchEnabled(searchEnabled)
+        isSearchEnabledRef.current = searchEnabled
       }
       if (extendedSearch !== undefined) {
         window.api.setExtendedSearch(extendedSearch)
         setIsExtendedSearch(extendedSearch)
+        isExtendedSearchRef.current = extendedSearch
       }
 
       // Generate a unique chatId if not set
-      let chatId = currentChatId
+      let chatId = currentChatIdRef.current
       if (!chatId) {
         chatId = Date.now().toString()
         setCurrentChatId(chatId)
@@ -302,7 +326,7 @@ function App(): React.JSX.Element {
 
       // If search is enabled, ensure [FORCE_SEARCH] is prefixed for API
       let apiMessage = text
-      const targetSearchEnabled = searchEnabled ?? isSearchEnabled
+      const targetSearchEnabled = searchEnabled ?? isSearchEnabledRef.current
       if (targetSearchEnabled && !apiMessage.startsWith('[FORCE_SEARCH]')) {
         apiMessage = `[FORCE_SEARCH] ${apiMessage}`
       }
@@ -310,12 +334,12 @@ function App(): React.JSX.Element {
       // Para a API, enviamos o texto original, thinkMode e o extendedSearch
       window.api.sendChatMessage({
         message: apiMessage,
-        thinkMode: thinkMode ?? isThinkMode,
-        extendedSearch: extendedSearch ?? isExtendedSearch,
+        thinkMode: thinkMode ?? isThinkModeRef.current,
+        extendedSearch: extendedSearch ?? isExtendedSearchRef.current,
         chatId
       })
     },
-    [isProcessing, isThinkMode, isSearchEnabled, isExtendedSearch, currentChatId]
+    []
   )
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth'): void => {
@@ -350,12 +374,12 @@ function App(): React.JSX.Element {
   }, [])
 
   const handleCancel = useCallback((): void => {
-    if (currentChatId) {
-      window.api.cancelChat(currentChatId)
+    if (currentChatIdRef.current) {
+      window.api.cancelChat(currentChatIdRef.current)
     } else {
       window.api.cancelChat()
     }
-  }, [currentChatId])
+  }, [])
 
   const handleLoadChat = useCallback(
     async (id: string): Promise<void> => {
@@ -514,8 +538,8 @@ function App(): React.JSX.Element {
 
   const handleNewChat = useCallback(
     (force = false): void => {
-      if (force && currentChatId) {
-        window.api.cancelChat(currentChatId)
+      if (force && currentChatIdRef.current) {
+        window.api.cancelChat(currentChatIdRef.current)
       }
       isAtBottomRef.current = true
       setShowScrollButton(false)
@@ -524,18 +548,19 @@ function App(): React.JSX.Element {
       setCurrentChatId(undefined)
       currentChatIdRef.current = undefined
       setIsProcessing(false)
+      isProcessingRef.current = false
       setInputText('')
       setIsFullscreenInput(false)
       window.api.clearChat()
     },
-    [currentChatId]
+    []
   )
 
   useEffect(() => {
     // Listen for launcher messages
     const removeLauncherListener = window.api.onLauncherMessage((data) => {
       setActiveView('chat')
-      // Se a mensagem do launcher vier com a tag, o handleSend cuidará de ocultar na UI
+      // If launcher message arrives with the tag, handleSend will take care of hiding it in the UI
       handleSend(data.message, data.thinkMode)
       // Ensure focus after message is sent
       setTimeout(() => {
@@ -736,12 +761,12 @@ function App(): React.JSX.Element {
             )
           }
 
-          // Se a última mensagem já for um erro IGUAL, não duplica
+          // If the last message is already the SAME error, do not duplicate
           if (lastMsg && lastMsg.isError && lastMsg.content === error) {
             return prev
           }
 
-          // Se a última mensagem for AI e estava processando, atualiza ela com o erro
+          // If the last message is AI and was processing, update it with the error
           if (lastMsg && lastMsg.role === 'ai' && (lastMsg.isStreaming || lastMsg.isThinking)) {
             lastMsg.content = error
             lastMsg.isStreaming = false
@@ -749,7 +774,7 @@ function App(): React.JSX.Element {
             lastMsg.isConnecting = false
             lastMsg.isError = true
           } else {
-            // Se não houver uma mensagem de AI ativa, cria uma nova para o erro
+            // If there is no active AI message, create a new one for the error
             newMessages.push({
               role: 'ai',
               content: error,

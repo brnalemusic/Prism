@@ -414,7 +414,7 @@ interface AppInfo {
  * Helper to recursively search a directory for the main executable (.exe).
  */
 async function findMainExecutable(folderPath: string, depth: number = 0): Promise<string | null> {
-  if (depth > 2) return null
+  if (depth > 4) return null
   try {
     const entries = await fs.readdir(folderPath, { withFileTypes: true })
     const exeFiles: string[] = []
@@ -501,17 +501,199 @@ async function getExecutablePath(appPath: string): Promise<string | null> {
 }
 
 /**
+ * Helper to resolve a registry or manual scan app into a valid executable path,
+ * checking the display icon, install location, and applying heuristics for uninstallers/icons.
+ */
+async function resolveAppExecutable(
+  displayIcon: string | null,
+  installLocation: string | null
+): Promise<string | null> {
+  const isExe = (p: string) => p.toLowerCase().endsWith('.exe')
+  const isLnk = (p: string) => p.toLowerCase().endsWith('.lnk')
+  const isUninstaller = (p: string) => {
+    const low = p.toLowerCase()
+    return low.includes('unins') || low.includes('uninstall') || low.includes('setup')
+  }
+
+  // Try 1: DisplayIcon direct resolution if it ends with .exe or .lnk
+  if (displayIcon) {
+    try {
+      const cleanedIcon = cleanDisplayIcon(displayIcon)
+      if (cleanedIcon) {
+        if (isLnk(cleanedIcon) || isExe(cleanedIcon)) {
+          const resolved = await getExecutablePath(cleanedIcon)
+          if (resolved) {
+            if (!isUninstaller(resolved)) {
+              return resolved
+            } else {
+              // It's an uninstaller (e.g. Steam). Search parent folder for a main executable.
+              const parentDir = path.dirname(resolved)
+              const mainExe = await findMainExecutable(parentDir)
+              if (mainExe) return mainExe
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Try 2: InstallLocation directory lookup
+  if (installLocation) {
+    try {
+      const stats = await fs.stat(installLocation)
+      if (stats.isDirectory()) {
+        const mainExe = await findMainExecutable(installLocation)
+        if (mainExe) return mainExe
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Try 3: Fallback directory lookup if DisplayIcon is a file but not a .exe (e.g., .ico)
+  if (displayIcon) {
+    try {
+      const cleanedIcon = cleanDisplayIcon(displayIcon)
+      if (cleanedIcon) {
+        const stats = await fs.stat(cleanedIcon)
+        if (stats.isFile()) {
+          const parentDir = path.dirname(cleanedIcon)
+          const parentLower = parentDir.toLowerCase()
+          // Avoid scanning generic Steam games or Riot Games metadata folders
+          if (
+            !parentLower.includes('steam\\steam\\games') &&
+            !parentLower.includes('riot games\\metadata')
+          ) {
+            const mainExe = await findMainExecutable(parentDir)
+            if (mainExe) return mainExe
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return null
+}
+
+interface RegistryAppInfo {
+  DisplayName?: string
+  DisplayVersion?: string
+  InstallLocation?: string
+  DisplayIcon?: string
+}
+
+function cleanDisplayIcon(iconPath: string): string | null {
+  if (!iconPath) return null
+  let cleaned = iconPath.trim()
+  if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+    cleaned = cleaned.slice(1, -1)
+  }
+  const commaIndex = cleaned.lastIndexOf(',')
+  if (commaIndex !== -1) {
+    const suffix = cleaned.slice(commaIndex + 1).trim()
+    if (/^-?\d+$/.test(suffix)) {
+      cleaned = cleaned.slice(0, commaIndex).trim()
+    }
+  }
+  return cleaned
+}
+
+async function queryRegistryInstalledApps(): Promise<RegistryAppInfo[]> {
+  const isWindows = process.platform === 'win32'
+  if (!isWindows) return []
+
+  const command = `powershell -NoProfile -NonInteractive -Command "Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*', 'HKLM:\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*', 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*', 'HKCU:\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName } | Select-Object DisplayName, DisplayVersion, InstallLocation, DisplayIcon | ConvertTo-Json -Compress"`
+
+  return new Promise((resolve) => {
+    // 10MB buffer to prevent overflow
+    exec(command, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, _stderr) => {
+      if (error) {
+        console.error('PowerShell registry query error:', error)
+        resolve([])
+        return
+      }
+      try {
+        const parsed = JSON.parse(stdout)
+        resolve(Array.isArray(parsed) ? parsed : [parsed])
+      } catch (e) {
+        console.error('Failed to parse PowerShell registry JSON:', e)
+        resolve([])
+      }
+    })
+  })
+}
+
+let cachedAppsList: { name: string; version?: string; path: string }[] | null = null
+let lastScanTime = 0
+let appsUpdatedCallback: ((apps: any[]) => void) | null = null
+
+export function registerAppsUpdatedCallback(cb: (apps: any[]) => void): void {
+  appsUpdatedCallback = cb
+}
+
+/**
  * Lists installed applications on the system, including manual scans of common Windows paths.
  * Resolves each application to its literal executable path.
+ * Returns cached results immediately if available, triggering a background scan if the cache is older than 5 minutes.
  */
-export async function listApplications(): Promise<string> {
+export async function listApplications(forceScan = false): Promise<string> {
+  if (cachedAppsList && !forceScan) {
+    console.log('listApplications: Returning cached list of applications')
+    // If it's been more than 5 minutes since the last scan, trigger background refresh
+    if (Date.now() - lastScanTime > 5 * 60 * 1000) {
+      console.log('listApplications: Cache is older than 5 minutes, triggering background scan')
+      setTimeout(() => {
+        performScanAndCache().catch((err) =>
+          console.error('Background applications scan failed:', err)
+        )
+      }, 0)
+    }
+    return JSON.stringify(cachedAppsList, null, 2)
+  }
+  return await performScanAndCache()
+}
+
+/**
+ * Performs the actual system scan of applications and updates the cache.
+ */
+async function performScanAndCache(): Promise<string> {
+  console.log('listApplications: Starting scanning and caching...')
   try {
-    const apps = (await getInstalledApps()) as AppInfo[]
-    const simplifiedApps = apps.map((app) => ({
-      name: app.appName || app.DisplayName,
-      version: app.appVersion || app.DisplayVersion,
-      path: app.InstallLocation || app.path
-    }))
+    let rawApps: {
+      name: string
+      version?: string
+      displayIcon: string | null
+      installLocation: string | null
+    }[] = []
+
+    if (process.platform === 'win32') {
+      console.log('listApplications: Platform is win32, querying registry...')
+      const apps = await queryRegistryInstalledApps()
+      console.log(`listApplications: Query registry returned ${apps.length} apps.`)
+      rawApps = apps
+        .filter((app) => app.DisplayName)
+        .map((app) => ({
+          name: app.DisplayName!,
+          version: app.DisplayVersion,
+          displayIcon: app.DisplayIcon || null,
+          installLocation: app.InstallLocation || null
+        }))
+    } else {
+      console.log('listApplications: Platform is non-win32, calling getInstalledApps...')
+      const apps = (await getInstalledApps()) as AppInfo[]
+      rawApps = apps.map((app) => ({
+        name: app.appName || app.DisplayName || '',
+        version: app.appVersion || app.DisplayVersion,
+        displayIcon: null,
+        installLocation: app.InstallLocation || app.path || null
+      }))
+    }
+
+    console.log(`listApplications: Mapped ${rawApps.length} simplified apps.`)
 
     // Manual scan of common Windows paths to find apps not in registry
     const commonPaths = [
@@ -525,18 +707,24 @@ export async function listApplications(): Promise<string> {
       path.join(os.homedir(), 'AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs')
     ]
 
-    const manualApps: { name: string; path: string }[] = []
+    const manualApps: typeof rawApps = []
 
     for (const dir of commonPaths) {
       try {
         const entries = await fs.readdir(dir, { withFileTypes: true })
         for (const entry of entries) {
+          const entryPath = path.join(dir, entry.name)
           if (entry.isDirectory()) {
-            manualApps.push({ name: entry.name, path: path.join(dir, entry.name) })
+            manualApps.push({
+              name: entry.name,
+              displayIcon: null,
+              installLocation: entryPath
+            })
           } else if (entry.name.endsWith('.lnk') || entry.name.endsWith('.exe')) {
             manualApps.push({
               name: entry.name.replace(/\.(lnk|exe)$/i, ''),
-              path: path.join(dir, entry.name)
+              displayIcon: entryPath,
+              installLocation: null
             })
           }
         }
@@ -545,34 +733,52 @@ export async function listApplications(): Promise<string> {
       }
     }
 
+    console.log(`listApplications: Manual scan returned ${manualApps.length} apps.`)
+
     // Merge, resolve actual executable paths, and deduplicate (by name)
-    const allApps = [...simplifiedApps, ...manualApps]
+    const allApps = [...rawApps, ...manualApps]
     const seenNames = new Set()
     const finalApps: { name: string; version?: string; path: string }[] = []
 
+    console.log(`listApplications: Resolving ${allApps.length} paths to executables...`)
+
     for (const app of allApps) {
-      if (!app.name || !app.path) continue
+      if (!app.name) continue
       const nameLower = app.name.toLowerCase()
       if (seenNames.has(nameLower)) continue
 
-      const exePath = await getExecutablePath(app.path)
-      if (exePath && exePath.toLowerCase().endsWith('.exe')) {
+      const exePath = await resolveAppExecutable(app.displayIcon, app.installLocation)
+      if (exePath) {
         seenNames.add(nameLower)
         finalApps.push({
           name: app.name,
-          version: 'version' in app ? app.version : undefined,
+          version: app.version,
           path: exePath
         })
       }
     }
 
-    const slicedApps = finalApps.slice(0, 100)
-    return JSON.stringify(slicedApps, null, 2)
+    console.log(`listApplications: Successfully resolved ${finalApps.length} executables.`)
+    finalApps.forEach((a) => console.log(`  RESOLVED APP: "${a.name}" -> "${a.path}"`))
+
+    cachedAppsList = finalApps
+    lastScanTime = Date.now()
+
+    if (appsUpdatedCallback) {
+      try {
+        appsUpdatedCallback(finalApps)
+      } catch (err) {
+        console.error('Failed to trigger appsUpdatedCallback:', err)
+      }
+    }
+
+    return JSON.stringify(finalApps, null, 2)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return `Error listing applications: ${message}`
   }
 }
+
 
 /**
  * Opens an application given its path, resolving shortcuts/directories to their main executable first.
@@ -903,15 +1109,15 @@ Role: Prism Mini-Chat (${modelName}). You are a fast, lightweight, inline assist
 Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd}
 
 # Interaction Rules
-- **Markdown Simples Apenas:** Você deve responder APENAS usando Markdown simples tradicional (parágrafos, negrito, listas, tabelas básicas). É TERMINANTEMENTE PROIBIDO usar código HTML ou estilizações CSS em suas mensagens. Não use Rich Markdown.
-- **Ferramentas Limitadas:** Você tem acesso APENAS a 'web_search' (pesquisa básica normal, Deep Research NÃO é suportado) e 'saw_link_from_url'.
-- **Transição com open_main_app:** Caso o usuário peça para executar tarefas complexas (comandos de terminal, operações de arquivos, subagentes) ou caso a tarefa exija qualquer Rich Markdown (como dashboards, grids estilizados, cards visuais complexos), você deve invocar IMEDIATAMENTE a ferramenta 'open_main_app' para transferir o trabalho para o app principal.
-- No parâmetro 'model' da ferramenta 'open_main_app', escolha o modelo in-app mais adequado de acordo com a seguinte tabela de modelos do Prism:
-  * 'prism-5' (Underlying Engine: gemini-3.5-flash): Recomendado para tarefas complexas de automação geral, escrita rápida de código e raciocínio flagship.
-  * 'prism-4.3' (Underlying Engine: gemma-4-31b-it): Melhor para raciocínio analítico denso e planejamento minucioso.
-  * 'prism-4.2' (Underlying Engine: gemma-4-26b-a4b-it): Melhor para automação equilibrada de fluxos de desktop com vários passos.
-  * 'prism-4.1' (Underlying Engine: gemini-3-flash-preview): Respostas ultra-rápidas para tarefas simples do dia a dia.
-  * 'prism-4' (Underlying Engine: gemini-3.1-flash-lite): Modelo leve para tarefas básicas.
+- **Simple Markdown Only:** You must respond ONLY using traditional simple Markdown (paragraphs, bold, lists, basic tables). It is STRICTLY FORBIDDEN to use HTML code or CSS styles in your messages. Do not use Rich Markdown.
+- **Limited Tools:** You only have access to 'web_search' (normal basic search, Deep Research is NOT supported) and 'saw_link_from_url'.
+- **Transition with open_main_app:** If the user asks to perform complex tasks (terminal commands, file operations, subagents) or if the task requires any Rich Markdown (such as dashboards, stylized grids, complex visual cards), you must IMMEDIATELY invoke the 'open_main_app' tool to transfer the work to the main app.
+- In the 'model' parameter of the 'open_main_app' tool, choose the most appropriate in-app model according to the following Prism model table:
+  * 'prism-5' (Underlying Engine: gemini-3.5-flash): Recommended for complex general automation tasks, fast code writing, and flagship reasoning.
+  * 'prism-4.3' (Underlying Engine: gemma-4-31b-it): Best for dense analytical reasoning and detailed planning.
+  * 'prism-4.2' (Underlying Engine: gemma-4-26b-a4b-it): Best for balanced desktop workflow automation with multiple steps.
+  * 'prism-4.1' (Underlying Engine: gemini-3-flash-preview): Ultra-fast responses for simple day-to-day tasks.
+  * 'prism-4' (Underlying Engine: gemini-3.1-flash-lite): Lightweight model for basic tasks.
 
 Tools:
 ${toolsPrompt}`
@@ -928,7 +1134,7 @@ ${toolsPrompt}`
 
   const searchProtocolText = extendedSearch
     ? 'ENABLED (ACTIVATED - execute the DEEP RESEARCH protocol)'
-    : 'DISABLED (DESATIVADO - execute the standard ACTIVE SEARCH protocol)'
+    : 'DISABLED (INACTIVE - execute the standard ACTIVE SEARCH protocol)'
 
   return `# Identity
 Role: ${name} (${modelName}). You are a concise, tool-capable desktop assistant.
@@ -945,10 +1151,10 @@ Objective: Define clear architectural boundaries between Simple Markdown, Rich M
 
 ## 2. Rich Markdown Messages (Static Visual Context with HTML/CSS)
 - **Definition:** Markdown output containing inline HTML and CSS (rendered directly in the chat message via rehypeRaw).
-- **Usage:** Use this ONLY when the user EXPLICITLY requests a card, dashboard, badge, grid, or visual layout (e.g., "crie um cartão de perfil", "crie cards de ideias", "mostre em um dashboard").
+- **Usage:** Use this ONLY when the user EXPLICITLY requests a card, dashboard, badge, grid, or visual layout (e.g., "create a profile card", "create idea cards", "show in a dashboard").
 - **Examples:**
   - *Profile / Business Cards:* Present user/profile info in a beautiful, styled HTML container (gradients, border-radius, shadows, margins) ONLY when requested as a card.
-  - *Idea Cards / Brainstorming:* Present names, concepts, or options as a grid or list of separate visually appealing cards/badges ONLY when requested to do so visually (e.g., "cards de ideias").
+  - *Idea Cards / Brainstorming:* Present names, concepts, or options as a grid or list of separate visually appealing cards/badges ONLY when requested to do so visually (e.g., "idea cards").
 - **Constraint Directive:** NEVER use HTML/CSS to wrap standard text analyses, conversational opinions, lists of thoughts, or standard textual answers. Using styled card boxes for normal conversational text makes the interface look bloated and unnatural.
 - **Example structure to output in chat:**
   ${'```'}html
@@ -961,7 +1167,7 @@ Objective: Define clear architectural boundaries between Simple Markdown, Rich M
       </div>
     </div>
     <div style="margin-top: 15px; font-size: 14px; line-height: 1.6; opacity: 0.9;">
-      Criador do ecossistema <b>Prism</b>. Transita entre a sensibilidade da música/cinema e a precisão do desenvolvimento de software.
+      Creator of the <b>Prism</b> ecosystem. Shifts between the sensitivity of music/cinema and the precision of software development.
     </div>
   </div>
   ${'```'}
@@ -1135,7 +1341,15 @@ export async function searchWorkspaceFiles(
         if (results.length >= maxMatches || scannedCount >= maxScanned) return
         const fullPath = path.join(dir, entry.name)
         if (entry.isDirectory()) {
-          if (!ignoredDirs.has(entry.name)) {
+          const nameLower = entry.name.toLowerCase()
+          if (
+            !ignoredDirs.has(entry.name) &&
+            !entry.name.startsWith('.') &&
+            nameLower !== 'appdata' &&
+            nameLower !== 'library' &&
+            nameLower !== 'local settings' &&
+            nameLower !== 'application data'
+          ) {
             await walk(fullPath, depth + 1)
           }
         } else if (entry.isFile()) {

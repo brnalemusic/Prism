@@ -32,7 +32,7 @@ import { loadConfig, saveConfig } from './config'
 // Load environment variables from .env
 dotenv.config({ path: path.join(__dirname, '../../.env') })
 
-// Configuração de Keep-Alive para melhor latência (3.5 minutos)
+// Keep-Alive configuration for better latency (3.5 minutes)
 const networkAgent = new Agent({
   keepAliveTimeout: 210000,
   keepAliveMaxTimeout: 210000
@@ -1370,7 +1370,7 @@ User message: "${firstMessage}"`
       }
     })
     const fullTitle = (result.text || '').trim()
-    return fullTitle || 'Nova Conversa'
+    return fullTitle || 'New Conversation'
   } catch (error) {
     console.error('Failed to generate chat title:', error)
     return 'Nova Conversa'

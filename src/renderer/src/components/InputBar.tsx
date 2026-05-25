@@ -347,7 +347,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           {/* Custom header */}
           <div className="flex items-center justify-between border-b border-white/[0.055] pb-4 mb-4 select-none">
             <div className="flex items-center gap-3">
-              <h2 className="text-xl font-semibold text-text-primary">Editor de Mensagem</h2>
+              <h2 className="text-xl font-semibold text-text-primary">Message Editor</h2>
               {isExtendedSearch && (
                 <span className="rounded-full border border-accent-primary/20 bg-accent-primary/[0.06] px-2.5 py-1 text-xs font-semibold text-accent-primary flex items-center gap-1.5 shadow-[0_0_18px_rgba(143,180,255,0.08)]">
                   <Globe size={12} className="animate-[spin_12s_linear_infinite]" />
@@ -370,10 +370,10 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             <button
               onClick={onFullscreenToggle}
               className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.035] px-4 py-2 text-xs font-semibold text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-all duration-200 active:scale-95"
-              title="Sair da tela cheia"
+              title="Exit fullscreen"
             >
               <Minimize2 size={14} />
-              Minimizar
+              Minimize
             </button>
           </div>
 
@@ -465,7 +465,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                     }}
                     className="w-full mt-2 rounded-xl px-3 py-2 text-xs font-semibold text-center text-status-error hover:bg-status-error/[0.08] transition-all border border-transparent hover:border-status-error/10"
                   >
-                    Desativar Pesquisa
+                    Disable Search
                   </button>
                 )}
               </div>
@@ -574,11 +574,11 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             {/* Fullscreen footer */}
             <div className="mt-3 pt-3 border-t border-white/[0.055] flex items-center justify-between select-none">
               <div className="text-xs text-text-muted font-medium">
-                {text.length} caracteres | Pressione{' '}
+                {text.length} characters | Press{' '}
                 <kbd className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10">Esc</kbd>{' '}
-                para sair |{' '}
+                to exit |{' '}
                 <kbd className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10">Enter</kbd>{' '}
-                para enviar
+                to send
               </div>
 
               <div className="flex gap-2">
@@ -675,7 +675,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             className="absolute -top-10 left-6 sm:left-12 flex items-center gap-1.5 rounded-full border border-white/10 bg-background-secondary/90 px-3 py-1.5 text-xs font-semibold text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-all duration-200 shadow-md backdrop-blur-md animate-soft-pop z-30"
           >
             <Maximize2 size={13} />
-            Tela cheia
+            Fullscreen
           </button>
         )}
 
@@ -801,7 +801,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                   }}
                   className="w-full mt-2 rounded-xl px-3 py-2 text-xs font-semibold text-center text-status-error hover:bg-status-error/[0.08] transition-all border border-transparent hover:border-status-error/10"
                 >
-                  Desativar Pesquisa
+                  Disable Search
                 </button>
               )}
             </div>

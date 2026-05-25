@@ -83,6 +83,7 @@ export function QuickLauncher(): React.JSX.Element {
 
   // Local Apps & Files Suggestions
   const [apps, setApps] = useState<any[]>([])
+  const [appIcons, setAppIcons] = useState<Record<string, string>>({})
   const [files, setFiles] = useState<any[]>([])
   const [mathResult, setMathResult] = useState<string | null>(null)
 
@@ -127,8 +128,8 @@ export function QuickLauncher(): React.JSX.Element {
       list.push({
         type: 'math',
         value: mathResult,
-        label: `Resultado: ${mathResult}`,
-        desc: 'Copiar resultado'
+        label: `Result: ${mathResult}`,
+        desc: 'Copy result'
       })
     }
 
@@ -138,7 +139,7 @@ export function QuickLauncher(): React.JSX.Element {
       })
     } else if (query.trim().length > 1) {
       filteredApps.forEach((app) => {
-        list.push({ type: 'app', value: app.path, label: app.name, desc: 'Abrir Aplicativo' })
+        list.push({ type: 'app', value: app.path, label: app.name, desc: 'Open Application', icon: appIcons[app.path] || null })
       })
       files.forEach((file) => {
         list.push({ type: 'file', value: file.path, label: file.name, desc: file.relativePath })
@@ -162,6 +163,21 @@ export function QuickLauncher(): React.JSX.Element {
       return undefined
     }
   }, [query, quickLauncherMode])
+
+  // Load icons for filtered apps on demand
+  useEffect(() => {
+    filteredApps.forEach((app) => {
+      setAppIcons((prev) => {
+        if (prev[app.path]) return prev
+        window.api.launcherGetAppIcon(app.path).then((iconData) => {
+          if (iconData) {
+            setAppIcons((current) => ({ ...current, [app.path]: iconData }))
+          }
+        })
+        return prev
+      })
+    })
+  }, [filteredApps])
 
   // Math Evaluator Trigger
   useEffect(() => {
@@ -188,6 +204,10 @@ export function QuickLauncher(): React.JSX.Element {
 
     window.api.launcherGetApps().then((res) => {
       setApps(res || [])
+    })
+
+    const removeAppsUpdatedListener = window.api.onAppsUpdated((updatedApps) => {
+      setApps(updatedApps || [])
     })
 
     const removeConfigListener = window.api.onConfigChanged((config) => {
@@ -219,6 +239,7 @@ export function QuickLauncher(): React.JSX.Element {
       removeModelListener()
       removeThinkModeListener()
       removeSearchEnabledListener()
+      removeAppsUpdatedListener()
     }
   }, [])
 
@@ -242,6 +263,10 @@ export function QuickLauncher(): React.JSX.Element {
       setIsMiniChatOpen(false)
       setQuery('')
       window.api.clearLauncherChat()
+      // Re-fetch applications list in case it wasn't ready at startup
+      window.api.launcherGetApps().then((res) => {
+        setApps(res || [])
+      })
     })
 
     return () => {
@@ -743,7 +768,7 @@ export function QuickLauncher(): React.JSX.Element {
                       : isThinkMode
                         ? 'Think with Prism'
                         : quickLauncherMode === 'simple'
-                          ? 'Pergunte à IA rápida ou busque arquivos/apps...'
+                          ? 'Ask quick AI or search files/apps...'
                           : 'What should Prism do?'
               }
               className={clsx(
@@ -788,7 +813,7 @@ export function QuickLauncher(): React.JSX.Element {
         {unifiedSuggestions.length > 0 && !isMiniChatOpen && (
           <div className="premium-panel-soft absolute left-0 top-[calc(100%+12px)] z-50 w-full overflow-hidden rounded-[24px] animate-soft-pop max-h-[300px] overflow-y-auto">
             <div className="border-b border-white/[0.055] px-4 py-3 text-xs font-semibold text-text-secondary/70">
-              Resultados e Comandos Sugeridos
+              Suggested Results and Commands
             </div>
             <div className="py-1">
               {unifiedSuggestions.map((item, i) => (
@@ -804,28 +829,38 @@ export function QuickLauncher(): React.JSX.Element {
                   )}
                 >
                   <div className="flex items-center gap-3">
-                    <span
-                      className={clsx(
-                        'flex h-8 w-8 items-center justify-center rounded-2xl',
-                        item.type === 'math'
-                          ? 'bg-[#10221c] text-accent-secondary'
-                          : item.type === 'command'
-                            ? 'bg-[#251414] text-accent-primary'
-                            : item.type === 'app'
+                    {item.type === 'app' && item.icon ? (
+                      <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-white/[0.04] p-1 border border-white/[0.06] overflow-hidden">
+                        <img
+                          src={item.icon}
+                          alt=""
+                          className="h-full w-full object-contain"
+                        />
+                      </div>
+                    ) : (
+                      <span
+                        className={clsx(
+                          'flex h-8 w-8 items-center justify-center rounded-2xl',
+                          item.type === 'math'
+                            ? 'bg-[#10221c] text-accent-secondary'
+                            : item.type === 'command'
                               ? 'bg-[#251414] text-accent-primary'
-                              : 'bg-[#22242d] text-text-secondary'
-                      )}
-                    >
-                      {item.type === 'math' ? (
-                        <Calculator size={16} />
-                      ) : item.type === 'command' ? (
-                        <Command size={16} />
-                      ) : item.type === 'app' ? (
-                        <AppWindow size={16} />
-                      ) : (
-                        <FileCode size={16} />
-                      )}
-                    </span>
+                              : item.type === 'app'
+                                ? 'bg-[#251414] text-accent-primary'
+                                : 'bg-[#22242d] text-text-secondary'
+                        )}
+                      >
+                        {item.type === 'math' ? (
+                          <Calculator size={16} />
+                        ) : item.type === 'command' ? (
+                          <Command size={16} />
+                        ) : item.type === 'app' ? (
+                          <AppWindow size={16} />
+                        ) : (
+                          <FileCode size={16} />
+                        )}
+                      </span>
+                    )}
                     <div>
                       <span className="font-semibold text-text-primary block leading-tight">
                         {item.label}
@@ -861,7 +896,7 @@ export function QuickLauncher(): React.JSX.Element {
                 }}
                 className="text-xs text-text-secondary/60 hover:text-text-primary transition-colors px-2 py-1 rounded-lg hover:bg-[#25272e]"
               >
-                Limpar
+                Clear
               </button>
             </div>
             {/* Chat Messages Log */}
@@ -872,52 +907,71 @@ export function QuickLauncher(): React.JSX.Element {
                     <div className="flex flex-col max-w-[85%] rounded-[20px] px-4 py-3 text-sm leading-relaxed font-normal shadow-md ml-auto bg-[#1b2c27] text-text-primary rounded-tr-sm border border-accent-secondary/20">
                       {msg.content}
                     </div>
+          ) : msg.isError ? (
+                    <div className="flex flex-col w-full rounded-[20px] border border-status-error/25 shadow-md px-4 py-3 text-sm leading-relaxed font-normal bg-[#2d1b1c] text-status-error prose prose-invert">
+                      {msg.content}
+                    </div>
                   ) : (
                     <div
                       className={clsx(
-                        'flex flex-col max-w-[85%] rounded-[20px] rounded-tl-sm border border-white/[0.04] shadow-md px-4 py-3 text-sm leading-relaxed font-normal bg-[#191a20] text-text-primary prose prose-invert',
-                        msg.isError &&
-                          'bg-[#2d1b1c] text-status-error border border-status-error/25'
+                        'flex flex-col w-full max-w-none transition-opacity duration-300 text-sm leading-relaxed font-normal text-text-primary prose prose-invert py-1',
+                        msg.isStreaming && 'opacity-90'
                       )}
                     >
-                      {/* Thought Section (details field just like App.tsx) */}
+                      {/* Thought Section (reconstructed visually only for Quick Launcher!) */}
                       {(msg.isThinking || msg.thoughts) && (
                         <div className="w-full mb-3">
                           <details
                             className={clsx(
-                              'group w-full overflow-hidden rounded-[20px] border transition-all duration-300 bubble-glow',
+                              'group w-full overflow-hidden rounded-[20px] border transition-all duration-300',
                               msg.isThinking
-                                ? 'border-accent-secondary/30 bg-accent-secondary/[0.045]'
-                                : 'border-white/[0.08] bg-white/[0.035]'
+                                ? 'border-status-warning/25 bg-status-warning/[0.02] shadow-[0_0_15px_rgba(245,158,11,0.03)]'
+                                : 'border-white/[0.06] bg-white/[0.015]'
                             )}
                           >
                             <summary
-                              className={clsx(
-                                'flex cursor-pointer list-none items-center px-4 py-2.5 font-mono text-[10px] font-semibold transition-colors',
-                                msg.isThinking
-                                  ? 'text-accent-secondary'
-                                  : 'text-text-secondary/75 hover:text-text-primary/90'
-                              )}
+                              className="flex cursor-pointer list-none items-center justify-between px-4 py-3 select-none hover:bg-white/[0.02] transition-colors [&::-webkit-details-marker]:hidden"
                             >
-                              <span className="flex items-center gap-2">
+                              <div className="flex items-center gap-2.5">
+                                <div
+                                  className={clsx(
+                                    'flex h-6 w-6 items-center justify-center rounded-[10px] border transition-all duration-300',
+                                    msg.isThinking
+                                      ? 'border-status-warning/30 bg-status-warning/[0.08] text-status-warning'
+                                      : 'border-white/10 bg-white/[0.04] text-text-secondary/70'
+                                  )}
+                                >
+                                  <Brain size={13} className={clsx(msg.isThinking && 'animate-[pulse_1.5s_infinite]')} />
+                                </div>
+                                <span
+                                  className={clsx(
+                                    'font-mono text-[10px] font-bold tracking-wider uppercase',
+                                    msg.isThinking ? 'text-status-warning' : 'text-text-secondary/75'
+                                  )}
+                                >
+                                  {(() => {
+                                    const outlineMatches = Array.from(
+                                      (msg.thoughts || '').matchAll(/\*\*(.*?)\*\*/g)
+                                    )
+                                    if (outlineMatches.length > 0) {
+                                      return outlineMatches[outlineMatches.length - 1][1]
+                                    }
+                                    return msg.isThinking ? 'Thinking...' : 'Thoughts'
+                                  })()}
+                                </span>
                                 {msg.isThinking && <LoadingDots size="xs" />}
-                                {(() => {
-                                  const outlineMatches = Array.from(
-                                    (msg.thoughts || '').matchAll(/\*\*(.*?)\*\*/g)
-                                  )
-                                  if (outlineMatches.length > 0) {
-                                    return outlineMatches[outlineMatches.length - 1][1]
-                                  }
-                                  return 'Thinking'
-                                })()}
-                              </span>
+                              </div>
+                              <ChevronRight
+                                size={14}
+                                className="text-text-muted transition-transform duration-300 group-open:rotate-90"
+                              />
                             </summary>
                             <div
                               className={clsx(
-                                'mx-2 mb-2 rounded-[12px] border px-3 py-2 font-mono text-[10.5px] leading-relaxed opacity-0 transition-all duration-500 group-open:opacity-100',
+                                'mx-3 mb-3 rounded-[12px] border border-white/[0.04] bg-black/20 pl-4 pr-3 py-3 font-mono text-[11px] leading-relaxed opacity-0 transition-all duration-300 group-open:opacity-100 border-l-2',
                                 msg.isThinking
-                                  ? 'border-accent-secondary/20 bg-accent-secondary/[0.035] text-accent-secondary/80'
-                                  : 'border-white/[0.055] bg-black/10 text-text-secondary/80'
+                                  ? 'border-l-status-warning/45 text-status-warning/80'
+                                  : 'border-l-white/20 text-text-secondary/80'
                               )}
                             >
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -980,8 +1034,8 @@ export function QuickLauncher(): React.JSX.Element {
 
             {/* Footer / Input info */}
             <div className="px-6 py-3 bg-[#15161b] border-t border-white/[0.04] text-[11px] text-text-secondary/50 flex justify-between items-center">
-              <span>Pressione Enter para enviar inline</span>
-              <span>Modo Simples (Prism 4)</span>
+              <span>Press Enter to send inline</span>
+              <span>Simple Mode (Prism 4)</span>
             </div>
           </div>
         )}
