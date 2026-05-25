@@ -25,10 +25,15 @@ import {
   handleLauncherChatMessage,
   clearLauncherChat
 } from './gemini'
-import { searchWorkspaceFiles, listApplications, openApplication, registerAppsUpdatedCallback } from './systemTools'
+import {
+  searchWorkspaceFiles,
+  listApplications,
+  openApplication,
+  registerAppsUpdatedCallback
+} from './systemTools'
 import { loadConfig, saveConfig, AppConfig } from './config'
 import { listChatSessions, deleteChatSession } from './history'
-import { SubagentMessage } from '../shared/types'
+import { SubagentMessage, ApplicationInfo } from '../shared/types'
 
 import { initAutoUpdater } from './updater'
 
@@ -39,7 +44,7 @@ let subagentsWindow: BrowserWindow | null = null
 let subagentSettingsWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
-let cachedApps: any[] = []
+let cachedApps: ApplicationInfo[] = []
 
 const miniAppWindows = new Map<string, BrowserWindow>()
 

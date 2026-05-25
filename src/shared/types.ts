@@ -30,7 +30,7 @@ export interface ToolCall {
   name: string
   args: Record<string, unknown>
   result?: string
-  status: 'writing' | 'running' | 'cooldown' | 'done' | 'error'
+  status: 'writing' | 'running' | 'cooldown' | 'done' | 'error' | 'cancelled'
   subagentMessages?: SubagentMessage[]
   agentUpdates?: Record<
     number,
@@ -40,4 +40,16 @@ export interface ToolCall {
       output?: string
     }
   >
+}
+
+export interface ApplicationInfo {
+  name: string
+  version?: string
+  path: string
+}
+
+export interface FileSearchResult {
+  name: string
+  path: string
+  relativePath: string
 }

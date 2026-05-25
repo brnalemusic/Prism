@@ -12,7 +12,7 @@ import { InputBar, InputBarHandle } from './components/InputBar'
 import { LoadingDots } from './components/LoadingDots'
 import { Spinner } from './components/Spinner'
 import { ActionLoader, ToolCall } from './components/ActionLoader'
-import { ModelSelector } from './components/ModelSelector'
+import { ModelSelector, ModelSelectorHandle } from './components/ModelSelector'
 import { Tasks } from './components/Tasks'
 import { QuickLauncher } from './components/QuickLauncher'
 import { TitleBar } from './components/TitleBar'
@@ -27,7 +27,17 @@ import clsx from 'clsx'
 import { ArrowDown, Menu } from 'lucide-react'
 import { AppConfig } from '../../main/config'
 
-function disableIndentedCode(this: any): void {
+interface HastNode {
+  type: string
+  tagName?: string
+  value?: string
+  children?: HastNode[]
+  properties?: Record<string, unknown>
+}
+
+function disableIndentedCode(this: {
+  data: () => { micromarkExtensions?: { disable: { null: string[] } }[] }
+}): void {
   const data = this.data()
   const micromarkExtensions = data.micromarkExtensions || (data.micromarkExtensions = [])
   micromarkExtensions.push({
@@ -37,12 +47,12 @@ function disableIndentedCode(this: any): void {
   })
 }
 
-function rehypeParseMath(): (tree: any) => void {
-  return (tree: any) => {
-    function transform(node: any): void {
+function rehypeParseMath(): (tree: HastNode) => void {
+  return (tree: HastNode) => {
+    function transform(node: HastNode): void {
       if (!node.children) return
 
-      const newChildren: any[] = []
+      const newChildren: HastNode[] = []
       for (const child of node.children) {
         if (child.type === 'element' && (child.tagName === 'pre' || child.tagName === 'code')) {
           transform(child)
@@ -51,7 +61,7 @@ function rehypeParseMath(): (tree: any) => void {
         }
 
         if (child.type === 'text') {
-          const text = child.value
+          const text = child.value || ''
           const regex = /(\$\$[\s\S]+?\$\$|\$[^\s$][^$]*?[^\s$]\$|\$[^\s$]\$)/g
           const parts = text.split(regex)
 
@@ -95,7 +105,7 @@ function rehypeParseMath(): (tree: any) => void {
 }
 
 const MarkdownComponents: Record<string, React.FC<any>> = {
-  a: ({ href, children, ...props }: any) => {
+  a: ({ href, children, ...props }: React.ComponentPropsWithoutRef<'a'>) => {
     const imageExtensions = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i
     if (href && imageExtensions.test(href)) {
       return (
@@ -118,7 +128,7 @@ const MarkdownComponents: Record<string, React.FC<any>> = {
       </a>
     )
   },
-  img: ({ src, alt, ...props }: any) => (
+  img: ({ src, alt, ...props }: React.ComponentPropsWithoutRef<'img'>) => (
     <img
       src={src}
       alt={alt}
@@ -259,7 +269,7 @@ function App(): React.JSX.Element {
   const isAtBottomRef = useRef(true)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const inputBarRef = useRef<InputBarHandle>(null)
-  const modelSelectorRef = useRef<any>(null)
+  const modelSelectorRef = useRef<ModelSelectorHandle>(null)
 
   const getGreeting = (): string => {
     const rawName = config?.username || 'user'
@@ -470,7 +480,7 @@ function App(): React.JSX.Element {
               const nameMatch = tcContent.match(/<name>([\s\S]*?)<\/name>/i)
               if (nameMatch) {
                 const name = nameMatch[1].trim()
-                const args: Record<string, any> = {}
+                const args: Record<string, string> = {}
                 const argRegex = /<([a-zA-Z0-9_]+)>([\s\S]*?)<\/\1>/gi
                 let argMatch
                 while ((argMatch = argRegex.exec(tcContent)) !== null) {
@@ -536,25 +546,22 @@ function App(): React.JSX.Element {
     [currentChatId, runningChats]
   )
 
-  const handleNewChat = useCallback(
-    (force = false): void => {
-      if (force && currentChatIdRef.current) {
-        window.api.cancelChat(currentChatIdRef.current)
-      }
-      isAtBottomRef.current = true
-      setShowScrollButton(false)
-      setMessages([])
-      setTasks([])
-      setCurrentChatId(undefined)
-      currentChatIdRef.current = undefined
-      setIsProcessing(false)
-      isProcessingRef.current = false
-      setInputText('')
-      setIsFullscreenInput(false)
-      window.api.clearChat()
-    },
-    []
-  )
+  const handleNewChat = useCallback((force = false): void => {
+    if (force && currentChatIdRef.current) {
+      window.api.cancelChat(currentChatIdRef.current)
+    }
+    isAtBottomRef.current = true
+    setShowScrollButton(false)
+    setMessages([])
+    setTasks([])
+    setCurrentChatId(undefined)
+    currentChatIdRef.current = undefined
+    setIsProcessing(false)
+    isProcessingRef.current = false
+    setInputText('')
+    setIsFullscreenInput(false)
+    window.api.clearChat()
+  }, [])
 
   useEffect(() => {
     // Listen for launcher messages
@@ -744,7 +751,7 @@ function App(): React.JSX.Element {
 
         if (isCancel) {
           setTasks((prev) =>
-            prev.map((t) => (t.status === 'running' ? { ...t, status: 'cancelled' as any } : t))
+            prev.map((t) => (t.status === 'running' ? { ...t, status: 'cancelled' } : t))
           )
         }
 
@@ -756,7 +763,7 @@ function App(): React.JSX.Element {
           if (isCancel && lastMsg && lastMsg.role === 'ai' && lastMsg.toolCalls) {
             lastMsg.toolCalls = lastMsg.toolCalls.map((tc) =>
               tc.status === 'running'
-                ? { ...tc, status: 'cancelled' as any, result: 'Cancelled by user.' }
+                ? { ...tc, status: 'cancelled', result: 'Cancelled by user.' }
                 : tc
             )
           }
@@ -1064,7 +1071,7 @@ function App(): React.JSX.Element {
                   className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
                 >
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkMath, disableIndentedCode]}
+                    remarkPlugins={[remarkGfm, remarkMath, disableIndentedCode as any]}
                     rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
                     components={MarkdownComponents}
                   >
@@ -1156,7 +1163,7 @@ function App(): React.JSX.Element {
                         )}
                       >
                         <ReactMarkdown
-                          remarkPlugins={[remarkGfm, remarkMath, disableIndentedCode]}
+                          remarkPlugins={[remarkGfm, remarkMath, disableIndentedCode as any]}
                           rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
                         >
                           {msg.thoughts || ''}

@@ -5,6 +5,7 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as os from 'os'
 import { toolsManifest } from './toolsManifest'
+import { ApplicationInfo } from '../shared/types'
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -508,9 +509,9 @@ async function resolveAppExecutable(
   displayIcon: string | null,
   installLocation: string | null
 ): Promise<string | null> {
-  const isExe = (p: string) => p.toLowerCase().endsWith('.exe')
-  const isLnk = (p: string) => p.toLowerCase().endsWith('.lnk')
-  const isUninstaller = (p: string) => {
+  const isExe = (p: string): boolean => p.toLowerCase().endsWith('.exe')
+  const isLnk = (p: string): boolean => p.toLowerCase().endsWith('.lnk')
+  const isUninstaller = (p: string): boolean => {
     const low = p.toLowerCase()
     return low.includes('unins') || low.includes('uninstall') || low.includes('setup')
   }
@@ -610,7 +611,7 @@ async function queryRegistryInstalledApps(): Promise<RegistryAppInfo[]> {
 
   return new Promise((resolve) => {
     // 10MB buffer to prevent overflow
-    exec(command, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, _stderr) => {
+    exec(command, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout) => {
       if (error) {
         console.error('PowerShell registry query error:', error)
         resolve([])
@@ -627,11 +628,11 @@ async function queryRegistryInstalledApps(): Promise<RegistryAppInfo[]> {
   })
 }
 
-let cachedAppsList: { name: string; version?: string; path: string }[] | null = null
+let cachedAppsList: ApplicationInfo[] | null = null
 let lastScanTime = 0
-let appsUpdatedCallback: ((apps: any[]) => void) | null = null
+let appsUpdatedCallback: ((apps: ApplicationInfo[]) => void) | null = null
 
-export function registerAppsUpdatedCallback(cb: (apps: any[]) => void): void {
+export function registerAppsUpdatedCallback(cb: (apps: ApplicationInfo[]) => void): void {
   appsUpdatedCallback = cb
 }
 
@@ -778,7 +779,6 @@ async function performScanAndCache(): Promise<string> {
     return `Error listing applications: ${message}`
   }
 }
-
 
 /**
  * Opens an application given its path, resolving shortcuts/directories to their main executable first.
