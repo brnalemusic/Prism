@@ -2,7 +2,13 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { StructuredChatResponse } from '../main/gemini'
 import type { AppConfig } from '../main/config'
-import type { ToolUpdate, SubagentMessage, MiniAppData } from '../shared/types'
+import type {
+  ToolUpdate,
+  SubagentMessage,
+  MiniAppData,
+  ApplicationInfo,
+  FileSearchResult
+} from '../shared/types'
 import type { ChatSession } from '../main/history'
 import type { Content } from '@google/genai'
 
@@ -190,15 +196,15 @@ const api = {
     ipcRenderer.removeAllListeners('search-enabled-changed')
     ipcRenderer.removeAllListeners('extended-search-changed')
   },
-  launcherGetApps: (): Promise<any[]> => ipcRenderer.invoke('launcher-get-apps'),
-  onAppsUpdated: (callback: (apps: any[]) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, apps: any[]): void => callback(apps)
+  launcherGetApps: (): Promise<ApplicationInfo[]> => ipcRenderer.invoke('launcher-get-apps'),
+  onAppsUpdated: (callback: (apps: ApplicationInfo[]) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, apps: ApplicationInfo[]): void => callback(apps)
     ipcRenderer.on('launcher-apps-updated', listener)
     return () => ipcRenderer.removeListener('launcher-apps-updated', listener)
   },
   launcherGetAppIcon: (appPath: string): Promise<string | null> =>
     ipcRenderer.invoke('launcher-get-app-icon', appPath),
-  launcherSearchFiles: (query: string): Promise<any[]> =>
+  launcherSearchFiles: (query: string): Promise<FileSearchResult[]> =>
     ipcRenderer.invoke('launcher-search-files', query),
   launcherOpenApp: (appPath: string): Promise<string> =>
     ipcRenderer.invoke('launcher-open-app', appPath),
@@ -249,9 +255,13 @@ const api = {
     ipcRenderer.on('launcher-reply-error', listener)
     return () => ipcRenderer.removeListener('launcher-reply-error', listener)
   },
-  onLauncherToolStart: (callback: (data: { name: string; args: any }) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, data: { name: string; args: any }): void =>
-      callback(data)
+  onLauncherToolStart: (
+    callback: (data: { name: string; args: Record<string, unknown> }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: { name: string; args: Record<string, unknown> }
+    ): void => callback(data)
     ipcRenderer.on('launcher-tool-start', listener)
     return () => ipcRenderer.removeListener('launcher-tool-start', listener)
   },

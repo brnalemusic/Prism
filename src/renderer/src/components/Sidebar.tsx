@@ -50,6 +50,7 @@ export function Sidebar({
   }
 
   useEffect(() => {
+    const currentIntervals = streamingIntervals.current
     refreshChats()
     const interval = setInterval(refreshChats, 10000)
 
@@ -90,7 +91,8 @@ export function Sidebar({
       clearInterval(interval)
       removeCreatedListener()
       removeTitleReceivedListener()
-      Object.values(streamingIntervals.current).forEach(clearInterval)
+      // Use the stable variable from effect scope
+      Object.values(currentIntervals).forEach(clearInterval)
     }
   }, [activeView])
 

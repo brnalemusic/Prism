@@ -3,7 +3,13 @@ import type { StructuredChatResponse } from '../main/gemini'
 import type { AppConfig } from '../main/config'
 import type { ChatSession } from '../main/history'
 import type { Content } from '@google/genai'
-import type { SubagentMessage, MiniAppData, ToolUpdate } from '../shared/types'
+import type {
+  SubagentMessage,
+  MiniAppData,
+  ToolUpdate,
+  ApplicationInfo,
+  FileSearchResult
+} from '../shared/types'
 
 export interface PrismAPI {
   sendChatMessage: (data: {
@@ -70,10 +76,10 @@ export interface PrismAPI {
   onExtendedSearchChanged: (callback: (val: boolean) => void) => () => void
   removeLauncherListeners: () => void
   removeAllChatListeners: () => void
-  launcherGetApps: () => Promise<any[]>
-  onAppsUpdated: (callback: (apps: any[]) => void) => () => void
+  launcherGetApps: () => Promise<ApplicationInfo[]>
+  onAppsUpdated: (callback: (apps: ApplicationInfo[]) => void) => () => void
   launcherGetAppIcon: (appPath: string) => Promise<string | null>
-  launcherSearchFiles: (query: string) => Promise<any[]>
+  launcherSearchFiles: (query: string) => Promise<FileSearchResult[]>
   launcherOpenApp: (appPath: string) => Promise<string>
   launcherOpenFile: (filePath: string) => Promise<string>
   sendLauncherChatMessage: (data: { message: string; thinkMode?: boolean }) => void
@@ -92,7 +98,9 @@ export interface PrismAPI {
     callback: (data: { thoughts: string; finalResponse: string }) => void
   ) => () => void
   onLauncherReplyError: (callback: (data: { error: string }) => void) => () => void
-  onLauncherToolStart: (callback: (data: { name: string; args: any }) => void) => () => void
+  onLauncherToolStart: (
+    callback: (data: { name: string; args: Record<string, unknown> }) => void
+  ) => () => void
   onLauncherToolEnd: (callback: (data: { name: string; result: string }) => void) => () => void
   onOpenMainAppWithInstructions: (
     callback: (data: {

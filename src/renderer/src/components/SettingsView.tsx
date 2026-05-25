@@ -272,11 +272,10 @@ export function SettingsView(): React.JSX.Element {
           <div className="space-y-4">
             <div className="flex items-center justify-between rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-4">
               <div className="flex flex-col gap-1">
-                <span className="text-sm font-bold text-text-primary">
-                  Quick Search AI Mode
-                </span>
+                <span className="text-sm font-bold text-text-primary">Quick Search AI Mode</span>
                 <span className="text-xs text-text-secondary/70 leading-tight">
-                  Simple (integrated floating Prism 4 AI) or Advanced (opens the in-app chat directly).
+                  Simple (integrated floating Prism 4 AI) or Advanced (opens the in-app chat
+                  directly).
                 </span>
               </div>
               <div className="flex gap-2">

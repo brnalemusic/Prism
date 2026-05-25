@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   Command,
   ChevronRight,
@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { MODELS } from '../constants'
 import { isShortcutPressed } from '../utils'
+import { ApplicationInfo, FileSearchResult } from '../../../shared/types'
 import clsx from 'clsx'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -82,9 +83,9 @@ export function QuickLauncher(): React.JSX.Element {
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   // Local Apps & Files Suggestions
-  const [apps, setApps] = useState<any[]>([])
+  const [apps, setApps] = useState<ApplicationInfo[]>([])
   const [appIcons, setAppIcons] = useState<Record<string, string>>({})
-  const [files, setFiles] = useState<any[]>([])
+  const [files, setFiles] = useState<FileSearchResult[]>([])
   const [mathResult, setMathResult] = useState<string | null>(null)
 
   // Mini-Chat Overlay State
@@ -120,9 +121,17 @@ export function QuickLauncher(): React.JSX.Element {
     return apps.filter((app) => app.name.toLowerCase().includes(query.toLowerCase())).slice(0, 3)
   }, [query, apps])
 
+  interface UnifiedSuggestion {
+    type: 'math' | 'command' | 'app' | 'file'
+    value: string
+    label: string
+    desc: string
+    icon?: string | null
+  }
+
   // Unified Suggestions list for keyboard navigation
   const unifiedSuggestions = useMemo(() => {
-    const list: any[] = []
+    const list: UnifiedSuggestion[] = []
 
     if (mathResult) {
       list.push({
@@ -139,7 +148,13 @@ export function QuickLauncher(): React.JSX.Element {
       })
     } else if (query.trim().length > 1) {
       filteredApps.forEach((app) => {
-        list.push({ type: 'app', value: app.path, label: app.name, desc: 'Open Application', icon: appIcons[app.path] || null })
+        list.push({
+          type: 'app',
+          value: app.path,
+          label: app.name,
+          desc: 'Open Application',
+          icon: appIcons[app.path] || null
+        })
       })
       files.forEach((file) => {
         list.push({ type: 'file', value: file.path, label: file.name, desc: file.relativePath })
@@ -147,7 +162,7 @@ export function QuickLauncher(): React.JSX.Element {
     }
 
     return list
-  }, [mathResult, showSlashMenu, filteredCommands, filteredApps, files, query])
+  }, [mathResult, showSlashMenu, filteredCommands, filteredApps, files, query, appIcons])
 
   // Debounced/Triggered workspace file search
   useEffect(() => {
@@ -405,7 +420,7 @@ export function QuickLauncher(): React.JSX.Element {
     }
   }, [])
 
-  const handleSuggestionAction = (item: any): void => {
+  const handleSuggestionAction = useCallback((item: UnifiedSuggestion): void => {
     if (item.type === 'math') {
       navigator.clipboard.writeText(item.value)
       setQuery(item.value)
@@ -427,7 +442,7 @@ export function QuickLauncher(): React.JSX.Element {
       window.api.hideLauncher()
     }
     setSelectedIndex(0)
-  }
+  }, [])
 
   // Suggestions Navigation and Shortcuts
   useEffect(() => {
@@ -524,10 +539,9 @@ export function QuickLauncher(): React.JSX.Element {
     isSearchEnabled,
     isThinkMode,
     quickLauncherMode,
-    isMiniChatOpen
+    isMiniChatOpen,
+    handleSuggestionAction
   ])
-
-  
 
   const buildMessage = (): string => {
     const trimmed = query.trim()
@@ -831,11 +845,7 @@ export function QuickLauncher(): React.JSX.Element {
                   <div className="flex items-center gap-3">
                     {item.type === 'app' && item.icon ? (
                       <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-white/[0.04] p-1 border border-white/[0.06] overflow-hidden">
-                        <img
-                          src={item.icon}
-                          alt=""
-                          className="h-full w-full object-contain"
-                        />
+                        <img src={item.icon} alt="" className="h-full w-full object-contain" />
                       </div>
                     ) : (
                       <span
@@ -907,7 +917,7 @@ export function QuickLauncher(): React.JSX.Element {
                     <div className="flex flex-col max-w-[85%] rounded-[20px] px-4 py-3 text-sm leading-relaxed font-normal shadow-md ml-auto bg-[#1b2c27] text-text-primary rounded-tr-sm border border-accent-secondary/20">
                       {msg.content}
                     </div>
-          ) : msg.isError ? (
+                  ) : msg.isError ? (
                     <div className="flex flex-col w-full rounded-[20px] border border-status-error/25 shadow-md px-4 py-3 text-sm leading-relaxed font-normal bg-[#2d1b1c] text-status-error prose prose-invert">
                       {msg.content}
                     </div>
@@ -929,9 +939,7 @@ export function QuickLauncher(): React.JSX.Element {
                                 : 'border-white/[0.06] bg-white/[0.015]'
                             )}
                           >
-                            <summary
-                              className="flex cursor-pointer list-none items-center justify-between px-4 py-3 select-none hover:bg-white/[0.02] transition-colors [&::-webkit-details-marker]:hidden"
-                            >
+                            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 select-none hover:bg-white/[0.02] transition-colors [&::-webkit-details-marker]:hidden">
                               <div className="flex items-center gap-2.5">
                                 <div
                                   className={clsx(
@@ -941,12 +949,19 @@ export function QuickLauncher(): React.JSX.Element {
                                       : 'border-white/10 bg-white/[0.04] text-text-secondary/70'
                                   )}
                                 >
-                                  <Brain size={13} className={clsx(msg.isThinking && 'animate-[pulse_1.5s_infinite]')} />
+                                  <Brain
+                                    size={13}
+                                    className={clsx(
+                                      msg.isThinking && 'animate-[pulse_1.5s_infinite]'
+                                    )}
+                                  />
                                 </div>
                                 <span
                                   className={clsx(
                                     'font-mono text-[10px] font-bold tracking-wider uppercase',
-                                    msg.isThinking ? 'text-status-warning' : 'text-text-secondary/75'
+                                    msg.isThinking
+                                      ? 'text-status-warning'
+                                      : 'text-text-secondary/75'
                                   )}
                                 >
                                   {(() => {
