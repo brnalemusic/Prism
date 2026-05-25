@@ -260,7 +260,12 @@ function App(): React.JSX.Element {
   }, [])
 
   const handleSend = useCallback(
-    (text: string, thinkMode?: boolean, searchEnabled?: boolean, extendedSearch?: boolean): void => {
+    (
+      text: string,
+      thinkMode?: boolean,
+      searchEnabled?: boolean,
+      extendedSearch?: boolean
+    ): void => {
       if (isProcessing) return
 
       setIsProcessing(true)
@@ -313,7 +318,6 @@ function App(): React.JSX.Element {
     [isProcessing, isThinkMode, isSearchEnabled, isExtendedSearch, currentChatId]
   )
 
-
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth'): void => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTo({
@@ -353,171 +357,179 @@ function App(): React.JSX.Element {
     }
   }, [currentChatId])
 
-  const handleLoadChat = useCallback(async (id: string): Promise<void> => {
-    if (id === currentChatId) return
-    const history = await window.api.loadChat(id)
-    if (history) {
-      isAtBottomRef.current = true
-      setShowScrollButton(false)
-      const mappedMessages: Message[] = []
+  const handleLoadChat = useCallback(
+    async (id: string): Promise<void> => {
+      if (id === currentChatId) return
+      const history = await window.api.loadChat(id)
+      if (history) {
+        isAtBottomRef.current = true
+        setShowScrollButton(false)
+        const mappedMessages: Message[] = []
 
-      for (const m of history) {
-        if (m.role === 'system') continue
+        for (const m of history) {
+          if (m.role === 'system') continue
 
-        const text = m.parts?.[0]?.text || ''
-        const isSystemResults = m.role === 'user' && text.startsWith('[SYSTEM: TOOL RESULTS]')
+          const text = m.parts?.[0]?.text || ''
+          const isSystemResults = m.role === 'user' && text.startsWith('[SYSTEM: TOOL RESULTS]')
 
-        if (isSystemResults) {
-          // Find last AI message to attach results
-          const lastAiMsg = [...mappedMessages].reverse().find((m) => m.role === 'ai')
-          if (lastAiMsg && lastAiMsg.toolCalls) {
-            const resultRegex =
-              /\[RESULT FOR ([a-zA-Z0-9_]+)\]:\n([\s\S]*?)(?=\n\[RESULT FOR |\nAnalyze these results|$)/g
-            let match
-            while ((match = resultRegex.exec(text)) !== null) {
-              const toolName = match[1]
-              const result = match[2].trim()
-              // Find matching tool call that doesn't have a result yet
-              const toolCall = lastAiMsg.toolCalls.find((tc) => tc.name === toolName && !tc.result)
-              if (toolCall) {
-                toolCall.result = result
-                toolCall.status = 'done'
+          if (isSystemResults) {
+            // Find last AI message to attach results
+            const lastAiMsg = [...mappedMessages].reverse().find((m) => m.role === 'ai')
+            if (lastAiMsg && lastAiMsg.toolCalls) {
+              const resultRegex =
+                /\[RESULT FOR ([a-zA-Z0-9_]+)\]:\n([\s\S]*?)(?=\n\[RESULT FOR |\nAnalyze these results|$)/g
+              let match
+              while ((match = resultRegex.exec(text)) !== null) {
+                const toolName = match[1]
+                const result = match[2].trim()
+                // Find matching tool call that doesn't have a result yet
+                const toolCall = lastAiMsg.toolCalls.find(
+                  (tc) => tc.name === toolName && !tc.result
+                )
+                if (toolCall) {
+                  toolCall.result = result
+                  toolCall.status = 'done'
 
-                // Parse subagent messages if present
-                const chatLogRegex = /<subagent_chat>([\s\S]*?)<\/subagent_chat>/gi
-                const chatLogMatch = chatLogRegex.exec(result)
-                if (chatLogMatch) {
-                  try {
-                    ;(toolCall as ToolCall).subagentMessages = JSON.parse(chatLogMatch[1])
-                  } catch (e) {
-                    console.error('Failed to parse subagent chat log', e)
+                  // Parse subagent messages if present
+                  const chatLogRegex = /<subagent_chat>([\s\S]*?)<\/subagent_chat>/gi
+                  const chatLogMatch = chatLogRegex.exec(result)
+                  if (chatLogMatch) {
+                    try {
+                      ;(toolCall as ToolCall).subagentMessages = JSON.parse(chatLogMatch[1])
+                    } catch (e) {
+                      console.error('Failed to parse subagent chat log', e)
+                    }
                   }
                 }
               }
             }
-          }
-          continue // Don't add system results to UI as separate bubbles
-        }
-
-        if (m.role === 'user') {
-          mappedMessages.push({
-            role: 'user',
-            content: text,
-            isStreaming: false
-          })
-        } else if (m.role === 'model') {
-          let aiMsg: Message | undefined = mappedMessages[mappedMessages.length - 1]
-
-          if (!aiMsg || aiMsg.role !== 'ai') {
-            aiMsg = {
-              role: 'ai',
-              content: '',
-              thoughts: '',
-              toolCalls: [],
-              isStreaming: false,
-              isThinking: false,
-              isConnecting: false
-            }
-            mappedMessages.push(aiMsg)
+            continue // Don't add system results to UI as separate bubbles
           }
 
-          // Parse Thoughts and extract them from content
-          const thoughtsRegex = /<thought>([\s\S]*?)<\/thought>/gi
-          let thoughtsMatch
-          while ((thoughtsMatch = thoughtsRegex.exec(text)) !== null) {
-            aiMsg.thoughts = (aiMsg.thoughts || '') + thoughtsMatch[1].trim() + '\n\n'
-          }
-
-          // Remove thoughts from the text that will become content
-          const textWithoutThoughts = text.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim()
-
-          // Parse Tool Calls (DO NOT remove from content, as renderAiMessage needs them as markers)
-          const toolCallRegex = /<tool_call>([\s\S]*?)<\/tool_call>/gi
-          let toolMatch
-          while ((toolMatch = toolCallRegex.exec(textWithoutThoughts)) !== null) {
-            const tcContent = toolMatch[1]
-            const nameMatch = tcContent.match(/<name>([\s\S]*?)<\/name>/i)
-            if (nameMatch) {
-              const name = nameMatch[1].trim()
-              const args: Record<string, any> = {}
-              const argRegex = /<([a-zA-Z0-9_]+)>([\s\S]*?)<\/\1>/gi
-              let argMatch
-              while ((argMatch = argRegex.exec(tcContent)) !== null) {
-                const argName = argMatch[1]
-                if (argName !== 'name') {
-                  args[argName] = argMatch[2].trim()
-                }
-              }
-
-              if (!aiMsg.toolCalls) aiMsg.toolCalls = []
-              aiMsg.toolCalls.push({
-                name,
-                args,
-                status: 'done' // Default to done for history
-              })
-            }
-          }
-
-          if (textWithoutThoughts) {
-            aiMsg.content = (aiMsg.content ? aiMsg.content + '\n\n' : '') + textWithoutThoughts
-          }
-        }
-      }
-
-      // If this chat is currently running, we need to mark it as streaming
-      const isRunning = !!runningChats[id]
-      setIsProcessing(isRunning)
-
-      if (isRunning && mappedMessages.length > 0) {
-        const lastMsg = mappedMessages[mappedMessages.length - 1]
-        if (lastMsg.role === 'ai') {
-          lastMsg.isStreaming = true
-          if (lastMsg.toolCalls && lastMsg.toolCalls.length > 0) {
-            const lastTool = lastMsg.toolCalls[lastMsg.toolCalls.length - 1]
-            if (!lastTool.result) {
-              lastTool.status = 'running'
-            }
-          }
-        }
-      }
-
-      // Cleanup trailing whitespace in thoughts and populate tasks
-      const allTasks: Task[] = []
-      mappedMessages.forEach((m) => {
-        if (m.thoughts) m.thoughts = m.thoughts.trim()
-        if (m.role === 'ai' && m.toolCalls) {
-          m.toolCalls.forEach((tc) => {
-            allTasks.push({
-              ...tc,
-              id: crypto.randomUUID(),
-              timestamp: new Date() // Actual history entry timestamp isn't per-tool
+          if (m.role === 'user') {
+            mappedMessages.push({
+              role: 'user',
+              content: text,
+              isStreaming: false
             })
-          })
+          } else if (m.role === 'model') {
+            let aiMsg: Message | undefined = mappedMessages[mappedMessages.length - 1]
+
+            if (!aiMsg || aiMsg.role !== 'ai') {
+              aiMsg = {
+                role: 'ai',
+                content: '',
+                thoughts: '',
+                toolCalls: [],
+                isStreaming: false,
+                isThinking: false,
+                isConnecting: false
+              }
+              mappedMessages.push(aiMsg)
+            }
+
+            // Parse Thoughts and extract them from content
+            const thoughtsRegex = /<thought>([\s\S]*?)<\/thought>/gi
+            let thoughtsMatch
+            while ((thoughtsMatch = thoughtsRegex.exec(text)) !== null) {
+              aiMsg.thoughts = (aiMsg.thoughts || '') + thoughtsMatch[1].trim() + '\n\n'
+            }
+
+            // Remove thoughts from the text that will become content
+            const textWithoutThoughts = text.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim()
+
+            // Parse Tool Calls (DO NOT remove from content, as renderAiMessage needs them as markers)
+            const toolCallRegex = /<tool_call>([\s\S]*?)<\/tool_call>/gi
+            let toolMatch
+            while ((toolMatch = toolCallRegex.exec(textWithoutThoughts)) !== null) {
+              const tcContent = toolMatch[1]
+              const nameMatch = tcContent.match(/<name>([\s\S]*?)<\/name>/i)
+              if (nameMatch) {
+                const name = nameMatch[1].trim()
+                const args: Record<string, any> = {}
+                const argRegex = /<([a-zA-Z0-9_]+)>([\s\S]*?)<\/\1>/gi
+                let argMatch
+                while ((argMatch = argRegex.exec(tcContent)) !== null) {
+                  const argName = argMatch[1]
+                  if (argName !== 'name') {
+                    args[argName] = argMatch[2].trim()
+                  }
+                }
+
+                if (!aiMsg.toolCalls) aiMsg.toolCalls = []
+                aiMsg.toolCalls.push({
+                  name,
+                  args,
+                  status: 'done' // Default to done for history
+                })
+              }
+            }
+
+            if (textWithoutThoughts) {
+              aiMsg.content = (aiMsg.content ? aiMsg.content + '\n\n' : '') + textWithoutThoughts
+            }
+          }
         }
-      })
 
-      setMessages(mappedMessages)
-      setTasks(allTasks)
-      setCurrentChatId(id)
-      currentChatIdRef.current = id
-    }
-  }, [currentChatId, runningChats])
+        // If this chat is currently running, we need to mark it as streaming
+        const isRunning = !!runningChats[id]
+        setIsProcessing(isRunning)
 
-  const handleNewChat = useCallback((force = false): void => {
-    if (force && currentChatId) {
-      window.api.cancelChat(currentChatId)
-    }
-    isAtBottomRef.current = true
-    setShowScrollButton(false)
-    setMessages([])
-    setTasks([])
-    setCurrentChatId(undefined)
-    currentChatIdRef.current = undefined
-    setIsProcessing(false)
-    setInputText('')
-    setIsFullscreenInput(false)
-    window.api.clearChat()
-  }, [currentChatId])
+        if (isRunning && mappedMessages.length > 0) {
+          const lastMsg = mappedMessages[mappedMessages.length - 1]
+          if (lastMsg.role === 'ai') {
+            lastMsg.isStreaming = true
+            if (lastMsg.toolCalls && lastMsg.toolCalls.length > 0) {
+              const lastTool = lastMsg.toolCalls[lastMsg.toolCalls.length - 1]
+              if (!lastTool.result) {
+                lastTool.status = 'running'
+              }
+            }
+          }
+        }
+
+        // Cleanup trailing whitespace in thoughts and populate tasks
+        const allTasks: Task[] = []
+        mappedMessages.forEach((m) => {
+          if (m.thoughts) m.thoughts = m.thoughts.trim()
+          if (m.role === 'ai' && m.toolCalls) {
+            m.toolCalls.forEach((tc) => {
+              allTasks.push({
+                ...tc,
+                id: crypto.randomUUID(),
+                timestamp: new Date() // Actual history entry timestamp isn't per-tool
+              })
+            })
+          }
+        })
+
+        setMessages(mappedMessages)
+        setTasks(allTasks)
+        setCurrentChatId(id)
+        currentChatIdRef.current = id
+      }
+    },
+    [currentChatId, runningChats]
+  )
+
+  const handleNewChat = useCallback(
+    (force = false): void => {
+      if (force && currentChatId) {
+        window.api.cancelChat(currentChatId)
+      }
+      isAtBottomRef.current = true
+      setShowScrollButton(false)
+      setMessages([])
+      setTasks([])
+      setCurrentChatId(undefined)
+      currentChatIdRef.current = undefined
+      setIsProcessing(false)
+      setInputText('')
+      setIsFullscreenInput(false)
+      window.api.clearChat()
+    },
+    [currentChatId]
+  )
 
   useEffect(() => {
     // Listen for launcher messages
@@ -1132,9 +1144,7 @@ function App(): React.JSX.Element {
                 <div
                   className={clsx(
                     'w-full',
-                    msg.role === 'user'
-                      ? 'flex flex-col items-end'
-                      : 'text-text-primary'
+                    msg.role === 'user' ? 'flex flex-col items-end' : 'text-text-primary'
                   )}
                 >
                   {msg.role === 'ai' ? (
@@ -1194,7 +1204,15 @@ function App(): React.JSX.Element {
         )}
       />
     )
-  }, [activeView, isMobileMenuOpen, handleLoadChat, handleNewChat, currentChatId, tasks, runningChats])
+  }, [
+    activeView,
+    isMobileMenuOpen,
+    handleLoadChat,
+    handleNewChat,
+    currentChatId,
+    tasks,
+    runningChats
+  ])
 
   const renderedModelSelector = useMemo(() => {
     return (
@@ -1323,9 +1341,7 @@ function App(): React.JSX.Element {
                 )}
               </div>
 
-              <div className="flex items-center gap-3">
-                {renderedModelSelector}
-              </div>
+              <div className="flex items-center gap-3">{renderedModelSelector}</div>
 
               <div className="flex-1 flex justify-end">
                 {/* Clear button removed - session management is now in Sidebar */}

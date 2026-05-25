@@ -407,7 +407,8 @@
   }
 
   @keyframes loading-dots-bounce {
-    0%, 100% {
+    0%,
+    100% {
       transform: translateY(0);
       opacity: 0.65;
     }
@@ -436,24 +437,22 @@
     width: var(--loading-dot-diameter, 8px);
     height: var(--loading-dot-diameter, 8px);
     border-radius: 50%;
-    
+
     /* Dynamic Gradient Aesthetic */
     background: linear-gradient(135deg, #6366f1, #a855f7, #ec4899);
-    
+
     /* Geometric Uniformity - using border for stroke */
     border: var(--loading-dot-stroke, 1.5px) solid rgba(255, 255, 255, 0.15);
     background-clip: padding-box;
-    
+
     /* Physics-Based Staggered Motion */
-    animation: 
+    animation:
       loading-dots-bounce 1.4s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite,
       loading-dots-spectrum 3s linear infinite;
-    
+
     /* Staggered offsets for bounce and spectrum */
-    animation-delay: 
-      calc(var(--dot-index) * 0.15s), 
-      calc(var(--dot-index) * -1s);
-      
+    animation-delay: calc(var(--dot-index) * 0.15s), calc(var(--dot-index) * -1s);
+
     will-change: transform, filter;
   }
 
@@ -607,7 +606,6 @@
   backdrop-filter: none !important;
   opacity: 1 !important;
 }
-
 
 .quick-launcher-overlay .model-menu-panel {
   background: #0c0d10 !important;

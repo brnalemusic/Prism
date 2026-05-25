@@ -191,9 +191,12 @@ const api = {
     ipcRenderer.removeAllListeners('extended-search-changed')
   },
   launcherGetApps: (): Promise<any[]> => ipcRenderer.invoke('launcher-get-apps'),
-  launcherSearchFiles: (query: string): Promise<any[]> => ipcRenderer.invoke('launcher-search-files', query),
-  launcherOpenApp: (appPath: string): Promise<string> => ipcRenderer.invoke('launcher-open-app', appPath),
-  launcherOpenFile: (filePath: string): Promise<string> => ipcRenderer.invoke('launcher-open-file', filePath),
+  launcherSearchFiles: (query: string): Promise<any[]> =>
+    ipcRenderer.invoke('launcher-search-files', query),
+  launcherOpenApp: (appPath: string): Promise<string> =>
+    ipcRenderer.invoke('launcher-open-app', appPath),
+  launcherOpenFile: (filePath: string): Promise<string> =>
+    ipcRenderer.invoke('launcher-open-file', filePath),
   sendLauncherChatMessage: (data: { message: string; thinkMode?: boolean }): void =>
     ipcRenderer.send('launcher-chat-message', data),
   clearLauncherChat: (): void => ipcRenderer.send('launcher-chat-clear'),
@@ -240,12 +243,14 @@ const api = {
     return () => ipcRenderer.removeListener('launcher-reply-error', listener)
   },
   onLauncherToolStart: (callback: (data: { name: string; args: any }) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, data: { name: string; args: any }): void => callback(data)
+    const listener = (_event: IpcRendererEvent, data: { name: string; args: any }): void =>
+      callback(data)
     ipcRenderer.on('launcher-tool-start', listener)
     return () => ipcRenderer.removeListener('launcher-tool-start', listener)
   },
   onLauncherToolEnd: (callback: (data: { name: string; result: string }) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, data: { name: string; result: string }): void => callback(data)
+    const listener = (_event: IpcRendererEvent, data: { name: string; result: string }): void =>
+      callback(data)
     ipcRenderer.on('launcher-tool-end', listener)
     return () => ipcRenderer.removeListener('launcher-tool-end', listener)
   },

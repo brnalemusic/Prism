@@ -321,7 +321,7 @@ app.whenReady().then(() => {
 
   // Load config after app is ready
   currentConfig = loadConfig()
-  
+
   // Enforce auto-launch state based on loaded configuration
   app.setLoginItemSettings({ openAtLogin: currentConfig.autoLaunch })
 
@@ -515,15 +515,17 @@ app.whenReady().then(() => {
     setUserApiKey(currentConfig.userGeminiKey)
   }
 
-  listApplications().then((res) => {
-    try {
-      cachedApps = JSON.parse(res)
-    } catch (e) {
-      console.error('Failed to parse applications list:', e)
-    }
-  }).catch((e) => {
-    console.error('Failed to cache applications:', e)
-  })
+  listApplications()
+    .then((res) => {
+      try {
+        cachedApps = JSON.parse(res)
+      } catch (e) {
+        console.error('Failed to parse applications list:', e)
+      }
+    })
+    .catch((e) => {
+      console.error('Failed to cache applications:', e)
+    })
 
   initGemini()
   createWindow()

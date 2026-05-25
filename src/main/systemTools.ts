@@ -868,7 +868,9 @@ export function getSystemToolsPrompt(
   const toolsPrompt = toolsManifest
     .filter((t) => {
       if (target === 'launcher') {
-        return t.name === 'web_search' || t.name === 'saw_link_from_url' || t.name === 'open_main_app'
+        return (
+          t.name === 'web_search' || t.name === 'saw_link_from_url' || t.name === 'open_main_app'
+        )
       }
       return !t.target || t.target === 'both' || t.target === target
     })
@@ -1106,13 +1108,24 @@ export function getSubagentSystemPrompt(modelKey: string, index: number, total: 
 /**
  * Searches files in the current workspace (CWD).
  */
-export async function searchWorkspaceFiles(query: string): Promise<{ name: string; path: string; relativePath: string }[]> {
+export async function searchWorkspaceFiles(
+  query: string
+): Promise<{ name: string; path: string; relativePath: string }[]> {
   const rootDir = process.cwd()
   const results: { name: string; path: string; relativePath: string }[] = []
   const maxMatches = 10
   const maxScanned = 1500
   let scannedCount = 0
-  const ignoredDirs = new Set(['node_modules', '.git', 'out', 'build', 'dist', '.npm', '.gemini', 'resources'])
+  const ignoredDirs = new Set([
+    'node_modules',
+    '.git',
+    'out',
+    'build',
+    'dist',
+    '.npm',
+    '.gemini',
+    'resources'
+  ])
 
   async function walk(dir: string, depth: number): Promise<void> {
     if (depth > 6 || results.length >= maxMatches || scannedCount >= maxScanned) return
@@ -1145,4 +1158,3 @@ export async function searchWorkspaceFiles(query: string): Promise<{ name: strin
   await walk(rootDir, 0)
   return results
 }
-
