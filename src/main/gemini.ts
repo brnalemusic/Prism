@@ -1,6 +1,6 @@
 import { GoogleGenAI, Content, ThinkingLevel } from '@google/genai'
 import * as dotenv from 'dotenv'
-import { IpcMainEvent, ipcMain } from 'electron'
+import { IpcMainEvent, ipcMain, BrowserWindow } from 'electron'
 import * as path from 'path'
 import { Agent, setGlobalDispatcher, fetch as undiciFetch } from 'undici'
 import {
@@ -496,26 +496,33 @@ const toolFunctions: Record<
   run_subagents: (args, event, apiKey, signal, chatId) =>
     runSubagents(args, event, apiKey, signal, chatId),
   search_chat_history: (args) => searchChatHistory(args.query || ''),
-  open_main_app: async (args, _event) => {
-    const { BrowserWindow } = require('electron')
+  open_main_app: async (args) => {
+    // BrowserWindow imported above
     const instructions = args.instructions || ''
     const model = args.model || 'prism-5'
     const thinkMode = String(args.thinkMode).trim().toLowerCase() === 'true'
     const searchEnabled = String(args.searchEnabled).trim().toLowerCase() === 'true'
     const extendedSearch = String(args.extendedSearch).trim().toLowerCase() === 'true'
-    
+
     // Find and hide launcher
-    const launcherWin = BrowserWindow.getAllWindows().find((win) => win.getURL().includes('#launcher'))
+    const launcherWin = BrowserWindow.getAllWindows().find((win) =>
+      win.webContents.getURL().includes('#launcher')
+    )
     if (launcherWin) {
       launcherWin.hide()
     }
-    
+
     // Find and focus main window
     const mainWin = BrowserWindow.getAllWindows().find((win) => {
-      const url = win.getURL()
-      return !url.includes('#launcher') && !url.includes('#subagents') && !url.includes('#subagent-settings') && !url.includes('#mini-app')
+      const url = win.webContents.getURL()
+      return (
+        !url.includes('#launcher') &&
+        !url.includes('#subagents') &&
+        !url.includes('#subagent-settings') &&
+        !url.includes('#mini-app')
+      )
     })
-    
+
     if (mainWin) {
       if (mainWin.isMinimized()) mainWin.restore()
       mainWin.show()
@@ -528,7 +535,7 @@ const toolFunctions: Record<
         extendedSearch
       })
     }
-    
+
     return 'Main app opened successfully with instructions.'
   },
   // Group Chat tools (handled internally within runSubagents)
@@ -539,7 +546,7 @@ const toolFunctions: Record<
   agent_wait: async () => 'Error: agent_wait is deprecated. Use wait_for_updates.',
   configure_prism: async (args) => {
     try {
-      const { ipcMain } = require('electron')
+      // ipcMain imported above
       const config = loadConfig()
       const changed: string[] = []
 
@@ -1733,7 +1740,8 @@ export async function handleLauncherChatMessage(
   data: string | { message: string; thinkMode?: boolean }
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
-  const thinkMode = typeof data === 'object' ? (data.thinkMode !== undefined ? !!data.thinkMode : true) : true
+  const thinkMode =
+    typeof data === 'object' ? (data.thinkMode !== undefined ? !!data.thinkMode : true) : true
 
   const apiKey = userApiKey || process.env.GEMINI_API_KEY
   if (!apiKey || apiKey.trim() === '' || apiKey === 'your_api_key_here') {
@@ -1750,7 +1758,7 @@ export async function handleLauncherChatMessage(
   launcherAbortController = runAbortController
 
   const launcherModelKey = 'prism-4' // Always uses Prism 4 by default for launcher chat
-  
+
   if (launcherChatHistory.length === 0) {
     launcherChatHistory = [
       {
@@ -1792,7 +1800,7 @@ export async function handleLauncherChatMessage(
         } else {
           config.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: false }
         }
-        
+
         const ai = new GoogleGenAI({ apiKey })
 
         let accumulatedThoughts = ''
@@ -1895,10 +1903,14 @@ export async function handleLauncherChatMessage(
                       toolArgs.thinkMode = thinkMode ? 'true' : 'false'
                     }
                     if (toolArgs.searchEnabled === undefined) {
-                      toolArgs.searchEnabled = message.startsWith('[FORCE_SEARCH]') ? 'true' : 'false'
+                      toolArgs.searchEnabled = message.startsWith('[FORCE_SEARCH]')
+                        ? 'true'
+                        : 'false'
                     }
                     if (toolArgs.extendedSearch === undefined) {
-                      toolArgs.extendedSearch = message.startsWith('[FORCE_SEARCH]') ? 'true' : 'false'
+                      toolArgs.extendedSearch = message.startsWith('[FORCE_SEARCH]')
+                        ? 'true'
+                        : 'false'
                     }
                     openMainAppCalled = true
                   }
@@ -1980,4 +1992,3 @@ export function clearLauncherChat(): void {
     launcherAbortController = null
   }
 }
-

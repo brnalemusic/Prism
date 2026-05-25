@@ -139,14 +139,14 @@ npm run build:win    # Windows
 
 ## Tech Stack
 
-| Layer         | Technology                                     |
-| ------------- | ---------------------------------------------- |
-| Desktop shell | Electron                                       |
-| UI            | React + TypeScript + Tailwind CSS              |
-| Build tooling | Vite (via electron-vite)                       |
-| AI backbone   | Prism model family via `@google/genai`         |
-| Distribution  | electron-builder                               |
-| Auto-updates  | electron-updater (GitHub Releases)             |
+| Layer         | Technology                             |
+| ------------- | -------------------------------------- |
+| Desktop shell | Electron                               |
+| UI            | React + TypeScript + Tailwind CSS      |
+| Build tooling | Vite (via electron-vite)               |
+| AI backbone   | Prism model family via `@google/genai` |
+| Distribution  | electron-builder                       |
+| Auto-updates  | electron-updater (GitHub Releases)     |
 
 ---
 

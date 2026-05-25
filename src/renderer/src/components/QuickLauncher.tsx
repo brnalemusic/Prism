@@ -44,7 +44,7 @@ function evaluateMathExpression(expr: string): string | null {
   if (!/^[0-9+\-*/%^().]+$/.test(sanitized)) return null
   if (/^[0-9.]+$/.test(sanitized)) return null // ignore simple numbers
   if (/[+\-*/%^]$/.test(sanitized) || /\(\)/.test(sanitized)) return null
-  
+
   try {
     const result = new Function(`return (${sanitized.replace(/\^/g, '**')})`)()
     if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
@@ -55,7 +55,6 @@ function evaluateMathExpression(expr: string): string | null {
   }
   return null
 }
-
 
 interface Message {
   role: 'user' | 'ai'
@@ -108,7 +107,7 @@ export function QuickLauncher(): React.JSX.Element {
   const activeModel = MODELS.find((m) => m.id === activeModelId) || MODELS[0]
 
   const showSlashMenu = query.startsWith('/') && !query.includes(' ')
-  
+
   const filteredCommands = useMemo(() => {
     if (!showSlashMenu) return []
     return COMMANDS.filter((c) => c.cmd.toLowerCase().startsWith(query.toLowerCase()))
@@ -117,19 +116,22 @@ export function QuickLauncher(): React.JSX.Element {
   // Local Application Search Matches
   const filteredApps = useMemo(() => {
     if (query.startsWith('/') || query.trim().length <= 1) return []
-    return apps
-      .filter((app) => app.name.toLowerCase().includes(query.toLowerCase()))
-      .slice(0, 3)
+    return apps.filter((app) => app.name.toLowerCase().includes(query.toLowerCase())).slice(0, 3)
   }, [query, apps])
 
   // Unified Suggestions list for keyboard navigation
   const unifiedSuggestions = useMemo(() => {
     const list: any[] = []
-    
+
     if (mathResult) {
-      list.push({ type: 'math', value: mathResult, label: `Resultado: ${mathResult}`, desc: 'Copiar resultado' })
+      list.push({
+        type: 'math',
+        value: mathResult,
+        label: `Resultado: ${mathResult}`,
+        desc: 'Copiar resultado'
+      })
     }
-    
+
     if (showSlashMenu) {
       filteredCommands.forEach((c) => {
         list.push({ type: 'command', value: c.cmd, label: c.cmd, desc: c.desc })
@@ -142,7 +144,7 @@ export function QuickLauncher(): React.JSX.Element {
         list.push({ type: 'file', value: file.path, label: file.name, desc: file.relativePath })
       })
     }
-    
+
     return list
   }, [mathResult, showSlashMenu, filteredCommands, filteredApps, files, query])
 
@@ -156,7 +158,7 @@ export function QuickLauncher(): React.JSX.Element {
       }, 150)
       return () => clearTimeout(delay)
     } else {
-      setFiles([])
+      setTimeout(() => setFiles([]), 0)
       return undefined
     }
   }, [query, quickLauncherMode])
@@ -164,9 +166,9 @@ export function QuickLauncher(): React.JSX.Element {
   // Math Evaluator Trigger
   useEffect(() => {
     if (query.trim().length > 1 && !query.startsWith('/')) {
-      setMathResult(evaluateMathExpression(query))
+      setTimeout(() => setMathResult(evaluateMathExpression(query)), 0)
     } else {
-      setMathResult(null)
+      setTimeout(() => setMathResult(null), 0)
     }
   }, [query])
 
@@ -378,6 +380,30 @@ export function QuickLauncher(): React.JSX.Element {
     }
   }, [])
 
+  const handleSuggestionAction = (item: any): void => {
+    if (item.type === 'math') {
+      navigator.clipboard.writeText(item.value)
+      setQuery(item.value)
+    } else if (item.type === 'command') {
+      if (item.value === '/search') {
+        setQuery('/search ')
+      } else if (item.value === '/youtube') {
+        setQuery('/youtube ')
+      } else if (item.value === '/subagents') {
+        window.api.openSubagentSettingsWindow()
+        window.api.hideLauncher()
+        setQuery('')
+      }
+    } else if (item.type === 'app') {
+      window.api.launcherOpenApp(item.value)
+      window.api.hideLauncher()
+    } else if (item.type === 'file') {
+      window.api.launcherOpenFile(item.value)
+      window.api.hideLauncher()
+    }
+    setSelectedIndex(0)
+  }
+
   // Suggestions Navigation and Shortcuts
   useEffect(() => {
     document.body.style.background = 'transparent'
@@ -476,29 +502,7 @@ export function QuickLauncher(): React.JSX.Element {
     isMiniChatOpen
   ])
 
-  const handleSuggestionAction = (item: any): void => {
-    if (item.type === 'math') {
-      navigator.clipboard.writeText(item.value)
-      setQuery(item.value)
-    } else if (item.type === 'command') {
-      if (item.value === '/search') {
-        setQuery('/search ')
-      } else if (item.value === '/youtube') {
-        setQuery('/youtube ')
-      } else if (item.value === '/subagents') {
-        window.api.openSubagentSettingsWindow()
-        window.api.hideLauncher()
-        setQuery('')
-      }
-    } else if (item.type === 'app') {
-      window.api.launcherOpenApp(item.value)
-      window.api.hideLauncher()
-    } else if (item.type === 'file') {
-      window.api.launcherOpenFile(item.value)
-      window.api.hideLauncher()
-    }
-    setSelectedIndex(0)
-  }
+  
 
   const buildMessage = (): string => {
     const trimmed = query.trim()
@@ -657,7 +661,8 @@ export function QuickLauncher(): React.JSX.Element {
           className={clsx(
             'premium-panel relative flex w-full items-center gap-4 overflow-hidden rounded-[30px] border px-4 py-4 transition-all duration-300 input-border-glow',
             modeClasses,
-            ((isModelSelectorOpen && quickLauncherMode === 'advanced') || isFocused) && 'prism-glow active'
+            ((isModelSelectorOpen && quickLauncherMode === 'advanced') || isFocused) &&
+              'prism-glow active'
           )}
         >
           {activeMode !== 'default' && (
@@ -694,7 +699,9 @@ export function QuickLauncher(): React.JSX.Element {
             >
               <Command size={15} />
               <span
-                className={activeModel.id === 'prism-5' ? 'prism-top-gradient' : 'text-text-primary'}
+                className={
+                  activeModel.id === 'prism-5' ? 'prism-top-gradient' : 'text-text-primary'
+                }
               >
                 {activeModel.name.replace('Prism ', '')}
               </span>
@@ -840,7 +847,6 @@ export function QuickLauncher(): React.JSX.Element {
         {/* Mini-Chat Overlay (Simple Mode Only) */}
         {quickLauncherMode === 'simple' && isMiniChatOpen && (
           <div className="premium-panel-soft absolute left-0 top-[calc(100%+12px)] z-50 w-full overflow-hidden rounded-[28px] animate-soft-pop flex flex-col h-[400px] border border-white/[0.06]">
-            
             {/* Header */}
             <div className="flex items-center justify-between border-b border-white/[0.055] px-6 py-4 bg-[#18191f]">
               <div className="flex items-center gap-2">
@@ -867,10 +873,13 @@ export function QuickLauncher(): React.JSX.Element {
                       {msg.content}
                     </div>
                   ) : (
-                    <div className={clsx(
-                      "flex flex-col max-w-[85%] rounded-[20px] rounded-tl-sm border border-white/[0.04] shadow-md px-4 py-3 text-sm leading-relaxed font-normal bg-[#191a20] text-text-primary prose prose-invert",
-                      msg.isError && "bg-[#2d1b1c] text-status-error border border-status-error/25"
-                    )}>
+                    <div
+                      className={clsx(
+                        'flex flex-col max-w-[85%] rounded-[20px] rounded-tl-sm border border-white/[0.04] shadow-md px-4 py-3 text-sm leading-relaxed font-normal bg-[#191a20] text-text-primary prose prose-invert',
+                        msg.isError &&
+                          'bg-[#2d1b1c] text-status-error border border-status-error/25'
+                      )}
+                    >
                       {/* Thought Section (details field just like App.tsx) */}
                       {(msg.isThinking || msg.thoughts) && (
                         <div className="w-full mb-3">
@@ -921,7 +930,9 @@ export function QuickLauncher(): React.JSX.Element {
 
                       {/* Content rendering: split by tool call and mini-app tags to render inline */}
                       {(() => {
-                        const parts = msg.content.split(/(<tool_call>[\s\S]*?<\/tool_call>|<mini_app>[\s\S]*?<\/mini_app>)/g)
+                        const parts = msg.content.split(
+                          /(<tool_call>[\s\S]*?<\/tool_call>|<mini_app>[\s\S]*?<\/mini_app>)/g
+                        )
                         let toolCallIndex = 0
                         return parts.map((part, index) => {
                           if (part.startsWith('<tool_call>')) {
@@ -936,9 +947,7 @@ export function QuickLauncher(): React.JSX.Element {
                           } else if (part.trim() !== '') {
                             return (
                               <div key={`text-${index}`} className="prose prose-invert max-w-none">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                  {part}
-                                </ReactMarkdown>
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{part}</ReactMarkdown>
                               </div>
                             )
                           }
@@ -958,7 +967,9 @@ export function QuickLauncher(): React.JSX.Element {
                       )}
 
                       {msg.isStreaming && !msg.isThinking && !msg.isWritingToolCall && (
-                        <span className="text-accent-secondary animate-pulse font-bold text-base mt-1">▋</span>
+                        <span className="text-accent-secondary animate-pulse font-bold text-base mt-1">
+                          ▋
+                        </span>
                       )}
                     </div>
                   )}

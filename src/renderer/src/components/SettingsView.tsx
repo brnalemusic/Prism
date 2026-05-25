@@ -272,7 +272,9 @@ export function SettingsView(): React.JSX.Element {
           <div className="space-y-4">
             <div className="flex items-center justify-between rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-4">
               <div className="flex flex-col gap-1">
-                <span className="text-sm font-bold text-text-primary">Modelo de IA do Quick Search</span>
+                <span className="text-sm font-bold text-text-primary">
+                  Modelo de IA do Quick Search
+                </span>
                 <span className="text-xs text-text-secondary/70 leading-tight">
                   Simples (IA integrada Prism 4 flutuante) ou Avançado (Abre o chat in-app direto).
                 </span>

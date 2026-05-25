@@ -21,7 +21,11 @@ export function Spinner({ className, size = 'md' }: SpinnerProps): React.JSX.Ele
   const iconSize = SIZE_MAP[size]
 
   return (
-    <div className={clsx('flex items-center justify-center', className)} role="status" aria-label="Loading">
+    <div
+      className={clsx('flex items-center justify-center', className)}
+      role="status"
+      aria-label="Loading"
+    >
       <Loader2 size={iconSize} className="animate-spin text-accent-primary" />
     </div>
   )
