@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeRaw from 'rehype-raw'
@@ -104,7 +104,7 @@ function rehypeParseMath(): (tree: HastNode) => void {
   }
 }
 
-const MarkdownComponents: Record<string, React.FC<any>> = {
+const MarkdownComponents: Components = {
   a: ({ href, children, ...props }: React.ComponentPropsWithoutRef<'a'>) => {
     const imageExtensions = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i
     if (href && imageExtensions.test(href)) {
@@ -1071,7 +1071,11 @@ function App(): React.JSX.Element {
                   className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
                 >
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkMath, disableIndentedCode as any]}
+                    remarkPlugins={[
+                      remarkGfm,
+                      remarkMath,
+                      disableIndentedCode as unknown as import('unified').Pluggable
+                    ]}
                     rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
                     components={MarkdownComponents}
                   >
@@ -1163,7 +1167,11 @@ function App(): React.JSX.Element {
                         )}
                       >
                         <ReactMarkdown
-                          remarkPlugins={[remarkGfm, remarkMath, disableIndentedCode as any]}
+                          remarkPlugins={[
+                            remarkGfm,
+                            remarkMath,
+                            disableIndentedCode as unknown as import('unified').Pluggable
+                          ]}
                           rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
                         >
                           {msg.thoughts || ''}
