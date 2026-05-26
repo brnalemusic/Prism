@@ -5,6 +5,7 @@ import * as path from 'path'
 export interface AppConfig {
   launcherShortcut: string
   modelSelectionShortcut: string
+  screenshotShortcut: string
   defaultModel: string
   subagentModel: string
   minimizeToTray: boolean
@@ -18,6 +19,7 @@ export interface AppConfig {
 const DEFAULT_CONFIG: AppConfig = {
   launcherShortcut: 'CommandOrControl+Space',
   modelSelectionShortcut: 'CommandOrControl+M',
+  screenshotShortcut: 'Ctrl+Alt+Space',
   defaultModel: 'prism-5',
   subagentModel: 'prism-4.2',
   minimizeToTray: false,
@@ -31,6 +33,7 @@ const VALID_MODEL_KEYS = new Set(['prism-5', 'prism-4.3', 'prism-4.2', 'prism-4.
 function normalizeConfig(config: AppConfig): AppConfig {
   return {
     ...config,
+    screenshotShortcut: config.screenshotShortcut || DEFAULT_CONFIG.screenshotShortcut,
     defaultModel: VALID_MODEL_KEYS.has(config.defaultModel)
       ? config.defaultModel
       : DEFAULT_CONFIG.defaultModel,

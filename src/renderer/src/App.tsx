@@ -150,6 +150,7 @@ interface Message {
   isWritingToolCall?: boolean
   toolType?: 'task' | 'search' | 'mini-app'
   isConnecting?: boolean
+  screenshot?: string
 }
 
 interface Task extends ToolCall {
@@ -182,6 +183,11 @@ function App(): React.JSX.Element {
   }, [])
 
   const [isProcessing, setIsProcessing] = useState(false)
+  const [attachedScreenshot, setAttachedScreenshot] = useState<string | null>(null)
+  const attachedScreenshotRef = useRef<string | null>(null)
+  useEffect(() => {
+    attachedScreenshotRef.current = attachedScreenshot
+  }, [attachedScreenshot])
   const [isFinishing, setIsFinishing] = useState(false)
   const [isFocused, setIsFocused] = useState(true)
   const [selectedModel, setSelectedModel] = useState('prism-5')
@@ -294,7 +300,8 @@ function App(): React.JSX.Element {
       text: string,
       thinkMode?: boolean,
       searchEnabled?: boolean,
-      extendedSearch?: boolean
+      extendedSearch?: boolean,
+      screenshot?: string
     ): void => {
       if (isProcessingRef.current) return
 
@@ -330,9 +337,11 @@ function App(): React.JSX.Element {
       // Update running status
       setRunningChats((prev) => ({ ...prev, [chatId!]: true }))
 
+      const activeScreenshot = screenshot || attachedScreenshotRef.current
+
       // Para a UI, removemos a tag feia se ela existir
       const displayContent = text.replace(/^\[FORCE_SEARCH\]\s*/i, '')
-      setMessages((prev) => [...prev, { role: 'user', content: displayContent }])
+      setMessages((prev) => [...prev, { role: 'user', content: displayContent, screenshot: activeScreenshot || undefined }])
 
       // If search is enabled, ensure [FORCE_SEARCH] is prefixed for API
       let apiMessage = text
@@ -346,8 +355,11 @@ function App(): React.JSX.Element {
         message: apiMessage,
         thinkMode: thinkMode ?? isThinkModeRef.current,
         extendedSearch: extendedSearch ?? isExtendedSearchRef.current,
-        chatId
+        chatId,
+        screenshot: activeScreenshot || undefined
       })
+
+      setAttachedScreenshot(null)
     },
     []
   )
@@ -403,7 +415,19 @@ function App(): React.JSX.Element {
         for (const m of history) {
           if (m.role === 'system') continue
 
-          const text = m.parts?.[0]?.text || ''
+          let text = ''
+          let screenshot: string | undefined = undefined
+
+          if (m.parts) {
+            for (const part of m.parts) {
+              if (part.text) {
+                text += part.text
+              } else if (part.inlineData && part.inlineData.mimeType?.startsWith('image/')) {
+                screenshot = part.inlineData.data
+              }
+            }
+          }
+
           const isSystemResults = m.role === 'user' && text.startsWith('[SYSTEM: TOOL RESULTS]')
 
           if (isSystemResults) {
@@ -444,6 +468,7 @@ function App(): React.JSX.Element {
             mappedMessages.push({
               role: 'user',
               content: text,
+              screenshot,
               isStreaming: false
             })
           } else if (m.role === 'model') {
@@ -565,10 +590,10 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     // Listen for launcher messages
-    const removeLauncherListener = window.api.onLauncherMessage((data) => {
+    const removeLauncherListener = window.api.onLauncherMessage((data: any) => {
       setActiveView('chat')
       // If launcher message arrives with the tag, handleSend will take care of hiding it in the UI
-      handleSend(data.message, data.thinkMode)
+      handleSend(data.message, data.thinkMode, undefined, undefined, data.screenshot)
       // Ensure focus after message is sent
       setTimeout(() => {
         inputBarRef.current?.focus()
@@ -1190,8 +1215,29 @@ function App(): React.JSX.Element {
                   {msg.role === 'ai' ? (
                     renderAiMessage(msg)
                   ) : (
-                    <div className="premium-panel-soft max-w-[90%] whitespace-pre-wrap rounded-[24px] rounded-tr-[8px] px-5 py-3.5 text-sm md:text-base font-medium text-text-primary sm:max-w-[80%] lg:max-w-[70%]">
-                      {msg.content}
+                    <div className="flex flex-col items-end gap-2.5 max-w-[90%] sm:max-w-[80%] lg:max-w-[70%]">
+                      {msg.screenshot && (
+                        <div className="relative rounded-[20px] overflow-hidden border border-white/10 bg-black/10 shadow-xl max-w-full sm:max-w-[320px] hover:border-white/20 transition-all duration-300">
+                          <img
+                            src={`data:image/png;base64,${msg.screenshot}`}
+                            alt="Screenshot"
+                            className="w-full h-auto cursor-zoom-in block"
+                            onClick={() => {
+                              const newWin = window.open()
+                              newWin?.document.write(`
+                                <body style="margin: 0; background: #0b0c0f; display: flex; align-items: center; justify-content: center; min-height: 100vh;">
+                                  <img src="data:image/png;base64,${msg.screenshot}" style="max-width: 100%; max-height: 100vh; object-fit: contain; box-shadow: 0 20px 50px rgba(0,0,0,0.5);" />
+                                </body>
+                              `)
+                            }}
+                          />
+                        </div>
+                      )}
+                      {msg.content && (
+                        <div className="premium-panel-soft w-full whitespace-pre-wrap rounded-[24px] rounded-tr-[8px] px-5 py-3.5 text-sm md:text-base font-medium text-text-primary">
+                          {msg.content}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1360,6 +1406,9 @@ function App(): React.JSX.Element {
               setIsExtendedSearch={handleExtendedSearchToggle}
               isFullscreen={true}
               onFullscreenToggle={() => setIsFullscreenInput(false)}
+              screenshot={attachedScreenshot}
+              onRemoveScreenshot={() => setAttachedScreenshot(null)}
+              onAttachScreenshot={(base64) => setAttachedScreenshot(base64)}
             />
           </div>
         ) : (
@@ -1428,6 +1477,9 @@ function App(): React.JSX.Element {
                             setIsExtendedSearch={handleExtendedSearchToggle}
                             isFullscreen={false}
                             onFullscreenToggle={() => setIsFullscreenInput(true)}
+                            screenshot={attachedScreenshot}
+                            onRemoveScreenshot={() => setAttachedScreenshot(null)}
+                            onAttachScreenshot={(base64) => setAttachedScreenshot(base64)}
                           />
                         </div>
                       </div>
@@ -1494,6 +1546,9 @@ function App(): React.JSX.Element {
                   setIsExtendedSearch={handleExtendedSearchToggle}
                   isFullscreen={false}
                   onFullscreenToggle={() => setIsFullscreenInput(true)}
+                  screenshot={attachedScreenshot}
+                  onRemoveScreenshot={() => setAttachedScreenshot(null)}
+                  onAttachScreenshot={(base64) => setAttachedScreenshot(base64)}
                 />
               </div>
             )}

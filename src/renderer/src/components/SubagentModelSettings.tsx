@@ -7,6 +7,7 @@ import clsx from 'clsx'
 const FALLBACK_CONFIG: AppConfig = {
   launcherShortcut: 'CommandOrControl+Space',
   modelSelectionShortcut: 'CommandOrControl+M',
+  screenshotShortcut: 'Ctrl+Alt+Space',
   defaultModel: 'prism-5',
   subagentModel: 'prism-4.2',
   minimizeToTray: false,

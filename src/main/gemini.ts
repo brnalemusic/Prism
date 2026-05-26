@@ -24,7 +24,8 @@ import {
   computerMoveFile,
   computerGetFileInfo,
   computerListDirectory,
-  computerReadFile
+  computerReadFile,
+  captureAppScreenshot
 } from './systemTools'
 import { saveChatSession, loadChatSession, searchChatHistory } from './history'
 import { loadConfig, saveConfig } from './config'
@@ -123,6 +124,7 @@ export interface ActiveRun {
 }
 
 export const activeRuns = new Map<string, ActiveRun>()
+export const lastScreenshots = new Map<string, string>()
 
 export interface StructuredChatResponse {
   thoughts: string
@@ -149,6 +151,8 @@ interface ToolArgs extends Record<string, string | undefined> {
   quantity?: string
   launcherShortcut?: string
   modelSelectionShortcut?: string
+  screenshotShortcut?: string
+  appName?: string
   defaultModel?: string
   subagentModel?: string
   minimizeToTray?: string
@@ -493,6 +497,14 @@ const toolFunctions: Record<
     computerListDirectory(args.path || '', signal),
   computer_use_read_file: (args, _event, _apiKey, signal) =>
     computerReadFile(args.path || '', signal),
+  computer_use_see_screen: async (args, _event, _apiKey, _signal, chatId) => {
+    const appName = args.appName || 'Entire Screen'
+    const capture = await captureAppScreenshot(appName)
+    if (capture.base64) {
+      lastScreenshots.set(chatId || 'launcher', capture.base64)
+    }
+    return capture.result
+  },
   run_subagents: (args, event, apiKey, signal, chatId) =>
     runSubagents(args, event, apiKey, signal, chatId),
   search_chat_history: (args) => searchChatHistory(args.query || ''),
@@ -553,6 +565,10 @@ const toolFunctions: Record<
       if (args.launcherShortcut !== undefined && args.launcherShortcut !== '') {
         config.launcherShortcut = args.launcherShortcut
         changed.push(`launcherShortcut: "${args.launcherShortcut}"`)
+      }
+      if (args.screenshotShortcut !== undefined && args.screenshotShortcut !== '') {
+        config.screenshotShortcut = args.screenshotShortcut
+        changed.push(`screenshotShortcut: "${args.screenshotShortcut}"`)
       }
       if (args.modelSelectionShortcut !== undefined && args.modelSelectionShortcut !== '') {
         config.modelSelectionShortcut = args.modelSelectionShortcut
@@ -944,9 +960,20 @@ async function runSubagents(
 
           const toolResults = await Promise.all(toolPromises)
           const allResults = toolResults.join('')
+          const parts: any[] = [{ text: `[SYSTEM: TOOL RESULTS]${allResults}\nProceed.` }]
+          const screenshotBase64 = chatId ? lastScreenshots.get(chatId) : undefined
+          if (screenshotBase64) {
+            lastScreenshots.delete(chatId!)
+            parts.push({
+              inlineData: {
+                mimeType: 'image/png',
+                data: screenshotBase64
+              }
+            })
+          }
           history.push({
             role: 'user',
-            parts: [{ text: `[SYSTEM: TOOL RESULTS]${allResults}\nProceed.` }]
+            parts
           })
           continue
         }
@@ -1204,9 +1231,20 @@ async function runSubagents(
 
           const toolResults = await Promise.all(toolPromises)
           const allResults = toolResults.join('')
+          const parts: any[] = [{ text: `[SYSTEM: TOOL RESULTS]${allResults}\nProceed.` }]
+          const screenshotBase64 = chatId ? lastScreenshots.get(chatId) : undefined
+          if (screenshotBase64) {
+            lastScreenshots.delete(chatId!)
+            parts.push({
+              inlineData: {
+                mimeType: 'image/png',
+                data: screenshotBase64
+              }
+            })
+          }
           history.push({
             role: 'user',
-            parts: [{ text: `[SYSTEM: TOOL RESULTS]${allResults}\nProceed.` }]
+            parts
           })
           continue
         }
@@ -1379,12 +1417,13 @@ User message: "${firstMessage}"`
 
 export async function handleChatMessage(
   event: IpcMainEvent,
-  data: string | { message: string; thinkMode?: boolean; chatId?: string; extendedSearch?: boolean }
+  data: string | { message: string; thinkMode?: boolean; chatId?: string; extendedSearch?: boolean; screenshot?: string }
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
   const thinkMode = typeof data === 'object' ? !!data.thinkMode : false
   const chatId = typeof data === 'object' && data.chatId ? data.chatId : currentSessionId
   const extendedSearch = typeof data === 'object' ? !!data.extendedSearch : false
+  const screenshot = typeof data === 'object' ? data.screenshot : undefined
 
   // Priority: User key > Environment key
   const apiKey = userApiKey || process.env.GEMINI_API_KEY
@@ -1466,7 +1505,16 @@ The user wants to search and play a video. Use web_search to find the most relev
   }
 
   // Add the user's real question to the manual history
-  runHistory.push({ role: 'user', parts: [{ text: message }] })
+  const userParts: any[] = [{ text: message }]
+  if (screenshot) {
+    userParts.push({
+      inlineData: {
+        mimeType: 'image/png',
+        data: screenshot
+      }
+    })
+  }
+  runHistory.push({ role: 'user', parts: userParts })
 
   // If it's the first message, prepare the UI and start title generation
   if (isFirstUserMessage && apiKey) {
@@ -1656,7 +1704,18 @@ The user wants to search and play a video. Use web_search to find the most relev
 
             if (allToolResults) {
               const systemFeedback = `[SYSTEM: TOOL RESULTS]${allToolResults}\nAnalyze these results and proceed. If the goal is achieved, finalize. If more steps are needed, use another tool.`
-              runHistory.push({ role: 'system', parts: [{ text: systemFeedback }] })
+              const parts: any[] = [{ text: systemFeedback }]
+              const screenshotBase64 = chatId ? lastScreenshots.get(chatId) : undefined
+              if (screenshotBase64) {
+                lastScreenshots.delete(chatId)
+                parts.push({
+                  inlineData: {
+                    mimeType: 'image/png',
+                    data: screenshotBase64
+                  }
+                })
+              }
+              runHistory.push({ role: 'system', parts })
               saveChatSession(chatId, runHistory)
               continue
             }
@@ -1737,11 +1796,12 @@ The user wants to search and play a video. Use web_search to find the most relev
  */
 export async function handleLauncherChatMessage(
   event: IpcMainEvent,
-  data: string | { message: string; thinkMode?: boolean }
+  data: string | { message: string; thinkMode?: boolean; screenshot?: string }
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
   const thinkMode =
     typeof data === 'object' ? (data.thinkMode !== undefined ? !!data.thinkMode : true) : true
+  const screenshot = typeof data === 'object' ? data.screenshot : undefined
 
   const apiKey = userApiKey || process.env.GEMINI_API_KEY
   if (!apiKey || apiKey.trim() === '' || apiKey === 'your_api_key_here') {
@@ -1776,7 +1836,16 @@ export async function handleLauncherChatMessage(
     ]
   }
 
-  launcherChatHistory.push({ role: 'user', parts: [{ text: message }] })
+  const userParts: any[] = [{ text: message }]
+  if (screenshot) {
+    userParts.push({
+      inlineData: {
+        mimeType: 'image/png',
+        data: screenshot
+      }
+    })
+  }
+  launcherChatHistory.push({ role: 'user', parts: userParts })
 
   let success = false
   event.sender.send('launcher-reply-start')
@@ -1947,7 +2016,18 @@ export async function handleLauncherChatMessage(
 
             if (allToolResults) {
               const systemFeedback = `[SYSTEM: TOOL RESULTS]${allToolResults}\nAnalyze these results and proceed. If the goal is achieved, finalize. If more steps are needed, use another tool.`
-              launcherChatHistory.push({ role: 'system', parts: [{ text: systemFeedback }] })
+              const parts: any[] = [{ text: systemFeedback }]
+              const screenshotBase64 = lastScreenshots.get('launcher')
+              if (screenshotBase64) {
+                lastScreenshots.delete('launcher')
+                parts.push({
+                  inlineData: {
+                    mimeType: 'image/png',
+                    data: screenshotBase64
+                  }
+                })
+              }
+              launcherChatHistory.push({ role: 'system', parts })
               continue
             }
           }

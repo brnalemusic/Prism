@@ -16,6 +16,7 @@ import clsx from 'clsx'
 interface Config {
   launcherShortcut: string
   modelSelectionShortcut: string
+  screenshotShortcut: string
   defaultModel: string
   subagentModel: string
   minimizeToTray: boolean
@@ -29,6 +30,7 @@ export function SettingsView(): React.JSX.Element {
   const [config, setConfig] = useState<Config>({
     launcherShortcut: 'CommandOrControl+Space',
     modelSelectionShortcut: 'CommandOrControl+M',
+    screenshotShortcut: 'Ctrl+Alt+Space',
     defaultModel: 'prism-5',
     subagentModel: 'prism-4.2',
     minimizeToTray: false,
@@ -47,7 +49,8 @@ export function SettingsView(): React.JSX.Element {
           ...savedConfig,
           autoLaunch: savedConfig.autoLaunch ?? false,
           quickLauncherMode: savedConfig.quickLauncherMode ?? 'simple',
-          userGeminiKey: savedConfig.userGeminiKey || ''
+          userGeminiKey: savedConfig.userGeminiKey || '',
+          screenshotShortcut: savedConfig.screenshotShortcut || 'Ctrl+Alt+Space'
         })
       }
     }
@@ -72,6 +75,7 @@ export function SettingsView(): React.JSX.Element {
     setConfig({
       launcherShortcut: 'CommandOrControl+Space',
       modelSelectionShortcut: 'CommandOrControl+M',
+      screenshotShortcut: 'Ctrl+Alt+Space',
       defaultModel: 'prism-5',
       subagentModel: 'prism-4.2',
       minimizeToTray: false,
@@ -101,7 +105,7 @@ export function SettingsView(): React.JSX.Element {
             <h2 className="text-lg font-semibold text-text-primary">Keyboard Shortcuts</h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="flex flex-col gap-2">
               <label className="text-xs font-semibold text-text-secondary/70">
                 Open Quick Launcher
@@ -120,6 +124,18 @@ export function SettingsView(): React.JSX.Element {
                 value={config.modelSelectionShortcut}
                 onChange={(newShortcut) =>
                   setConfig({ ...config, modelSelectionShortcut: newShortcut })
+                }
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-text-secondary/70">
+                Screenshot & Ask (Global)
+              </label>
+              <ShortcutRecorder
+                value={config.screenshotShortcut}
+                onChange={(newShortcut) =>
+                  setConfig({ ...config, screenshotShortcut: newShortcut })
                 }
               />
             </div>

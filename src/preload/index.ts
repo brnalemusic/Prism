@@ -19,6 +19,7 @@ const api = {
     thinkMode?: boolean
     chatId?: string
     extendedSearch?: boolean
+    screenshot?: string
   }): void => ipcRenderer.send('chat-message', data),
   setModel: (modelKey: string): void => ipcRenderer.send('set-model', modelKey),
   clearChat: (): void => ipcRenderer.send('clear-chat'),
@@ -126,7 +127,7 @@ const api = {
     ipcRenderer.on('subagent-message', listener)
     return () => ipcRenderer.removeListener('subagent-message', listener)
   },
-  submitLauncher: (data: { message: string; thinkMode?: boolean }): void =>
+  submitLauncher: (data: { message: string; thinkMode?: boolean; screenshot?: string }): void =>
     ipcRenderer.send('launcher-submit', data),
   hideLauncher: (): void => ipcRenderer.send('hide-launcher'),
   minimizeApp: (): void => ipcRenderer.send('minimize-app'),
@@ -202,6 +203,16 @@ const api = {
     ipcRenderer.on('launcher-apps-updated', listener)
     return () => ipcRenderer.removeListener('launcher-apps-updated', listener)
   },
+  onScreenshotCaptured: (callback: (base64Image: string) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, base64Image: string): void => callback(base64Image)
+    ipcRenderer.on('screenshot-captured', listener)
+    return () => ipcRenderer.removeListener('screenshot-captured', listener)
+  },
+  onScreenshotShortcutTriggered: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('screenshot-shortcut-triggered', listener)
+    return () => ipcRenderer.removeListener('screenshot-shortcut-triggered', listener)
+  },
   launcherGetAppIcon: (appPath: string): Promise<string | null> =>
     ipcRenderer.invoke('launcher-get-app-icon', appPath),
   launcherSearchFiles: (query: string): Promise<FileSearchResult[]> =>
@@ -210,7 +221,7 @@ const api = {
     ipcRenderer.invoke('launcher-open-app', appPath),
   launcherOpenFile: (filePath: string): Promise<string> =>
     ipcRenderer.invoke('launcher-open-file', filePath),
-  sendLauncherChatMessage: (data: { message: string; thinkMode?: boolean }): void =>
+  sendLauncherChatMessage: (data: { message: string; thinkMode?: boolean; screenshot?: string }): void =>
     ipcRenderer.send('launcher-chat-message', data),
   clearLauncherChat: (): void => ipcRenderer.send('launcher-chat-clear'),
   onLauncherReplyStart: (callback: () => void): (() => void) => {

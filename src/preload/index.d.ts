@@ -17,6 +17,7 @@ export interface PrismAPI {
     thinkMode?: boolean
     chatId?: string
     extendedSearch?: boolean
+    screenshot?: string
   }) => void
   setModel: (modelKey: string) => void
   clearChat: () => void
@@ -47,7 +48,7 @@ export interface PrismAPI {
   onChatSessionCreated: (callback: (data: { id: string }) => void) => () => void
   onChatTitleReceived: (callback: (data: { id: string; title: string }) => void) => () => void
   onSubagentMessage: (callback: (data: SubagentMessage) => void) => () => void
-  submitLauncher: (data: { message: string; thinkMode?: boolean }) => void
+  submitLauncher: (data: { message: string; thinkMode?: boolean; screenshot?: string }) => void
   hideLauncher: () => void
   minimizeApp: () => void
   minimizeSubagentsWindow: () => void
@@ -78,11 +79,13 @@ export interface PrismAPI {
   removeAllChatListeners: () => void
   launcherGetApps: () => Promise<ApplicationInfo[]>
   onAppsUpdated: (callback: (apps: ApplicationInfo[]) => void) => () => void
+  onScreenshotCaptured: (callback: (base64Image: string) => void) => () => void
+  onScreenshotShortcutTriggered: (callback: () => void) => () => void
   launcherGetAppIcon: (appPath: string) => Promise<string | null>
   launcherSearchFiles: (query: string) => Promise<FileSearchResult[]>
   launcherOpenApp: (appPath: string) => Promise<string>
   launcherOpenFile: (filePath: string) => Promise<string>
-  sendLauncherChatMessage: (data: { message: string; thinkMode?: boolean }) => void
+  sendLauncherChatMessage: (data: { message: string; thinkMode?: boolean; screenshot?: string }) => void
   clearLauncherChat: () => void
   onLauncherReplyStart: (callback: () => void) => () => void
   onLauncherReplyChunk: (

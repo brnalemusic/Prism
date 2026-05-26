@@ -29,7 +29,8 @@ import {
   searchWorkspaceFiles,
   listApplications,
   openApplication,
-  registerAppsUpdatedCallback
+  registerAppsUpdatedCallback,
+  captureAppScreenshot
 } from './systemTools'
 import { loadConfig, saveConfig, AppConfig } from './config'
 import { listChatSessions, deleteChatSession } from './history'
@@ -218,17 +219,68 @@ function createSubagentSettingsWindow(): void {
   }
 }
 
-function registerLauncherShortcut(shortcut: string): void {
-  globalShortcut.unregisterAll()
+async function handleScreenshotShortcut(): Promise<void> {
+  const mainWasVisible = mainWindow && mainWindow.isVisible()
+  const launcherWasVisible = launcherWindow && launcherWindow.isVisible()
+
+  if (mainWasVisible) mainWindow?.hide()
+  if (launcherWasVisible) launcherWindow?.hide()
+
+  // Wait for window hide animations to complete
+  await new Promise((resolve) => setTimeout(resolve, 150))
+
+  let capture: { result: string; base64?: string } = { result: 'Error' }
   try {
-    globalShortcut.register(shortcut, () => {
+    capture = await captureAppScreenshot('Entire Screen')
+  } catch (error) {
+    console.error('Failed to capture screenshot during shortcut:', error)
+  }
+
+  if (launcherWindow) {
+    const primaryDisplay = screen.getPrimaryDisplay()
+    launcherWindow.setBounds(primaryDisplay.bounds)
+    // Send screenshot-shortcut-triggered to display border glows instantly
+    launcherWindow.webContents.send('screenshot-shortcut-triggered')
+    launcherWindow.show()
+    launcherWindow.focus()
+    launcherWindow.webContents.send('launcher-focus')
+
+    if (capture.base64) {
+      launcherWindow.webContents.send('screenshot-captured', capture.base64)
+    }
+  }
+}
+
+function registerGlobalShortcuts(): void {
+  globalShortcut.unregisterAll()
+  
+  // Launcher shortcut
+  const lShortcut = currentConfig.launcherShortcut || 'CommandOrControl+Space'
+  try {
+    globalShortcut.register(lShortcut, () => {
       toggleLauncher()
     })
   } catch (error) {
-    console.error('Failed to register shortcut:', shortcut, error)
-    // Fallback to default if custom fails
+    console.error('Failed to register launcher shortcut:', lShortcut, error)
     globalShortcut.register('CommandOrControl+Space', () => {
       toggleLauncher()
+    })
+  }
+
+  // Screenshot shortcut
+  const sShortcut = currentConfig.screenshotShortcut || 'Ctrl+Alt+Space'
+  try {
+    globalShortcut.register(sShortcut, () => {
+      handleScreenshotShortcut().catch((err) => {
+        console.error('Error handling screenshot shortcut:', err)
+      })
+    })
+  } catch (error) {
+    console.error('Failed to register screenshot shortcut:', sShortcut, error)
+    globalShortcut.register('Ctrl+Alt+Space', () => {
+      handleScreenshotShortcut().catch((err) => {
+        console.error('Error handling screenshot shortcut:', err)
+      })
     })
   }
 }
@@ -519,7 +571,7 @@ app.whenReady().then(() => {
 
     const success = saveConfig(config)
     if (success) {
-      registerLauncherShortcut(config.launcherShortcut)
+      registerGlobalShortcuts()
       // Notify both windows
       mainWindow?.webContents.send('config-changed', config)
       launcherWindow?.webContents.send('config-changed', config)
@@ -530,7 +582,7 @@ app.whenReady().then(() => {
 
   ipcMain.on('update-config-from-tools', (_event, config: AppConfig) => {
     currentConfig = config
-    registerLauncherShortcut(config.launcherShortcut)
+    registerGlobalShortcuts()
     app.setLoginItemSettings({ openAtLogin: config.autoLaunch })
     // Notify both windows
     mainWindow?.webContents.send('config-changed', config)
@@ -538,7 +590,7 @@ app.whenReady().then(() => {
     subagentSettingsWindow?.webContents.send('config-changed', config)
   })
 
-  registerLauncherShortcut(currentConfig.launcherShortcut)
+  registerGlobalShortcuts()
   setGeminiModel(currentConfig.defaultModel)
   setSubagentModel(currentConfig.subagentModel)
 

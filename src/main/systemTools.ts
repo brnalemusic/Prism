@@ -1,5 +1,5 @@
 import { exec } from 'child_process'
-import { shell, BrowserWindow } from 'electron'
+import { shell, BrowserWindow, desktopCapturer } from 'electron'
 import { getInstalledApps } from 'get-installed-apps'
 import * as fs from 'fs/promises'
 import * as path from 'path'
@@ -1371,4 +1371,57 @@ export async function searchWorkspaceFiles(
 
   await walk(rootDir, 0)
   return results
+}
+
+/**
+ * Captures a screenshot of a specific application window or the entire screen.
+ */
+export async function captureAppScreenshot(appName: string): Promise<{ result: string; base64?: string }> {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['window', 'screen'],
+      thumbnailSize: { width: 1920, height: 1080 }
+    })
+
+    let targetSource = sources.find((s) => {
+      const nameLower = s.name.toLowerCase()
+      const appNameLower = appName.toLowerCase()
+      return nameLower.includes(appNameLower) && s.id.startsWith('window')
+    })
+
+    if (
+      !targetSource &&
+      (appName.toLowerCase() === 'entire screen' ||
+        appName.toLowerCase() === 'screen' ||
+        appName.toLowerCase() === 'desktop' ||
+        appName.toLowerCase() === 'entire_screen')
+    ) {
+      targetSource = sources.find((s) => s.id.startsWith('screen'))
+    }
+
+    if (!targetSource) {
+      // Fallback: search across all sources (including screens) for matching name
+      targetSource = sources.find((s) => s.name.toLowerCase().includes(appName.toLowerCase()))
+    }
+
+    if (!targetSource) {
+      // Final fallback: first available screen or any source
+      targetSource = sources.find((s) => s.id.startsWith('screen')) || sources[0]
+    }
+
+    if (!targetSource) {
+      return { result: 'Error: No screens or windows available to capture.' }
+    }
+
+    const image = targetSource.thumbnail
+    const base64 = image.toPNG().toString('base64')
+    return {
+      result: `Screenshot of "${targetSource.name}" captured successfully.`,
+      base64
+    }
+  } catch (error) {
+    return {
+      result: `Error capturing screenshot: ${error instanceof Error ? error.message : String(error)}`
+    }
+  }
 }

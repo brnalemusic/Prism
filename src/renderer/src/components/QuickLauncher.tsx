@@ -67,6 +67,7 @@ interface Message {
   isWritingToolCall?: boolean
   toolType?: 'task' | 'search' | 'mini-app'
   toolCalls?: ToolCall[]
+  screenshot?: string
 }
 
 export function QuickLauncher(): React.JSX.Element {
@@ -81,6 +82,9 @@ export function QuickLauncher(): React.JSX.Element {
   const [quickLauncherMode, setQuickLauncherMode] = useState<'simple' | 'advanced'>('simple')
   const inputRef = useRef<HTMLInputElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const [attachedScreenshot, setAttachedScreenshot] = useState<string | null>(null)
+  const [glowState, setGlowState] = useState<'idle' | 'processing' | 'glow-master'>('idle')
+  const [launcherOpacity, setLauncherOpacity] = useState(1)
 
   // Local Apps & Files Suggestions
   const [apps, setApps] = useState<ApplicationInfo[]>([])
@@ -255,6 +259,36 @@ export function QuickLauncher(): React.JSX.Element {
       removeThinkModeListener()
       removeSearchEnabledListener()
       removeAppsUpdatedListener()
+    }
+  }, [])
+
+  useEffect(() => {
+    const removeTriggerListener = window.api.onScreenshotShortcutTriggered(() => {
+      setGlowState('processing')
+      setLauncherOpacity(0)
+      setIsMiniChatOpen(false)
+      setAttachedScreenshot(null)
+    })
+
+    const removeScreenshotListener = window.api.onScreenshotCaptured((base64Image) => {
+      setIsMiniChatOpen(false)
+      setAttachedScreenshot(base64Image)
+
+      // Wait 0.1s after capture, then trigger Glow Master (flash + disintegration in 1s CSS animation)
+      setTimeout(() => {
+        setGlowState('glow-master')
+        setLauncherOpacity(1)
+
+        // CSS animation lasts exactly 1s, then clean up
+        setTimeout(() => {
+          setGlowState('idle')
+        }, 1000)
+      }, 100)
+    })
+
+    return () => {
+      removeTriggerListener()
+      removeScreenshotListener()
     }
   }, [])
 
@@ -572,26 +606,40 @@ export function QuickLauncher(): React.JSX.Element {
 
   const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault()
-    if (!query.trim()) return
+    if (!query.trim() && !attachedScreenshot) return
 
     if (query.trim() === '/subagents') {
       window.api.openSubagentSettingsWindow()
       window.api.hideLauncher()
       setQuery('')
+      setAttachedScreenshot(null)
       return
     }
 
     if (quickLauncherMode === 'advanced') {
       // Focus in-app directly
-      window.api.submitLauncher({ message: buildMessage(), thinkMode: isThinkMode })
+      window.api.submitLauncher({
+        message: buildMessage(),
+        thinkMode: isThinkMode,
+        screenshot: attachedScreenshot || undefined
+      })
       setQuery('')
+      setAttachedScreenshot(null)
     } else {
       // Simple mode: chat inline
       setIsMiniChatOpen(true)
       const userMsg = buildMessage()
-      setLauncherMessages((prev) => [...prev, { role: 'user', content: query }])
+      setLauncherMessages((prev) => [
+        ...prev,
+        { role: 'user', content: query, screenshot: attachedScreenshot || undefined }
+      ])
       setQuery('')
-      window.api.sendLauncherChatMessage({ message: userMsg, thinkMode: isThinkMode })
+      window.api.sendLauncherChatMessage({
+        message: userMsg,
+        thinkMode: isThinkMode,
+        screenshot: attachedScreenshot || undefined
+      })
+      setAttachedScreenshot(null)
     }
   }
 
@@ -609,7 +657,30 @@ export function QuickLauncher(): React.JSX.Element {
       className="quick-launcher-overlay flex h-screen w-screen flex-col items-center justify-start p-8 pt-[20vh] font-sans"
       onClick={() => window.api.hideLauncher()}
     >
-      <div className="relative w-full max-w-[720px]" onClick={(e) => e.stopPropagation()}>
+      {/* Magical live moving border and diagonal glows */}
+      {glowState !== 'idle' && (
+        <>
+          <div className={clsx('magic-border-glow top', glowState === 'glow-master' && 'glow-master')} />
+          <div className={clsx('magic-border-glow bottom', glowState === 'glow-master' && 'glow-master')} />
+          <div className={clsx('magic-border-glow left', glowState === 'glow-master' && 'glow-master')} />
+          <div className={clsx('magic-border-glow right', glowState === 'glow-master' && 'glow-master')} />
+          
+          <div className={clsx('magic-diagonal-glow top-left', glowState === 'glow-master' && 'glow-master')} />
+          <div className={clsx('magic-diagonal-glow top-right', glowState === 'glow-master' && 'glow-master')} />
+          <div className={clsx('magic-diagonal-glow bottom-left', glowState === 'glow-master' && 'glow-master')} />
+          <div className={clsx('magic-diagonal-glow bottom-right', glowState === 'glow-master' && 'glow-master')} />
+        </>
+      )}
+
+      <div
+        className="relative w-full max-w-[720px]"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          opacity: launcherOpacity,
+          transition: 'opacity 1s cubic-bezier(0.25, 1, 0.5, 1)',
+          pointerEvents: launcherOpacity === 0 ? 'none' : 'auto'
+        }}
+      >
         {/* Badges Bar */}
         <div
           className={clsx(
@@ -718,12 +789,30 @@ export function QuickLauncher(): React.JSX.Element {
         {/* Input Bar */}
         <div
           className={clsx(
-            'premium-panel relative flex w-full items-center gap-4 overflow-hidden rounded-[30px] border px-4 py-4 transition-all duration-300 input-border-glow',
+            'premium-panel relative flex flex-col w-full gap-3 overflow-hidden rounded-[30px] border px-4 py-4 transition-all duration-300 input-border-glow',
             modeClasses,
             ((isModelSelectorOpen && quickLauncherMode === 'advanced') || isFocused) &&
               'prism-glow active'
           )}
         >
+          {attachedScreenshot && (
+            <div className="relative flex items-center justify-start self-start bg-white/[0.03] border border-white/[0.08] p-1.5 rounded-xl pr-8 animate-soft-pop group/thumb">
+              <img
+                src={`data:image/png;base64,${attachedScreenshot}`}
+                alt="Screenshot preview"
+                className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
+              />
+              <button
+                type="button"
+                onClick={() => setAttachedScreenshot(null)}
+                className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-text-secondary hover:text-white transition-colors text-xs font-bold leading-none cursor-pointer"
+              >
+                &times;
+              </button>
+            </div>
+          )}
+          
+          <div className="flex w-full items-center gap-4">
           {activeMode !== 'default' && (
             <div className="pointer-events-none absolute inset-x-6 top-0 h-px overflow-hidden">
               <div
@@ -841,6 +930,7 @@ export function QuickLauncher(): React.JSX.Element {
               )}
             </div>
           )}
+          </div>
         </div>
 
         {/* Suggestion list panel (When chat overlay is NOT open) */}
@@ -934,8 +1024,29 @@ export function QuickLauncher(): React.JSX.Element {
               {launcherMessages.map((msg, i) => (
                 <div key={i} className="flex flex-col gap-2 relative">
                   {msg.role === 'user' ? (
-                    <div className="flex flex-col max-w-[85%] rounded-[20px] px-4 py-3 text-sm leading-relaxed font-normal shadow-md ml-auto bg-[#1b2c27] text-text-primary rounded-tr-sm border border-accent-secondary/20">
-                      {msg.content}
+                    <div className="flex flex-col items-end gap-2.5 max-w-[85%] ml-auto">
+                      {msg.screenshot && (
+                        <div className="relative rounded-xl overflow-hidden border border-white/10 shadow-lg max-w-[200px] hover:border-white/20 transition-all duration-300">
+                          <img
+                            src={`data:image/png;base64,${msg.screenshot}`}
+                            alt="Screenshot preview"
+                            className="w-full h-auto cursor-zoom-in block"
+                            onClick={() => {
+                              const newWin = window.open()
+                              newWin?.document.write(`
+                                <body style="margin: 0; background: #0b0c0f; display: flex; align-items: center; justify-content: center; min-height: 100vh;">
+                                  <img src="data:image/png;base64,${msg.screenshot}" style="max-width: 100%; max-height: 100vh; object-fit: contain; box-shadow: 0 20px 50px rgba(0,0,0,0.5);" />
+                                </body>
+                              `)
+                            }}
+                          />
+                        </div>
+                      )}
+                      {msg.content && (
+                        <div className="flex flex-col rounded-[20px] px-4 py-3 text-sm leading-relaxed font-normal shadow-md bg-[#1b2c27] text-text-primary rounded-tr-sm border border-accent-secondary/20 w-full">
+                          {msg.content}
+                        </div>
+                      )}
                     </div>
                   ) : msg.isError ? (
                     <div className="flex flex-col w-full rounded-[20px] border border-status-error/25 shadow-md px-4 py-3 text-sm leading-relaxed font-normal bg-[#2d1b1c] text-status-error prose prose-invert">

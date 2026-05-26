@@ -260,15 +260,28 @@ export const toolsManifest: ToolDefinition[] = [
     target: 'launcher'
   },
   {
+    name: 'computer_use_see_screen',
+    description:
+      'Captures a screenshot of a specific application window or the entire screen to see its content. You must choose which app/window you want to capture, or specify "Entire Screen".',
+    usage:
+      '<tool_call>\n{\n  "type": "computer_use_see_screen",\n  "appName": "AppName"\n}\n</tool_call>',
+    parameters: {
+      appName:
+        'Required. The name of the application window to screenshot (e.g. "Google Chrome", "Notepad", etc.), or "Entire Screen" to capture the full desktop.'
+    }
+  },
+  {
     name: 'configure_prism',
     description:
       'Configures the Prism application settings. Any combination of parameters can be specified to customize shortcuts, models, window behaviors, user personal details, and API keys.',
     usage:
-      '<tool_call>\n{\n  "type": "configure_prism",\n  "launcherShortcut": "Shortcut",\n  "modelSelectionShortcut": "Shortcut",\n  "defaultModel": "prism-5|prism-4.3|prism-4.2|prism-4.1|prism-4",\n  "subagentModel": "prism-5|prism-4.3|prism-4.2|prism-4.1|prism-4",\n  "minimizeToTray": "true|false",\n  "autoLaunch": "true|false",\n  "quickLauncherMode": "simple|advanced",\n  "userGeminiKey": "API_KEY",\n  "username": "Name"\n}\n</tool_call>',
+      '<tool_call>\n{\n  "type": "configure_prism",\n  "launcherShortcut": "Shortcut",\n  "modelSelectionShortcut": "Shortcut",\n  "screenshotShortcut": "Shortcut",\n  "defaultModel": "prism-5|prism-4.3|prism-4.2|prism-4.1|prism-4",\n  "subagentModel": "prism-5|prism-4.3|prism-4.2|prism-4.1|prism-4",\n  "minimizeToTray": "true|false",\n  "autoLaunch": "true|false",\n  "quickLauncherMode": "simple|advanced",\n  "userGeminiKey": "API_KEY",\n  "username": "Name"\n}\n</tool_call>',
     parameters: {
       launcherShortcut:
         'Optional: Global shortcut to open/close launcher (e.g., CommandOrControl+Space).',
       modelSelectionShortcut: 'Optional: Global shortcut to open/close model selection dialog.',
+      screenshotShortcut:
+        'Optional: Global shortcut to take screenshot and open launcher (e.g., Ctrl+Alt+Space).',
       defaultModel:
         'Optional: Default main chat model (prism-5, prism-4.3, prism-4.2, prism-4.1, prism-4).',
       subagentModel:

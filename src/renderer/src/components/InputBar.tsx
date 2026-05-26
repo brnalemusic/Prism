@@ -16,7 +16,13 @@ import clsx from 'clsx'
 type InputBadge = 'youtube' | 'search' | 'think' | 'extended'
 
 interface InputBarProps {
-  onSend: (message: string) => void
+  onSend: (
+    message: string,
+    thinkMode?: boolean,
+    searchEnabled?: boolean,
+    extendedSearch?: boolean,
+    screenshot?: string
+  ) => void
   onCancel?: () => void
   disabled?: boolean
   isProcessing?: boolean
@@ -34,6 +40,9 @@ interface InputBarProps {
   setIsExtendedSearch: (val: boolean) => void
   isFullscreen: boolean
   onFullscreenToggle: () => void
+  screenshot?: string | null
+  onRemoveScreenshot?: () => void
+  onAttachScreenshot?: (base64: string) => void
 }
 
 export interface InputBarHandle {
@@ -60,7 +69,10 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       isExtendedSearch,
       setIsExtendedSearch,
       isFullscreen,
-      onFullscreenToggle
+      onFullscreenToggle,
+      screenshot,
+      onRemoveScreenshot,
+      onAttachScreenshot
     },
     ref
   ) => {
@@ -264,7 +276,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     }, [disabled])
 
     const handleSend = (): void => {
-      if (text.trim() && !disabled) {
+      if ((text.trim() || screenshot) && !disabled) {
         const trimmedText = text.trim()
 
         if (trimmedText === '/subagents') {
@@ -281,11 +293,17 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           finalMessage = `[FORCE_SEARCH] ${trimmedText.substring(8).trim()}`
         } else if (trimmedText === '/search') {
           finalMessage = `[FORCE_SEARCH] `
-        } else if (trimmedText !== '/clear') {
+        } else if (trimmedText !== '/clear' && trimmedText !== '') {
           finalMessage = isSearchEnabled ? `[FORCE_SEARCH] ${trimmedText}` : trimmedText
         }
 
-        onSend(finalMessage)
+        onSend(
+          finalMessage,
+          isThinkMode,
+          isSearchEnabled,
+          isExtendedSearch,
+          screenshot || undefined
+        )
         setText('')
 
         if (isFullscreen) {
@@ -318,6 +336,26 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         handleSend()
+      }
+    }
+
+    const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+      if (disabled) return
+      const items = e.clipboardData.items
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const file = items[i].getAsFile()
+          if (file && onAttachScreenshot) {
+            const reader = new FileReader()
+            reader.onload = (event) => {
+              if (event.target?.result) {
+                const base64 = (event.target.result as string).split(',')[1]
+                onAttachScreenshot(base64)
+              }
+            }
+            reader.readAsDataURL(file)
+          }
+        }
       }
     }
 
@@ -386,6 +424,22 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               disabled && 'opacity-60'
             )}
           >
+            {screenshot && (
+              <div className="relative mb-3 flex items-center justify-start self-start bg-white/[0.03] border border-white/[0.08] p-1.5 rounded-xl pr-8 animate-soft-pop group/thumb">
+                <img
+                  src={`data:image/png;base64,${screenshot}`}
+                  alt="Screenshot preview"
+                  className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
+                />
+                <button
+                  type="button"
+                  onClick={onRemoveScreenshot}
+                  className="absolute top-1.5 right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-text-secondary hover:text-white transition-colors text-xs font-bold leading-none cursor-pointer"
+                >
+                  &times;
+                </button>
+              </div>
+            )}
             {showSearchDropdown && !disabled && (
               <div
                 ref={dropdownRef}
@@ -553,6 +607,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               placeholder={getPlaceholder()}
               disabled={disabled}
               className={clsx(
@@ -641,7 +696,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 ) : (
                   <button
                     onClick={() => handleSend()}
-                    disabled={!text.trim() || disabled}
+                    disabled={(!text.trim() && !screenshot) || disabled}
                     className={clsx(
                       'flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px] transition-all duration-200',
                       text.trim() && !disabled
@@ -816,6 +871,24 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               disabled && 'opacity-60'
             )}
           >
+            {screenshot && (
+              <div className="w-full px-8 pt-4 pb-2 border-b border-white/[0.03] bg-white/[0.01] flex items-center justify-start relative animate-soft-pop select-none">
+                <div className="relative group/thumb">
+                  <img
+                    src={`data:image/png;base64,${screenshot}`}
+                    alt="Screenshot preview"
+                    className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
+                  />
+                  <button
+                    type="button"
+                    onClick={onRemoveScreenshot}
+                    className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-text-secondary hover:text-white transition-colors text-xs font-bold leading-none cursor-pointer"
+                  >
+                    &times;
+                  </button>
+                </div>
+              </div>
+            )}
             {isKeyMissing && (
               <div className="absolute inset-0 z-20 flex items-center justify-center bg-background-main/35 backdrop-blur-sm">
                 <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.055] px-3 py-2 text-xs font-semibold text-text-secondary">
@@ -856,6 +929,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
                 placeholder={getPlaceholder()}
                 disabled={disabled}
                 style={{
@@ -949,7 +1023,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               ) : (
                 <button
                   onClick={() => handleSend()}
-                  disabled={!text.trim() || disabled}
+                  disabled={(!text.trim() && !screenshot) || disabled}
                   className={clsx(
                     'flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px] transition-all duration-200',
                     text.trim() && !disabled

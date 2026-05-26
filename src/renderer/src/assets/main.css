@@ -625,3 +625,172 @@
   background: #252732 !important;
   border-color: rgba(143, 180, 255, 0.35) !important;
 }
+
+/* ─── Screen Border Glows (Magic & Glow Master) ─── */
+
+@keyframes border-glow-pulse {
+  0%, 100% {
+    opacity: 0.65;
+    box-shadow: 0 0 18px currentColor;
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 40px currentColor;
+  }
+}
+
+@keyframes border-gradient-move {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes diagonal-sweep {
+  0% {
+    transform: scale(0.8) translate(-10%, -10%);
+    opacity: 0.3;
+  }
+  50% {
+    transform: scale(1.15) translate(10%, 10%);
+    opacity: 0.85;
+  }
+  100% {
+    transform: scale(0.8) translate(-10%, -10%);
+    opacity: 0.3;
+  }
+}
+
+/* Combined flash + disintegration for border glows (1s total) */
+@keyframes glow-master-border {
+  0% {
+    opacity: 1;
+    box-shadow: 0 0 18px currentColor;
+    filter: none;
+  }
+  12% {
+    opacity: 1;
+    box-shadow: 0 0 60px currentColor;
+    filter: brightness(2) drop-shadow(0 0 30px currentColor);
+  }
+  30% {
+    opacity: 0.7;
+    box-shadow: 0 0 28px currentColor;
+    filter: brightness(1.2);
+  }
+  100% {
+    opacity: 0;
+    box-shadow: 0 0 0px currentColor;
+    filter: blur(8px) brightness(0.3);
+  }
+}
+
+/* Combined flash + disintegration for diagonal glows (1s total) */
+@keyframes glow-master-diagonal {
+  0% {
+    opacity: 0.65;
+    transform: scale(1);
+    filter: blur(40px);
+  }
+  12% {
+    opacity: 1;
+    transform: scale(2);
+    filter: blur(18px) brightness(1.6);
+  }
+  30% {
+    opacity: 0.5;
+    transform: scale(1.5);
+    filter: blur(32px);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.15);
+    filter: blur(65px) brightness(0.15);
+  }
+}
+
+.magic-border-glow {
+  position: absolute;
+  pointer-events: none;
+  z-index: 9999;
+  background: linear-gradient(90deg, var(--color-accent-primary), var(--color-accent-secondary), var(--color-status-warning), var(--color-accent-primary));
+  background-size: 300% 300%;
+  animation: border-gradient-move 3s ease infinite;
+  color: var(--color-accent-primary);
+  /* No transition — glows appear instantly */
+}
+
+.magic-border-glow.top {
+  top: 0; left: 0; right: 0; height: 5px;
+  animation: border-gradient-move 3s ease infinite, border-glow-pulse 1.5s ease-in-out infinite;
+}
+
+.magic-border-glow.bottom {
+  bottom: 0; left: 0; right: 0; height: 5px;
+  animation: border-gradient-move 3s ease infinite, border-glow-pulse 1.5s ease-in-out infinite;
+}
+
+.magic-border-glow.left {
+  top: 0; bottom: 0; left: 0; width: 5px;
+  animation: border-gradient-move 3s ease infinite, border-glow-pulse 1.5s ease-in-out infinite;
+}
+
+.magic-border-glow.right {
+  top: 0; bottom: 0; right: 0; width: 5px;
+  animation: border-gradient-move 3s ease infinite, border-glow-pulse 1.5s ease-in-out infinite;
+}
+
+/* Diagonals */
+.magic-diagonal-glow {
+  position: absolute;
+  width: 250px;
+  height: 250px;
+  pointer-events: none;
+  z-index: 9998;
+  filter: blur(40px);
+  opacity: 0.65;
+  mix-blend-mode: screen;
+  /* No transition — glows appear instantly */
+}
+
+.magic-diagonal-glow.top-left {
+  top: -80px;
+  left: -80px;
+  background: radial-gradient(circle, rgba(143,180,255,0.85) 0%, transparent 70%);
+  animation: diagonal-sweep 2.5s ease-in-out infinite;
+}
+
+.magic-diagonal-glow.top-right {
+  top: -80px;
+  right: -80px;
+  background: radial-gradient(circle, rgba(120,224,194,0.85) 0%, transparent 70%);
+  animation: diagonal-sweep 3s ease-in-out infinite;
+}
+
+.magic-diagonal-glow.bottom-left {
+  bottom: -80px;
+  left: -80px;
+  background: radial-gradient(circle, rgba(228,187,106,0.85) 0%, transparent 70%);
+  animation: diagonal-sweep 3s ease-in-out infinite;
+}
+
+.magic-diagonal-glow.bottom-right {
+  bottom: -80px;
+  right: -80px;
+  background: radial-gradient(circle, rgba(143,180,255,0.85) 0%, transparent 70%);
+  animation: diagonal-sweep 2.5s ease-in-out infinite;
+}
+
+/* Glow Master: combined flash + smooth disintegration in 1s */
+.magic-border-glow.glow-master {
+  animation: border-gradient-move 2s ease infinite, glow-master-border 1s ease-out forwards;
+}
+
+.magic-diagonal-glow.glow-master {
+  animation: glow-master-diagonal 1s ease-out forwards;
+}
