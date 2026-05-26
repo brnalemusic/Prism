@@ -392,7 +392,7 @@ export function SettingsView(): React.JSX.Element {
                 </span>
               </div>
               <span className="text-xs font-semibold bg-accent-primary/10 border border-accent-primary/20 text-accent-primary rounded-xl px-3 py-1.5">
-                v{config.appVersion || '0.11.0'}
+                {config.appVersion ? `v${config.appVersion}` : 'Loading...'}
               </span>
             </div>
 
