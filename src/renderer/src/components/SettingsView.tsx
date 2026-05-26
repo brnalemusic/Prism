@@ -7,7 +7,8 @@ import {
   RotateCcw,
   Monitor,
   Key,
-  Shield
+  Shield,
+  Info
 } from 'lucide-react'
 import { MODELS } from '../constants'
 import { ShortcutRecorder } from './ShortcutRecorder'
@@ -24,6 +25,7 @@ interface Config {
   quickLauncherMode: 'simple' | 'advanced'
   userGeminiKey: string
   username?: string
+  appVersion?: string
 }
 
 export function SettingsView(): React.JSX.Element {
@@ -36,7 +38,8 @@ export function SettingsView(): React.JSX.Element {
     minimizeToTray: false,
     autoLaunch: false,
     quickLauncherMode: 'simple',
-    userGeminiKey: ''
+    userGeminiKey: '',
+    appVersion: ''
   })
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState({ text: '', type: '' })
@@ -50,7 +53,8 @@ export function SettingsView(): React.JSX.Element {
           autoLaunch: savedConfig.autoLaunch ?? false,
           quickLauncherMode: savedConfig.quickLauncherMode ?? 'simple',
           userGeminiKey: savedConfig.userGeminiKey || '',
-          screenshotShortcut: savedConfig.screenshotShortcut || 'Ctrl+Alt+Space'
+          screenshotShortcut: savedConfig.screenshotShortcut || 'Ctrl+Alt+Space',
+          appVersion: savedConfig.appVersion || ''
         })
       }
     }
@@ -81,7 +85,8 @@ export function SettingsView(): React.JSX.Element {
       minimizeToTray: false,
       autoLaunch: false,
       quickLauncherMode: 'simple',
-      userGeminiKey: ''
+      userGeminiKey: '',
+      appVersion: config.appVersion
     })
   }
 
@@ -367,6 +372,49 @@ export function SettingsView(): React.JSX.Element {
                   )}
                 />
               </button>
+            </div>
+          </div>
+        </section>
+
+        {/* About Prism */}
+        <section className="premium-panel-soft rounded-[28px] p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <Info size={20} className="text-accent-primary" />
+            <h2 className="text-lg font-semibold text-text-primary">About Prism</h2>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-4">
+              <div className="flex flex-col gap-1">
+                <span className="text-sm font-bold text-text-primary">Prism Version</span>
+                <span className="text-xs text-text-secondary/70 leading-tight">
+                  The current version of Prism desktop installed on your system.
+                </span>
+              </div>
+              <span className="text-xs font-semibold bg-accent-primary/10 border border-accent-primary/20 text-accent-primary rounded-xl px-3 py-1.5">
+                v{config.appVersion || '0.11.0'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="flex flex-col items-center justify-center rounded-[20px] border border-white/[0.08] bg-white/[0.02] p-4 text-center">
+                <span className="text-xs text-text-secondary/60">Electron</span>
+                <span className="text-sm font-semibold text-text-primary mt-1">
+                  v{window.electron?.process?.versions?.electron || '39.8.9'}
+                </span>
+              </div>
+              <div className="flex flex-col items-center justify-center rounded-[20px] border border-white/[0.08] bg-white/[0.02] p-4 text-center">
+                <span className="text-xs text-text-secondary/60">Chromium</span>
+                <span className="text-sm font-semibold text-text-primary mt-1">
+                  v{window.electron?.process?.versions?.chrome || '132.0'}
+                </span>
+              </div>
+              <div className="flex flex-col items-center justify-center rounded-[20px] border border-white/[0.08] bg-white/[0.02] p-4 text-center">
+                <span className="text-xs text-text-secondary/60">Node.js</span>
+                <span className="text-sm font-semibold text-text-primary mt-1">
+                  v{window.electron?.process?.versions?.node || '22.11.0'}
+                </span>
+              </div>
             </div>
           </div>
         </section>

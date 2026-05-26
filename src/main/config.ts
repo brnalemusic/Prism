@@ -14,6 +14,7 @@ export interface AppConfig {
   userGeminiKey?: string
   envGeminiKey?: string
   username?: string
+  appVersion?: string
 }
 
 const DEFAULT_CONFIG: AppConfig = {

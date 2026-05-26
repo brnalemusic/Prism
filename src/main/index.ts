@@ -556,7 +556,8 @@ app.whenReady().then(() => {
     return {
       ...currentConfig,
       envGeminiKey: process.env.GEMINI_API_KEY,
-      username: os.userInfo().username
+      username: os.userInfo().username,
+      appVersion: app.getVersion()
     }
   })
 
