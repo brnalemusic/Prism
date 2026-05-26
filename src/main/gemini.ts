@@ -27,7 +27,7 @@ import {
   computerReadFile,
   captureAppScreenshot
 } from './systemTools'
-import { saveChatSession, loadChatSession, searchChatHistory } from './history'
+import { saveChatSession, loadChatSession, searchChatHistory, getMessageText } from './history'
 import { loadConfig, saveConfig } from './config'
 
 // Load environment variables from .env
@@ -681,12 +681,11 @@ async function runSubagents(
   const subagentModelKey = currentSubagentModelKey
   const subagentModelConfig = getSubagentModelConfig(subagentModelKey)
 
-  // Extract the parent task/goal from the main chat history
-  const parentTask =
-    chatHistory
-      .slice()
-      .reverse()
-      .find((m) => m.role === 'user')?.parts?.[0]?.text || 'No overall task specified'
+  // Extract the parent task/goal from the active run's history, or main chat history if not found
+  const activeRun = chatId ? activeRuns.get(chatId) : undefined
+  const targetHistory = activeRun ? activeRun.chatHistory : chatHistory
+  const lastUserMsg = targetHistory.slice().reverse().find((m) => m.role === 'user')
+  const parentTask = getMessageText(lastUserMsg) || 'No overall task specified'
 
   const blackboard: GroupMessage[] = []
   const waiters: (() => void)[] = []

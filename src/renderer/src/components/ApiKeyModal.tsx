@@ -1,30 +1,35 @@
 import { useState, useEffect } from 'react'
-import { Key, Shield, Info, X } from 'lucide-react'
+import { Key, Shield, Info, X, Eye, EyeOff } from 'lucide-react'
 import clsx from 'clsx'
 
 interface ApiKeyModalProps {
   isOpen: boolean
   onClose: () => void
   onSave: (key: string) => void
+  initialValue?: string
 }
 
 export function ApiKeyModal({
   isOpen,
   onClose,
-  onSave
+  onSave,
+  initialValue = ''
 }: ApiKeyModalProps): React.JSX.Element | null {
-  const [apiKey, setApiKey] = useState('')
+  const [apiKey, setApiKey] = useState(initialValue)
   const [isVisible, setIsVisible] = useState(false)
+  const [showKey, setShowKey] = useState(false)
 
   useEffect(() => {
     if (isOpen) {
+      setApiKey(initialValue)
+      setShowKey(false)
       const timer = setTimeout(() => setIsVisible(true), 0)
       return () => clearTimeout(timer)
     } else {
       const timer = setTimeout(() => setIsVisible(false), 300)
       return () => clearTimeout(timer)
     }
-  }, [isOpen])
+  }, [isOpen, initialValue])
 
   if (!isVisible && !isOpen) return null
 
@@ -80,14 +85,22 @@ export function ApiKeyModal({
               To continue using Prism without interruptions, you can configure your own API key.
             </p>
 
-            <div className="relative">
+            <div className="relative flex items-center">
               <input
-                type="password"
+                type={showKey ? 'text' : 'password'}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="Insert your Gemini API Key here..."
-                className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
+                className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] pl-4 pr-12 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
               />
+              <button
+                type="button"
+                onClick={() => setShowKey(!showKey)}
+                className="absolute right-3.5 p-1 rounded-lg text-text-secondary/50 hover:text-text-primary hover:bg-white/[0.06] transition-all cursor-pointer"
+                title={showKey ? 'Hide key' : 'Show key'}
+              >
+                {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </div>
 
             <div className="flex flex-col gap-3">

@@ -26,6 +26,17 @@ function ensureChatsDir(): void {
 }
 
 /**
+ * Safely extracts text from content parts, combining all text components.
+ */
+export function getMessageText(content?: Content): string {
+  if (!content || !content.parts) return ''
+  return content.parts
+    .map((p) => p.text || '')
+    .join(' ')
+    .trim()
+}
+
+/**
  * Lists all available chat sessions.
  */
 export function listChatSessions(): Omit<ChatSession, 'messages'>[] {
@@ -85,9 +96,10 @@ export function saveChatSession(id: string, messages: Content[], title?: string)
       if (fs.existsSync(filePath)) {
         try {
           const existingData = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
+          const firstMsgText = getMessageText(messages[0])
           if (
             existingData.title &&
-            !existingData.title.startsWith(messages[0]?.parts?.[0]?.text?.substring(0, 5) || '___')
+            !existingData.title.startsWith(firstMsgText.substring(0, 5) || '___')
           ) {
             sessionTitle = existingData.title
           }
@@ -99,10 +111,10 @@ export function saveChatSession(id: string, messages: Content[], title?: string)
       if (!sessionTitle && messages.length > 0) {
         // Fallback title generation from first REAL user message
         const firstRealUserMsg = messages.find(
-          (m) => m.role === 'user' && typeof m.parts?.[0]?.text === 'string'
+          (m) => m.role === 'user' && m.parts?.some((p) => typeof p.text === 'string')
         )
-        const text = firstRealUserMsg?.parts?.[0]?.text
-        if (typeof text === 'string') {
+        const text = getMessageText(firstRealUserMsg)
+        if (text) {
           sessionTitle = text.substring(0, 40) + (text.length > 40 ? '...' : '')
         }
       }
@@ -175,9 +187,9 @@ export async function searchChatHistory(query: string): Promise<string> {
 
       for (let i = 0; i < session.messages.length; i++) {
         const msg = session.messages[i]
-        const text = msg.parts?.[0]?.text
+        const text = getMessageText(msg)
 
-        if (typeof text === 'string') {
+        if (text) {
           // Ignore ANY system role message to avoid polluting history with rules or internal feedback
           if (msg.role === 'system') {
             continue
@@ -213,15 +225,13 @@ export async function searchChatHistory(query: string): Promise<string> {
               context = formatRole('user', text)
               const nextMsg = session.messages[i + 1]
               if (nextMsg && nextMsg.role === 'model') {
-                const nextText =
-                  typeof nextMsg.parts?.[0]?.text === 'string' ? nextMsg.parts?.[0]?.text : ''
+                const nextText = getMessageText(nextMsg)
                 context += `\n${formatRole('model', nextText)}`
               }
             } else if (msg.role === 'model') {
               const prevMsg = session.messages[i - 1]
               if (prevMsg && prevMsg.role === 'user') {
-                const prevText =
-                  typeof prevMsg.parts?.[0]?.text === 'string' ? prevMsg.parts?.[0]?.text : ''
+                const prevText = getMessageText(prevMsg)
                 context = `${formatRole('user', prevText)}\n`
               }
               context += formatRole('model', text)

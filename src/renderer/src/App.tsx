@@ -1363,6 +1363,7 @@ function App(): React.JSX.Element {
         isOpen={isApiKeyModalOpen}
         onClose={() => setIsApiKeyModalOpen(false)}
         onSave={handleSaveApiKey}
+        initialValue={config?.userGeminiKey || ''}
       />
       <PrismBackground
         isFocused={isFocused}
