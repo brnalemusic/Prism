@@ -254,7 +254,7 @@ async function handleScreenshotShortcut(): Promise<void> {
 
 function registerGlobalShortcuts(): void {
   globalShortcut.unregisterAll()
-  
+
   // Launcher shortcut
   const lShortcut = currentConfig.launcherShortcut || 'CommandOrControl+Space'
   try {

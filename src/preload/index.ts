@@ -87,11 +87,11 @@ const api = {
     return () => ipcRenderer.removeListener('chat-tool-update', listener)
   },
   onLauncherMessage: (
-    callback: (data: { message: string; thinkMode?: boolean }) => void
+    callback: (data: { message: string; thinkMode?: boolean; screenshot?: string }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { message: string; thinkMode?: boolean }
+      data: { message: string; thinkMode?: boolean; screenshot?: string }
     ): void => callback(data)
     ipcRenderer.on('launcher-message', listener)
     return () => ipcRenderer.removeListener('launcher-message', listener)
@@ -221,8 +221,11 @@ const api = {
     ipcRenderer.invoke('launcher-open-app', appPath),
   launcherOpenFile: (filePath: string): Promise<string> =>
     ipcRenderer.invoke('launcher-open-file', filePath),
-  sendLauncherChatMessage: (data: { message: string; thinkMode?: boolean; screenshot?: string }): void =>
-    ipcRenderer.send('launcher-chat-message', data),
+  sendLauncherChatMessage: (data: {
+    message: string
+    thinkMode?: boolean
+    screenshot?: string
+  }): void => ipcRenderer.send('launcher-chat-message', data),
   clearLauncherChat: (): void => ipcRenderer.send('launcher-chat-clear'),
   onLauncherReplyStart: (callback: () => void): (() => void) => {
     const listener = (): void => callback()

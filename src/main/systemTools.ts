@@ -1376,7 +1376,9 @@ export async function searchWorkspaceFiles(
 /**
  * Captures a screenshot of a specific application window or the entire screen.
  */
-export async function captureAppScreenshot(appName: string): Promise<{ result: string; base64?: string }> {
+export async function captureAppScreenshot(
+  appName: string
+): Promise<{ result: string; base64?: string }> {
   try {
     const sources = await desktopCapturer.getSources({
       types: ['window', 'screen'],

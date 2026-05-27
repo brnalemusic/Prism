@@ -42,10 +42,17 @@ export const isShortcutPressed = (e: KeyboardEvent, shortcut: string): boolean =
 /**
  * Parses an error message to extract the error code (e.g. 500, 429, 400, 404, etc.)
  */
-export function parseErrorCode(error: any): string {
+export function parseErrorCode(error: unknown): string {
   if (!error) return '500'
-  const errorStr = typeof error === 'string' ? error : error.message || String(error)
-  
+  const errorStr =
+    typeof error === 'string'
+      ? error
+      : error instanceof Error
+        ? error.message
+        : typeof error === 'object' && error !== null && 'message' in error
+          ? String((error as Record<string, unknown>).message)
+          : String(error)
+
   // Look for a 3-digit status code (like 400, 429, 500, etc.)
   const match = errorStr.match(/\b(\d{3})\b/)
   if (match) {
@@ -54,10 +61,21 @@ export function parseErrorCode(error: any): string {
 
   // Common mapping for known text errors to codes
   const lower = errorStr.toLowerCase()
-  if (lower.includes('rate limit') || lower.includes('quota') || lower.includes('exhausted') || lower.includes('429')) {
+  if (
+    lower.includes('rate limit') ||
+    lower.includes('quota') ||
+    lower.includes('exhausted') ||
+    lower.includes('429')
+  ) {
     return '429'
   }
-  if (lower.includes('unauthorized') || lower.includes('api key') || lower.includes('key missing') || lower.includes('401') || lower.includes('auth')) {
+  if (
+    lower.includes('unauthorized') ||
+    lower.includes('api key') ||
+    lower.includes('key missing') ||
+    lower.includes('401') ||
+    lower.includes('auth')
+  ) {
     return '401'
   }
   if (lower.includes('forbidden') || lower.includes('permission') || lower.includes('403')) {
@@ -72,7 +90,12 @@ export function parseErrorCode(error: any): string {
   if (lower.includes('timeout') || lower.includes('504')) {
     return '504'
   }
-  if (lower.includes('internal') || lower.includes('service') || lower.includes('500') || lower.includes('503')) {
+  if (
+    lower.includes('internal') ||
+    lower.includes('service') ||
+    lower.includes('500') ||
+    lower.includes('503')
+  ) {
     return '500'
   }
   if (lower.includes('network') || lower.includes('connect')) {
@@ -92,9 +115,8 @@ export function parseErrorCode(error: any): string {
 /**
  * Triggers a global error popup with only the error code in the message
  */
-export const triggerErrorPopup = (error: any): void => {
+export const triggerErrorPopup = (error: unknown): void => {
   const code = parseErrorCode(error)
   const event = new CustomEvent('show-error-popup', { detail: { code } })
   window.dispatchEvent(event)
 }
-

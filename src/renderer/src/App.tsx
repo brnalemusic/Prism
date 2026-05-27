@@ -345,7 +345,10 @@ function App(): React.JSX.Element {
 
       // Para a UI, removemos a tag feia se ela existir
       const displayContent = text.replace(/^\[FORCE_SEARCH\]\s*/i, '')
-      setMessages((prev) => [...prev, { role: 'user', content: displayContent, screenshot: activeScreenshot || undefined }])
+      setMessages((prev) => [
+        ...prev,
+        { role: 'user', content: displayContent, screenshot: activeScreenshot || undefined }
+      ])
 
       // If search is enabled, ensure [FORCE_SEARCH] is prefixed for API
       let apiMessage = text
@@ -594,7 +597,7 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     // Listen for launcher messages
-    const removeLauncherListener = window.api.onLauncherMessage((data: any) => {
+    const removeLauncherListener = window.api.onLauncherMessage((data) => {
       setActiveView('chat')
       // If launcher message arrives with the tag, handleSend will take care of hiding it in the UI
       handleSend(data.message, data.thinkMode, undefined, undefined, data.screenshot)

@@ -19,17 +19,24 @@ export function ApiKeyModal({
   const [isVisible, setIsVisible] = useState(false)
   const [showKey, setShowKey] = useState(false)
 
-  useEffect(() => {
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen)
+  if (isOpen !== prevIsOpen) {
+    setPrevIsOpen(isOpen)
     if (isOpen) {
       setApiKey(initialValue)
       setShowKey(false)
+    }
+  }
+
+  useEffect(() => {
+    if (isOpen) {
       const timer = setTimeout(() => setIsVisible(true), 0)
       return () => clearTimeout(timer)
     } else {
       const timer = setTimeout(() => setIsVisible(false), 300)
       return () => clearTimeout(timer)
     }
-  }, [isOpen, initialValue])
+  }, [isOpen])
 
   if (!isVisible && !isOpen) return null
 

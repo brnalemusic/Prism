@@ -40,7 +40,7 @@ export interface PrismAPI {
   ) => () => void
   onToolUpdate: (callback: (data: ToolUpdate & { chatId: string }) => void) => () => void
   onLauncherMessage: (
-    callback: (data: { message: string; thinkMode?: boolean }) => void
+    callback: (data: { message: string; thinkMode?: boolean; screenshot?: string }) => void
   ) => () => void
   onLauncherFocus: (callback: () => void) => () => void
   onModelChanged: (callback: (modelKey: string) => void) => () => void
@@ -85,7 +85,11 @@ export interface PrismAPI {
   launcherSearchFiles: (query: string) => Promise<FileSearchResult[]>
   launcherOpenApp: (appPath: string) => Promise<string>
   launcherOpenFile: (filePath: string) => Promise<string>
-  sendLauncherChatMessage: (data: { message: string; thinkMode?: boolean; screenshot?: string }) => void
+  sendLauncherChatMessage: (data: {
+    message: string
+    thinkMode?: boolean
+    screenshot?: string
+  }) => void
   clearLauncherChat: () => void
   onLauncherReplyStart: (callback: () => void) => () => void
   onLauncherReplyChunk: (

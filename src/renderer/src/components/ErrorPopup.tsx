@@ -56,7 +56,7 @@ export function ErrorPopup(): React.JSX.Element | null {
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[14px] border border-status-error/20 bg-status-error/[0.12] text-status-error">
           <AlertCircle size={16} />
         </div>
-        
+
         <div className="flex-1 flex flex-col min-w-0">
           <span className="text-[11px] font-semibold tracking-wide uppercase text-status-error/70 leading-none mb-1.5">
             Error

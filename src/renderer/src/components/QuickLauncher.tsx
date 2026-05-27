@@ -665,15 +665,49 @@ export function QuickLauncher(): React.JSX.Element {
       {/* Magical live moving border and diagonal glows */}
       {glowState !== 'idle' && (
         <>
-          <div className={clsx('magic-border-glow top', glowState === 'glow-master' && 'glow-master')} />
-          <div className={clsx('magic-border-glow bottom', glowState === 'glow-master' && 'glow-master')} />
-          <div className={clsx('magic-border-glow left', glowState === 'glow-master' && 'glow-master')} />
-          <div className={clsx('magic-border-glow right', glowState === 'glow-master' && 'glow-master')} />
-          
-          <div className={clsx('magic-diagonal-glow top-left', glowState === 'glow-master' && 'glow-master')} />
-          <div className={clsx('magic-diagonal-glow top-right', glowState === 'glow-master' && 'glow-master')} />
-          <div className={clsx('magic-diagonal-glow bottom-left', glowState === 'glow-master' && 'glow-master')} />
-          <div className={clsx('magic-diagonal-glow bottom-right', glowState === 'glow-master' && 'glow-master')} />
+          <div
+            className={clsx('magic-border-glow top', glowState === 'glow-master' && 'glow-master')}
+          />
+          <div
+            className={clsx(
+              'magic-border-glow bottom',
+              glowState === 'glow-master' && 'glow-master'
+            )}
+          />
+          <div
+            className={clsx('magic-border-glow left', glowState === 'glow-master' && 'glow-master')}
+          />
+          <div
+            className={clsx(
+              'magic-border-glow right',
+              glowState === 'glow-master' && 'glow-master'
+            )}
+          />
+
+          <div
+            className={clsx(
+              'magic-diagonal-glow top-left',
+              glowState === 'glow-master' && 'glow-master'
+            )}
+          />
+          <div
+            className={clsx(
+              'magic-diagonal-glow top-right',
+              glowState === 'glow-master' && 'glow-master'
+            )}
+          />
+          <div
+            className={clsx(
+              'magic-diagonal-glow bottom-left',
+              glowState === 'glow-master' && 'glow-master'
+            )}
+          />
+          <div
+            className={clsx(
+              'magic-diagonal-glow bottom-right',
+              glowState === 'glow-master' && 'glow-master'
+            )}
+          />
         </>
       )}
 
@@ -816,125 +850,125 @@ export function QuickLauncher(): React.JSX.Element {
               </button>
             </div>
           )}
-          
+
           <div className="flex w-full items-center gap-4">
-          {activeMode !== 'default' && (
-            <div className="pointer-events-none absolute inset-x-6 top-0 h-px overflow-hidden">
+            {activeMode !== 'default' && (
+              <div className="pointer-events-none absolute inset-x-6 top-0 h-px overflow-hidden">
+                <div
+                  className={clsx(
+                    'h-px w-full animate-[line-sweep_1600ms_cubic-bezier(0.2,0.82,0.2,1)_infinite] opacity-80',
+                    isSearchAndThinkMode
+                      ? 'bg-gradient-to-r from-transparent via-accent-secondary to-status-warning'
+                      : 'bg-gradient-to-r from-transparent via-current to-transparent'
+                  )}
+                />
+              </div>
+            )}
+
+            {/* Model selector toggle or simple mode indicator */}
+            {quickLauncherMode === 'advanced' ? (
+              <button
+                onClick={() => {
+                  setIsModelSelectorOpen(!isModelSelectorOpen)
+                  setSelectedIndex(
+                    Math.max(
+                      0,
+                      MODELS.findIndex((m) => m.id === activeModelId)
+                    )
+                  )
+                }}
+                className={clsx(
+                  'flex h-10 shrink-0 items-center gap-2 rounded-[16px] border px-3 text-sm font-semibold transition-all duration-200',
+                  isModelSelectorOpen
+                    ? 'border-accent-primary/35 bg-[#251b2d] text-accent-primary'
+                    : 'border-white/[0.08] bg-[#1e2026] text-text-secondary hover:bg-[#25272e] hover:text-text-primary'
+                )}
+              >
+                <Command size={15} />
+                <span
+                  className={
+                    activeModel.id === 'prism-5' ? 'prism-top-gradient' : 'text-text-primary'
+                  }
+                >
+                  {activeModel.name.replace('Prism ', '')}
+                </span>
+                <ChevronRight
+                  size={15}
+                  className={clsx(
+                    'transition-transform duration-200',
+                    isModelSelectorOpen && 'rotate-90'
+                  )}
+                />
+              </button>
+            ) : (
+              <div className="flex h-10 shrink-0 items-center gap-2 rounded-[16px] border border-white/[0.08] bg-[#1e2026] px-3 text-sm font-semibold text-text-secondary select-none">
+                <Sparkles size={15} className="text-accent-secondary animate-pulse" />
+                <span>Prism 4</span>
+              </div>
+            )}
+
+            {/* Input field */}
+            <form onSubmit={handleSubmit} className="relative z-10 flex-1">
+              <input
+                ref={inputRef}
+                type="text"
+                autoFocus
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value)
+                  setSelectedIndex(0)
+                }}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+                placeholder={
+                  isModelSelectorOpen
+                    ? 'Select a Prism model'
+                    : isYoutubeMode
+                      ? 'Search and play videos'
+                      : isSearchEnabled
+                        ? 'Search the web'
+                        : isThinkMode
+                          ? 'Think with Prism'
+                          : quickLauncherMode === 'simple'
+                            ? 'Ask quick AI or search files/apps...'
+                            : 'What should Prism do?'
+                }
+                className={clsx(
+                  'w-full border-none bg-transparent text-[22px] font-medium outline-none transition-colors duration-200 placeholder:text-text-muted',
+                  activeMode === 'youtube'
+                    ? 'text-accent-primary placeholder:text-accent-primary/40'
+                    : isSearchAndThinkMode
+                      ? 'text-[#d9c77a] placeholder:text-[#d9c77a]/45'
+                      : activeMode === 'search'
+                        ? 'text-accent-secondary placeholder:text-accent-secondary/40'
+                        : activeMode === 'think'
+                          ? 'text-status-warning placeholder:text-status-warning/40'
+                          : 'text-text-primary'
+                )}
+              />
+            </form>
+
+            {/* Indicators badges */}
+            {activeBadges.length > 0 && (
               <div
                 className={clsx(
-                  'h-px w-full animate-[line-sweep_1600ms_cubic-bezier(0.2,0.82,0.2,1)_infinite] opacity-80',
+                  'relative z-10 flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[16px] border px-2',
                   isSearchAndThinkMode
-                    ? 'bg-gradient-to-r from-transparent via-accent-secondary to-status-warning'
-                    : 'bg-gradient-to-r from-transparent via-current to-transparent'
+                    ? 'border-transparent bg-gradient-to-r from-[#10221c] to-[#221d10] text-[#d9c77a]'
+                    : 'border-white/[0.15] bg-[#22242d]'
                 )}
-              />
-            </div>
-          )}
-
-          {/* Model selector toggle or simple mode indicator */}
-          {quickLauncherMode === 'advanced' ? (
-            <button
-              onClick={() => {
-                setIsModelSelectorOpen(!isModelSelectorOpen)
-                setSelectedIndex(
-                  Math.max(
-                    0,
-                    MODELS.findIndex((m) => m.id === activeModelId)
-                  )
-                )
-              }}
-              className={clsx(
-                'flex h-10 shrink-0 items-center gap-2 rounded-[16px] border px-3 text-sm font-semibold transition-all duration-200',
-                isModelSelectorOpen
-                  ? 'border-accent-primary/35 bg-[#251b2d] text-accent-primary'
-                  : 'border-white/[0.08] bg-[#1e2026] text-text-secondary hover:bg-[#25272e] hover:text-text-primary'
-              )}
-            >
-              <Command size={15} />
-              <span
-                className={
-                  activeModel.id === 'prism-5' ? 'prism-top-gradient' : 'text-text-primary'
-                }
               >
-                {activeModel.name.replace('Prism ', '')}
-              </span>
-              <ChevronRight
-                size={15}
-                className={clsx(
-                  'transition-transform duration-200',
-                  isModelSelectorOpen && 'rotate-90'
+                {activeBadges.map((badge) =>
+                  badge === 'youtube' ? (
+                    <CirclePlay key={badge} size={19} />
+                  ) : badge === 'search' ? (
+                    <Search key={badge} size={19} className="animate-slow-pulse" />
+                  ) : (
+                    <Brain key={badge} size={19} className="animate-slow-pulse" />
+                  )
                 )}
-              />
-            </button>
-          ) : (
-            <div className="flex h-10 shrink-0 items-center gap-2 rounded-[16px] border border-white/[0.08] bg-[#1e2026] px-3 text-sm font-semibold text-text-secondary select-none">
-              <Sparkles size={15} className="text-accent-secondary animate-pulse" />
-              <span>Prism 4</span>
-            </div>
-          )}
-
-          {/* Input field */}
-          <form onSubmit={handleSubmit} className="relative z-10 flex-1">
-            <input
-              ref={inputRef}
-              type="text"
-              autoFocus
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value)
-                setSelectedIndex(0)
-              }}
-              onFocus={() => setIsFocused(true)}
-              onBlur={() => setIsFocused(false)}
-              placeholder={
-                isModelSelectorOpen
-                  ? 'Select a Prism model'
-                  : isYoutubeMode
-                    ? 'Search and play videos'
-                    : isSearchEnabled
-                      ? 'Search the web'
-                      : isThinkMode
-                        ? 'Think with Prism'
-                        : quickLauncherMode === 'simple'
-                          ? 'Ask quick AI or search files/apps...'
-                          : 'What should Prism do?'
-              }
-              className={clsx(
-                'w-full border-none bg-transparent text-[22px] font-medium outline-none transition-colors duration-200 placeholder:text-text-muted',
-                activeMode === 'youtube'
-                  ? 'text-accent-primary placeholder:text-accent-primary/40'
-                  : isSearchAndThinkMode
-                    ? 'text-[#d9c77a] placeholder:text-[#d9c77a]/45'
-                    : activeMode === 'search'
-                      ? 'text-accent-secondary placeholder:text-accent-secondary/40'
-                      : activeMode === 'think'
-                        ? 'text-status-warning placeholder:text-status-warning/40'
-                        : 'text-text-primary'
-              )}
-            />
-          </form>
-
-          {/* Indicators badges */}
-          {activeBadges.length > 0 && (
-            <div
-              className={clsx(
-                'relative z-10 flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[16px] border px-2',
-                isSearchAndThinkMode
-                  ? 'border-transparent bg-gradient-to-r from-[#10221c] to-[#221d10] text-[#d9c77a]'
-                  : 'border-white/[0.15] bg-[#22242d]'
-              )}
-            >
-              {activeBadges.map((badge) =>
-                badge === 'youtube' ? (
-                  <CirclePlay key={badge} size={19} />
-                ) : badge === 'search' ? (
-                  <Search key={badge} size={19} className="animate-slow-pulse" />
-                ) : (
-                  <Brain key={badge} size={19} className="animate-slow-pulse" />
-                )
-              )}
-            </div>
-          )}
+              </div>
+            )}
           </div>
         </div>
 

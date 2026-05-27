@@ -39,12 +39,12 @@ export function TtsButton({ text, className }: TtsButtonProps): React.JSX.Elemen
 
     try {
       setStatus('loading')
-      
+
       // Clean up text before sending
       const cleanText = text.replace(/<[^>]*>?/gm, '').trim()
-      
+
       const audioDataUri = await window.api.generateTts(cleanText)
-      
+
       if (!audioDataUri) {
         throw new Error('No audio data received')
       }
@@ -55,7 +55,7 @@ export function TtsButton({ text, className }: TtsButtonProps): React.JSX.Elemen
       audio.onended = () => {
         setStatus('idle')
       }
-      
+
       audio.onerror = () => {
         console.error('Audio playback error')
         setStatus('error')
@@ -65,7 +65,6 @@ export function TtsButton({ text, className }: TtsButtonProps): React.JSX.Elemen
 
       await audio.play()
       setStatus('playing')
-
     } catch (error) {
       console.error('TTS Generation failed:', error)
       setStatus('error')
@@ -82,7 +81,8 @@ export function TtsButton({ text, className }: TtsButtonProps): React.JSX.Elemen
       className={clsx(
         'flex items-center justify-center p-1.5 rounded-full transition-all duration-200',
         'hover:bg-white/10 text-text-secondary/70 hover:text-text-primary',
-        status === 'playing' && 'text-accent-secondary bg-accent-secondary/10 hover:bg-accent-secondary/20 hover:text-accent-secondary',
+        status === 'playing' &&
+          'text-accent-secondary bg-accent-secondary/10 hover:bg-accent-secondary/20 hover:text-accent-secondary',
         status === 'error' && 'text-red-500 hover:text-red-400',
         className
       )}

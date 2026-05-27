@@ -684,7 +684,10 @@ async function runSubagents(
   // Extract the parent task/goal from the active run's history, or main chat history if not found
   const activeRun = chatId ? activeRuns.get(chatId) : undefined
   const targetHistory = activeRun ? activeRun.chatHistory : chatHistory
-  const lastUserMsg = targetHistory.slice().reverse().find((m) => m.role === 'user')
+  const lastUserMsg = targetHistory
+    .slice()
+    .reverse()
+    .find((m) => m.role === 'user')
   const parentTask = getMessageText(lastUserMsg) || 'No overall task specified'
 
   const blackboard: GroupMessage[] = []
@@ -959,7 +962,9 @@ async function runSubagents(
 
           const toolResults = await Promise.all(toolPromises)
           const allResults = toolResults.join('')
-          const parts: any[] = [{ text: `[SYSTEM: TOOL RESULTS]${allResults}\nProceed.` }]
+          const parts: NonNullable<Content['parts']> = [
+            { text: `[SYSTEM: TOOL RESULTS]${allResults}\nProceed.` }
+          ]
           const screenshotBase64 = chatId ? lastScreenshots.get(chatId) : undefined
           if (screenshotBase64) {
             lastScreenshots.delete(chatId!)
@@ -1230,7 +1235,9 @@ async function runSubagents(
 
           const toolResults = await Promise.all(toolPromises)
           const allResults = toolResults.join('')
-          const parts: any[] = [{ text: `[SYSTEM: TOOL RESULTS]${allResults}\nProceed.` }]
+          const parts: NonNullable<Content['parts']> = [
+            { text: `[SYSTEM: TOOL RESULTS]${allResults}\nProceed.` }
+          ]
           const screenshotBase64 = chatId ? lastScreenshots.get(chatId) : undefined
           if (screenshotBase64) {
             lastScreenshots.delete(chatId!)
@@ -1416,7 +1423,15 @@ User message: "${firstMessage}"`
 
 export async function handleChatMessage(
   event: IpcMainEvent,
-  data: string | { message: string; thinkMode?: boolean; chatId?: string; extendedSearch?: boolean; screenshot?: string }
+  data:
+    | string
+    | {
+        message: string
+        thinkMode?: boolean
+        chatId?: string
+        extendedSearch?: boolean
+        screenshot?: string
+      }
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
   const thinkMode = typeof data === 'object' ? !!data.thinkMode : false
@@ -1504,7 +1519,7 @@ The user wants to search and play a video. Use web_search to find the most relev
   }
 
   // Add the user's real question to the manual history
-  const userParts: any[] = [{ text: message }]
+  const userParts: NonNullable<Content['parts']> = [{ text: message }]
   if (screenshot) {
     userParts.push({
       inlineData: {
@@ -1703,7 +1718,7 @@ The user wants to search and play a video. Use web_search to find the most relev
 
             if (allToolResults) {
               const systemFeedback = `[SYSTEM: TOOL RESULTS]${allToolResults}\nAnalyze these results and proceed. If the goal is achieved, finalize. If more steps are needed, use another tool.`
-              const parts: any[] = [{ text: systemFeedback }]
+              const parts: NonNullable<Content['parts']> = [{ text: systemFeedback }]
               const screenshotBase64 = chatId ? lastScreenshots.get(chatId) : undefined
               if (screenshotBase64) {
                 lastScreenshots.delete(chatId)
@@ -1835,7 +1850,7 @@ export async function handleLauncherChatMessage(
     ]
   }
 
-  const userParts: any[] = [{ text: message }]
+  const userParts: NonNullable<Content['parts']> = [{ text: message }]
   if (screenshot) {
     userParts.push({
       inlineData: {
@@ -2015,7 +2030,7 @@ export async function handleLauncherChatMessage(
 
             if (allToolResults) {
               const systemFeedback = `[SYSTEM: TOOL RESULTS]${allToolResults}\nAnalyze these results and proceed. If the goal is achieved, finalize. If more steps are needed, use another tool.`
-              const parts: any[] = [{ text: systemFeedback }]
+              const parts: NonNullable<Content['parts']> = [{ text: systemFeedback }]
               const screenshotBase64 = lastScreenshots.get('launcher')
               if (screenshotBase64) {
                 lastScreenshots.delete('launcher')
@@ -2079,7 +2094,7 @@ interface WavConversionOptions {
 }
 
 function parseMimeType(mimeType: string): WavConversionOptions {
-  const [fileType, ...params] = mimeType.split(';').map(s => s.trim())
+  const [fileType, ...params] = mimeType.split(';').map((s) => s.trim())
   const [, format] = fileType.split('/')
 
   const options: Partial<WavConversionOptions> = {
@@ -2094,7 +2109,7 @@ function parseMimeType(mimeType: string): WavConversionOptions {
   }
 
   for (const param of params) {
-    const [key, value] = param.split('=').map(s => s.trim())
+    const [key, value] = param.split('=').map((s) => s.trim())
     if (key === 'rate') {
       options.sampleRate = parseInt(value, 10)
     }
@@ -2143,7 +2158,7 @@ export async function generateTts(text: string): Promise<string> {
   }
 
   const ai = new GoogleGenAI({ apiKey })
-  
+
   const model = 'gemini-3.1-flash-tts-preview'
   const config = {
     temperature: 1.3,
@@ -2210,9 +2225,12 @@ ${text}`
   }
 
   const rawAudioBuffer = Buffer.concat(audioBuffers)
-  
+
   // Convert combined raw PCM data to WAV
-  const finalWavBuffer = convertToWav(rawAudioBuffer.toString('base64'), lastMimeType || 'audio/pcm;rate=24000')
+  const finalWavBuffer = convertToWav(
+    rawAudioBuffer.toString('base64'),
+    lastMimeType || 'audio/pcm;rate=24000'
+  )
 
   // Return as Base64 Data URI
   return `data:audio/wav;base64,${finalWavBuffer.toString('base64')}`
