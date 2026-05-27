@@ -114,6 +114,7 @@ export interface PrismAPI {
       extendedSearch?: boolean
     }) => void
   ) => () => void
+  generateTts: (text: string) => Promise<string>
 }
 
 declare global {

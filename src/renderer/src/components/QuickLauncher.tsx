@@ -15,7 +15,8 @@ import {
   MessageSquare
 } from 'lucide-react'
 import { MODELS } from '../constants'
-import { isShortcutPressed } from '../utils'
+import { isShortcutPressed, triggerErrorPopup } from '../utils'
+import { ErrorPopup } from './ErrorPopup'
 import { ApplicationInfo, FileSearchResult } from '../../../shared/types'
 import clsx from 'clsx'
 import ReactMarkdown from 'react-markdown'
@@ -402,6 +403,10 @@ export function QuickLauncher(): React.JSX.Element {
     })
 
     const removeReplyError = window.api.onLauncherReplyError((data) => {
+      const isCancel = data.error.includes('cancelled')
+      if (!isCancel) {
+        triggerErrorPopup(data.error)
+      }
       setLauncherMessages((prev) => {
         if (prev.length === 0) return prev
         const newMsgs = [...prev]
@@ -1186,6 +1191,7 @@ export function QuickLauncher(): React.JSX.Element {
           </div>
         )}
       </div>
+      <ErrorPopup />
     </div>
   )
 }

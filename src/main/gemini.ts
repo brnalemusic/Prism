@@ -2071,3 +2071,149 @@ export function clearLauncherChat(): void {
     launcherAbortController = null
   }
 }
+
+interface WavConversionOptions {
+  numChannels: number
+  sampleRate: number
+  bitsPerSample: number
+}
+
+function parseMimeType(mimeType: string): WavConversionOptions {
+  const [fileType, ...params] = mimeType.split(';').map(s => s.trim())
+  const [, format] = fileType.split('/')
+
+  const options: Partial<WavConversionOptions> = {
+    numChannels: 1
+  }
+
+  if (format && format.startsWith('L')) {
+    const bits = parseInt(format.slice(1), 10)
+    if (!isNaN(bits)) {
+      options.bitsPerSample = bits
+    }
+  }
+
+  for (const param of params) {
+    const [key, value] = param.split('=').map(s => s.trim())
+    if (key === 'rate') {
+      options.sampleRate = parseInt(value, 10)
+    }
+  }
+
+  return options as WavConversionOptions
+}
+
+function createWavHeader(dataLength: number, options: WavConversionOptions): Buffer {
+  const { numChannels, sampleRate, bitsPerSample } = options
+
+  // http://soundfile.sapp.org/doc/WaveFormat
+  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8
+  const blockAlign = (numChannels * bitsPerSample) / 8
+  const buffer = Buffer.alloc(44)
+
+  buffer.write('RIFF', 0) // ChunkID
+  buffer.writeUInt32LE(36 + dataLength, 4) // ChunkSize
+  buffer.write('WAVE', 8) // Format
+  buffer.write('fmt ', 12) // Subchunk1ID
+  buffer.writeUInt32LE(16, 16) // Subchunk1Size (PCM)
+  buffer.writeUInt16LE(1, 20) // AudioFormat (1 = PCM)
+  buffer.writeUInt16LE(numChannels, 22) // NumChannels
+  buffer.writeUInt32LE(sampleRate, 24) // SampleRate
+  buffer.writeUInt32LE(byteRate, 28) // ByteRate
+  buffer.writeUInt16LE(blockAlign, 32) // BlockAlign
+  buffer.writeUInt16LE(bitsPerSample, 34) // BitsPerSample
+  buffer.write('data', 36) // Subchunk2ID
+  buffer.writeUInt32LE(dataLength, 40) // Subchunk2Size
+
+  return buffer
+}
+
+function convertToWav(rawData: string, mimeType: string): Buffer {
+  const options = parseMimeType(mimeType)
+  const buffer = Buffer.from(rawData, 'base64')
+  const wavHeader = createWavHeader(buffer.length, options)
+
+  return Buffer.concat([wavHeader, buffer])
+}
+
+export async function generateTts(text: string): Promise<string> {
+  const apiKey = userApiKey || process.env.GEMINI_API_KEY
+  if (!apiKey || apiKey.trim() === '' || apiKey === 'your_api_key_here') {
+    throw new Error('API_KEY_MISSING')
+  }
+
+  const ai = new GoogleGenAI({ apiKey })
+  
+  const model = 'gemini-3.1-flash-tts-preview'
+  const config = {
+    temperature: 1.3,
+    responseModalities: ['audio'],
+    speechConfig: {
+      voiceConfig: {
+        prebuiltVoiceConfig: {
+          voiceName: 'Aoede'
+        }
+      }
+    }
+  }
+
+  const contents = [
+    {
+      role: 'user',
+      parts: [
+        {
+          text: `Read the following transcript based on the audio profile and director's note.
+
+# Audio Profile
+A helpful and professional personal assistant, but human to have some language addictions, like "hmm", "ehh", "ahmm", etc.
+
+# Director's note
+Style: Empathetic. Pace: Natural. Accent: Neutral.
+
+## Scene:
+A quiet, professional remote workspace.
+
+## Sample Context:
+Steady, efficient, and unhurried. Tone is empathetic, crisp, and reassuring.
+
+## Transcript:
+${text}`
+        }
+      ]
+    }
+  ]
+
+  const response = await ai.models.generateContentStream({
+    model,
+    config,
+    contents
+  })
+
+  const audioBuffers: Buffer[] = []
+  let lastMimeType = ''
+
+  for await (const chunk of response) {
+    if (!chunk.candidates || !chunk.candidates[0].content || !chunk.candidates[0].content.parts) {
+      continue
+    }
+
+    const inlineData = chunk.candidates[0].content.parts[0].inlineData
+    if (inlineData) {
+      lastMimeType = inlineData.mimeType || ''
+      const chunkBuffer = Buffer.from(inlineData.data || '', 'base64')
+      audioBuffers.push(chunkBuffer)
+    }
+  }
+
+  if (audioBuffers.length === 0) {
+    throw new Error('No audio data generated.')
+  }
+
+  const rawAudioBuffer = Buffer.concat(audioBuffers)
+  
+  // Convert combined raw PCM data to WAV
+  const finalWavBuffer = convertToWav(rawAudioBuffer.toString('base64'), lastMimeType || 'audio/pcm;rate=24000')
+
+  // Return as Base64 Data URI
+  return `data:audio/wav;base64,${finalWavBuffer.toString('base64')}`
+}

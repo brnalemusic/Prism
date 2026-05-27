@@ -303,7 +303,8 @@ const api = {
     ): void => callback(data)
     ipcRenderer.on('open-main-app-with-instructions', listener)
     return () => ipcRenderer.removeListener('open-main-app-with-instructions', listener)
-  }
+  },
+  generateTts: (text: string): Promise<string> => ipcRenderer.invoke('generate-tts', text)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

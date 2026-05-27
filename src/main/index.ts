@@ -23,7 +23,8 @@ import {
   loadChatIntoHistory,
   activeRuns,
   handleLauncherChatMessage,
-  clearLauncherChat
+  clearLauncherChat,
+  generateTts
 } from './gemini'
 import {
   searchWorkspaceFiles,
@@ -436,6 +437,10 @@ app.whenReady().then(() => {
   ipcMain.handle('delete-chat', (_event, id: string) => {
     cancelChatMessage(id)
     return deleteChatSession(id)
+  })
+
+  ipcMain.handle('generate-tts', async (_event, text: string) => {
+    return await generateTts(text)
   })
 
   ipcMain.handle('get-running-chats', () => {

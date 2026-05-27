@@ -23,6 +23,10 @@ import { MissingKeyBanner } from './components/MissingKeyBanner'
 import { SubagentChat } from './components/SubagentChat'
 import { SubagentModelSettings } from './components/SubagentModelSettings'
 import { MiniAppRenderer } from './components/MiniAppRenderer'
+import { TtsButton } from './components/TtsButton'
+import { CopyMessageButton } from './components/CopyMessageButton'
+import { ErrorPopup } from './components/ErrorPopup'
+import { triggerErrorPopup } from './utils'
 import clsx from 'clsx'
 import { ArrowDown, Menu } from 'lucide-react'
 import { AppConfig } from '../../main/config'
@@ -769,10 +773,14 @@ function App(): React.JSX.Element {
 
         if (error === 'API_KEY_MISSING') {
           setIsApiKeyModalOpen(true)
+          triggerErrorPopup(error)
           return
         }
 
         const isCancel = error.includes('cancelled')
+        if (!isCancel) {
+          triggerErrorPopup(error)
+        }
 
         if (isCancel) {
           setTasks((prev) =>
@@ -1128,6 +1136,13 @@ function App(): React.JSX.Element {
               <span className="text-accent-secondary animate-pulse font-bold text-xl leading-none">
                 ▋
               </span>
+            </div>
+          )}
+
+          {!msg.isStreaming && msg.content && (
+            <div className="flex justify-start items-center gap-2 mt-2">
+              <TtsButton text={msg.content} />
+              <CopyMessageButton text={msg.content} />
             </div>
           )}
         </div>
@@ -1556,6 +1571,7 @@ function App(): React.JSX.Element {
           </>
         )}
       </main>
+      <ErrorPopup />
     </div>
   )
 }
