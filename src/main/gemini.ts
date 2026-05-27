@@ -165,6 +165,7 @@ interface ToolArgs extends Record<string, string | undefined> {
   thinkMode?: string
   searchEnabled?: string
   extendedSearch?: string
+  ttsVoice?: string
 }
 
 const RAW_TOOL_ARG_TAGS = new Set(['command', 'content', 'oldText', 'newText'])
@@ -606,6 +607,10 @@ const toolFunctions: Record<
       if (args.username !== undefined && args.username !== '') {
         config.username = args.username
         changed.push(`username: "${args.username}"`)
+      }
+      if (args.ttsVoice !== undefined && args.ttsVoice !== '') {
+        config.ttsVoice = args.ttsVoice
+        changed.push(`ttsVoice: "${args.ttsVoice}"`)
       }
 
       if (changed.length === 0) {
@@ -2159,6 +2164,9 @@ export async function generateTts(text: string): Promise<string> {
 
   const ai = new GoogleGenAI({ apiKey })
 
+  const appConfig = loadConfig()
+  const voiceName = appConfig.ttsVoice || 'Aoede'
+
   const model = 'gemini-3.1-flash-tts-preview'
   const config = {
     temperature: 1.3,
@@ -2166,7 +2174,7 @@ export async function generateTts(text: string): Promise<string> {
     speechConfig: {
       voiceConfig: {
         prebuiltVoiceConfig: {
-          voiceName: 'Aoede'
+          voiceName
         }
       }
     }

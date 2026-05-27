@@ -15,6 +15,7 @@ export interface AppConfig {
   envGeminiKey?: string
   username?: string
   appVersion?: string
+  ttsVoice: string
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -26,10 +27,12 @@ const DEFAULT_CONFIG: AppConfig = {
   minimizeToTray: false,
   autoLaunch: false,
   quickLauncherMode: 'simple',
-  userGeminiKey: ''
+  userGeminiKey: '',
+  ttsVoice: 'Aoede'
 }
 
 const VALID_MODEL_KEYS = new Set(['prism-5', 'prism-4.3', 'prism-4.2', 'prism-4.1', 'prism-4'])
+const VALID_VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'])
 
 function normalizeConfig(config: AppConfig): AppConfig {
   return {
@@ -40,7 +43,8 @@ function normalizeConfig(config: AppConfig): AppConfig {
       : DEFAULT_CONFIG.defaultModel,
     subagentModel: VALID_MODEL_KEYS.has(config.subagentModel)
       ? config.subagentModel
-      : DEFAULT_CONFIG.subagentModel
+      : DEFAULT_CONFIG.subagentModel,
+    ttsVoice: VALID_VOICES.has(config.ttsVoice) ? config.ttsVoice : DEFAULT_CONFIG.ttsVoice
   }
 }
 

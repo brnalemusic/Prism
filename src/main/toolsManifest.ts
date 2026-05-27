@@ -275,7 +275,7 @@ export const toolsManifest: ToolDefinition[] = [
     description:
       'Configures the Prism application settings. Any combination of parameters can be specified to customize shortcuts, models, window behaviors, user personal details, and API keys.',
     usage:
-      '<tool_call>\n{\n  "type": "configure_prism",\n  "launcherShortcut": "Shortcut",\n  "modelSelectionShortcut": "Shortcut",\n  "screenshotShortcut": "Shortcut",\n  "defaultModel": "prism-5|prism-4.3|prism-4.2|prism-4.1|prism-4",\n  "subagentModel": "prism-5|prism-4.3|prism-4.2|prism-4.1|prism-4",\n  "minimizeToTray": "true|false",\n  "autoLaunch": "true|false",\n  "quickLauncherMode": "simple|advanced",\n  "userGeminiKey": "API_KEY",\n  "username": "Name"\n}\n</tool_call>',
+      '<tool_call>\n{\n  "type": "configure_prism",\n  "launcherShortcut": "Shortcut",\n  "modelSelectionShortcut": "Shortcut",\n  "screenshotShortcut": "Shortcut",\n  "defaultModel": "prism-5|prism-4.3|prism-4.2|prism-4.1|prism-4",\n  "subagentModel": "prism-5|prism-4.3|prism-4.2|prism-4.1|prism-4",\n  "minimizeToTray": "true|false",\n  "autoLaunch": "true|false",\n  "quickLauncherMode": "simple|advanced",\n  "userGeminiKey": "API_KEY",\n  "username": "Name",\n  "ttsVoice": "Aoede|Puck|Charon|Kore|Fenrir"\n}\n</tool_call>',
     parameters: {
       launcherShortcut:
         'Optional: Global shortcut to open/close launcher (e.g., CommandOrControl+Space).',
@@ -290,7 +290,8 @@ export const toolsManifest: ToolDefinition[] = [
       autoLaunch: 'Optional: Start application automatically on system login (true/false).',
       quickLauncherMode: 'Optional: Quick launcher screen mode (simple/advanced).',
       userGeminiKey: 'Optional: Custom user Google Gemini API Key.',
-      username: 'Optional: Custom username for personalization.'
+      username: 'Optional: Custom username for personalization.',
+      ttsVoice: 'Optional: Prebuilt voice for Text-to-Speech (Aoede, Puck, Charon, Kore, Fenrir).'
     }
   }
 ]

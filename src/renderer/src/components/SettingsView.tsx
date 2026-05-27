@@ -8,7 +8,8 @@ import {
   Monitor,
   Key,
   Shield,
-  Info
+  Info,
+  Volume2
 } from 'lucide-react'
 import { MODELS } from '../constants'
 import { ShortcutRecorder } from './ShortcutRecorder'
@@ -26,6 +27,7 @@ interface Config {
   userGeminiKey: string
   username?: string
   appVersion?: string
+  ttsVoice: string
 }
 
 export function SettingsView(): React.JSX.Element {
@@ -39,7 +41,8 @@ export function SettingsView(): React.JSX.Element {
     autoLaunch: false,
     quickLauncherMode: 'simple',
     userGeminiKey: '',
-    appVersion: ''
+    appVersion: '',
+    ttsVoice: 'Aoede'
   })
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState({ text: '', type: '' })
@@ -54,7 +57,8 @@ export function SettingsView(): React.JSX.Element {
           quickLauncherMode: savedConfig.quickLauncherMode ?? 'simple',
           userGeminiKey: savedConfig.userGeminiKey || '',
           screenshotShortcut: savedConfig.screenshotShortcut || 'Ctrl+Alt+Space',
-          appVersion: savedConfig.appVersion || ''
+          appVersion: savedConfig.appVersion || '',
+          ttsVoice: savedConfig.ttsVoice || 'Aoede'
         })
       }
     }
@@ -86,7 +90,8 @@ export function SettingsView(): React.JSX.Element {
       autoLaunch: false,
       quickLauncherMode: 'simple',
       userGeminiKey: '',
-      appVersion: config.appVersion
+      appVersion: config.appVersion,
+      ttsVoice: 'Aoede'
     })
   }
 
@@ -279,6 +284,45 @@ export function SettingsView(): React.JSX.Element {
                   </p>
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Text-to-Speech (TTS) */}
+        <section className="premium-panel-soft rounded-[28px] p-6 text-text-primary">
+          <div className="flex items-center gap-3 mb-6">
+            <Volume2 size={20} className="text-accent-primary" />
+            <h2 className="text-lg font-semibold text-text-primary">Text-to-Speech (TTS)</h2>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-semibold text-text-secondary/70">
+              Select TTS Voice Profile
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              {[
+                { name: 'Aoede', desc: 'Warm & Default' },
+                { name: 'Puck', desc: 'Energetic male' },
+                { name: 'Charon', desc: 'Deep voice' },
+                { name: 'Kore', desc: 'Soft female' },
+                { name: 'Fenrir', desc: 'Sharp male' }
+              ].map((voice) => (
+                <button
+                  key={voice.name}
+                  onClick={() => setConfig({ ...config, ttsVoice: voice.name })}
+                  className={clsx(
+                    'flex flex-col items-center justify-center rounded-[20px] border p-4 text-center transition-all duration-200 active:scale-[0.98]',
+                    config.ttsVoice === voice.name
+                      ? 'border-accent-primary/30 bg-accent-primary/[0.09] text-accent-primary shadow-[0_0_15px_rgba(143,180,255,0.15)]'
+                      : 'border-white/[0.08] bg-white/[0.035] text-text-primary hover:bg-white/[0.055]'
+                  )}
+                >
+                  <span className="text-sm font-semibold mb-1">{voice.name}</span>
+                  <span className="text-[10px] text-text-secondary/60 leading-tight">
+                    {voice.desc}
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
         </section>

@@ -12,7 +12,8 @@ const FALLBACK_CONFIG: AppConfig = {
   subagentModel: 'prism-4.2',
   minimizeToTray: false,
   autoLaunch: false,
-  userGeminiKey: ''
+  userGeminiKey: '',
+  ttsVoice: 'Aoede'
 }
 
 export function SubagentModelSettings(): React.JSX.Element {
