@@ -75,7 +75,7 @@ export function QuickLauncher(): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false)
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
-  const [isThinkMode, setIsThinkMode] = useState(true) // Think mode default enabled for launcher
+  const [isThinkMode, setIsThinkMode] = useState(false) // Think mode default disabled for launcher
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [activeModelId, setActiveModelId] = useState('prism-5')
   const [shortcut, setShortcut] = useState('CommandOrControl+M')

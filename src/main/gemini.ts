@@ -1943,7 +1943,11 @@ export async function handleLauncherChatMessage(
                 } else {
                   const isSearch =
                     fullResponse.includes('<name>web_search</name>') ||
-                    fullResponse.includes('<name>saw_link_from_url</name>')
+                    fullResponse.includes('<name>saw_link_from_url</name>') ||
+                    fullResponse.includes('"type": "web_search"') ||
+                    fullResponse.includes('"type": "saw_link_from_url"') ||
+                    fullResponse.includes("'type': 'web_search'") ||
+                    fullResponse.includes("'type': 'saw_link_from_url'")
                   toolType = isSearch ? 'search' : 'task'
                 }
               }
