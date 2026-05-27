@@ -124,24 +124,14 @@ export const toolsManifest: ToolDefinition[] = [
   {
     name: 'computer_use_edit_file',
     description:
-      'Edits a file by replacing exact oldText with newText. Use for targeted file changes.',
+      'Edits a file by replacing a specific range of lines with new content. Replaces lines from startLine to endLine (inclusive).',
     usage:
-      '<tool_call>\n{\n  "type": "computer_use_edit_file",\n  "path": "PATH",\n  "oldText": "OLD",\n  "newText": "NEW"\n}\n</tool_call>',
+      '<tool_call>\n{\n  "type": "computer_use_edit_file",\n  "path": "PATH",\n  "startLine": "START_LINE_NUM",\n  "endLine": "END_LINE_NUM",\n  "newContent": "NEW_CONTENT"\n}\n</tool_call>',
     parameters: {
       path: 'Required complete file path.',
-      oldText: 'Required exact text currently in the file.',
-      newText: 'Required replacement text.'
-    }
-  },
-  {
-    name: 'computer_use_replace_in_file',
-    description: 'Backward-compatible alias for computer_use_edit_file.',
-    usage:
-      '<tool_call>\n{\n  "type": "computer_use_replace_in_file",\n  "path": "PATH",\n  "oldText": "OLD",\n  "newText": "NEW"\n}\n</tool_call>',
-    parameters: {
-      path: 'Required complete file path.',
-      oldText: 'Required exact text currently in the file.',
-      newText: 'Required replacement text.'
+      startLine: 'Required starting line number (1-based).',
+      endLine: 'Required ending line number (inclusive).',
+      newContent: 'Required new text to replace the lines with.'
     }
   },
   {

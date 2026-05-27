@@ -19,7 +19,7 @@ import {
   computerRemoveDirectory,
   computerSaveFile,
   computerAppendToFile,
-  computerReplaceInFile,
+  computerEditFile,
   computerCopyFile,
   computerMoveFile,
   computerGetFileInfo,
@@ -485,9 +485,7 @@ const toolFunctions: Record<
   computer_use_append_file: (args, _event, _apiKey, signal) =>
     computerAppendToFile(args.path || '', args.content || '', signal),
   computer_use_edit_file: (args, _event, _apiKey, signal) =>
-    computerReplaceInFile(args.path || '', args.oldText || '', args.newText || '', signal),
-  computer_use_replace_in_file: (args, _event, _apiKey, signal) =>
-    computerReplaceInFile(args.path || '', args.oldText || '', args.newText || '', signal),
+    computerEditFile(args.path || '', args.startLine || '', args.endLine || '', args.newContent || '', signal),
   computer_use_copy_file: (args, _event, _apiKey, signal) =>
     computerCopyFile(args.sourcePath || '', args.destinationPath || '', args.overwrite, signal),
   computer_use_move_file: (args, _event, _apiKey, signal) =>

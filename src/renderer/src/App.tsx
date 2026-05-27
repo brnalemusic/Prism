@@ -1142,10 +1142,10 @@ function App(): React.JSX.Element {
             </div>
           )}
 
-          {!msg.isStreaming && msg.content && (
+          {!msg.isStreaming && msg.content && parts[parts.length - 1].trim() && (
             <div className="flex justify-start items-center gap-2 mt-2">
-              <TtsButton text={msg.content} />
-              <CopyMessageButton text={msg.content} />
+              <TtsButton text={parts[parts.length - 1].trim()} />
+              <CopyMessageButton text={parts[parts.length - 1].trim()} />
             </div>
           )}
         </div>
@@ -1252,8 +1252,18 @@ function App(): React.JSX.Element {
                         </div>
                       )}
                       {msg.content && (
-                        <div className="premium-panel-soft w-full whitespace-pre-wrap rounded-[24px] rounded-tr-[8px] px-5 py-3.5 text-sm md:text-base font-medium text-text-primary">
-                          {msg.content}
+                        <div className="premium-panel-soft w-full rounded-[24px] rounded-tr-[8px] px-5 py-3.5 text-sm md:text-base text-text-primary prose prose-invert prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base max-w-none">
+                          <ReactMarkdown
+                            remarkPlugins={[
+                              remarkGfm,
+                              remarkMath,
+                              disableIndentedCode as unknown as import('unified').Pluggable
+                            ]}
+                            rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
+                            components={MarkdownComponents}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
                         </div>
                       )}
                     </div>
@@ -1519,7 +1529,7 @@ function App(): React.JSX.Element {
             </div>
 
             {activeView === 'chat' && messages.length > 0 && (
-              <div className="shrink-0 bg-gradient-to-t from-background-main via-background-main/96 to-transparent pb-6 pt-2 relative">
+              <div className="shrink-0 bg-gradient-to-t from-background-main via-background-main/96 to-transparent pb-6 pt-2 relative z-20">
                 {/* Scroll to bottom button */}
                 {showScrollButton && (
                   <div className="absolute left-0 right-0 -top-6 flex justify-center pointer-events-none z-20 animate-soft-pop">

@@ -80,7 +80,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
     const [showFullscreenBtn, setShowFullscreenBtn] = useState(false)
     const [showSearchDropdown, setShowSearchDropdown] = useState(false)
-    const [actionsWidth, setActionsWidth] = useState(0)
     const [isWrapped, setIsWrapped] = useState(false)
     const inputRef = useRef<HTMLTextAreaElement>(null)
     const dropdownRef = useRef<HTMLDivElement>(null)
@@ -163,8 +162,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       const observer = new ResizeObserver(() => {
         const aRect = actions.getBoundingClientRect()
         const iRect = input.getBoundingClientRect()
-
-        setActionsWidth(aRect.width)
 
         // Detect wrapping by comparing vertical positions
         // We use a small threshold (20px) to avoid jitter during resize
@@ -358,6 +355,8 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
         }
       }
     }
+
+
 
     const getPlaceholder = (): string => {
       if (isKeyMissing) return 'API key required'
@@ -600,31 +599,26 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               </div>
             )}
 
-            <textarea
-              ref={inputRef}
-              value={text}
-              onChange={(e): void => setText(e.target.value)}
-              onFocus={() => setIsFocused(true)}
-              onBlur={() => setIsFocused(false)}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              placeholder={getPlaceholder()}
-              disabled={disabled}
-              className={clsx(
-                'w-full flex-1 resize-none bg-transparent px-4 py-3 text-lg font-medium outline-none placeholder:text-text-muted disabled:cursor-not-allowed cursor-text',
-                activeMode === 'youtube'
-                  ? 'text-accent-primary placeholder:text-accent-primary/45'
-                  : isSearchAndThinkMode
-                    ? 'text-[#d9c77a] placeholder:text-[#d9c77a]/45'
-                    : activeMode === 'extended'
-                      ? 'text-accent-primary placeholder:text-accent-primary/45'
-                      : activeMode === 'search'
-                        ? 'text-accent-secondary placeholder:text-accent-secondary/40'
-                        : activeMode === 'think'
-                          ? 'text-status-warning placeholder:text-status-warning/45'
-                          : 'text-text-primary'
-              )}
-            />
+            <div className="flex-1 relative flex flex-col">
+              <textarea
+                ref={inputRef}
+                value={text}
+                onChange={(e): void => setText(e.target.value)}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                placeholder={getPlaceholder()}
+                disabled={disabled}
+                className={clsx(
+                  'w-full flex-1 resize-none bg-transparent px-4 py-3 text-lg font-medium outline-none border-0 border-transparent m-0 shadow-none leading-relaxed placeholder:text-text-muted disabled:cursor-not-allowed cursor-text text-text-primary selection:bg-accent-primary/30 whitespace-pre-wrap break-words',
+                  isSearchAndThinkMode ? 'caret-[#d9c77a]' : 
+                  activeMode === 'search' ? 'caret-accent-secondary' : 
+                  activeMode === 'think' ? 'caret-status-warning' : 
+                  activeMode !== 'default' ? 'caret-accent-primary' : 'caret-white'
+                )}
+              />
+            </div>
 
             {/* Fullscreen footer */}
             <div className="mt-3 pt-3 border-t border-white/[0.055] flex items-center justify-between select-none">
@@ -921,7 +915,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               </div>
             )}
 
-            <div className="flex-1 relative flex items-center min-w-[280px] self-stretch">
+            <div className="flex-1 relative flex items-center min-w-[280px] self-stretch overflow-hidden">
               <textarea
                 ref={inputRef}
                 value={text}
@@ -932,24 +926,13 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 onPaste={handlePaste}
                 placeholder={getPlaceholder()}
                 disabled={disabled}
-                style={{
-                  paddingRight: isWrapped ? '1.5rem' : `${actionsWidth + 12}px`,
-                  transition: 'height 0.2s cubic-bezier(0.2, 0.82, 0.2, 1), padding 0.2s ease'
-                }}
                 className={clsx(
-                  'relative z-10 w-full resize-none bg-transparent pl-8 py-5 text-base font-medium outline-none placeholder:text-text-muted disabled:cursor-not-allowed cursor-text block min-h-[64px] max-h-[300px]',
+                  'relative z-10 w-full resize-none bg-transparent pl-8 pr-8 py-5 text-base font-medium outline-none border-0 border-transparent m-0 shadow-none leading-relaxed placeholder:text-text-muted disabled:cursor-not-allowed cursor-text block min-h-[64px] max-h-[300px] text-text-primary selection:bg-accent-primary/30 whitespace-pre-wrap break-words',
                   isWrapped && 'pb-2',
-                  activeMode === 'youtube'
-                    ? 'text-accent-primary placeholder:text-accent-primary/45'
-                    : isSearchAndThinkMode
-                      ? 'text-[#d9c77a] placeholder:text-[#d9c77a]/45'
-                      : activeMode === 'extended'
-                        ? 'text-accent-primary placeholder:text-accent-primary/40'
-                        : activeMode === 'search'
-                          ? 'text-accent-secondary placeholder:text-accent-secondary/40'
-                          : activeMode === 'think'
-                            ? 'text-status-warning placeholder:text-status-warning/40'
-                            : 'text-text-primary'
+                  isSearchAndThinkMode ? 'caret-[#d9c77a]' : 
+                  activeMode === 'search' ? 'caret-accent-secondary' : 
+                  activeMode === 'think' ? 'caret-status-warning' : 
+                  activeMode !== 'default' ? 'caret-accent-primary' : 'caret-white'
                 )}
                 rows={1}
               />
@@ -958,7 +941,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             <div
               ref={actionsRef}
               className={clsx(
-                'flex items-center gap-2.5 pl-4 pr-6 pb-2.5 pt-2.5 relative z-20 ml-auto transition-all duration-300',
+                'flex items-center gap-2.5 pl-4 pr-6 pb-2.5 pt-2.5 relative z-20 ml-auto transition-all duration-300 pointer-events-auto',
                 isWrapped
                   ? 'w-full justify-end border-t border-white/[0.03] bg-white/[0.01]'
                   : 'h-full'

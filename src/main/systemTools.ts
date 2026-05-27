@@ -226,34 +226,6 @@ export async function computerSaveFile(
 }
 
 /**
- * COMPUTER USE: Replace text in a file.
- */
-export async function computerReplaceInFile(
-  filePath: string,
-  oldText: string,
-  newText: string,
-  signal?: AbortSignal
-): Promise<string> {
-  try {
-    const fullPath = resolveRequiredPath(filePath, 'path')
-    assertNotRootPath(fullPath, 'path')
-    if (!oldText) {
-      return 'Error replacing text: oldText is required and cannot be empty.'
-    }
-    const content = await fs.readFile(fullPath, { encoding: 'utf8', signal })
-    if (!content.includes(oldText)) {
-      return `Error: Text to replace not found in file.`
-    }
-    const updatedContent = content.replace(new RegExp(escapeRegExp(oldText), 'g'), newText)
-    await fs.writeFile(fullPath, updatedContent, { encoding: 'utf8', signal })
-    return `Text replaced successfully in: ${fullPath}`
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') throw error
-    return `Error replacing text: ${error instanceof Error ? error.message : String(error)}`
-  }
-}
-
-/**
  * COMPUTER USE: Append text to a file.
  */
 export async function computerAppendToFile(
@@ -364,10 +336,6 @@ export async function computerGetFileInfo(filePath: string, signal?: AbortSignal
   }
 }
 
-function escapeRegExp(string: string): string {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 /**
  * COMPUTER USE: List directory contents.
  */
@@ -395,10 +363,81 @@ export async function computerReadFile(filePath: string, signal?: AbortSignal): 
   try {
     const fullPath = resolveRequiredPath(filePath, 'path')
     const content = await fs.readFile(fullPath, { encoding: 'utf8', signal })
-    return content
+    
+    // Add line numbers
+    const lines = content.split('\n')
+    const numberedLines = lines.map((line, index) => `${index + 1} | ${line}`)
+    return numberedLines.join('\n')
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
     return `Error reading file: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+/**
+ * COMPUTER USE: Edit specific lines in a file.
+ */
+export async function computerEditFile(
+  filePath: string,
+  startLineStr: string,
+  endLineStr: string,
+  newContent: string,
+  signal?: AbortSignal
+): Promise<string> {
+  try {
+    const fullPath = resolveRequiredPath(filePath, 'path')
+    assertNotRootPath(fullPath, 'path')
+
+    const startLine = parseInt(startLineStr, 10)
+    const endLine = parseInt(endLineStr, 10)
+
+    if (isNaN(startLine) || isNaN(endLine)) {
+      return 'Error editing file lines: startLine and endLine must be valid numbers.'
+    }
+    if (startLine < 1 || endLine < startLine) {
+      return 'Error editing file lines: Invalid line range. startLine must be >= 1 and endLine must be >= startLine.'
+    }
+
+    const content = await fs.readFile(fullPath, { encoding: 'utf8', signal })
+    const lines = content.split('\n')
+
+    if (startLine > lines.length) {
+      return `Error editing file lines: startLine (${startLine}) is beyond the end of the file (${lines.length} lines).`
+    }
+
+    // Replace the specified lines. End line is inclusive, but slice end index is exclusive,
+    // so we replace from startLine - 1 to endLine.
+    // If newContent is empty, this acts as a deletion of those lines.
+    const newLines = newContent.split('\n')
+    
+    // Auto-indentation logic
+    const originalFirstLine = lines[startLine - 1] || ''
+    const originalIndentMatch = originalFirstLine.match(/^([ \t]+)/)
+    const originalIndent = originalIndentMatch ? originalIndentMatch[1] : ''
+
+    if (originalIndent && newLines.length > 0) {
+      const firstNewLineIndentMatch = newLines[0].match(/^([ \t]+)/)
+      const firstNewLineIndent = firstNewLineIndentMatch ? firstNewLineIndentMatch[1] : ''
+
+      // If the AI provided no indentation on the first new line, but the original line had it,
+      // we prepend the original indentation to all non-empty new lines.
+      if (firstNewLineIndent === '') {
+        for (let i = 0; i < newLines.length; i++) {
+          if (newLines[i].trim() !== '') {
+            newLines[i] = originalIndent + newLines[i]
+          }
+        }
+      }
+    }
+
+    lines.splice(startLine - 1, endLine - startLine + 1, ...newLines)
+
+    const updatedContent = lines.join('\n')
+    await fs.writeFile(fullPath, updatedContent, { encoding: 'utf8', signal })
+    return `Lines ${startLine} to ${endLine} replaced successfully in: ${fullPath}`
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error
+    return `Error editing file lines: ${error instanceof Error ? error.message : String(error)}`
   }
 }
 
@@ -1195,6 +1234,7 @@ Objective: Define clear architectural boundaries between Simple Markdown, Rich M
 - Treat the provided date/context as authoritative for time-sensitive tasks; search when facts may have changed.
 - Do not expose hidden reasoning (thoughts). Provide conclusions, key evidence, and next steps.
 - Never invent tool results, files, apps, links, paths, or citations.
+- When editing files, ALWAYS preserve the exact original indentation (spaces or tabs) in your new content to avoid breaking file structures.
 - When the user mentions the name of an app, sends a link, or provides the PATH of a file without saying anything else (i.e. in isolation, with no other text, queries, or instructions), do not hesitate: immediately open the link (via open_browser_link), app (via open_application), or file (via open_application). Prism is focused on productivity. Only when the user specifically asks to do something with the URL/PATH/app (such as "explain this link" or "edit this file") should you ignore this rule and perform the requested task instead of opening it.
 
 # Research
