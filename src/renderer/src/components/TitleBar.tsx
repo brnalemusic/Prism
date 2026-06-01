@@ -1,4 +1,4 @@
-import { Minus, X } from 'lucide-react'
+import { Minus, X } from '@phosphor-icons/react'
 
 interface TitleBarProps {
   onClose?: () => void

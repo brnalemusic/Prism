@@ -6,28 +6,33 @@ export interface Model {
 
 export const MODELS: Model[] = [
   {
-    id: 'prism-5',
-    name: 'Prism 5',
-    description: 'Flagship intelligence for complex work and fast execution.'
+    id: 'prism-6-super-fast',
+    name: 'Prism 6 Super-Fast',
+    description:
+      'An ultra-fast model focused on extremely low latency for simple coding tasks and everyday computer use.'
   },
   {
-    id: 'prism-4.3',
-    name: 'Prism 4.3',
-    description: 'Deep reasoning for heavier tasks and careful planning.'
+    id: 'prism-6-fast-old',
+    name: 'Prism 6 Fast-Old',
+    description:
+      'An older model focused on speed for the simplest day-to-day tasks, emphasizing automation and orchestration.'
   },
   {
-    id: 'prism-4.2',
-    name: 'Prism 4.2',
-    description: 'Advanced intelligence for cutting edge automation.'
+    id: 'prism-6-fast',
+    name: 'Prism 6 Fast',
+    description:
+      'An extremely decent model for complex tasks involving automation, orchestration, and raw code, focused on low latency.'
   },
   {
-    id: 'prism-4.1',
-    name: 'Prism 4.1',
-    description: 'Fast intelligence for responsive everyday assistance.'
+    id: 'prism-6-dragon',
+    name: 'Prism 6 Dragon',
+    description:
+      'Our most capable model for conducting in-depth research, massive agent orchestration, and information gathering.'
   },
   {
-    id: 'prism-4',
-    name: 'Prism 4',
-    description: 'Lightweight assistant for simple daily tasks.'
+    id: 'prism-6-dense',
+    name: 'Prism 6 Dense',
+    description:
+      'The most capable model for debugging immense code, with extremely dense information and very complex mathematics.'
   }
 ]

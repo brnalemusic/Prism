@@ -22,8 +22,8 @@ const DEFAULT_CONFIG: AppConfig = {
   launcherShortcut: 'CommandOrControl+Space',
   modelSelectionShortcut: 'CommandOrControl+M',
   screenshotShortcut: 'Ctrl+Alt+Space',
-  defaultModel: 'prism-5',
-  subagentModel: 'prism-4.2',
+  defaultModel: 'prism-6-super-fast',
+  subagentModel: 'prism-6-dragon',
   minimizeToTray: false,
   autoLaunch: false,
   quickLauncherMode: 'simple',
@@ -31,7 +31,13 @@ const DEFAULT_CONFIG: AppConfig = {
   ttsVoice: 'Aoede'
 }
 
-const VALID_MODEL_KEYS = new Set(['prism-5', 'prism-4.3', 'prism-4.2', 'prism-4.1', 'prism-4'])
+const VALID_MODEL_KEYS = new Set([
+  'prism-6-super-fast',
+  'prism-6-fast-old',
+  'prism-6-fast',
+  'prism-6-dragon',
+  'prism-6-dense'
+])
 const VALID_VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'])
 
 function normalizeConfig(config: AppConfig): AppConfig {

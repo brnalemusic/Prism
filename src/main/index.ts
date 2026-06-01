@@ -289,8 +289,8 @@ function registerGlobalShortcuts(): void {
 function createWindow(): void {
   // Create the browser window.
   mainWindow = new BrowserWindow({
-    width: 1000,
-    height: 750,
+    width: 1200,
+    height: 900,
     show: false,
     autoHideMenuBar: true,
     titleBarStyle: 'hidden',

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Bot, Check, Save, X } from 'lucide-react'
+import { Robot as Bot, Check, FloppyDisk as Save, X } from '@phosphor-icons/react'
 import { MODELS } from '../constants'
 import type { AppConfig } from '../../../main/config'
 import clsx from 'clsx'
@@ -8,8 +8,8 @@ const FALLBACK_CONFIG: AppConfig = {
   launcherShortcut: 'CommandOrControl+Space',
   modelSelectionShortcut: 'CommandOrControl+M',
   screenshotShortcut: 'Ctrl+Alt+Space',
-  defaultModel: 'prism-5',
-  subagentModel: 'prism-4.2',
+  defaultModel: 'prism-6-super-fast',
+  subagentModel: 'prism-6-dragon',
   minimizeToTray: false,
   autoLaunch: false,
   userGeminiKey: '',
@@ -18,7 +18,7 @@ const FALLBACK_CONFIG: AppConfig = {
 
 export function SubagentModelSettings(): React.JSX.Element {
   const [config, setConfig] = useState<AppConfig>(FALLBACK_CONFIG)
-  const [selectedModel, setSelectedModel] = useState('prism-4.2')
+  const [selectedModel, setSelectedModel] = useState('prism-6-dragon')
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState('')
 

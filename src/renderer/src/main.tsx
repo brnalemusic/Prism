@@ -1,3 +1,4 @@
+import '@fontsource/outfit'
 import './assets/main.css'
 
 import { StrictMode } from 'react'

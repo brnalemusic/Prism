@@ -12,7 +12,7 @@ import { InputBar, InputBarHandle } from './components/InputBar'
 import { LoadingDots } from './components/LoadingDots'
 import { Spinner } from './components/Spinner'
 import { ActionLoader, ToolCall } from './components/ActionLoader'
-import { ModelSelector, ModelSelectorHandle } from './components/ModelSelector'
+import { ModelSelectorHandle } from './components/ModelSelector'
 import { Tasks } from './components/Tasks'
 import { QuickLauncher } from './components/QuickLauncher'
 import { TitleBar } from './components/TitleBar'
@@ -28,7 +28,7 @@ import { CopyMessageButton } from './components/CopyMessageButton'
 import { ErrorPopup } from './components/ErrorPopup'
 import { triggerErrorPopup } from './utils'
 import clsx from 'clsx'
-import { ArrowDown, Menu } from 'lucide-react'
+import { CaretDown, Plus } from '@phosphor-icons/react'
 import { AppConfig } from '../../main/config'
 
 interface HastNode {
@@ -143,7 +143,7 @@ const MarkdownComponents: Components = {
 }
 
 interface Message {
-  role: 'user' | 'ai'
+  role: 'user' | 'ai' | 'separator'
   content: string
   thoughts?: string
   isStreaming?: boolean
@@ -155,6 +155,7 @@ interface Message {
   toolType?: 'task' | 'search' | 'mini-app'
   isConnecting?: boolean
   screenshot?: string
+  separatorType?: 'fallback' | 'error' | 'cancel'
 }
 
 interface Task extends ToolCall {
@@ -194,7 +195,7 @@ function App(): React.JSX.Element {
   }, [attachedScreenshot])
   const [isFinishing, setIsFinishing] = useState(false)
   const [isFocused, setIsFocused] = useState(true)
-  const [selectedModel, setSelectedModel] = useState('prism-5')
+  const [selectedModel, setSelectedModel] = useState('prism-6-super-fast')
   const [activeView, setActiveView] = useState('chat')
   const [currentChatId, setCurrentChatId] = useState<string | undefined>(undefined)
   const [runningChats, setRunningChats] = useState<Record<string, boolean>>({})
@@ -207,7 +208,7 @@ function App(): React.JSX.Element {
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
   const [isExtendedSearch, setIsExtendedSearch] = useState(false)
   const [isFullscreenInput, setIsFullscreenInput] = useState(false)
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
 
   useEffect(() => {
     currentChatIdRef.current = currentChatId
@@ -418,9 +419,26 @@ function App(): React.JSX.Element {
         isAtBottomRef.current = true
         setShowScrollButton(false)
         const mappedMessages: Message[] = []
+        let lastWasFallbackSystem = false
+        let fallbackModelName = ''
 
         for (const m of history) {
-          if (m.role === 'system') continue
+          if (m.role === 'system') {
+            let systemText = ''
+            if (m.parts) {
+              for (const part of m.parts) {
+                if (part.text) systemText += part.text
+              }
+            }
+            if (systemText.includes('[SYSTEM: FALLBACK]')) {
+              lastWasFallbackSystem = true
+              const match = systemText.match(
+                /(?:activated as|ativado como) (.*?) (?:to continue|para dar continuidade)/i
+              )
+              fallbackModelName = match ? match[1] : 'Prism AI'
+            }
+            continue
+          }
 
           let text = ''
           let screenshot: string | undefined = undefined
@@ -479,6 +497,15 @@ function App(): React.JSX.Element {
               isStreaming: false
             })
           } else if (m.role === 'model') {
+            if (lastWasFallbackSystem) {
+              mappedMessages.push({
+                role: 'separator',
+                separatorType: 'fallback',
+                content: `Fallback to ${fallbackModelName}`
+              })
+              lastWasFallbackSystem = false
+            }
+
             let aiMsg: Message | undefined = mappedMessages[mappedMessages.length - 1]
 
             if (!aiMsg || aiMsg.role !== 'ai') {
@@ -594,6 +621,20 @@ function App(): React.JSX.Element {
     setIsFullscreenInput(false)
     window.api.clearChat()
   }, [])
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+        e.preventDefault()
+        handleNewChat()
+        setIsSidebarOpen(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [handleNewChat])
 
   useEffect(() => {
     // Listen for launcher messages
@@ -777,11 +818,10 @@ function App(): React.JSX.Element {
         if (error === 'API_KEY_MISSING') {
           setIsApiKeyModalOpen(true)
           triggerErrorPopup(error)
-          return
         }
 
         const isCancel = error.includes('cancelled')
-        if (!isCancel) {
+        if (!isCancel && error !== 'API_KEY_MISSING') {
           triggerErrorPopup(error)
         }
 
@@ -795,39 +835,100 @@ function App(): React.JSX.Element {
           const newMessages = [...prev]
           const lastMsg = newMessages[newMessages.length - 1]
 
-          // Cleanup running tool calls in last message
-          if (isCancel && lastMsg && lastMsg.role === 'ai' && lastMsg.toolCalls) {
-            lastMsg.toolCalls = lastMsg.toolCalls.map((tc) =>
-              tc.status === 'running'
-                ? { ...tc, status: 'cancelled', result: 'Cancelled by user.' }
-                : tc
-            )
-          }
-
-          // If the last message is already the SAME error, do not duplicate
-          if (lastMsg && lastMsg.isError && lastMsg.content === error) {
-            return prev
-          }
-
-          // If the last message is AI and was processing, update it with the error
-          if (lastMsg && lastMsg.role === 'ai' && (lastMsg.isStreaming || lastMsg.isThinking)) {
-            lastMsg.content = error
+          // Clean up streaming/connecting/thinking flags on the last message if it's AI
+          if (lastMsg && lastMsg.role === 'ai') {
             lastMsg.isStreaming = false
             lastMsg.isThinking = false
             lastMsg.isConnecting = false
-            lastMsg.isError = true
-          } else {
-            // If there is no active AI message, create a new one for the error
-            newMessages.push({
-              role: 'ai',
-              content: error,
-              isError: true,
-              isStreaming: false,
-              isThinking: false,
-              isConnecting: false,
-              toolCalls: []
-            })
+
+            // Cleanup running tool calls in last message
+            if (isCancel && lastMsg.toolCalls) {
+              lastMsg.toolCalls = lastMsg.toolCalls.map((tc) =>
+                tc.status === 'running'
+                  ? { ...tc, status: 'cancelled', result: 'Cancelled by user.' }
+                  : tc
+              )
+            }
           }
+
+          const hasContentOrTools =
+            lastMsg && lastMsg.role === 'ai' && (lastMsg.content || lastMsg.toolCalls?.length)
+
+          if (isCancel) {
+            // Push cancel separator
+            newMessages.push({
+              role: 'separator',
+              separatorType: 'cancel',
+              content: 'Cancelado pelo usuário'
+            })
+          } else {
+            // Push error separator
+            newMessages.push({
+              role: 'separator',
+              separatorType: 'error',
+              content: 'Erro na operação'
+            })
+
+            // Push error message box
+            if (hasContentOrTools) {
+              // If previous message had content, keep it clean and push a new AI message for the error box
+              newMessages.push({
+                role: 'ai',
+                content: error,
+                isError: true,
+                isStreaming: false,
+                isThinking: false,
+                isConnecting: false,
+                toolCalls: []
+              })
+            } else if (lastMsg && lastMsg.role === 'ai') {
+              // If the connecting message was empty, just convert it to show the error
+              lastMsg.isError = true
+              lastMsg.content = error
+            } else {
+              // Fallback: push a new AI message for the error box
+              newMessages.push({
+                role: 'ai',
+                content: error,
+                isError: true,
+                isStreaming: false,
+                isThinking: false,
+                isConnecting: false,
+                toolCalls: []
+              })
+            }
+          }
+
+          return newMessages
+        })
+      }
+    })
+
+    const removeFallbackListener = window.api.onChatFallbackActivated((data) => {
+      const { chatId, newModel } = data
+      if (chatId === currentChatIdRef.current) {
+        setMessages((prev) => {
+          const newMessages = [...prev]
+          const lastMsg = newMessages[newMessages.length - 1]
+          if (lastMsg && lastMsg.role === 'ai') {
+            lastMsg.isStreaming = false
+            lastMsg.isThinking = false
+            lastMsg.isConnecting = false
+          }
+          newMessages.push({
+            role: 'separator',
+            separatorType: 'fallback',
+            content: `Fallback to ${newModel}`
+          })
+          newMessages.push({
+            role: 'ai',
+            content: '',
+            thoughts: '',
+            isStreaming: true,
+            isThinking: false,
+            isConnecting: true,
+            toolCalls: []
+          })
           return newMessages
         })
       }
@@ -1021,6 +1122,7 @@ function App(): React.JSX.Element {
       removeToolEndListener()
       removeToolUpdateListener()
       removeSubagentMessageListener()
+      removeFallbackListener()
     }
   }, [])
 
@@ -1158,6 +1260,21 @@ function App(): React.JSX.Element {
     return (
       <div className="w-full flex flex-col max-w-4xl mx-auto">
         {messages.map((msg, i) => {
+          if (msg.role === 'separator') {
+            return (
+              <div
+                key={i}
+                className="w-full flex items-center gap-4 px-6 sm:px-12 py-4 select-none animate-message"
+              >
+                <div className="flex-grow border-t border-dashed border-white/[0.08]" />
+                <span className="shrink-0 px-4 text-[10px] font-mono tracking-widest text-text-secondary/60 uppercase">
+                  {msg.content}
+                </span>
+                <div className="flex-grow border-t border-dashed border-white/[0.08]" />
+              </div>
+            )
+          }
+
           return (
             <div key={i} className="flex flex-col w-full transition-all duration-700">
               <div
@@ -1278,66 +1395,37 @@ function App(): React.JSX.Element {
     )
   }, [messages, renderAiMessage])
 
-  const renderedSidebarDesktop = useMemo(() => {
+  const renderedSidebar = useMemo(() => {
     return (
-      <Sidebar
-        activeView={activeView}
-        onViewChange={setActiveView}
-        onLoadChat={handleLoadChat}
-        onNewChat={handleNewChat}
-        currentChatId={currentChatId}
-        runningTasksCount={tasks.filter((t) => t.status === 'running').length}
-        runningChats={runningChats}
-        className="hidden md:flex shrink-0"
-      />
-    )
-  }, [activeView, handleLoadChat, handleNewChat, currentChatId, tasks, runningChats])
-
-  const renderedSidebarMobile = useMemo(() => {
-    return (
-      <Sidebar
-        activeView={activeView}
-        onViewChange={(view) => {
-          setActiveView(view)
-          setIsMobileMenuOpen(false)
-        }}
-        onLoadChat={(id) => {
-          handleLoadChat(id)
-          setIsMobileMenuOpen(false)
-        }}
-        onNewChat={(force) => {
-          handleNewChat(force)
-          setIsMobileMenuOpen(false)
-        }}
-        currentChatId={currentChatId}
-        runningTasksCount={tasks.filter((t) => t.status === 'running').length}
-        runningChats={runningChats}
-        className={clsx(
-          'fixed inset-y-0 left-0 z-50 flex border-r border-white/[0.08] bg-background-main/95 transition-transform duration-300 md:hidden w-[278px]',
-          isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+      <>
+        {isSidebarOpen && (
+          <div
+            className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm transition-opacity duration-300"
+            onClick={() => setIsSidebarOpen(false)}
+          />
         )}
-      />
+        <Sidebar
+          isOpen={isSidebarOpen}
+          activeView={activeView}
+          onViewChange={(view) => {
+            setActiveView(view)
+            setIsSidebarOpen(false)
+          }}
+          onLoadChat={(id) => {
+            handleLoadChat(id)
+            setIsSidebarOpen(false)
+          }}
+          onNewChat={(force) => {
+            handleNewChat(force)
+            setIsSidebarOpen(false)
+          }}
+          currentChatId={currentChatId}
+          runningTasksCount={tasks.filter((t) => t.status === 'running').length}
+          runningChats={runningChats}
+        />
+      </>
     )
-  }, [
-    activeView,
-    isMobileMenuOpen,
-    handleLoadChat,
-    handleNewChat,
-    currentChatId,
-    tasks,
-    runningChats
-  ])
-
-  const renderedModelSelector = useMemo(() => {
-    return (
-      <ModelSelector
-        ref={modelSelectorRef}
-        selectedModel={selectedModel}
-        onModelChange={handleModelChange}
-        disabled={isProcessing}
-      />
-    )
-  }, [selectedModel, handleModelChange, isProcessing])
+  }, [activeView, isSidebarOpen, handleLoadChat, handleNewChat, currentChatId, tasks, runningChats])
 
   const isKeyMissing =
     !config?.userGeminiKey && (config?.envGeminiKey === 'none' || !config?.envGeminiKey)
@@ -1385,7 +1473,9 @@ function App(): React.JSX.Element {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background-main font-sans selection:bg-accent-primary/30 pt-10">
-      {showIntro && <IntroScreen onComplete={() => setShowIntro(false)} />}
+      {showIntro && (
+        <IntroScreen onComplete={() => setShowIntro(false)} username={config?.username} />
+      )}
       <TitleBar />
       <ApiKeyModal
         isOpen={isApiKeyModalOpen}
@@ -1400,20 +1490,34 @@ function App(): React.JSX.Element {
         isYoutubeMode={isYoutubeMode}
       />
 
-      {renderedSidebarDesktop}
-
-      {/* Mobile Drawer Backdrop */}
-      {isMobileMenuOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden animate-fade-in"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
+      {/* Floating Toggle Button */}
+      {!isSidebarOpen && (
+        <button
+          onClick={() => setIsSidebarOpen(true)}
+          className="fixed left-0 top-1/2 -translate-y-1/2 z-20 flex h-16 w-6 items-center justify-center rounded-r-xl border border-l-0 border-white/[0.05] bg-white/[0.02] text-text-secondary shadow-lg backdrop-blur-md transition-all duration-300 hover:w-8 hover:bg-white/[0.05] hover:text-text-primary"
+          title="Open Sidebar"
+        >
+          <div className="h-8 w-1 rounded-full bg-white/[0.1]" />
+        </button>
       )}
 
-      {/* Mobile Drawer Sidebar */}
-      {renderedSidebarMobile}
+      {/* Sidebar */}
+      {renderedSidebar}
 
       <main className="flex-1 flex flex-col relative z-10 min-w-0 h-full">
+        {activeView === 'chat' && messages.length > 0 && !isFullscreenInput && (
+          <button
+            onClick={() => {
+              handleNewChat()
+              setIsSidebarOpen(false)
+            }}
+            className="absolute right-6 top-4 z-30 flex h-9 items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 text-xs font-medium text-text-secondary shadow-[0_8px_32px_rgba(0,0,0,0.37)] backdrop-blur-md transition-all duration-300 hover:bg-white/[0.08] hover:text-text-primary hover:border-white/[0.1] active:scale-[0.97] animate-fade-in"
+            title="New Chat (Ctrl+N)"
+          >
+            <Plus size={14} weight="bold" className="text-accent-primary" />
+            <span>New Chat</span>
+          </button>
+        )}
         {activeView === 'chat' && isFullscreenInput ? (
           <div className="flex-1 flex flex-col h-full bg-background-main">
             <InputBar
@@ -1427,6 +1531,7 @@ function App(): React.JSX.Element {
               onOpenSubagentSettings={handleOpenSubagentSettings}
               disabled={isProcessing || isKeyMissing}
               selectedModel={selectedModel}
+              onModelChange={handleModelChange}
               text={inputText}
               setText={setInputText}
               isSearchEnabled={isSearchEnabled}
@@ -1442,30 +1547,6 @@ function App(): React.JSX.Element {
           </div>
         ) : (
           <>
-            {/* Model Selector Bar */}
-            <div className="sticky top-0 z-30 flex w-full items-center justify-between border-b border-white/[0.055] bg-background-main/[0.72] px-6 py-3 backdrop-blur-2xl">
-              <div className="flex-1 flex items-center gap-2">
-                <button
-                  onClick={() => setIsMobileMenuOpen(true)}
-                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.035] text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-all duration-200 md:hidden"
-                  title="Menu"
-                >
-                  <Menu size={16} />
-                </button>
-                {activeView === 'tasks' && (
-                  <span className="ml-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-semibold text-accent-primary">
-                    Monitoring
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-3">{renderedModelSelector}</div>
-
-              <div className="flex-1 flex justify-end">
-                {/* Clear button removed - session management is now in Sidebar */}
-              </div>
-            </div>
-
             <div
               ref={scrollContainerRef}
               onScroll={handleScroll}
@@ -1498,6 +1579,7 @@ function App(): React.JSX.Element {
                             onOpenSubagentSettings={handleOpenSubagentSettings}
                             disabled={isProcessing || isKeyMissing}
                             selectedModel={selectedModel}
+                            onModelChange={handleModelChange}
                             text={inputText}
                             setText={setInputText}
                             isSearchEnabled={isSearchEnabled}
@@ -1542,7 +1624,7 @@ function App(): React.JSX.Element {
                       className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-background-secondary/90 text-text-secondary shadow-lg backdrop-blur-md transition-all duration-200 hover:bg-white/[0.08] hover:text-text-primary active:scale-95"
                       title="Scroll to bottom"
                     >
-                      <ArrowDown size={16} />
+                      <CaretDown size={16} />
                     </button>
                   </div>
                 )}
@@ -1566,7 +1648,7 @@ function App(): React.JSX.Element {
                   onOpenSubagentSettings={handleOpenSubagentSettings}
                   disabled={isProcessing || isKeyMissing}
                   selectedModel={selectedModel}
-                  showModeBadge={false}
+                  onModelChange={handleModelChange}
                   text={inputText}
                   setText={setInputText}
                   isSearchEnabled={isSearchEnabled}

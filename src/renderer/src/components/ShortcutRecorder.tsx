@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Keyboard, X } from 'lucide-react'
+import { Keyboard, X } from '@phosphor-icons/react'
 import clsx from 'clsx'
 
 interface ShortcutRecorderProps {

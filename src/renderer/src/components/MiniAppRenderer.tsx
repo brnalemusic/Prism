@@ -1,5 +1,10 @@
 import React, { useRef, useState, useEffect } from 'react'
-import { RefreshCw, Code, X, ExternalLink } from 'lucide-react'
+import {
+  ArrowsClockwise as RefreshCw,
+  Code,
+  X,
+  ArrowUpRight as ExternalLink
+} from '@phosphor-icons/react'
 import { Spinner } from './Spinner'
 import clsx from 'clsx'
 

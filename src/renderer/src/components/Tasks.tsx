@@ -1,15 +1,15 @@
 import { clsx } from 'clsx'
 import {
-  CheckCircle2,
-  CircleDashed,
+  CheckCircle as CheckCircle2,
+  CircleNotch as CircleDashed,
   XCircle,
   Terminal,
-  ExternalLink,
+  ArrowUpRight as ExternalLink,
   List,
   Globe,
   HardDrive,
-  Settings
-} from 'lucide-react'
+  Gear as Settings
+} from '@phosphor-icons/react'
 import { ToolCall } from './ActionLoader'
 
 interface Task extends ToolCall {

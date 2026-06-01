@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react'
 import {
-  Save,
-  Settings as SettingsIcon,
+  FloppyDisk as Save,
+  Gear as SettingsIcon,
   Keyboard,
-  Bot,
-  RotateCcw,
+  Robot as Bot,
+  ArrowsCounterClockwise as RotateCcw,
   Monitor,
   Key,
   Shield,
   Info,
-  Volume2
-} from 'lucide-react'
+  SpeakerHigh as Volume2
+} from '@phosphor-icons/react'
 import { MODELS } from '../constants'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import clsx from 'clsx'
@@ -35,8 +35,8 @@ export function SettingsView(): React.JSX.Element {
     launcherShortcut: 'CommandOrControl+Space',
     modelSelectionShortcut: 'CommandOrControl+M',
     screenshotShortcut: 'Ctrl+Alt+Space',
-    defaultModel: 'prism-5',
-    subagentModel: 'prism-4.2',
+    defaultModel: 'prism-6-super-fast',
+    subagentModel: 'prism-6-dragon',
     minimizeToTray: false,
     autoLaunch: false,
     quickLauncherMode: 'simple',
@@ -84,8 +84,8 @@ export function SettingsView(): React.JSX.Element {
       launcherShortcut: 'CommandOrControl+Space',
       modelSelectionShortcut: 'CommandOrControl+M',
       screenshotShortcut: 'Ctrl+Alt+Space',
-      defaultModel: 'prism-5',
-      subagentModel: 'prism-4.2',
+      defaultModel: 'prism-6-super-fast',
+      subagentModel: 'prism-6-dragon',
       minimizeToTray: false,
       autoLaunch: false,
       quickLauncherMode: 'simple',

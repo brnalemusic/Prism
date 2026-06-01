@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Copy, Check } from 'lucide-react'
+import { Copy, Check } from '@phosphor-icons/react'
 import { clsx } from 'clsx'
 
 export interface CopyMessageButtonProps {

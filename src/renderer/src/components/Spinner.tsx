@@ -1,6 +1,6 @@
 import React from 'react'
 import { clsx } from 'clsx'
-import { Loader2 } from 'lucide-react'
+import { CircleNotch as Loader2 } from '@phosphor-icons/react'
 
 export type SpinnerSize = 'xxs' | 'xs' | 'sm' | 'md' | 'lg'
 

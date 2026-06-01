@@ -77,11 +77,17 @@ const MODEL_CONFIGS: Record<string, ModelConfig> = {
 }
 
 // Fallback order of models (from highest to lowest)
-const MODEL_FALLBACK_ORDER = ['prism-5', 'prism-4.3', 'prism-4.2', 'prism-4.1', 'prism-4']
+const MODEL_FALLBACK_ORDER = [
+  'prism-6-dense',
+  'prism-6-dragon',
+  'prism-6-fast',
+  'prism-6-fast-old',
+  'prism-6-super-fast'
+]
 
 const AGENT_TEMPERATURE = 0.7
 const TITLE_GENERATION_TEMPERATURE = 1.4
-const DEFAULT_SUBAGENT_MODEL_KEY = 'prism-4.2'
+const DEFAULT_SUBAGENT_MODEL_KEY = 'prism-6-dragon'
 let currentSubagentModelKey = DEFAULT_SUBAGENT_MODEL_KEY
 
 function getSubagentModelConfig(modelKey = currentSubagentModelKey): ModelConfig {
@@ -105,7 +111,12 @@ function getModelFriendlyName(modelKey: string): string {
     'prism-4.1': 'Prism 4.1',
     'prism-4.2': 'Prism 4.2',
     'prism-4.3': 'Prism 4.3',
-    'prism-5': 'Prism 5'
+    'prism-5': 'Prism 5',
+    'prism-6-super-fast': 'Prism 6 Super-Fast',
+    'prism-6-fast-old': 'Prism 6 Fast-Old',
+    'prism-6-fast': 'Prism 6 Fast',
+    'prism-6-dragon': 'Prism 6 Dragon',
+    'prism-6-dense': 'Prism 6 Dense'
   }
   return names[modelKey] || 'Prism AI'
 }
@@ -485,7 +496,13 @@ const toolFunctions: Record<
   computer_use_append_file: (args, _event, _apiKey, signal) =>
     computerAppendToFile(args.path || '', args.content || '', signal),
   computer_use_edit_file: (args, _event, _apiKey, signal) =>
-    computerEditFile(args.path || '', args.startLine || '', args.endLine || '', args.newContent || '', signal),
+    computerEditFile(
+      args.path || '',
+      args.startLine || '',
+      args.endLine || '',
+      args.newContent || '',
+      signal
+    ),
   computer_use_copy_file: (args, _event, _apiKey, signal) =>
     computerCopyFile(args.sourcePath || '', args.destinationPath || '', args.overwrite, signal),
   computer_use_move_file: (args, _event, _apiKey, signal) =>
@@ -1550,6 +1567,7 @@ The user wants to search and play a video. Use web_search to find the most relev
 
   let usedFallback = false
   let success = false
+  const triedModelKeys = new Set<string>()
 
   // Notify the start of the response ONLY ONCE
   event.sender.send('chat-reply-start', { chatId })
@@ -1571,6 +1589,8 @@ The user wants to search and play a video. Use web_search to find the most relev
         success = true
         return
       }
+
+      triedModelKeys.add(currentModelKey)
 
       try {
         const config = {
@@ -1780,19 +1800,54 @@ The user wants to search and play a video. Use web_search to find the most relev
 
         // Fallback Logic
         const currentIndex = MODEL_FALLBACK_ORDER.indexOf(currentModelKey)
-        if (currentIndex !== -1 && currentIndex < MODEL_FALLBACK_ORDER.length - 1) {
-          // Try the next model
-          currentModelKey = MODEL_FALLBACK_ORDER[currentIndex + 1]
+        let nextModelKey: string | null = null
+
+        if (currentIndex !== -1) {
+          // Look for the next model in a circular fashion that hasn't been tried yet
+          for (let i = 1; i <= MODEL_FALLBACK_ORDER.length; i++) {
+            const nextIdx = (currentIndex + i) % MODEL_FALLBACK_ORDER.length
+            const candidate = MODEL_FALLBACK_ORDER[nextIdx]
+            if (!triedModelKeys.has(candidate)) {
+              nextModelKey = candidate
+              break
+            }
+          }
+        } else {
+          // If the current model is not in MODEL_FALLBACK_ORDER (e.g. prism-5 or prism-4),
+          // we can fallback to the first model of MODEL_FALLBACK_ORDER that hasn't been tried yet.
+          for (const candidate of MODEL_FALLBACK_ORDER) {
+            if (!triedModelKeys.has(candidate)) {
+              nextModelKey = candidate
+              break
+            }
+          }
+        }
+
+        if (nextModelKey) {
+          const oldModelKey = currentModelKey
+          currentModelKey = nextModelKey
           usedFallback = true
 
+          const run = activeRuns.get(chatId)
+          if (run) {
+            run.modelKey = currentModelKey
+          }
+
           const friendlyName = getModelFriendlyName(currentModelKey)
-          const fallbackInstruction = `[SYSTEM: FALLBACK] An API error occurred with the previous model. You have been activated as ${friendlyName} to continue. Please analyze the history above and proceed with the task from where it left off. Briefly inform the user that a technical model switch occurred to ensure completion of the request.`
+          const fallbackInstruction = `[SYSTEM: FALLBACK] An API error occurred with the previous model. You have been activated as ${friendlyName} to continue. Please analyze the history above and proceed with the task from where it left off. Do NOT mention or inform the user about this technical model switch in your response; simply continue the work from where the previous model left off.`
 
           runHistory.push({ role: 'system', parts: [{ text: fallbackInstruction }] })
           saveChatSession(chatId, runHistory)
 
           // Notify the UI about the model change (optional, but good to keep in sync)
           event.sender.send('model-changed', currentModelKey)
+
+          // Send fallback activation event to renderer
+          event.sender.send('chat-fallback-activated', {
+            chatId,
+            previousModel: getModelFriendlyName(oldModelKey),
+            newModel: friendlyName
+          })
 
           console.log(`Fallback activated: New model ${currentModelKey}`)
           continue // Try again with the new model (success remains false)
@@ -1834,7 +1889,7 @@ export async function handleLauncherChatMessage(
   const runAbortController = new AbortController()
   launcherAbortController = runAbortController
 
-  const launcherModelKey = 'prism-4' // Always uses Prism 4 by default for launcher chat
+  const launcherModelKey = 'prism-6-super-fast' // Always uses Prism 6 Super-Fast by default for launcher chat
 
   if (launcherChatHistory.length === 0) {
     launcherChatHistory = [
@@ -2169,7 +2224,7 @@ export async function generateTts(text: string): Promise<string> {
   const appConfig = loadConfig()
   const voiceName = appConfig.ttsVoice || 'Aoede'
 
-  const model = 'gemini-3.1-flash-tts-preview'
+  const model = 'gemini-2.5-flash-preview-tts'
   const config = {
     temperature: 1.3,
     responseModalities: ['audio'],

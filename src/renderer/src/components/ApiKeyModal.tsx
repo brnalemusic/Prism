@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Key, Shield, Info, X, Eye, EyeOff } from 'lucide-react'
+import { Key, Shield, Info, X, Eye, EyeSlash } from '@phosphor-icons/react'
 import clsx from 'clsx'
 
 interface ApiKeyModalProps {
@@ -106,7 +106,7 @@ export function ApiKeyModal({
                 className="absolute right-3.5 p-1 rounded-lg text-text-secondary/50 hover:text-text-primary hover:bg-white/[0.06] transition-all cursor-pointer"
                 title={showKey ? 'Hide key' : 'Show key'}
               >
-                {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                {showKey ? <EyeSlash size={16} /> : <Eye size={16} />}
               </button>
             </div>
 

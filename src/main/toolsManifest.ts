@@ -238,7 +238,7 @@ export const toolsManifest: ToolDefinition[] = [
     description:
       'Opens the main application window, starts a new clean chat session, and sends instructions to be executed using a specific Prism model. Use this tool if you need terminal execution, filesystem access, subagents, or if you need to generate Rich Markdown dashboards, profile cards, etc.',
     usage:
-      '<tool_call>\n{\n  "type": "open_main_app",\n  "instructions": "Task descriptions",\n  "model": "prism-5|prism-4.3|prism-4.2",\n  "thinkMode": "true|false",\n  "searchEnabled": "true|false",\n  "extendedSearch": "true|false"\n}\n</tool_call>',
+      '<tool_call>\n{\n  "type": "open_main_app",\n  "instructions": "Task descriptions",\n  "model": "prism-6-super-fast|prism-6-fast|prism-6-dragon|prism-6-dense",\n  "thinkMode": "true|false",\n  "searchEnabled": "true|false",\n  "extendedSearch": "true|false"\n}\n</tool_call>',
     parameters: {
       instructions: 'The target instructions for the main assistant to execute.',
       model: 'The model key to use for the main chat session (e.g. prism-5, prism-4.3, prism-4.2).',

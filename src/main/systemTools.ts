@@ -363,7 +363,7 @@ export async function computerReadFile(filePath: string, signal?: AbortSignal): 
   try {
     const fullPath = resolveRequiredPath(filePath, 'path')
     const content = await fs.readFile(fullPath, { encoding: 'utf8', signal })
-    
+
     // Add line numbers
     const lines = content.split('\n')
     const numberedLines = lines.map((line, index) => `${index + 1} | ${line}`)
@@ -409,7 +409,7 @@ export async function computerEditFile(
     // so we replace from startLine - 1 to endLine.
     // If newContent is empty, this acts as a deletion of those lines.
     const newLines = newContent.split('\n')
-    
+
     // Auto-indentation logic
     const originalFirstLine = lines[startLine - 1] || ''
     const originalIndentMatch = originalFirstLine.match(/^([ \t]+)/)
@@ -1157,11 +1157,11 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd}
 - **Automated Open Rules:** When the user mentions the name of an app, sends a link, or provides the PATH of a file without saying anything else (i.e. in isolation, with no other text, queries, or instructions), do not hesitate: immediately open the link (via open_browser_link), app (via open_application), or file (via open_application). Prism is focused on productivity. Only when the user specifically asks to do something with the URL/PATH/app should you ignore this rule and perform the requested task instead of opening it.
 - **Transition with open_main_app:** If the user asks to perform complex tasks (terminal commands, file operations, subagents) or if the task requires any Rich Markdown (such as dashboards, stylized grids, complex visual cards), you must IMMEDIATELY invoke the 'open_main_app' tool to transfer the work to the main app.
 - In the 'model' parameter of the 'open_main_app' tool, choose the most appropriate in-app model according to the following Prism model table:
-  * 'prism-5' (Underlying Engine: gemini-3.5-flash): Recommended for complex general automation tasks, fast code writing, and flagship reasoning.
-  * 'prism-4.3' (Underlying Engine: gemma-4-31b-it): Best for dense analytical reasoning and detailed planning.
-  * 'prism-4.2' (Underlying Engine: gemma-4-26b-a4b-it): Best for balanced desktop workflow automation with multiple steps.
-  * 'prism-4.1' (Underlying Engine: gemini-3-flash-preview): Ultra-fast responses for simple day-to-day tasks.
-  * 'prism-4' (Underlying Engine: gemini-3.1-flash-lite): Lightweight model for basic tasks.
+  * 'prism-6-super-fast': An ultra-fast model focused on extremely low latency for simple coding tasks and everyday computer use. (Default)
+  * 'prism-6-fast-old': An older model focused on speed for the simplest day-to-day tasks, emphasizing automation and orchestration.
+  * 'prism-6-fast': An extremely decent model for complex tasks involving automation, orchestration, and raw code, focused on low latency.
+  * 'prism-6-dragon': Our most capable model for conducting in-depth research, massive agent orchestration, and information gathering.
+  * 'prism-6-dense': The most capable model for debugging immense code, with extremely dense information and very complex mathematics.
 
 Tools:
 ${toolsPrompt}`

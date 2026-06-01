@@ -44,6 +44,9 @@ export interface PrismAPI {
   ) => () => void
   onLauncherFocus: (callback: () => void) => () => void
   onModelChanged: (callback: (modelKey: string) => void) => () => void
+  onChatFallbackActivated: (
+    callback: (data: { chatId: string; previousModel: string; newModel: string }) => void
+  ) => () => void
   onConfigChanged: (callback: (config: AppConfig) => void) => () => void
   onChatSessionCreated: (callback: (data: { id: string }) => void) => () => void
   onChatTitleReceived: (callback: (data: { id: string; title: string }) => void) => () => void

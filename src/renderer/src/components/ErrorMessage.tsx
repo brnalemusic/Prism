@@ -1,5 +1,11 @@
 import { useState } from 'react'
-import { AlertCircle, ChevronDown, ChevronUp, Copy, Terminal } from 'lucide-react'
+import {
+  WarningCircle as AlertCircle,
+  CaretDown as ChevronDown,
+  CaretUp as ChevronUp,
+  Copy,
+  Terminal
+} from '@phosphor-icons/react'
 import clsx from 'clsx'
 
 interface ErrorMessageProps {

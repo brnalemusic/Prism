@@ -1,19 +1,19 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   Command,
-  ChevronRight,
+  CaretRight as ChevronRight,
   Cpu,
-  Search,
+  MagnifyingGlass as Search,
   Brain,
-  CirclePlay,
+  PlayCircle as CirclePlay,
   Check,
   Calculator,
   FileCode,
   AppWindow,
-  Sparkles,
+  Sparkle as Sparkles,
   ArrowRight,
-  MessageSquare
-} from 'lucide-react'
+  ChatCircle as MessageSquare
+} from '@phosphor-icons/react'
 import { MODELS } from '../constants'
 import { isShortcutPressed, triggerErrorPopup } from '../utils'
 import { ErrorPopup } from './ErrorPopup'
@@ -77,7 +77,7 @@ export function QuickLauncher(): React.JSX.Element {
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
   const [isThinkMode, setIsThinkMode] = useState(false) // Think mode default disabled for launcher
   const [selectedIndex, setSelectedIndex] = useState(0)
-  const [activeModelId, setActiveModelId] = useState('prism-5')
+  const [activeModelId, setActiveModelId] = useState('prism-6-super-fast')
   const [shortcut, setShortcut] = useState('CommandOrControl+M')
   const [isFocused, setIsFocused] = useState(false)
   const [quickLauncherMode, setQuickLauncherMode] = useState<'simple' | 'advanced'>('simple')

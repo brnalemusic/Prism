@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
-import { ChevronDown, Check, Cpu } from 'lucide-react'
+import { CaretDown as ChevronDown, Check } from '@phosphor-icons/react'
 import { clsx } from 'clsx'
 import { MODELS } from '../constants'
 import { isShortcutPressed } from '../utils'
@@ -7,6 +7,8 @@ import { isShortcutPressed } from '../utils'
 interface ModelSelectorProps {
   selectedModel: string
   onModelChange: (modelId: string) => void
+  isThinkMode?: boolean
+  onThinkModeToggle?: (val: boolean) => void
   disabled?: boolean
 }
 
@@ -15,9 +17,8 @@ export interface ModelSelectorHandle {
 }
 
 export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>(
-  ({ selectedModel, onModelChange, disabled }, ref) => {
+  ({ selectedModel, onModelChange, isThinkMode = false, onThinkModeToggle, disabled }, ref) => {
     const [isOpen, setIsOpen] = useState(false)
-    const [selectedIndex, setSelectedIndex] = useState(0)
     const [shortcut, setShortcut] = useState('CommandOrControl+M')
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -25,12 +26,6 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
       open: () => {
         if (!disabled) {
           setIsOpen(true)
-          setSelectedIndex(
-            Math.max(
-              0,
-              MODELS.findIndex((m) => m.id === selectedModel)
-            )
-          )
         }
       }
     }))
@@ -63,35 +58,13 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
         if (isShortcutPressed(e, shortcut)) {
           e.preventDefault()
-          const newIsOpen = !isOpen
-          setIsOpen(newIsOpen)
-          if (newIsOpen) {
-            setSelectedIndex(
-              Math.max(
-                0,
-                MODELS.findIndex((m) => m.id === selectedModel)
-              )
-            )
-          }
+          setIsOpen(!isOpen)
           return
         }
 
-        if (isOpen) {
-          if (e.key === 'ArrowDown') {
-            e.preventDefault()
-            setSelectedIndex((prev) => (prev + 1) % MODELS.length)
-          } else if (e.key === 'ArrowUp') {
-            e.preventDefault()
-            setSelectedIndex((prev) => (prev - 1 + MODELS.length) % MODELS.length)
-          } else if (e.key === 'Enter') {
-            e.preventDefault()
-            const selected = MODELS[selectedIndex]
-            onModelChange(selected.id)
-            setIsOpen(false)
-          } else if (e.key === 'Escape') {
-            e.preventDefault()
-            setIsOpen(false)
-          }
+        if (isOpen && e.key === 'Escape') {
+          e.preventDefault()
+          setIsOpen(false)
         }
       }
 
@@ -102,109 +75,103 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         document.removeEventListener('mousedown', handleClickOutside)
         window.removeEventListener('keydown', handleKeyDown)
       }
-    }, [isOpen, selectedIndex, selectedModel, shortcut, disabled, onModelChange])
+    }, [isOpen, selectedModel, shortcut, disabled])
 
     return (
       <div className="relative" ref={containerRef}>
         <button
           type="button"
           disabled={disabled}
-          onClick={() => {
-            const newIsOpen = !isOpen
-            setIsOpen(newIsOpen)
-            if (newIsOpen) {
-              setSelectedIndex(
-                Math.max(
-                  0,
-                  MODELS.findIndex((m) => m.id === selectedModel)
-                )
-              )
-            }
-          }}
+          onClick={() => setIsOpen(!isOpen)}
           className={clsx(
-            'premium-control flex min-w-[218px] items-center gap-3 rounded-[18px] px-4 py-2.5 text-left outline-none transition-all duration-200 hover:border-white/[0.15]',
-            isOpen && 'prism-glow',
+            'flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold outline-none transition-all duration-200 border border-transparent hover:bg-white/[0.055] hover:border-white/10',
+            isOpen
+              ? 'bg-white/[0.08] text-text-primary border-white/10'
+              : 'bg-transparent text-text-secondary',
             disabled && 'cursor-not-allowed opacity-50'
           )}
         >
-          <span className="flex h-8 w-8 items-center justify-center rounded-2xl bg-white/[0.055] text-accent-primary">
-            <Cpu size={16} />
-          </span>
-          <span className="flex min-w-0 flex-1 flex-col">
-            <span className="text-[11px] font-medium text-text-secondary/70">Active Model</span>
-            <span
-              className={clsx(
-                'truncate text-sm font-semibold',
-                currentModel.id === 'prism-5' ? 'prism-top-gradient' : 'text-text-primary'
-              )}
-            >
-              {currentModel.name}
-            </span>
-          </span>
+          <span>{currentModel.name}</span>
           <ChevronDown
-            size={16}
+            size={12}
             className={clsx(
-              'text-text-secondary/50 transition-transform duration-200',
+              'text-text-secondary/70 transition-transform duration-200',
               isOpen && 'rotate-180'
             )}
           />
         </button>
 
         {isOpen && (
-          <div className="model-menu-panel absolute left-1/2 top-full z-50 mt-2 w-80 -translate-x-1/2 origin-top overflow-hidden rounded-[24px] py-2 animate-soft-pop">
-            <div className="border-b border-white/[0.06] px-4 py-3">
-              <span className="text-xs font-semibold text-text-secondary/70">
-                Choose Prism engine
-              </span>
+          <div className="absolute bottom-full right-0 mb-4 z-50 w-72 max-h-[360px] overflow-y-auto rounded-2xl border border-white/[0.12] bg-background-main p-2 shadow-2xl animate-soft-pop text-left opacity-100">
+            <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.04] mb-1">
+              Select Prism Engine
             </div>
-            {MODELS.map((model, index) => (
+            {MODELS.map((model) => (
               <button
                 key={model.id}
-                onMouseEnter={() => setSelectedIndex(index)}
                 onClick={() => {
                   onModelChange(model.id)
-                  setIsOpen(false)
                 }}
                 className={clsx(
-                  'relative flex w-full items-start gap-3 px-4 py-3 text-left transition-all duration-150 active:bg-white/[0.09]',
-                  model.id === 'prism-5'
-                    ? [
-                        'prism-5-model-option prism-5-menu-option',
-                        selectedIndex === index && 'prism-5-model-option-active'
-                      ]
-                    : selectedIndex === index
-                      ? 'bg-white/[0.065]'
-                      : 'hover:bg-white/[0.04]'
+                  'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-0.5',
+                  selectedModel === model.id
+                    ? 'bg-accent-primary/[0.12] text-accent-primary border border-accent-primary/20'
+                    : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
                 )}
               >
-                <span
-                  className={clsx(
-                    'mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full',
-                    model.id === 'prism-5'
-                      ? ['prism-5-dot', selectedModel === model.id ? 'opacity-100' : 'opacity-70']
-                      : selectedModel === model.id
-                        ? 'bg-accent-secondary'
-                        : 'bg-white/[0.18]'
-                  )}
-                />
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span
-                    className={clsx(
-                      'text-sm font-semibold',
-                      model.id === 'prism-5' ? 'prism-5-title-gradient' : 'text-text-primary'
-                    )}
-                  >
-                    {model.name}
-                  </span>
-                  <span className="mt-0.5 text-xs leading-snug text-text-secondary/70">
-                    {model.description}
-                  </span>
-                </span>
-                {selectedModel === model.id && (
-                  <Check size={15} className="mt-0.5 text-accent-secondary" />
-                )}
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold text-xs">{model.name}</div>
+                  {selectedModel === model.id && <Check size={12} />}
+                </div>
+                <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
+                  {model.description}
+                </div>
               </button>
             ))}
+
+            <div className="mt-2 mb-1 border-t border-white/[0.04] pt-2 px-3 py-1 text-[11px] font-semibold text-text-secondary/70">
+              Thinking Mode
+            </div>
+
+            <button
+              onClick={() => {
+                onThinkModeToggle?.(false)
+              }}
+              className={clsx(
+                'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left',
+                !isThinkMode
+                  ? 'bg-white/[0.08] text-text-primary border border-white/10'
+                  : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <div className="font-semibold text-xs">Default</div>
+                {!isThinkMode && <Check size={12} />}
+              </div>
+              <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
+                The model will think minimally to prioritize speed. Recommended for simple tasks.
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                onThinkModeToggle?.(true)
+              }}
+              className={clsx(
+                'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-1',
+                isThinkMode
+                  ? 'bg-status-warning/[0.12] text-status-warning border border-status-warning/20'
+                  : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <div className="font-semibold text-xs">Extended</div>
+                {isThinkMode && <Check size={12} />}
+              </div>
+              <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
+                The model will think carefully before responding. Best for heavy tasks.
+              </div>
+            </button>
           </div>
         )}
       </div>

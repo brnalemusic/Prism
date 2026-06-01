@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Volume2, Square } from 'lucide-react'
+import { SpeakerHigh as Volume2, Stop as Square } from '@phosphor-icons/react'
 import { Spinner } from './Spinner'
 import { clsx } from 'clsx'
 import { triggerErrorPopup } from '../utils'

@@ -1,4 +1,4 @@
-import { MessageSquare, Settings, CheckSquare, Plus, Trash2, Clock } from 'lucide-react'
+import { ChatTeardropText, Gear, CheckSquare, Plus, Trash, Clock } from '@phosphor-icons/react'
 import { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import { LoadingDots } from './LoadingDots'
@@ -19,6 +19,7 @@ interface SidebarProps {
   currentChatId?: string
   runningChats?: Record<string, boolean>
   className?: string
+  isOpen?: boolean
 }
 
 export function Sidebar({
@@ -29,7 +30,8 @@ export function Sidebar({
   runningTasksCount = 0,
   currentChatId,
   runningChats = {},
-  className
+  className,
+  isOpen = false
 }: SidebarProps): React.JSX.Element {
   const [chats, setChats] = useState<ChatSession[]>([])
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
@@ -91,7 +93,6 @@ export function Sidebar({
       clearInterval(interval)
       removeCreatedListener()
       removeTitleReceivedListener()
-      // Use the stable variable from effect scope
       Object.values(currentIntervals).forEach(clearInterval)
     }
   }, [activeView])
@@ -112,43 +113,34 @@ export function Sidebar({
   return (
     <aside
       className={clsx(
-        'relative z-20 h-full w-[278px] flex-col border-r border-white/[0.055] bg-background-main/[0.62] backdrop-blur-2xl',
+        'fixed inset-y-0 left-0 z-40 w-[260px] flex flex-col border-r border-white/[0.04] bg-background-main transition-transform duration-300 ease-in-out',
+        isOpen ? 'translate-x-0' : '-translate-x-full',
         className
       )}
     >
-      <div className="px-5 pb-4 pt-7">
-        <div className="premium-panel-soft rounded-[28px] px-5 py-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.055] text-accent-primary">
-              <span className="text-base font-semibold">P</span>
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold text-text-primary">Prism</h1>
-              <p className="text-xs text-text-secondary/60">Desktop AI</p>
-            </div>
-          </div>
-        </div>
+      <div className="flex h-14 shrink-0 items-center px-6 mt-10">
+        <h1 className="text-lg font-medium text-text-primary tracking-wide">Prism</h1>
       </div>
 
-      <div className="px-5 py-2">
+      <div className="px-4 py-2 shrink-0">
         <button
           onClick={() => onNewChat()}
-          className="flex w-full items-center justify-center gap-2 rounded-[18px] border border-accent-primary/25 bg-accent-primary/[0.09] px-4 py-3 text-sm font-semibold text-accent-primary transition-all duration-200 hover:border-accent-primary/40 hover:bg-accent-primary/[0.13] active:scale-[0.99]"
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-white/[0.03] border border-white/[0.05] px-4 py-2.5 text-sm font-medium text-text-primary transition-all duration-200 hover:bg-white/[0.06] active:scale-[0.98]"
         >
-          <Plus size={16} />
+          <Plus size={16} weight="bold" />
           New Chat
         </button>
       </div>
 
-      <nav className="flex shrink-0 flex-col gap-2 px-5 py-4">
+      <nav className="flex shrink-0 flex-col gap-1 px-4 py-3">
         <NavItem
-          icon={<MessageSquare size={16} />}
+          icon={<ChatTeardropText size={18} weight={activeView === 'chat' ? 'fill' : 'regular'} />}
           label="Chat"
           active={activeView === 'chat'}
           onClick={(): void => onViewChange('chat')}
         />
         <NavItem
-          icon={<CheckSquare size={16} />}
+          icon={<CheckSquare size={18} weight={activeView === 'tasks' ? 'fill' : 'regular'} />}
           label="Monitoring"
           active={activeView === 'tasks'}
           onClick={(): void => onViewChange('tasks')}
@@ -157,14 +149,14 @@ export function Sidebar({
         />
       </nav>
 
-      <div className="mx-5 h-px bg-white/[0.055]" />
+      <div className="mx-4 h-px shrink-0 bg-white/[0.04]" />
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4">
-        <div className="mb-2 flex items-center gap-2 px-2 text-xs font-semibold text-text-secondary/60">
-          <Clock size={13} />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4">
+        <div className="mb-2 flex shrink-0 items-center gap-2 px-2 text-[11px] font-medium tracking-wider text-text-secondary uppercase">
+          <Clock size={14} />
           History
         </div>
-        <div className="flex h-full flex-col gap-1.5 overflow-y-auto pr-1">
+        <div className="flex-1 overflow-y-auto flex flex-col gap-1 pr-1">
           {chats.map((chat) => (
             <div key={chat.id} className="group relative">
               <button
@@ -173,10 +165,10 @@ export function Sidebar({
                   onLoadChat(chat.id)
                 }}
                 className={clsx(
-                  'min-h-[38px] w-full truncate rounded-[18px] border px-3.5 py-2.5 pr-10 text-left text-xs font-medium transition-all duration-200 active:scale-[0.98]',
+                  'min-h-[36px] w-full truncate rounded-lg px-3 py-2 pr-8 text-left text-sm transition-all duration-200 active:scale-[0.98]',
                   currentChatId === chat.id
-                    ? 'border-accent-primary/20 bg-accent-primary/[0.09] text-text-primary'
-                    : 'border-transparent text-text-secondary/75 hover:border-white/[0.07] hover:bg-white/[0.04] hover:text-text-primary'
+                    ? 'bg-white/[0.05] text-text-primary'
+                    : 'text-text-secondary hover:bg-white/[0.03] hover:text-text-primary'
                 )}
                 title={chat.title}
               >
@@ -191,21 +183,21 @@ export function Sidebar({
                 onClick={(e) => handleDelete(e, chat.id)}
                 disabled={isDeleting === chat.id}
                 className={clsx(
-                  'absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-text-secondary/40 opacity-0 transition-all duration-300 hover:bg-status-error/[0.15] hover:text-status-error group-hover:opacity-100 active:scale-90',
+                  'absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-text-muted opacity-0 transition-all duration-200 hover:bg-white/[0.05] hover:text-status-error group-hover:opacity-100 active:scale-90',
                   isDeleting === chat.id && 'opacity-100 animate-pulse'
                 )}
                 title="Delete chat"
               >
-                <Trash2 size={12} />
+                <Trash size={14} />
               </button>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="mt-auto p-5">
+      <div className="mt-auto p-4 shrink-0">
         <NavItem
-          icon={<Settings size={16} />}
+          icon={<Gear size={18} weight={activeView === 'settings' ? 'fill' : 'regular'} />}
           label="Settings"
           active={activeView === 'settings'}
           onClick={(): void => onViewChange('settings')}
@@ -234,18 +226,16 @@ function NavItem({
     <button
       onClick={onClick}
       className={clsx(
-        'group relative flex w-full items-center gap-3 overflow-hidden rounded-[18px] border px-3.5 py-3 text-sm font-semibold transition-all duration-200',
+        'group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-200',
         active
-          ? 'border-white/[0.09] bg-white/[0.07] text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
-          : 'border-transparent text-text-secondary/70 hover:border-white/[0.07] hover:bg-white/[0.04] hover:text-text-primary'
+          ? 'bg-white/[0.05] text-text-primary font-medium'
+          : 'text-text-secondary hover:bg-white/[0.03] hover:text-text-primary'
       )}
     >
-      {active && <div className="absolute inset-y-2 left-1 w-1 rounded-full bg-accent-primary" />}
-
       <span
         className={clsx(
-          'ml-1 transition-all duration-200',
-          active ? 'text-accent-primary' : 'opacity-70 group-hover:opacity-100',
+          'transition-colors duration-200',
+          active ? 'text-accent-primary' : 'text-text-muted group-hover:text-text-secondary',
           pulse && 'animate-pulse text-accent-secondary'
         )}
       >
@@ -255,7 +245,7 @@ function NavItem({
       <span>{label}</span>
 
       {badge !== undefined && (
-        <span className="ml-auto flex min-w-[22px] items-center justify-center rounded-full bg-accent-secondary/[0.18] px-2 py-0.5 text-[11px] font-semibold text-accent-secondary">
+        <span className="ml-auto flex min-w-[20px] items-center justify-center rounded bg-white/[0.05] px-1.5 py-0.5 text-[11px] font-medium text-text-primary">
           {badge}
         </span>
       )}

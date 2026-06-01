@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { AlertCircle, X } from 'lucide-react'
+import { WarningCircle as AlertCircle, X } from '@phosphor-icons/react'
 import { clsx } from 'clsx'
 
 export function ErrorPopup(): React.JSX.Element | null {

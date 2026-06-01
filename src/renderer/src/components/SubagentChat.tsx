@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { clsx } from 'clsx'
-import { Smartphone, Bot, Send, Minus, X, UserRound } from 'lucide-react'
+import {
+  DeviceMobile as Smartphone,
+  Robot as Bot,
+  PaperPlaneRight as Send,
+  Minus,
+  X,
+  User as UserRound
+} from '@phosphor-icons/react'
 
 interface Message {
   agentIndex: number | string
