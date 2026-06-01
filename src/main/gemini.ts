@@ -73,6 +73,26 @@ const MODEL_CONFIGS: Record<string, ModelConfig> = {
   'prism-5': {
     apiModel: 'gemini-3.5-flash',
     thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true }
+  },
+  'prism-6-super-fast': {
+    apiModel: 'gemini-3.1-flash-lite',
+    thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true }
+  },
+  'prism-6-fast-old': {
+    apiModel: 'gemini-3-flash-preview',
+    thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true }
+  },
+  'prism-6-fast': {
+    apiModel: 'gemini-3.5-flash',
+    thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true }
+  },
+  'prism-6-dragon': {
+    apiModel: 'gemma-4-26b-a4b-it',
+    thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true }
+  },
+  'prism-6-dense': {
+    apiModel: 'gemma-4-31b-it',
+    thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: true }
   }
 }
 
