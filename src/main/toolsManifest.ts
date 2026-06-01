@@ -28,7 +28,7 @@ export const toolsManifest: ToolDefinition[] = [
     parameters: {
       content: 'The message to broadcast.',
       status:
-        'Use "working" to stay active (requires calling wait_for_updates too). Use "done" or "error" to finish and terminate.'
+        'Use "working" to stay active (requires calling wait_for_updates too). Use "done" or "error" to signal completion. The swarm will terminate only when all worker subagents agree and exit.'
     },
     target: 'subagent'
   },

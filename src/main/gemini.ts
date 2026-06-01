@@ -912,7 +912,17 @@ async function runSubagents(
 
               if (status !== 'working') {
                 isMasterFinished = true
-                swarmCompleted = true
+                const activeWorkers = Array.from({ length: quantity }, (_, i) => i)
+                const allFinished = activeWorkers.every((idx) => {
+                  const lastMsg = blackboard
+                    .slice()
+                    .reverse()
+                    .find((m) => m.sender === idx)
+                  return lastMsg && lastMsg.status !== 'working'
+                })
+                if (allFinished || quantity === 0) {
+                  swarmCompleted = true
+                }
                 notifyWaiters() // wake up any waiting subagents to terminate
               }
               return `\n[SYSTEM]: Message broadcasted. Status set to ${status}.\n`
@@ -1187,7 +1197,22 @@ async function runSubagents(
                 chatId
               })
 
-              if (status !== 'working') isAgentFinished = true
+              if (status !== 'working') {
+                isAgentFinished = true
+                const activeWorkers = Array.from({ length: quantity }, (_, i) => i)
+                const allFinished = activeWorkers.every((idx) => {
+                  if (idx === index) return true
+                  const lastMsg = blackboard
+                    .slice()
+                    .reverse()
+                    .find((m) => m.sender === idx)
+                  return lastMsg && lastMsg.status !== 'working'
+                })
+                if (allFinished) {
+                  swarmCompleted = true
+                  notifyWaiters()
+                }
+              }
               return `\n[SYSTEM]: Message broadcasted. Status set to ${status}.\n`
             }
 

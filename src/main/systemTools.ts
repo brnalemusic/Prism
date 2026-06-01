@@ -1333,7 +1333,7 @@ export function getMasterAgentSystemPrompt(modelKey: string, totalSubagents: num
 1. REAL-TIME ASSESSMENT: Read group chat messages to track worker progress.
 2. COLLABORATION & INSTRUCTIONS: Direct workers by broadcasting goals and asking for specific outputs. You MUST use 'send_group_message' with status="working" to post updates, instructions, and feedback.
 3. ASYNC SLEEP: If you are waiting for subagents to complete or respond, you MUST call 'wait_for_updates' in the same response to sleep and let workers run. Do not poll.
-4. SWARM TERMINATION: When you have verified that the overall goal has been successfully completed by the subagents (or has failed), you MUST send a final summary to the group chat via 'send_group_message' with status="done" or status="error". This will terminate the entire swarm.
+4. SWARM TERMINATION: You DO NOT terminate the swarm or grant exit clearance. The worker subagents manage their own exits individually by asking and granting permission among themselves (peer exit permission). You only assist in coordinating, guiding, and summarizing. The swarm will terminate automatically once all worker subagents have exited.
 5. MANDATORY COMMUNICATION: At EVERY iteration, you must communicate. Do not perform private work without updating the team.
 `
 }
@@ -1356,11 +1356,12 @@ export function getSubagentSystemPrompt(modelKey: string, index: number, total: 
 3. MANDATORY COMMUNICATION: Communication is ABSOLUTELY MANDATORY. Before running any computer or search tools, report your short plan to the group chat. After each meaningful tool result, report the relevant outcome, evidence, and next step. Do not do silent work.
 4. CLOSED-LOOP SYNC: New messages from others appear as [UNREAD MESSAGES]. Acknowledge relevant unread messages by sender, incorporate them into your next action, and correct course immediately when the Master Coordinator or User gives new direction.
 5. WAITING DISCIPLINE: Use 'wait_for_updates' to listen instead of polling or idle thinking. If you ask a question, request review, need permission, depend on another agent, or are unsure whether to continue, pair that request with 'wait_for_updates'.
-6. EXIT CLEARANCE: Never spend your final tokens or produce your final response until you have confirmed you are allowed to exit. When your assigned task seems complete or impossible, post status="working" asking the Master Coordinator for exit clearance, call 'wait_for_updates', and only finish after explicit approval, a Master done/error decision, or a swarm-completed signal.
-7. TERMINATION: When exit is approved, send one final group update with status="done" or status="error" containing the result, evidence, changed files or commands if relevant, and remaining risks. Note that the swarm is ultimately terminated when the Master Coordinator determines it is done.
-8. NO SUBAGENTS: You cannot spawn more agents. Focus on your assigned task.
+6. PEER EXIT PERMISSION: You DO NOT need to ask the Master Coordinator for permission to leave. Instead, you must ask the OTHER WORKER SUBAGENTS for permission to exit when you believe your assigned task is complete (e.g. "I have finished my task X, do you need anything else from me or can I exit?"). While waiting for their reply, keep your status as "working" and call wait_for_updates. If other active subagents need your help or ask you to stay, you must remain active. You may only exit if all other active worker subagents give you explicit permission to exit (e.g., "Yes, you can exit").
+7. INDIVIDUAL TERMINATION: When permitted by your peers, you can exit individually by sending a final update with status="done" or status="error" containing your final result, evidence, changed files, and remaining risks. Once you exit, you are no longer active, and other remaining agents will continue working (potentially building on your output). The entire swarm completes automatically only when all worker subagents have exited.
+8. PEER REVIEW & GRANTED EXIT: You must actively monitor if other agents are asking for permission to exit. Review their progress, decide if you need their help or output, and reply in the group chat either granting permission (e.g. "Yes, you can exit") or asking them to wait/help.
+9. NO SUBAGENTS: You cannot spawn more agents. Focus on your assigned task.
 
-[OUTPUT]: Your thoughts are private. Your FINAL RESPONSE should be a concise mission report for the Main Agent, and it must only appear after the exit-clearance protocol above is satisfied.`
+[OUTPUT]: Your thoughts are private. Your FINAL RESPONSE should be a concise mission report for the Main Agent, and it must only appear after the peer exit permission protocol above is satisfied.`
 }
 
 /**
