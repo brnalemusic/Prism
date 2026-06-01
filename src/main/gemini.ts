@@ -42,7 +42,7 @@ setGlobalDispatcher(networkAgent)
 globalThis.fetch = undiciFetch as unknown as typeof globalThis.fetch
 
 // Modelo selecionado atualmente
-let currentModelKey = 'prism-5'
+let currentModelKey = 'prism-6-super-fast'
 
 interface ModelConfig {
   apiModel: string
@@ -2225,6 +2225,9 @@ function createWavHeader(dataLength: number, options: WavConversionOptions): Buf
   return buffer
 }
 
+// TODO: Review manual PCM to WAV conversion logic (obsolete pattern / unusual block).
+// Constructing WAV headers manually by byte writing could be fragile if audio formats or parameters
+// change in the Gemini TTS API response. Consider using standard audio decoding libraries in the future.
 function convertToWav(rawData: string, mimeType: string): Buffer {
   const options = parseMimeType(mimeType)
   const buffer = Buffer.from(rawData, 'base64')

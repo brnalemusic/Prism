@@ -903,7 +903,7 @@ export function QuickLauncher(): React.JSX.Element {
             ) : (
               <div className="flex h-10 shrink-0 items-center gap-2 rounded-[16px] border border-white/[0.08] bg-[#1e2026] px-3 text-sm font-semibold text-text-secondary select-none">
                 <Sparkles size={15} className="text-accent-secondary animate-pulse" />
-                <span>Prism 4</span>
+                <span>Prism 6</span>
               </div>
             )}
 
@@ -1220,7 +1220,7 @@ export function QuickLauncher(): React.JSX.Element {
             {/* Footer / Input info */}
             <div className="px-6 py-3 bg-[#15161b] border-t border-white/[0.04] text-[11px] text-text-secondary/50 flex justify-between items-center">
               <span>Press Enter to send inline</span>
-              <span>Simple Mode (Prism 4)</span>
+              <span>Simple Mode (Prism 6)</span>
             </div>
           </div>
         )}

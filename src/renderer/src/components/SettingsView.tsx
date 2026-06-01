@@ -339,7 +339,7 @@ export function SettingsView(): React.JSX.Element {
               <div className="flex flex-col gap-1">
                 <span className="text-sm font-bold text-text-primary">Quick Search AI Mode</span>
                 <span className="text-xs text-text-secondary/70 leading-tight">
-                  Simple (integrated floating Prism 4 AI) or Advanced (opens the in-app chat
+                  Simple (integrated floating Prism 6 AI) or Advanced (opens the in-app chat
                   directly).
                 </span>
               </div>
