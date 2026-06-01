@@ -1,26 +1,126 @@
 @import 'tailwindcss';
 @plugin "@tailwindcss/typography";
 
+:root,
+[data-theme='marine'] {
+  --background-main: #13151a;
+  --background-secondary: #1c1e26;
+  --surface: #252832;
+
+  --accent-primary: #8fb4ff;
+  --accent-secondary: #78e0c2;
+  --accent-glow: rgba(143, 180, 255, 0.18);
+
+  --text-primary: #f4f1ea;
+  --text-secondary: #a4a19a;
+  --text-muted: #696761;
+
+  --status-success: #79d89f;
+  --status-warning: #e4bb6a;
+  --status-error: #ef7f78;
+
+  --home-glow-color-1: rgba(30, 58, 138, 0.12);
+  --home-glow-color-2: rgba(49, 46, 129, 0.18);
+
+  --theme-font-sans: 'Outfit', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', sans-serif;
+}
+
+[data-theme='vertez'] {
+  --background-main: #161413;
+  --background-secondary: #1f1c1a;
+  --surface: #2b2623;
+
+  --accent-primary: #ff4e3a;
+  --accent-secondary: #ff9f1c;
+  --accent-glow: rgba(255, 78, 58, 0.18);
+
+  --text-primary: #f5f0eb;
+  --text-secondary: #a8a098;
+  --text-muted: #6e665f;
+
+  --status-success: #79d89f;
+  --status-warning: #e4bb6a;
+  --status-error: #ef7f78;
+
+  --home-glow-color-1: rgba(255, 78, 58, 0.08);
+  --home-glow-color-2: rgba(255, 78, 58, 0.15);
+
+  --theme-font-sans: 'Outfit', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', sans-serif;
+}
+
+[data-theme='akoustik'] {
+  --background-main: #12101a;
+  --background-secondary: #1a1726;
+  --surface: #262233;
+
+  --accent-primary: #b07aff;
+  --accent-secondary: #e88cff;
+  --accent-glow: rgba(176, 122, 255, 0.18);
+
+  --text-primary: #ede8f5;
+  --text-secondary: #9e96ad;
+  --text-muted: #655e73;
+
+  --status-success: #79d89f;
+  --status-warning: #e4bb6a;
+  --status-error: #ef7f78;
+
+  --home-glow-color-1: rgba(120, 60, 200, 0.10);
+  --home-glow-color-2: rgba(88, 28, 160, 0.18);
+
+  --theme-font-sans: 'Outfit', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', sans-serif;
+}
+
+[data-theme='terno'] {
+  --background-main: #000000;
+  --background-secondary: #080808;
+  --surface: #111111;
+
+  --accent-primary: #ffffff;
+  --accent-secondary: #d0d0d0;
+  --accent-glow: rgba(255, 255, 255, 0.12);
+
+  --text-primary: #ffffff;
+  --text-secondary: #888888;
+  --text-muted: #444444;
+
+  --status-success: #d0d0d0;
+  --status-warning: #a0a0a0;
+  --status-error: #ffffff;
+
+  --home-glow-color-1: rgba(255, 255, 255, 0.03);
+  --home-glow-color-2: rgba(255, 255, 255, 0.06);
+
+  --theme-font-sans: 'Playfair Display', 'Georgia', 'Times New Roman', serif;
+}
+
+.home-radial-glow {
+  background-image: radial-gradient(
+    circle,
+    var(--home-glow-color-1) 0%,
+    var(--home-glow-color-2) 50%,
+    transparent 100%
+  );
+}
+
 @theme {
-  --color-background-main: #13151a;
-  --color-background-secondary: #1c1e26;
-  --color-surface: #252832;
+  --color-background-main: var(--background-main);
+  --color-background-secondary: var(--background-secondary);
+  --color-surface: var(--surface);
 
-  --color-accent-primary: #8fb4ff;
-  --color-accent-secondary: #78e0c2;
-  --color-accent-glow: rgba(143, 180, 255, 0.18);
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-secondary: var(--accent-secondary);
+  --color-accent-glow: var(--accent-glow);
 
-  --color-text-primary: #f4f1ea;
-  --color-text-secondary: #a4a19a;
-  --color-text-muted: #696761;
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
 
-  --color-status-success: #79d89f;
-  --color-status-warning: #e4bb6a;
-  --color-status-error: #ef7f78;
+  --color-status-success: var(--status-success);
+  --color-status-warning: var(--status-warning);
+  --color-status-error: var(--status-error);
 
-  --font-sans:
-    'Outfit', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter',
-    'Segoe UI', sans-serif;
+  --font-sans: var(--theme-font-sans);
   --font-mono: 'SF Mono', 'JetBrains Mono', Consolas, monospace;
 }
 

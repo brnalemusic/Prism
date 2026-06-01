@@ -13,7 +13,8 @@ const FALLBACK_CONFIG: AppConfig = {
   minimizeToTray: false,
   autoLaunch: false,
   userGeminiKey: '',
-  ttsVoice: 'Aoede'
+  ttsVoice: 'Aoede',
+  theme: 'marine'
 }
 
 export function SubagentModelSettings(): React.JSX.Element {

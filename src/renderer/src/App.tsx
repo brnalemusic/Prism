@@ -269,6 +269,11 @@ function App(): React.JSX.Element {
         if (cfg.defaultModel) {
           setSelectedModel(cfg.defaultModel)
         }
+        if (cfg.theme) {
+          document.documentElement.setAttribute('data-theme', cfg.theme)
+        } else {
+          document.documentElement.setAttribute('data-theme', 'marine')
+        }
       }
     }
     init()
@@ -656,6 +661,9 @@ function App(): React.JSX.Element {
       setConfig(cfg)
       if (cfg.defaultModel) {
         setSelectedModel(cfg.defaultModel)
+      }
+      if (cfg.theme) {
+        document.documentElement.setAttribute('data-theme', cfg.theme)
       }
     })
 
@@ -1559,7 +1567,7 @@ function App(): React.JSX.Element {
                     <div className="flex-1 flex flex-col items-center justify-center px-4 relative select-none">
                       {/* Radial glow similar to the image */}
                       <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                        <div className="h-[380px] w-[580px] rounded-full bg-[radial-gradient(circle,rgba(30,58,138,0.12)_0%,rgba(49,46,129,0.18)_50%,transparent_100%)] blur-[90px] opacity-80" />
+                        <div className="h-[380px] w-[580px] rounded-full home-radial-glow blur-[90px] opacity-80" />
                       </div>
 
                       <div className="relative z-10 flex flex-col items-center w-full max-w-4xl text-center gap-7">

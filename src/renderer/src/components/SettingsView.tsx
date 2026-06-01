@@ -9,7 +9,8 @@ import {
   Key,
   Shield,
   Info,
-  SpeakerHigh as Volume2
+  SpeakerHigh as Volume2,
+  Palette
 } from '@phosphor-icons/react'
 import { MODELS } from '../constants'
 import { ShortcutRecorder } from './ShortcutRecorder'
@@ -28,6 +29,7 @@ interface Config {
   username?: string
   appVersion?: string
   ttsVoice: string
+  theme: 'marine' | 'vertez' | 'akoustik' | 'terno'
 }
 
 export function SettingsView(): React.JSX.Element {
@@ -42,7 +44,8 @@ export function SettingsView(): React.JSX.Element {
     quickLauncherMode: 'simple',
     userGeminiKey: '',
     appVersion: '',
-    ttsVoice: 'Aoede'
+    ttsVoice: 'Aoede',
+    theme: 'marine'
   })
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState({ text: '', type: '' })
@@ -58,7 +61,8 @@ export function SettingsView(): React.JSX.Element {
           userGeminiKey: savedConfig.userGeminiKey || '',
           screenshotShortcut: savedConfig.screenshotShortcut || 'Ctrl+Alt+Space',
           appVersion: savedConfig.appVersion || '',
-          ttsVoice: savedConfig.ttsVoice || 'Aoede'
+          ttsVoice: savedConfig.ttsVoice || 'Aoede',
+          theme: savedConfig.theme || 'marine'
         })
       }
     }
@@ -91,7 +95,8 @@ export function SettingsView(): React.JSX.Element {
       quickLauncherMode: 'simple',
       userGeminiKey: '',
       appVersion: config.appVersion,
-      ttsVoice: 'Aoede'
+      ttsVoice: 'Aoede',
+      theme: 'marine'
     })
   }
 
@@ -321,6 +326,71 @@ export function SettingsView(): React.JSX.Element {
                   <span className="text-[10px] text-text-secondary/60 leading-tight">
                     {voice.desc}
                   </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Theme Appearance */}
+        <section className="premium-panel-soft rounded-[28px] p-6 text-text-primary">
+          <div className="flex items-center gap-3 mb-6">
+            <Palette size={20} className="text-accent-primary" />
+            <h2 className="text-lg font-semibold text-text-primary">Theme Appearance</h2>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-semibold text-text-secondary/70">
+              Select Application Theme
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {[
+                {
+                  id: 'marine',
+                  name: 'Marine',
+                  desc: 'Matte blue accent with cool slate tones',
+                  colors: ['#13151a', '#8fb4ff', '#78e0c2']
+                },
+                {
+                  id: 'vertez',
+                  name: 'Vertez',
+                  desc: 'Flame orange-red accent with warm charcoal tones',
+                  colors: ['#161413', '#ff4e3a', '#ff9f1c']
+                },
+                {
+                  id: 'akoustik',
+                  name: 'Akoustik',
+                  desc: 'Moody purple accent with deep violet tones',
+                  colors: ['#12101a', '#b07aff', '#e88cff']
+                },
+                {
+                  id: 'terno',
+                  name: 'Terno',
+                  desc: 'AMOLED monochrome with elegant serif typography',
+                  colors: ['#000000', '#ffffff', '#888888']
+                }
+              ].map((themeOpt) => (
+                <button
+                  key={themeOpt.id}
+                  onClick={() => setConfig({ ...config, theme: themeOpt.id as 'marine' | 'vertez' | 'akoustik' | 'terno' })}
+                  className={clsx(
+                    'flex items-center gap-4 rounded-[20px] border p-4 text-left transition-all duration-200 active:scale-[0.98]',
+                    config.theme === themeOpt.id
+                      ? 'border-accent-primary/30 bg-accent-primary/[0.09] text-accent-primary shadow-[0_0_15px_rgba(143,180,255,0.15)]'
+                      : 'border-white/[0.08] bg-white/[0.035] text-text-primary hover:bg-white/[0.055]'
+                  )}
+                >
+                  <div className="flex items-center gap-1.5 p-2 rounded-xl bg-black/30 border border-white/5 shrink-0">
+                    <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: themeOpt.colors[0] }} />
+                    <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: themeOpt.colors[1] }} />
+                    <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: themeOpt.colors[2] }} />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-semibold mb-0.5">{themeOpt.name}</span>
+                    <span className="text-xs text-text-secondary/60 leading-tight">
+                      {themeOpt.desc}
+                    </span>
+                  </div>
                 </button>
               ))}
             </div>

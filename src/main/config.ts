@@ -16,6 +16,7 @@ export interface AppConfig {
   username?: string
   appVersion?: string
   ttsVoice: string
+  theme: 'marine' | 'vertez' | 'akoustik' | 'terno'
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -28,7 +29,8 @@ const DEFAULT_CONFIG: AppConfig = {
   autoLaunch: false,
   quickLauncherMode: 'simple',
   userGeminiKey: '',
-  ttsVoice: 'Aoede'
+  ttsVoice: 'Aoede',
+  theme: 'marine'
 }
 
 const VALID_MODEL_KEYS = new Set([
@@ -39,6 +41,7 @@ const VALID_MODEL_KEYS = new Set([
   'prism-6-dense'
 ])
 const VALID_VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'])
+const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno'])
 
 function normalizeConfig(config: AppConfig): AppConfig {
   return {
@@ -50,7 +53,8 @@ function normalizeConfig(config: AppConfig): AppConfig {
     subagentModel: VALID_MODEL_KEYS.has(config.subagentModel)
       ? config.subagentModel
       : DEFAULT_CONFIG.subagentModel,
-    ttsVoice: VALID_VOICES.has(config.ttsVoice) ? config.ttsVoice : DEFAULT_CONFIG.ttsVoice
+    ttsVoice: VALID_VOICES.has(config.ttsVoice) ? config.ttsVoice : DEFAULT_CONFIG.ttsVoice,
+    theme: VALID_THEMES.has(config.theme) ? (config.theme as 'marine' | 'vertez' | 'akoustik' | 'terno') : DEFAULT_CONFIG.theme
   }
 }
 
