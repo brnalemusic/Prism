@@ -534,6 +534,21 @@ export function QuickLauncher(): React.JSX.Element {
         return
       }
 
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault()
+        if (isYoutubeMode) {
+          setQuery(query.replace(/^\/youtube\s*/i, ''))
+        } else {
+          window.api.setSearchEnabled(false)
+          const cleanQuery = query
+            .replace(/^\[FORCE_SEARCH\]\s*/i, '')
+            .replace(/^\/search\s*/i, '')
+            .trim()
+          setQuery('/youtube ' + cleanQuery)
+        }
+        return
+      }
+
       // Suggestions navigation
       if (unifiedSuggestions.length > 0 && !isMiniChatOpen) {
         if (e.key === 'ArrowDown') {
@@ -594,6 +609,7 @@ export function QuickLauncher(): React.JSX.Element {
     activeModelId,
     shortcut,
     query,
+    isYoutubeMode,
     unifiedSuggestions,
     isSearchEnabled,
     isThinkMode,

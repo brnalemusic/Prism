@@ -77,13 +77,13 @@ All actions are executed from the main process — the API key and OS access nev
 
 Prism exposes its own model family in the app. You can switch models at any time via the UI or the Quick Launcher (<kbd>Ctrl</kbd>+<kbd>M</kbd>).
 
-| Model                  | Underlying Engine        | Best for                                                                                                     |
-| ---------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| **Prism 6 Dense**      | `gemma-4-31b-it`         | Deep debugging of large codebases, dense information processing, and complex logic.                          |
-| **Prism 6 Dragon**     | `gemma-4-26b-a4b-it`     | In-depth research, massive agent orchestration, and information gathering.                                   |
-| **Prism 6 Fast**       | `gemini-3.5-flash`       | Complex tasks involving automation, orchestration, and raw code with low latency.                            |
-| **Prism 6 Fast-Old**   | `gemini-3-flash-preview` | Speed-focused assistant for simple day-to-day tasks, automation, and orchestration.                          |
-| **Prism 6 Super-Fast** | `gemini-3.1-flash-lite`  | **(Default)** Ultra-fast execution and extremely low latency for daily assistance and coding.                |
+| Model                  | Underlying Engine        | Best for                                                                                      |
+| ---------------------- | ------------------------ | --------------------------------------------------------------------------------------------- |
+| **Prism 6 Dense**      | `gemma-4-31b-it`         | Deep debugging of large codebases, dense information processing, and complex logic.           |
+| **Prism 6 Dragon**     | `gemma-4-26b-a4b-it`     | In-depth research, massive agent orchestration, and information gathering.                    |
+| **Prism 6 Fast**       | `gemini-3.5-flash`       | Complex tasks involving automation, orchestration, and raw code with low latency.             |
+| **Prism 6 Fast-Old**   | `gemini-3-flash-preview` | Speed-focused assistant for simple day-to-day tasks, automation, and orchestration.           |
+| **Prism 6 Super-Fast** | `gemini-3.1-flash-lite`  | **(Default)** Ultra-fast execution and extremely low latency for daily assistance and coding. |
 
 > **Note:** All models support **Think Mode** (<kbd>Ctrl</kbd>+<kbd>T</kbd>), which elevates their logic and reasoning capabilities on demand using specialized inference budgets.
 

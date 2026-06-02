@@ -20,6 +20,7 @@ const api = {
     chatId?: string
     extendedSearch?: boolean
     screenshot?: string
+    quote?: string
   }): void => ipcRenderer.send('chat-message', data),
   setModel: (modelKey: string): void => ipcRenderer.send('set-model', modelKey),
   clearChat: (): void => ipcRenderer.send('clear-chat'),
@@ -163,6 +164,7 @@ const api = {
     ipcRenderer.on('mini-app-window-closed', listener)
     return () => ipcRenderer.removeListener('mini-app-window-closed', listener)
   },
+  getMiniAppData: (): Promise<MiniAppData | null> => ipcRenderer.invoke('get-mini-app-data'),
   getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('get-config'),
   saveConfig: (config: AppConfig): Promise<boolean> => ipcRenderer.invoke('save-config', config),
   getChats: (): Promise<Omit<ChatSession, 'messages'>[]> => ipcRenderer.invoke('get-chats'),
@@ -318,6 +320,11 @@ const api = {
     ipcRenderer.on('open-main-app-with-instructions', listener)
     return () => ipcRenderer.removeListener('open-main-app-with-instructions', listener)
   },
+  submitQuestionnaire: (data: {
+    chatId: string
+    sessionId: string
+    responses: Record<string, string>
+  }): void => ipcRenderer.send('submit-questionnaire', data),
   generateTts: (text: string): Promise<string> => ipcRenderer.invoke('generate-tts', text)
 }
 

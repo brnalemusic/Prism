@@ -49,6 +49,10 @@ let isQuitting = false
 let cachedApps: ApplicationInfo[] = []
 
 const miniAppWindows = new Map<string, BrowserWindow>()
+const miniAppDataMap = new Map<
+  string,
+  { id: string; title: string; html: string; css: string; js: string }
+>()
 
 function createMiniAppWindow(
   id: string,
@@ -61,6 +65,8 @@ function createMiniAppWindow(
     miniAppWindows.get(id)?.focus()
     return
   }
+
+  miniAppDataMap.set(id, { id, title, html, css, js })
 
   const miniAppWindow = new BrowserWindow({
     width: 800,
@@ -85,6 +91,7 @@ function createMiniAppWindow(
 
   miniAppWindow.on('closed', () => {
     miniAppWindows.delete(id)
+    miniAppDataMap.delete(id)
     mainWindow?.webContents.send('mini-app-window-closed', id)
   })
 
@@ -536,6 +543,16 @@ app.whenReady().then(() => {
 
   ipcMain.on('open-mini-app-window', (_event, { id, title, html, css, js }) => {
     createMiniAppWindow(id, title, html, css, js)
+  })
+
+  ipcMain.handle('get-mini-app-data', (event) => {
+    const senderWebContents = event.sender
+    for (const [id, win] of miniAppWindows.entries()) {
+      if (win.webContents === senderWebContents) {
+        return miniAppDataMap.get(id) || null
+      }
+    }
+    return null
   })
 
   ipcMain.on('close-mini-app-window', (_event, id) => {

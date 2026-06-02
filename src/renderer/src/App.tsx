@@ -12,6 +12,7 @@ import { InputBar, InputBarHandle } from './components/InputBar'
 import { LoadingDots } from './components/LoadingDots'
 import { Spinner } from './components/Spinner'
 import { ActionLoader, ToolCall } from './components/ActionLoader'
+import { QuestionnaireRenderer } from './components/QuestionnaireRenderer'
 import { ModelSelectorHandle } from './components/ModelSelector'
 import { Tasks } from './components/Tasks'
 import { QuickLauncher } from './components/QuickLauncher'
@@ -28,7 +29,7 @@ import { CopyMessageButton } from './components/CopyMessageButton'
 import { ErrorPopup } from './components/ErrorPopup'
 import { triggerErrorPopup } from './utils'
 import clsx from 'clsx'
-import { CaretDown, Plus } from '@phosphor-icons/react'
+import { CaretDown, Plus, Quotes } from '@phosphor-icons/react'
 import { AppConfig } from '../../main/config'
 
 interface HastNode {
@@ -179,6 +180,18 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     if (window.location.hash === '#mini-app') {
+      const fetchMiniAppData = async (): Promise<void> => {
+        try {
+          const data = await window.api.getMiniAppData()
+          if (data) {
+            setMiniAppData(data)
+          }
+        } catch (err) {
+          console.error('Failed to get mini app data:', err)
+        }
+      }
+      fetchMiniAppData()
+
       const removeListener = window.api.onMiniAppData((data) => {
         setMiniAppData(data)
       })
@@ -209,6 +222,72 @@ function App(): React.JSX.Element {
   const [isExtendedSearch, setIsExtendedSearch] = useState(false)
   const [isFullscreenInput, setIsFullscreenInput] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+
+  const [quotedText, setQuotedText] = useState<string | null>(null)
+  const quotedTextRef = useRef<string | null>(null)
+  useEffect(() => {
+    quotedTextRef.current = quotedText
+  }, [quotedText])
+
+  const [floatingMenu, setFloatingMenu] = useState<{
+    x: number
+    y: number
+    text: string
+  } | null>(null)
+
+  // Text selection listener for Answer Prism
+  useEffect(() => {
+    const handleSelectionChange = (): void => {
+      const selection = window.getSelection()
+      if (!selection || selection.isCollapsed) {
+        setFloatingMenu(null)
+        return
+      }
+
+      const text = selection.toString().trim()
+      if (text.length === 0) {
+        setFloatingMenu(null)
+        return
+      }
+
+      try {
+        const range = selection.getRangeAt(0)
+        const rect = range.getBoundingClientRect()
+        
+        // Position fixed coordinates relative to viewport
+        setFloatingMenu({
+          x: rect.left + rect.width / 2,
+          y: rect.top,
+          text
+        })
+      } catch (e) {
+        // ignore range error
+      }
+    }
+
+    document.addEventListener('selectionchange', handleSelectionChange)
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange)
+    }
+  }, [])
+
+  // Clear quotedText if input area is cleared
+  useEffect(() => {
+    if (!inputText) {
+      setQuotedText(null)
+    }
+  }, [inputText])
+
+  const handleAnswerPrism = useCallback((quoteText: string): void => {
+    const blockquote = `> ${quoteText.replace(/\n/g, '\n> ')}\n\n`
+    setInputText((prev) => blockquote + prev)
+    setQuotedText(quoteText)
+    window.getSelection()?.removeAllRanges()
+    setFloatingMenu(null)
+    setTimeout(() => {
+      inputBarRef.current?.focus()
+    }, 50)
+  }, [])
 
   useEffect(() => {
     currentChatIdRef.current = currentChatId
@@ -269,15 +348,37 @@ function App(): React.JSX.Element {
         if (cfg.defaultModel) {
           setSelectedModel(cfg.defaultModel)
         }
-        if (cfg.theme) {
-          document.documentElement.setAttribute('data-theme', cfg.theme)
-        } else {
-          document.documentElement.setAttribute('data-theme', 'marine')
-        }
       }
     }
     init()
   }, [])
+
+  useEffect(() => {
+    if (!config) return
+
+    const updateTheme = () => {
+      const isRgbActive = !!(config.rgbThemeExpiry && Date.now() < config.rgbThemeExpiry)
+      const themeToApply = (config.theme === 'rgb' && !isRgbActive) ? 'marine' : (config.theme || 'marine')
+      document.documentElement.setAttribute('data-theme', themeToApply)
+    }
+
+    updateTheme()
+
+    if (config.rgbThemeExpiry && config.rgbThemeExpiry > Date.now()) {
+      const msLeft = config.rgbThemeExpiry - Date.now()
+      const timer = setTimeout(() => {
+        updateTheme()
+        const updatedConfig = {
+          ...config,
+          theme: config.theme === 'rgb' ? 'marine' : config.theme
+        } as AppConfig
+        window.api.saveConfig(updatedConfig)
+      }, msLeft)
+      return () => clearTimeout(timer)
+    }
+
+    return undefined
+  }, [config])
 
   const route = window.location.hash
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -287,10 +388,18 @@ function App(): React.JSX.Element {
   const inputBarRef = useRef<InputBarHandle>(null)
   const modelSelectorRef = useRef<ModelSelectorHandle>(null)
 
-  const getGreeting = (): string => {
+  const getGreeting = (): React.JSX.Element => {
     const rawName = config?.username || 'user'
     const formattedName = rawName.charAt(0).toUpperCase() + rawName.slice(1)
-    return `Hello, ${formattedName}. What are we working on?`
+    return (
+      <>
+        Hello,{' '}
+        <span className="font-medium text-accent-primary rgb-chroma-username">
+          {formattedName}
+        </span>
+        . What are we working on?
+      </>
+    )
   }
 
   const handleThinkModeToggle = useCallback((val: boolean) => {
@@ -369,24 +478,29 @@ function App(): React.JSX.Element {
         thinkMode: thinkMode ?? isThinkModeRef.current,
         extendedSearch: extendedSearch ?? isExtendedSearchRef.current,
         chatId,
-        screenshot: activeScreenshot || undefined
+        screenshot: activeScreenshot || undefined,
+        quote: quotedTextRef.current || undefined
       })
 
       setAttachedScreenshot(null)
+      setQuotedText(null)
     },
     []
   )
 
-  const scrollToBottom = (behavior: ScrollBehavior = 'smooth'): void => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTo({
-        top: scrollContainerRef.current.scrollHeight,
-        behavior
-      })
-    } else {
-      messagesEndRef.current?.scrollIntoView({ behavior })
-    }
-  }
+  const scrollToBottom = useCallback(
+    (behavior: ScrollBehavior = 'smooth'): void => {
+      if (scrollContainerRef.current && activeView === 'chat') {
+        scrollContainerRef.current.scrollTo({
+          top: scrollContainerRef.current.scrollHeight,
+          behavior
+        })
+      } else if (activeView === 'chat') {
+        messagesEndRef.current?.scrollIntoView({ behavior })
+      }
+    },
+    [activeView]
+  )
 
   const handleScroll = (): void => {
     const container = scrollContainerRef.current
@@ -662,9 +776,6 @@ function App(): React.JSX.Element {
       if (cfg.defaultModel) {
         setSelectedModel(cfg.defaultModel)
       }
-      if (cfg.theme) {
-        document.documentElement.setAttribute('data-theme', cfg.theme)
-      }
     })
 
     const removeThinkModeListener = window.api.onThinkModeChanged((val) => {
@@ -736,7 +847,15 @@ function App(): React.JSX.Element {
       isAtBottomRef.current = true
       setShowScrollButton(false)
     }
-  }, [messages])
+  }, [messages, scrollToBottom])
+
+  useEffect(() => {
+    if (activeView === 'chat' && isAtBottomRef.current) {
+      requestAnimationFrame(() => {
+        scrollToBottom('auto')
+      })
+    }
+  }, [activeView, scrollToBottom])
 
   useEffect(() => {
     // Set up IPC listeners from our Context Bridge
@@ -1182,8 +1301,35 @@ function App(): React.JSX.Element {
                 const tc = msg.toolCalls?.[toolCallIndex]
                 toolCallIndex++
                 if (tc) {
+                  if (tc.name === 'to_ask') {
+                    return (
+                      <QuestionnaireRenderer
+                        key={`tc-${index}`}
+                        toolCall={tc}
+                        chatId={currentChatId || ''}
+                      />
+                    )
+                  }
                   return <ActionLoader key={`tc-${index}`} toolCall={tc} />
                 }
+              } else {
+                const nameMatch = part.match(/<name>([\s\S]*?)(?:<\/name>|$)/i)
+                const toolName = nameMatch ? nameMatch[1].trim() : ''
+                const isSearch =
+                  toolName === 'web_search' ||
+                  toolName === 'search_chat_history' ||
+                  toolName === 'saw_link_from_url'
+                const toolType = isSearch ? 'search' : 'task'
+                return (
+                  <ActionLoader
+                    key={`writing-tc-${index}`}
+                    toolCall={{
+                      name: toolType,
+                      status: 'writing',
+                      args: {}
+                    }}
+                  />
+                )
               }
               return null
             } else if (part.startsWith('<mini_app>')) {
@@ -1207,6 +1353,17 @@ function App(): React.JSX.Element {
                       js={jsMatch ? jsMatch[1].trim() : ''}
                     />
                   </div>
+                )
+              } else {
+                return (
+                  <ActionLoader
+                    key={`writing-ma-${index}`}
+                    toolCall={{
+                      name: 'mini-app',
+                      status: 'writing',
+                      args: {}
+                    }}
+                  />
                 )
               }
               return null
@@ -1233,16 +1390,18 @@ function App(): React.JSX.Element {
             return null
           })}
 
-          {msg.isWritingToolCall && (
-            <ActionLoader
-              key="writing-tc"
-              toolCall={{
-                name: msg.toolType || 'task',
-                status: 'writing',
-                args: {}
-              }}
-            />
-          )}
+          {msg.isWritingToolCall &&
+            !msg.content.includes('<tool_call>') &&
+            !msg.content.includes('<mini_app>') && (
+              <ActionLoader
+                key="writing-tc"
+                toolCall={{
+                  name: msg.toolType || 'task',
+                  status: 'writing',
+                  args: {}
+                }}
+              />
+            )}
 
           {msg.isStreaming && !msg.isThinking && !msg.isWritingToolCall && (
             <div className="flex items-center gap-1.5 py-1">
@@ -1430,10 +1589,11 @@ function App(): React.JSX.Element {
           currentChatId={currentChatId}
           runningTasksCount={tasks.filter((t) => t.status === 'running').length}
           runningChats={runningChats}
+          config={config}
         />
       </>
     )
-  }, [activeView, isSidebarOpen, handleLoadChat, handleNewChat, currentChatId, tasks, runningChats])
+  }, [activeView, isSidebarOpen, handleLoadChat, handleNewChat, currentChatId, tasks, runningChats, config])
 
   const isKeyMissing =
     !config?.userGeminiKey && (config?.envGeminiKey === 'none' || !config?.envGeminiKey)
@@ -1519,7 +1679,7 @@ function App(): React.JSX.Element {
               handleNewChat()
               setIsSidebarOpen(false)
             }}
-            className="absolute right-6 top-4 z-30 flex h-9 items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 text-xs font-medium text-text-secondary shadow-[0_8px_32px_rgba(0,0,0,0.37)] backdrop-blur-md transition-all duration-300 hover:bg-white/[0.08] hover:text-text-primary hover:border-white/[0.1] active:scale-[0.97] animate-fade-in"
+            className="absolute right-6 top-4 z-30 flex h-9 items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 text-xs font-medium text-text-secondary shadow-[0_8px_32px_rgba(0,0,0,0.37)] backdrop-blur-md transition-all duration-300 hover:bg-white/[0.08] hover:text-text-primary hover:border-white/[0.1] active:scale-[0.97] animate-fade-in rgb-new-chat-btn"
             title="New Chat (Ctrl+N)"
           >
             <Plus size={14} weight="bold" className="text-accent-primary" />
@@ -1555,74 +1715,100 @@ function App(): React.JSX.Element {
           </div>
         ) : (
           <>
+            {/* Chat View */}
             <div
               ref={scrollContainerRef}
               onScroll={handleScroll}
-              className="flex-1 overflow-y-auto flex flex-col"
+              className={clsx(
+                'flex-1 overflow-y-auto flex flex-col',
+                activeView !== 'chat' && 'hidden'
+              )}
             >
-              {activeView === 'chat' ? (
-                <div className="flex-1 flex flex-col py-8">
-                  {isKeyMissing && <MissingKeyBanner onAddKey={() => setIsApiKeyModalOpen(true)} />}
-                  {messages.length === 0 ? (
-                    <div className="flex-1 flex flex-col items-center justify-center px-4 relative select-none">
-                      {/* Radial glow similar to the image */}
-                      <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                        <div className="h-[380px] w-[580px] rounded-full home-radial-glow blur-[90px] opacity-80" />
-                      </div>
-
-                      <div className="relative z-10 flex flex-col items-center w-full max-w-4xl text-center gap-7">
-                        <h1 className="text-[28px] sm:text-[36px] font-light tracking-tight text-white/90 select-none leading-tight">
-                          {getGreeting()}
-                        </h1>
-
-                        <div className="w-full">
-                          <InputBar
-                            ref={inputBarRef}
-                            onSend={handleSend}
-                            onCancel={handleCancel}
-                            isProcessing={isProcessing}
-                            isKeyMissing={isKeyMissing}
-                            isThinkMode={isThinkMode}
-                            onThinkModeToggle={handleThinkModeToggle}
-                            onOpenSubagentSettings={handleOpenSubagentSettings}
-                            disabled={isProcessing || isKeyMissing}
-                            selectedModel={selectedModel}
-                            onModelChange={handleModelChange}
-                            text={inputText}
-                            setText={setInputText}
-                            isSearchEnabled={isSearchEnabled}
-                            setIsSearchEnabled={handleSearchEnabledToggle}
-                            isExtendedSearch={isExtendedSearch}
-                            setIsExtendedSearch={handleExtendedSearchToggle}
-                            isFullscreen={false}
-                            onFullscreenToggle={() => setIsFullscreenInput(true)}
-                            screenshot={attachedScreenshot}
-                            onRemoveScreenshot={() => setAttachedScreenshot(null)}
-                            onAttachScreenshot={(base64) => setAttachedScreenshot(base64)}
-                          />
-                        </div>
+              <div
+                className={clsx(
+                  'flex-1 flex flex-col pt-8',
+                  messages.length > 0 ? 'pb-36' : 'pb-8'
+                )}
+              >
+                {isKeyMissing && <MissingKeyBanner onAddKey={() => setIsApiKeyModalOpen(true)} />}
+                {messages.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center px-4 relative select-none">
+                    {/* Radial glow similar to the image */}
+                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                      <div className="relative h-[380px] w-[580px] blur-[90px] opacity-80">
+                        {/* Default single glow for non-rgb themes */}
+                        <div className="absolute inset-0 rounded-full home-radial-glow rgb-glow-default" />
+                        {/* Custom RGB animatable glows with smooth opacity transitions */}
+                        <div className="absolute inset-0 rounded-full rgb-glow-red" />
+                        <div className="absolute inset-0 rounded-full rgb-glow-green" />
+                        <div className="absolute inset-0 rounded-full rgb-glow-blue" />
                       </div>
                     </div>
-                  ) : (
-                    renderedMessages
-                  )}
-                </div>
-              ) : activeView === 'tasks' ? (
-                <Tasks tasks={tasks} />
-              ) : activeView === 'settings' ? (
-                <SettingsView />
-              ) : (
-                <div className="flex-1 flex items-center justify-center text-text-secondary">
-                  View coming soon...
-                </div>
-              )}
+
+                    <div className="relative z-10 flex flex-col items-center w-full max-w-4xl text-center gap-7">
+                      <h1 className="text-[28px] sm:text-[36px] font-light tracking-tight text-white/90 select-none leading-tight">
+                        {getGreeting()}
+                      </h1>
+
+                      <div className="w-full">
+                        <InputBar
+                          ref={inputBarRef}
+                          onSend={handleSend}
+                          onCancel={handleCancel}
+                          isProcessing={isProcessing}
+                          isKeyMissing={isKeyMissing}
+                          isThinkMode={isThinkMode}
+                          onThinkModeToggle={handleThinkModeToggle}
+                          onOpenSubagentSettings={handleOpenSubagentSettings}
+                          disabled={isProcessing || isKeyMissing}
+                          selectedModel={selectedModel}
+                          onModelChange={handleModelChange}
+                          text={inputText}
+                          setText={setInputText}
+                          isSearchEnabled={isSearchEnabled}
+                          setIsSearchEnabled={handleSearchEnabledToggle}
+                          isExtendedSearch={isExtendedSearch}
+                          setIsExtendedSearch={handleExtendedSearchToggle}
+                          isFullscreen={false}
+                          onFullscreenToggle={() => setIsFullscreenInput(true)}
+                          screenshot={attachedScreenshot}
+                          onRemoveScreenshot={() => setAttachedScreenshot(null)}
+                          onAttachScreenshot={(base64) => setAttachedScreenshot(base64)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  renderedMessages
+                )}
+              </div>
             </div>
 
+            {/* Monitoring (Tasks) View */}
+            <div
+              className={clsx(
+                'flex-1 overflow-y-auto flex flex-col',
+                activeView !== 'tasks' && 'hidden'
+              )}
+            >
+              <Tasks tasks={tasks} />
+            </div>
+
+            {/* Settings View */}
+            {activeView === 'settings' && <SettingsView />}
+
+            {/* View Coming Soon (Fallback) */}
+            {activeView !== 'chat' && activeView !== 'tasks' && activeView !== 'settings' && (
+              <div className="flex-1 flex items-center justify-center text-text-secondary">
+                View coming soon...
+              </div>
+            )}
+
             {activeView === 'chat' && messages.length > 0 && (
-              <div className="shrink-0 bg-gradient-to-t from-background-main via-background-main/96 to-transparent pb-6 pt-2 relative z-20">
+              <div className="absolute bottom-0 left-0 right-0 pb-6 z-20 pointer-events-none">
                 {/* Scroll to bottom button */}
                 {showScrollButton && (
-                  <div className="absolute left-0 right-0 -top-6 flex justify-center pointer-events-none z-20 animate-soft-pop">
+                  <div className="absolute left-0 right-0 -top-12 flex justify-center pointer-events-none z-20 animate-soft-pop">
                     <button
                       onClick={() => {
                         isAtBottomRef.current = true
@@ -1636,14 +1822,6 @@ function App(): React.JSX.Element {
                     </button>
                   </div>
                 )}
-
-                {/* Shadow above input bar */}
-                <div
-                  className={clsx(
-                    'absolute inset-x-0 -top-8 h-8 pointer-events-none bg-gradient-to-t from-black/40 to-transparent transition-opacity duration-300 z-10',
-                    showScrollButton ? 'opacity-100' : 'opacity-0'
-                  )}
-                />
 
                 <InputBar
                   ref={inputBarRef}
@@ -1675,6 +1853,26 @@ function App(): React.JSX.Element {
         )}
       </main>
       <ErrorPopup />
+      {floatingMenu && (
+        <div
+          className="fixed z-50 flex items-center justify-center bg-background-secondary/95 border border-white/10 px-3 py-1.5 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-md cursor-pointer select-none pointer-events-auto"
+          style={{
+            left: `${floatingMenu.x}px`,
+            top: `${floatingMenu.y}px`,
+            transform: 'translate(-50%, -100%) translateY(-8px)'
+          }}
+          onMouseDown={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+          onClick={() => handleAnswerPrism(floatingMenu.text)}
+        >
+          <Quotes size={14} className="text-accent-secondary mr-1.5" />
+          <span className="text-xs font-semibold text-text-primary hover:text-accent-secondary transition-colors duration-150">
+            Answer Prism
+          </span>
+        </div>
+      )}
     </div>
   )
 }

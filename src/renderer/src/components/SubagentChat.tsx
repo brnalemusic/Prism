@@ -5,8 +5,7 @@ import {
   Robot as Bot,
   PaperPlaneRight as Send,
   Minus,
-  X,
-  User as UserRound
+  X
 } from '@phosphor-icons/react'
 
 interface Message {
@@ -77,8 +76,8 @@ export function SubagentChat(): React.JSX.Element {
       content: inputValue.trim(),
       status: 'working' as const,
       timestamp: Date.now(),
-      senderRole: 'user' as const,
-      senderName: 'You'
+      senderRole: 'master' as const,
+      senderName: 'Master Coordinator'
     }
 
     window.api.broadcastSubagentMessage(messageData)
@@ -133,7 +132,7 @@ export function SubagentChat(): React.JSX.Element {
         ) : (
           messages.map((msg, i) => {
             const isUser = msg.agentIndex === -1 || msg.senderRole === 'user'
-            const isMaster = msg.agentIndex === 'master'
+            const isMaster = msg.agentIndex === 'master' || msg.senderRole === 'master'
             const parsedIndex =
               typeof msg.agentIndex === 'number' ? msg.agentIndex : parseInt(msg.agentIndex)
             const numIndex = Number.isFinite(parsedIndex) ? parsedIndex : 0
@@ -156,15 +155,13 @@ export function SubagentChat(): React.JSX.Element {
                     className={clsx(
                       'mb-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-[16px] border shadow-lg transition-all',
                       isUser
-                        ? 'bg-white/[0.08] border-white/10'
+                        ? 'bg-purple-500/20 border-purple-500/40 shadow-purple-500/10'
                         : isMaster
                           ? 'bg-purple-500/20 border-purple-500/40 shadow-purple-500/10'
                           : `border-white/10 ${agentColor}`
                     )}
                   >
-                    {isUser ? (
-                      <UserRound size={15} />
-                    ) : isMaster ? (
+                    {isUser || isMaster ? (
                       <span className="text-sm">👑</span>
                     ) : (
                       <Bot size={15} />
@@ -183,17 +180,15 @@ export function SubagentChat(): React.JSX.Element {
                             : 'text-left'
                       )}
                     >
-                      {isUser
-                        ? msg.senderName || 'You'
-                        : isMaster
-                          ? 'Master Coordinator'
-                          : `Agent #${msg.agentIndex}`}
+                      {isUser || isMaster
+                        ? 'Master Coordinator'
+                        : `Agent #${msg.agentIndex}`}
                     </span>
                     <div
                       className={clsx(
                         'rounded-[20px] border px-4 py-3 text-[13px] leading-relaxed break-words shadow-xl transition-all',
                         isUser
-                          ? 'bg-white/[0.055] border-white/10 rounded-br-[8px]'
+                          ? 'bg-purple-500/10 border-purple-500/20 text-text-primary rounded-br-[8px] shadow-purple-500/5'
                           : isMaster
                             ? 'bg-background-secondary border-accent-primary/20 text-text-primary rounded-[20px] rounded-bl-[8px] shadow-accent-primary/5'
                             : 'bg-white/[0.035] border-white/[0.06] rounded-bl-[8px]'

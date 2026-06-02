@@ -241,7 +241,8 @@ export const toolsManifest: ToolDefinition[] = [
       '<tool_call>\n{\n  "type": "open_main_app",\n  "instructions": "Task descriptions",\n  "model": "prism-6-super-fast|prism-6-fast-old|prism-6-fast|prism-6-dragon|prism-6-dense",\n  "thinkMode": "true|false",\n  "searchEnabled": "true|false",\n  "extendedSearch": "true|false"\n}\n</tool_call>',
     parameters: {
       instructions: 'The target instructions for the main assistant to execute.',
-      model: 'The model key to use for the main chat session (e.g. prism-6-super-fast, prism-6-fast, prism-6-dense).',
+      model:
+        'The model key to use for the main chat session (e.g. prism-6-super-fast, prism-6-fast, prism-6-dense).',
       thinkMode: 'Optional: Set to "true" to enable thinking mode in the main app.',
       searchEnabled: 'Optional: Set to "true" to enable web search in the main app.',
       extendedSearch:
@@ -282,6 +283,24 @@ export const toolsManifest: ToolDefinition[] = [
       userGeminiKey: 'Optional: Custom user Google Gemini API Key.',
       username: 'Optional: Custom username for personalization.',
       ttsVoice: 'Optional: Prebuilt voice for Text-to-Speech (Aoede, Puck, Charon, Kore, Fenrir).'
+    }
+  },
+  {
+    name: 'unlock_rgb_theme',
+    description: 'Activates the secret RGB theme for 2 hours. Requires no arguments.',
+    usage: '<tool_call>\n{\n  "type": "unlock_rgb_theme"\n}\n</tool_call>',
+    parameters: {}
+  },
+  {
+    name: 'to_ask',
+    description:
+      'Renders dynamic, multi-format questionnaires/surveys directly within the user interface, blocking reasoning until responses are submitted.',
+    usage:
+      '<tool_call>\n{\n  "type": "to_ask",\n  "session_id": "UUID",\n  "questions": [\n    {\n      "id": "q1",\n      "type": "multiple-choice",\n      "title": "Category",\n      "prompt": "Question prompt?",\n      "options": [\n        {"value": "val1", "label": "Label 1", "allow_custom_input": false}\n      ]\n    }\n  ]\n}\n</tool_call>',
+    parameters: {
+      session_id: 'A unique UUID for tracking this questionnaire session.',
+      questions:
+        'A JSON array of question objects (each containing id, type, title, prompt, optional options list, optional placeholder).'
     }
   }
 ]

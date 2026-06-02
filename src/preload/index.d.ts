@@ -18,6 +18,7 @@ export interface PrismAPI {
     chatId?: string
     extendedSearch?: boolean
     screenshot?: string
+    quote?: string
   }) => void
   setModel: (modelKey: string) => void
   clearChat: () => void
@@ -66,6 +67,7 @@ export interface PrismAPI {
   minimizeMiniAppWindow: (id: string) => void
   onMiniAppData: (callback: (data: MiniAppData) => void) => () => void
   onMiniAppWindowClosed: (callback: (id: string) => void) => () => void
+  getMiniAppData: () => Promise<MiniAppData | null>
   getConfig: () => Promise<AppConfig>
   saveConfig: (config: AppConfig) => Promise<boolean>
   getChats: () => Promise<Omit<ChatSession, 'messages'>[]>
@@ -121,6 +123,11 @@ export interface PrismAPI {
       extendedSearch?: boolean
     }) => void
   ) => () => void
+  submitQuestionnaire: (data: {
+    chatId: string
+    sessionId: string
+    responses: Record<string, string>
+  }) => void
   generateTts: (text: string) => Promise<string>
 }
 

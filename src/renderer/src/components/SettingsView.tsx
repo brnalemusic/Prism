@@ -10,7 +10,8 @@ import {
   Shield,
   Info,
   SpeakerHigh as Volume2,
-  Palette
+  Palette,
+  Lock
 } from '@phosphor-icons/react'
 import { MODELS } from '../constants'
 import { ShortcutRecorder } from './ShortcutRecorder'
@@ -29,7 +30,8 @@ interface Config {
   username?: string
   appVersion?: string
   ttsVoice: string
-  theme: 'marine' | 'vertez' | 'akoustik' | 'terno'
+  theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb'
+  rgbThemeExpiry?: number
 }
 
 export function SettingsView(): React.JSX.Element {
@@ -49,6 +51,7 @@ export function SettingsView(): React.JSX.Element {
   })
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState({ text: '', type: '' })
+  const [isRgbActive, setIsRgbActive] = useState(false)
 
   useEffect(() => {
     async function load(): Promise<void> {
@@ -67,7 +70,45 @@ export function SettingsView(): React.JSX.Element {
       }
     }
     load()
+
+    const removeConfigListener = window.api.onConfigChanged((cfg) => {
+      if (cfg) {
+        setConfig((prev) => ({
+          ...prev,
+          ...cfg,
+          autoLaunch: cfg.autoLaunch ?? false,
+          quickLauncherMode: cfg.quickLauncherMode ?? 'simple',
+          userGeminiKey: cfg.userGeminiKey || '',
+          screenshotShortcut: cfg.screenshotShortcut || 'Ctrl+Alt+Space',
+          appVersion: cfg.appVersion || '',
+          ttsVoice: cfg.ttsVoice || 'Aoede',
+          theme: cfg.theme || 'marine'
+        }))
+      }
+    })
+    return () => removeConfigListener()
   }, [])
+
+  useEffect(() => {
+    const updateRgbActive = () => {
+      const active = !!(config.rgbThemeExpiry && config.rgbThemeExpiry > Date.now())
+      setIsRgbActive(active)
+      if (!active && config.theme === 'rgb') {
+        setConfig((prev) => ({ ...prev, theme: 'marine' }))
+      }
+    }
+
+    updateRgbActive()
+
+    if (config.rgbThemeExpiry && config.rgbThemeExpiry > Date.now()) {
+      const msLeft = config.rgbThemeExpiry - Date.now()
+      const timer = setTimeout(() => {
+        updateRgbActive()
+      }, msLeft)
+      return () => clearTimeout(timer)
+    }
+    return undefined
+  }, [config.rgbThemeExpiry, config.theme])
 
   const handleSave = async (): Promise<void> => {
     setIsSaving(true)
@@ -368,11 +409,32 @@ export function SettingsView(): React.JSX.Element {
                   name: 'Terno',
                   desc: 'AMOLED monochrome with elegant serif typography',
                   colors: ['#000000', '#ffffff', '#888888']
-                }
+                },
+                {
+                  id: 'ursula',
+                  name: 'Ursula Tree',
+                  desc: 'Leaf green and baby green blend with classic serif font',
+                  colors: ['#0a110a', '#388e3c', '#c8e6c9']
+                },
+                ...(isRgbActive
+                  ? [
+                      {
+                        id: 'rgb',
+                        name: 'RGB',
+                        desc: 'Dynamic chroma shifting theme',
+                        colors: ['#FF0000', '#007BFF', '#2D5A27']
+                      }
+                    ]
+                  : [])
               ].map((themeOpt) => (
                 <button
                   key={themeOpt.id}
-                  onClick={() => setConfig({ ...config, theme: themeOpt.id as 'marine' | 'vertez' | 'akoustik' | 'terno' })}
+                  onClick={() =>
+                    setConfig({
+                      ...config,
+                      theme: themeOpt.id as 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb'
+                    })
+                  }
                   className={clsx(
                     'flex items-center gap-4 rounded-[20px] border p-4 text-left transition-all duration-200 active:scale-[0.98]',
                     config.theme === themeOpt.id
@@ -381,9 +443,18 @@ export function SettingsView(): React.JSX.Element {
                   )}
                 >
                   <div className="flex items-center gap-1.5 p-2 rounded-xl bg-black/30 border border-white/5 shrink-0">
-                    <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: themeOpt.colors[0] }} />
-                    <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: themeOpt.colors[1] }} />
-                    <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: themeOpt.colors[2] }} />
+                    <span
+                      className="w-3.5 h-3.5 rounded-full"
+                      style={{ backgroundColor: themeOpt.colors[0] }}
+                    />
+                    <span
+                      className="w-3.5 h-3.5 rounded-full"
+                      style={{ backgroundColor: themeOpt.colors[1] }}
+                    />
+                    <span
+                      className="w-3.5 h-3.5 rounded-full"
+                      style={{ backgroundColor: themeOpt.colors[2] }}
+                    />
                   </div>
                   <div className="flex flex-col">
                     <span className="text-sm font-semibold mb-0.5">{themeOpt.name}</span>
@@ -393,6 +464,20 @@ export function SettingsView(): React.JSX.Element {
                   </div>
                 </button>
               ))}
+
+              {!isRgbActive && (
+                <div className="flex items-center gap-4 rounded-[20px] border border-dashed border-white/[0.08] bg-white/[0.015] p-4 text-left select-none opacity-40">
+                  <div className="flex items-center justify-center p-2.5 rounded-xl bg-black/40 border border-white/5 shrink-0 text-text-muted">
+                    <Lock size={20} />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-semibold mb-0.5 text-text-muted">???</span>
+                    <span className="text-xs text-text-secondary/40 leading-tight">
+                      Ask the assistant for clues to unlock this secret theme.
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </section>

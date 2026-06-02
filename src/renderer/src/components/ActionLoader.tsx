@@ -229,38 +229,26 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
 
   const toneColors = {
     default: {
-      border: 'border-white/[0.06]',
-      bg: 'bg-white/[0.02]',
       text: 'text-text-secondary',
       icon: 'text-text-secondary'
     },
     search: {
-      border: 'border-accent-secondary/20',
-      bg: 'bg-accent-secondary/[0.02]',
       text: 'text-accent-secondary',
       icon: 'text-accent-secondary'
     },
     think: {
-      border: 'border-status-warning/20',
-      bg: 'bg-status-warning/[0.02]',
       text: 'text-status-warning',
       icon: 'text-status-warning'
     },
     success: {
-      border: 'border-status-success/20',
-      bg: 'bg-status-success/[0.02]',
       text: 'text-status-success',
       icon: 'text-status-success'
     },
     error: {
-      border: 'border-status-error/20',
-      bg: 'bg-status-error/[0.02]',
       text: 'text-status-error',
       icon: 'text-status-error'
     },
     youtube: {
-      border: 'border-accent-primary/20',
-      bg: 'bg-accent-primary/[0.02]',
       text: 'text-accent-primary',
       icon: 'text-accent-primary'
     }
@@ -280,12 +268,12 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
   const activeAgent = toolCall.agentUpdates?.[activeKey]
 
   const masterX = 200
-  const masterY = 30
+  const masterY = 35
   const workerY = 110
 
   const getWorkerX = (index: number, total: number): number => {
     if (total <= 1) return 200
-    return 50 + (index * 300) / (total - 1)
+    return 60 + (index * 280) / (total - 1)
   }
 
   const showSubagentPanel =
@@ -293,7 +281,7 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
     (toolCall.status === 'running' || toolCall.status === 'done' || toolCall.status === 'cancelled')
 
   return (
-    <div className="my-1 flex flex-col gap-1.5 max-w-[420px]">
+    <div className="my-2 flex flex-col gap-2 max-w-full select-none">
       <style>{`
         @keyframes swarmDash {
           to {
@@ -305,29 +293,24 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
         }
       `}</style>
 
-      {/* ── Flat Box ── */}
+      {/* ── Text-Only Expansible Trigger ── */}
       <div
         onClick={() => isDone && setIsExpanded(!isExpanded)}
         className={clsx(
-          'inline-flex items-center gap-2 rounded-lg border px-3 py-2',
-          'transition-colors duration-200 select-none',
-          toneColors.border,
-          toneColors.bg,
-          isDone ? 'cursor-pointer hover:bg-white/[0.04]' : 'cursor-default'
+          'inline-flex items-center gap-2 text-[13px] py-1 select-none transition-all duration-200',
+          isDone ? 'cursor-pointer hover:opacity-80 active:scale-[0.99]' : 'cursor-default'
         )}
       >
         <div className={clsx('flex shrink-0 items-center justify-center', toneColors.icon)}>
-          {renderIcon(14)}
+          {renderIcon(13)}
         </div>
 
-        <span className="text-[13px] font-medium text-text-primary leading-none">
-          {displayTitle}
-        </span>
-        <span className={clsx('text-[11px] font-medium leading-none opacity-70', toneColors.text)}>
-          · {statusLabel}
+        <span className="font-semibold text-text-primary leading-none">{displayTitle}</span>
+        <span className={clsx('text-[11px] font-medium leading-none opacity-80', toneColors.text)}>
+          ({statusLabel})
         </span>
 
-        <div className="ml-auto flex items-center gap-1.5 pl-2">
+        <div className="flex items-center gap-1.5 ml-1">
           {toolCall.name === 'run_subagents' && showSubagentPanel && (
             <button
               onClick={(e) => {
@@ -337,17 +320,13 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
               className="p-1 rounded cursor-pointer transition-colors text-accent-primary hover:bg-accent-primary/10"
               title="Open Subagent Chat"
             >
-              <DeviceMobile size={14} weight="regular" />
+              <DeviceMobile size={13} weight="regular" />
             </button>
-          )}
-
-          {isRunning && (
-            <CircleNotch size={14} weight="bold" className="animate-spin text-text-muted" />
           )}
 
           {isDone && (
             <CaretDown
-              size={14}
+              size={12}
               className={clsx(
                 'text-text-muted transition-transform duration-200',
                 isExpanded && 'rotate-180'
@@ -357,47 +336,118 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
         </div>
       </div>
 
-      {isExpanded && toolCall.result && (
-        <div className="rounded-lg border border-white/[0.04] bg-white/[0.01] mt-1 tool-pill-result-enter">
-          <div className="flex items-center border-b border-white/[0.03] px-3 py-2">
-            <span className="text-[11px] font-medium text-text-muted uppercase tracking-widest">
-              Output
+      {/* ── Expanded View (Success/Fail Status Only) ── */}
+      {isExpanded && (
+        <div className="pl-5 text-xs text-text-secondary/80 animate-fade-in py-0.5 select-text">
+          {toolCall.status === 'done' ? (
+            <span className="flex items-center gap-1.5 text-status-success font-medium">
+              Executed successfully.
             </span>
-          </div>
-          <div className="max-h-[300px] overflow-auto p-3 font-mono text-[12px] leading-relaxed text-text-secondary">
-            <pre className="whitespace-pre-wrap break-all">{toolCall.result}</pre>
-          </div>
+          ) : toolCall.status === 'error' ? (
+            <span className="flex items-center gap-1.5 text-status-error font-medium">
+              Execution failed.
+            </span>
+          ) : toolCall.status === 'cancelled' ? (
+            <span className="flex items-center gap-1.5 text-text-muted font-medium">
+              Execution cancelled.
+            </span>
+          ) : null}
         </div>
       )}
 
-      {/* Subagent logic preserved but styled flatter */}
+      {/* ── Subagent Swarm panel styled futuristically ── */}
       {showSubagentPanel && (isExpanded || isRunning) && (
-        <div className="rounded-lg border border-white/[0.04] bg-white/[0.01] p-3 flex flex-col gap-2 mt-1 tool-pill-result-enter">
+        <div className="rounded-xl border border-white/[0.04] bg-white/[0.015] p-4 flex flex-col gap-4 mt-1 tool-pill-result-enter max-w-[460px] backdrop-blur-md">
           {hasAgentUpdates ? (
             <>
               {/* SVG Swarm Graph */}
-              <div className="w-full relative flex justify-center py-2 rounded-lg border border-white/[0.02]">
-                <svg viewBox="0 0 400 150" className="w-full select-none">
-                  {/* Connection Lines */}
+              <div className="w-full relative flex justify-center py-2 rounded-lg border border-white/[0.02] bg-black/10">
+                <svg viewBox="0 0 400 160" className="w-full select-none">
+                  {/* Glow Filters */}
+                  <defs>
+                    <linearGradient id="line-grad-compact" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" stopColor="var(--color-accent-primary)" stopOpacity="0.8" />
+                      <stop
+                        offset="100%"
+                        stopColor="var(--color-accent-secondary)"
+                        stopOpacity="0.3"
+                      />
+                    </linearGradient>
+                    <filter id="glow-master-compact" x="-50%" y="-50%" width="200%" height="200%">
+                      <feDropShadow
+                        dx="0"
+                        dy="0"
+                        stdDeviation="6"
+                        floodColor="var(--color-accent-primary)"
+                        floodOpacity="0.4"
+                      />
+                    </filter>
+                    <filter
+                      id="glow-worker-thinking-compact"
+                      x="-50%"
+                      y="-50%"
+                      width="200%"
+                      height="200%"
+                    >
+                      <feDropShadow
+                        dx="0"
+                        dy="0"
+                        stdDeviation="5"
+                        floodColor="var(--color-accent-primary)"
+                        floodOpacity="0.3"
+                      />
+                    </filter>
+                    <filter
+                      id="glow-worker-tool-compact"
+                      x="-50%"
+                      y="-50%"
+                      width="200%"
+                      height="200%"
+                    >
+                      <feDropShadow
+                        dx="0"
+                        dy="0"
+                        stdDeviation="5"
+                        floodColor="var(--color-status-warning)"
+                        floodOpacity="0.3"
+                      />
+                    </filter>
+                  </defs>
+
+                  {/* Connection Lines (Bezier curves with animated signal packets) */}
                   {workerKeys.map((key, idx) => {
                     const phase = toolCall.agentUpdates?.[key]?.phase || 'idle'
                     const style = getPhaseStyle(phase)
                     const x = getWorkerX(idx, workerKeys.length)
                     const isAnimating = phase === 'thinking' || phase === 'tool_use'
 
+                    const dPath = `M ${masterX} ${masterY} C ${masterX} ${(masterY + workerY) / 2}, ${x} ${(masterY + workerY) / 2}, ${x} ${workerY}`
+
                     return (
-                      <line
-                        key={`line-${key}`}
-                        x1={masterX}
-                        y1={masterY}
-                        x2={x}
-                        y2={workerY}
-                        stroke={style.color}
-                        strokeWidth={1.5}
-                        strokeOpacity={phase === 'idle' ? 0.15 : 0.5}
-                        strokeDasharray={isAnimating ? '4,4' : 'none'}
-                        className={clsx('transition-all duration-500', isAnimating && 'swarm-dash')}
-                      />
+                      <g key={`path-group-compact-${key}`}>
+                        <path
+                          id={`path-worker-compact-${key}`}
+                          d={dPath}
+                          fill="none"
+                          stroke={
+                            phase === 'idle' ? 'var(--color-text-muted)' : 'url(#line-grad-compact)'
+                          }
+                          strokeWidth={1.5}
+                          strokeOpacity={phase === 'idle' ? 0.15 : 0.6}
+                          strokeDasharray={isAnimating ? '4,4' : 'none'}
+                          className={clsx(
+                            'transition-all duration-500',
+                            isAnimating && 'swarm-dash'
+                          )}
+                        />
+                        {isAnimating && (
+                          <circle r="3.5" fill={style.color}>
+                            <animateMotion dur="2s" repeatCount="indefinite">
+                              <mpath href={`#path-worker-compact-${key}`} />
+                            </animateMotion>
+                          </circle>
+                        )}
+                      </g>
                     )
                   })}
 
@@ -412,23 +462,46 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
                         className="cursor-pointer group"
                         onClick={() => setSelectedAgentKey('master')}
                       >
+                        {isSelected && (
+                          <circle
+                            cx={masterX}
+                            cy={masterY}
+                            r={18}
+                            fill="none"
+                            stroke={style.border}
+                            strokeWidth={1}
+                            className="animate-ping opacity-25"
+                          />
+                        )}
                         <circle
                           cx={masterX}
                           cy={masterY}
                           r={15}
                           fill="var(--color-background-secondary)"
                           stroke={style.border}
-                          strokeWidth={isSelected ? 2 : 1.5}
-                          className="transition-all duration-300"
+                          strokeWidth={isSelected ? 2.5 : 1.5}
+                          filter={isSelected ? 'url(#glow-master-compact)' : undefined}
+                          className="transition-all duration-300 hover:stroke-accent-primary"
                         />
                         <text
                           x={masterX}
                           y={masterY + 4}
                           textAnchor="middle"
                           fontSize="11"
-                          className="pointer-events-none"
+                          className="pointer-events-none select-none"
                         >
                           👑
+                        </text>
+                        <text
+                          x={masterX}
+                          y={masterY - 18}
+                          textAnchor="middle"
+                          fontSize="8"
+                          fontWeight="bold"
+                          fill="var(--color-text-primary)"
+                          className="font-sans tracking-wider opacity-90 pointer-events-none select-none uppercase"
+                        >
+                          Coordinator
                         </text>
                       </g>
                     )
@@ -440,21 +513,42 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
                     const style = getPhaseStyle(phase)
                     const x = getWorkerX(idx, workerKeys.length)
                     const isSelected = activeKey === String(key)
+                    const isAnimating = phase === 'thinking' || phase === 'tool_use'
+
+                    let filterId: string | undefined = undefined
+                    if (isSelected) {
+                      filterId =
+                        phase === 'tool_use'
+                          ? 'url(#glow-worker-tool-compact)'
+                          : 'url(#glow-worker-thinking-compact)'
+                    }
 
                     return (
                       <g
-                        key={`node-${key}`}
+                        key={`node-compact-${key}`}
                         className="cursor-pointer group"
                         onClick={() => setSelectedAgentKey(String(key))}
                       >
+                        {isAnimating && (
+                          <circle
+                            cx={x}
+                            cy={workerY}
+                            r={14}
+                            fill="none"
+                            stroke={style.border}
+                            strokeWidth={1}
+                            className="animate-ping opacity-25"
+                          />
+                        )}
                         <circle
                           cx={x}
                           cy={workerY}
                           r={11}
                           fill="var(--color-background-secondary)"
                           stroke={style.border}
-                          strokeWidth={isSelected ? 2 : 1.5}
-                          className="transition-all duration-300"
+                          strokeWidth={isSelected ? 2.5 : 1.5}
+                          filter={filterId}
+                          className="transition-all duration-300 hover:stroke-accent-secondary"
                         />
                         <text
                           x={x}
@@ -463,9 +557,30 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
                           fontSize="8"
                           fontWeight="bold"
                           fill={style.color}
-                          className="pointer-events-none font-mono"
+                          className="pointer-events-none font-mono select-none"
                         >
                           {key}
+                        </text>
+                        <text
+                          x={x}
+                          y={workerY + 22}
+                          textAnchor="middle"
+                          fontSize="8"
+                          fill="var(--color-text-secondary)"
+                          className="opacity-70 font-sans pointer-events-none select-none"
+                        >
+                          Agent {key}
+                        </text>
+                        <text
+                          x={x}
+                          y={workerY + 32}
+                          textAnchor="middle"
+                          fontSize="7"
+                          fontWeight="semibold"
+                          fill={style.color}
+                          className="opacity-80 font-sans pointer-events-none select-none uppercase tracking-wider"
+                        >
+                          {phase === 'tool_use' ? 'tool call' : phase}
                         </text>
                       </g>
                     )
@@ -475,7 +590,7 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
 
               {/* Agent Detail Card */}
               {activeAgent && (
-                <div className="flex flex-col gap-2 p-3 rounded-lg border border-white/[0.02] transition-all duration-300">
+                <div className="flex flex-col gap-3 p-3.5 rounded-xl border border-white/[0.04] bg-white/[0.015] backdrop-blur-md transition-all duration-300">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-medium text-text-secondary uppercase tracking-widest flex items-center gap-1.5">
                       {activeKey === 'master'
@@ -484,7 +599,7 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
                     </span>
                     <span
                       className={clsx(
-                        'text-[10px] font-bold uppercase px-2 py-0.5 rounded-sm tracking-wider',
+                        'text-[10px] font-bold uppercase px-2 py-0.5 rounded-sm tracking-wider flex items-center gap-1.5',
                         activeAgent.phase === 'thinking'
                           ? 'bg-accent-primary/10 text-accent-primary'
                           : activeAgent.phase === 'tool_use'
@@ -494,6 +609,16 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
                               : 'bg-status-error/10 text-status-error'
                       )}
                     >
+                      <span
+                        className={clsx(
+                          'w-1.5 h-1.5 rounded-full',
+                          activeAgent.phase === 'thinking' && 'bg-accent-primary animate-pulse',
+                          activeAgent.phase === 'tool_use' && 'bg-status-warning animate-pulse',
+                          activeAgent.phase === 'done' && 'bg-status-success',
+                          activeAgent.phase === 'error' && 'bg-status-error',
+                          activeAgent.phase === 'cancelled' && 'bg-text-muted'
+                        )}
+                      />
                       {activeAgent.command?.includes('WAITING')
                         ? 'LISTENING'
                         : activeAgent.command?.includes('MESSAGE TO')
@@ -503,33 +628,27 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
                   </div>
 
                   {activeAgent.command && (
-                    <div
-                      className={clsx(
-                        'flex items-start gap-2 p-2 rounded-md font-mono text-[10px]',
-                        activeAgent.command.includes('POST TO GROUP')
-                          ? 'bg-accent-primary/5 text-accent-primary'
-                          : activeAgent.command.includes('WAITING')
-                            ? 'bg-accent-primary/5 text-accent-primary animate-pulse'
-                            : 'bg-white/[0.02] text-text-primary'
-                      )}
-                    >
-                      <span className="opacity-60 font-bold uppercase tracking-wider whitespace-nowrap mt-0.5">
-                        {activeAgent.command.includes('POST TO GROUP')
-                          ? '➔ RADIO:'
-                          : activeAgent.command.includes('WAITING')
-                            ? '📡 SCAN:'
-                            : 'ACTION:'}
-                      </span>
-                      <code className="break-all leading-relaxed">{activeAgent.command}</code>
+                    <div className="font-mono text-[10.5px] bg-black/35 border border-white/[0.03] rounded-lg p-3 flex flex-col gap-1.5 select-text">
+                      <div className="flex items-center gap-1.5 text-accent-secondary/90 font-semibold border-b border-white/[0.04] pb-1.5 mb-0.5">
+                        <Terminal size={12} />
+                        <span>ACTIVE PROCESS</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <span className="text-text-muted select-none font-bold">$</span>
+                        <code className="text-text-primary break-all leading-relaxed">
+                          {activeAgent.command}
+                        </code>
+                      </div>
                     </div>
                   )}
 
                   {activeAgent.output && (
-                    <div className="flex flex-col gap-1 p-2 rounded-md bg-white/[0.02] font-mono text-[10px]">
-                      <span className="opacity-50 font-bold uppercase tracking-wider">
-                        Output Log
-                      </span>
-                      <div className="text-text-secondary break-words line-clamp-2 italic">
+                    <div className="font-mono text-[10.5px] bg-black/35 border border-white/[0.03] rounded-lg p-3 flex flex-col gap-1.5 select-text">
+                      <div className="flex items-center gap-1.5 text-text-muted opacity-80 font-semibold border-b border-white/[0.04] pb-1.5 mb-0.5">
+                        <FileText size={12} />
+                        <span>CONSOLE OUTPUT</span>
+                      </div>
+                      <div className="text-text-secondary/95 break-words leading-relaxed max-h-[140px] overflow-y-auto whitespace-pre-wrap">
                         {activeAgent.output}
                       </div>
                     </div>
@@ -555,16 +674,34 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
   const [isExpanded, setIsExpanded] = useState(false)
   const [selectedAgentKey, setSelectedAgentKey] = useState<string>('master')
 
-  const { displayTitle, displayDetail, tone, isDone, isRunning, statusLabel, renderIcon } =
+  const { displayTitle, displayDetail, tone, isDone, statusLabel, renderIcon } =
     useToolCallMeta(toolCall)
 
-  const toneClasses = {
-    default: 'border-white/[0.04] bg-white/[0.02] text-text-secondary',
-    search: 'border-accent-secondary/20 bg-accent-secondary/[0.02] text-accent-secondary',
-    think: 'border-status-warning/20 bg-status-warning/[0.02] text-status-warning',
-    success: 'border-status-success/20 bg-status-success/[0.02] text-status-success',
-    error: 'border-status-error/20 bg-status-error/[0.02] text-status-error',
-    youtube: 'border-accent-primary/20 bg-accent-primary/[0.02] text-accent-primary'
+  const toneColors = {
+    default: {
+      text: 'text-text-secondary',
+      icon: 'text-text-secondary'
+    },
+    search: {
+      text: 'text-accent-secondary',
+      icon: 'text-accent-secondary'
+    },
+    think: {
+      text: 'text-status-warning',
+      icon: 'text-status-warning'
+    },
+    success: {
+      text: 'text-status-success',
+      icon: 'text-status-success'
+    },
+    error: {
+      text: 'text-status-error',
+      icon: 'text-status-error'
+    },
+    youtube: {
+      text: 'text-accent-primary',
+      icon: 'text-accent-primary'
+    }
   }[tone]
 
   const hasAgentUpdates = toolCall.agentUpdates && Object.keys(toolCall.agentUpdates).length > 0
@@ -581,16 +718,16 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
   const activeAgent = toolCall.agentUpdates?.[activeKey]
 
   const masterX = 200
-  const masterY = 30
+  const masterY = 35
   const workerY = 110
 
   const getWorkerX = (index: number, total: number): number => {
     if (total <= 1) return 200
-    return 50 + (index * 300) / (total - 1)
+    return 60 + (index * 280) / (total - 1)
   }
 
   return (
-    <div className="my-2 flex w-full flex-col gap-2">
+    <div className="my-2.5 flex w-full flex-col gap-2 select-none">
       <style>{`
         @keyframes swarmDash {
           to {
@@ -601,27 +738,30 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
           animation: swarmDash 1s linear infinite;
         }
       `}</style>
+
+      {/* ── Text-Only Expansible Trigger ── */}
       <div
         onClick={() => isDone && setIsExpanded(!isExpanded)}
         className={clsx(
-          'flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors duration-200 select-none',
-          toneClasses,
-          isDone ? 'cursor-pointer hover:bg-white/[0.03]' : 'cursor-default'
+          'inline-flex items-center gap-2 text-[13px] py-1 select-none transition-all duration-200',
+          isDone ? 'cursor-pointer hover:opacity-80 active:scale-[0.99]' : 'cursor-default'
         )}
       >
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center">{renderIcon(20)}</div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-text-primary">{displayTitle}</span>
-            <span className="rounded bg-white/[0.03] px-2 py-0.5 text-[11px] font-medium opacity-80">
-              {statusLabel}
-            </span>
-          </div>
-          <p className="mt-0.5 truncate text-xs opacity-70">{displayDetail}</p>
+        <div className={clsx('flex shrink-0 items-center justify-center', toneColors.icon)}>
+          {renderIcon(13)}
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
+        <span className="font-semibold text-text-primary leading-none">{displayTitle}</span>
+        {displayDetail && (
+          <span className="text-text-muted font-normal text-xs leading-none truncate max-w-[280px]">
+            · {displayDetail}
+          </span>
+        )}
+        <span className={clsx('text-[11px] font-medium leading-none opacity-80', toneColors.text)}>
+          ({statusLabel})
+        </span>
+
+        <div className="flex items-center gap-1.5 ml-1">
           {toolCall.name === 'run_subagents' &&
             (toolCall.status === 'running' ||
               toolCall.status === 'done' ||
@@ -631,20 +771,18 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
                   e.stopPropagation()
                   window.api.openSubagentsWindow(toolCall.subagentMessages)
                 }}
-                className="p-1.5 rounded cursor-pointer transition-colors text-accent-primary hover:bg-accent-primary/10 animate-pulse"
+                className="p-1 rounded cursor-pointer transition-colors text-accent-primary hover:bg-accent-primary/10"
                 title="Open Subagent Chat"
               >
-                <DeviceMobile size={16} />
+                <DeviceMobile size={13} weight="regular" />
               </button>
             )}
 
-          {isRunning && <CircleNotch size={16} weight="bold" className="animate-spin opacity-50" />}
-
           {isDone && (
             <CaretDown
-              size={16}
+              size={12}
               className={clsx(
-                'opacity-50 transition-transform duration-200',
+                'text-text-muted transition-transform duration-200',
                 isExpanded && 'rotate-180'
               )}
             />
@@ -652,16 +790,22 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
         </div>
       </div>
 
-      {isExpanded && toolCall.result && (
-        <div className="w-full overflow-hidden rounded-xl border border-white/[0.04] bg-white/[0.01]">
-          <div className="flex items-center justify-between border-b border-white/[0.04] px-4 py-3">
-            <span className="text-xs font-medium text-text-muted">Tool Output</span>
-          </div>
-          <div className="max-h-[400px] overflow-x-auto p-4 font-mono text-[12px] leading-relaxed text-text-secondary">
-            <pre className="whitespace-pre-wrap break-all text-text-primary/90">
-              {toolCall.result}
-            </pre>
-          </div>
+      {/* ── Expanded View (Success/Fail Status Only) ── */}
+      {isExpanded && (
+        <div className="pl-5 text-xs text-text-secondary/80 animate-fade-in py-0.5 select-text">
+          {toolCall.status === 'done' ? (
+            <span className="flex items-center gap-1.5 text-status-success font-medium">
+              Executed successfully.
+            </span>
+          ) : toolCall.status === 'error' ? (
+            <span className="flex items-center gap-1.5 text-status-error font-medium">
+              Execution failed.
+            </span>
+          ) : toolCall.status === 'cancelled' ? (
+            <span className="flex items-center gap-1.5 text-text-muted font-medium">
+              Execution cancelled.
+            </span>
+          ) : null}
         </div>
       )}
 
@@ -670,36 +814,104 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
         (toolCall.status === 'running' ||
           toolCall.status === 'done' ||
           toolCall.status === 'cancelled') && (
-          <div className="w-full mt-2 flex flex-col gap-3 p-4 rounded-xl border border-white/[0.04] bg-white/[0.01]">
+          <div className="w-full mt-2 flex flex-col gap-4 p-4 rounded-xl border border-white/[0.04] bg-white/[0.015] backdrop-blur-md transition-all duration-300">
             {hasAgentUpdates ? (
               <>
-                <div className="w-full relative flex justify-center py-2 rounded-lg border border-white/[0.02]">
-                  <svg viewBox="0 0 400 150" className="w-full select-none">
+                <div className="w-full relative flex justify-center py-2 rounded-lg border border-white/[0.02] bg-black/10">
+                  <svg viewBox="0 0 400 160" className="w-full select-none">
+                    {/* Glow Filters */}
+                    <defs>
+                      <linearGradient id="line-grad-full" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop
+                          offset="0%"
+                          stopColor="var(--color-accent-primary)"
+                          stopOpacity="0.8"
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor="var(--color-accent-secondary)"
+                          stopOpacity="0.3"
+                        />
+                      </linearGradient>
+                      <filter id="glow-master-full" x="-50%" y="-50%" width="200%" height="200%">
+                        <feDropShadow
+                          dx="0"
+                          dy="0"
+                          stdDeviation="6"
+                          floodColor="var(--color-accent-primary)"
+                          floodOpacity="0.4"
+                        />
+                      </filter>
+                      <filter
+                        id="glow-worker-thinking-full"
+                        x="-50%"
+                        y="-50%"
+                        width="200%"
+                        height="200%"
+                      >
+                        <feDropShadow
+                          dx="0"
+                          dy="0"
+                          stdDeviation="5"
+                          floodColor="var(--color-accent-primary)"
+                          floodOpacity="0.3"
+                        />
+                      </filter>
+                      <filter
+                        id="glow-worker-tool-full"
+                        x="-50%"
+                        y="-50%"
+                        width="200%"
+                        height="200%"
+                      >
+                        <feDropShadow
+                          dx="0"
+                          dy="0"
+                          stdDeviation="5"
+                          floodColor="var(--color-status-warning)"
+                          floodOpacity="0.3"
+                        />
+                      </filter>
+                    </defs>
+
+                    {/* Connection Lines (Bezier curves with animated signal packets) */}
                     {workerKeys.map((key, idx) => {
                       const phase = toolCall.agentUpdates?.[key]?.phase || 'idle'
                       const style = getPhaseStyle(phase)
                       const x = getWorkerX(idx, workerKeys.length)
                       const isAnimating = phase === 'thinking' || phase === 'tool_use'
 
+                      const dPath = `M ${masterX} ${masterY} C ${masterX} ${(masterY + workerY) / 2}, ${x} ${(masterY + workerY) / 2}, ${x} ${workerY}`
+
                       return (
-                        <line
-                          key={`line-${key}`}
-                          x1={masterX}
-                          y1={masterY}
-                          x2={x}
-                          y2={workerY}
-                          stroke={style.color}
-                          strokeWidth={1.5}
-                          strokeOpacity={phase === 'idle' ? 0.15 : 0.5}
-                          strokeDasharray={isAnimating ? '4,4' : 'none'}
-                          className={clsx(
-                            'transition-all duration-500',
-                            isAnimating && 'swarm-dash'
+                        <g key={`path-group-full-${key}`}>
+                          <path
+                            id={`path-worker-full-${key}`}
+                            d={dPath}
+                            fill="none"
+                            stroke={
+                              phase === 'idle' ? 'var(--color-text-muted)' : 'url(#line-grad-full)'
+                            }
+                            strokeWidth={1.5}
+                            strokeOpacity={phase === 'idle' ? 0.15 : 0.6}
+                            strokeDasharray={isAnimating ? '4,4' : 'none'}
+                            className={clsx(
+                              'transition-all duration-500',
+                              isAnimating && 'swarm-dash'
+                            )}
+                          />
+                          {isAnimating && (
+                            <circle r="3.5" fill={style.color}>
+                              <animateMotion dur="2s" repeatCount="indefinite">
+                                <mpath href={`#path-worker-full-${key}`} />
+                              </animateMotion>
+                            </circle>
                           )}
-                        />
+                        </g>
                       )
                     })}
 
+                    {/* Master Node */}
                     {(() => {
                       const phase = toolCall.agentUpdates?.['master']?.phase || 'idle'
                       const style = getPhaseStyle(phase)
@@ -710,48 +922,93 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
                           className="cursor-pointer group"
                           onClick={() => setSelectedAgentKey('master')}
                         >
+                          {isSelected && (
+                            <circle
+                              cx={masterX}
+                              cy={masterY}
+                              r={18}
+                              fill="none"
+                              stroke={style.border}
+                              strokeWidth={1}
+                              className="animate-ping opacity-25"
+                            />
+                          )}
                           <circle
                             cx={masterX}
                             cy={masterY}
                             r={15}
                             fill="var(--color-background-secondary)"
                             stroke={style.border}
-                            strokeWidth={isSelected ? 2 : 1.5}
-                            className="transition-all duration-300"
+                            strokeWidth={isSelected ? 2.5 : 1.5}
+                            filter={isSelected ? 'url(#glow-master-full)' : undefined}
+                            className="transition-all duration-300 hover:stroke-accent-primary"
                           />
                           <text
                             x={masterX}
                             y={masterY + 4}
                             textAnchor="middle"
                             fontSize="11"
-                            className="pointer-events-none"
+                            className="pointer-events-none select-none"
                           >
                             👑
+                          </text>
+                          <text
+                            x={masterX}
+                            y={masterY - 18}
+                            textAnchor="middle"
+                            fontSize="8"
+                            fontWeight="bold"
+                            fill="var(--color-text-primary)"
+                            className="font-sans tracking-wider opacity-90 pointer-events-none select-none uppercase"
+                          >
+                            Coordinator
                           </text>
                         </g>
                       )
                     })()}
 
+                    {/* Worker Nodes */}
                     {workerKeys.map((key, idx) => {
                       const phase = toolCall.agentUpdates?.[key]?.phase || 'idle'
                       const style = getPhaseStyle(phase)
                       const x = getWorkerX(idx, workerKeys.length)
                       const isSelected = activeKey === String(key)
+                      const isAnimating = phase === 'thinking' || phase === 'tool_use'
+
+                      let filterId: string | undefined = undefined
+                      if (isSelected) {
+                        filterId =
+                          phase === 'tool_use'
+                            ? 'url(#glow-worker-tool-full)'
+                            : 'url(#glow-worker-thinking-full)'
+                      }
 
                       return (
                         <g
-                          key={`node-${key}`}
+                          key={`node-full-${key}`}
                           className="cursor-pointer group"
                           onClick={() => setSelectedAgentKey(String(key))}
                         >
+                          {isAnimating && (
+                            <circle
+                              cx={x}
+                              cy={workerY}
+                              r={14}
+                              fill="none"
+                              stroke={style.border}
+                              strokeWidth={1}
+                              className="animate-ping opacity-25"
+                            />
+                          )}
                           <circle
                             cx={x}
                             cy={workerY}
                             r={11}
                             fill="var(--color-background-secondary)"
                             stroke={style.border}
-                            strokeWidth={isSelected ? 2 : 1.5}
-                            className="transition-all duration-300"
+                            strokeWidth={isSelected ? 2.5 : 1.5}
+                            filter={filterId}
+                            className="transition-all duration-300 hover:stroke-accent-secondary"
                           />
                           <text
                             x={x}
@@ -760,9 +1017,30 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
                             fontSize="8"
                             fontWeight="bold"
                             fill={style.color}
-                            className="pointer-events-none font-mono"
+                            className="pointer-events-none font-mono select-none"
                           >
                             {key}
+                          </text>
+                          <text
+                            x={x}
+                            y={workerY + 22}
+                            textAnchor="middle"
+                            fontSize="8"
+                            fill="var(--color-text-secondary)"
+                            className="opacity-70 font-sans pointer-events-none select-none"
+                          >
+                            Agent {key}
+                          </text>
+                          <text
+                            x={x}
+                            y={workerY + 32}
+                            textAnchor="middle"
+                            fontSize="7"
+                            fontWeight="semibold"
+                            fill={style.color}
+                            className="opacity-80 font-sans pointer-events-none select-none uppercase tracking-wider"
+                          >
+                            {phase === 'tool_use' ? 'tool call' : phase}
                           </text>
                         </g>
                       )
@@ -771,7 +1049,7 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
                 </div>
 
                 {activeAgent && (
-                  <div className="flex flex-col gap-2.5 p-3 rounded-lg border border-white/[0.02] transition-all duration-300">
+                  <div className="flex flex-col gap-3 p-3.5 rounded-xl border border-white/[0.04] bg-white/[0.015] backdrop-blur-md transition-all duration-300">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-medium text-text-secondary uppercase tracking-widest flex items-center gap-1.5">
                         {activeKey === 'master'
@@ -780,7 +1058,7 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
                       </span>
                       <span
                         className={clsx(
-                          'text-[10px] font-bold uppercase px-2 py-0.5 rounded-sm tracking-wider',
+                          'text-[10px] font-bold uppercase px-2 py-0.5 rounded-sm tracking-wider flex items-center gap-1.5',
                           activeAgent.phase === 'thinking'
                             ? 'bg-accent-primary/10 text-accent-primary'
                             : activeAgent.phase === 'tool_use'
@@ -790,6 +1068,16 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
                                 : 'bg-status-error/10 text-status-error'
                         )}
                       >
+                        <span
+                          className={clsx(
+                            'w-1.5 h-1.5 rounded-full',
+                            activeAgent.phase === 'thinking' && 'bg-accent-primary animate-pulse',
+                            activeAgent.phase === 'tool_use' && 'bg-status-warning animate-pulse',
+                            activeAgent.phase === 'done' && 'bg-status-success',
+                            activeAgent.phase === 'error' && 'bg-status-error',
+                            activeAgent.phase === 'cancelled' && 'bg-text-muted'
+                          )}
+                        />
                         {activeAgent.command?.includes('WAITING')
                           ? 'LISTENING'
                           : activeAgent.command?.includes('MESSAGE TO')
@@ -799,33 +1087,27 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
                     </div>
 
                     {activeAgent.command && (
-                      <div
-                        className={clsx(
-                          'flex items-start gap-2 p-2 rounded-md font-mono text-[11px]',
-                          activeAgent.command.includes('POST TO GROUP')
-                            ? 'bg-accent-primary/5 text-accent-primary'
-                            : activeAgent.command.includes('WAITING')
-                              ? 'bg-accent-primary/5 text-accent-primary animate-pulse'
-                              : 'bg-white/[0.02] text-text-primary'
-                        )}
-                      >
-                        <span className="opacity-60 font-bold uppercase tracking-wider whitespace-nowrap mt-0.5">
-                          {activeAgent.command.includes('POST TO GROUP')
-                            ? '➔ RADIO:'
-                            : activeAgent.command.includes('WAITING')
-                              ? '📡 SCAN:'
-                              : 'ACTION:'}
-                        </span>
-                        <code className="break-all leading-relaxed">{activeAgent.command}</code>
+                      <div className="font-mono text-[10.5px] bg-black/35 border border-white/[0.03] rounded-lg p-3 flex flex-col gap-1.5 select-text">
+                        <div className="flex items-center gap-1.5 text-accent-secondary/90 font-semibold border-b border-white/[0.04] pb-1.5 mb-0.5">
+                          <Terminal size={12} />
+                          <span>ACTIVE PROCESS</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <span className="text-text-muted select-none font-bold">$</span>
+                          <code className="text-text-primary break-all leading-relaxed">
+                            {activeAgent.command}
+                          </code>
+                        </div>
                       </div>
                     )}
 
                     {activeAgent.output && (
-                      <div className="flex flex-col gap-1 p-2 rounded-md bg-white/[0.02] font-mono text-[11px]">
-                        <span className="opacity-50 font-bold uppercase tracking-wider">
-                          Output Log
-                        </span>
-                        <div className="text-text-secondary break-words line-clamp-2 italic">
+                      <div className="font-mono text-[10.5px] bg-black/35 border border-white/[0.03] rounded-lg p-3 flex flex-col gap-1.5 select-text">
+                        <div className="flex items-center gap-1.5 text-text-muted opacity-80 font-semibold border-b border-white/[0.04] pb-1.5 mb-0.5">
+                          <FileText size={12} />
+                          <span>CONSOLE OUTPUT</span>
+                        </div>
+                        <div className="text-text-secondary/95 break-words leading-relaxed max-h-[140px] overflow-y-auto whitespace-pre-wrap">
                           {activeAgent.output}
                         </div>
                       </div>

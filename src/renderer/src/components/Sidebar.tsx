@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import { LoadingDots } from './LoadingDots'
 import { Spinner } from './Spinner'
+import type { AppConfig } from '../../../main/config'
 
 interface ChatSession {
   id: string
@@ -20,6 +21,7 @@ interface SidebarProps {
   runningChats?: Record<string, boolean>
   className?: string
   isOpen?: boolean
+  config?: AppConfig | null
 }
 
 export function Sidebar({
@@ -31,11 +33,44 @@ export function Sidebar({
   currentChatId,
   runningChats = {},
   className,
-  isOpen = false
+  isOpen = false,
+  config
 }: SidebarProps): React.JSX.Element {
   const [chats, setChats] = useState<ChatSession[]>([])
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
   const streamingIntervals = useRef<Record<string, NodeJS.Timeout>>({})
+
+  // RGB Countdown Easter Egg state
+  const [countdownText, setCountdownText] = useState('')
+  const [isRgbActive, setIsRgbActive] = useState(false)
+
+  useEffect(() => {
+    if (!config || !config.rgbThemeExpiry) {
+      setIsRgbActive(false)
+      return
+    }
+
+    const updateCountdown = () => {
+      const now = Date.now()
+      const expiry = config.rgbThemeExpiry || 0
+      if (now < expiry) {
+        setIsRgbActive(true)
+        const diff = expiry - now
+        const hrs = Math.floor(diff / (3600 * 1000))
+        const mins = Math.floor((diff % (3600 * 1000)) / (60 * 1000))
+        const secs = Math.floor((diff % (60 * 1000)) / 1000)
+        const formatNum = (num: number) => String(num).padStart(2, '0')
+        setCountdownText(`${formatNum(hrs)}:${formatNum(mins)}:${formatNum(secs)}`)
+      } else {
+        setIsRgbActive(false)
+      }
+    }
+
+    updateCountdown()
+    const timer = setInterval(updateCountdown, 1000)
+
+    return () => clearInterval(timer)
+  }, [config])
 
   const refreshChats = async (): Promise<void> => {
     const history = await window.api.getChats()
@@ -125,7 +160,7 @@ export function Sidebar({
       <div className="px-4 py-2 shrink-0">
         <button
           onClick={() => onNewChat()}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-white/[0.03] border border-white/[0.05] px-4 py-2.5 text-sm font-medium text-text-primary transition-all duration-200 hover:bg-white/[0.06] active:scale-[0.98]"
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-white/[0.03] border border-white/[0.05] px-4 py-2.5 text-sm font-medium text-text-primary transition-all duration-200 hover:bg-white/[0.06] active:scale-[0.98] rgb-new-chat-btn"
         >
           <Plus size={16} weight="bold" />
           New Chat
@@ -201,6 +236,8 @@ export function Sidebar({
           label="Settings"
           active={activeView === 'settings'}
           onClick={(): void => onViewChange('settings')}
+          badge={isRgbActive ? countdownText : undefined}
+          pulse={isRgbActive}
         />
       </div>
     </aside>
@@ -245,7 +282,14 @@ function NavItem({
       <span>{label}</span>
 
       {badge !== undefined && (
-        <span className="ml-auto flex min-w-[20px] items-center justify-center rounded bg-white/[0.05] px-1.5 py-0.5 text-[11px] font-medium text-text-primary">
+        <span
+          className={clsx(
+            'ml-auto flex min-w-[20px] items-center justify-center rounded px-1.5 py-0.5 text-[11px] font-medium transition-all duration-300',
+            label === 'Settings' && pulse
+              ? 'bg-gradient-to-r from-[#FF0000]/20 to-[#007BFF]/20 border border-white/10 text-white font-mono rgb-settings-timer'
+              : 'bg-white/[0.05] text-text-primary'
+          )}
+        >
           {badge}
         </span>
       )}

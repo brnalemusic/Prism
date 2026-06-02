@@ -179,7 +179,12 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       return () => window.removeEventListener('keydown', handleEsc)
     }, [isFullscreen, onFullscreenToggle])
 
-    // Global keyboard shortcuts (Ctrl+S, Ctrl+E, Ctrl+T)
+    const textRef = useRef(text)
+    useEffect(() => {
+      textRef.current = text
+    }, [text])
+
+    // Global keyboard shortcuts (Ctrl+S, Ctrl+E, Ctrl+T, Ctrl+Y)
     useEffect(() => {
       const handleGlobalKeyDown = (e: KeyboardEvent): void => {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
@@ -202,6 +207,23 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           e.preventDefault()
           onThinkModeToggle?.(!isThinkMode)
         }
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+          e.preventDefault()
+          const currentText = textRef.current
+          const isCurrentlyYoutube = currentText.startsWith('/youtube')
+          if (isCurrentlyYoutube) {
+            setText(currentText.replace(/^\/youtube\s*/i, ''))
+          } else {
+            setIsSearchEnabled(false)
+            setIsExtendedSearch(false)
+            const cleanText = currentText
+              .replace(/^\[FORCE_SEARCH\]\s*/i, '')
+              .replace(/^\/search\s*/i, '')
+              .trim()
+            setText('/youtube ' + cleanText)
+          }
+          setTimeout(() => inputRef.current?.focus(), 50)
+        }
       }
       window.addEventListener('keydown', handleGlobalKeyDown)
       return () => window.removeEventListener('keydown', handleGlobalKeyDown)
@@ -212,7 +234,8 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       isSearchEnabled,
       isExtendedSearch,
       setIsSearchEnabled,
-      setIsExtendedSearch
+      setIsExtendedSearch,
+      setText
     ])
 
     useEffect(() => {
@@ -518,7 +541,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
 
     if (isFullscreen) {
       return (
-        <div className="flex-1 flex flex-col w-full h-full p-6 animate-fade-in relative z-20">
+        <div className="flex-1 flex flex-col w-full h-full p-6 animate-fade-in relative z-20 pointer-events-auto">
           {/* Custom header */}
           <div className="flex items-center justify-between border-b border-white/[0.055] pb-4 mb-4 select-none">
             <div className="flex items-center gap-3">
@@ -666,7 +689,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     }
 
     return (
-      <div className="relative z-20 w-full max-w-4xl mx-auto px-6 sm:px-12">
+      <div className="relative z-20 w-full max-w-4xl mx-auto px-6 sm:px-12 pointer-events-auto">
         {showFullscreenBtn && (
           <button
             onClick={onFullscreenToggle}

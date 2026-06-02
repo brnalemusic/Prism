@@ -22,7 +22,9 @@
   --home-glow-color-1: rgba(30, 58, 138, 0.12);
   --home-glow-color-2: rgba(49, 46, 129, 0.18);
 
-  --theme-font-sans: 'Outfit', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', sans-serif;
+  --theme-font-sans:
+    'Outfit', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter',
+    'Segoe UI', sans-serif;
 }
 
 [data-theme='vertez'] {
@@ -45,7 +47,7 @@
   --home-glow-color-1: rgba(255, 78, 58, 0.08);
   --home-glow-color-2: rgba(255, 78, 58, 0.15);
 
-  --theme-font-sans: 'Outfit', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', sans-serif;
+  --theme-font-sans: 'Shadows Into Light', cursive, sans-serif;
 }
 
 [data-theme='akoustik'] {
@@ -65,10 +67,10 @@
   --status-warning: #e4bb6a;
   --status-error: #ef7f78;
 
-  --home-glow-color-1: rgba(120, 60, 200, 0.10);
+  --home-glow-color-1: rgba(120, 60, 200, 0.1);
   --home-glow-color-2: rgba(88, 28, 160, 0.18);
 
-  --theme-font-sans: 'Outfit', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', sans-serif;
+  --theme-font-sans: 'Righteous', cursive, sans-serif;
 }
 
 [data-theme='terno'] {
@@ -93,6 +95,313 @@
 
   --theme-font-sans: 'Playfair Display', 'Georgia', 'Times New Roman', serif;
 }
+
+[data-theme='ursula'] {
+  --background-main: #0a110a;
+  --background-secondary: #111a11;
+  --surface: #182418;
+
+  --accent-primary: #388e3c;
+  --accent-secondary: #c8e6c9;
+  --accent-glow: rgba(56, 142, 60, 0.18);
+
+  --text-primary: #e8f5e9;
+  --text-secondary: #a5d6a7;
+  --text-muted: #667a66;
+
+  --status-success: #79d89f;
+  --status-warning: #e4bb6a;
+  --status-error: #ef7f78;
+
+  --home-glow-color-1: rgba(56, 142, 60, 0.08);
+  --home-glow-color-2: rgba(56, 142, 60, 0.15);
+
+  --theme-font-sans: 'Playfair Display', 'Georgia', 'Times New Roman', serif;
+}
+
+[data-theme='rgb'] {
+  --background-main: #0c0d12;
+  --background-secondary: #13151f;
+  --surface: #1b1e2a;
+
+  --accent-primary: #007BFF;
+  --accent-secondary: #FF0000;
+  --accent-glow: rgba(0, 123, 255, 0.25);
+
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #64748b;
+
+  --status-success: #2D5A27;
+  --status-warning: #f59e0b;
+  --status-error: #FF0000;
+
+  --home-glow-color-1: rgba(0, 123, 255, 0.2);
+  --home-glow-color-2: rgba(255, 0, 0, 0.2);
+
+  --theme-font-sans: 'Exo 2', sans-serif;
+}
+
+[data-theme='rgb'] html,
+[data-theme='rgb'] body {
+  background-color: #0c0d12 !important;
+}
+
+[data-theme='rgb'] .flex.h-screen.w-screen.overflow-hidden.bg-background-main,
+[data-theme='rgb'] .flex-1.flex.flex-col.h-full.bg-background-main {
+  background-color: transparent !important;
+  background-image: none !important;
+  /* Hardware acceleration */
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+}
+
+[data-theme='rgb'] .fixed.inset-0.pointer-events-none.overflow-hidden.z-0.bg-background-main {
+  background-image: linear-gradient(135deg, rgba(12, 13, 18, 0.88) 0%, rgba(12, 13, 18, 0.95) 100%),
+                    linear-gradient(135deg, #FF0000, #007BFF, #2D5A27, #FF0000) !important;
+  background-size: 300% 300% !important;
+  background-repeat: no-repeat !important;
+  animation: chroma-bg-shift 25s ease-in-out infinite !important;
+  /* Hardware acceleration */
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+}
+
+[data-theme='rgb'] .fixed.inset-0.z-\[9999\].bg-background-main {
+  background-image: linear-gradient(135deg, rgba(12, 13, 18, 0.88) 0%, rgba(12, 13, 18, 0.95) 100%),
+                    linear-gradient(135deg, #FF0000, #007BFF, #2D5A27, #FF0000) !important;
+  background-size: 300% 300% !important;
+  background-repeat: no-repeat !important;
+  animation: chroma-bg-shift 25s ease-in-out infinite !important;
+}
+
+/* Custom RGB Gradients blending Blue, Red, Green */
+[data-theme='rgb'] aside {
+  background: linear-gradient(180deg, #10121a 0%, #0c0d12 100%);
+  border-right: 1px solid rgba(0, 123, 255, 0.15);
+}
+
+/* Hide fallback radial glow on RGB Theme */
+[data-theme='rgb'] .rgb-glow-default {
+  display: none !important;
+}
+
+/* Setup smooth animatable static glows for RGB Theme */
+[data-theme='rgb'] .rgb-glow-red {
+  display: block !important;
+  background-image: radial-gradient(circle, rgba(255, 0, 0, 0.25) 0%, rgba(255, 0, 0, 0.05) 50%, transparent 80%) !important;
+  animation: chroma-glow-fade-red 16s ease-in-out infinite !important;
+}
+
+[data-theme='rgb'] .rgb-glow-green {
+  display: block !important;
+  background-image: radial-gradient(circle, rgba(45, 90, 39, 0.3) 0%, rgba(45, 90, 39, 0.05) 50%, transparent 80%) !important;
+  animation: chroma-glow-fade-green 16s ease-in-out infinite !important;
+}
+
+[data-theme='rgb'] .rgb-glow-blue {
+  display: block !important;
+  background-image: radial-gradient(circle, rgba(0, 123, 255, 0.25) 0%, rgba(0, 123, 255, 0.05) 50%, transparent 80%) !important;
+  animation: chroma-glow-fade-blue 16s ease-in-out infinite !important;
+}
+
+/* Non-RGB themes default styles */
+.rgb-glow-default {
+  display: block;
+}
+
+.rgb-glow-red,
+.rgb-glow-green,
+.rgb-glow-blue {
+  display: none;
+}
+
+[data-theme='rgb'] .premium-panel {
+  background: linear-gradient(135deg, rgba(27, 30, 42, 0.8) 0%, rgba(16, 18, 26, 0.8) 100%);
+  border: 1px solid rgba(0, 123, 255, 0.15);
+  box-shadow: 0 8px 32px 0 rgba(0, 123, 255, 0.05);
+}
+
+[data-theme='rgb'] .premium-panel-soft {
+  background: linear-gradient(180deg, rgba(19, 21, 31, 0.8) 0%, rgba(12, 13, 18, 0.8) 100%);
+  border: 1px solid rgba(255, 0, 0, 0.15);
+}
+
+[data-theme='rgb'] .input-border-glow {
+  animation: chroma-border 10s ease-in-out infinite !important;
+}
+
+[data-theme='rgb'] .input-border-glow.active {
+  animation: chroma-border-glow 10s ease-in-out infinite !important;
+}
+
+[data-theme='rgb'] button {
+  font-family: 'Exo 2', sans-serif;
+}
+
+[data-theme='rgb'] input {
+  font-family: 'Exo 2', sans-serif;
+}
+
+[data-theme='rgb'] textarea {
+  font-family: 'Exo 2', sans-serif;
+}
+
+/* All icons (svgs) under data-theme='rgb' get a slow, soft chroma shifting animation */
+[data-theme='rgb'] svg {
+  animation: chroma-color 12s ease-in-out infinite !important;
+}
+
+/* Username gradient degradê shifting */
+[data-theme='rgb'] .rgb-chroma-username {
+  background-image: linear-gradient(135deg, #FF0000, #007BFF, #2D5A27, #FF0000) !important;
+  background-size: 200% auto !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  background-clip: text !important;
+  color: transparent !important;
+  animation: chroma-text-shift 8s linear infinite !important;
+  display: inline-block;
+}
+
+/* Settings timer badge */
+[data-theme='rgb'] .rgb-settings-timer {
+  background-image: linear-gradient(135deg, rgba(255, 0, 0, 0.2), rgba(0, 123, 255, 0.2), rgba(45, 90, 39, 0.2)) !important;
+  background-size: 200% 200% !important;
+  animation: chroma-bg-shift 8s ease infinite, chroma-border-pulse 8s ease infinite !important;
+}
+
+/* New Chat buttons (Sidebar and Chat header) */
+[data-theme='rgb'] .rgb-new-chat-btn {
+  animation: chroma-border-glow-soft 10s ease-in-out infinite !important;
+}
+
+/* Keyframes */
+@keyframes chroma-color {
+  0% {
+    color: #FF0000;
+  }
+  33% {
+    color: #2D5A27;
+  }
+  66% {
+    color: #007BFF;
+  }
+  100% {
+    color: #FF0000;
+  }
+}
+
+@keyframes chroma-text-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes chroma-border {
+  0% {
+    border-color: rgba(255, 0, 0, 0.25);
+  }
+  33% {
+    border-color: rgba(45, 90, 39, 0.25);
+  }
+  66% {
+    border-color: rgba(0, 123, 255, 0.25);
+  }
+  100% {
+    border-color: rgba(255, 0, 0, 0.25);
+  }
+}
+
+@keyframes chroma-border-glow {
+  0% {
+    border-color: #FF0000;
+    box-shadow: 0 0 14px rgba(255, 0, 0, 0.35);
+  }
+  33% {
+    border-color: #2D5A27;
+    box-shadow: 0 0 14px rgba(45, 90, 39, 0.35);
+  }
+  66% {
+    border-color: #007BFF;
+    box-shadow: 0 0 14px rgba(0, 123, 255, 0.35);
+  }
+  100% {
+    border-color: #FF0000;
+    box-shadow: 0 0 14px rgba(255, 0, 0, 0.35);
+  }
+}
+
+@keyframes chroma-border-glow-soft {
+  0% {
+    border-color: rgba(255, 0, 0, 0.25);
+    box-shadow: 0 4px 12px rgba(255, 0, 0, 0.05);
+  }
+  33% {
+    border-color: rgba(45, 90, 39, 0.25);
+    box-shadow: 0 4px 12px rgba(45, 90, 39, 0.05);
+  }
+  66% {
+    border-color: rgba(0, 123, 255, 0.25);
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.05);
+  }
+  100% {
+    border-color: rgba(255, 0, 0, 0.25);
+    box-shadow: 0 4px 12px rgba(255, 0, 0, 0.05);
+  }
+}
+
+@keyframes chroma-border-pulse {
+  0% {
+    border-color: rgba(255, 0, 0, 0.3);
+  }
+  33% {
+    border-color: rgba(45, 90, 39, 0.3);
+  }
+  66% {
+    border-color: rgba(0, 123, 255, 0.3);
+  }
+  100% {
+    border-color: rgba(255, 0, 0, 0.3);
+  }
+}
+
+@keyframes chroma-bg-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes chroma-glow-fade-red {
+  0%, 100% { opacity: 0.8; }
+  33% { opacity: 0.08; }
+  66% { opacity: 0.08; }
+}
+
+@keyframes chroma-glow-fade-green {
+  0%, 100% { opacity: 0.08; }
+  33% { opacity: 0.8; }
+  66% { opacity: 0.08; }
+}
+
+@keyframes chroma-glow-fade-blue {
+  0%, 100% { opacity: 0.08; }
+  33% { opacity: 0.08; }
+  66% { opacity: 0.8; }
+}
+
 
 .home-radial-glow {
   background-image: radial-gradient(

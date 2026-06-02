@@ -6,7 +6,6 @@ import { Agent, setGlobalDispatcher, fetch as undiciFetch } from 'undici'
 import {
   getSystemToolsPrompt,
   getSubagentSystemPrompt,
-  getMasterAgentSystemPrompt,
   runTerminalCommand,
   listApplications,
   openApplication,
@@ -27,7 +26,7 @@ import {
   computerReadFile,
   captureAppScreenshot
 } from './systemTools'
-import { saveChatSession, loadChatSession, searchChatHistory, getMessageText } from './history'
+import { saveChatSession, loadChatSession, searchChatHistory } from './history'
 import { loadConfig, saveConfig } from './config'
 
 // Load environment variables from .env
@@ -486,6 +485,19 @@ async function generateSubagentResponse(
   return getFinalResponseText(result)
 }
 
+const activeQuestionnaireResolvers = new Map<string, (result: string) => void>()
+
+ipcMain.on(
+  'submit-questionnaire',
+  (_event, data: { sessionId: string; responses: Record<string, string> }) => {
+    const resolver = activeQuestionnaireResolvers.get(data.sessionId)
+    if (resolver) {
+      resolver(JSON.stringify({ session_id: data.sessionId, responses: data.responses }))
+      activeQuestionnaireResolvers.delete(data.sessionId)
+    }
+  }
+)
+
 const toolFunctions: Record<
   string,
   (
@@ -663,6 +675,48 @@ const toolFunctions: Record<
     } catch (error) {
       return `Error configuring Prism settings: ${error instanceof Error ? error.message : String(error)}`
     }
+  },
+  unlock_rgb_theme: async () => {
+    try {
+      const config = loadConfig()
+      config.rgbThemeExpiry = Date.now() + 2 * 60 * 60 * 1000 // 2 hours
+      config.theme = 'rgb' // Set the theme to rgb
+      const success = saveConfig(config)
+      if (success) {
+        // Emit to main process so it updates currentConfig and UI
+        ipcMain.emit('update-config-from-tools', null, config)
+        return 'RGB theme unlocked successfully for 2 hours.'
+      } else {
+        return 'Error: Failed to save updated theme configuration.'
+      }
+    } catch (error) {
+      return `Error unlocking RGB theme: ${error instanceof Error ? error.message : String(error)}`
+    }
+  },
+  to_ask: (args, _event, _apiKey, signal) => {
+    return new Promise<string>((resolve, reject) => {
+      const sessionId =
+        args.session_id || `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+
+      const onAbort = () => {
+        activeQuestionnaireResolvers.delete(sessionId)
+        reject(new Error('AbortError'))
+      }
+
+      if (signal) {
+        if (signal.aborted) {
+          return reject(new Error('AbortError'))
+        }
+        signal.addEventListener('abort', onAbort)
+      }
+
+      activeQuestionnaireResolvers.set(sessionId, (result) => {
+        if (signal) {
+          signal.removeEventListener('abort', onAbort)
+        }
+        resolve(result)
+      })
+    })
   }
 }
 
@@ -694,8 +748,8 @@ function isExternalSubagentMessage(data: unknown): data is SubagentChatLogEntry 
 }
 
 function getGroupSenderName(sender: number | string): string {
-  if (sender === HUMAN_USER_SENDER || sender === USER_AGENT_INDEX) return 'User (human operator)'
-  if (sender === 'master') return 'Master'
+  if (sender === HUMAN_USER_SENDER || sender === USER_AGENT_INDEX) return 'Master Coordinator'
+  if (sender === 'master') return 'Master Coordinator'
   return `Agent #${sender}`
 }
 
@@ -721,14 +775,7 @@ async function runSubagents(
   const subagentModelKey = currentSubagentModelKey
   const subagentModelConfig = getSubagentModelConfig(subagentModelKey)
 
-  // Extract the parent task/goal from the active run's history, or main chat history if not found
-  const activeRun = chatId ? activeRuns.get(chatId) : undefined
-  const targetHistory = activeRun ? activeRun.chatHistory : chatHistory
-  const lastUserMsg = targetHistory
-    .slice()
-    .reverse()
-    .find((m) => m.role === 'user')
-  const parentTask = getMessageText(lastUserMsg) || 'No overall task specified'
+
 
   const blackboard: GroupMessage[] = []
   const waiters: (() => void)[] = []
@@ -769,298 +816,7 @@ async function runSubagents(
   }
   ipcMain.on('subagent-message-broadcast', externalMessageListener)
 
-  // Promise for the Master Coordinator Agent
-  const masterPromise = async (): Promise<string> => {
-    try {
-      if (parentSignal?.aborted) throw new Error('AbortError')
 
-      // Small delay to let the UI register ToolStart
-      await new Promise((r) => setTimeout(r, 50))
-
-      const ai = new GoogleGenAI({ apiKey })
-
-      const masterSystemPrompt = getMasterAgentSystemPrompt(subagentModelKey, quantity)
-
-      // Notify UI about master check-in
-      const checkInData: SubagentChatLogEntry = {
-        agentIndex: 'master',
-        content: 'Master Coordinator online. Swarm synchronized.',
-        status: 'working',
-        timestamp: Date.now(),
-        chatId
-      }
-      if (parentSignal?.aborted) throw new Error('AbortError')
-      ipcMain.emit('subagent-message-broadcast', null, checkInData)
-      subagentChatLog.push(checkInData)
-
-      const history: Content[] = [
-        { role: 'user', parts: [{ text: masterSystemPrompt }] },
-        {
-          role: 'model',
-          parts: [
-            { text: `Master Coordinator active. Swarm synchronized. Awaiting subagent progress...` }
-          ]
-        },
-        {
-          role: 'user',
-          parts: [
-            {
-              text: `[OVERALL GOAL]: ${parentTask}\n\n[SUBAGENTS ASSIGNED]:\n${prompts
-                .slice(0, quantity)
-                .map((p, idx) => `- Agent #${idx}: ${p}`)
-                .join(
-                  '\n'
-                )}\n\nStart coordination now. Remember that communication via send_group_message is absolutely mandatory.`
-            }
-          ]
-        }
-      ]
-
-      let iteration = 0
-      const MAX_AGENT_ITERATIONS = 15
-      let finalOutput = ''
-      let isMasterFinished = false
-      let readCursor = 0
-
-      while (iteration < MAX_AGENT_ITERATIONS && !isMasterFinished && !swarmCompleted) {
-        iteration++
-
-        if (parentSignal?.aborted) throw new Error('AbortError')
-
-        // Context Injection: Check for unread messages
-        const unreadMessages = blackboard.slice(readCursor).filter((m) => m.sender !== 'master')
-        readCursor = blackboard.length
-
-        if (unreadMessages.length > 0) {
-          let teamUpdate = '[UNREAD TEAM MESSAGES]:\n'
-          for (const msg of unreadMessages) {
-            const senderName = getGroupSenderName(msg.sender)
-            teamUpdate += `[FROM ${senderName} (${msg.status})]: "${msg.content}"\n`
-          }
-          history.push({ role: 'user', parts: [{ text: teamUpdate }] })
-        }
-
-        // Inject swarm status snapshot
-        let activeAgentsList = `[SWARM STATUS SNAPSHOT]:\n- Master Coordinator (You): ${isMasterFinished ? 'done' : 'working'}\n`
-        for (let idx = 0; idx < quantity; idx++) {
-          const lastMsg = blackboard
-            .slice()
-            .reverse()
-            .find((m) => m.sender === idx)
-          const status = lastMsg ? lastMsg.status : 'inactive/joining'
-          activeAgentsList += `- Agent #${idx}: ${status}\n`
-        }
-        history.push({ role: 'user', parts: [{ text: activeAgentsList }] })
-
-        if (parentSignal?.aborted) throw new Error('AbortError')
-        event.sender.send('chat-tool-update', {
-          toolCallName: 'run_subagents',
-          update: { agentIndex: 'master', phase: 'thinking' },
-          chatId
-        })
-
-        const responseText = await generateSubagentResponse(
-          ai,
-          subagentModelConfig,
-          history,
-          parentSignal
-        )
-
-        history.push({ role: 'model', parts: [{ text: responseText }] })
-        finalOutput = responseText
-
-        const toolMatches = extractToolCalls(responseText)
-
-        if (toolMatches.length > 0) {
-          const toolPromises = toolMatches.map(async (toolContent) => {
-            const { name, args: subArgs } = parseToolCall(toolContent)
-
-            if (name === 'send_group_message') {
-              const msgContent = subArgs.content || ''
-              const status = (subArgs.status || 'working') as 'working' | 'done' | 'error'
-
-              blackboard.push({
-                sender: 'master',
-                content: msgContent,
-                timestamp: Date.now(),
-                status,
-                readBy: ['master']
-              })
-              notifyWaiters()
-
-              const messageData = {
-                agentIndex: 'master',
-                content: msgContent,
-                status,
-                timestamp: Date.now(),
-                chatId
-              }
-              if (parentSignal?.aborted) throw new Error('AbortError')
-              ipcMain.emit('subagent-message-broadcast', null, messageData)
-              subagentChatLog.push(messageData)
-
-              if (parentSignal?.aborted) throw new Error('AbortError')
-              event.sender.send('chat-tool-update', {
-                toolCallName: 'run_subagents',
-                update: {
-                  agentIndex: 'master',
-                  phase: 'tool_use',
-                  command: `POST TO GROUP (${status}): "${msgContent}"`
-                },
-                chatId
-              })
-
-              if (status !== 'working') {
-                isMasterFinished = true
-                const activeWorkers = Array.from({ length: quantity }, (_, i) => i)
-                const allFinished = activeWorkers.every((idx) => {
-                  const lastMsg = blackboard
-                    .slice()
-                    .reverse()
-                    .find((m) => m.sender === idx)
-                  return lastMsg && lastMsg.status !== 'working'
-                })
-                if (allFinished || quantity === 0) {
-                  swarmCompleted = true
-                }
-                notifyWaiters() // wake up any waiting subagents to terminate
-              }
-              return `\n[SYSTEM]: Message broadcasted. Status set to ${status}.\n`
-            }
-
-            if (name === 'read_group_messages') {
-              const since = parseInt(subArgs.sinceTimestamp || '0')
-              const limit = parseInt(subArgs.limit || '10')
-              const filtered = blackboard.filter((m) => m.timestamp > since).slice(-limit)
-
-              return `\n[GROUP CHAT HISTORY]:\n${filtered
-                .map((m) => {
-                  const senderName = getGroupSenderName(m.sender)
-                  return `${senderName} (${m.status}): ${m.content}`
-                })
-                .join('\n')}\n`
-            }
-
-            if (name === 'wait_for_updates') {
-              const timeout = Math.min(parseInt(subArgs.timeoutSeconds || '180'), 180)
-              const hasUnread = blackboard.slice(readCursor).some((m) => m.sender !== 'master')
-              if (hasUnread || swarmCompleted) {
-                return `\n[SYSTEM]: Resuming immediately.\n`
-              }
-
-              if (parentSignal?.aborted) throw new Error('AbortError')
-              event.sender.send('chat-tool-update', {
-                toolCallName: 'run_subagents',
-                update: {
-                  agentIndex: 'master',
-                  phase: 'tool_use',
-                  command: `WAITING FOR UPDATES...`
-                },
-                chatId
-              })
-
-              await Promise.race([
-                new Promise<void>((r) => waiters.push(r)),
-                new Promise<void>((r) => setTimeout(r, timeout * 1000)),
-                new Promise<void>((_, reject) => {
-                  if (parentSignal?.aborted) reject(new Error('AbortError'))
-                  parentSignal?.addEventListener('abort', () => reject(new Error('AbortError')))
-                })
-              ])
-
-              return `\n[SYSTEM]: Resuming after update or timeout.\n`
-            }
-
-            if (name && toolFunctions[name]) {
-              if (parentSignal?.aborted) throw new Error('AbortError')
-
-              event.sender.send('chat-tool-update', {
-                toolCallName: 'run_subagents',
-                update: {
-                  agentIndex: 'master',
-                  phase: 'tool_use',
-                  command: `${name} (${JSON.stringify(subArgs)})`
-                },
-                chatId
-              })
-
-              const toolResult = await toolFunctions[name](
-                subArgs,
-                event,
-                apiKey,
-                parentSignal,
-                chatId
-              )
-
-              if (parentSignal?.aborted) throw new Error('AbortError')
-
-              event.sender.send('chat-tool-update', {
-                toolCallName: 'run_subagents',
-                update: {
-                  agentIndex: 'master',
-                  phase: 'tool_use',
-                  command: `${name}`,
-                  output: toolResult.substring(0, 100) + (toolResult.length > 100 ? '...' : '')
-                },
-                chatId
-              })
-
-              return `\n[RESULT FOR ${name}]:\n${toolResult}\n`
-            }
-            return ''
-          })
-
-          const toolResults = await Promise.all(toolPromises)
-          const allResults = toolResults.join('')
-          const parts: NonNullable<Content['parts']> = [
-            { text: `[SYSTEM: TOOL RESULTS]${allResults}\nProceed.` }
-          ]
-          const screenshotBase64 = chatId ? lastScreenshots.get(chatId) : undefined
-          if (screenshotBase64) {
-            lastScreenshots.delete(chatId!)
-            parts.push({
-              inlineData: {
-                mimeType: 'image/png',
-                data: screenshotBase64
-              }
-            })
-          }
-          history.push({
-            role: 'user',
-            parts
-          })
-          continue
-        }
-
-        break
-      }
-
-      if (parentSignal?.aborted) throw new Error('AbortError')
-      event.sender.send('chat-tool-update', {
-        toolCallName: 'run_subagents',
-        update: { agentIndex: 'master', phase: 'done', output: 'Coordination completed.' },
-        chatId
-      })
-
-      const cleanedOutput = finalOutput.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim()
-      return `[MASTER COORDINATOR FINAL REPORT]:\n${cleanedOutput}`
-    } catch (err) {
-      if (
-        parentSignal?.aborted ||
-        (err instanceof Error &&
-          (err.name === 'AbortError' || err.name === 'GoogleGenerativeAIAbortError'))
-      ) {
-        throw new Error('AbortError')
-      }
-
-      event.sender.send('chat-tool-update', {
-        toolCallName: 'run_subagents',
-        update: { agentIndex: 'master', phase: 'error', output: String(err) },
-        chatId
-      })
-      return `[MASTER COORDINATOR ERROR]:\n${err instanceof Error ? err.message : String(err)}`
-    }
-  }
 
   // Promises for Worker Subagents
   const agentPromises = prompts.slice(0, quantity).map(async (prompt, index) => {
@@ -1351,7 +1107,7 @@ async function runSubagents(
   })
 
   try {
-    const results = await Promise.all([masterPromise, ...agentPromises])
+    const results = await Promise.all(agentPromises)
     const combinedReport = results.join('\n\n' + '='.repeat(30) + '\n\n')
 
     // Append subagent chat log for persistence
@@ -1496,6 +1252,7 @@ export async function handleChatMessage(
         chatId?: string
         extendedSearch?: boolean
         screenshot?: string
+        quote?: string
       }
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
@@ -1503,6 +1260,7 @@ export async function handleChatMessage(
   const chatId = typeof data === 'object' && data.chatId ? data.chatId : currentSessionId
   const extendedSearch = typeof data === 'object' ? !!data.extendedSearch : false
   const screenshot = typeof data === 'object' ? data.screenshot : undefined
+  const quote = typeof data === 'object' ? data.quote : undefined
 
   // Priority: User key > Environment key
   const apiKey = userApiKey || process.env.GEMINI_API_KEY
@@ -1584,7 +1342,14 @@ The user wants to search and play a video. Use web_search to find the most relev
   }
 
   // Add the user's real question to the manual history
-  const userParts: NonNullable<Content['parts']> = [{ text: message }]
+  const userParts: NonNullable<Content['parts']> = []
+  if (quote) {
+    userParts.push({
+      text: `<quote_context>\n<passage>${quote}</passage>\n<instruction>Focus the response on the context of the quoted passage above, ensuring traceability and semantic accuracy.</instruction>\n</quote_context>\n\n${message}`
+    })
+  } else {
+    userParts.push({ text: message })
+  }
   if (screenshot) {
     userParts.push({
       inlineData: {
@@ -1702,19 +1467,29 @@ The user wants to search and play a video. Use web_search to find the most relev
 
             if (currentThoughts || currentFinalResponse) {
               const fullResponse = accumulatedFinalResponse + currentFinalResponse
+              const countOccurrences = (str: string, subStr: string): number =>
+                str.split(subStr).length - 1
               const isWritingToolCall =
-                (fullResponse.includes('<tool_call>') && !fullResponse.includes('</tool_call>')) ||
-                (fullResponse.includes('<mini_app>') && !fullResponse.includes('</mini_app>'))
+                countOccurrences(fullResponse, '<tool_call>') >
+                  countOccurrences(fullResponse, '</tool_call>') ||
+                countOccurrences(fullResponse, '<mini_app>') >
+                  countOccurrences(fullResponse, '</mini_app>')
 
               let toolType: 'task' | 'search' | 'mini-app' | undefined = undefined
 
               if (isWritingToolCall) {
-                if (fullResponse.includes('<mini_app>')) {
+                const openMiniApp =
+                  countOccurrences(fullResponse, '<mini_app>') >
+                  countOccurrences(fullResponse, '</mini_app>')
+                if (openMiniApp) {
                   toolType = 'mini-app'
                 } else {
+                  const lastOpenIdx = fullResponse.lastIndexOf('<tool_call>')
+                  const currentToolSegment = fullResponse.substring(lastOpenIdx)
                   const isSearch =
-                    fullResponse.includes('<name>web_search</name>') ||
-                    fullResponse.includes('<name>search_chat_history</name>')
+                    currentToolSegment.includes('<name>web_search</name>') ||
+                    currentToolSegment.includes('<name>search_chat_history</name>') ||
+                    currentToolSegment.includes('<name>saw_link_from_url</name>')
                   toolType = isSearch ? 'search' : 'task'
                 }
               }
@@ -2029,23 +1804,32 @@ export async function handleLauncherChatMessage(
 
             if (currentThoughts || currentFinalResponse) {
               const fullResponse = accumulatedFinalResponse + currentFinalResponse
+              const countOccurrences = (str: string, subStr: string): number =>
+                str.split(subStr).length - 1
               const isWritingToolCall =
-                (fullResponse.includes('<tool_call>') && !fullResponse.includes('</tool_call>')) ||
-                (fullResponse.includes('<mini_app>') && !fullResponse.includes('</mini_app>'))
+                countOccurrences(fullResponse, '<tool_call>') >
+                  countOccurrences(fullResponse, '</tool_call>') ||
+                countOccurrences(fullResponse, '<mini_app>') >
+                  countOccurrences(fullResponse, '</mini_app>')
 
               let toolType: 'task' | 'search' | 'mini-app' | undefined = undefined
 
               if (isWritingToolCall) {
-                if (fullResponse.includes('<mini_app>')) {
+                const openMiniApp =
+                  countOccurrences(fullResponse, '<mini_app>') >
+                  countOccurrences(fullResponse, '</mini_app>')
+                if (openMiniApp) {
                   toolType = 'mini-app'
                 } else {
+                  const lastOpenIdx = fullResponse.lastIndexOf('<tool_call>')
+                  const currentToolSegment = fullResponse.substring(lastOpenIdx)
                   const isSearch =
-                    fullResponse.includes('<name>web_search</name>') ||
-                    fullResponse.includes('<name>saw_link_from_url</name>') ||
-                    fullResponse.includes('"type": "web_search"') ||
-                    fullResponse.includes('"type": "saw_link_from_url"') ||
-                    fullResponse.includes("'type': 'web_search'") ||
-                    fullResponse.includes("'type': 'saw_link_from_url'")
+                    currentToolSegment.includes('<name>web_search</name>') ||
+                    currentToolSegment.includes('<name>saw_link_from_url</name>') ||
+                    currentToolSegment.includes('"type": "web_search"') ||
+                    currentToolSegment.includes('"type": "saw_link_from_url"') ||
+                    currentToolSegment.includes("'type': 'web_search'") ||
+                    currentToolSegment.includes("'type': 'saw_link_from_url'")
                   toolType = isSearch ? 'search' : 'task'
                 }
               }
