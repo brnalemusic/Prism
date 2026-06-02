@@ -9,7 +9,6 @@ import { PrismBackground } from './components/PrismBackground'
 import { IntroScreen } from './components/IntroScreen'
 import { Sidebar } from './components/Sidebar'
 import { InputBar, InputBarHandle } from './components/InputBar'
-import { LoadingDots } from './components/LoadingDots'
 import { Spinner } from './components/Spinner'
 import { ActionLoader, ToolCall } from './components/ActionLoader'
 import { QuestionnaireRenderer } from './components/QuestionnaireRenderer'
@@ -33,7 +32,7 @@ import { ErrorPopup } from './components/ErrorPopup'
 import { triggerErrorPopup } from './utils'
 import { StreamContext, StaticMarkdownComponents, useStreamStats } from './components/AnimatedStreamingText'
 import clsx from 'clsx'
-import { CaretDown, Plus, Quotes } from '@phosphor-icons/react'
+import { CaretDown, Plus, Quotes, Brain } from '@phosphor-icons/react'
 import { AppConfig } from '../../main/config'
 
 interface HastNode {
@@ -1600,29 +1599,24 @@ function App(): React.JSX.Element {
                 )}
               >
                 {msg.role === 'ai' && (msg.isThinking || msg.thoughts) && (
-                  <div className="w-full">
-                    <details
-                      className={clsx(
-                        'group mb-4 w-full overflow-hidden rounded-[22px] border transition-all duration-300 bubble-glow',
-                        msg.isThinking
-                          ? 'border-accent-secondary/30 bg-accent-secondary/[0.045] backdrop-blur-xl'
-                          : 'border-white/[0.08] bg-white/[0.035] backdrop-blur-xl'
-                      )}
-                    >
+                  <div className="w-full mb-3">
+                    <details className="group w-full select-none">
                       <summary
                         className={clsx(
-                          'flex cursor-pointer list-none items-center px-4 py-3 font-mono text-[11px] font-semibold transition-colors',
-                          msg.isThinking
-                            ? 'text-accent-secondary'
-                            : 'text-text-secondary/75 hover:text-text-primary/90'
+                          'inline-flex items-center gap-2 text-[12.5px] py-1 select-none transition-all duration-200 cursor-pointer text-text-secondary/60 hover:text-text-secondary/90 list-none [&::-webkit-details-marker]:hidden'
                         )}
                       >
-                        <span className="flex items-center gap-2">
-                          {msg.isThinking && <LoadingDots size="xs" />}
+                        <Brain
+                          size={13}
+                          className={clsx(
+                            'text-text-secondary/50 transition-all duration-300',
+                            msg.isThinking && 'animate-pulse text-accent-secondary/70'
+                          )}
+                        />
+
+                        <span className="font-medium leading-none">
                           {(() => {
                             // Extract bold outlines like "**Initiating Black Hole Analysis**"
-                            // We look for all occurrences of **Text** and take the last one or the first one,
-                            // depending on what's active. Let's extract all matches.
                             const outlineMatches = Array.from(
                               (msg.thoughts || '').matchAll(/\*\*(.*?)\*\*/g)
                             )
@@ -1630,17 +1624,17 @@ function App(): React.JSX.Element {
                               // Take the last match to show current thinking step
                               return outlineMatches[outlineMatches.length - 1][1]
                             }
-                            return 'Thinking'
+                            return msg.isThinking ? 'Thinking...' : 'Thinking'
                           })()}
                         </span>
+
+                        <CaretDown
+                          size={11}
+                          className="text-text-muted/50 transition-transform duration-200 group-open:rotate-180"
+                        />
                       </summary>
                       <div
-                        className={clsx(
-                          'mx-3 mb-3 rounded-[16px] border px-4 py-3 font-mono text-[11.5px] leading-relaxed opacity-0 transition-all duration-500 group-open:opacity-100',
-                          msg.isThinking
-                            ? 'border-accent-secondary/20 bg-accent-secondary/[0.035] text-accent-secondary/80'
-                            : 'border-white/[0.055] bg-black/10 text-text-secondary/80'
-                        )}
+                        className="mt-1.5 border-l border-white/[0.06] ml-1.5 pl-4 py-0.5 font-mono text-[11px] leading-relaxed select-text text-text-secondary/50"
                       >
                         <ReactMarkdown
                           remarkPlugins={[

@@ -13,7 +13,8 @@ import {
   Sparkle as Sparkles,
   ArrowRight,
   ChatCircle as MessageSquare,
-  Microphone
+  Microphone,
+  CaretDown
 } from '@phosphor-icons/react'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 import { MODELS } from '../constants'
@@ -24,7 +25,6 @@ import clsx from 'clsx'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ActionLoader, ToolCall } from './ActionLoader'
-import { LoadingDots } from './LoadingDots'
 import { StreamContext, StaticMarkdownComponents, useStreamStats } from './AnimatedStreamingText'
 
 type LauncherBadge = 'youtube' | 'search' | 'think'
@@ -96,63 +96,41 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
         {/* Thought Section (reconstructed visually only for Quick Launcher!) */}
         {(msg.isThinking || msg.thoughts) && (
           <div className="w-full mb-3">
-            <details
-              className={clsx(
-                'group w-full overflow-hidden rounded-[20px] border transition-all duration-300',
-                msg.isThinking
-                  ? 'border-status-warning/25 bg-status-warning/[0.02] shadow-[0_0_15px_rgba(245,158,11,0.03)]'
-                  : 'border-white/[0.06] bg-white/[0.015]'
-              )}
-            >
-              <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 select-none hover:bg-white/[0.02] transition-colors [&::-webkit-details-marker]:hidden">
-                <div className="flex items-center gap-2.5">
-                  <div
-                    className={clsx(
-                      'flex h-6 w-6 items-center justify-center rounded-[10px] border transition-all duration-300',
-                      msg.isThinking
-                        ? 'border-status-warning/30 bg-status-warning/[0.08] text-status-warning'
-                        : 'border-white/10 bg-white/[0.04] text-text-secondary/70'
-                    )}
-                  >
-                    <Brain
-                      size={13}
-                      className={clsx(
-                        msg.isThinking && 'animate-[pulse_1.5s_infinite]'
-                      )}
-                    />
-                  </div>
-                  <span
-                    className={clsx(
-                      'font-mono text-[10px] font-bold tracking-wider uppercase',
-                      msg.isThinking
-                        ? 'text-status-warning'
-                        : 'text-text-secondary/75'
-                    )}
-                  >
-                    {(() => {
-                      const outlineMatches = Array.from(
-                        (msg.thoughts || '').matchAll(/\*\*(.*?)\*\*/g)
-                      )
-                      if (outlineMatches.length > 0) {
-                        return outlineMatches[outlineMatches.length - 1][1]
-                      }
-                      return msg.isThinking ? 'Thinking...' : 'Thoughts'
-                    })()}
-                  </span>
-                  {msg.isThinking && <LoadingDots size="xs" />}
-                </div>
-                <ChevronRight
-                  size={14}
-                  className="text-text-muted transition-transform duration-300 group-open:rotate-90"
+            <details className="group w-full select-none">
+              <summary
+                className={clsx(
+                  'inline-flex items-center gap-2 text-[12.5px] py-1 select-none transition-all duration-200 cursor-pointer text-text-secondary/60 hover:text-text-secondary/90 list-none [&::-webkit-details-marker]:hidden'
+                )}
+              >
+                <Brain
+                  size={13}
+                  className={clsx(
+                    'text-text-secondary/50 transition-all duration-300',
+                    msg.isThinking && 'animate-pulse text-accent-secondary/70'
+                  )}
+                />
+
+                <span className="font-medium leading-none">
+                  {(() => {
+                    // Extract bold outlines like "**Initiating Black Hole Analysis**"
+                    const outlineMatches = Array.from(
+                      (msg.thoughts || '').matchAll(/\*\*(.*?)\*\*/g)
+                    )
+                    if (outlineMatches.length > 0) {
+                      // Take the last match to show current thinking step
+                      return outlineMatches[outlineMatches.length - 1][1]
+                    }
+                    return msg.isThinking ? 'Thinking...' : 'Thinking'
+                  })()}
+                </span>
+
+                <CaretDown
+                  size={11}
+                  className="text-text-muted/50 transition-transform duration-200 group-open:rotate-180"
                 />
               </summary>
               <div
-                className={clsx(
-                  'mx-3 mb-3 rounded-[12px] border border-white/[0.04] bg-black/20 pl-4 pr-3 py-3 font-mono text-[11px] leading-relaxed opacity-0 transition-all duration-300 group-open:opacity-100 border-l-2',
-                  msg.isThinking
-                    ? 'border-l-status-warning/45 text-status-warning/80'
-                    : 'border-l-white/20 text-text-secondary/80'
-                )}
+                className="mt-1.5 border-l border-white/[0.06] ml-1.5 pl-4 py-0.5 font-mono text-[11px] leading-relaxed select-text text-text-secondary/50"
               >
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {msg.thoughts || ''}
