@@ -24,7 +24,10 @@ import {
   activeRuns,
   handleLauncherChatMessage,
   clearLauncherChat,
-  generateTts
+  generateTts,
+  handleAiSearchChatMessage,
+  cancelAiSearch,
+  transcribeAudio
 } from './gemini'
 import {
   searchWorkspaceFiles,
@@ -34,7 +37,7 @@ import {
   captureAppScreenshot
 } from './systemTools'
 import { loadConfig, saveConfig, AppConfig } from './config'
-import { listChatSessions, deleteChatSession } from './history'
+import { listChatSessions, deleteChatSession, searchChatsOffline } from './history'
 import { SubagentMessage, ApplicationInfo } from '../shared/types'
 
 import { initAutoUpdater } from './updater'
@@ -61,7 +64,10 @@ function createMiniAppWindow(
   css: string,
   js: string
 ): void {
+  console.log('[MiniApp] createMiniAppWindow called, id:', id)
+
   if (miniAppWindows.has(id)) {
+    console.log('[MiniApp] Window already exists, focusing')
     miniAppWindows.get(id)?.focus()
     return
   }
@@ -83,22 +89,54 @@ function createMiniAppWindow(
   })
 
   miniAppWindows.set(id, miniAppWindow)
+  console.log('[MiniApp] BrowserWindow created')
+
+  miniAppWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    console.log(`[Renderer-MiniApp] [Level ${level}] ${message} (at ${sourceId}:${line})`)
+  })
+
+  let isShown = false
+  const showWindow = (): void => {
+    if (!isShown) {
+      isShown = true
+      console.log('[MiniApp] Showing window')
+      miniAppWindow.show()
+    }
+  }
 
   miniAppWindow.on('ready-to-show', () => {
-    miniAppWindow.show()
+    console.log('[MiniApp] ready-to-show fired, showing window')
+    showWindow()
+  })
+
+  miniAppWindow.webContents.on('did-finish-load', () => {
+    console.log('[MiniApp] did-finish-load fired, sending mini-app-data')
     miniAppWindow.webContents.send('mini-app-data', { id, title, html, css, js })
+    // Fallback: show the window if ready-to-show hasn't fired
+    setTimeout(() => {
+      showWindow()
+    }, 150)
+  })
+
+  miniAppWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    console.error('[MiniApp] did-fail-load:', errorCode, errorDescription)
   })
 
   miniAppWindow.on('closed', () => {
+    console.log('[MiniApp] Window closed')
     miniAppWindows.delete(id)
     miniAppDataMap.delete(id)
     mainWindow?.webContents.send('mini-app-window-closed', id)
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    miniAppWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#mini-app`)
+    const url = `${process.env['ELECTRON_RENDERER_URL']}#mini-app`
+    console.log('[MiniApp] Loading URL (dev):', url)
+    miniAppWindow.loadURL(url)
   } else {
-    miniAppWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: 'mini-app' })
+    const filePath = join(__dirname, '../renderer/index.html')
+    console.log('[MiniApp] Loading file (prod):', filePath)
+    miniAppWindow.loadFile(filePath, { hash: 'mini-app' })
   }
 }
 
@@ -294,11 +332,12 @@ function registerGlobalShortcuts(): void {
 }
 
 function createWindow(): void {
+  console.log('createWindow called')
   // Create the browser window.
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 900,
-    show: false,
+    show: true,
     autoHideMenuBar: true,
     titleBarStyle: 'hidden',
     backgroundColor: '#0b0c0f',
@@ -313,7 +352,9 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
+    console.log('ready-to-show event fired')
     mainWindow?.show()
+    mainWindow?.focus()
     if (mainWindow) initAutoUpdater(mainWindow)
   })
 
@@ -389,275 +430,311 @@ function toggleLauncher(): void {
   }
 }
 
-app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.prism.app')
+const gotTheLock = app.requestSingleInstanceLock()
 
-  // Set working directory to user home directory in production/packaged mode
-  if (app.isPackaged) {
-    try {
-      process.chdir(os.homedir())
-    } catch (err) {
-      console.error('Failed to change working directory:', err)
-    }
-  }
-
-  // Load config after app is ready
-  currentConfig = loadConfig()
-
-  // Enforce auto-launch state based on loaded configuration
-  app.setLoginItemSettings({ openAtLogin: currentConfig.autoLaunch })
-
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
-  })
-
-  // IPC Handlers
-  ipcMain.on('chat-message', handleChatMessage)
-  ipcMain.on('set-model', (_event, modelKey) => {
-    setGeminiModel(modelKey)
-    mainWindow?.webContents.send('model-changed', modelKey)
-    launcherWindow?.webContents.send('model-changed', modelKey)
-  })
-  ipcMain.on('set-think-mode', (_event, val) => {
-    mainWindow?.webContents.send('think-mode-changed', val)
-    launcherWindow?.webContents.send('think-mode-changed', val)
-  })
-  ipcMain.on('set-search-enabled', (_event, val) => {
-    mainWindow?.webContents.send('search-enabled-changed', val)
-    launcherWindow?.webContents.send('search-enabled-changed', val)
-  })
-  ipcMain.on('set-extended-search', (_event, val) => {
-    mainWindow?.webContents.send('extended-search-changed', val)
-    launcherWindow?.webContents.send('extended-search-changed', val)
-  })
-  ipcMain.on('clear-chat', () => initGemini())
-  ipcMain.on('chat-cancel', (_event, chatId?: string) => cancelChatMessage(chatId))
-
-  ipcMain.handle('get-chats', () => {
-    return listChatSessions()
-  })
-
-  ipcMain.handle('load-chat', (_event, id: string) => {
-    return loadChatIntoHistory(id)
-  })
-
-  ipcMain.handle('delete-chat', (_event, id: string) => {
-    cancelChatMessage(id)
-    return deleteChatSession(id)
-  })
-
-  ipcMain.handle('generate-tts', async (_event, text: string) => {
-    return await generateTts(text)
-  })
-
-  ipcMain.handle('get-running-chats', () => {
-    return Array.from(activeRuns.keys())
-  })
-
-  ipcMain.handle('launcher-get-apps', () => {
-    return cachedApps
-  })
-
-  ipcMain.handle('launcher-get-app-icon', async (_event, appPath) => {
-    try {
-      const nativeImg = await app.getFileIcon(appPath, { size: 'normal' })
-      return nativeImg.toDataURL()
-    } catch {
-      return null
-    }
-  })
-
-  ipcMain.handle('launcher-search-files', async (_event, query) => {
-    return await searchWorkspaceFiles(query)
-  })
-
-  ipcMain.handle('launcher-open-app', async (_event, appPath) => {
-    return await openApplication(appPath)
-  })
-
-  ipcMain.handle('launcher-open-file', async (_event, filePath) => {
-    try {
-      const err = await shell.openPath(filePath)
-      return err ? `Error: ${err}` : 'Success'
-    } catch (e) {
-      return `Error: ${e instanceof Error ? e.message : String(e)}`
-    }
-  })
-
-  ipcMain.on('launcher-chat-message', (event, data) => {
-    handleLauncherChatMessage(event, data)
-  })
-
-  ipcMain.on('launcher-chat-clear', () => {
-    clearLauncherChat()
-  })
-
-  ipcMain.on('launcher-submit', (_event, data) => {
-    launcherWindow?.hide()
+if (!gotTheLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    console.log('Second instance event received')
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
       mainWindow.focus()
-      mainWindow.webContents.send('launcher-message', data)
+      // Force window focus on Windows
+      mainWindow.setAlwaysOnTop(true)
+      mainWindow.focus()
+      mainWindow.setAlwaysOnTop(false)
+    } else {
+      createWindow()
     }
   })
 
-  ipcMain.on('hide-launcher', () => {
-    launcherWindow?.hide()
-  })
+  app.whenReady().then(() => {
+    electronApp.setAppUserModelId('com.prism.app')
 
-  ipcMain.on('minimize-app', () => {
-    mainWindow?.minimize()
-  })
-
-  ipcMain.on('minimize-subagents-window', () => {
-    subagentsWindow?.minimize()
-  })
-
-  ipcMain.on('close-subagents-window', () => {
-    subagentsWindow?.close()
-  })
-
-  ipcMain.on('open-subagents-window', (_event, initialMessages) => {
-    createSubagentsWindow(initialMessages)
-  })
-
-  ipcMain.on('open-subagent-settings-window', () => {
-    createSubagentSettingsWindow()
-  })
-
-  ipcMain.on('close-subagent-settings-window', () => {
-    subagentSettingsWindow?.close()
-  })
-
-  ipcMain.on('subagent-message-broadcast', (_event, data) => {
-    subagentsWindow?.webContents.send('subagent-message', data)
-    mainWindow?.webContents.send('subagent-message', data)
-  })
-
-  ipcMain.on('auto-minimize-trigger', () => {
-    setTimeout(() => {
-      mainWindow?.minimize()
-    }, 200)
-  })
-
-  ipcMain.on('open-mini-app-window', (_event, { id, title, html, css, js }) => {
-    createMiniAppWindow(id, title, html, css, js)
-  })
-
-  ipcMain.handle('get-mini-app-data', (event) => {
-    const senderWebContents = event.sender
-    for (const [id, win] of miniAppWindows.entries()) {
-      if (win.webContents === senderWebContents) {
-        return miniAppDataMap.get(id) || null
+    // Set working directory to user home directory in production/packaged mode
+    if (app.isPackaged) {
+      try {
+        process.chdir(os.homedir())
+      } catch (err) {
+        console.error('Failed to change working directory:', err)
       }
     }
-    return null
-  })
 
-  ipcMain.on('close-mini-app-window', (_event, id) => {
-    const win = miniAppWindows.get(id)
-    if (win) win.close()
-  })
+    // Load config after app is ready
+    currentConfig = loadConfig()
 
-  ipcMain.on('minimize-mini-app-window', (_event, id) => {
-    const win = miniAppWindows.get(id)
-    if (win) win.minimize()
-  })
+    // Enforce auto-launch state based on loaded configuration
+    app.setLoginItemSettings({ openAtLogin: currentConfig.autoLaunch })
 
-  ipcMain.on('close-app', () => {
-    if (currentConfig.minimizeToTray) {
-      mainWindow?.hide()
-    } else {
-      isQuitting = true
-      app.quit()
-    }
-  })
+    app.on('browser-window-created', (_, window) => {
+      optimizer.watchWindowShortcuts(window)
+    })
 
-  ipcMain.handle('get-config', () => {
-    return {
-      ...currentConfig,
-      envGeminiKey: process.env.GEMINI_API_KEY,
-      username: os.userInfo().username,
-      appVersion: app.getVersion()
-    }
-  })
+    // IPC Handlers
+    ipcMain.on('chat-message', handleChatMessage)
+    ipcMain.on('set-model', (_event, modelKey) => {
+      setGeminiModel(modelKey)
+      mainWindow?.webContents.send('model-changed', modelKey)
+      launcherWindow?.webContents.send('model-changed', modelKey)
+    })
+    ipcMain.on('set-think-mode', (_event, val) => {
+      mainWindow?.webContents.send('think-mode-changed', val)
+      launcherWindow?.webContents.send('think-mode-changed', val)
+    })
+    ipcMain.on('set-search-enabled', (_event, val) => {
+      mainWindow?.webContents.send('search-enabled-changed', val)
+      launcherWindow?.webContents.send('search-enabled-changed', val)
+    })
+    ipcMain.on('set-extended-search', (_event, val) => {
+      mainWindow?.webContents.send('extended-search-changed', val)
+      launcherWindow?.webContents.send('extended-search-changed', val)
+    })
+    ipcMain.on('clear-chat', () => initGemini())
+    ipcMain.on('chat-cancel', (_event, chatId?: string) => cancelChatMessage(chatId))
+    ipcMain.on('ai-search-message', (event, data) => {
+      handleAiSearchChatMessage(event, data)
+    })
+    ipcMain.on('ai-search-cancel', () => {
+      cancelAiSearch()
+    })
+    ipcMain.handle('search-chats-offline', (_event, query: string) => {
+      return searchChatsOffline(query)
+    })
 
-  ipcMain.handle('save-config', (_event, config: AppConfig) => {
-    currentConfig = config
+    ipcMain.handle('get-chats', () => {
+      return listChatSessions()
+    })
 
-    // Update the API key in the gemini module
-    if (config.userGeminiKey) {
-      setUserApiKey(config.userGeminiKey)
-    }
-    setSubagentModel(config.subagentModel)
+    ipcMain.handle('load-chat', (_event, id: string) => {
+      return loadChatIntoHistory(id)
+    })
 
-    const success = saveConfig(config)
-    if (success) {
+    ipcMain.handle('delete-chat', (_event, id: string) => {
+      cancelChatMessage(id)
+      return deleteChatSession(id)
+    })
+
+    ipcMain.handle('generate-tts', async (_event, text: string) => {
+      return await generateTts(text)
+    })
+
+    ipcMain.handle('transcribe-audio', async (_event, audioBase64: string) => {
+      console.log('[IPC] Handling transcribe-audio request')
+      return await transcribeAudio(audioBase64)
+    })
+
+    ipcMain.handle('get-running-chats', () => {
+      return Array.from(activeRuns.keys())
+    })
+
+    ipcMain.handle('launcher-get-apps', () => {
+      return cachedApps
+    })
+
+    ipcMain.handle('launcher-get-app-icon', async (_event, appPath) => {
+      try {
+        const nativeImg = await app.getFileIcon(appPath, { size: 'normal' })
+        return nativeImg.toDataURL()
+      } catch {
+        return null
+      }
+    })
+
+    ipcMain.handle('launcher-search-files', async (_event, query) => {
+      return await searchWorkspaceFiles(query)
+    })
+
+    ipcMain.handle('launcher-open-app', async (_event, appPath) => {
+      return await openApplication(appPath)
+    })
+
+    ipcMain.handle('launcher-open-file', async (_event, filePath) => {
+      try {
+        const err = await shell.openPath(filePath)
+        return err ? `Error: ${err}` : 'Success'
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`
+      }
+    })
+
+    ipcMain.on('launcher-chat-message', (event, data) => {
+      handleLauncherChatMessage(event, data)
+    })
+
+    ipcMain.on('launcher-chat-clear', () => {
+      clearLauncherChat()
+    })
+
+    ipcMain.on('launcher-submit', (_event, data) => {
+      launcherWindow?.hide()
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore()
+        mainWindow.show()
+        mainWindow.focus()
+        mainWindow.webContents.send('launcher-message', data)
+      }
+    })
+
+    ipcMain.on('hide-launcher', () => {
+      launcherWindow?.hide()
+    })
+
+    ipcMain.on('minimize-app', () => {
+      mainWindow?.minimize()
+    })
+
+    ipcMain.on('minimize-subagents-window', () => {
+      subagentsWindow?.minimize()
+    })
+
+    ipcMain.on('close-subagents-window', () => {
+      subagentsWindow?.close()
+    })
+
+    ipcMain.on('open-subagents-window', (_event, initialMessages) => {
+      createSubagentsWindow(initialMessages)
+    })
+
+    ipcMain.on('open-subagent-settings-window', () => {
+      createSubagentSettingsWindow()
+    })
+
+    ipcMain.on('close-subagent-settings-window', () => {
+      subagentSettingsWindow?.close()
+    })
+
+    ipcMain.on('subagent-message-broadcast', (_event, data) => {
+      subagentsWindow?.webContents.send('subagent-message', data)
+      mainWindow?.webContents.send('subagent-message', data)
+    })
+
+    ipcMain.on('auto-minimize-trigger', () => {
+      setTimeout(() => {
+        mainWindow?.minimize()
+      }, 200)
+    })
+
+    ipcMain.on('open-mini-app-window', (_event, { id, title, html, css, js }) => {
+      console.log('[IPC] open-mini-app-window received, id:', id)
+      createMiniAppWindow(id, title, html, css, js)
+    })
+
+    ipcMain.handle('get-mini-app-data', (event) => {
+      const senderWebContents = event.sender
+      for (const [id, win] of miniAppWindows.entries()) {
+        if (win.webContents === senderWebContents) {
+          return miniAppDataMap.get(id) || null
+        }
+      }
+      return null
+    })
+
+    ipcMain.on('close-mini-app-window', (_event, id) => {
+      const win = miniAppWindows.get(id)
+      if (win) win.close()
+    })
+
+    ipcMain.on('minimize-mini-app-window', (_event, id) => {
+      const win = miniAppWindows.get(id)
+      if (win) win.minimize()
+    })
+
+    ipcMain.on('close-app', () => {
+      if (currentConfig.minimizeToTray) {
+        mainWindow?.hide()
+      } else {
+        isQuitting = true
+        app.quit()
+      }
+    })
+
+    ipcMain.handle('get-config', () => {
+      return {
+        ...currentConfig,
+        envGeminiKey: process.env.GEMINI_API_KEY,
+        username: os.userInfo().username,
+        appVersion: app.getVersion()
+      }
+    })
+
+    ipcMain.handle('save-config', (_event, config: AppConfig) => {
+      currentConfig = config
+
+      // Update the API key in the gemini module
+      if (config.userGeminiKey) {
+        setUserApiKey(config.userGeminiKey)
+      }
+      setSubagentModel(config.subagentModel)
+
+      const success = saveConfig(config)
+      if (success) {
+        registerGlobalShortcuts()
+        // Notify both windows
+        mainWindow?.webContents.send('config-changed', config)
+        launcherWindow?.webContents.send('config-changed', config)
+        subagentSettingsWindow?.webContents.send('config-changed', config)
+      }
+      return success
+    })
+
+    ipcMain.on('update-config-from-tools', (_event, config: AppConfig) => {
+      currentConfig = config
       registerGlobalShortcuts()
+      app.setLoginItemSettings({ openAtLogin: config.autoLaunch })
       // Notify both windows
       mainWindow?.webContents.send('config-changed', config)
       launcherWindow?.webContents.send('config-changed', config)
       subagentSettingsWindow?.webContents.send('config-changed', config)
-    }
-    return success
-  })
+    })
 
-  ipcMain.on('update-config-from-tools', (_event, config: AppConfig) => {
-    currentConfig = config
     registerGlobalShortcuts()
-    app.setLoginItemSettings({ openAtLogin: config.autoLaunch })
-    // Notify both windows
-    mainWindow?.webContents.send('config-changed', config)
-    launcherWindow?.webContents.send('config-changed', config)
-    subagentSettingsWindow?.webContents.send('config-changed', config)
-  })
+    setGeminiModel(currentConfig.defaultModel)
+    setSubagentModel(currentConfig.subagentModel)
 
-  registerGlobalShortcuts()
-  setGeminiModel(currentConfig.defaultModel)
-  setSubagentModel(currentConfig.subagentModel)
+    if (currentConfig.userGeminiKey) {
+      setUserApiKey(currentConfig.userGeminiKey)
+    }
 
-  if (currentConfig.userGeminiKey) {
-    setUserApiKey(currentConfig.userGeminiKey)
-  }
+    registerAppsUpdatedCallback((apps) => {
+      cachedApps = apps
+      launcherWindow?.webContents.send('launcher-apps-updated', cachedApps)
+    })
 
-  registerAppsUpdatedCallback((apps) => {
-    cachedApps = apps
-    launcherWindow?.webContents.send('launcher-apps-updated', cachedApps)
-  })
+    listApplications()
+      .then((res) => {
+        try {
+          cachedApps = JSON.parse(res)
+        } catch (e) {
+          console.error('Failed to parse applications list:', e)
+        }
+      })
+      .catch((e) => {
+        console.error('Failed to cache applications:', e)
+      })
 
-  listApplications()
-    .then((res) => {
-      try {
-        cachedApps = JSON.parse(res)
-      } catch (e) {
-        console.error('Failed to parse applications list:', e)
+    initGemini()
+    createWindow()
+    createLauncherWindow()
+    createTray()
+
+    app.on('activate', function () {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow()
+      } else {
+        mainWindow?.show()
       }
     })
-    .catch((e) => {
-      console.error('Failed to cache applications:', e)
-    })
+  })
 
-  initGemini()
-  createWindow()
-  createLauncherWindow()
-  createTray()
-
-  app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
-    } else {
-      mainWindow?.show()
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit()
     }
   })
-})
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
-})
-
-app.on('will-quit', () => {
-  globalShortcut.unregisterAll()
-})
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll()
+  })
+}

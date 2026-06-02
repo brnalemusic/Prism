@@ -32,6 +32,7 @@ interface Config {
   ttsVoice: string
   theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb'
   rgbThemeExpiry?: number
+  isRgbUnlocked?: boolean
 }
 
 export function SettingsView(): React.JSX.Element {
@@ -47,7 +48,8 @@ export function SettingsView(): React.JSX.Element {
     userGeminiKey: '',
     appVersion: '',
     ttsVoice: 'Aoede',
-    theme: 'marine'
+    theme: 'marine',
+    isRgbUnlocked: false
   })
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState({ text: '', type: '' })
@@ -65,7 +67,8 @@ export function SettingsView(): React.JSX.Element {
           screenshotShortcut: savedConfig.screenshotShortcut || 'Ctrl+Alt+Space',
           appVersion: savedConfig.appVersion || '',
           ttsVoice: savedConfig.ttsVoice || 'Aoede',
-          theme: savedConfig.theme || 'marine'
+          theme: savedConfig.theme || 'marine',
+          isRgbUnlocked: savedConfig.isRgbUnlocked ?? false
         })
       }
     }
@@ -82,7 +85,8 @@ export function SettingsView(): React.JSX.Element {
           screenshotShortcut: cfg.screenshotShortcut || 'Ctrl+Alt+Space',
           appVersion: cfg.appVersion || '',
           ttsVoice: cfg.ttsVoice || 'Aoede',
-          theme: cfg.theme || 'marine'
+          theme: cfg.theme || 'marine',
+          isRgbUnlocked: cfg.isRgbUnlocked ?? prev.isRgbUnlocked ?? false
         }))
       }
     })
@@ -137,7 +141,8 @@ export function SettingsView(): React.JSX.Element {
       userGeminiKey: '',
       appVersion: config.appVersion,
       ttsVoice: 'Aoede',
-      theme: 'marine'
+      theme: 'marine',
+      isRgbUnlocked: config.isRgbUnlocked
     })
   }
 
@@ -432,7 +437,13 @@ export function SettingsView(): React.JSX.Element {
                   onClick={() =>
                     setConfig({
                       ...config,
-                      theme: themeOpt.id as 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb'
+                      theme: themeOpt.id as
+                        | 'marine'
+                        | 'vertez'
+                        | 'akoustik'
+                        | 'terno'
+                        | 'ursula'
+                        | 'rgb'
                     })
                   }
                   className={clsx(
@@ -465,7 +476,7 @@ export function SettingsView(): React.JSX.Element {
                 </button>
               ))}
 
-              {!isRgbActive && (
+              {!isRgbActive && config.isRgbUnlocked && (
                 <div className="flex items-center gap-4 rounded-[20px] border border-dashed border-white/[0.08] bg-white/[0.015] p-4 text-left select-none opacity-40">
                   <div className="flex items-center justify-center p-2.5 rounded-xl bg-black/40 border border-white/5 shrink-0 text-text-muted">
                     <Lock size={20} />
@@ -473,7 +484,7 @@ export function SettingsView(): React.JSX.Element {
                   <div className="flex flex-col">
                     <span className="text-sm font-semibold mb-0.5 text-text-muted">???</span>
                     <span className="text-xs text-text-secondary/40 leading-tight">
-                      Ask the assistant for clues to unlock this secret theme.
+                      ???????????????
                     </span>
                   </div>
                 </div>

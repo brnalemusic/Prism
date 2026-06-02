@@ -1,8 +1,17 @@
-import { ChatTeardropText, Gear, CheckSquare, Plus, Trash, Clock } from '@phosphor-icons/react'
-import { useState, useEffect, useRef } from 'react'
+import {
+  ChatTeardropText,
+  Gear,
+  CheckSquare,
+  Plus,
+  Trash,
+  Clock,
+  MagnifyingGlass
+} from '@phosphor-icons/react'
+import React, { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import { LoadingDots } from './LoadingDots'
 import { Spinner } from './Spinner'
+import { AnimatedStreamingText, StreamContext, useStreamStats } from './AnimatedStreamingText'
 import type { AppConfig } from '../../../main/config'
 
 interface ChatSession {
@@ -22,7 +31,21 @@ interface SidebarProps {
   className?: string
   isOpen?: boolean
   config?: AppConfig | null
+  onOpenSearch?: () => void
 }
+
+interface StreamTitleWrapperProps {
+  title: string
+}
+
+const StreamTitleWrapper = React.memo(function StreamTitleWrapper({ title }: StreamTitleWrapperProps) {
+  const streamStats = useStreamStats(title, true)
+  return (
+    <StreamContext.Provider value={streamStats}>
+      <AnimatedStreamingText text={title} isStreaming={true} mode="chars" />
+    </StreamContext.Provider>
+  )
+})
 
 export function Sidebar({
   activeView,
@@ -34,7 +57,8 @@ export function Sidebar({
   runningChats = {},
   className,
   isOpen = false,
-  config
+  config,
+  onOpenSearch
 }: SidebarProps): React.JSX.Element {
   const [chats, setChats] = useState<ChatSession[]>([])
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
@@ -182,6 +206,11 @@ export function Sidebar({
           badge={runningTasksCount > 0 ? runningTasksCount : undefined}
           pulse={runningTasksCount > 0}
         />
+        <NavItem
+          icon={<MagnifyingGlass size={18} weight="regular" />}
+          label="Search"
+          onClick={onOpenSearch}
+        />
       </nav>
 
       <div className="mx-4 h-px shrink-0 bg-white/[0.04]" />
@@ -207,7 +236,15 @@ export function Sidebar({
                 )}
                 title={chat.title}
               >
-                {chat.title ? chat.title : <LoadingDots className="h-full py-1" size="xs" />}
+                {chat.title ? (
+                  streamingIntervals.current[chat.id] ? (
+                    <StreamTitleWrapper title={chat.title} />
+                  ) : (
+                    chat.title
+                  )
+                ) : (
+                  <LoadingDots className="h-full py-1" size="xs" />
+                )}
               </button>
               {runningChats[chat.id] && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none transition-opacity duration-300 group-hover:opacity-0">

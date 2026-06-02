@@ -8,9 +8,12 @@ import {
   Robot as Bot,
   CornersOut as Maximize2,
   CornersIn as Minimize2,
-  CaretDown as ChevronDown
+  CaretDown as ChevronDown,
+  Microphone,
+  StopCircle
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
+import { useSpeechToText } from '../hooks/useSpeechToText'
 import { ModelSelector } from './ModelSelector'
 
 interface InputBarProps {
@@ -31,7 +34,7 @@ interface InputBarProps {
   selectedModel?: string
   onModelChange?: (modelId: string) => void
   text: string
-  setText: (val: string) => void
+  setText: (val: string | ((prev: string) => string)) => void
   isSearchEnabled: boolean
   setIsSearchEnabled: (val: boolean) => void
   isExtendedSearch: boolean
@@ -81,6 +84,22 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     const inputRef = useRef<HTMLTextAreaElement>(null)
     const searchDropdownRef = useRef<HTMLDivElement>(null)
     const searchButtonRef = useRef<HTMLButtonElement>(null)
+
+    const shouldSendRef = useRef(false)
+
+    const { isRecording, isTranscribing, toggleRecording } = useSpeechToText((transcription) => {
+      const newText = textRef.current.trim()
+        ? textRef.current + '\n\n' + transcription
+        : transcription
+      setText(newText)
+
+      if (shouldSendRef.current) {
+        shouldSendRef.current = false
+        handleSend(newText)
+      }
+
+      setTimeout(() => inputRef.current?.focus(), 100)
+    })
 
     const isYoutubeMode = text.startsWith('/youtube')
     const isSearchAndThinkMode = isSearchEnabled && isThinkMode
@@ -184,9 +203,16 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       textRef.current = text
     }, [text])
 
-    // Global keyboard shortcuts (Ctrl+S, Ctrl+E, Ctrl+T, Ctrl+Y)
+    // Global keyboard shortcuts (Ctrl+S, Ctrl+E, Ctrl+T, Ctrl+Y, Ctrl+D)
     useEffect(() => {
       const handleGlobalKeyDown = (e: KeyboardEvent): void => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+          e.preventDefault()
+          if (isRecording) {
+            shouldSendRef.current = true
+          }
+          toggleRecording()
+        }
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
           e.preventDefault()
           const nextVal = !isSearchEnabled
@@ -235,7 +261,8 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       isExtendedSearch,
       setIsSearchEnabled,
       setIsExtendedSearch,
-      setText
+      setText,
+      isRecording
     ])
 
     useEffect(() => {
@@ -259,9 +286,10 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       }
     }, [disabled])
 
-    const handleSend = (): void => {
-      if ((text.trim() || screenshot) && !disabled) {
-        const trimmedText = text.trim()
+    const handleSend = (overrideText?: string): void => {
+      const currentText = overrideText !== undefined ? overrideText : text
+      if ((currentText.trim() || screenshot) && !disabled) {
+        const trimmedText = currentText.trim()
 
         if (trimmedText === '/subagents') {
           onOpenSubagentSettings?.()
@@ -458,7 +486,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
 
     const renderBottomControls = (): React.JSX.Element => (
       <div className="flex w-full items-center justify-between border-t border-white/[0.055] pt-2 mt-2 select-none relative z-20">
-        <div className="flex-1 flex items-center">
+        <div className="flex-1 flex items-center gap-2">
           {isFullscreen && (
             <div className="text-xs text-text-muted font-medium">
               {text.length} characters | Press{' '}
@@ -466,6 +494,35 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               exit
             </div>
           )}
+
+          <button
+            onClick={toggleRecording}
+            disabled={disabled || isTranscribing}
+            className={clsx(
+              'flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-200 border relative overflow-hidden group',
+              isRecording
+                ? 'bg-status-error/20 border-status-error/30 text-status-error animate-pulse'
+                : isTranscribing
+                  ? 'bg-accent-primary/20 border-accent-primary/30 text-accent-primary cursor-wait'
+                  : 'bg-white/[0.035] border-white/10 text-text-secondary hover:bg-white/[0.08] hover:text-text-primary'
+            )}
+            title={isRecording ? 'Stop Recording' : 'Start Dictation'}
+          >
+            {isTranscribing ? (
+              <div className="flex items-center gap-0.5">
+                <span className="h-1 w-1 rounded-full bg-current animate-bounce [animation-delay:-0.3s]" />
+                <span className="h-1 w-1 rounded-full bg-current animate-bounce [animation-delay:-0.15s]" />
+                <span className="h-1 w-1 rounded-full bg-current animate-bounce" />
+              </div>
+            ) : isRecording ? (
+              <StopCircle size={18} weight="fill" />
+            ) : (
+              <Microphone size={18} />
+            )}
+            {isRecording && (
+              <div className="absolute inset-0 bg-status-error/10 animate-[ping_2s_ease-in-out_infinite]" />
+            )}
+          </button>
         </div>
 
         <div className="flex items-center gap-2 relative">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   Command,
   CaretRight as ChevronRight,
@@ -12,8 +12,10 @@ import {
   AppWindow,
   Sparkle as Sparkles,
   ArrowRight,
-  ChatCircle as MessageSquare
+  ChatCircle as MessageSquare,
+  Microphone
 } from '@phosphor-icons/react'
+import { useSpeechToText } from '../hooks/useSpeechToText'
 import { MODELS } from '../constants'
 import { isShortcutPressed, triggerErrorPopup } from '../utils'
 import { ErrorPopup } from './ErrorPopup'
@@ -23,6 +25,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ActionLoader, ToolCall } from './ActionLoader'
 import { LoadingDots } from './LoadingDots'
+import { StreamContext, StaticMarkdownComponents, useStreamStats } from './AnimatedStreamingText'
 
 type LauncherBadge = 'youtube' | 'search' | 'think'
 
@@ -71,8 +74,146 @@ interface Message {
   screenshot?: string
 }
 
+interface LauncherAiMessageProps {
+  msg: Message
+  markdownComponents: import('react-markdown').Components
+}
+
+const LauncherAiMessage = React.memo(function LauncherAiMessage({
+  msg,
+  markdownComponents
+}: LauncherAiMessageProps) {
+  const streamStats = useStreamStats(msg.content, !!msg.isStreaming)
+
+  return (
+    <StreamContext.Provider value={streamStats}>
+      <div
+        className={clsx(
+          'flex flex-col w-full max-w-none transition-opacity duration-300 text-sm leading-relaxed font-normal text-text-primary prose prose-invert py-1',
+          msg.isStreaming && 'opacity-90'
+        )}
+      >
+        {/* Thought Section (reconstructed visually only for Quick Launcher!) */}
+        {(msg.isThinking || msg.thoughts) && (
+          <div className="w-full mb-3">
+            <details
+              className={clsx(
+                'group w-full overflow-hidden rounded-[20px] border transition-all duration-300',
+                msg.isThinking
+                  ? 'border-status-warning/25 bg-status-warning/[0.02] shadow-[0_0_15px_rgba(245,158,11,0.03)]'
+                  : 'border-white/[0.06] bg-white/[0.015]'
+              )}
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 select-none hover:bg-white/[0.02] transition-colors [&::-webkit-details-marker]:hidden">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className={clsx(
+                      'flex h-6 w-6 items-center justify-center rounded-[10px] border transition-all duration-300',
+                      msg.isThinking
+                        ? 'border-status-warning/30 bg-status-warning/[0.08] text-status-warning'
+                        : 'border-white/10 bg-white/[0.04] text-text-secondary/70'
+                    )}
+                  >
+                    <Brain
+                      size={13}
+                      className={clsx(
+                        msg.isThinking && 'animate-[pulse_1.5s_infinite]'
+                      )}
+                    />
+                  </div>
+                  <span
+                    className={clsx(
+                      'font-mono text-[10px] font-bold tracking-wider uppercase',
+                      msg.isThinking
+                        ? 'text-status-warning'
+                        : 'text-text-secondary/75'
+                    )}
+                  >
+                    {(() => {
+                      const outlineMatches = Array.from(
+                        (msg.thoughts || '').matchAll(/\*\*(.*?)\*\*/g)
+                      )
+                      if (outlineMatches.length > 0) {
+                        return outlineMatches[outlineMatches.length - 1][1]
+                      }
+                      return msg.isThinking ? 'Thinking...' : 'Thoughts'
+                    })()}
+                  </span>
+                  {msg.isThinking && <LoadingDots size="xs" />}
+                </div>
+                <ChevronRight
+                  size={14}
+                  className="text-text-muted transition-transform duration-300 group-open:rotate-90"
+                />
+              </summary>
+              <div
+                className={clsx(
+                  'mx-3 mb-3 rounded-[12px] border border-white/[0.04] bg-black/20 pl-4 pr-3 py-3 font-mono text-[11px] leading-relaxed opacity-0 transition-all duration-300 group-open:opacity-100 border-l-2',
+                  msg.isThinking
+                    ? 'border-l-status-warning/45 text-status-warning/80'
+                    : 'border-l-white/20 text-text-secondary/80'
+                )}
+              >
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {msg.thoughts || ''}
+                </ReactMarkdown>
+              </div>
+            </details>
+          </div>
+        )}
+
+        {/* Content rendering: split by tool call and mini-app tags to render inline */}
+        {(() => {
+          const parts = msg.content.split(
+            /(<tool_call>[\s\S]*?<\/tool_call>|<mini_app>[\s\S]*?<\/mini_app>)/g
+          )
+          let toolCallIndex = 0
+          return parts.map((part, index) => {
+            if (part.startsWith('<tool_call>')) {
+              if (part.includes('</tool_call>')) {
+                const tc = msg.toolCalls?.[toolCallIndex]
+                toolCallIndex++
+                if (tc) {
+                  return <ActionLoader key={`tc-${index}`} toolCall={tc} />
+                }
+              }
+              return null
+            } else if (part.trim() !== '') {
+              return (
+                <div key={`text-${index}`} className="prose prose-invert max-w-none">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={markdownComponents}
+                  >
+                    {part}
+                  </ReactMarkdown>
+                </div>
+              )
+            }
+            return null
+          })
+        })()}
+
+        {msg.isWritingToolCall && (
+          <ActionLoader
+            key="writing-tc"
+            toolCall={{
+              name: msg.toolType || 'task',
+              status: 'writing',
+              args: {}
+            }}
+          />
+        )}
+
+
+      </div>
+    </StreamContext.Provider>
+  )
+})
+
 export function QuickLauncher(): React.JSX.Element {
   const [query, setQuery] = useState('')
+  const markdownComponents = useMemo(() => StaticMarkdownComponents, [])
   const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false)
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
   const [isThinkMode, setIsThinkMode] = useState(false) // Think mode default disabled for launcher
@@ -96,6 +237,26 @@ export function QuickLauncher(): React.JSX.Element {
   // Mini-Chat Overlay State
   const [isMiniChatOpen, setIsMiniChatOpen] = useState(false)
   const [launcherMessages, setLauncherMessages] = useState<Message[]>([])
+
+  const shouldSendRef = useRef(false)
+  const queryRef = useRef(query)
+  useEffect(() => {
+    queryRef.current = query
+  }, [query])
+
+  const { isRecording, isTranscribing, toggleRecording } = useSpeechToText((transcription) => {
+    const newQuery = queryRef.current.trim()
+      ? queryRef.current + ' ' + transcription
+      : transcription
+    setQuery(newQuery)
+
+    if (shouldSendRef.current) {
+      shouldSendRef.current = false
+      submitMessage(newQuery)
+    }
+
+    setTimeout(() => inputRef.current?.focus(), 100)
+  })
 
   const isYoutubeMode = query.startsWith('/youtube')
   const activeMode = isYoutubeMode
@@ -522,6 +683,16 @@ export function QuickLauncher(): React.JSX.Element {
         return
       }
 
+      // Dictation shortcut (Ctrl+D)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault()
+        if (isRecording) {
+          shouldSendRef.current = true
+        }
+        toggleRecording()
+        return
+      }
+
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
         window.api.setSearchEnabled(!isSearchEnabled)
@@ -615,21 +786,21 @@ export function QuickLauncher(): React.JSX.Element {
     isThinkMode,
     quickLauncherMode,
     isMiniChatOpen,
-    handleSuggestionAction
+    handleSuggestionAction,
+    isRecording
   ])
 
-  const buildMessage = (): string => {
-    const trimmed = query.trim()
+  const buildMessage = (targetQuery: string): string => {
+    const trimmed = targetQuery.trim()
     if (trimmed.startsWith('/search ')) return `[FORCE_SEARCH] ${trimmed.substring(8).trim()}`
     if (trimmed === '/search') return '[FORCE_SEARCH] '
     return isSearchEnabled ? `[FORCE_SEARCH] ${trimmed}` : trimmed
   }
 
-  const handleSubmit = (e: React.FormEvent): void => {
-    e.preventDefault()
-    if (!query.trim() && !attachedScreenshot) return
+  const submitMessage = (targetQuery: string): void => {
+    if (!targetQuery.trim() && !attachedScreenshot) return
 
-    if (query.trim() === '/subagents') {
+    if (targetQuery.trim() === '/subagents') {
       window.api.openSubagentSettingsWindow()
       window.api.hideLauncher()
       setQuery('')
@@ -640,7 +811,7 @@ export function QuickLauncher(): React.JSX.Element {
     if (quickLauncherMode === 'advanced') {
       // Focus in-app directly
       window.api.submitLauncher({
-        message: buildMessage(),
+        message: buildMessage(targetQuery),
         thinkMode: isThinkMode,
         screenshot: attachedScreenshot || undefined
       })
@@ -649,10 +820,10 @@ export function QuickLauncher(): React.JSX.Element {
     } else {
       // Simple mode: chat inline
       setIsMiniChatOpen(true)
-      const userMsg = buildMessage()
+      const userMsg = buildMessage(targetQuery)
       setLauncherMessages((prev) => [
         ...prev,
-        { role: 'user', content: query, screenshot: attachedScreenshot || undefined }
+        { role: 'user', content: targetQuery, screenshot: attachedScreenshot || undefined }
       ])
       setQuery('')
       window.api.sendLauncherChatMessage({
@@ -662,6 +833,11 @@ export function QuickLauncher(): React.JSX.Element {
       })
       setAttachedScreenshot(null)
     }
+  }
+
+  const handleSubmit = (e: React.FormEvent): void => {
+    e.preventDefault()
+    submitMessage(query)
   }
 
   const modeClasses = {
@@ -964,6 +1140,31 @@ export function QuickLauncher(): React.JSX.Element {
               />
             </form>
 
+            <button
+              type="button"
+              onClick={toggleRecording}
+              disabled={isTranscribing}
+              className={clsx(
+                'relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] border transition-all duration-200',
+                isRecording
+                  ? 'border-status-error/30 bg-status-error/20 text-status-error animate-pulse'
+                  : isTranscribing
+                    ? 'border-accent-primary/30 bg-accent-primary/20 text-accent-primary cursor-wait'
+                    : 'border-white/[0.08] bg-[#1e2026] text-text-secondary hover:bg-[#25272e] hover:text-text-primary'
+              )}
+              title={isRecording ? 'Stop Recording' : 'Start Dictation'}
+            >
+              {isTranscribing ? (
+                <div className="flex items-center gap-0.5">
+                  <span className="h-1 w-1 rounded-full bg-current animate-bounce [animation-delay:-0.3s]" />
+                  <span className="h-1 w-1 rounded-full bg-current animate-bounce [animation-delay:-0.15s]" />
+                  <span className="h-1 w-1 rounded-full bg-current animate-bounce" />
+                </div>
+              ) : (
+                <Microphone size={20} weight={isRecording ? 'fill' : 'regular'} />
+              )}
+            </button>
+
             {/* Indicators badges */}
             {activeBadges.length > 0 && (
               <div
@@ -1108,125 +1309,10 @@ export function QuickLauncher(): React.JSX.Element {
                       {msg.content}
                     </div>
                   ) : (
-                    <div
-                      className={clsx(
-                        'flex flex-col w-full max-w-none transition-opacity duration-300 text-sm leading-relaxed font-normal text-text-primary prose prose-invert py-1',
-                        msg.isStreaming && 'opacity-90'
-                      )}
-                    >
-                      {/* Thought Section (reconstructed visually only for Quick Launcher!) */}
-                      {(msg.isThinking || msg.thoughts) && (
-                        <div className="w-full mb-3">
-                          <details
-                            className={clsx(
-                              'group w-full overflow-hidden rounded-[20px] border transition-all duration-300',
-                              msg.isThinking
-                                ? 'border-status-warning/25 bg-status-warning/[0.02] shadow-[0_0_15px_rgba(245,158,11,0.03)]'
-                                : 'border-white/[0.06] bg-white/[0.015]'
-                            )}
-                          >
-                            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 select-none hover:bg-white/[0.02] transition-colors [&::-webkit-details-marker]:hidden">
-                              <div className="flex items-center gap-2.5">
-                                <div
-                                  className={clsx(
-                                    'flex h-6 w-6 items-center justify-center rounded-[10px] border transition-all duration-300',
-                                    msg.isThinking
-                                      ? 'border-status-warning/30 bg-status-warning/[0.08] text-status-warning'
-                                      : 'border-white/10 bg-white/[0.04] text-text-secondary/70'
-                                  )}
-                                >
-                                  <Brain
-                                    size={13}
-                                    className={clsx(
-                                      msg.isThinking && 'animate-[pulse_1.5s_infinite]'
-                                    )}
-                                  />
-                                </div>
-                                <span
-                                  className={clsx(
-                                    'font-mono text-[10px] font-bold tracking-wider uppercase',
-                                    msg.isThinking
-                                      ? 'text-status-warning'
-                                      : 'text-text-secondary/75'
-                                  )}
-                                >
-                                  {(() => {
-                                    const outlineMatches = Array.from(
-                                      (msg.thoughts || '').matchAll(/\*\*(.*?)\*\*/g)
-                                    )
-                                    if (outlineMatches.length > 0) {
-                                      return outlineMatches[outlineMatches.length - 1][1]
-                                    }
-                                    return msg.isThinking ? 'Thinking...' : 'Thoughts'
-                                  })()}
-                                </span>
-                                {msg.isThinking && <LoadingDots size="xs" />}
-                              </div>
-                              <ChevronRight
-                                size={14}
-                                className="text-text-muted transition-transform duration-300 group-open:rotate-90"
-                              />
-                            </summary>
-                            <div
-                              className={clsx(
-                                'mx-3 mb-3 rounded-[12px] border border-white/[0.04] bg-black/20 pl-4 pr-3 py-3 font-mono text-[11px] leading-relaxed opacity-0 transition-all duration-300 group-open:opacity-100 border-l-2',
-                                msg.isThinking
-                                  ? 'border-l-status-warning/45 text-status-warning/80'
-                                  : 'border-l-white/20 text-text-secondary/80'
-                              )}
-                            >
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                {msg.thoughts || ''}
-                              </ReactMarkdown>
-                            </div>
-                          </details>
-                        </div>
-                      )}
-
-                      {/* Content rendering: split by tool call and mini-app tags to render inline */}
-                      {(() => {
-                        const parts = msg.content.split(
-                          /(<tool_call>[\s\S]*?<\/tool_call>|<mini_app>[\s\S]*?<\/mini_app>)/g
-                        )
-                        let toolCallIndex = 0
-                        return parts.map((part, index) => {
-                          if (part.startsWith('<tool_call>')) {
-                            if (part.includes('</tool_call>')) {
-                              const tc = msg.toolCalls?.[toolCallIndex]
-                              toolCallIndex++
-                              if (tc) {
-                                return <ActionLoader key={`tc-${index}`} toolCall={tc} />
-                              }
-                            }
-                            return null
-                          } else if (part.trim() !== '') {
-                            return (
-                              <div key={`text-${index}`} className="prose prose-invert max-w-none">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{part}</ReactMarkdown>
-                              </div>
-                            )
-                          }
-                          return null
-                        })
-                      })()}
-
-                      {msg.isWritingToolCall && (
-                        <ActionLoader
-                          key="writing-tc"
-                          toolCall={{
-                            name: msg.toolType || 'task',
-                            status: 'writing',
-                            args: {}
-                          }}
-                        />
-                      )}
-
-                      {msg.isStreaming && !msg.isThinking && !msg.isWritingToolCall && (
-                        <span className="text-accent-secondary animate-pulse font-bold text-base mt-1">
-                          ▋
-                        </span>
-                      )}
-                    </div>
+                    <LauncherAiMessage
+                      msg={msg}
+                      markdownComponents={markdownComponents}
+                    />
                   )}
                 </div>
               ))}

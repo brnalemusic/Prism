@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import ReactMarkdown, { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -13,6 +13,7 @@ import { LoadingDots } from './components/LoadingDots'
 import { Spinner } from './components/Spinner'
 import { ActionLoader, ToolCall } from './components/ActionLoader'
 import { QuestionnaireRenderer } from './components/QuestionnaireRenderer'
+import { MalformedToolCallWarning } from './components/MalformedToolCallWarning'
 import { ModelSelectorHandle } from './components/ModelSelector'
 import { Tasks } from './components/Tasks'
 import { QuickLauncher } from './components/QuickLauncher'
@@ -22,12 +23,15 @@ import { SettingsView } from './components/SettingsView'
 import { ApiKeyModal } from './components/ApiKeyModal'
 import { MissingKeyBanner } from './components/MissingKeyBanner'
 import { SubagentChat } from './components/SubagentChat'
+import { SearchModal } from './components/SearchModal'
+import { RenderChatHistory } from './components/RenderChatHistory'
 import { SubagentModelSettings } from './components/SubagentModelSettings'
 import { MiniAppRenderer } from './components/MiniAppRenderer'
 import { TtsButton } from './components/TtsButton'
 import { CopyMessageButton } from './components/CopyMessageButton'
 import { ErrorPopup } from './components/ErrorPopup'
 import { triggerErrorPopup } from './utils'
+import { StreamContext, StaticMarkdownComponents, useStreamStats } from './components/AnimatedStreamingText'
 import clsx from 'clsx'
 import { CaretDown, Plus, Quotes } from '@phosphor-icons/react'
 import { AppConfig } from '../../main/config'
@@ -164,6 +168,202 @@ interface Task extends ToolCall {
   timestamp: Date
 }
 
+interface AiMessageProps {
+  msg: Message
+  currentChatId: string | undefined
+  handleLoadChat: (id: string) => void
+  markdownComponents: Components
+  modelSelectorRef: React.RefObject<any>
+  setIsApiKeyModalOpen: (open: boolean) => void
+}
+
+const AiMessage = React.memo(function AiMessage({
+  msg,
+  currentChatId,
+  handleLoadChat,
+  markdownComponents,
+  modelSelectorRef,
+  setIsApiKeyModalOpen
+}: AiMessageProps) {
+  const streamStats = useStreamStats(msg.content, !!msg.isStreaming)
+
+  if (msg.isError) {
+    const isRateLimit = msg.content.includes('429')
+
+    const handleFix = (): void => {
+      if (isRateLimit) {
+        modelSelectorRef.current?.open()
+      } else {
+        setIsApiKeyModalOpen(true)
+      }
+    }
+
+    return <ErrorMessage error={msg.content} onFixClick={handleFix} />
+  }
+
+  if (msg.isConnecting) {
+    return (
+      <div className="flex flex-col gap-2.5 w-full max-w-[320px] py-3 animate-pulse">
+        <div className="h-3.5 w-full rounded-full bg-white/[0.08]" />
+        <div className="h-3.5 w-5/6 rounded-full bg-white/[0.08]" />
+        <div className="h-3.5 w-2/3 rounded-full bg-white/[0.08]" />
+      </div>
+    )
+  }
+
+  if (!msg.content && !msg.toolCalls?.length && !msg.isWritingToolCall) {
+    return null
+  }
+
+  // Split content by tool calls and mini apps
+  const parts = msg.content.split(
+    /(<tool_call>[\s\S]*?(?:<\/tool_call>|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
+  )
+  let toolCallIndex = 0
+
+  return (
+    <StreamContext.Provider value={streamStats}>
+      <div
+        className={clsx(
+          'flex flex-col gap-4 w-full max-w-none transition-opacity duration-500',
+          msg.isStreaming && 'opacity-90'
+        )}
+      >
+        <div className="flex flex-col gap-2 relative">
+          {parts.map((part, index) => {
+            if (part.startsWith('<tool_call>')) {
+              if (part.includes('</tool_call>')) {
+                const tc = msg.toolCalls?.[toolCallIndex]
+                toolCallIndex++
+                if (tc) {
+                  if (tc.name === 'to_ask') {
+                    return (
+                      <QuestionnaireRenderer
+                        key={`tc-${index}`}
+                        toolCall={tc}
+                        chatId={currentChatId || ''}
+                      />
+                    )
+                  }
+                  if (tc.name === 'render_chat_history') {
+                    return (
+                      <RenderChatHistory
+                        key={`tc-${index}`}
+                        chatId={String(tc.args.query || '')}
+                        onOpenChat={handleLoadChat}
+                      />
+                    )
+                  }
+                  if (tc.name === 'malformed_tool_call') {
+                    return <MalformedToolCallWarning key={`tc-${index}`} toolCall={tc} />
+                  }
+                  return <ActionLoader key={`tc-${index}`} toolCall={tc} />
+                }
+              } else {
+                const nameMatch = part.match(/<name>([\s\S]*?)(?:<\/name>|$)/i)
+                const toolName = nameMatch ? nameMatch[1].trim() : ''
+                const isSearch =
+                  toolName === 'web_search' ||
+                  toolName === 'search_chat_history' ||
+                  toolName === 'saw_link_from_url'
+                const toolType = isSearch ? 'search' : 'task'
+                return (
+                  <ActionLoader
+                    key={`writing-tc-${index}`}
+                    toolCall={{
+                      name: toolType,
+                      status: 'writing',
+                      args: {}
+                    }}
+                  />
+                )
+              }
+              return null
+            } else if (part.startsWith('<mini_app>')) {
+              if (part.includes('</mini_app>')) {
+                const titleMatch = part.match(/<title>([\s\S]*?)<\/title>/i)
+                const htmlMatch = part.match(/<html>([\s\S]*?)<\/html>/i)
+                const cssMatch = part.match(/<css>([\s\S]*?)<\/css>/i)
+                const jsMatch = part.match(/<js>([\s\S]*?)<\/js>/i)
+
+                // Use a simple hash of the content as part of the ID to keep it stable
+                const contentHash = part.length.toString(36)
+                const miniAppId = `mini-app-${index}-${contentHash}`
+
+                return (
+                  <div key={miniAppId} className="w-full my-4 px-0">
+                    <MiniAppRenderer
+                      id={miniAppId}
+                      title={titleMatch ? titleMatch[1].trim() : 'Mini App'}
+                      html={htmlMatch ? htmlMatch[1].trim() : ''}
+                      css={cssMatch ? cssMatch[1].trim() : ''}
+                      js={jsMatch ? jsMatch[1].trim() : ''}
+                    />
+                  </div>
+                )
+              } else {
+                return (
+                  <ActionLoader
+                    key={`writing-ma-${index}`}
+                    toolCall={{
+                      name: 'mini-app',
+                      status: 'writing',
+                      args: {}
+                    }}
+                  />
+                )
+              }
+              return null
+            } else if (part.trim() !== '') {
+              return (
+                <div
+                  key={`text-${index}`}
+                  className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
+                >
+                  <ReactMarkdown
+                    remarkPlugins={[
+                      remarkGfm,
+                      remarkMath,
+                      disableIndentedCode as unknown as import('unified').Pluggable
+                    ]}
+                    rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
+                    components={markdownComponents}
+                  >
+                    {part}
+                  </ReactMarkdown>
+                </div>
+              )
+            }
+            return null
+          })}
+
+          {msg.isWritingToolCall &&
+            !msg.content.includes('<tool_call>') &&
+            !msg.content.includes('<mini_app>') && (
+              <ActionLoader
+                key="writing-tc"
+                toolCall={{
+                  name: msg.toolType || 'task',
+                  status: 'writing',
+                  args: {}
+                }}
+              />
+            )}
+
+
+
+          {!msg.isStreaming && msg.content && parts[parts.length - 1].trim() && (
+            <div className="flex justify-start items-center gap-2 mt-2">
+              <TtsButton text={parts[parts.length - 1].trim()} />
+              <CopyMessageButton text={parts[parts.length - 1].trim()} />
+            </div>
+          )}
+        </div>
+      </div>
+    </StreamContext.Provider>
+  )
+})
+
 function App(): React.JSX.Element {
   const [showIntro, setShowIntro] = useState(true)
   const [messages, setMessages] = useState<Message[]>([])
@@ -214,6 +414,7 @@ function App(): React.JSX.Element {
   const [runningChats, setRunningChats] = useState<Record<string, boolean>>({})
   const currentChatIdRef = useRef<string | undefined>(undefined)
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false)
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false)
   const [isYoutubeMode, setIsYoutubeMode] = useState(false)
   const [isThinkMode, setIsThinkMode] = useState(false)
   const [config, setConfig] = useState<AppConfig | null>(null)
@@ -224,6 +425,10 @@ function App(): React.JSX.Element {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
 
   const [quotedText, setQuotedText] = useState<string | null>(null)
+  const markdownComponents = useMemo(() => ({
+    ...MarkdownComponents,
+    ...StaticMarkdownComponents
+  }), [])
   const quotedTextRef = useRef<string | null>(null)
   useEffect(() => {
     quotedTextRef.current = quotedText
@@ -253,7 +458,7 @@ function App(): React.JSX.Element {
       try {
         const range = selection.getRangeAt(0)
         const rect = range.getBoundingClientRect()
-        
+
         // Position fixed coordinates relative to viewport
         setFloatingMenu({
           x: rect.left + rect.width / 2,
@@ -358,7 +563,8 @@ function App(): React.JSX.Element {
 
     const updateTheme = () => {
       const isRgbActive = !!(config.rgbThemeExpiry && Date.now() < config.rgbThemeExpiry)
-      const themeToApply = (config.theme === 'rgb' && !isRgbActive) ? 'marine' : (config.theme || 'marine')
+      const themeToApply =
+        config.theme === 'rgb' && !isRgbActive ? 'marine' : config.theme || 'marine'
       document.documentElement.setAttribute('data-theme', themeToApply)
     }
 
@@ -383,7 +589,10 @@ function App(): React.JSX.Element {
   const route = window.location.hash
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
   const isAtBottomRef = useRef(true)
+  const isProgrammaticScrollRef = useRef(false)
+  const lastScrollTopRef = useRef(0)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const inputBarRef = useRef<InputBarHandle>(null)
   const modelSelectorRef = useRef<ModelSelectorHandle>(null)
@@ -394,9 +603,7 @@ function App(): React.JSX.Element {
     return (
       <>
         Hello,{' '}
-        <span className="font-medium text-accent-primary rgb-chroma-username">
-          {formattedName}
-        </span>
+        <span className="font-medium text-accent-primary rgb-chroma-username">{formattedName}</span>
         . What are we working on?
       </>
     )
@@ -491,10 +698,13 @@ function App(): React.JSX.Element {
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = 'smooth'): void => {
       if (scrollContainerRef.current && activeView === 'chat') {
+        isProgrammaticScrollRef.current = true
         scrollContainerRef.current.scrollTo({
           top: scrollContainerRef.current.scrollHeight,
           behavior
         })
+        isAtBottomRef.current = true
+        setShowScrollButton(false)
       } else if (activeView === 'chat') {
         messagesEndRef.current?.scrollIntoView({ behavior })
       }
@@ -507,9 +717,27 @@ function App(): React.JSX.Element {
     if (!container) return
 
     const { scrollTop, scrollHeight, clientHeight } = container
-    const atBottom = scrollHeight - scrollTop - clientHeight < 50
-    isAtBottomRef.current = atBottom
 
+    if (scrollTop !== lastScrollTopRef.current) {
+      const atBottom = scrollHeight - scrollTop - clientHeight < 50
+
+      if (scrollTop < lastScrollTopRef.current) {
+        // If scrolling up, unstick immediately
+        isProgrammaticScrollRef.current = false
+        isAtBottomRef.current = false
+      } else if (isProgrammaticScrollRef.current) {
+        if (atBottom) {
+          isProgrammaticScrollRef.current = false
+        }
+        isAtBottomRef.current = true
+      } else {
+        isAtBottomRef.current = atBottom
+      }
+
+      lastScrollTopRef.current = scrollTop
+    }
+
+    const atBottom = scrollHeight - scrollTop - clientHeight < 50
     setShowScrollButton(!atBottom && scrollHeight > clientHeight)
   }
 
@@ -542,23 +770,6 @@ function App(): React.JSX.Element {
         let fallbackModelName = ''
 
         for (const m of history) {
-          if (m.role === 'system') {
-            let systemText = ''
-            if (m.parts) {
-              for (const part of m.parts) {
-                if (part.text) systemText += part.text
-              }
-            }
-            if (systemText.includes('[SYSTEM: FALLBACK]')) {
-              lastWasFallbackSystem = true
-              const match = systemText.match(
-                /(?:activated as|ativado como) (.*?) (?:to continue|para dar continuidade)/i
-              )
-              fallbackModelName = match ? match[1] : 'Prism AI'
-            }
-            continue
-          }
-
           let text = ''
           let screenshot: string | undefined = undefined
 
@@ -572,11 +783,11 @@ function App(): React.JSX.Element {
             }
           }
 
-          const isSystemResults = m.role === 'user' && text.startsWith('[SYSTEM: TOOL RESULTS]')
+          const isSystemResults = text.startsWith('[SYSTEM: TOOL RESULTS]')
 
           if (isSystemResults) {
             // Find last AI message to attach results
-            const lastAiMsg = [...mappedMessages].reverse().find((m) => m.role === 'ai')
+            const lastAiMsg = [...mappedMessages].reverse().find((msg) => msg.role === 'ai')
             if (lastAiMsg && lastAiMsg.toolCalls) {
               const resultRegex =
                 /\[RESULT FOR ([a-zA-Z0-9_]+)\]:\n([\s\S]*?)(?=\n\[RESULT FOR |\nAnalyze these results|$)/g
@@ -608,10 +819,26 @@ function App(): React.JSX.Element {
             continue // Don't add system results to UI as separate bubbles
           }
 
+          if (m.role === 'system') {
+            if (text.includes('[SYSTEM: FALLBACK]')) {
+              lastWasFallbackSystem = true
+              const match = text.match(
+                /(?:activated as|ativado como) (.*?) (?:to continue|para dar continuidade)/i
+              )
+              fallbackModelName = match ? match[1] : 'Prism AI'
+            }
+            continue
+          }
+
           if (m.role === 'user') {
+            const cleanText = text
+              .replace(/<quote_context>[\s\S]*?<\/quote_context>/gi, '')
+              .replace(/^\[FORCE_SEARCH\]\s*/i, '')
+              .trim()
+
             mappedMessages.push({
               role: 'user',
-              content: text,
+              content: cleanText,
               screenshot,
               isStreaming: false
             })
@@ -654,26 +881,67 @@ function App(): React.JSX.Element {
             const toolCallRegex = /<tool_call>([\s\S]*?)<\/tool_call>/gi
             let toolMatch
             while ((toolMatch = toolCallRegex.exec(textWithoutThoughts)) !== null) {
-              const tcContent = toolMatch[1]
-              const nameMatch = tcContent.match(/<name>([\s\S]*?)<\/name>/i)
-              if (nameMatch) {
-                const name = nameMatch[1].trim()
-                const args: Record<string, string> = {}
-                const argRegex = /<([a-zA-Z0-9_]+)>([\s\S]*?)<\/\1>/gi
-                let argMatch
-                while ((argMatch = argRegex.exec(tcContent)) !== null) {
-                  const argName = argMatch[1]
-                  if (argName !== 'name') {
-                    args[argName] = argMatch[2].trim()
-                  }
-                }
+              const tcContent = toolMatch[1].trim()
 
-                if (!aiMsg.toolCalls) aiMsg.toolCalls = []
-                aiMsg.toolCalls.push({
-                  name,
-                  args,
-                  status: 'done' // Default to done for history
-                })
+              let parsedJson: any = null
+              let isJson = false
+
+              let jsonContent = tcContent
+              if (jsonContent.startsWith('```')) {
+                jsonContent = jsonContent
+                  .replace(/^```[a-z]*\n/i, '')
+                  .replace(/\n```$/i, '')
+                  .trim()
+              }
+
+              if (jsonContent.startsWith('{')) {
+                try {
+                  parsedJson = JSON.parse(jsonContent)
+                  isJson = true
+                } catch (e) {
+                  console.error('Failed to parse tool call JSON in history', e)
+                }
+              }
+
+              if (isJson && parsedJson) {
+                const name = parsedJson.type || parsedJson.name
+                if (name) {
+                  const args: Record<string, any> = {}
+                  for (const [key, value] of Object.entries(parsedJson)) {
+                    if (key !== 'type' && key !== 'name') {
+                      args[key] = value
+                    }
+                  }
+
+                  if (!aiMsg.toolCalls) aiMsg.toolCalls = []
+                  aiMsg.toolCalls.push({
+                    name,
+                    args,
+                    status: 'done' // Default to done for history
+                  })
+                }
+              } else {
+                // Legacy XML parsing fallback
+                const nameMatch = tcContent.match(/<name>([\s\S]*?)<\/name>/i)
+                if (nameMatch) {
+                  const name = nameMatch[1].trim()
+                  const args: Record<string, string> = {}
+                  const argRegex = /<([a-zA-Z0-9_]+)>([\s\S]*?)<\/\1>/gi
+                  let argMatch
+                  while ((argMatch = argRegex.exec(tcContent)) !== null) {
+                    const argName = argMatch[1]
+                    if (argName !== 'name') {
+                      args[argName] = argMatch[2].trim()
+                    }
+                  }
+
+                  if (!aiMsg.toolCalls) aiMsg.toolCalls = []
+                  aiMsg.toolCalls.push({
+                    name,
+                    args,
+                    status: 'done' // Default to done for history
+                  })
+                }
               }
             }
 
@@ -837,15 +1105,36 @@ function App(): React.JSX.Element {
     }
   }
 
+  // Keep scroll at the bottom when content dimensions change (e.g. streaming, loading)
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    const content = contentRef.current
+    if (!container || !content) return
+
+    const observer = new ResizeObserver(() => {
+      if (isAtBottomRef.current) {
+        isProgrammaticScrollRef.current = true
+        container.scrollTo({
+          top: container.scrollHeight,
+          behavior: 'auto'
+        })
+      }
+    })
+
+    observer.observe(content)
+    return () => {
+      observer.disconnect()
+    }
+  }, [])
+
+  // Explicitly scroll to bottom on new user message (smooth)
   useEffect(() => {
     const lastMessage = messages[messages.length - 1]
     const isUserMsg = lastMessage?.role === 'user'
-    const isAiStreaming = lastMessage?.role === 'ai' && lastMessage?.isStreaming
 
-    if (isAtBottomRef.current || isUserMsg) {
-      scrollToBottom(isAiStreaming ? 'auto' : 'smooth')
+    if (isUserMsg) {
       isAtBottomRef.current = true
-      setShowScrollButton(false)
+      scrollToBottom('smooth')
     }
   }, [messages, scrollToBottom])
 
@@ -861,6 +1150,7 @@ function App(): React.JSX.Element {
     // Set up IPC listeners from our Context Bridge
     const removeChatStartListener = window.api.onChatStart((data) => {
       const { chatId } = data
+      console.log(`[UI Chat] onChatStart: chatId=${chatId}, currentChatId=${currentChatIdRef.current}`);
       setRunningChats((prev) => ({ ...prev, [chatId]: true }))
       if (chatId === currentChatIdRef.current) {
         setIsProcessing(true)
@@ -891,18 +1181,26 @@ function App(): React.JSX.Element {
         isWritingToolCall,
         toolType
       } = data
+      console.log(`[UI Chat] onChatChunk received: chatId=${chatId}, currentChatId=${currentChatIdRef.current}, responseLength=${finalResponse.length}`);
       if (chatId === currentChatIdRef.current) {
         setMessages((prev) => {
           const newMessages = [...prev]
-          const lastMsg = newMessages[newMessages.length - 1]
+          const lastMsgIndex = newMessages.length - 1
+          const lastMsg = newMessages[lastMsgIndex]
+          console.log(`[UI Chat] onChatChunk state update: lastMsg index=${lastMsgIndex}, lastMsg role=${lastMsg?.role}, isStreaming=${lastMsg?.isStreaming}`);
           if (lastMsg && lastMsg.role === 'ai' && lastMsg.isStreaming) {
-            lastMsg.thoughts = thoughts
-            lastMsg.content = finalResponse
-            lastMsg.usedFallback = usedFallback
-            lastMsg.isThinking = isThinking
-            lastMsg.isWritingToolCall = isWritingToolCall
-            lastMsg.toolType = toolType
-            lastMsg.isConnecting = false
+            newMessages[lastMsgIndex] = {
+              ...lastMsg,
+              thoughts,
+              content: finalResponse,
+              usedFallback,
+              isThinking,
+              isWritingToolCall,
+              toolType,
+              isConnecting: false
+            }
+          } else {
+            console.warn(`[UI Chat] onChatChunk did NOT update message state because: lastMsg=${!!lastMsg}, lastMsg.role=${lastMsg?.role}, isStreaming=${lastMsg?.isStreaming}`);
           }
           return newMessages
         })
@@ -911,6 +1209,7 @@ function App(): React.JSX.Element {
 
     const removeChatEndListener = window.api.onChatEnd((data) => {
       const { chatId, thoughts, finalResponse, usedFallback } = data
+      console.log(`[UI Chat] onChatEnd received: chatId=${chatId}, currentChatId=${currentChatIdRef.current}`);
       setRunningChats((prev) => ({ ...prev, [chatId]: false }))
       if (chatId === currentChatIdRef.current) {
         setIsProcessing(false)
@@ -920,15 +1219,20 @@ function App(): React.JSX.Element {
 
         setMessages((prev) => {
           const newMessages = [...prev]
-          const lastMsg = newMessages[newMessages.length - 1]
+          const lastMsgIndex = newMessages.length - 1
+          const lastMsg = newMessages[lastMsgIndex]
+          console.log(`[UI Chat] onChatEnd state update: lastMsg index=${lastMsgIndex}, lastMsg role=${lastMsg?.role}`);
           if (lastMsg && lastMsg.role === 'ai') {
-            lastMsg.thoughts = thoughts
-            lastMsg.content = finalResponse
-            lastMsg.usedFallback = usedFallback
-            lastMsg.isStreaming = false
-            lastMsg.isThinking = false
-            lastMsg.isWritingToolCall = false
-            lastMsg.isConnecting = false
+            newMessages[lastMsgIndex] = {
+              ...lastMsg,
+              thoughts,
+              content: finalResponse,
+              usedFallback,
+              isStreaming: false,
+              isThinking: false,
+              isWritingToolCall: false,
+              isConnecting: false
+            }
           }
           return newMessages
         })
@@ -960,21 +1264,26 @@ function App(): React.JSX.Element {
 
         setMessages((prev) => {
           const newMessages = [...prev]
-          const lastMsg = newMessages[newMessages.length - 1]
+          const lastMsgIndex = newMessages.length - 1
+          const lastMsg = newMessages[lastMsgIndex]
 
           // Clean up streaming/connecting/thinking flags on the last message if it's AI
           if (lastMsg && lastMsg.role === 'ai') {
-            lastMsg.isStreaming = false
-            lastMsg.isThinking = false
-            lastMsg.isConnecting = false
-
+            let updatedToolCalls = lastMsg.toolCalls
             // Cleanup running tool calls in last message
             if (isCancel && lastMsg.toolCalls) {
-              lastMsg.toolCalls = lastMsg.toolCalls.map((tc) =>
+              updatedToolCalls = lastMsg.toolCalls.map((tc) =>
                 tc.status === 'running'
                   ? { ...tc, status: 'cancelled', result: 'Cancelled by user.' }
                   : tc
               )
+            }
+            newMessages[lastMsgIndex] = {
+              ...lastMsg,
+              isStreaming: false,
+              isThinking: false,
+              isConnecting: false,
+              toolCalls: updatedToolCalls
             }
           }
 
@@ -986,14 +1295,14 @@ function App(): React.JSX.Element {
             newMessages.push({
               role: 'separator',
               separatorType: 'cancel',
-              content: 'Cancelado pelo usuário'
+              content: 'Cancelled by user'
             })
           } else {
             // Push error separator
             newMessages.push({
               role: 'separator',
               separatorType: 'error',
-              content: 'Erro na operação'
+              content: 'Operation error'
             })
 
             // Push error message box
@@ -1010,8 +1319,11 @@ function App(): React.JSX.Element {
               })
             } else if (lastMsg && lastMsg.role === 'ai') {
               // If the connecting message was empty, just convert it to show the error
-              lastMsg.isError = true
-              lastMsg.content = error
+              newMessages[lastMsgIndex] = {
+                ...newMessages[lastMsgIndex],
+                isError: true,
+                content: error
+              }
             } else {
               // Fallback: push a new AI message for the error box
               newMessages.push({
@@ -1036,11 +1348,15 @@ function App(): React.JSX.Element {
       if (chatId === currentChatIdRef.current) {
         setMessages((prev) => {
           const newMessages = [...prev]
-          const lastMsg = newMessages[newMessages.length - 1]
+          const lastMsgIndex = newMessages.length - 1
+          const lastMsg = newMessages[lastMsgIndex]
           if (lastMsg && lastMsg.role === 'ai') {
-            lastMsg.isStreaming = false
-            lastMsg.isThinking = false
-            lastMsg.isConnecting = false
+            newMessages[lastMsgIndex] = {
+              ...lastMsg,
+              isStreaming: false,
+              isThinking: false,
+              isConnecting: false
+            }
           }
           newMessages.push({
             role: 'separator',
@@ -1253,174 +1569,7 @@ function App(): React.JSX.Element {
     }
   }, [])
 
-  const renderAiMessage = useCallback((msg: Message): React.JSX.Element | null => {
-    if (msg.isError) {
-      const isRateLimit = msg.content.includes('429')
 
-      const handleFix = (): void => {
-        if (isRateLimit) {
-          modelSelectorRef.current?.open()
-        } else {
-          setIsApiKeyModalOpen(true)
-        }
-      }
-
-      return <ErrorMessage error={msg.content} onFixClick={handleFix} />
-    }
-
-    if (msg.isConnecting) {
-      return (
-        <div className="flex items-center gap-2 text-text-secondary/70 font-mono text-[13px] py-2">
-          <Spinner size="sm" />
-          <span>Connecting...</span>
-        </div>
-      )
-    }
-
-    if (!msg.content && !msg.toolCalls?.length && !msg.isWritingToolCall) {
-      return null
-    }
-
-    // Split content by tool calls and mini apps
-    const parts = msg.content.split(
-      /(<tool_call>[\s\S]*?(?:<\/tool_call>|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
-    )
-    let toolCallIndex = 0
-
-    return (
-      <div
-        className={clsx(
-          'flex flex-col gap-4 w-full max-w-none transition-opacity duration-500',
-          msg.isStreaming && 'opacity-90'
-        )}
-      >
-        <div className="flex flex-col gap-2 relative">
-          {parts.map((part, index) => {
-            if (part.startsWith('<tool_call>')) {
-              if (part.includes('</tool_call>')) {
-                const tc = msg.toolCalls?.[toolCallIndex]
-                toolCallIndex++
-                if (tc) {
-                  if (tc.name === 'to_ask') {
-                    return (
-                      <QuestionnaireRenderer
-                        key={`tc-${index}`}
-                        toolCall={tc}
-                        chatId={currentChatId || ''}
-                      />
-                    )
-                  }
-                  return <ActionLoader key={`tc-${index}`} toolCall={tc} />
-                }
-              } else {
-                const nameMatch = part.match(/<name>([\s\S]*?)(?:<\/name>|$)/i)
-                const toolName = nameMatch ? nameMatch[1].trim() : ''
-                const isSearch =
-                  toolName === 'web_search' ||
-                  toolName === 'search_chat_history' ||
-                  toolName === 'saw_link_from_url'
-                const toolType = isSearch ? 'search' : 'task'
-                return (
-                  <ActionLoader
-                    key={`writing-tc-${index}`}
-                    toolCall={{
-                      name: toolType,
-                      status: 'writing',
-                      args: {}
-                    }}
-                  />
-                )
-              }
-              return null
-            } else if (part.startsWith('<mini_app>')) {
-              if (part.includes('</mini_app>')) {
-                const titleMatch = part.match(/<title>([\s\S]*?)<\/title>/i)
-                const htmlMatch = part.match(/<html>([\s\S]*?)<\/html>/i)
-                const cssMatch = part.match(/<css>([\s\S]*?)<\/css>/i)
-                const jsMatch = part.match(/<js>([\s\S]*?)<\/js>/i)
-
-                // Use a simple hash of the content as part of the ID to keep it stable
-                const contentHash = part.length.toString(36)
-                const miniAppId = `mini-app-${index}-${contentHash}`
-
-                return (
-                  <div key={miniAppId} className="w-full my-4 px-0">
-                    <MiniAppRenderer
-                      id={miniAppId}
-                      title={titleMatch ? titleMatch[1].trim() : 'Mini App'}
-                      html={htmlMatch ? htmlMatch[1].trim() : ''}
-                      css={cssMatch ? cssMatch[1].trim() : ''}
-                      js={jsMatch ? jsMatch[1].trim() : ''}
-                    />
-                  </div>
-                )
-              } else {
-                return (
-                  <ActionLoader
-                    key={`writing-ma-${index}`}
-                    toolCall={{
-                      name: 'mini-app',
-                      status: 'writing',
-                      args: {}
-                    }}
-                  />
-                )
-              }
-              return null
-            } else if (part.trim() !== '') {
-              return (
-                <div
-                  key={`text-${index}`}
-                  className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
-                >
-                  <ReactMarkdown
-                    remarkPlugins={[
-                      remarkGfm,
-                      remarkMath,
-                      disableIndentedCode as unknown as import('unified').Pluggable
-                    ]}
-                    rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
-                    components={MarkdownComponents}
-                  >
-                    {part}
-                  </ReactMarkdown>
-                </div>
-              )
-            }
-            return null
-          })}
-
-          {msg.isWritingToolCall &&
-            !msg.content.includes('<tool_call>') &&
-            !msg.content.includes('<mini_app>') && (
-              <ActionLoader
-                key="writing-tc"
-                toolCall={{
-                  name: msg.toolType || 'task',
-                  status: 'writing',
-                  args: {}
-                }}
-              />
-            )}
-
-          {msg.isStreaming && !msg.isThinking && !msg.isWritingToolCall && (
-            <div className="flex items-center gap-1.5 py-1">
-              <span className="text-accent-secondary animate-pulse font-bold text-xl leading-none">
-                ▋
-              </span>
-            </div>
-          )}
-
-          {!msg.isStreaming && msg.content && parts[parts.length - 1].trim() && (
-            <div className="flex justify-start items-center gap-2 mt-2">
-              <TtsButton text={parts[parts.length - 1].trim()} />
-              <CopyMessageButton text={parts[parts.length - 1].trim()} />
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }, [])
 
   const renderedMessages = useMemo(() => {
     if (messages.length === 0) return null
@@ -1515,7 +1664,14 @@ function App(): React.JSX.Element {
                   )}
                 >
                   {msg.role === 'ai' ? (
-                    renderAiMessage(msg)
+                    <AiMessage
+                      msg={msg}
+                      currentChatId={currentChatId}
+                      handleLoadChat={handleLoadChat}
+                      markdownComponents={markdownComponents}
+                      modelSelectorRef={modelSelectorRef}
+                      setIsApiKeyModalOpen={setIsApiKeyModalOpen}
+                    />
                   ) : (
                     <div className="flex flex-col items-end gap-2.5 max-w-[90%] sm:max-w-[80%] lg:max-w-[70%]">
                       {msg.screenshot && (
@@ -1560,7 +1716,14 @@ function App(): React.JSX.Element {
         <div ref={messagesEndRef} className="h-4" />
       </div>
     )
-  }, [messages, renderAiMessage])
+  }, [
+    messages,
+    currentChatId,
+    handleLoadChat,
+    markdownComponents,
+    modelSelectorRef,
+    setIsApiKeyModalOpen
+  ])
 
   const renderedSidebar = useMemo(() => {
     return (
@@ -1590,10 +1753,23 @@ function App(): React.JSX.Element {
           runningTasksCount={tasks.filter((t) => t.status === 'running').length}
           runningChats={runningChats}
           config={config}
+          onOpenSearch={() => {
+            setIsSearchModalOpen(true)
+            setIsSidebarOpen(false)
+          }}
         />
       </>
     )
-  }, [activeView, isSidebarOpen, handleLoadChat, handleNewChat, currentChatId, tasks, runningChats, config])
+  }, [
+    activeView,
+    isSidebarOpen,
+    handleLoadChat,
+    handleNewChat,
+    currentChatId,
+    tasks,
+    runningChats,
+    config
+  ])
 
   const isKeyMissing =
     !config?.userGeminiKey && (config?.envGeminiKey === 'none' || !config?.envGeminiKey)
@@ -1650,6 +1826,11 @@ function App(): React.JSX.Element {
         onClose={() => setIsApiKeyModalOpen(false)}
         onSave={handleSaveApiKey}
         initialValue={config?.userGeminiKey || ''}
+      />
+      <SearchModal
+        isOpen={isSearchModalOpen}
+        onClose={() => setIsSearchModalOpen(false)}
+        onOpenChat={handleLoadChat}
       />
       <PrismBackground
         isFocused={isFocused}
@@ -1725,8 +1906,9 @@ function App(): React.JSX.Element {
               )}
             >
               <div
+                ref={contentRef}
                 className={clsx(
-                  'flex-1 flex flex-col pt-8',
+                  'flex-grow flex flex-col pt-8',
                   messages.length > 0 ? 'pb-36' : 'pb-8'
                 )}
               >

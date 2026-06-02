@@ -26,8 +26,9 @@ import {
   computerReadFile,
   captureAppScreenshot
 } from './systemTools'
-import { saveChatSession, loadChatSession, searchChatHistory } from './history'
+import { saveChatSession, loadChatSession, searchChatHistory, searchChatMemory } from './history'
 import { loadConfig, saveConfig } from './config'
+import { toolsManifest } from './toolsManifest'
 
 // Load environment variables from .env
 dotenv.config({ path: path.join(__dirname, '../../.env') })
@@ -200,61 +201,6 @@ interface ToolArgs extends Record<string, string | undefined> {
 
 const RAW_TOOL_ARG_TAGS = new Set(['command', 'content', 'oldText', 'newText'])
 
-function unwrapCdata(value: string): string {
-  const trimmed = value.trim()
-  const cdataMatch = trimmed.match(/^<!\[CDATA\[([\s\S]*)\]\]>$/)
-  return cdataMatch ? cdataMatch[1] : value
-}
-
-function normalizeToolArg(tag: string, value: string): string {
-  const unwrapped = unwrapCdata(value)
-  return RAW_TOOL_ARG_TAGS.has(tag) ? unwrapped : unwrapped.trim()
-}
-
-function parseToolArgsLegacy(toolContent: string): ToolArgs {
-  const args: ToolArgs = {}
-  let currentIndex = 0
-
-  while (true) {
-    const startMatch = toolContent.substring(currentIndex).match(/<([a-zA-Z0-9_:-]+)>/)
-    if (!startMatch || startMatch.index === undefined) break
-
-    const tag = startMatch[1]
-    const tagStart = currentIndex + startMatch.index
-    const contentStart = tagStart + startMatch[0].length
-    const closeTag = `</${tag}>`
-
-    let endIdx = -1
-    let searchIndex = contentStart
-
-    while (true) {
-      const nextCdata = toolContent.indexOf('<![CDATA[', searchIndex)
-      const nextEnd = toolContent.indexOf(closeTag, searchIndex)
-
-      if (nextEnd === -1) break
-
-      if (nextCdata !== -1 && nextCdata < nextEnd) {
-        const cdataEnd = toolContent.indexOf(']]>', nextCdata + 9)
-        searchIndex = cdataEnd !== -1 ? cdataEnd + 3 : nextCdata + 9
-      } else {
-        endIdx = nextEnd
-        break
-      }
-    }
-
-    if (endIdx !== -1) {
-      const rawValue = toolContent.substring(contentStart, endIdx)
-      if (tag !== 'name') {
-        args[tag] = normalizeToolArg(tag, rawValue)
-      }
-      currentIndex = endIdx + closeTag.length
-    } else {
-      currentIndex = contentStart
-    }
-  }
-  return args
-}
-
 function parseToolCall(toolContent: string): { name: string | null; args: ToolArgs } {
   let trimmed = toolContent.trim()
 
@@ -283,15 +229,328 @@ function parseToolCall(toolContent: string): { name: string | null; args: ToolAr
       }
       return { name, args }
     } catch (e) {
-      console.warn('Tool call looks like JSON but failed to parse. Falling back to XML.', e)
+      console.warn('Tool call looks like JSON but failed to parse.', e)
     }
   }
 
-  // Legacy XML format fallback
-  const nameMatch = toolContent.match(/<name>(.*?)<\/name>/i)
-  const name = nameMatch ? nameMatch[1].trim() : null
-  const args = parseToolArgsLegacy(toolContent)
-  return { name, args }
+  return { name: null, args: {} }
+}
+
+interface ValidationResult {
+  isMalformed: boolean
+  errorType:
+    | 'json_syntax_error'
+    | 'missing_type'
+    | 'invalid_tool'
+    | 'missing_args'
+    | 'invalid_args'
+    | 'xml_error'
+    | 'none'
+  errorMessage: string
+  name: string | null
+  args: ToolArgs
+}
+
+function getLevenshteinDistance(a: string, b: string): number {
+  const tmp: number[][] = []
+  for (let i = 0; i <= a.length; i++) {
+    tmp[i] = [i]
+  }
+  for (let j = 0; j <= b.length; j++) {
+    tmp[0][j] = j
+  }
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      tmp[i][j] = Math.min(
+        tmp[i - 1][j] + 1, // deletion
+        tmp[i][j - 1] + 1, // insertion
+        tmp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1) // substitution
+      )
+    }
+  }
+  return tmp[a.length][b.length]
+}
+
+function findClosestTool(name: string): string {
+  const tools = Object.keys(toolFunctions)
+  if (tools.length === 0) return ''
+  let closest = ''
+  let minDistance = Infinity
+  for (const tool of tools) {
+    const dist = getLevenshteinDistance(name.toLowerCase(), tool.toLowerCase())
+    if (dist < minDistance) {
+      minDistance = dist
+      closest = tool
+    }
+  }
+  return closest
+}
+
+function validateSchemaArgs(
+  toolName: string,
+  args: ToolArgs
+): { type: 'missing_args' | 'invalid_args'; message: string } | null {
+  const schema = toolsManifest.find((t) => t.name === toolName)
+  if (!schema) return null
+
+  const expectedParams = schema.parameters || {}
+  const passedParams = Object.keys(args)
+
+  // 1. Check for missing required arguments
+  const missingArgs: string[] = []
+  for (const [paramName, paramDesc] of Object.entries(expectedParams)) {
+    if (paramName.includes(':')) continue
+
+    const isOptional = paramDesc.toLowerCase().includes('optional')
+    const isRequired = !isOptional
+
+    if (
+      isRequired &&
+      (args[paramName] === undefined || args[paramName] === null || args[paramName] === '')
+    ) {
+      missingArgs.push(paramName)
+    }
+  }
+
+  // Special validation for run_subagents quantity and prompts
+  if (toolName === 'run_subagents') {
+    const quantityVal = parseInt(args.quantity || '0', 10)
+    if (isNaN(quantityVal) || quantityVal <= 0) {
+      return {
+        type: 'invalid_args',
+        message: `Argument "quantity" for "run_subagents" must be a positive integer. Passed: "${args.quantity}".`
+      }
+    }
+    const missingPrompts: string[] = []
+    for (let i = 1; i <= quantityVal; i++) {
+      const key = `prompt:${i}`
+      if (!args[key] || args[key].trim() === '') {
+        missingPrompts.push(key)
+      }
+    }
+    if (missingPrompts.length > 0) {
+      return {
+        type: 'missing_args',
+        message: `Tool "run_subagents" is missing required arguments for quantity=${quantityVal}: ${missingPrompts.join(', ')}.`
+      }
+    }
+  }
+
+  // Special validation for configure_prism: make sure at least one parameter is passed
+  if (toolName === 'configure_prism') {
+    const hasAtLeastOneArg = passedParams.some(
+      (key) => key !== 'rawContent' && key !== 'originalName' && expectedParams[key] !== undefined
+    )
+    if (!hasAtLeastOneArg) {
+      return {
+        type: 'missing_args',
+        message: `Tool "configure_prism" requires at least one setting to configure. Valid parameters are: ${Object.keys(expectedParams).join(', ')}`
+      }
+    }
+  }
+
+  if (missingArgs.length > 0) {
+    return {
+      type: 'missing_args',
+      message: `Missing required argument(s) for tool "${toolName}": ${missingArgs.map((a) => `"${a}"`).join(', ')}.\nExpected parameters:\n${JSON.stringify(expectedParams, null, 2)}`
+    }
+  }
+
+  // 2. Check for unknown arguments
+  const unknownArgs: string[] = []
+  for (const passedKey of passedParams) {
+    if (passedKey === 'rawContent' || passedKey === 'originalName') continue
+
+    let isExpected = expectedParams[passedKey] !== undefined
+
+    if (!isExpected && toolName === 'run_subagents' && passedKey.startsWith('prompt:')) {
+      const parts = passedKey.split(':')
+      const num = parseInt(parts[1], 10)
+      if (!isNaN(num) && num > 0) {
+        isExpected = true
+      }
+    }
+
+    if (!isExpected) {
+      unknownArgs.push(passedKey)
+    }
+  }
+
+  if (unknownArgs.length > 0) {
+    return {
+      type: 'invalid_args',
+      message: `Unknown argument(s) passed to tool "${toolName}": ${unknownArgs.map((a) => `"${a}"`).join(', ')}.\nValid parameters are: ${Object.keys(expectedParams).join(', ')}`
+    }
+  }
+
+  // 3. Type/format validation
+  for (const [key, value] of Object.entries(args)) {
+    if (key === 'rawContent' || key === 'originalName') continue
+    const desc = expectedParams[key] ? expectedParams[key].toLowerCase() : ''
+
+    // Boolean checks
+    const expectsBool =
+      desc.includes('true/false') ||
+      desc.includes('true|false') ||
+      desc.includes('optional true|false')
+    if (expectsBool) {
+      if (value !== 'true' && value !== 'false') {
+        return {
+          type: 'invalid_args',
+          message: `Argument "${key}" for tool "${toolName}" must be a string value of either "true" or "false". Passed: "${value}".`
+        }
+      }
+    }
+
+    // Number checks
+    const expectsNumber =
+      desc.includes('number') ||
+      desc.includes('integer') ||
+      desc.includes('max time') ||
+      desc.includes('max messages') ||
+      desc.includes('starting line number') ||
+      desc.includes('ending line number')
+    if (expectsNumber) {
+      const num = Number(value)
+      if (isNaN(num)) {
+        return {
+          type: 'invalid_args',
+          message: `Argument "${key}" for tool "${toolName}" must be a valid number representation. Passed: "${value}".`
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+function validateToolCall(toolContent: string): ValidationResult {
+  let trimmed = toolContent.trim()
+
+  // Strip markdown code blocks if present
+  if (trimmed.startsWith('```')) {
+    trimmed = trimmed
+      .replace(/^```[a-z]*\n/i, '')
+      .replace(/\n```$/i, '')
+      .trim()
+  }
+
+  // Check if they tried to use XML or a non-JSON format
+  if (!trimmed.startsWith('{')) {
+    let errorMsg =
+      'Every tool call MUST be a valid JSON object. XML and other non-JSON formats are not supported. ' +
+      'Please rewrite your tool call as a valid JSON object inside the <tool_call>...</tool_call> tags.'
+
+    if (trimmed.startsWith('<') && (trimmed.includes('</') || trimmed.includes('>'))) {
+      errorMsg =
+        'XML tool call format is deprecated and not supported. All tool calls MUST strictly be valid JSON objects inside the <tool_call>...</tool_call> tags (e.g., {"type": "web_search", "query": "..."}). Please rewrite it.'
+    }
+
+    return {
+      isMalformed: true,
+      errorType: 'json_syntax_error',
+      errorMessage: errorMsg,
+      name: null,
+      args: { rawContent: toolContent }
+    }
+  }
+
+  // Must be JSON
+  try {
+    const obj = JSON.parse(trimmed)
+    if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+      return {
+        isMalformed: true,
+        errorType: 'json_syntax_error',
+        errorMessage: 'Every tool call must be a valid JSON object. Parsed JSON was not an object.',
+        name: null,
+        args: { rawContent: toolContent }
+      }
+    }
+
+    const name = (obj.type || obj.name || null) as string | null
+    if (!name) {
+      return {
+        isMalformed: true,
+        errorType: 'missing_type',
+        errorMessage:
+          'The tool call is missing the "type" property. Every tool call must start with a "type" property specifying the exact name of the tool (e.g., {"type": "web_search", ...}).',
+        name: null,
+        args: { rawContent: toolContent }
+      }
+    }
+
+    if (!toolFunctions[name]) {
+      const suggestion = findClosestTool(name)
+      return {
+        isMalformed: true,
+        errorType: 'invalid_tool',
+        errorMessage: `The tool name "${name}" is not recognized. Did you mean "${suggestion}"? Available tools are: ${Object.keys(toolFunctions).join(', ')}.`,
+        name: name,
+        args: { rawContent: toolContent, originalName: name }
+      }
+    }
+
+    const args: ToolArgs = {}
+    for (const [key, value] of Object.entries(obj)) {
+      if (key !== 'type' && key !== 'name') {
+        let val = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+        if (!RAW_TOOL_ARG_TAGS.has(key)) {
+          val = val.trim()
+        }
+        args[key] = val
+      }
+    }
+
+    const schemaError = validateSchemaArgs(name, args)
+    if (schemaError) {
+      return {
+        isMalformed: true,
+        errorType: schemaError.type,
+        errorMessage: schemaError.message,
+        name: name,
+        args: { rawContent: toolContent, originalName: name }
+      }
+    }
+
+    return {
+      isMalformed: false,
+      errorType: 'none',
+      errorMessage: '',
+      name,
+      args
+    }
+  } catch (err: any) {
+    const detail = err.message || ''
+    let customExplanation = ''
+
+    if (trimmed.includes("'")) {
+      customExplanation +=
+        ' Note: JSON keys and string values MUST use double quotes ("), not single quotes (\').'
+    }
+    if (/,\s*([}\]])/.test(trimmed)) {
+      customExplanation +=
+        ' Note: Trailing commas before a closing brace } or bracket ] are not allowed in JSON.'
+    }
+    if (trimmed.includes('“') || trimmed.includes('”')) {
+      customExplanation +=
+        ' Note: Smart/curly quotes (“ or ”) are invalid. Use standard straight double quotes (").'
+    }
+    if (trimmed.includes('\n') && !/\\n/.test(trimmed)) {
+      customExplanation +=
+        ' Note: Raw newlines inside JSON string values are not allowed; use escaped newlines (\\n) instead.'
+    }
+
+    const explanation = `JSON Syntax Error: ${detail}.${customExplanation}\nMake sure your tool call is a valid JSON object.`
+
+    return {
+      isMalformed: true,
+      errorType: 'json_syntax_error',
+      errorMessage: explanation,
+      name: null,
+      args: { rawContent: toolContent }
+    }
+  }
 }
 
 function extractToolCalls(text: string): string[] {
@@ -365,10 +624,87 @@ function removeToolCalls(text: string): string {
   return result
 }
 
+/**
+ * Ensures the history fits within a reasonable token limit by removing older messages
+ * and aggressively truncating large tool results.
+ * Prioritizes keeping: System Prompt > Newer Messages > Older Messages.
+ */
+function ensureHistoryFitsLimit(history: Content[]): Content[] {
+  // 10k characters requested for file reads, but for the WHOLE history
+  // we'll use 40k as a safe buffer for context while being much more restrictive than before.
+  const MAX_CHARS = 40000
+
+  // 1. Preserve System Messages
+  const systemMessages: Content[] = []
+  let firstNonSystemIndex = 0
+  while (
+    firstNonSystemIndex < history.length &&
+    (history[firstNonSystemIndex].role === 'system' ||
+      (history[firstNonSystemIndex].parts?.[0]?.text?.startsWith('[SYSTEM') ?? false))
+  ) {
+    systemMessages.push(history[firstNonSystemIndex])
+    firstNonSystemIndex++
+  }
+
+  const remainingHistory = history.slice(firstNonSystemIndex)
+
+  // 2. Pre-process: Truncate individual tool results if they are huge
+  const processedHistory = remainingHistory.map((msg) => {
+    if (msg.role === 'user' || msg.role === 'system') {
+      const parts = (msg.parts || []).map((part) => {
+        if (part.text?.startsWith('[SYSTEM: TOOL RESULTS]')) {
+          const MAX_TOOL_RESULT = 5000
+          if (part.text.length > MAX_TOOL_RESULT) {
+            return {
+              ...part,
+              text: part.text.substring(0, MAX_TOOL_RESULT) + '\n\n... [TOOL RESULTS TRUNCATED]'
+            }
+          }
+        }
+        return part
+      })
+      return { ...msg, parts }
+    }
+    return msg
+  })
+
+  // 3. Keep messages from NEWER to OLDER until limit reached
+  const keptMessages: Content[] = []
+  let currentTotal = 0
+
+  // Calculate system message size
+  for (const msg of systemMessages) {
+    for (const part of msg.parts || []) {
+      if (part.text) currentTotal += part.text.length
+    }
+  }
+
+  // Iterate backwards (Newer -> Older)
+  for (let i = processedHistory.length - 1; i >= 0; i--) {
+    const msg = processedHistory[i]
+    let msgSize = 0
+    for (const part of msg.parts || []) {
+      if (part.text) msgSize += part.text.length
+    }
+
+    if (currentTotal + msgSize < MAX_CHARS) {
+      keptMessages.unshift(msg)
+      currentTotal += msgSize
+    } else {
+      // If we can't fit even one more message, stop.
+      // We keep the newest possible set.
+      break
+    }
+  }
+
+  return [...systemMessages, ...keptMessages]
+}
+
 function normalizeContentsForGemini(contents: Content[]): Content[] {
+  const truncatedContents = ensureHistoryFitsLimit(contents)
   const normalized: Content[] = []
 
-  for (const content of contents) {
+  for (const content of truncatedContents) {
     // Map 'system' role to 'user' for Gemini API compatibility if necessary,
     // or just keep it if the SDK handles it (Gemini SDK usually expects 'user'/'model')
     const apiRole = content.role === 'system' ? 'user' : content.role
@@ -556,6 +892,16 @@ const toolFunctions: Record<
   run_subagents: (args, event, apiKey, signal, chatId) =>
     runSubagents(args, event, apiKey, signal, chatId),
   search_chat_history: (args) => searchChatHistory(args.query || ''),
+  search_chat_memory: (args) => searchChatMemory(args.query || ''),
+  render_chat_history: async (args) => {
+    const query = args.query || ''
+    const cleanId = query.replace('chat_', '').replace('.json', '').trim()
+    const session = loadChatSession(cleanId)
+    if (session) {
+      return `Successfully rendered chat history item in UI. Title: "${session.title}", Messages: ${session.messages.length}`
+    }
+    return `Error: Chat history session "${cleanId}" not found.`
+  },
   open_main_app: async (args) => {
     // BrowserWindow imported above
     const instructions = args.instructions || ''
@@ -659,6 +1005,13 @@ const toolFunctions: Record<
         config.ttsVoice = args.ttsVoice
         changed.push(`ttsVoice: "${args.ttsVoice}"`)
       }
+      if (args.theme !== undefined && args.theme !== '') {
+        const allowedThemes = ['marine', 'vertez', 'akoustik', 'terno', 'ursula']
+        if (allowedThemes.includes(args.theme)) {
+          config.theme = args.theme as any
+          changed.push(`theme: "${args.theme}"`)
+        }
+      }
 
       if (changed.length === 0) {
         return 'No settings provided to configure.'
@@ -679,6 +1032,7 @@ const toolFunctions: Record<
   unlock_rgb_theme: async () => {
     try {
       const config = loadConfig()
+      config.isRgbUnlocked = true
       config.rgbThemeExpiry = Date.now() + 2 * 60 * 60 * 1000 // 2 hours
       config.theme = 'rgb' // Set the theme to rgb
       const success = saveConfig(config)
@@ -775,8 +1129,6 @@ async function runSubagents(
   const subagentModelKey = currentSubagentModelKey
   const subagentModelConfig = getSubagentModelConfig(subagentModelKey)
 
-
-
   const blackboard: GroupMessage[] = []
   const waiters: (() => void)[] = []
   const subagentChatLog: SubagentChatLogEntry[] = []
@@ -815,8 +1167,6 @@ async function runSubagents(
     notifyWaiters()
   }
   ipcMain.on('subagent-message-broadcast', externalMessageListener)
-
-
 
   // Promises for Worker Subagents
   const agentPromises = prompts.slice(0, quantity).map(async (prompt, index) => {
@@ -1148,6 +1498,14 @@ export function loadChatIntoHistory(id: string): Content[] {
   const session = loadChatSession(id)
   if (session) {
     currentSessionId = session.id
+    const cleanMessages = session.messages.filter((msg) => {
+      if (msg.role === 'system') {
+        const text = msg.parts?.[0]?.text || ''
+        return !text.includes('# Identity') && !text.includes('Understood. I am Prism')
+      }
+      return true
+    })
+
     // Prepend system messages to the history loaded from disk
     chatHistory = [
       { role: 'system', parts: [{ text: getSystemToolsPrompt(currentModelKey) }] },
@@ -1159,7 +1517,7 @@ export function loadChatIntoHistory(id: string): Content[] {
           }
         ]
       },
-      ...session.messages
+      ...cleanMessages
     ]
 
     return chatHistory
@@ -1283,8 +1641,16 @@ export async function handleChatMessage(
   if (chatId === currentSessionId && chatHistory.length > 0) {
     runHistory = chatHistory
   } else {
+    currentSessionId = chatId
     const session = loadChatSession(chatId)
     if (session) {
+      const cleanMessages = session.messages.filter((msg) => {
+        if (msg.role === 'system') {
+          const text = msg.parts?.[0]?.text || ''
+          return !text.includes('# Identity') && !text.includes('Understood. I am Prism')
+        }
+        return true
+      })
       runHistory = [
         {
           role: 'system',
@@ -1298,7 +1664,7 @@ export async function handleChatMessage(
             }
           ]
         },
-        ...session.messages
+        ...cleanMessages
       ]
     } else {
       runHistory = [
@@ -1316,6 +1682,7 @@ export async function handleChatMessage(
         }
       ]
     }
+    chatHistory = runHistory
   }
 
   // A session is considered "new" for title generation if it only has the initial system/model messages
@@ -1434,8 +1801,9 @@ The user wants to search and play a video. Use web_search to find the most relev
           // Check if aborted before each AI call
           if (runAbortController.signal.aborted) throw new Error('AbortError')
 
-          // We send ALL content of the history manually at each iteration
-          const result = await ai.models.generateContentStream({
+          console.log(`[Main Chat] Starting generateContentStream for model: ${config.apiModel}, thinkMode: ${thinkMode}`);
+          // Call generateContentStream (actual streaming)
+          const responseStream = await ai.models.generateContentStream({
             model: config.apiModel,
             contents: normalizeContentsForGemini(runHistory),
             config: {
@@ -1447,66 +1815,75 @@ The user wants to search and play a video. Use web_search to find the most relev
 
           let currentThoughts = ''
           let currentFinalResponse = ''
-          let isThinking = false
+          let chunkCount = 0
 
-          for await (const chunk of result) {
-            // Check if aborted during stream processing
+          for await (const chunk of responseStream) {
             if (runAbortController.signal.aborted) throw new Error('AbortError')
+            chunkCount++
 
             const parts = chunk.candidates?.[0]?.content?.parts || []
+            console.log(`[Main Chat] Chunk #${chunkCount} received. Candidate parts length: ${parts.length}`);
             for (const part of parts) {
-              // Check for thought property in a type-safe way
               if (part && typeof part === 'object' && 'thought' in part && part.thought) {
                 currentThoughts += part.text || ''
-                isThinking = true
+                console.log(`[Main Chat] Thought part: "${part.text || ''}"`);
               } else if (part.text) {
                 currentFinalResponse += part.text
-                isThinking = false
+                console.log(`[Main Chat] Text part: "${part.text}"`);
               }
             }
 
-            if (currentThoughts || currentFinalResponse) {
-              const fullResponse = accumulatedFinalResponse + currentFinalResponse
-              const countOccurrences = (str: string, subStr: string): number =>
-                str.split(subStr).length - 1
-              const isWritingToolCall =
-                countOccurrences(fullResponse, '<tool_call>') >
-                  countOccurrences(fullResponse, '</tool_call>') ||
-                countOccurrences(fullResponse, '<mini_app>') >
-                  countOccurrences(fullResponse, '</mini_app>')
+            const countOccurrences = (str: string, subStr: string): number =>
+              str.split(subStr).length - 1
 
-              let toolType: 'task' | 'search' | 'mini-app' | undefined = undefined
+            const isWritingToolCall =
+              countOccurrences(currentFinalResponse, '<tool_call>') >
+                countOccurrences(currentFinalResponse, '</tool_call>') ||
+              countOccurrences(currentFinalResponse, '<mini_app>') >
+                countOccurrences(currentFinalResponse, '</mini_app>')
 
-              if (isWritingToolCall) {
-                const openMiniApp =
-                  countOccurrences(fullResponse, '<mini_app>') >
-                  countOccurrences(fullResponse, '</mini_app>')
-                if (openMiniApp) {
-                  toolType = 'mini-app'
-                } else {
-                  const lastOpenIdx = fullResponse.lastIndexOf('<tool_call>')
-                  const currentToolSegment = fullResponse.substring(lastOpenIdx)
-                  const isSearch =
-                    currentToolSegment.includes('<name>web_search</name>') ||
-                    currentToolSegment.includes('<name>search_chat_history</name>') ||
-                    currentToolSegment.includes('<name>saw_link_from_url</name>')
-                  toolType = isSearch ? 'search' : 'task'
-                }
+            let toolType: 'task' | 'search' | 'mini-app' | undefined = undefined
+            if (isWritingToolCall) {
+              const openMiniApp =
+                countOccurrences(currentFinalResponse, '<mini_app>') >
+                countOccurrences(currentFinalResponse, '</mini_app>')
+              if (openMiniApp) {
+                toolType = 'mini-app'
+              } else {
+                const lastOpenIdx = currentFinalResponse.lastIndexOf('<tool_call>')
+                const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)
+                const isSearch =
+                  currentToolSegment.includes('<name>web_search</name>') ||
+                  currentToolSegment.includes('<name>search_chat_history</name>') ||
+                  currentToolSegment.includes('<name>saw_link_from_url</name>') ||
+                  currentToolSegment.includes('"type": "web_search"') ||
+                  currentToolSegment.includes('"type": "saw_link_from_url"') ||
+                  currentToolSegment.includes("'type': 'web_search'") ||
+                  currentToolSegment.includes("'type': 'saw_link_from_url'") ||
+                  currentToolSegment.includes('"search_chat_memory"') ||
+                  currentToolSegment.includes("'search_chat_memory'")
+                toolType = isSearch ? 'search' : 'task'
               }
-
-              event.sender.send('chat-reply-chunk', {
-                thoughts: (accumulatedThoughts + currentThoughts).trim(),
-                finalResponse: fullResponse.trim(),
-                rawText: accumulatedThoughts + currentThoughts + fullResponse,
-                usedFallback: usedFallback,
-                isThinking: isThinking,
-                isWritingToolCall: isWritingToolCall,
-                toolType: toolType,
-                chatId: chatId
-              })
             }
+
+            const fullResponse = accumulatedFinalResponse + currentFinalResponse
+            const fullThoughts = accumulatedThoughts + currentThoughts
+            const isThinking = currentThoughts.length > 0 && currentFinalResponse.length === 0
+
+            console.log(`[Main Chat] Sending chat-reply-chunk: thoughts length: ${fullThoughts.trim().length}, response length: ${fullResponse.trim().length}, isThinking: ${isThinking}`);
+            event.sender.send('chat-reply-chunk', {
+              thoughts: fullThoughts.trim(),
+              finalResponse: fullResponse.trim(),
+              rawText: fullThoughts + fullResponse,
+              usedFallback: usedFallback,
+              isThinking,
+              isWritingToolCall,
+              toolType,
+              chatId: chatId
+            })
           }
 
+          console.log(`[Main Chat] Stream generation completed. Total chunks: ${chunkCount}`);
           // Add the AI response (whether text or Tool Call) to history
           const fullAiResponse = currentFinalResponse
           if (fullAiResponse.trim()) {
@@ -1521,22 +1898,52 @@ The user wants to search and play a video. Use web_search to find the most relev
 
           if (toolMatches.length > 0) {
             const toolPromises = toolMatches.map(async (toolContent) => {
-              const { name, args: toolArgs } = parseToolCall(toolContent)
+              const validation = validateToolCall(toolContent)
+              const isMalformed = validation.isMalformed
+              const actualName = isMalformed ? 'malformed_tool_call' : validation.name!
+              let toolArgs = validation.args
 
-              if (name && toolFunctions[name]) {
-                event.sender.send('chat-tool-start', {
-                  name,
-                  args: toolArgs,
-                  timestamp: Date.now(),
-                  chatId
-                })
+              if (isMalformed) {
+                toolArgs = {
+                  rawContent: toolContent,
+                  originalName: validation.name || 'None',
+                  errorType: validation.errorType,
+                  errorMessage: validation.errorMessage
+                }
+              }
 
-                let toolResult = ''
+              event.sender.send('chat-tool-start', {
+                name: actualName,
+                args: toolArgs,
+                timestamp: Date.now(),
+                chatId
+              })
+
+              let toolResult = ''
+              if (isMalformed) {
+                toolResult = `Error: AI stopped due to a malformed Tool Call.
+Detailed Error: ${validation.errorMessage}
+
+Your generated segment was:
+<tool_call>
+${toolContent.trim()}
+</tool_call>
+
+Every tool call MUST strictly conform to the expected format. Please review the error above, correct the tool call format, and try again.`
+                // Slight delay to feel like execution time
+                await new Promise((resolve) => setTimeout(resolve, 500))
+              } else {
                 try {
                   // Check if aborted before running tool
                   const signal = runAbortController.signal
                   if (signal?.aborted) throw new Error('AbortError')
-                  toolResult = await toolFunctions[name](toolArgs, event, apiKey, signal, chatId)
+                  toolResult = await toolFunctions[actualName](
+                    toolArgs,
+                    event,
+                    apiKey,
+                    signal,
+                    chatId
+                  )
                 } catch (err) {
                   if (
                     runAbortController.signal.aborted ||
@@ -1544,16 +1951,19 @@ The user wants to search and play a video. Use web_search to find the most relev
                       (err.name === 'AbortError' || err.name === 'GoogleGenerativeAIAbortError'))
                   ) {
                     toolResult = 'Cancelled by user.'
-                    event.sender.send('chat-tool-end', { name, result: toolResult, chatId })
+                    event.sender.send('chat-tool-end', {
+                      name: actualName,
+                      result: toolResult,
+                      chatId
+                    })
                     throw new Error('AbortError')
                   }
                   toolResult = `Error: ${err instanceof Error ? err.message : String(err)}`
                 }
-
-                event.sender.send('chat-tool-end', { name, result: toolResult, chatId })
-                return `\n[RESULT FOR ${name}]:\n${toolResult}\n`
               }
-              return ''
+
+              event.sender.send('chat-tool-end', { name: actualName, result: toolResult, chatId })
+              return `\n[RESULT FOR ${actualName}]:\n${toolResult}\n`
             })
 
             const results = await Promise.all(toolPromises)
@@ -1774,7 +2184,8 @@ export async function handleLauncherChatMessage(
 
           if (runAbortController.signal.aborted) throw new Error('AbortError')
 
-          const result = await ai.models.generateContentStream({
+          // Call generateContentStream (actual streaming)
+          const responseStream = await ai.models.generateContentStream({
             model: config.apiModel,
             contents: normalizeContentsForGemini(launcherChatHistory),
             config: {
@@ -1786,62 +2197,63 @@ export async function handleLauncherChatMessage(
 
           let currentThoughts = ''
           let currentFinalResponse = ''
-          let isThinking = false
 
-          for await (const chunk of result) {
+          for await (const chunk of responseStream) {
             if (runAbortController.signal.aborted) throw new Error('AbortError')
 
             const parts = chunk.candidates?.[0]?.content?.parts || []
             for (const part of parts) {
               if (part && typeof part === 'object' && 'thought' in part && part.thought) {
                 currentThoughts += part.text || ''
-                isThinking = true
               } else if (part.text) {
                 currentFinalResponse += part.text
-                isThinking = false
               }
             }
 
-            if (currentThoughts || currentFinalResponse) {
-              const fullResponse = accumulatedFinalResponse + currentFinalResponse
-              const countOccurrences = (str: string, subStr: string): number =>
-                str.split(subStr).length - 1
-              const isWritingToolCall =
-                countOccurrences(fullResponse, '<tool_call>') >
-                  countOccurrences(fullResponse, '</tool_call>') ||
-                countOccurrences(fullResponse, '<mini_app>') >
-                  countOccurrences(fullResponse, '</mini_app>')
+            const countOccurrences = (str: string, subStr: string): number =>
+              str.split(subStr).length - 1
 
-              let toolType: 'task' | 'search' | 'mini-app' | undefined = undefined
+            const isWritingToolCall =
+              countOccurrences(currentFinalResponse, '<tool_call>') >
+                countOccurrences(currentFinalResponse, '</tool_call>') ||
+              countOccurrences(currentFinalResponse, '<mini_app>') >
+                countOccurrences(currentFinalResponse, '</mini_app>')
 
-              if (isWritingToolCall) {
-                const openMiniApp =
-                  countOccurrences(fullResponse, '<mini_app>') >
-                  countOccurrences(fullResponse, '</mini_app>')
-                if (openMiniApp) {
-                  toolType = 'mini-app'
-                } else {
-                  const lastOpenIdx = fullResponse.lastIndexOf('<tool_call>')
-                  const currentToolSegment = fullResponse.substring(lastOpenIdx)
-                  const isSearch =
-                    currentToolSegment.includes('<name>web_search</name>') ||
-                    currentToolSegment.includes('<name>saw_link_from_url</name>') ||
-                    currentToolSegment.includes('"type": "web_search"') ||
-                    currentToolSegment.includes('"type": "saw_link_from_url"') ||
-                    currentToolSegment.includes("'type': 'web_search'") ||
-                    currentToolSegment.includes("'type': 'saw_link_from_url'")
-                  toolType = isSearch ? 'search' : 'task'
-                }
+            let toolType: 'task' | 'search' | 'mini-app' | undefined = undefined
+            if (isWritingToolCall) {
+              const openMiniApp =
+                countOccurrences(currentFinalResponse, '<mini_app>') >
+                countOccurrences(currentFinalResponse, '</mini_app>')
+              if (openMiniApp) {
+                toolType = 'mini-app'
+              } else {
+                const lastOpenIdx = currentFinalResponse.lastIndexOf('<tool_call>')
+                const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)
+                const isSearch =
+                  currentToolSegment.includes('<name>web_search</name>') ||
+                  currentToolSegment.includes('<name>search_chat_history</name>') ||
+                  currentToolSegment.includes('<name>saw_link_from_url</name>') ||
+                  currentToolSegment.includes('"type": "web_search"') ||
+                  currentToolSegment.includes('"type": "saw_link_from_url"') ||
+                  currentToolSegment.includes("'type': 'web_search'") ||
+                  currentToolSegment.includes("'type': 'saw_link_from_url'") ||
+                  currentToolSegment.includes('"search_chat_memory"') ||
+                  currentToolSegment.includes("'search_chat_memory'")
+                toolType = isSearch ? 'search' : 'task'
               }
-
-              event.sender.send('launcher-reply-chunk', {
-                thoughts: (accumulatedThoughts + currentThoughts).trim(),
-                finalResponse: fullResponse.trim(),
-                isThinking,
-                isWritingToolCall,
-                toolType
-              })
             }
+
+            const fullResponse = accumulatedFinalResponse + currentFinalResponse
+            const fullThoughts = accumulatedThoughts + currentThoughts
+            const isThinking = currentThoughts.length > 0 && currentFinalResponse.length === 0
+
+            event.sender.send('launcher-reply-chunk', {
+              thoughts: fullThoughts.trim(),
+              finalResponse: fullResponse.trim(),
+              isThinking,
+              isWritingToolCall,
+              toolType
+            })
           }
 
           const fullAiResponse = currentFinalResponse
@@ -2132,3 +2544,377 @@ ${text}`
   // Return as Base64 Data URI
   return `data:audio/wav;base64,${finalWavBuffer.toString('base64')}`
 }
+
+let aiSearchAbortController: AbortController | null = null
+
+/**
+ * Handles chat messages sent from the AI Search Modal.
+ */
+export async function handleAiSearchChatMessage(
+  event: IpcMainEvent,
+  data: string | { message: string }
+): Promise<void> {
+  const message = typeof data === 'string' ? data : data.message
+
+  const apiKey = userApiKey || process.env.GEMINI_API_KEY
+  if (!apiKey || apiKey.trim() === '' || apiKey === 'your_api_key_here') {
+    event.sender.send('ai-search-reply-error', { error: 'API_KEY_MISSING' })
+    return
+  }
+
+  // Cancel any active AI search run
+  if (aiSearchAbortController) {
+    aiSearchAbortController.abort()
+  }
+
+  const runAbortController = new AbortController()
+  aiSearchAbortController = runAbortController
+
+  const modelKey = 'prism-6-super-fast' // gemini-3.1-flash-lite
+  console.log(
+    `[AI SEARCH DEBUG MAIN] Starting AI Search. modelKey: ${modelKey}, message: "${message}"`
+  )
+
+  const systemPrompt = `You are the Chat Search AI for the Prism application.
+Your goal is to find chats from the user's history matching their description.
+You are equipped with the tool "search_chat_memory" which searches all past conversations for matching context or keywords, returning structured metadata (IDs, filenames, titles, snippets).
+
+CRITICAL INTERACTION PROTOCOL:
+- You do NOT have native function calling enabled in this session.
+- You must call tools ONLY by outputting the XML block <tool_call>JSON</tool_call> in your text response. 
+- Do NOT attempt to use native function/tool calling.
+- Do NOT output any JSON block outside of the <tool_call>...</tool_call> XML tags.
+
+Guidelines:
+1. First, call \`search_chat_memory\` with relevant keywords to retrieve matching content.
+Example of calling search_chat_memory:
+To search for a chat, output:
+<tool_call>
+{
+  "type": "search_chat_memory",
+  "query": "words to search"
+}
+</tool_call>
+
+2. Based on the returned context, locate the chat sessions that match.
+3. Present your findings to the user. For each matching chat session, you MUST output a \`render_chat_history\` tool call so the UI can render it.
+The query for \`render_chat_history\` MUST be the filename (e.g. "chat_23956810394.json" or "chat_19385019384.json") or the chat session ID (e.g. "23956810394").
+Example of rendering chat history:
+I found two conversations that match your request. Here is the first:
+<tool_call>
+{
+  "type": "render_chat_history",
+  "query": "chat_23956810394.json"
+}
+</tool_call>
+
+Available tools:
+- search_chat_memory (args: { query: string })
+- render_chat_history (args: { query: string })
+`
+
+  const searchHistory: Content[] = [
+    {
+      role: 'system',
+      parts: [{ text: systemPrompt }]
+    },
+    {
+      role: 'user',
+      parts: [{ text: message }]
+    }
+  ]
+
+  let success = false
+  event.sender.send('ai-search-reply-start')
+
+  try {
+    while (!success) {
+      if (runAbortController.signal.aborted) {
+        console.log('[AI SEARCH DEBUG MAIN] Search aborted before main loop')
+        event.sender.send('ai-search-reply-error', { error: 'Cancelled by user.' })
+        success = true
+        return
+      }
+
+      try {
+        let currentModel = modelKey
+        let isFallback = false
+
+        const config = {
+          ...MODEL_CONFIGS[currentModel]
+        }
+
+        config.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true }
+
+        const ai = new GoogleGenAI({ apiKey })
+
+        let accumulatedThoughts = ''
+        let accumulatedFinalResponse = ''
+        let iterationCount = 0
+        const MAX_ITERATIONS = 5
+
+        while (iterationCount < MAX_ITERATIONS) {
+          iterationCount++
+          console.log(
+            `[AI SEARCH DEBUG MAIN] Iteration ${iterationCount} starting... (Model: ${currentModel})`
+          )
+
+          if (runAbortController.signal.aborted) throw new Error('AbortError')
+
+          let result
+          try {
+            result = await ai.models.generateContent({
+              model: MODEL_CONFIGS[currentModel].apiModel,
+              contents: normalizeContentsForGemini(searchHistory),
+              config: {
+                temperature: 0.3,
+                thinkingConfig: config.thinkingConfig,
+                abortSignal: runAbortController.signal
+              }
+            })
+          } catch (error: any) {
+            const errorMsg = error?.message || String(error)
+            const isRateLimit =
+              errorMsg.includes('429') ||
+              errorMsg.includes('Quota') ||
+              errorMsg.includes('Rate limit') ||
+              errorMsg.includes('high traffic') ||
+              errorMsg.includes('503')
+
+            if (isRateLimit && !isFallback) {
+              console.log('[AI SEARCH] Rate limit hit. Falling back to Prism 6 Dragon.')
+              currentModel = 'prism-6-dragon' // gemma-4-26b-a4b-it
+              isFallback = true
+              iterationCount-- // Retry this iteration
+              continue
+            }
+            throw error
+          }
+
+          let currentThoughts = ''
+          let currentFinalResponse = ''
+
+          const parts = result.candidates?.[0]?.content?.parts || []
+          for (const part of parts) {
+            if (part && typeof part === 'object' && 'thought' in part && part.thought) {
+              currentThoughts += part.text || ''
+            } else if (part.text) {
+              currentFinalResponse += part.text
+            }
+          }
+
+          // Send final response directly without self-made streaming (Search AI does not need streaming)
+          event.sender.send('ai-search-reply-chunk', {
+            thoughts: currentThoughts.trim(),
+            finalResponse: currentFinalResponse.trim(),
+            isThinking: false,
+            isWritingToolCall: false
+          })
+
+          console.log(
+            `[AI SEARCH DEBUG MAIN] Generation completed. Response length: ${currentFinalResponse.length}`
+          )
+
+          const fullAiResponse = currentFinalResponse
+          if (fullAiResponse.trim()) {
+            searchHistory.push({ role: 'model', parts: [{ text: fullAiResponse }] })
+          }
+
+          accumulatedThoughts += currentThoughts
+          accumulatedFinalResponse += currentFinalResponse
+
+          const toolMatches = extractToolCalls(fullAiResponse)
+
+          if (toolMatches.length > 0) {
+            console.log(`[AI SEARCH DEBUG MAIN] Found ${toolMatches.length} tool calls to execute.`)
+            let hasRenderedChat = false
+
+            const toolPromises = toolMatches.map(async (toolContent) => {
+              const validation = validateToolCall(toolContent)
+              const isMalformed = validation.isMalformed
+              const actualName = isMalformed ? 'malformed_tool_call' : validation.name!
+              let toolArgs = validation.args
+
+              if (actualName === 'render_chat_history') {
+                hasRenderedChat = true
+              }
+
+              console.log(
+                `[AI SEARCH DEBUG MAIN] Executing tool: ${actualName} with args:`,
+                toolArgs
+              )
+
+              event.sender.send('ai-search-tool-start', {
+                name: actualName,
+                args: toolArgs,
+                timestamp: Date.now()
+              })
+
+              let toolResult = ''
+              if (isMalformed) {
+                toolResult = `Error: Malformed Tool Call: ${validation.errorMessage}`
+              } else {
+                try {
+                  const signal = runAbortController.signal
+                  if (signal?.aborted) throw new Error('AbortError')
+                  toolResult = await toolFunctions[actualName](toolArgs, event, apiKey, signal)
+                } catch (err) {
+                  if (
+                    runAbortController.signal.aborted ||
+                    (err instanceof Error &&
+                      (err.name === 'AbortError' || err.name === 'GoogleGenerativeAIAbortError'))
+                  ) {
+                    toolResult = 'Cancelled by user.'
+                    event.sender.send('ai-search-tool-end', {
+                      name: actualName,
+                      result: toolResult
+                    })
+                    throw new Error('AbortError')
+                  }
+                  toolResult = `Error: ${err instanceof Error ? err.message : String(err)}`
+                }
+              }
+
+              console.log(
+                `[AI SEARCH DEBUG MAIN] Tool ${actualName} finished. Result length: ${toolResult.length}`
+              )
+              event.sender.send('ai-search-tool-end', { name: actualName, result: toolResult })
+              return `\n[RESULT FOR ${actualName}]:\n${toolResult}\n`
+            })
+
+            const results = await Promise.all(toolPromises)
+            const allToolResults = results.join('')
+
+            if (hasRenderedChat) {
+              console.log(
+                '[AI SEARCH DEBUG MAIN] render_chat_history executed. Finishing AI Search loop.'
+              )
+              event.sender.send('ai-search-reply-end', {
+                thoughts: currentThoughts.trim(),
+                finalResponse: currentFinalResponse.trim()
+              })
+              success = true
+              return
+            }
+
+            if (allToolResults) {
+              const systemFeedback = `[SYSTEM: TOOL RESULTS]${allToolResults}\nAnalyze these results and proceed.`
+              searchHistory.push({ role: 'system', parts: [{ text: systemFeedback }] })
+              continue
+            }
+          }
+
+          console.log(
+            `[AI SEARCH DEBUG MAIN] AI Search completed. thoughts: ${accumulatedThoughts.length} chars, response: ${accumulatedFinalResponse.length} chars`
+          )
+          event.sender.send('ai-search-reply-end', {
+            thoughts: currentThoughts.trim(),
+            finalResponse: currentFinalResponse.trim()
+          })
+
+          success = true
+          return
+        }
+
+        success = true
+      } catch (error) {
+        if (
+          runAbortController.signal.aborted ||
+          (error instanceof Error &&
+            (error.name === 'AbortError' || error.name === 'GoogleGenerativeAIAbortError'))
+        ) {
+          event.sender.send('ai-search-reply-error', { error: 'Cancelled by user.' })
+          success = true
+          return
+        }
+
+        console.error('AI Search Error in iteration:', error)
+        event.sender.send('ai-search-reply-error', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+        success = true
+      }
+    }
+  } catch (err) {
+    console.error('Outer AI Search Error:', err)
+    event.sender.send('ai-search-reply-error', {
+      error: err instanceof Error ? err.message : String(err)
+    })
+  } finally {
+    if (aiSearchAbortController === runAbortController) {
+      aiSearchAbortController = null
+    }
+  }
+}
+
+export function cancelAiSearch(): void {
+  if (aiSearchAbortController) {
+    aiSearchAbortController.abort()
+  }
+}
+
+/**
+ * Transcribes audio using Gemini models with fallback.
+ * Cleans up speech errors and formats as Markdown.
+ */
+export async function transcribeAudio(audioBase64: string): Promise<string> {
+  console.log('[MAIN TRANSCRIPTION] Received audio data length:', audioBase64.length)
+  const config = await loadConfig()
+  const apiKey = config.userGeminiKey || process.env.GOOGLE_API_KEY
+  if (!apiKey) {
+    throw new Error('API Key missing. Please set your Gemini API key in settings.')
+  }
+
+  const ai = new GoogleGenAI({ apiKey })
+  // Fallback order: Gemini 3.1 Flash-Lite -> Gemini 3 Flash Preview -> Gemini 3.5 Flash
+  const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-3.5-flash']
+
+  const systemPrompt = `You are an audio transcription specialist assistant in "brainstorming mode." Your task is to transcribe and clean up the user's audio.
+  Remove filler words ('uh', 'hm', 'like'), stutters, and correct errors (e.g., "This is... no, that is" becomes "That is").
+    - Format the output using Markdown for better readability:
+    - Use bold for emphasis.
+    - Use lists for complex points or items.
+    - Use \`filename\` to cite files if mentioned.
+    - Use line breaks for new topics.
+    - Use numbering for examples or lists.
+    - Among many others.
+  Ensure the output is clean, professional, and perfectly captures the user's intent.
+  Produce ONLY the transcribed and formatted text, without introductions or explanations.`
+
+  let lastError: any = null
+
+  for (const modelName of modelsToTry) {
+    try {
+      console.log(`[TRANSCRIPTION] Attempting with model: ${modelName}`)
+      const result = await ai.models.generateContent({
+        model: modelName,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { inlineData: { data: audioBase64, mimeType: 'audio/webm' } },
+              { text: systemPrompt }
+            ]
+          }
+        ],
+        config: {
+          temperature: 0.4
+        }
+      })
+
+      const text = (result.text || '').trim()
+      if (text) {
+        console.log(`[TRANSCRIPTION] Success with model: ${modelName}`)
+        return text
+      }
+    } catch (err) {
+      console.error(`[TRANSCRIPTION] Failed with model ${modelName}:`, err)
+      lastError = err
+      continue
+    }
+  }
+
+  throw lastError || new Error('All transcription models failed.')
+}
+
+

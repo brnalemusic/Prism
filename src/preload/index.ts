@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, IpcRendererEvent, webFrame } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { StructuredChatResponse } from '../main/gemini'
 import type { AppConfig } from '../main/config'
@@ -11,6 +11,79 @@ import type {
 } from '../shared/types'
 import type { ChatSession } from '../main/history'
 import type { Content } from '@google/genai'
+
+// Initialize Zoom Factor
+const DEFAULT_ZOOM = 1.2
+let currentZoom = DEFAULT_ZOOM
+
+try {
+  const saved = localStorage.getItem('zoom-factor')
+  if (saved) {
+    const parsed = parseFloat(saved)
+    if (!isNaN(parsed) && parsed >= 0.5 && parsed <= 3.0) {
+      currentZoom = parsed
+    }
+  }
+} catch (e) {
+  console.error('Failed to read zoom factor from localStorage:', e)
+}
+
+try {
+  webFrame.setZoomFactor(currentZoom)
+} catch (e) {
+  console.error('Failed to set zoom factor:', e)
+}
+
+// Keydown listener for zoom shortcuts (supports multiple layouts and numpads)
+window.addEventListener('keydown', (event) => {
+  const isCtrlOrCmd = event.ctrlKey || event.metaKey
+  if (!isCtrlOrCmd) return
+
+  const key = event.key
+  const code = event.code
+  const keyCode = event.keyCode
+
+  const isPlus =
+    key === '=' ||
+    key === '+' ||
+    code === 'Equal' ||
+    code === 'NumpadAdd' ||
+    keyCode === 187 ||
+    keyCode === 107
+
+  const isMinus =
+    key === '-' ||
+    key === '_' ||
+    code === 'Minus' ||
+    code === 'NumpadSubtract' ||
+    keyCode === 189 ||
+    keyCode === 109
+
+  const isZero =
+    key === '0' || code === 'Digit0' || code === 'Numpad0' || keyCode === 48 || keyCode === 96
+
+  let changed = false
+  if (isPlus) {
+    currentZoom = Math.min(3.0, currentZoom + 0.05)
+    changed = true
+  } else if (isMinus) {
+    currentZoom = Math.max(0.5, currentZoom - 0.05)
+    changed = true
+  } else if (isZero) {
+    currentZoom = DEFAULT_ZOOM
+    changed = true
+  }
+
+  if (changed) {
+    event.preventDefault()
+    try {
+      webFrame.setZoomFactor(currentZoom)
+      localStorage.setItem('zoom-factor', currentZoom.toString())
+    } catch (e) {
+      console.error('Failed to update zoom factor:', e)
+    }
+  }
+})
 
 // Custom APIs for renderer
 const api = {
@@ -325,7 +398,74 @@ const api = {
     sessionId: string
     responses: Record<string, string>
   }): void => ipcRenderer.send('submit-questionnaire', data),
-  generateTts: (text: string): Promise<string> => ipcRenderer.invoke('generate-tts', text)
+  generateTts: (text: string): Promise<string> => ipcRenderer.invoke('generate-tts', text),
+  transcribeAudio: (audioBase64: string): Promise<string> =>
+    ipcRenderer.invoke('transcribe-audio', audioBase64),
+  searchChatsOffline: (query: string): Promise<{ results: any[]; didYouMean?: string }> =>
+    ipcRenderer.invoke('search-chats-offline', query),
+  sendAiSearchMessage: (data: string | { message: string }): void =>
+    ipcRenderer.send('ai-search-message', data),
+  cancelAiSearch: (): void => {
+    ipcRenderer.send('ai-search-cancel')
+  },
+  onAiSearchStart: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('ai-search-reply-start', listener)
+    return () => ipcRenderer.removeListener('ai-search-reply-start', listener)
+  },
+  onAiSearchChunk: (
+    callback: (data: {
+      thoughts: string
+      finalResponse: string
+      isThinking: boolean
+      isWritingToolCall?: boolean
+      toolType?: 'task' | 'search'
+    }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: {
+        thoughts: string
+        finalResponse: string
+        isThinking: boolean
+        isWritingToolCall?: boolean
+        toolType?: 'task' | 'search'
+      }
+    ): void => callback(data)
+    ipcRenderer.on('ai-search-reply-chunk', listener)
+    return () => ipcRenderer.removeListener('ai-search-reply-chunk', listener)
+  },
+  onAiSearchEnd: (
+    callback: (data: { thoughts: string; finalResponse: string }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: { thoughts: string; finalResponse: string }
+    ): void => callback(data)
+    ipcRenderer.on('ai-search-reply-end', listener)
+    return () => ipcRenderer.removeListener('ai-search-reply-end', listener)
+  },
+  onAiSearchError: (callback: (data: { error: string }) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: { error: string }): void => callback(data)
+    ipcRenderer.on('ai-search-reply-error', listener)
+    return () => ipcRenderer.removeListener('ai-search-reply-error', listener)
+  },
+  onAiSearchToolStart: (
+    callback: (data: { name: string; args: Record<string, unknown>; timestamp?: number }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: { name: string; args: Record<string, unknown>; timestamp?: number }
+    ): void => callback(data)
+    ipcRenderer.on('ai-search-tool-start', listener)
+    return () => ipcRenderer.removeListener('ai-search-tool-start', listener)
+  },
+  onAiSearchToolEnd: (callback: (data: { name: string; result: string }) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: { name: string; result: string }): void =>
+      callback(data)
+    ipcRenderer.on('ai-search-tool-end', listener)
+    return () => ipcRenderer.removeListener('ai-search-tool-end', listener)
+  }
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

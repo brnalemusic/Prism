@@ -129,6 +129,28 @@ export interface PrismAPI {
     responses: Record<string, string>
   }) => void
   generateTts: (text: string) => Promise<string>
+  transcribeAudio: (audioBase64: string) => Promise<string>
+  searchChatsOffline: (query: string) => Promise<{ results: any[]; didYouMean?: string }>
+  sendAiSearchMessage: (data: string | { message: string }) => void
+  cancelAiSearch: () => void
+  onAiSearchStart: (callback: () => void) => () => void
+  onAiSearchChunk: (
+    callback: (data: {
+      thoughts: string
+      finalResponse: string
+      isThinking: boolean
+      isWritingToolCall?: boolean
+      toolType?: 'task' | 'search'
+    }) => void
+  ) => () => void
+  onAiSearchEnd: (
+    callback: (data: { thoughts: string; finalResponse: string }) => void
+  ) => () => void
+  onAiSearchError: (callback: (data: { error: string }) => void) => () => void
+  onAiSearchToolStart: (
+    callback: (data: { name: string; args: Record<string, unknown>; timestamp?: number }) => void
+  ) => () => void
+  onAiSearchToolEnd: (callback: (data: { name: string; result: string }) => void) => () => void
 }
 
 declare global {

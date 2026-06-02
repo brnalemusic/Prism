@@ -9,298 +9,282 @@ export interface ToolDefinition {
 export const toolsManifest: ToolDefinition[] = [
   {
     name: 'run_subagents',
-    description: 'Spawns sub-agents to perform parallel tasks. Ideal for complex requests.',
-    usage:
-      '<tool_call>\n{\n  "type": "run_subagents",\n  "quantity": "X",\n  "prompt:1": "P1"\n}\n</tool_call>',
+    description: 'Spawn sub-agents for parallel tasks. Ideal for complex multi-step requests.',
+    usage: '<tool_call>{"type":"run_subagents","quantity":"X","prompt:1":"P1"}</tool_call>',
     parameters: {
-      quantity: 'Number of agents to spawn.',
-      'prompt:1': 'Detailed prompt for agent 1.',
-      'prompt:2': 'Detailed prompt for agent 2 (repeat for X).'
+      quantity: 'Number of agents.',
+      'prompt:1': 'Prompt for agent 1.',
+      'prompt:2': 'Prompt for agent 2 (repeat up to X).'
     },
     target: 'main'
   },
   {
     name: 'send_group_message',
-    description:
-      'Sends a message to the group chat. If you want to wait for a response, you MUST also call wait_for_updates in the same response.',
+    description: 'Send group chat message. Use with wait_for_updates if awaiting reply.',
     usage:
-      '<tool_call>\n{\n  "type": "send_group_message",\n  "content": "TEXT",\n  "status": "working|done|error"\n}\n</tool_call>',
+      '<tool_call>{"type":"send_group_message","content":"TXT","status":"working|done|error"}</tool_call>',
     parameters: {
-      content: 'The message to broadcast.',
-      status:
-        'Use "working" to stay active (requires calling wait_for_updates too). Use "done" or "error" to signal completion. The swarm will terminate only when all worker subagents agree and exit.'
+      content: 'Message text.',
+      status: '"working" to stay active (requires wait_for_updates), "done" or "error" to exit.'
     },
     target: 'subagent'
   },
   {
     name: 'read_group_messages',
-    description: 'Fetches past messages from the group chat history.',
+    description: 'Fetch group chat history.',
     usage:
-      '<tool_call>\n{\n  "type": "read_group_messages",\n  "sinceTimestamp": "TS",\n  "limit": "N"\n}\n</tool_call>',
+      '<tool_call>{"type":"read_group_messages","sinceTimestamp":"TS","limit":"N"}</tool_call>',
     parameters: {
-      sinceTimestamp: 'Optional: Only get messages after this timestamp.',
-      limit: 'Optional: Max messages to return.'
+      sinceTimestamp: 'Optional: Filter by timestamp.',
+      limit: 'Optional: Max messages.'
     },
     target: 'subagent'
   },
   {
     name: 'wait_for_updates',
-    description:
-      'Pauses execution until a new message is received. Use this after sending a message to wait for a reply, otherwise you will terminate.',
-    usage:
-      '<tool_call>\n{\n  "type": "wait_for_updates",\n  "timeoutSeconds": "SEC"\n}\n</tool_call>',
+    description: 'Pause and wait for new group messages.',
+    usage: '<tool_call>{"type":"wait_for_updates","timeoutSeconds":"SEC"}</tool_call>',
     parameters: {
-      timeoutSeconds: 'Max time to wait (max 180s).'
+      timeoutSeconds: 'Max wait time (max 180s).'
     },
     target: 'subagent'
   },
   {
     name: 'execute_terminal_command',
-    description: 'Executes a command in the terminal (cmd/powershell).',
-    usage:
-      '<tool_call>\n{\n  "type": "execute_terminal_command",\n  "command": "CMD"\n}\n</tool_call>',
+    description: 'Run shell command (cmd/powershell).',
+    usage: '<tool_call>{"type":"execute_terminal_command","command":"CMD"}</tool_call>',
     parameters: {
-      command: 'The shell command to run.'
+      command: 'Shell command.'
     }
   },
   {
     name: 'computer_use_create_file',
-    description:
-      'Creates a new file with content. Auto-creates parent directories and fails if the file already exists.',
+    description: 'Create new file with content. Fails if exists.',
     usage:
-      '<tool_call>\n{\n  "type": "computer_use_create_file",\n  "path": "PATH",\n  "content": "TXT"\n}\n</tool_call>',
+      '<tool_call>{"type":"computer_use_create_file","path":"PATH","content":"TXT"}</tool_call>',
     parameters: {
-      path: 'Required complete file path.',
-      content: 'Required initial text content.'
+      path: 'Absolute file path.',
+      content: 'Initial text.'
     }
   },
   {
     name: 'computer_use_create_directory',
-    description: 'Creates a new directory recursively.',
-    usage:
-      '<tool_call>\n{\n  "type": "computer_use_create_directory",\n  "path": "PATH"\n}\n</tool_call>',
+    description: 'Create directory recursively.',
+    usage: '<tool_call>{"type":"computer_use_create_directory","path":"PATH"}</tool_call>',
     parameters: {
-      path: 'Required complete directory path.'
+      path: 'Absolute directory path.'
     }
   },
   {
     name: 'computer_use_remove_file',
-    description: 'Deletes a file from the system.',
-    usage:
-      '<tool_call>\n{\n  "type": "computer_use_remove_file",\n  "path": "PATH"\n}\n</tool_call>',
+    description: 'Delete a file.',
+    usage: '<tool_call>{"type":"computer_use_remove_file","path":"PATH"}</tool_call>',
     parameters: {
-      path: 'Required complete file path.'
+      path: 'Absolute file path.'
     }
   },
   {
     name: 'computer_use_remove_directory',
-    description: 'Recursively deletes an existing directory and its contents.',
-    usage:
-      '<tool_call>\n{\n  "type": "computer_use_remove_directory",\n  "path": "PATH"\n}\n</tool_call>',
+    description: 'Delete directory recursively.',
+    usage: '<tool_call>{"type":"computer_use_remove_directory","path":"PATH"}</tool_call>',
     parameters: {
-      path: 'Required complete directory path.'
+      path: 'Absolute directory path.'
     }
   },
   {
     name: 'computer_use_save_file',
-    description: 'Overwrites or saves a file with new content. Auto-creates parent directories.',
-    usage:
-      '<tool_call>\n{\n  "type": "computer_use_save_file",\n  "path": "PATH",\n  "content": "TXT"\n}\n</tool_call>',
+    description: 'Overwrite or create file with content.',
+    usage: '<tool_call>{"type":"computer_use_save_file","path":"PATH","content":"TXT"}</tool_call>',
     parameters: {
-      path: 'Required complete file path.',
-      content: 'Required complete file content to save.'
+      path: 'Absolute file path.',
+      content: 'Full file content.'
     }
   },
   {
     name: 'computer_use_append_file',
-    description: 'Appends text to the end of a file. Auto-creates parent directories and the file.',
+    description: 'Append text to a file.',
     usage:
-      '<tool_call>\n{\n  "type": "computer_use_append_file",\n  "path": "PATH",\n  "content": "TXT"\n}\n</tool_call>',
+      '<tool_call>{"type":"computer_use_append_file","path":"PATH","content":"TXT"}</tool_call>',
     parameters: {
-      path: 'Required complete file path.',
-      content: 'Required text to append.'
+      path: 'Absolute file path.',
+      content: 'Text to append.'
     }
   },
   {
     name: 'computer_use_edit_file',
-    description:
-      'Edits a file by replacing a specific range of lines with new content. Replaces lines from startLine to endLine (inclusive).',
+    description: 'Edit line range in a file.',
     usage:
-      '<tool_call>\n{\n  "type": "computer_use_edit_file",\n  "path": "PATH",\n  "startLine": "START_LINE_NUM",\n  "endLine": "END_LINE_NUM",\n  "newContent": "NEW_CONTENT"\n}\n</tool_call>',
+      '<tool_call>{"type":"computer_use_edit_file","path":"PATH","startLine":1,"endLine":5,"newContent":"TXT"}</tool_call>',
     parameters: {
-      path: 'Required complete file path.',
-      startLine: 'Required starting line number (1-based).',
-      endLine: 'Required ending line number (inclusive).',
-      newContent: 'Required new text to replace the lines with.'
+      path: 'Absolute file path.',
+      startLine: 'Start line (1-based).',
+      endLine: 'End line (inclusive).',
+      newContent: 'New text.'
     }
   },
   {
     name: 'computer_use_copy_file',
-    description: 'Copies a file or directory to a destination path.',
+    description: 'Copy file or directory.',
     usage:
-      '<tool_call>\n{\n  "type": "computer_use_copy_file",\n  "sourcePath": "SOURCE",\n  "destinationPath": "DESTINATION",\n  "overwrite": "false"\n}\n</tool_call>',
+      '<tool_call>{"type":"computer_use_copy_file","sourcePath":"S","destinationPath":"D","overwrite":"false"}</tool_call>',
     parameters: {
-      sourcePath: 'Required complete source path.',
-      destinationPath: 'Required complete destination path.',
-      overwrite: 'Optional true|false. Default false.'
+      sourcePath: 'Source path.',
+      destinationPath: 'Destination path.',
+      overwrite: 'true|false (default false).'
     }
   },
   {
     name: 'computer_use_move_file',
-    description: 'Moves or renames a file or directory to a destination path.',
+    description: 'Move or rename file/directory.',
     usage:
-      '<tool_call>\n{\n  "type": "computer_use_move_file",\n  "sourcePath": "SOURCE",\n  "destinationPath": "DESTINATION",\n  "overwrite": "false"\n}\n</tool_call>',
+      '<tool_call>{"type":"computer_use_move_file","sourcePath":"S","destinationPath":"D","overwrite":"false"}</tool_call>',
     parameters: {
-      sourcePath: 'Required complete source path.',
-      destinationPath: 'Required complete destination path.',
-      overwrite: 'Optional true|false. Default false.'
+      sourcePath: 'Source path.',
+      destinationPath: 'Destination path.',
+      overwrite: 'true|false (default false).'
     }
   },
   {
     name: 'computer_use_get_file_info',
-    description: 'Returns metadata for a file or directory: type, size, timestamps, permissions.',
-    usage:
-      '<tool_call>\n{\n  "type": "computer_use_get_file_info",\n  "path": "PATH"\n}\n</tool_call>',
+    description: 'Get file/dir metadata.',
+    usage: '<tool_call>{"type":"computer_use_get_file_info","path":"PATH"}</tool_call>',
     parameters: {
-      path: 'Required complete file or directory path.'
+      path: 'Absolute path.'
     }
   },
   {
     name: 'computer_use_list_directory',
-    description: 'Lists the contents of a directory.',
-    usage:
-      '<tool_call>\n{\n  "type": "computer_use_list_directory",\n  "path": "PATH"\n}\n</tool_call>',
+    description: 'List directory contents.',
+    usage: '<tool_call>{"type":"computer_use_list_directory","path":"PATH"}</tool_call>',
     parameters: {
-      path: 'Required complete directory path.'
+      path: 'Absolute directory path.'
     }
   },
   {
     name: 'computer_use_read_file',
-    description: 'Reads the text content of a file.',
-    usage: '<tool_call>\n{\n  "type": "computer_use_read_file",\n  "path": "PATH"\n}\n</tool_call>',
+    description: 'Read file content.',
+    usage: '<tool_call>{"type":"computer_use_read_file","path":"PATH"}</tool_call>',
     parameters: {
-      path: 'Required complete file path.'
+      path: 'Absolute file path.'
     }
   },
   {
     name: 'list_installed_applications',
-    description:
-      'Lists all installed Windows applications and games (including Steam, Epic, Valorant, Chrome, etc.) and their actual executable file paths. You MUST use this tool instead of running terminal/powershell commands (like Get-ItemProperty or Get-StartApps) to list applications, as it is cached, extremely fast, and much more complete.',
-    usage: '<tool_call>\n{\n  "type": "list_installed_applications"\n}\n</tool_call>',
+    description: 'List installed Windows apps and executables. Faster than shell commands.',
+    usage: '<tool_call>{"type":"list_installed_applications"}</tool_call>',
     parameters: {}
   },
   {
     name: 'open_application',
-    description:
-      'Opens an application using its literal executable path (must end with .exe). You must ALWAYS use this tool to open applications rather than using terminal/command line tools, unless opening the app via this tool is impossible.',
-    usage:
-      '<tool_call>\n{\n  "type": "open_application",\n  "appPath": "PATH_TO_EXE"\n}\n</tool_call>',
+    description: 'Open .exe via path. Preferred over shell commands.',
+    usage: '<tool_call>{"type":"open_application","appPath":"EXE_PATH"}</tool_call>',
     parameters: {
-      appPath: 'Literal path to the executable file (must end in .exe).'
+      appPath: 'Path to .exe.'
     }
   },
   {
     name: 'web_search',
-    description: 'Performs a web search for real-time information.',
-    usage: '<tool_call>\n{\n  "type": "web_search",\n  "query": "QRY"\n}\n</tool_call>',
+    description: 'Web search for real-time info.',
+    usage: '<tool_call>{"type":"web_search","query":"QRY"}</tool_call>',
     parameters: {
-      query: 'Search keywords.'
+      query: 'Keywords.'
     }
   },
   {
     name: 'saw_link_from_url',
-    description: 'Fetches and reads text from a specific URL.',
-    usage: '<tool_call>\n{\n  "type": "saw_link_from_url",\n  "url": "URL"\n}\n</tool_call>',
+    description: 'Read text content from URL.',
+    usage: '<tool_call>{"type":"saw_link_from_url","url":"URL"}</tool_call>',
     parameters: {
-      url: 'Webpage URL.'
+      url: 'Target URL.'
     }
   },
   {
     name: 'open_browser_link',
-    description: 'Opens a URL in the default system browser.',
-    usage: '<tool_call>\n{\n  "type": "open_browser_link",\n  "url": "URL"\n}\n</tool_call>',
+    description: 'Open URL in system browser.',
+    usage: '<tool_call>{"type":"open_browser_link","url":"URL"}</tool_call>',
     parameters: {
       url: 'Target URL.'
     }
   },
   {
     name: 'search_chat_history',
-    description:
-      'Searches all past conversations for specific context or preferences. Use comma-separated keywords for better results.',
-    usage:
-      '<tool_call>\n{\n  "type": "search_chat_history",\n  "query": "KEYWORDS"\n}\n</tool_call>',
+    description: 'Search past conversations by keywords.',
+    usage: '<tool_call>{"type":"search_chat_history","query":"K1, K2"}</tool_call>',
     parameters: {
-      query: 'Comma-separated keywords to search in history (e.g., "keyword1, keyword2").'
+      query: 'Comma-separated keywords.'
     }
   },
   {
     name: 'open_main_app',
     description:
-      'Opens the main application window, starts a new clean chat session, and sends instructions to be executed using a specific Prism model. Use this tool if you need terminal execution, filesystem access, subagents, or if you need to generate Rich Markdown dashboards, profile cards, etc.',
+      'Open main window with instructions. Use for complex tasks, subagents, or Rich Markdown.',
     usage:
-      '<tool_call>\n{\n  "type": "open_main_app",\n  "instructions": "Task descriptions",\n  "model": "prism-6-super-fast|prism-6-fast-old|prism-6-fast|prism-6-dragon|prism-6-dense",\n  "thinkMode": "true|false",\n  "searchEnabled": "true|false",\n  "extendedSearch": "true|false"\n}\n</tool_call>',
+      '<tool_call>{"type":"open_main_app","instructions":"TXT","model":"prism-6-super-fast"}</tool_call>',
     parameters: {
-      instructions: 'The target instructions for the main assistant to execute.',
-      model:
-        'The model key to use for the main chat session (e.g. prism-6-super-fast, prism-6-fast, prism-6-dense).',
-      thinkMode: 'Optional: Set to "true" to enable thinking mode in the main app.',
-      searchEnabled: 'Optional: Set to "true" to enable web search in the main app.',
-      extendedSearch:
-        'Optional: Set to "true" to enable deep research / extended web search in the main app.'
+      instructions: 'Target instructions.',
+      model: 'Model key (super-fast|fast|dragon|dense).',
+      thinkMode: 'Optional: "true"|"false".',
+      searchEnabled: 'Optional: "true"|"false".',
+      extendedSearch: 'Optional: "true"|"false".'
     },
     target: 'launcher'
   },
   {
     name: 'computer_use_see_screen',
-    description:
-      'Captures a screenshot of a specific application window or the entire screen to see its content. You must choose which app/window you want to capture, or specify "Entire Screen".',
-    usage:
-      '<tool_call>\n{\n  "type": "computer_use_see_screen",\n  "appName": "AppName"\n}\n</tool_call>',
+    description: 'Screenshot specific app or "Entire Screen".',
+    usage: '<tool_call>{"type":"computer_use_see_screen","appName":"Name"}</tool_call>',
     parameters: {
-      appName:
-        'Required. The name of the application window to screenshot (e.g. "Google Chrome", "Notepad", etc.), or "Entire Screen" to capture the full desktop.'
+      appName: 'App window name or "Entire Screen".'
     }
   },
   {
     name: 'configure_prism',
-    description:
-      'Configures the Prism application settings. Any combination of parameters can be specified to customize shortcuts, models, window behaviors, user personal details, and API keys.',
-    usage:
-      '<tool_call>\n{\n  "type": "configure_prism",\n  "launcherShortcut": "Shortcut",\n  "modelSelectionShortcut": "Shortcut",\n  "screenshotShortcut": "Shortcut",\n  "defaultModel": "prism-6-super-fast|prism-6-fast-old|prism-6-fast|prism-6-dragon|prism-6-dense",\n  "subagentModel": "prism-6-super-fast|prism-6-fast-old|prism-6-fast|prism-6-dragon|prism-6-dense",\n  "minimizeToTray": "true|false",\n  "autoLaunch": "true|false",\n  "quickLauncherMode": "simple|advanced",\n  "userGeminiKey": "API_KEY",\n  "username": "Name",\n  "ttsVoice": "Aoede|Puck|Charon|Kore|Fenrir"\n}\n</tool_call>',
+    description: 'Change app settings (shortcuts, theme, etc).',
+    usage: '<tool_call>{"type":"configure_prism","theme":"marine"}</tool_call>',
     parameters: {
-      launcherShortcut:
-        'Optional: Global shortcut to open/close launcher (e.g., CommandOrControl+Space).',
-      modelSelectionShortcut: 'Optional: Global shortcut to open/close model selection dialog.',
-      screenshotShortcut:
-        'Optional: Global shortcut to take screenshot and open launcher (e.g., Ctrl+Alt+Space).',
-      defaultModel:
-        'Optional: Default main chat model (prism-6-super-fast, prism-6-fast-old, prism-6-fast, prism-6-dragon, prism-6-dense).',
-      subagentModel:
-        'Optional: Default subagent model (prism-6-super-fast, prism-6-fast-old, prism-6-fast, prism-6-dragon, prism-6-dense).',
-      minimizeToTray: 'Optional: Minimize window to system tray when closed (true/false).',
-      autoLaunch: 'Optional: Start application automatically on system login (true/false).',
-      quickLauncherMode: 'Optional: Quick launcher screen mode (simple/advanced).',
-      userGeminiKey: 'Optional: Custom user Google Gemini API Key.',
-      username: 'Optional: Custom username for personalization.',
-      ttsVoice: 'Optional: Prebuilt voice for Text-to-Speech (Aoede, Puck, Charon, Kore, Fenrir).'
+      launcherShortcut: 'Optional: Launcher hotkey.',
+      modelSelectionShortcut: 'Optional: Model picker hotkey.',
+      screenshotShortcut: 'Optional: Screenshot hotkey.',
+      defaultModel: 'Optional: Main model key.',
+      subagentModel: 'Optional: Subagent model key.',
+      minimizeToTray: 'Optional: "true"|"false".',
+      autoLaunch: 'Optional: "true"|"false".',
+      quickLauncherMode: 'Optional: simple|advanced.',
+      userGeminiKey: 'Optional: API key.',
+      username: 'Optional: User name.',
+      ttsVoice: 'Optional: Aoede|Puck|Charon|Kore|Fenrir.',
+      theme: 'Optional: marine|vertez|akoustik|terno|ursula.'
     }
   },
   {
     name: 'unlock_rgb_theme',
-    description: 'Activates the secret RGB theme for 2 hours. Requires no arguments.',
-    usage: '<tool_call>\n{\n  "type": "unlock_rgb_theme"\n}\n</tool_call>',
+    description: 'Activate temporary RGB theme. No args.',
+    usage: '<tool_call>{"type":"unlock_rgb_theme"}</tool_call>',
     parameters: {}
   },
   {
     name: 'to_ask',
-    description:
-      'Renders dynamic, multi-format questionnaires/surveys directly within the user interface, blocking reasoning until responses are submitted.',
-    usage:
-      '<tool_call>\n{\n  "type": "to_ask",\n  "session_id": "UUID",\n  "questions": [\n    {\n      "id": "q1",\n      "type": "multiple-choice",\n      "title": "Category",\n      "prompt": "Question prompt?",\n      "options": [\n        {"value": "val1", "label": "Label 1", "allow_custom_input": false}\n      ]\n    }\n  ]\n}\n</tool_call>',
+    description: 'Render UI questionnaire. Blocks reasoning until submitted.',
+    usage: '<tool_call>{"type":"to_ask","session_id":"UUID","questions":[]}</tool_call>',
     parameters: {
-      session_id: 'A unique UUID for tracking this questionnaire session.',
-      questions:
-        'A JSON array of question objects (each containing id, type, title, prompt, optional options list, optional placeholder).'
+      session_id: 'Unique UUID.',
+      questions: 'JSON array of question objects (id, type, title, prompt).'
+    }
+  },
+  {
+    name: 'render_chat_history',
+    description: 'Show chat session item in UI.',
+    usage: '<tool_call>{"type":"render_chat_history","query":"chat_ID.json"}</tool_call>',
+    parameters: {
+      query: 'Filename or session ID.'
+    }
+  },
+  {
+    name: 'search_chat_memory',
+    description: 'Search history. Returns metadata (IDs, snippets).',
+    usage: '<tool_call>{"type":"search_chat_memory","query":"K1"}</tool_call>',
+    parameters: {
+      query: 'Keywords.'
     }
   }
 ]

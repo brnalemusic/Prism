@@ -161,11 +161,7 @@ export function SubagentChat(): React.JSX.Element {
                           : `border-white/10 ${agentColor}`
                     )}
                   >
-                    {isUser || isMaster ? (
-                      <span className="text-sm">👑</span>
-                    ) : (
-                      <Bot size={15} />
-                    )}
+                    {isUser || isMaster ? <span className="text-sm">👑</span> : <Bot size={15} />}
                   </div>
 
                   {/* Bubble */}
@@ -180,9 +176,7 @@ export function SubagentChat(): React.JSX.Element {
                             : 'text-left'
                       )}
                     >
-                      {isUser || isMaster
-                        ? 'Master Coordinator'
-                        : `Agent #${msg.agentIndex}`}
+                      {isUser || isMaster ? 'Master Coordinator' : `Agent #${msg.agentIndex}`}
                     </span>
                     <div
                       className={clsx(

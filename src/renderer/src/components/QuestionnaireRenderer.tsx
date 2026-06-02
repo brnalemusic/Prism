@@ -28,15 +28,13 @@ export function QuestionnaireRenderer({
   chatId
 }: QuestionnaireRendererProps): React.JSX.Element {
   const sessionId = (toolCall.args.session_id as string) || ''
-  
+
   // Parse questions from JSON string argument
   let questions: Question[] = []
   try {
     const rawQuestions = toolCall.args.questions
     questions =
-      typeof rawQuestions === 'string'
-        ? JSON.parse(rawQuestions)
-        : (rawQuestions as Question[])
+      typeof rawQuestions === 'string' ? JSON.parse(rawQuestions) : (rawQuestions as Question[])
   } catch (err) {
     console.error('Failed to parse questionnaire questions:', err)
   }
@@ -66,7 +64,7 @@ export function QuestionnaireRenderer({
       delete next[questionId]
       return next
     })
-  };
+  }
 
   const handleCustomInputChange = (questionId: string, text: string): void => {
     setCustomValues((prev) => ({ ...prev, [questionId]: text }))
@@ -75,7 +73,7 @@ export function QuestionnaireRenderer({
       delete next[questionId]
       return next
     })
-  };
+  }
 
   const handleEssayChange = (questionId: string, text: string): void => {
     setAnswers((prev) => ({ ...prev, [questionId]: text }))
@@ -84,7 +82,7 @@ export function QuestionnaireRenderer({
       delete next[questionId]
       return next
     })
-  };
+  }
 
   const handleSubmit = (): void => {
     // Validate
@@ -117,7 +115,7 @@ export function QuestionnaireRenderer({
     }
 
     setIsSubmitting(true)
-    
+
     // Assemble final responses
     const finalResponses: Record<string, string> = {}
     for (const q of questions) {
@@ -145,7 +143,7 @@ export function QuestionnaireRenderer({
       console.error('submitQuestionnaire API is not available')
       setIsSubmitting(false)
     }
-  };
+  }
 
   // --- RENDER READ-ONLY SUMMARY (STATUS = DONE) ---
   if (toolCall.status === 'done') {
@@ -157,7 +155,9 @@ export function QuestionnaireRenderer({
           </div>
           <div>
             <h4 className="text-sm font-semibold text-text-primary">Questionnaire Completed</h4>
-            <p className="text-[10px] text-text-muted font-mono mt-0.5">Session: {sessionId.substring(0, 8)}...</p>
+            <p className="text-[10px] text-text-muted font-mono mt-0.5">
+              Session: {sessionId.substring(0, 8)}...
+            </p>
           </div>
         </div>
 
@@ -199,7 +199,9 @@ export function QuestionnaireRenderer({
         </div>
         <div>
           <h4 className="text-sm font-semibold text-text-primary">Required Questionnaire</h4>
-          <p className="text-[10px] text-text-muted font-mono mt-0.5">Please fill in details to resume reasoning</p>
+          <p className="text-[10px] text-text-muted font-mono mt-0.5">
+            Please fill in details to resume reasoning
+          </p>
         </div>
       </div>
 
@@ -272,7 +274,9 @@ export function QuestionnaireRenderer({
                                 onChange={(e) => handleCustomInputChange(q.id, e.target.value)}
                                 className={clsx(
                                   'w-full bg-black/25 text-xs text-text-primary rounded-lg border px-3.5 py-2.5 placeholder:text-text-muted focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary transition-all duration-300',
-                                  hasError && !customValues[q.id]?.trim() ? 'border-status-error/45' : 'border-white/[0.06]'
+                                  hasError && !customValues[q.id]?.trim()
+                                    ? 'border-status-error/45'
+                                    : 'border-white/[0.06]'
                                 )}
                               />
                             </div>

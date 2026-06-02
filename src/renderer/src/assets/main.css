@@ -124,17 +124,17 @@
   --background-secondary: #13151f;
   --surface: #1b1e2a;
 
-  --accent-primary: #007BFF;
-  --accent-secondary: #FF0000;
+  --accent-primary: #007bff;
+  --accent-secondary: #ff0000;
   --accent-glow: rgba(0, 123, 255, 0.25);
 
   --text-primary: #f8fafc;
   --text-secondary: #cbd5e1;
   --text-muted: #64748b;
 
-  --status-success: #2D5A27;
+  --status-success: #2d5a27;
   --status-warning: #f59e0b;
-  --status-error: #FF0000;
+  --status-error: #ff0000;
 
   --home-glow-color-1: rgba(0, 123, 255, 0.2);
   --home-glow-color-2: rgba(255, 0, 0, 0.2);
@@ -157,8 +157,9 @@
 }
 
 [data-theme='rgb'] .fixed.inset-0.pointer-events-none.overflow-hidden.z-0.bg-background-main {
-  background-image: linear-gradient(135deg, rgba(12, 13, 18, 0.88) 0%, rgba(12, 13, 18, 0.95) 100%),
-                    linear-gradient(135deg, #FF0000, #007BFF, #2D5A27, #FF0000) !important;
+  background-image:
+    linear-gradient(135deg, rgba(12, 13, 18, 0.88) 0%, rgba(12, 13, 18, 0.95) 100%),
+    linear-gradient(135deg, #ff0000, #007bff, #2d5a27, #ff0000) !important;
   background-size: 300% 300% !important;
   background-repeat: no-repeat !important;
   animation: chroma-bg-shift 25s ease-in-out infinite !important;
@@ -168,8 +169,9 @@
 }
 
 [data-theme='rgb'] .fixed.inset-0.z-\[9999\].bg-background-main {
-  background-image: linear-gradient(135deg, rgba(12, 13, 18, 0.88) 0%, rgba(12, 13, 18, 0.95) 100%),
-                    linear-gradient(135deg, #FF0000, #007BFF, #2D5A27, #FF0000) !important;
+  background-image:
+    linear-gradient(135deg, rgba(12, 13, 18, 0.88) 0%, rgba(12, 13, 18, 0.95) 100%),
+    linear-gradient(135deg, #ff0000, #007bff, #2d5a27, #ff0000) !important;
   background-size: 300% 300% !important;
   background-repeat: no-repeat !important;
   animation: chroma-bg-shift 25s ease-in-out infinite !important;
@@ -189,19 +191,34 @@
 /* Setup smooth animatable static glows for RGB Theme */
 [data-theme='rgb'] .rgb-glow-red {
   display: block !important;
-  background-image: radial-gradient(circle, rgba(255, 0, 0, 0.25) 0%, rgba(255, 0, 0, 0.05) 50%, transparent 80%) !important;
+  background-image: radial-gradient(
+    circle,
+    rgba(255, 0, 0, 0.25) 0%,
+    rgba(255, 0, 0, 0.05) 50%,
+    transparent 80%
+  ) !important;
   animation: chroma-glow-fade-red 16s ease-in-out infinite !important;
 }
 
 [data-theme='rgb'] .rgb-glow-green {
   display: block !important;
-  background-image: radial-gradient(circle, rgba(45, 90, 39, 0.3) 0%, rgba(45, 90, 39, 0.05) 50%, transparent 80%) !important;
+  background-image: radial-gradient(
+    circle,
+    rgba(45, 90, 39, 0.3) 0%,
+    rgba(45, 90, 39, 0.05) 50%,
+    transparent 80%
+  ) !important;
   animation: chroma-glow-fade-green 16s ease-in-out infinite !important;
 }
 
 [data-theme='rgb'] .rgb-glow-blue {
   display: block !important;
-  background-image: radial-gradient(circle, rgba(0, 123, 255, 0.25) 0%, rgba(0, 123, 255, 0.05) 50%, transparent 80%) !important;
+  background-image: radial-gradient(
+    circle,
+    rgba(0, 123, 255, 0.25) 0%,
+    rgba(0, 123, 255, 0.05) 50%,
+    transparent 80%
+  ) !important;
   animation: chroma-glow-fade-blue 16s ease-in-out infinite !important;
 }
 
@@ -252,9 +269,9 @@
   animation: chroma-color 12s ease-in-out infinite !important;
 }
 
-/* Username gradient degradê shifting */
+/* Username gradient shifting */
 [data-theme='rgb'] .rgb-chroma-username {
-  background-image: linear-gradient(135deg, #FF0000, #007BFF, #2D5A27, #FF0000) !important;
+  background-image: linear-gradient(135deg, #ff0000, #007bff, #2d5a27, #ff0000) !important;
   background-size: 200% auto !important;
   -webkit-background-clip: text !important;
   -webkit-text-fill-color: transparent !important;
@@ -266,9 +283,16 @@
 
 /* Settings timer badge */
 [data-theme='rgb'] .rgb-settings-timer {
-  background-image: linear-gradient(135deg, rgba(255, 0, 0, 0.2), rgba(0, 123, 255, 0.2), rgba(45, 90, 39, 0.2)) !important;
+  background-image: linear-gradient(
+    135deg,
+    rgba(255, 0, 0, 0.2),
+    rgba(0, 123, 255, 0.2),
+    rgba(45, 90, 39, 0.2)
+  ) !important;
   background-size: 200% 200% !important;
-  animation: chroma-bg-shift 8s ease infinite, chroma-border-pulse 8s ease infinite !important;
+  animation:
+    chroma-bg-shift 8s ease infinite,
+    chroma-border-pulse 8s ease infinite !important;
 }
 
 /* New Chat buttons (Sidebar and Chat header) */
@@ -279,16 +303,16 @@
 /* Keyframes */
 @keyframes chroma-color {
   0% {
-    color: #FF0000;
+    color: #ff0000;
   }
   33% {
-    color: #2D5A27;
+    color: #2d5a27;
   }
   66% {
-    color: #007BFF;
+    color: #007bff;
   }
   100% {
-    color: #FF0000;
+    color: #ff0000;
   }
 }
 
@@ -321,19 +345,19 @@
 
 @keyframes chroma-border-glow {
   0% {
-    border-color: #FF0000;
+    border-color: #ff0000;
     box-shadow: 0 0 14px rgba(255, 0, 0, 0.35);
   }
   33% {
-    border-color: #2D5A27;
+    border-color: #2d5a27;
     box-shadow: 0 0 14px rgba(45, 90, 39, 0.35);
   }
   66% {
-    border-color: #007BFF;
+    border-color: #007bff;
     box-shadow: 0 0 14px rgba(0, 123, 255, 0.35);
   }
   100% {
-    border-color: #FF0000;
+    border-color: #ff0000;
     box-shadow: 0 0 14px rgba(255, 0, 0, 0.35);
   }
 }
@@ -385,23 +409,43 @@
 }
 
 @keyframes chroma-glow-fade-red {
-  0%, 100% { opacity: 0.8; }
-  33% { opacity: 0.08; }
-  66% { opacity: 0.08; }
+  0%,
+  100% {
+    opacity: 0.8;
+  }
+  33% {
+    opacity: 0.08;
+  }
+  66% {
+    opacity: 0.08;
+  }
 }
 
 @keyframes chroma-glow-fade-green {
-  0%, 100% { opacity: 0.08; }
-  33% { opacity: 0.8; }
-  66% { opacity: 0.08; }
+  0%,
+  100% {
+    opacity: 0.08;
+  }
+  33% {
+    opacity: 0.8;
+  }
+  66% {
+    opacity: 0.08;
+  }
 }
 
 @keyframes chroma-glow-fade-blue {
-  0%, 100% { opacity: 0.08; }
-  33% { opacity: 0.08; }
-  66% { opacity: 0.8; }
+  0%,
+  100% {
+    opacity: 0.08;
+  }
+  33% {
+    opacity: 0.08;
+  }
+  66% {
+    opacity: 0.8;
+  }
 }
-
 
 .home-radial-glow {
   background-image: radial-gradient(
@@ -699,6 +743,20 @@
 
   .animate-fade-in {
     animation: soft-pop 0.2s cubic-bezier(0.2, 0.82, 0.2, 1) forwards;
+  }
+
+  @keyframes letter-fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .animate-letter-fade {
+    animation: letter-fade 0.25s cubic-bezier(0.25, 1, 0.5, 1) both;
+    display: inline;
   }
 }
 

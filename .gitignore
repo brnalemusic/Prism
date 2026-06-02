@@ -5,6 +5,9 @@ out
 .eslintcache
 *.log*
 *test*
+calc*.js
+prism_system_prompt_raw.txt
+generate_prompt.js
 
 .env
 .geminiignore
@@ -15,3 +18,4 @@ Token Usage/
 toolcalls.json
 .antigravitycli/
 .docs/
+GEMINI.md

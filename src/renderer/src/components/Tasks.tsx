@@ -8,7 +8,14 @@ import {
   List,
   Globe,
   HardDrive,
-  Gear as Settings
+  Gear as Settings,
+  Brain,
+  MagnifyingGlass,
+  FileText,
+  Sparkle,
+  AppWindow,
+  ClipboardText,
+  ChatTeardropText
 } from '@phosphor-icons/react'
 import { ToolCall } from './ActionLoader'
 
@@ -19,6 +26,55 @@ interface Task extends ToolCall {
 
 interface TasksProps {
   tasks: Task[]
+}
+
+function renderTaskIcon(name: string): React.JSX.Element {
+  if (name === 'execute_terminal_command') {
+    return <Terminal size={18} />
+  }
+  if (name === 'open_application' || name === 'open_browser_link') {
+    return <ExternalLink size={18} />
+  }
+  if (name === 'list_installed_applications') {
+    return <List size={18} />
+  }
+  if (name === 'web_search') {
+    return <Globe size={18} />
+  }
+  if (name.startsWith('computer_use_')) {
+    return <HardDrive size={18} />
+  }
+  if (name === 'configure_prism') {
+    return <Settings size={18} />
+  }
+  if (name === 'run_subagents') {
+    return <Brain size={18} />
+  }
+  if (name === 'search_chat_history' || name === 'search_chat_memory') {
+    return <MagnifyingGlass size={18} />
+  }
+  if (name === 'saw_link_from_url') {
+    return <FileText size={18} />
+  }
+  if (name === 'unlock_rgb_theme') {
+    return <Sparkle size={18} />
+  }
+  if (name === 'to_ask') {
+    return <ClipboardText size={18} />
+  }
+  if (name === 'render_chat_history') {
+    return <ChatTeardropText size={18} />
+  }
+  if (name === 'open_main_app') {
+    return <AppWindow size={18} />
+  }
+  if (name === 'send_group_message' || name === 'read_group_messages') {
+    return <ChatTeardropText size={18} />
+  }
+  if (name === 'wait_for_updates') {
+    return <CircleDashed size={18} className="animate-spin" />
+  }
+  return <Terminal size={18} />
 }
 
 export function Tasks({ tasks }: TasksProps): React.JSX.Element {
@@ -60,12 +116,7 @@ export function Tasks({ tasks }: TasksProps): React.JSX.Element {
                             : 'border-status-error/20 bg-status-error/[0.09] text-status-error'
                       )}
                     >
-                      {task.name === 'execute_terminal_command' && <Terminal size={18} />}
-                      {task.name === 'open_application' && <ExternalLink size={18} />}
-                      {task.name === 'list_installed_applications' && <List size={18} />}
-                      {task.name === 'web_search' && <Globe size={18} />}
-                      {task.name.startsWith('computer_use_') && <HardDrive size={18} />}
-                      {task.name === 'configure_prism' && <Settings size={18} />}
+                      {renderTaskIcon(task.name)}
                     </div>
 
                     <div>
@@ -126,7 +177,10 @@ export function Tasks({ tasks }: TasksProps): React.JSX.Element {
                         Output
                       </span>
                       <pre className="max-h-[150px] overflow-y-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-accent-secondary/80">
-                        {task.result}
+                        {task.name === 'search_chat_memory' &&
+                        task.result.trim() === '[RESULTS OMITTED]'
+                          ? 'Results omitted to priorize performance'
+                          : task.result}
                       </pre>
                     </div>
                   )}

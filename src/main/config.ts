@@ -18,6 +18,7 @@ export interface AppConfig {
   ttsVoice: string
   theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb'
   rgbThemeExpiry?: number
+  isRgbUnlocked?: boolean
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -31,7 +32,8 @@ const DEFAULT_CONFIG: AppConfig = {
   quickLauncherMode: 'simple',
   userGeminiKey: '',
   ttsVoice: 'Aoede',
-  theme: 'marine'
+  theme: 'marine',
+  isRgbUnlocked: false
 }
 
 const VALID_MODEL_KEYS = new Set([
@@ -58,7 +60,8 @@ function normalizeConfig(config: AppConfig): AppConfig {
     theme: VALID_THEMES.has(config.theme)
       ? (config.theme as 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb')
       : DEFAULT_CONFIG.theme,
-    rgbThemeExpiry: config.rgbThemeExpiry
+    rgbThemeExpiry: config.rgbThemeExpiry,
+    isRgbUnlocked: config.isRgbUnlocked ?? DEFAULT_CONFIG.isRgbUnlocked
   }
 }
 
