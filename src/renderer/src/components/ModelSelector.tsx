@@ -91,7 +91,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
             disabled && 'cursor-not-allowed opacity-50'
           )}
         >
-          <span>{currentModel.name}</span>
+          <span>{isThinkMode ? `${currentModel.name} (Extended)` : currentModel.name}</span>
           <ChevronDown
             size={12}
             className={clsx(
@@ -120,7 +120,11 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
                 )}
               >
                 <div className="flex items-center justify-between">
-                  <div className="font-semibold text-xs">{model.name}</div>
+                  <div className="font-semibold text-xs">
+                    {selectedModel === model.id && isThinkMode
+                      ? `${model.name} (Extended)`
+                      : model.name}
+                  </div>
                   {selectedModel === model.id && <Check size={12} />}
                 </div>
                 <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">

@@ -7,7 +7,8 @@ import {
   Clock,
   ChatTeardropText,
   Stop,
-  Microphone
+  Microphone,
+  Warning
 } from '@phosphor-icons/react'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 import clsx from 'clsx'
@@ -143,6 +144,7 @@ export function SearchModal({
   const [isWritingToolCall, setIsWritingToolCall] = useState(false)
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
   const [aiError, setAiError] = useState<string | null>(null)
+  const [hasSearched, setHasSearched] = useState(false)
 
   const shouldSendRef = useRef(false)
   const activeTabRef = useRef(activeTab)
@@ -158,6 +160,40 @@ export function SearchModal({
   useEffect(() => {
     aiPromptRef.current = aiPrompt
   }, [aiPrompt])
+
+  const hasRenderChat = useMemo(() => {
+    return (
+      toolCalls.some((tc) => tc.name === 'render_chat_history') ||
+      /"type"\s*:\s*"render_chat_history"|"name"\s*:\s*"render_chat_history"/.test(aiResponse)
+    )
+  }, [toolCalls, aiResponse])
+
+  const hasNotFoundChat = useMemo(() => {
+    return (
+      toolCalls.some((tc) => tc.name === 'not_found_chat_history') ||
+      /"type"\s*:\s*"not_found_chat_history"|"name"\s*:\s*"not_found_chat_history"/.test(aiResponse)
+    )
+  }, [toolCalls, aiResponse])
+
+  const isPerformingToolCalls = useMemo(() => {
+    return toolCalls.some((tc) => tc.status === 'running')
+  }, [toolCalls])
+
+  const showNotFound = hasNotFoundChat && !isPerformingToolCalls && !isAiProcessing
+  const showResults = hasRenderChat && !isPerformingToolCalls && !isAiProcessing && !showNotFound
+  const showWarning =
+    hasSearched &&
+    !isAiProcessing &&
+    !isPerformingToolCalls &&
+    !hasRenderChat &&
+    !hasNotFoundChat &&
+    !aiError
+  const showSearching =
+    (isAiProcessing || isPerformingToolCalls || (!hasRenderChat && !hasNotFoundChat)) &&
+    !aiError &&
+    !showNotFound &&
+    !showResults &&
+    !showWarning
 
   const {
     isRecording: isRecordingSTT,
@@ -199,7 +235,12 @@ export function SearchModal({
   const aiResponseEndRef = useRef<HTMLDivElement>(null)
 
   const hasAiContent =
-    !!aiResponse.trim() || toolCalls.length > 0 || isWritingToolCall || isAiProcessing || !!aiError
+    hasSearched ||
+    !!aiResponse.trim() ||
+    toolCalls.length > 0 ||
+    isWritingToolCall ||
+    isAiProcessing ||
+    !!aiError
 
   // Sync animation state
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen)
@@ -214,6 +255,7 @@ export function SearchModal({
       setToolCalls([])
       setAiError(null)
       setIsAiProcessing(false)
+      setHasSearched(false)
     }
   }
 
@@ -264,6 +306,7 @@ export function SearchModal({
       setToolCalls([])
       setAiError(null)
       setIsAiProcessing(true)
+      setHasSearched(true)
     })
 
     const removeChunk = window.api.onAiSearchChunk((data) => {
@@ -390,8 +433,6 @@ export function SearchModal({
       )
     )
   }
-
-
 
   return (
     <div
@@ -650,23 +691,50 @@ export function SearchModal({
             hasAiContent && (
               <div className="flex-1 flex flex-col gap-4">
                 <div className="flex-1">
-                  <AiSearchOutput
-                    aiResponse={aiResponse}
-                    isAiProcessing={isAiProcessing}
-                    toolCalls={toolCalls}
-                    isWritingToolCall={isWritingToolCall}
-                    onClose={onClose}
-                    onOpenChat={onOpenChat}
-                    markdownComponents={markdownComponents}
-                  />
+                  {showResults && (
+                    <AiSearchOutput
+                      aiResponse={aiResponse}
+                      isAiProcessing={isAiProcessing}
+                      toolCalls={toolCalls}
+                      isWritingToolCall={isWritingToolCall}
+                      onClose={onClose}
+                      onOpenChat={onOpenChat}
+                      markdownComponents={markdownComponents}
+                    />
+                  )}
 
+                  {showSearching && (
+                    <div className="flex flex-col items-center justify-center py-12 gap-3 text-text-secondary select-none animate-fade-in">
+                      <Spinner size="md" />
+                      <span className="text-sm font-light animate-pulse text-text-secondary/70">
+                        Searching...
+                      </span>
+                    </div>
+                  )}
 
+                  {showNotFound && (
+                    <div className="rounded-2xl border border-status-error/25 bg-status-error/10 p-5 text-status-error text-sm mt-3 flex flex-col gap-2.5 max-w-md mx-auto items-center text-center animate-fade-in">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-status-error/15 text-status-error mb-1">
+                        <X size={20} weight="bold" />
+                      </div>
+                      <p className="font-semibold text-text-primary">Chat Not Found</p>
+                      <p className="text-xs text-text-secondary/80 leading-relaxed">
+                        The AI did not find the specified chat. Please try again with a different
+                        approach.
+                      </p>
+                    </div>
+                  )}
 
-                  {isAiProcessing && !aiResponse && toolCalls.length === 0 && (
-                    <div className="flex flex-col gap-2.5 w-full max-w-[320px] py-4 animate-pulse">
-                      <div className="h-3.5 w-full rounded-full bg-white/[0.08]" />
-                      <div className="h-3.5 w-5/6 rounded-full bg-white/[0.08]" />
-                      <div className="h-3.5 w-2/3 rounded-full bg-white/[0.08]" />
+                  {showWarning && (
+                    <div className="rounded-2xl border border-status-warning/25 bg-status-warning/10 p-5 text-status-warning text-sm mt-3 flex flex-col gap-2.5 max-w-md mx-auto items-center text-center animate-fade-in">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-status-warning/15 text-status-warning mb-1">
+                        <Warning size={20} weight="bold" />
+                      </div>
+                      <p className="font-semibold text-text-primary">Warning</p>
+                      <p className="text-xs text-text-secondary/80 leading-relaxed">
+                        AI terminated, but not generated valid output. Please try again with a
+                        different approach.
+                      </p>
                     </div>
                   )}
 

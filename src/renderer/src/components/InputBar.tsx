@@ -374,6 +374,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     const getPlaceholder = (): string => {
       if (isKeyMissing) return 'API key required'
       if (isProcessing) return 'Prism is responding'
+      if (isSearchAndThinkMode) return 'Search, and then Think Deeply with Prism'
       if (isYoutubeMode) return 'Search and play videos'
       if (isExtendedSearch) return 'Search deeply with Extended Search'
       if (isSearchEnabled) return 'Search the web with Prism'
@@ -645,7 +646,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                   className={clsx(
                     'h-px w-full opacity-80',
                     isSearchAndThinkMode
-                      ? 'animate-[line-sweep_1800ms_cubic-bezier(0.2,0.82,0.2,1)_infinite] bg-gradient-to-r from-transparent via-accent-secondary to-status-warning'
+                      ? 'animate-[line-sweep_1800ms_cubic-bezier(0.2,0.82,0.2,1)_infinite] bg-[linear-gradient(to_right,transparent,var(--accent-secondary),var(--status-warning),transparent)]'
                       : [
                           'bg-gradient-to-r from-transparent via-current to-transparent',
                           activeMode === 'think' &&
@@ -842,7 +843,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                   className={clsx(
                     'h-px w-full opacity-80',
                     isSearchAndThinkMode
-                      ? 'animate-[line-sweep_1800ms_cubic-bezier(0.2,0.82,0.2,1)_infinite] bg-gradient-to-r from-transparent via-accent-secondary to-status-warning'
+                      ? 'animate-[line-sweep_1800ms_cubic-bezier(0.2,0.82,0.2,1)_infinite] bg-[linear-gradient(to_right,transparent,var(--accent-secondary),var(--status-warning),transparent)]'
                       : [
                           'bg-gradient-to-r from-transparent via-current to-transparent',
                           activeMode === 'think' &&

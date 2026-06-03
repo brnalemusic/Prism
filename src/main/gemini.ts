@@ -902,6 +902,9 @@ const toolFunctions: Record<
     }
     return `Error: Chat history session "${cleanId}" not found.`
   },
+  not_found_chat_history: async () => {
+    return 'Successfully registered that no matching chat history was found.'
+  },
   open_main_app: async (args) => {
     // BrowserWindow imported above
     const instructions = args.instructions || ''
@@ -1801,7 +1804,9 @@ The user wants to search and play a video. Use web_search to find the most relev
           // Check if aborted before each AI call
           if (runAbortController.signal.aborted) throw new Error('AbortError')
 
-          console.log(`[Main Chat] Starting generateContentStream for model: ${config.apiModel}, thinkMode: ${thinkMode}`);
+          console.log(
+            `[Main Chat] Starting generateContentStream for model: ${config.apiModel}, thinkMode: ${thinkMode}`
+          )
           // Call generateContentStream (actual streaming)
           const responseStream = await ai.models.generateContentStream({
             model: config.apiModel,
@@ -1822,14 +1827,16 @@ The user wants to search and play a video. Use web_search to find the most relev
             chunkCount++
 
             const parts = chunk.candidates?.[0]?.content?.parts || []
-            console.log(`[Main Chat] Chunk #${chunkCount} received. Candidate parts length: ${parts.length}`);
+            console.log(
+              `[Main Chat] Chunk #${chunkCount} received. Candidate parts length: ${parts.length}`
+            )
             for (const part of parts) {
               if (part && typeof part === 'object' && 'thought' in part && part.thought) {
                 currentThoughts += part.text || ''
-                console.log(`[Main Chat] Thought part: "${part.text || ''}"`);
+                console.log(`[Main Chat] Thought part: "${part.text || ''}"`)
               } else if (part.text) {
                 currentFinalResponse += part.text
-                console.log(`[Main Chat] Text part: "${part.text}"`);
+                console.log(`[Main Chat] Text part: "${part.text}"`)
               }
             }
 
@@ -1870,7 +1877,9 @@ The user wants to search and play a video. Use web_search to find the most relev
             const fullThoughts = accumulatedThoughts + currentThoughts
             const isThinking = currentThoughts.length > 0 && currentFinalResponse.length === 0
 
-            console.log(`[Main Chat] Sending chat-reply-chunk: thoughts length: ${fullThoughts.trim().length}, response length: ${fullResponse.trim().length}, isThinking: ${isThinking}`);
+            console.log(
+              `[Main Chat] Sending chat-reply-chunk: thoughts length: ${fullThoughts.trim().length}, response length: ${fullResponse.trim().length}, isThinking: ${isThinking}`
+            )
             event.sender.send('chat-reply-chunk', {
               thoughts: fullThoughts.trim(),
               finalResponse: fullResponse.trim(),
@@ -1883,7 +1892,7 @@ The user wants to search and play a video. Use web_search to find the most relev
             })
           }
 
-          console.log(`[Main Chat] Stream generation completed. Total chunks: ${chunkCount}`);
+          console.log(`[Main Chat] Stream generation completed. Total chunks: ${chunkCount}`)
           // Add the AI response (whether text or Tool Call) to history
           const fullAiResponse = currentFinalResponse
           if (fullAiResponse.trim()) {
@@ -2585,10 +2594,17 @@ CRITICAL INTERACTION PROTOCOL:
 - Do NOT attempt to use native function/tool calling.
 - Do NOT output any JSON block outside of the <tool_call>...</tool_call> XML tags.
 
+CRITICAL OUTPUT RULES:
+- You do NOT inhabit conventional chats. You inhabit an isolated environment.
+- You MUST NEVER send conversational text outputs (before, after, or during) when sending tool calls like \`search_chat_memory\` or \`not_found_chat_history\`.
+- Your response must consist ONLY of the tool call XML block, until you finally find the matching chats.
+- You may perform more than one search if the first search doesn't return the requested chats.
+- ONLY when you find the matching chats, you should send friendly messages describing what you found and presenting the chats using \`render_chat_history\`.
+- If you do not find any chat matching the user's request after searching, you MUST send the \`not_found_chat_history\` tool call as your ONLY output. Do NOT include any preceding or trailing conversational text.
+
 Guidelines:
 1. First, call \`search_chat_memory\` with relevant keywords to retrieve matching content.
 Example of calling search_chat_memory:
-To search for a chat, output:
 <tool_call>
 {
   "type": "search_chat_memory",
@@ -2598,7 +2614,7 @@ To search for a chat, output:
 
 2. Based on the returned context, locate the chat sessions that match.
 3. Present your findings to the user. For each matching chat session, you MUST output a \`render_chat_history\` tool call so the UI can render it.
-The query for \`render_chat_history\` MUST be the filename (e.g. "chat_23956810394.json" or "chat_19385019384.json") or the chat session ID (e.g. "23956810394").
+The query for \`render_chat_history\` MUST be the filename (e.g. "chat_23956810394.json") or the chat session ID (e.g. "23956810394").
 Example of rendering chat history:
 I found two conversations that match your request. Here is the first:
 <tool_call>
@@ -2608,9 +2624,17 @@ I found two conversations that match your request. Here is the first:
 }
 </tool_call>
 
+4. If no conversations match, call \`not_found_chat_history\` as your ONLY output:
+<tool_call>
+{
+  "type": "not_found_chat_history"
+}
+</tool_call>
+
 Available tools:
 - search_chat_memory (args: { query: string })
 - render_chat_history (args: { query: string })
+- not_found_chat_history (no args)
 `
 
   const searchHistory: Content[] = [
@@ -2728,15 +2752,19 @@ Available tools:
           if (toolMatches.length > 0) {
             console.log(`[AI SEARCH DEBUG MAIN] Found ${toolMatches.length} tool calls to execute.`)
             let hasRenderedChat = false
+            let hasNotFoundChat = false
 
             const toolPromises = toolMatches.map(async (toolContent) => {
               const validation = validateToolCall(toolContent)
               const isMalformed = validation.isMalformed
               const actualName = isMalformed ? 'malformed_tool_call' : validation.name!
-              let toolArgs = validation.args
+              const toolArgs = validation.args
 
               if (actualName === 'render_chat_history') {
                 hasRenderedChat = true
+              }
+              if (actualName === 'not_found_chat_history') {
+                hasNotFoundChat = true
               }
 
               console.log(
@@ -2785,9 +2813,9 @@ Available tools:
             const results = await Promise.all(toolPromises)
             const allToolResults = results.join('')
 
-            if (hasRenderedChat) {
+            if (hasRenderedChat || hasNotFoundChat) {
               console.log(
-                '[AI SEARCH DEBUG MAIN] render_chat_history executed. Finishing AI Search loop.'
+                `[AI SEARCH DEBUG MAIN] ${hasRenderedChat ? 'render_chat_history' : 'not_found_chat_history'} executed. Finishing AI Search loop.`
               )
               event.sender.send('ai-search-reply-end', {
                 thoughts: currentThoughts.trim(),
@@ -2916,5 +2944,3 @@ export async function transcribeAudio(audioBase64: string): Promise<string> {
 
   throw lastError || new Error('All transcription models failed.')
 }
-
-

@@ -129,12 +129,8 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
                   className="text-text-muted/50 transition-transform duration-200 group-open:rotate-180"
                 />
               </summary>
-              <div
-                className="mt-1.5 border-l border-white/[0.06] ml-1.5 pl-4 py-0.5 font-mono text-[11px] leading-relaxed select-text text-text-secondary/50"
-              >
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {msg.thoughts || ''}
-                </ReactMarkdown>
+              <div className="mt-1.5 border-l border-white/[0.06] ml-1.5 pl-4 py-0.5 font-mono text-[11px] leading-relaxed select-text text-text-secondary/50">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.thoughts || ''}</ReactMarkdown>
               </div>
             </details>
           </div>
@@ -159,10 +155,7 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
             } else if (part.trim() !== '') {
               return (
                 <div key={`text-${index}`} className="prose prose-invert max-w-none">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={markdownComponents}
-                  >
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                     {part}
                   </ReactMarkdown>
                 </div>
@@ -182,8 +175,6 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
             }}
           />
         )}
-
-
       </div>
     </StreamContext.Provider>
   )
@@ -1028,7 +1019,7 @@ export function QuickLauncher(): React.JSX.Element {
                   className={clsx(
                     'h-px w-full animate-[line-sweep_1600ms_cubic-bezier(0.2,0.82,0.2,1)_infinite] opacity-80',
                     isSearchAndThinkMode
-                      ? 'bg-gradient-to-r from-transparent via-accent-secondary to-status-warning'
+                      ? 'bg-[linear-gradient(to_right,transparent,var(--accent-secondary),var(--status-warning),transparent)]'
                       : 'bg-gradient-to-r from-transparent via-current to-transparent'
                   )}
                 />
@@ -1095,13 +1086,15 @@ export function QuickLauncher(): React.JSX.Element {
                     ? 'Select a Prism model'
                     : isYoutubeMode
                       ? 'Search and play videos'
-                      : isSearchEnabled
-                        ? 'Search the web'
-                        : isThinkMode
-                          ? 'Think with Prism'
-                          : quickLauncherMode === 'simple'
-                            ? 'Ask quick AI or search files/apps...'
-                            : 'What should Prism do?'
+                      : isSearchAndThinkMode
+                        ? 'Search, and then Think Deeply with Prism'
+                        : isSearchEnabled
+                          ? 'Search the web'
+                          : isThinkMode
+                            ? 'Think with Prism'
+                            : quickLauncherMode === 'simple'
+                              ? 'Ask quick AI or search files/apps...'
+                              : 'What should Prism do?'
                 }
                 className={clsx(
                   'w-full border-none bg-transparent text-[22px] font-medium outline-none transition-colors duration-200 placeholder:text-text-muted',
@@ -1287,10 +1280,7 @@ export function QuickLauncher(): React.JSX.Element {
                       {msg.content}
                     </div>
                   ) : (
-                    <LauncherAiMessage
-                      msg={msg}
-                      markdownComponents={markdownComponents}
-                    />
+                    <LauncherAiMessage msg={msg} markdownComponents={markdownComponents} />
                   )}
                 </div>
               ))}

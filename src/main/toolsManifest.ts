@@ -286,5 +286,11 @@ export const toolsManifest: ToolDefinition[] = [
     parameters: {
       query: 'Keywords.'
     }
+  },
+  {
+    name: 'not_found_chat_history',
+    description: 'Call this when no matching chat histories are found.',
+    usage: '<tool_call>{"type":"not_found_chat_history"}</tool_call>',
+    parameters: {}
   }
 ]
