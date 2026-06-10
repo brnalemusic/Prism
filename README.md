@@ -11,7 +11,7 @@
 - [Quick Launcher](#quick-launcher)
 - [Main Chat](#main-chat)
 - [Keyboard Shortcuts](#keyboard-shortcuts)
-- [Slash Commands](#slash-commands)
+- [Apps & AI Workflows](#apps--ai-workflows)
 - [Search Modes](#search-modes)
 - [Sub-Agent System](#sub-agent-system)
 - [Interactive Mini-Apps](#interactive-mini-apps)
@@ -90,7 +90,7 @@ Two modes are configurable in Settings:
 - **Inline calculator:** Math expressions (e.g., `2+2*3`) are evaluated instantly and shown as a suggestion. `Enter` copies the result to the clipboard.
 - **AI mini-chat:** In Simple mode, AI responses appear directly below the search bar with Markdown rendering, tool call indicators, and streaming support.
 - **Screenshot & Ask:** Triggering the global screenshot shortcut captures the entire screen, plays an animated "glow master" border effect, and automatically attaches the image to the next sent message.
-- **Slash commands:** `/search`, `/youtube`, `/subagents` (see section below).
+- **AI Apps & Workflows:** Toggle dedicated application modes (like the YouTube App) directly from the Apps menu or keyboard shortcuts.
 
 ---
 
@@ -144,7 +144,7 @@ These shortcuts are registered system-wide and are **fully configurable** in Set
 | `Enter`                      | Execute selected suggestion / Send message                |
 | `Ctrl+T`                     | Toggle Think mode in the launcher                         |
 | `Ctrl+S`                     | Toggle web search in the launcher                         |
-| `Ctrl+Y`                     | Toggle YouTube mode (or strip `/youtube` prefix)          |
+| `Ctrl+Y`                     | Toggle YouTube mode                                       |
 | `Ctrl+D`                     | Start/stop microphone dictation in the launcher           |
 | `Ctrl+M` (default)           | Open model selector (Advanced mode only)                  |
 | `↑` / `↓` + `Enter`          | Navigate and confirm model in the model selector          |
@@ -154,15 +154,15 @@ These shortcuts are registered system-wide and are **fully configurable** in Set
 
 ---
 
-## Slash Commands
+## Apps & AI Workflows
 
-Available in both the main chat and the launcher.
+Legacy slash commands have been discontinued and replaced with state-driven **AI Apps**. In the future, these will be substituted by extensible **AI Workflows**.
 
-| Command            | Action                                                                                                          |
-| ------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `/search [query]`  | Forces a web search regardless of the search toggle state. Internally prefixes the query with `[FORCE_SEARCH]`. |
-| `/youtube [query]` | Activates YouTube mode, signaling the AI to find and open a related video.                                      |
-| `/subagents`       | Opens the sub-agent settings window to configure the orchestration model.                                       |
+### YouTube App Mode
+
+- **Activation:** Toggle YouTube mode via the **Apps Menu** (Plus icon dropdown) or using the `Ctrl+Y` keyboard shortcut.
+- **Vibe:** The input bar shifts to YouTube colors and a badge is displayed showing the active App.
+- **Behavior:** The user message is sent cleanly (without `/youtube` prefixes) with metadata, guiding the AI to find and open matching videos.
 
 ---
 

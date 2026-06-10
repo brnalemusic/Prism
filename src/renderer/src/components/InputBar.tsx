@@ -1,7 +1,6 @@
 import { useState, useRef, useImperativeHandle, forwardRef, useEffect } from 'react'
 import {
   PaperPlaneRight as SendHorizontal,
-  MagnifyingGlass as Search,
   Stop as Square,
   PlayCircle as CirclePlay,
   Lock,
@@ -10,11 +9,21 @@ import {
   CornersIn as Minimize2,
   CaretDown as ChevronDown,
   Microphone,
-  StopCircle
+  StopCircle,
+  Plus,
+  Paperclip,
+  Camera,
+  SquaresFour as AppIcon,
+  CaretRight,
+  FilePdf,
+  FilePpt,
+  Trash
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 import { ModelSelector } from './ModelSelector'
+import { AttachedFile } from '../App'
+import { triggerErrorPopup } from '../utils'
 
 interface InputBarProps {
   onSend: (
@@ -22,7 +31,8 @@ interface InputBarProps {
     thinkMode?: boolean,
     searchEnabled?: boolean,
     extendedSearch?: boolean,
-    screenshot?: string
+    screenshot?: string,
+    attachedFile?: AttachedFile
   ) => void
   onCancel?: () => void
   disabled?: boolean
@@ -30,7 +40,6 @@ interface InputBarProps {
   isKeyMissing?: boolean
   isThinkMode?: boolean
   onThinkModeToggle?: (val: boolean) => void
-  onOpenSubagentSettings?: () => void
   selectedModel?: string
   onModelChange?: (modelId: string) => void
   text: string
@@ -41,9 +50,12 @@ interface InputBarProps {
   setIsExtendedSearch: (val: boolean) => void
   isFullscreen: boolean
   onFullscreenToggle: () => void
-  screenshot?: string | null
-  onRemoveScreenshot?: () => void
-  onAttachScreenshot?: (base64: string) => void
+  attachedFile?: AttachedFile | null
+  onRemoveFile?: () => void
+  onAttachFile?: (file: AttachedFile) => void
+  onOpenScreenshotModal?: () => void
+  onOpenSubagentModal?: () => void
+  onOpenYoutubeModal?: () => void
 }
 
 export interface InputBarHandle {
@@ -60,7 +72,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       isKeyMissing,
       isThinkMode = false,
       onThinkModeToggle,
-      onOpenSubagentSettings,
       selectedModel = 'prism-6-super-fast',
       onModelChange,
       text,
@@ -71,19 +82,27 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       setIsExtendedSearch,
       isFullscreen,
       onFullscreenToggle,
-      screenshot,
-      onRemoveScreenshot,
-      onAttachScreenshot
+      attachedFile,
+      onRemoveFile,
+      onAttachFile,
+      onOpenScreenshotModal,
+      onOpenSubagentModal,
+      onOpenYoutubeModal
     },
     ref
   ) => {
     const [isFocused, setIsFocused] = useState(false)
-    const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
     const [showFullscreenBtn, setShowFullscreenBtn] = useState(false)
     const [showSearchDropdown, setShowSearchDropdown] = useState(false)
+    const [showAttachMenu, setShowAttachMenu] = useState(false)
+    const [showAppsMenu, setShowAppsMenu] = useState(false)
+
     const inputRef = useRef<HTMLTextAreaElement>(null)
     const searchDropdownRef = useRef<HTMLDivElement>(null)
     const searchButtonRef = useRef<HTMLButtonElement>(null)
+    const attachMenuRef = useRef<HTMLDivElement>(null)
+    const attachButtonRef = useRef<HTMLButtonElement>(null)
+    const fileInputRef = useRef<HTMLInputElement>(null)
 
     const shouldSendRef = useRef(false)
 
@@ -101,11 +120,8 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       setTimeout(() => inputRef.current?.focus(), 100)
     })
 
-    const isYoutubeMode = text.startsWith('/youtube')
     const isSearchAndThinkMode = isSearchEnabled && isThinkMode
-    const activeMode = isYoutubeMode
-      ? 'youtube'
-      : isExtendedSearch
+    const activeMode = isExtendedSearch
         ? 'extended'
         : isSearchEnabled
           ? 'search'
@@ -113,43 +129,60 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             ? 'think'
             : 'default'
 
-    const commands = [
-      {
-        cmd: '/search',
-        desc: 'Force a web search',
-        action: () => {
-          setText('/search ')
-          inputRef.current?.focus()
-        }
-      },
-      {
-        cmd: '/youtube',
-        desc: 'Find and play a video',
-        action: () => {
-          setText('/youtube ')
-          inputRef.current?.focus()
-        }
-      },
-      {
-        cmd: '/subagents',
-        desc: 'Change the subagent model',
-        action: () => {
-          onOpenSubagentSettings?.()
-          setText('')
-          inputRef.current?.focus()
+    // TODO: Hardcoded slash commands like /search, /youtube, and /subagents have been removed from the slash menu.
+    // In the future, slash commands will be dynamically generated based on settings-defined workflows.
+    // The user will be able to customize commands via system instructions and tool constraints in their configuration files.
+    // This removes hardcoded UI behaviors and moves command execution to a workflows-driven system.
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
+      const file = e.target.files?.[0]
+      if (!file) return
+
+      const fileName = file.name
+      const lookedUpMime = window.api.getMimeType(fileName)
+      const mimeType = (lookedUpMime ? lookedUpMime : file.type) || 'application/octet-stream'
+
+      // Block video and audio files
+      if (mimeType.startsWith('video/') || mimeType.startsWith('audio/')) {
+        triggerErrorPopup('File type blocked: Video and audio files are not allowed.')
+        e.target.value = ''
+        return
+      }
+
+      // Check if it is an allowed type: Image, PDF, or Presentation
+      const isImage = mimeType.startsWith('image/')
+      const isPdf = mimeType === 'application/pdf'
+      const isPresentation =
+        mimeType.includes('presentation') ||
+        mimeType.includes('slideshow') ||
+        mimeType.includes('keynote') ||
+        mimeType === 'application/vnd.ms-powerpoint' ||
+        mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
+        mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.slideshow' ||
+        mimeType === 'application/vnd.oasis.opendocument.presentation' ||
+        mimeType === 'application/vnd.apple.keynote'
+
+      if (!isImage && !isPdf && !isPresentation) {
+        triggerErrorPopup('Unsupported file type. Please upload an Image, PDF, or Presentation.')
+        e.target.value = ''
+        return
+      }
+
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          const base64 = (event.target.result as string).split(',')[1]
+          onAttachFile?.({
+            name: fileName,
+            mimeType: mimeType,
+            data: base64
+          })
         }
       }
-    ]
-
-    const filteredCommands = text.startsWith('/')
-      ? commands.filter((c) => c.cmd.toLowerCase().startsWith(text.toLowerCase().split(' ')[0]))
-      : []
-
-    const showSlashMenu = text.startsWith('/') && filteredCommands.length > 0 && !text.includes(' ')
-
-    useEffect(() => {
-      if (showSlashMenu) setSlashSelectedIndex(0)
-    }, [showSlashMenu, text])
+      reader.readAsDataURL(file)
+      e.target.value = ''
+      setShowAttachMenu(false)
+    }
 
     useImperativeHandle(ref, () => ({
       focus: (): void => {
@@ -235,20 +268,9 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
         }
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
           e.preventDefault()
-          const currentText = textRef.current
-          const isCurrentlyYoutube = currentText.startsWith('/youtube')
-          if (isCurrentlyYoutube) {
-            setText(currentText.replace(/^\/youtube\s*/i, ''))
-          } else {
-            setIsSearchEnabled(false)
-            setIsExtendedSearch(false)
-            const cleanText = currentText
-              .replace(/^\[FORCE_SEARCH\]\s*/i, '')
-              .replace(/^\/search\s*/i, '')
-              .trim()
-            setText('/youtube ' + cleanText)
-          }
-          setTimeout(() => inputRef.current?.focus(), 50)
+          setIsSearchEnabled(false)
+          setIsExtendedSearch(false)
+          onOpenYoutubeModal?.()
         }
       }
       window.addEventListener('keydown', handleGlobalKeyDown)
@@ -275,6 +297,16 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
         if (!isClickInsideDropdown && !isClickOnButton) {
           setShowSearchDropdown(false)
         }
+
+        const isClickInsideAttach =
+          attachMenuRef.current && attachMenuRef.current.contains(event.target as Node)
+        const isClickOnAttachBtn =
+          attachButtonRef.current && attachButtonRef.current.contains(event.target as Node)
+
+        if (!isClickInsideAttach && !isClickOnAttachBtn) {
+          setShowAttachMenu(false)
+          setShowAppsMenu(false)
+        }
       }
       document.addEventListener('mousedown', handleClickOutside)
       return () => document.removeEventListener('mousedown', handleClickOutside)
@@ -288,24 +320,11 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
 
     const handleSend = (overrideText?: string): void => {
       const currentText = overrideText !== undefined ? overrideText : text
-      if ((currentText.trim() || screenshot) && !disabled) {
+      if ((currentText.trim() || attachedFile) && !disabled) {
         const trimmedText = currentText.trim()
 
-        if (trimmedText === '/subagents') {
-          onOpenSubagentSettings?.()
-          setText('')
-          setTimeout(() => {
-            inputRef.current?.focus()
-          }, 0)
-          return
-        }
-
         let finalMessage = trimmedText
-        if (trimmedText.startsWith('/search ')) {
-          finalMessage = `[FORCE_SEARCH] ${trimmedText.substring(8).trim()}`
-        } else if (trimmedText === '/search') {
-          finalMessage = `[FORCE_SEARCH] `
-        } else if (trimmedText !== '/clear' && trimmedText !== '') {
+        if (trimmedText !== '/clear' && trimmedText !== '') {
           finalMessage = isSearchEnabled ? `[FORCE_SEARCH] ${trimmedText}` : trimmedText
         }
 
@@ -314,7 +333,8 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           isThinkMode,
           isSearchEnabled,
           isExtendedSearch,
-          screenshot || undefined
+          attachedFile?.mimeType.startsWith('image/') ? attachedFile.data : undefined,
+          attachedFile || undefined
         )
         setText('')
 
@@ -329,22 +349,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     }
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-      if (showSlashMenu) {
-        if (e.key === 'ArrowDown') {
-          e.preventDefault()
-          setSlashSelectedIndex((prev) => (prev + 1) % filteredCommands.length)
-        } else if (e.key === 'ArrowUp') {
-          e.preventDefault()
-          setSlashSelectedIndex(
-            (prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length
-          )
-        } else if (e.key === 'Enter') {
-          e.preventDefault()
-          filteredCommands[slashSelectedIndex].action()
-        }
-        return
-      }
-
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         handleSend()
@@ -357,12 +361,16 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       for (let i = 0; i < items.length; i++) {
         if (items[i].type.indexOf('image') !== -1) {
           const file = items[i].getAsFile()
-          if (file && onAttachScreenshot) {
+          if (file && onAttachFile) {
             const reader = new FileReader()
             reader.onload = (event) => {
               if (event.target?.result) {
                 const base64 = (event.target.result as string).split(',')[1]
-                onAttachScreenshot(base64)
+                onAttachFile({
+                  name: 'pasted_image.png',
+                  mimeType: 'image/png',
+                  data: base64
+                })
               }
             }
             reader.readAsDataURL(file)
@@ -375,7 +383,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       if (isKeyMissing) return 'API key required'
       if (isProcessing) return 'Prism is responding'
       if (isSearchAndThinkMode) return 'Search, and then Think Deeply with Prism'
-      if (isYoutubeMode) return 'Search and play videos'
       if (isExtendedSearch) return 'Search deeply with Extended Search'
       if (isSearchEnabled) return 'Search the web with Prism'
       if (isThinkMode) return 'Ask Prism to think deeply'
@@ -392,13 +399,11 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       default: 'border-white/[0.09] bg-white/[0.035] text-text-primary'
     }[activeMode]
 
-    const searchLabel = isYoutubeMode
-      ? 'YouTube Search'
-      : isExtendedSearch
-        ? 'Extended Search'
-        : isSearchEnabled
-          ? 'Search Default'
-          : 'Search Disabled'
+    const searchLabel = isExtendedSearch
+      ? 'Extended Search'
+      : isSearchEnabled
+        ? 'Search Default'
+        : 'Search Disabled'
 
     const renderSearchDropdown = (): React.JSX.Element => (
       <div
@@ -446,35 +451,11 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           </div>
         </button>
 
-        <button
-          onClick={() => {
-            setText('/youtube ')
-            setIsSearchEnabled(false)
-            setIsExtendedSearch(false)
-            setShowSearchDropdown(false)
-            setTimeout(() => inputRef.current?.focus(), 50)
-          }}
-          className={clsx(
-            'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2.5 transition-all text-left mt-1',
-            isYoutubeMode
-              ? 'bg-accent-primary/[0.12] text-accent-primary border border-accent-primary/20'
-              : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
-          )}
-        >
-          <div className="font-semibold text-xs text-text-primary">YouTube</div>
-          <div className="text-[10px] text-text-secondary/70 leading-normal font-medium">
-            Search for videos in YouTube with AI and open in your Browser
-          </div>
-        </button>
-
-        {(isSearchEnabled || isYoutubeMode) && (
+        {isSearchEnabled && (
           <button
             onClick={() => {
               setIsSearchEnabled(false)
               setIsExtendedSearch(false)
-              if (isYoutubeMode) {
-                setText(text.replace(/^\/youtube\s*/i, ''))
-              }
               setShowSearchDropdown(false)
             }}
             className="w-full mt-2 rounded-xl px-3 py-2 text-xs font-semibold text-center text-status-error hover:bg-status-error/[0.08] transition-all border border-transparent hover:border-status-error/10"
@@ -495,6 +476,121 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               exit
             </div>
           )}
+
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
+            accept="image/*,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.oasis.opendocument.presentation,application/vnd.apple.keynote,.ppt,.pptx,.odp,.key,.pps,.ppsx"
+          />
+
+          {/* Plus button & dropdown container */}
+          <div className="relative" ref={attachMenuRef}>
+            <button
+              ref={attachButtonRef}
+              onClick={() => setShowAttachMenu(!showAttachMenu)}
+              disabled={disabled}
+              className={clsx(
+                'flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-200 border border-white/10 bg-white/[0.035] text-text-secondary hover:bg-white/[0.08] hover:text-text-primary cursor-pointer',
+                showAttachMenu && 'bg-white/[0.08] text-text-primary border-white/20'
+              )}
+              title="Add attachment / App"
+            >
+              <Plus size={16} weight="bold" />
+            </button>
+
+            {showAttachMenu && (
+              <div className="absolute bottom-full left-0 mb-2 z-[60] w-48 rounded-2xl border border-white/[0.12] bg-background-main p-1.5 shadow-2xl animate-soft-pop text-left">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.04] transition-all text-left"
+                >
+                  <Paperclip size={16} className="text-text-secondary" />
+                  <div className="flex flex-col">
+                    <span>File</span>
+                    <span className="text-[9px] text-text-secondary/50 font-normal">
+                      Image, PDF, Slides
+                    </span>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    onOpenScreenshotModal?.()
+                    setShowAttachMenu(false)
+                  }}
+                  className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.04] transition-all text-left"
+                >
+                  <Camera size={16} className="text-text-secondary" />
+                  <div className="flex flex-col">
+                    <span>Screenshot</span>
+                    <span className="text-[9px] text-text-secondary/50 font-normal">
+                      Capture app window
+                    </span>
+                  </div>
+                </button>
+
+                {/* Hoverable / Clickable Apps item */}
+                <div
+                  className="relative group/apps"
+                  onMouseEnter={() => setShowAppsMenu(true)}
+                  onMouseLeave={() => setShowAppsMenu(false)}
+                >
+                  <button
+                    onClick={() => setShowAppsMenu(!showAppsMenu)}
+                    className="w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.04] transition-all text-left"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <AppIcon size={16} className="text-text-secondary" />
+                      <div className="flex flex-col">
+                        <span>Apps</span>
+                        <span className="text-[9px] text-text-secondary/50 font-normal">
+                          Run apps with AI
+                        </span>
+                      </div>
+                    </div>
+                    <CaretRight size={12} className="text-text-secondary/50" />
+                  </button>
+
+                  {/* Drop-side submenu to the right */}
+                  {showAppsMenu && (
+                    <div className="absolute left-full bottom-0 pl-1.5 z-[70] -ml-px">
+                      <div className="w-44 rounded-2xl border border-white/[0.12] bg-background-main p-1.5 shadow-2xl animate-soft-pop text-left">
+                        <button
+                          onClick={() => {
+                            setIsSearchEnabled(false)
+                            setIsExtendedSearch(false)
+                            onOpenYoutubeModal?.()
+                            setShowAttachMenu(false)
+                            setShowAppsMenu(false)
+                          }}
+                          className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.04] transition-all text-left"
+                        >
+                          <CirclePlay size={16} className="text-accent-primary" />
+                          <span>YouTube</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            onOpenSubagentModal?.()
+                            setShowAttachMenu(false)
+                            setShowAppsMenu(false)
+                          }}
+                          className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.04] transition-all text-left"
+                        >
+                          <Bot size={16} className="text-accent-secondary" />
+                          <span>Subagents Swarm</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+
 
           <button
             onClick={toggleRecording}
@@ -547,7 +643,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                   : 'bg-transparent',
                 isSearchEnabled
                   ? 'text-accent-secondary'
-                  : isYoutubeMode || isExtendedSearch
+                  : isExtendedSearch
                     ? 'text-accent-primary'
                     : 'text-text-secondary',
                 disabled && 'cursor-not-allowed opacity-50'
@@ -576,11 +672,11 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           ) : (
             <button
               onClick={() => handleSend()}
-              disabled={(!text.trim() && !screenshot) || disabled}
+              disabled={(!text.trim() && !attachedFile) || disabled}
               className={clsx(
                 'ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-200',
                 text.trim() && !disabled
-                  ? activeMode === 'youtube' || activeMode === 'extended'
+                  ? activeMode === 'extended'
                     ? 'bg-accent-primary text-black hover:bg-accent-primary/90 active:scale-95'
                     : activeMode === 'search'
                       ? 'bg-accent-secondary text-black hover:bg-accent-secondary/90 active:scale-95'
@@ -623,20 +719,53 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               disabled && 'opacity-60'
             )}
           >
-            {screenshot && (
-              <div className="relative mb-3 flex items-center justify-start self-start bg-white/[0.03] border border-white/[0.08] p-1.5 rounded-xl pr-8 animate-soft-pop group/thumb">
-                <img
-                  src={`data:image/png;base64,${screenshot}`}
-                  alt="Screenshot preview"
-                  className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
-                />
-                <button
-                  type="button"
-                  onClick={onRemoveScreenshot}
-                  className="absolute top-1.5 right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-text-secondary hover:text-white transition-colors text-xs font-bold leading-none cursor-pointer"
-                >
-                  &times;
-                </button>
+            {attachedFile && (
+              <div className="w-full pb-3 flex items-center justify-start relative animate-soft-pop select-none">
+                <div className="relative group/thumb flex items-center gap-2">
+                  {attachedFile.mimeType.startsWith('image/') ? (
+                    <div className="relative">
+                      <img
+                        src={`data:${attachedFile.mimeType};base64,${attachedFile.data}`}
+                        alt={attachedFile.name}
+                        className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
+                      />
+                      <button
+                        type="button"
+                        onClick={onRemoveFile}
+                        className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/85 text-text-secondary hover:text-white border border-white/10 transition-colors text-xs font-bold leading-none cursor-pointer"
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
+                        {attachedFile.mimeType === 'application/pdf' ? (
+                          <FilePdf size={20} className="text-status-error" />
+                        ) : (
+                          <FilePpt size={20} className="text-accent-primary" />
+                        )}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-xs font-semibold text-text-primary truncate max-w-[150px]">
+                          {attachedFile.name}
+                        </span>
+                        <span className="text-[10px] text-text-secondary/60">
+                          {attachedFile.mimeType === 'application/pdf'
+                            ? 'PDF Document'
+                            : 'Presentation'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={onRemoveFile}
+                        className="absolute top-1/2 -translate-y-1/2 right-3 text-text-secondary/50 hover:text-status-error transition-colors cursor-pointer"
+                      >
+                        <Trash size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -654,9 +783,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                           activeMode === 'search' &&
                             'animate-[line-sweep_1500ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]',
                           activeMode === 'extended' &&
-                            'animate-[line-sweep_1200ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]',
-                          activeMode === 'youtube' &&
-                            'animate-[line-sweep_1350ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]'
+                            'animate-[line-sweep_1200ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]'
                         ]
                   )}
                 />
@@ -672,47 +799,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               </div>
             )}
 
-            {showSlashMenu && (
-              <div className="premium-panel-soft mb-3 w-full overflow-hidden rounded-[22px] animate-soft-pop z-30">
-                <div className="border-b border-white/[0.055] px-4 py-3 text-xs font-semibold text-text-secondary/70">
-                  Slash commands
-                </div>
-                {filteredCommands.map((c, i) => (
-                  <button
-                    key={c.cmd}
-                    onClick={() => c.action()}
-                    onMouseEnter={() => setSlashSelectedIndex(i)}
-                    className={clsx(
-                      'flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors duration-200',
-                      slashSelectedIndex === i
-                        ? 'bg-white/[0.065] text-text-primary'
-                        : 'text-text-secondary hover:bg-white/[0.04]'
-                    )}
-                  >
-                    <span
-                      className={clsx(
-                        'flex h-8 w-8 items-center justify-center rounded-2xl',
-                        c.cmd === '/youtube'
-                          ? 'bg-accent-primary/[0.12] text-accent-primary'
-                          : c.cmd === '/subagents'
-                            ? 'bg-accent-primary/[0.12] text-accent-primary'
-                            : 'bg-accent-secondary/[0.12] text-accent-secondary'
-                      )}
-                    >
-                      {c.cmd === '/youtube' ? (
-                        <CirclePlay size={16} />
-                      ) : c.cmd === '/subagents' ? (
-                        <Bot size={16} />
-                      ) : (
-                        <Search size={16} />
-                      )}
-                    </span>
-                    <span className="font-semibold text-text-primary">{c.cmd}</span>
-                    <span className="text-xs text-text-secondary/70">{c.desc}</span>
-                  </button>
-                ))}
-              </div>
-            )}
+            {/* TODO: Legacy slash menu was rendered here. Hardcoded slash commands are deprecated in favor of user-customizable workflows. */}
 
             <div className="flex-1 relative flex flex-col min-h-[100px]">
               <textarea
@@ -758,47 +845,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           </button>
         )}
 
-        {showSlashMenu && (
-          <div className="premium-panel-soft mb-3 w-full overflow-hidden rounded-[22px] animate-soft-pop">
-            <div className="border-b border-white/[0.055] px-4 py-3 text-xs font-semibold text-text-secondary/70">
-              Slash commands
-            </div>
-            {filteredCommands.map((c, i) => (
-              <button
-                key={c.cmd}
-                onClick={() => c.action()}
-                onMouseEnter={() => setSlashSelectedIndex(i)}
-                className={clsx(
-                  'flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors duration-200',
-                  slashSelectedIndex === i
-                    ? 'bg-white/[0.065] text-text-primary'
-                    : 'text-text-secondary hover:bg-white/[0.04]'
-                )}
-              >
-                <span
-                  className={clsx(
-                    'flex h-8 w-8 items-center justify-center rounded-2xl',
-                    c.cmd === '/youtube'
-                      ? 'bg-accent-primary/[0.12] text-accent-primary'
-                      : c.cmd === '/subagents'
-                        ? 'bg-accent-primary/[0.12] text-accent-primary'
-                        : 'bg-accent-secondary/[0.12] text-accent-secondary'
-                  )}
-                >
-                  {c.cmd === '/youtube' ? (
-                    <CirclePlay size={16} />
-                  ) : c.cmd === '/subagents' ? (
-                    <Bot size={16} />
-                  ) : (
-                    <Search size={16} />
-                  )}
-                </span>
-                <span className="font-semibold text-text-primary">{c.cmd}</span>
-                <span className="text-xs text-text-secondary/70">{c.desc}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        {/* TODO: Legacy slash menu was rendered here. Hardcoded slash commands are deprecated in favor of user-customizable workflows. */}
 
         <div className="relative">
           <div
@@ -809,21 +856,52 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               disabled && 'opacity-60'
             )}
           >
-            {screenshot && (
+            {attachedFile && (
               <div className="w-full pb-3 flex items-center justify-start relative animate-soft-pop select-none">
-                <div className="relative group/thumb">
-                  <img
-                    src={`data:image/png;base64,${screenshot}`}
-                    alt="Screenshot preview"
-                    className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
-                  />
-                  <button
-                    type="button"
-                    onClick={onRemoveScreenshot}
-                    className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-text-secondary hover:text-white transition-colors text-xs font-bold leading-none cursor-pointer"
-                  >
-                    &times;
-                  </button>
+                <div className="relative group/thumb flex items-center gap-2">
+                  {attachedFile.mimeType.startsWith('image/') ? (
+                    <div className="relative">
+                      <img
+                        src={`data:${attachedFile.mimeType};base64,${attachedFile.data}`}
+                        alt={attachedFile.name}
+                        className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
+                      />
+                      <button
+                        type="button"
+                        onClick={onRemoveFile}
+                        className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/85 text-text-secondary hover:text-white border border-white/10 transition-colors text-xs font-bold leading-none cursor-pointer"
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
+                        {attachedFile.mimeType === 'application/pdf' ? (
+                          <FilePdf size={20} className="text-status-error" />
+                        ) : (
+                          <FilePpt size={20} className="text-accent-primary" />
+                        )}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-xs font-semibold text-text-primary truncate max-w-[150px]">
+                          {attachedFile.name}
+                        </span>
+                        <span className="text-[10px] text-text-secondary/60">
+                          {attachedFile.mimeType === 'application/pdf'
+                            ? 'PDF Document'
+                            : 'Presentation'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={onRemoveFile}
+                        className="absolute top-1/2 -translate-y-1/2 right-3 text-text-secondary/50 hover:text-status-error transition-colors cursor-pointer"
+                      >
+                        <Trash size={14} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -851,9 +929,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                           activeMode === 'search' &&
                             'animate-[line-sweep_1500ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]',
                           activeMode === 'extended' &&
-                            'animate-[line-sweep_1200ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]',
-                          activeMode === 'youtube' &&
-                            'animate-[line-sweep_1350ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]'
+                            'animate-[line-sweep_1200ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]'
                         ]
                   )}
                 />

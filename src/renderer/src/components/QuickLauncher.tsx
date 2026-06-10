@@ -29,20 +29,7 @@ import { StreamContext, StaticMarkdownComponents, useStreamStats } from './Anima
 
 type LauncherBadge = 'youtube' | 'search' | 'think'
 
-const COMMANDS = [
-  {
-    cmd: '/search',
-    desc: 'Force a web search'
-  },
-  {
-    cmd: '/youtube',
-    desc: 'Find and play a video'
-  },
-  {
-    cmd: '/subagents',
-    desc: 'Change the subagent model'
-  }
-]
+
 
 function evaluateMathExpression(expr: string): string | null {
   const sanitized = expr.replace(/\s+/g, '')
@@ -186,6 +173,7 @@ export function QuickLauncher(): React.JSX.Element {
   const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false)
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
   const [isThinkMode, setIsThinkMode] = useState(false) // Think mode default disabled for launcher
+  const [isYoutubeMode, setIsYoutubeMode] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [activeModelId, setActiveModelId] = useState('prism-6-super-fast')
   const [shortcut, setShortcut] = useState('CommandOrControl+M')
@@ -227,7 +215,6 @@ export function QuickLauncher(): React.JSX.Element {
     setTimeout(() => inputRef.current?.focus(), 100)
   })
 
-  const isYoutubeMode = query.startsWith('/youtube')
   const activeMode = isYoutubeMode
     ? 'youtube'
     : isSearchEnabled
@@ -243,21 +230,14 @@ export function QuickLauncher(): React.JSX.Element {
   const isSearchAndThinkMode = isSearchEnabled && isThinkMode
   const activeModel = MODELS.find((m) => m.id === activeModelId) || MODELS[0]
 
-  const showSlashMenu = query.startsWith('/') && !query.includes(' ')
-
-  const filteredCommands = useMemo(() => {
-    if (!showSlashMenu) return []
-    return COMMANDS.filter((c) => c.cmd.toLowerCase().startsWith(query.toLowerCase()))
-  }, [query, showSlashMenu])
-
   // Local Application Search Matches
   const filteredApps = useMemo(() => {
-    if (query.startsWith('/') || query.trim().length <= 1) return []
+    if (query.trim().length <= 1) return []
     return apps.filter((app) => app.name.toLowerCase().includes(query.toLowerCase())).slice(0, 3)
   }, [query, apps])
 
   interface UnifiedSuggestion {
-    type: 'math' | 'command' | 'app' | 'file'
+    type: 'math' | 'app' | 'file'
     value: string
     label: string
     desc: string
@@ -277,11 +257,7 @@ export function QuickLauncher(): React.JSX.Element {
       })
     }
 
-    if (showSlashMenu) {
-      filteredCommands.forEach((c) => {
-        list.push({ type: 'command', value: c.cmd, label: c.cmd, desc: c.desc })
-      })
-    } else if (query.trim().length > 1) {
+    if (query.trim().length > 1) {
       filteredApps.forEach((app) => {
         list.push({
           type: 'app',
@@ -297,7 +273,7 @@ export function QuickLauncher(): React.JSX.Element {
     }
 
     return list
-  }, [mathResult, showSlashMenu, filteredCommands, filteredApps, files, query, appIcons])
+  }, [mathResult, filteredApps, files, query, appIcons])
 
   // Debounced/Triggered workspace file search
   useEffect(() => {
@@ -447,6 +423,7 @@ export function QuickLauncher(): React.JSX.Element {
       setLauncherMessages([])
       setIsMiniChatOpen(false)
       setQuery('')
+      setIsYoutubeMode(false)
       window.api.clearLauncherChat()
       // Re-fetch applications list in case it wasn't ready at startup
       window.api.launcherGetApps().then((res) => {
@@ -613,16 +590,6 @@ export function QuickLauncher(): React.JSX.Element {
     if (item.type === 'math') {
       navigator.clipboard.writeText(item.value)
       setQuery(item.value)
-    } else if (item.type === 'command') {
-      if (item.value === '/search') {
-        setQuery('/search ')
-      } else if (item.value === '/youtube') {
-        setQuery('/youtube ')
-      } else if (item.value === '/subagents') {
-        window.api.openSubagentSettingsWindow()
-        window.api.hideLauncher()
-        setQuery('')
-      }
     } else if (item.type === 'app') {
       window.api.launcherOpenApp(item.value)
       window.api.hideLauncher()
@@ -676,16 +643,8 @@ export function QuickLauncher(): React.JSX.Element {
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault()
-        if (isYoutubeMode) {
-          setQuery(query.replace(/^\/youtube\s*/i, ''))
-        } else {
-          window.api.setSearchEnabled(false)
-          const cleanQuery = query
-            .replace(/^\[FORCE_SEARCH\]\s*/i, '')
-            .replace(/^\/search\s*/i, '')
-            .trim()
-          setQuery('/youtube ' + cleanQuery)
-        }
+        window.api.setSearchEnabled(false)
+        setIsYoutubeMode(!isYoutubeMode)
         return
       }
 
@@ -761,31 +720,23 @@ export function QuickLauncher(): React.JSX.Element {
 
   const buildMessage = (targetQuery: string): string => {
     const trimmed = targetQuery.trim()
-    if (trimmed.startsWith('/search ')) return `[FORCE_SEARCH] ${trimmed.substring(8).trim()}`
-    if (trimmed === '/search') return '[FORCE_SEARCH] '
     return isSearchEnabled ? `[FORCE_SEARCH] ${trimmed}` : trimmed
   }
 
   const submitMessage = (targetQuery: string): void => {
     if (!targetQuery.trim() && !attachedScreenshot) return
 
-    if (targetQuery.trim() === '/subagents') {
-      window.api.openSubagentSettingsWindow()
-      window.api.hideLauncher()
-      setQuery('')
-      setAttachedScreenshot(null)
-      return
-    }
-
     if (quickLauncherMode === 'advanced') {
       // Focus in-app directly
       window.api.submitLauncher({
         message: buildMessage(targetQuery),
         thinkMode: isThinkMode,
-        screenshot: attachedScreenshot || undefined
+        screenshot: attachedScreenshot || undefined,
+        appMode: isYoutubeMode ? 'youtube' : undefined
       })
       setQuery('')
       setAttachedScreenshot(null)
+      setIsYoutubeMode(false)
     } else {
       // Simple mode: chat inline
       setIsMiniChatOpen(true)
@@ -798,9 +749,11 @@ export function QuickLauncher(): React.JSX.Element {
       window.api.sendLauncherChatMessage({
         message: userMsg,
         thinkMode: isThinkMode,
-        screenshot: attachedScreenshot || undefined
+        screenshot: attachedScreenshot || undefined,
+        appMode: isYoutubeMode ? 'youtube' : undefined
       })
       setAttachedScreenshot(null)
+      setIsYoutubeMode(false)
     }
   }
 
@@ -1190,17 +1143,13 @@ export function QuickLauncher(): React.JSX.Element {
                           'flex h-8 w-8 items-center justify-center rounded-2xl',
                           item.type === 'math'
                             ? 'bg-[#10221c] text-accent-secondary'
-                            : item.type === 'command'
+                            : item.type === 'app'
                               ? 'bg-[#251414] text-accent-primary'
-                              : item.type === 'app'
-                                ? 'bg-[#251414] text-accent-primary'
-                                : 'bg-[#22242d] text-text-secondary'
+                              : 'bg-[#22242d] text-text-secondary'
                         )}
                       >
                         {item.type === 'math' ? (
                           <Calculator size={16} />
-                        ) : item.type === 'command' ? (
-                          <Command size={16} />
                         ) : item.type === 'app' ? (
                           <AppWindow size={16} />
                         ) : (

@@ -73,13 +73,14 @@ export interface AnimatedStreamingTextProps {
   mode?: 'words' | 'chars'
 }
 
-export function AnimatedStreamingText({
-  text
-}: AnimatedStreamingTextProps): React.JSX.Element {
+export function AnimatedStreamingText({ text }: AnimatedStreamingTextProps): React.JSX.Element {
   return <>{text}</>
 }
 
-const wrapTextWithAnimation = (children: React.ReactNode, _isStreaming: boolean): React.ReactNode => {
+const wrapTextWithAnimation = (
+  children: React.ReactNode,
+  _isStreaming: boolean
+): React.ReactNode => {
   return children
 }
 

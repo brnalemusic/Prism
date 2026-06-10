@@ -10,24 +10,186 @@ import { loadConfig } from './config'
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
+function stripAnsi(str: string): string {
+  return str.replace(
+    /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
+    ''
+  )
+}
+
+export interface TerminalOption {
+  id: string
+  name: string
+  path: string
+}
+
+function checkIfExecutableExists(exeName: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    exec(`where ${exeName}`, (error) => {
+      resolve(!error)
+    })
+  })
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function detectAvailableTerminals(): Promise<TerminalOption[]> {
+  const terminals: TerminalOption[] = []
+  const isWindows = process.platform === 'win32'
+
+  if (!isWindows) {
+    terminals.push({ id: 'sh', name: 'System Shell', path: '/bin/sh' })
+    return terminals
+  }
+
+  // Windows PowerShell (always installed)
+  terminals.push({
+    id: 'powershell',
+    name: 'PowerShell do Windows',
+    path: 'powershell.exe'
+  })
+
+  // CMD (always installed)
+  terminals.push({
+    id: 'cmd',
+    name: 'CMD',
+    path: 'cmd.exe'
+  })
+
+  // Check Pwsh 7
+  if (await checkIfExecutableExists('pwsh.exe')) {
+    terminals.push({
+      id: 'pwsh',
+      name: 'Pwsh 7',
+      path: 'pwsh.exe'
+    })
+  } else {
+    const commonPwshPaths = [
+      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'PowerShell\\7\\pwsh.exe'),
+      path.join(
+        process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
+        'PowerShell\\7\\pwsh.exe'
+      )
+    ]
+    for (const p of commonPwshPaths) {
+      if (await fileExists(p)) {
+        terminals.push({
+          id: 'pwsh',
+          name: 'Pwsh 7',
+          path: p
+        })
+        break
+      }
+    }
+  }
+
+  // Check Git Bash
+  if (await checkIfExecutableExists('bash.exe')) {
+    terminals.push({
+      id: 'gitbash',
+      name: 'Git Bash',
+      path: 'bash.exe'
+    })
+  } else {
+    const commonBashPaths = [
+      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git\\bin\\bash.exe'),
+      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git\\git-bash.exe'),
+      path.join(
+        process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)',
+        'Git\\bin\\bash.exe'
+      ),
+      path.join(os.homedir(), 'AppData\\Local\\Programs\\Git\\bin\\bash.exe')
+    ]
+    for (const p of commonBashPaths) {
+      if (await fileExists(p)) {
+        terminals.push({
+          id: 'gitbash',
+          name: 'Git Bash',
+          path: p
+        })
+        break
+      }
+    }
+  }
+
+  // Check WSL
+  if (await checkIfExecutableExists('wsl.exe')) {
+    terminals.push({
+      id: 'wsl',
+      name: 'WSL (Bash)',
+      path: 'wsl.exe'
+    })
+  } else {
+    const wslPath = 'C:\\Windows\\System32\\wsl.exe'
+    if (await fileExists(wslPath)) {
+      terminals.push({
+        id: 'wsl',
+        name: 'WSL (Bash)',
+        path: wslPath
+      })
+    }
+  }
+
+  return terminals
+}
+
 /**
  * Executes a terminal command and returns the output.
  */
-export async function runTerminalCommand(command: string, signal?: AbortSignal): Promise<string> {
+export async function runTerminalCommand(
+  command: string,
+  apiKey?: string,
+  signal?: AbortSignal
+): Promise<string> {
   const isWindows = process.platform === 'win32'
-  const normalizedCommand = isWindows ? `chcp 65001 > nul & ${command}` : command
+  const config = loadConfig()
+  const shellToUse = config.terminalShell || (isWindows ? 'powershell.exe' : undefined)
+
+  const fallbackApiKey = config.userGeminiKey || process.env.GEMINI_API_KEY
+  const activeApiKey = apiKey || fallbackApiKey
+
+  const env = { ...process.env }
+  if (activeApiKey) {
+    env.GEMINI_API_KEY = activeApiKey
+  }
+
+  let normalizedCommand = command
+  const execOptions: any = { env, signal, maxBuffer: 10 * 1024 * 1024 }
+
+  if (isWindows && shellToUse) {
+    execOptions.shell = shellToUse
+    const lowerShell = shellToUse.toLowerCase()
+    if (lowerShell.includes('powershell') || lowerShell.includes('pwsh')) {
+      normalizedCommand = `$OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; chcp 65001 | Out-Null; ${command}`
+    } else if (lowerShell.includes('cmd')) {
+      normalizedCommand = `chcp 65001 > nul & ${command}`
+    } else {
+      normalizedCommand = command
+    }
+  }
 
   return new Promise((resolve, reject) => {
-    exec(normalizedCommand, { signal }, (error, stdout, stderr) => {
+    exec(normalizedCommand, execOptions, (error, stdout, stderr) => {
+      const stdoutStr = (stdout as any).toString()
+      const stderrStr = (stderr as any).toString()
       if (error) {
         if (error.name === 'AbortError') {
           reject(error)
           return
         }
-        resolve(`Error executing command: ${error.message}\n${stderr}`)
+        resolve(`Error executing command: ${stripAnsi(error.message)}\n${stripAnsi(stderrStr)}`)
         return
       }
-      const output = stdout || stderr || 'Command executed successfully (no output).'
+      const cleanStdout = stripAnsi(stdoutStr)
+      const cleanStderr = stripAnsi(stderrStr)
+      const output = cleanStdout || cleanStderr || 'Command executed successfully (no output).'
       // Truncate output if it exceeds 50,000 characters to prevent renderer crash
       const MAX_OUTPUT = 50000
       if (output.length > MAX_OUTPUT) {
@@ -1110,6 +1272,13 @@ export function getSystemToolsPrompt(
   target: 'main' | 'subagent' | 'both' | 'launcher' = 'main',
   extendedSearch: boolean = false
 ): string {
+  let shellName = 'powershell.exe'
+  try {
+    const config = loadConfig()
+    shellName = config.terminalShell || 'powershell.exe'
+  } catch (err) {
+    console.error('Failed to load config for system tools prompt:', err)
+  }
   const name = 'Prism AI'
   const modelNames: Record<string, string> = {
     'prism-4': 'Prism 4',
@@ -1164,7 +1333,7 @@ export function getSystemToolsPrompt(
   if (target === 'launcher') {
     return `# Identity
 Role: Prism Mini-Chat (${modelName}). You are a fast, lightweight, inline assistant running inside the Quick Launcher.
-Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd}
+Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${shellName}
 
 # Interaction Rules
 - **Simple Markdown Only:** You must respond ONLY using traditional simple Markdown (paragraphs, bold, lists, basic tables). It is STRICTLY FORBIDDEN to use HTML code or CSS styles in your messages. Do not use Rich Markdown.
@@ -1197,7 +1366,7 @@ ${toolsPrompt}`
 
   return `# Identity
 Role: ${name} (${modelName}). You are a concise, tool-capable desktop assistant.
-Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd}
+Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${shellName}
 Extended Search Protocol (DEEP RESEARCH): ${searchProtocolText}
 
 # Visual & Interaction Protocol
@@ -1316,6 +1485,7 @@ Rules for Mini Apps:
 - **Conciseness:** Keep the code concise but functional and visually impressive.
 
 # Task Method
+- Terminal CLI: All terminal/shell commands are executed under the "${shellName}" shell. Always ensure you write your commands with the correct syntax for "${shellName}" (e.g., using correct syntax, pipeline operations, variables, quoting rules, escaping, etc.).
 - Clarify success criteria internally, then plan -> act -> verify.
 - For code/files, inspect before editing, keep changes scoped, preserve user work, and verify with the lightest useful command.
 - Math: simple -> result only. Complex -> concise LaTeX and \\boxed{final}.

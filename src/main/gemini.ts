@@ -197,6 +197,8 @@ interface ToolArgs extends Record<string, string | undefined> {
   searchEnabled?: string
   extendedSearch?: string
   ttsVoice?: string
+  terminalShell?: string
+  zoomFactor?: string
 }
 
 const RAW_TOOL_ARG_TAGS = new Set(['command', 'content', 'oldText', 'newText'])
@@ -844,8 +846,8 @@ const toolFunctions: Record<
     chatId?: string
   ) => Promise<string>
 > = {
-  execute_terminal_command: (args, _event, _apiKey, signal) =>
-    runTerminalCommand(args.command || '', signal),
+  execute_terminal_command: (args, _event, apiKey, signal) =>
+    runTerminalCommand(args.command || '', apiKey, signal),
   list_installed_applications: () => listApplications(),
   open_application: (args) => openApplication(args.appPath || ''),
   open_browser_link: (args) => openBrowserLink(args.url || ''),
@@ -1013,6 +1015,19 @@ const toolFunctions: Record<
         if (allowedThemes.includes(args.theme)) {
           config.theme = args.theme as any
           changed.push(`theme: "${args.theme}"`)
+        }
+      }
+      if (args.terminalShell !== undefined && args.terminalShell !== '') {
+        config.terminalShell = args.terminalShell
+        changed.push(`terminalShell: "${args.terminalShell}"`)
+      }
+      if (args.zoomFactor !== undefined && args.zoomFactor !== '') {
+        const val = parseFloat(args.zoomFactor)
+        if (!isNaN(val) && val >= 0.5 && val <= 3.0) {
+          config.zoomFactor = val
+          changed.push(`zoomFactor: ${val}`)
+        } else {
+          return `Error: zoomFactor must be a number between 0.5 and 3.0. Passed: "${args.zoomFactor}"`
         }
       }
 
@@ -1603,6 +1618,12 @@ User message: "${firstMessage}"`
   }
 }
 
+interface AttachedFile {
+  name: string
+  mimeType: string
+  data: string
+}
+
 export async function handleChatMessage(
   event: IpcMainEvent,
   data:
@@ -1614,6 +1635,8 @@ export async function handleChatMessage(
         extendedSearch?: boolean
         screenshot?: string
         quote?: string
+        attachedFile?: AttachedFile
+        appMode?: string
       }
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
@@ -1622,6 +1645,8 @@ export async function handleChatMessage(
   const extendedSearch = typeof data === 'object' ? !!data.extendedSearch : false
   const screenshot = typeof data === 'object' ? data.screenshot : undefined
   const quote = typeof data === 'object' ? data.quote : undefined
+  const attachedFile = typeof data === 'object' ? data.attachedFile : undefined
+  const appMode = typeof data === 'object' ? data.appMode : undefined
 
   // Priority: User key > Environment key
   const apiKey = userApiKey || process.env.GEMINI_API_KEY
@@ -1630,12 +1655,6 @@ export async function handleChatMessage(
     // If there is no key, we send a specific error message so that the front-end
     // can trigger the API Key modal if necessary.
     event.sender.send('chat-reply-error', { error: 'API_KEY_MISSING', chatId })
-    return
-  }
-
-  // Prevent duplicate concurrent runs for the same chatId
-  if (activeRuns.has(chatId)) {
-    console.log(`Chat ${chatId} is already running. Ignoring duplicate message.`)
     return
   }
 
@@ -1691,40 +1710,151 @@ export async function handleChatMessage(
   // A session is considered "new" for title generation if it only has the initial system/model messages
   const isFirstUserMessage = runHistory.length <= 2
 
-  // Detect if it is the video command
-  const isYoutube = message.startsWith('/youtube')
+  // Intercept manual subagent delegation
+  if (message.startsWith('[MANUAL_SUBAGENTS]')) {
+    // Prevent duplicate concurrent runs for the same chatId
+    if (activeRuns.has(chatId)) {
+      console.log(`Chat ${chatId} is already running. Ignoring duplicate message.`)
+      return
+    }
+
+    const userParts: NonNullable<Content['parts']> = [{ text: 'Delegated Subagents Swarm' }]
+    runHistory.push({ role: 'user', parts: userParts })
+
+    if (isFirstUserMessage && apiKey) {
+      saveChatSession(chatId, runHistory, 'Subagent Swarm')
+      event.sender.send('chat-session-created', { id: chatId })
+      event.sender.send('chat-title-received', { id: chatId, title: 'Subagent Swarm' })
+    } else {
+      saveChatSession(chatId, runHistory)
+    }
+
+    event.sender.send('chat-reply-start', { chatId })
+
+    const runAbortController = new AbortController()
+    activeRuns.set(chatId, {
+      chatId,
+      chatHistory: runHistory,
+      abortController: runAbortController,
+      modelKey: currentModelKey
+    })
+
+    try {
+      const payloadStr = message.substring('[MANUAL_SUBAGENTS]'.length)
+      const { model, prompts } = JSON.parse(payloadStr)
+
+      // Temporarily set the subagent model key based on the user's choice in the modal
+      if (model) {
+        setSubagentModel(model)
+      }
+
+      // Construct arguments for runSubagents
+      const subagentArgs: ToolArgs = {
+        quantity: String(prompts.length)
+      }
+      prompts.forEach((p: string, idx: number) => {
+        subagentArgs[`prompt:${idx + 1}`] = p
+      })
+
+      // Send tool-start event so the UI displays the subagent panel
+      event.sender.send('chat-tool-start', {
+        name: 'run_subagents',
+        args: subagentArgs,
+        timestamp: Date.now(),
+        chatId
+      })
+
+      // Run subagents swarm
+      const report = await runSubagents(
+        subagentArgs,
+        event,
+        apiKey,
+        runAbortController.signal,
+        chatId
+      )
+
+      // Send tool-end event to close the execution UI
+      event.sender.send('chat-tool-end', {
+        name: 'run_subagents',
+        result: report,
+        chatId
+      })
+
+      const cleanResponse = report.replace(/<subagent_chat>[\s\S]*?<\/subagent_chat>/gi, '').trim()
+
+      runHistory.push({ role: 'model', parts: [{ text: report }] })
+      saveChatSession(chatId, runHistory)
+
+      event.sender.send('chat-reply-end', {
+        thoughts: '',
+        finalResponse: cleanResponse,
+        rawText: report,
+        usedFallback: false,
+        isThinking: false,
+        chatId
+      })
+    } catch (error) {
+      if (
+        runAbortController.signal.aborted ||
+        (error instanceof Error &&
+          (error.name === 'AbortError' || error.name === 'GoogleGenerativeAIAbortError'))
+      ) {
+        event.sender.send('chat-reply-error', { error: CANCEL_MESSAGE, chatId })
+      } else {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        event.sender.send('chat-reply-error', { error: errorMessage, chatId })
+      }
+    } finally {
+      activeRuns.delete(chatId)
+    }
+    return
+  }
+
+  // Prevent duplicate concurrent runs for the same chatId
+  if (activeRuns.has(chatId)) {
+    console.log(`Chat ${chatId} is already running. Ignoring duplicate message.`)
+    return
+  }
+
+  // TODO: Hardcoded slash commands like /youtube, /search, and /subagents are deprecated and will be removed.
+  // In the future, these commands will be fully settings-configurable workflows.
+  // The configuration will allow users to define custom workflows driven by dynamic System Instructions
+  // and specific tool constraints in their configuration file. For example, a user could configure a
+  // "/youtube" slash command that maps to a specific prompt template, forcing the model to perform a web search
+  // and open a browser link, without hardcoding this behavior in the main application logic.
+  // This will make Prism extensible, customizable, and cleaner.
   const basePrompt = getSystemToolsPrompt(currentModelKey, 'main', extendedSearch)
-
-  if (isYoutube) {
-    const youtubeInstructions = `----------- IMPORTANT: USER USED A SLASH COMMAND, DO WHAT I WILL SAY -------------
-The user wants to search and play a video. Use web_search to find the most relevant video or album link, and then use open_browser_link to open the link found.
----------- FINISHED SLASH COMMAND REQUIREMENT ---------
-
-`
-    if (runHistory.length > 0 && runHistory[0].role === 'system') {
-      runHistory[0].parts = [{ text: youtubeInstructions + basePrompt }]
-    }
-  } else {
-    // Ensure the prompt returns to normal if not /youtube
-    if (runHistory.length > 0 && runHistory[0].role === 'system') {
-      runHistory[0].parts = [{ text: basePrompt }]
-    }
+  if (runHistory.length > 0 && runHistory[0].role === 'system') {
+    runHistory[0].parts = [{ text: basePrompt }]
   }
 
   // Add the user's real question to the manual history
   const userParts: NonNullable<Content['parts']> = []
+  let userText = message
+  if (appMode === 'youtube') {
+    userText = `<youtube_app_context>\n<instruction>You are running in YouTube App Mode. The user wants to find and play a video. Use web_search to find a suitable YouTube video link and then use open_browser_link to open it for the user.</instruction>\n</youtube_app_context>\n\n` + userText
+  }
+
   if (quote) {
     userParts.push({
-      text: `<quote_context>\n<passage>${quote}</passage>\n<instruction>Focus the response on the context of the quoted passage above, ensuring traceability and semantic accuracy.</instruction>\n</quote_context>\n\n${message}`
+      text: `<quote_context>\n<passage>${quote}</passage>\n<instruction>Focus the response on the context of the quoted passage above, ensuring traceability and semantic accuracy.</instruction>\n</quote_context>\n\n${userText}`
     })
   } else {
-    userParts.push({ text: message })
+    userParts.push({ text: userText })
   }
-  if (screenshot) {
+  if (screenshot && (!attachedFile || !attachedFile.mimeType.startsWith('image/'))) {
     userParts.push({
       inlineData: {
         mimeType: 'image/png',
         data: screenshot
+      }
+    })
+  }
+  if (attachedFile) {
+    userParts.push({
+      inlineData: {
+        mimeType: attachedFile.mimeType,
+        data: attachedFile.data
       }
     })
   }
@@ -2107,12 +2237,13 @@ Every tool call MUST strictly conform to the expected format. Please review the 
  */
 export async function handleLauncherChatMessage(
   event: IpcMainEvent,
-  data: string | { message: string; thinkMode?: boolean; screenshot?: string }
+  data: string | { message: string; thinkMode?: boolean; screenshot?: string; appMode?: string }
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
   const thinkMode =
     typeof data === 'object' ? (data.thinkMode !== undefined ? !!data.thinkMode : true) : true
   const screenshot = typeof data === 'object' ? data.screenshot : undefined
+  const appMode = typeof data === 'object' ? data.appMode : undefined
 
   const apiKey = userApiKey || process.env.GEMINI_API_KEY
   if (!apiKey || apiKey.trim() === '' || apiKey === 'your_api_key_here') {
@@ -2147,7 +2278,12 @@ export async function handleLauncherChatMessage(
     ]
   }
 
-  const userParts: NonNullable<Content['parts']> = [{ text: message }]
+  let userText = message
+  if (appMode === 'youtube') {
+    userText = `<youtube_app_context>\n<instruction>You are running in YouTube App Mode. The user wants to find and play a video. Use web_search to find a suitable YouTube video link and then use open_browser_link to open it for the user.</instruction>\n</youtube_app_context>\n\n` + userText
+  }
+
+  const userParts: NonNullable<Content['parts']> = [{ text: userText }]
   if (screenshot) {
     userParts.push({
       inlineData: {

@@ -7,10 +7,12 @@ import {
   screen,
   Tray,
   Menu,
-  nativeImage
+  nativeImage,
+  desktopCapturer
 } from 'electron'
-import { join } from 'path'
+import { join, dirname } from 'path'
 import os from 'os'
+import fs from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import {
@@ -34,13 +36,75 @@ import {
   listApplications,
   openApplication,
   registerAppsUpdatedCallback,
-  captureAppScreenshot
+  captureAppScreenshot,
+  detectAvailableTerminals
 } from './systemTools'
 import { loadConfig, saveConfig, AppConfig } from './config'
 import { listChatSessions, deleteChatSession, searchChatsOffline } from './history'
 import { SubagentMessage, ApplicationInfo } from '../shared/types'
 
 import { initAutoUpdater } from './updater'
+
+const WINDOW_STATE_FILE = join(
+  process.env.LOCALAPPDATA || join(os.homedir(), 'AppData', 'Local'),
+  'PrismDesktop',
+  'window-state.json'
+)
+
+interface WindowState {
+  width: number
+  height: number
+  x?: number
+  y?: number
+  isMaximized: boolean
+}
+
+const DEFAULT_WINDOW_STATE: WindowState = {
+  width: 1200,
+  height: 900,
+  isMaximized: false
+}
+
+function isWindowStateVisible(state: WindowState): boolean {
+  if (state.x === undefined || state.y === undefined) return true
+  const displays = screen.getAllDisplays()
+  return displays.some((display) => {
+    const bounds = display.bounds
+    return (
+      state.x! >= bounds.x &&
+      state.x! < bounds.x + bounds.width &&
+      state.y! >= bounds.y &&
+      state.y! < bounds.y + bounds.height
+    )
+  })
+}
+
+function loadWindowState(): WindowState {
+  try {
+    if (fs.existsSync(WINDOW_STATE_FILE)) {
+      const data = fs.readFileSync(WINDOW_STATE_FILE, 'utf8')
+      const state = JSON.parse(data)
+      if (isWindowStateVisible(state)) {
+        return state
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load window state:', e)
+  }
+  return DEFAULT_WINDOW_STATE
+}
+
+function saveWindowState(state: WindowState): void {
+  try {
+    const dir = dirname(WINDOW_STATE_FILE)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    fs.writeFileSync(WINDOW_STATE_FILE, JSON.stringify(state, null, 2))
+  } catch (e) {
+    console.error('Failed to save window state:', e)
+  }
+}
 
 let currentConfig: AppConfig
 let mainWindow: BrowserWindow | null = null
@@ -333,17 +397,24 @@ function registerGlobalShortcuts(): void {
 
 function createWindow(): void {
   console.log('createWindow called')
+
+  const windowState = loadWindowState()
+
   // Create the browser window.
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 900,
-    show: true,
+    width: windowState.width,
+    height: windowState.height,
+    x: windowState.x,
+    y: windowState.y,
+    minWidth: 800,
+    minHeight: 600,
+    show: false,
     autoHideMenuBar: true,
     titleBarStyle: 'hidden',
     backgroundColor: '#0b0c0f',
-    resizable: false,
-    maximizable: false,
-    fullscreenable: false,
+    resizable: true,
+    maximizable: true,
+    fullscreenable: true,
     ...(process.platform === 'linux' || process.platform === 'win32' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -351,14 +422,58 @@ function createWindow(): void {
     }
   })
 
+  let normalBounds = {
+    width: windowState.width,
+    height: windowState.height,
+    x: windowState.x,
+    y: windowState.y
+  }
+
+  mainWindow.on('resize', () => {
+    if (mainWindow && !mainWindow.isMaximized() && !mainWindow.isMinimized()) {
+      const bounds = mainWindow.getBounds()
+      normalBounds = {
+        width: bounds.width,
+        height: bounds.height,
+        x: bounds.x,
+        y: bounds.y
+      }
+    }
+  })
+
+  mainWindow.on('move', () => {
+    if (mainWindow && !mainWindow.isMaximized() && !mainWindow.isMinimized()) {
+      const bounds = mainWindow.getBounds()
+      normalBounds = {
+        width: bounds.width,
+        height: bounds.height,
+        x: bounds.x,
+        y: bounds.y
+      }
+    }
+  })
+
+  if (windowState.isMaximized) {
+    mainWindow.maximize()
+  } else {
+    mainWindow.show()
+  }
+
   mainWindow.on('ready-to-show', () => {
     console.log('ready-to-show event fired')
-    mainWindow?.show()
     mainWindow?.focus()
     if (mainWindow) initAutoUpdater(mainWindow)
   })
 
   mainWindow.on('close', (event) => {
+    if (mainWindow) {
+      const isMaximized = mainWindow.isMaximized()
+      saveWindowState({
+        ...normalBounds,
+        isMaximized
+      })
+    }
+
     if (!isQuitting && currentConfig.minimizeToTray) {
       event.preventDefault()
       mainWindow?.hide()
@@ -469,7 +584,13 @@ if (!gotTheLock) {
     app.setLoginItemSettings({ openAtLogin: currentConfig.autoLaunch })
 
     app.on('browser-window-created', (_, window) => {
-      optimizer.watchWindowShortcuts(window)
+      optimizer.watchWindowShortcuts(window, { zoom: true })
+      window.on('maximize', () => {
+        window.webContents.send('window-maximized-change', true)
+      })
+      window.on('unmaximize', () => {
+        window.webContents.send('window-maximized-change', false)
+      })
     })
 
     // IPC Handlers
@@ -585,6 +706,22 @@ if (!gotTheLock) {
       mainWindow?.minimize()
     })
 
+    ipcMain.handle('is-maximized', (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      return win ? win.isMaximized() : false
+    })
+
+    ipcMain.on('maximize-app', (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (win) {
+        if (win.isMaximized()) {
+          win.unmaximize()
+        } else {
+          win.maximize()
+        }
+      }
+    })
+
     ipcMain.on('minimize-subagents-window', () => {
       subagentsWindow?.minimize()
     })
@@ -650,8 +787,45 @@ if (!gotTheLock) {
       }
     })
 
+    ipcMain.handle('get-available-terminals', async () => {
+      return await detectAvailableTerminals()
+    })
+
+    ipcMain.handle('get-open-windows', async () => {
+      const sources = await desktopCapturer.getSources({
+        types: ['window', 'screen'],
+        thumbnailSize: { width: 320, height: 180 }
+      })
+      return sources.map((s) => ({
+        id: s.id,
+        name: s.name,
+        thumbnail: s.thumbnail.toDataURL()
+      }))
+    })
+
+    ipcMain.handle('capture-window', async (_event, sourceId: string) => {
+      const sources = await desktopCapturer.getSources({
+        types: ['window', 'screen'],
+        thumbnailSize: { width: 1920, height: 1080 }
+      })
+      const source = sources.find((s) => s.id === sourceId)
+      if (source) {
+        return source.thumbnail.toPNG().toString('base64')
+      }
+      throw new Error('Window source not found')
+    })
+
     ipcMain.handle('get-config', () => {
       return {
+        ...currentConfig,
+        envGeminiKey: process.env.GEMINI_API_KEY,
+        username: os.userInfo().username,
+        appVersion: app.getVersion()
+      }
+    })
+
+    ipcMain.on('get-config-sync', (event) => {
+      event.returnValue = {
         ...currentConfig,
         envGeminiKey: process.env.GEMINI_API_KEY,
         username: os.userInfo().username,

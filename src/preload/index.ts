@@ -7,25 +7,32 @@ import type {
   SubagentMessage,
   MiniAppData,
   ApplicationInfo,
-  FileSearchResult
+  FileSearchResult,
+  AttachedFile
 } from '../shared/types'
 import type { ChatSession } from '../main/history'
 import type { Content } from '@google/genai'
+import mime from 'mime-types'
 
 // Initialize Zoom Factor
-const DEFAULT_ZOOM = 1.2
+const DEFAULT_ZOOM = 1.0
 let currentZoom = DEFAULT_ZOOM
 
 try {
-  const saved = localStorage.getItem('zoom-factor')
-  if (saved) {
-    const parsed = parseFloat(saved)
-    if (!isNaN(parsed) && parsed >= 0.5 && parsed <= 3.0) {
-      currentZoom = parsed
+  const config = ipcRenderer.sendSync('get-config-sync')
+  if (config && typeof config.zoomFactor === 'number') {
+    currentZoom = config.zoomFactor
+  } else {
+    const saved = localStorage.getItem('zoom-factor')
+    if (saved) {
+      const parsed = parseFloat(saved)
+      if (!isNaN(parsed) && parsed >= 0.5 && parsed <= 3.0) {
+        currentZoom = parsed
+      }
     }
   }
 } catch (e) {
-  console.error('Failed to read zoom factor from localStorage:', e)
+  console.error('Failed to read zoom factor from config or localStorage:', e)
 }
 
 try {
@@ -33,6 +40,18 @@ try {
 } catch (e) {
   console.error('Failed to set zoom factor:', e)
 }
+
+// Keep zoom synchronized when config changes globally
+ipcRenderer.on('config-changed', (_event, config) => {
+  if (config && typeof config.zoomFactor === 'number' && config.zoomFactor !== currentZoom) {
+    currentZoom = config.zoomFactor
+    try {
+      webFrame.setZoomFactor(currentZoom)
+    } catch (e) {
+      console.error('Failed to update zoom factor on config change:', e)
+    }
+  }
+})
 
 // Keydown listener for zoom shortcuts (supports multiple layouts and numpads)
 window.addEventListener('keydown', (event) => {
@@ -79,6 +98,16 @@ window.addEventListener('keydown', (event) => {
     try {
       webFrame.setZoomFactor(currentZoom)
       localStorage.setItem('zoom-factor', currentZoom.toString())
+
+      ipcRenderer
+        .invoke('get-config')
+        .then((config) => {
+          if (config) {
+            config.zoomFactor = currentZoom
+            ipcRenderer.invoke('save-config', config)
+          }
+        })
+        .catch((err) => console.error('Failed to update config zoom factor:', err))
     } catch (e) {
       console.error('Failed to update zoom factor:', e)
     }
@@ -87,13 +116,18 @@ window.addEventListener('keydown', (event) => {
 
 // Custom APIs for renderer
 const api = {
+  getMimeType: (fileName: string): string | false => {
+    return mime.lookup(fileName)
+  },
   sendChatMessage: (data: {
     message: string
     thinkMode?: boolean
     chatId?: string
     extendedSearch?: boolean
     screenshot?: string
+    attachedFile?: AttachedFile
     quote?: string
+    appMode?: string
   }): void => ipcRenderer.send('chat-message', data),
   setModel: (modelKey: string): void => ipcRenderer.send('set-model', modelKey),
   clearChat: (): void => ipcRenderer.send('clear-chat'),
@@ -161,11 +195,16 @@ const api = {
     return () => ipcRenderer.removeListener('chat-tool-update', listener)
   },
   onLauncherMessage: (
-    callback: (data: { message: string; thinkMode?: boolean; screenshot?: string }) => void
+    callback: (data: {
+      message: string
+      thinkMode?: boolean
+      screenshot?: string
+      appMode?: string
+    }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { message: string; thinkMode?: boolean; screenshot?: string }
+      data: { message: string; thinkMode?: boolean; screenshot?: string; appMode?: string }
     ): void => callback(data)
     ipcRenderer.on('launcher-message', listener)
     return () => ipcRenderer.removeListener('launcher-message', listener)
@@ -211,10 +250,21 @@ const api = {
     ipcRenderer.on('subagent-message', listener)
     return () => ipcRenderer.removeListener('subagent-message', listener)
   },
-  submitLauncher: (data: { message: string; thinkMode?: boolean; screenshot?: string }): void =>
-    ipcRenderer.send('launcher-submit', data),
+  submitLauncher: (data: {
+    message: string
+    thinkMode?: boolean
+    screenshot?: string
+    appMode?: string
+  }): void => ipcRenderer.send('launcher-submit', data),
   hideLauncher: (): void => ipcRenderer.send('hide-launcher'),
   minimizeApp: (): void => ipcRenderer.send('minimize-app'),
+  maximizeApp: (): void => ipcRenderer.send('maximize-app'),
+  isMaximized: (): Promise<boolean> => ipcRenderer.invoke('is-maximized'),
+  onMaximizedChange: (callback: (isMaximized: boolean) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, isMaximized: boolean): void => callback(isMaximized)
+    ipcRenderer.on('window-maximized-change', listener)
+    return () => ipcRenderer.removeListener('window-maximized-change', listener)
+  },
   minimizeSubagentsWindow: (): void => ipcRenderer.send('minimize-subagents-window'),
   openSubagentsWindow: (initialMessages?: SubagentMessage[]): void =>
     ipcRenderer.send('open-subagents-window', initialMessages),
@@ -238,6 +288,12 @@ const api = {
     return () => ipcRenderer.removeListener('mini-app-window-closed', listener)
   },
   getMiniAppData: (): Promise<MiniAppData | null> => ipcRenderer.invoke('get-mini-app-data'),
+  getAvailableTerminals: (): Promise<Array<{ id: string; name: string; path: string }>> =>
+    ipcRenderer.invoke('get-available-terminals'),
+  getOpenWindows: (): Promise<Array<{ id: string; name: string; thumbnail: string }>> =>
+    ipcRenderer.invoke('get-open-windows'),
+  captureWindow: (sourceId: string): Promise<string> =>
+    ipcRenderer.invoke('capture-window', sourceId),
   getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('get-config'),
   saveConfig: (config: AppConfig): Promise<boolean> => ipcRenderer.invoke('save-config', config),
   getChats: (): Promise<Omit<ChatSession, 'messages'>[]> => ipcRenderer.invoke('get-chats'),
@@ -282,6 +338,7 @@ const api = {
     ipcRenderer.removeAllListeners('think-mode-changed')
     ipcRenderer.removeAllListeners('search-enabled-changed')
     ipcRenderer.removeAllListeners('extended-search-changed')
+    ipcRenderer.removeAllListeners('window-maximized-change')
   },
   launcherGetApps: (): Promise<ApplicationInfo[]> => ipcRenderer.invoke('launcher-get-apps'),
   onAppsUpdated: (callback: (apps: ApplicationInfo[]) => void): (() => void) => {
@@ -311,6 +368,7 @@ const api = {
     message: string
     thinkMode?: boolean
     screenshot?: string
+    appMode?: string
   }): void => ipcRenderer.send('launcher-chat-message', data),
   clearLauncherChat: (): void => ipcRenderer.send('launcher-chat-clear'),
   onLauncherReplyStart: (callback: () => void): (() => void) => {

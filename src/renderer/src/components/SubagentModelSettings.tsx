@@ -14,7 +14,8 @@ const FALLBACK_CONFIG: AppConfig = {
   autoLaunch: false,
   userGeminiKey: '',
   ttsVoice: 'Aoede',
-  theme: 'marine'
+  theme: 'marine',
+  zoomFactor: 1.0
 }
 
 export function SubagentModelSettings(): React.JSX.Element {

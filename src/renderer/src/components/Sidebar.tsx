@@ -38,7 +38,9 @@ interface StreamTitleWrapperProps {
   title: string
 }
 
-const StreamTitleWrapper = React.memo(function StreamTitleWrapper({ title }: StreamTitleWrapperProps) {
+const StreamTitleWrapper = React.memo(function StreamTitleWrapper({
+  title
+}: StreamTitleWrapperProps) {
   const streamStats = useStreamStats(title, true)
   return (
     <StreamContext.Provider value={streamStats}>

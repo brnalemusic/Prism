@@ -19,6 +19,8 @@ export interface AppConfig {
   theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb'
   rgbThemeExpiry?: number
   isRgbUnlocked?: boolean
+  zoomFactor: number
+  terminalShell?: string
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -33,7 +35,9 @@ const DEFAULT_CONFIG: AppConfig = {
   userGeminiKey: '',
   ttsVoice: 'Aoede',
   theme: 'marine',
-  isRgbUnlocked: false
+  isRgbUnlocked: false,
+  zoomFactor: 1.0,
+  terminalShell: 'powershell.exe'
 }
 
 const VALID_MODEL_KEYS = new Set([
@@ -61,7 +65,15 @@ function normalizeConfig(config: AppConfig): AppConfig {
       ? (config.theme as 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb')
       : DEFAULT_CONFIG.theme,
     rgbThemeExpiry: config.rgbThemeExpiry,
-    isRgbUnlocked: config.isRgbUnlocked ?? DEFAULT_CONFIG.isRgbUnlocked
+    isRgbUnlocked: config.isRgbUnlocked ?? DEFAULT_CONFIG.isRgbUnlocked,
+    zoomFactor:
+      config.zoomFactor !== undefined &&
+      !isNaN(config.zoomFactor) &&
+      config.zoomFactor >= 0.5 &&
+      config.zoomFactor <= 3.0
+        ? config.zoomFactor
+        : DEFAULT_CONFIG.zoomFactor,
+    terminalShell: config.terminalShell || DEFAULT_CONFIG.terminalShell
   }
 }
 

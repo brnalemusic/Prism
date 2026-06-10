@@ -53,3 +53,9 @@ export interface FileSearchResult {
   path: string
   relativePath: string
 }
+
+export interface AttachedFile {
+  name: string
+  mimeType: string
+  data: string
+}

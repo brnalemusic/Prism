@@ -11,14 +11,23 @@ import type {
   FileSearchResult
 } from '../shared/types'
 
+export interface AttachedFile {
+  name: string
+  mimeType: string
+  data: string
+}
+
 export interface PrismAPI {
+  getMimeType: (fileName: string) => string | false
   sendChatMessage: (data: {
     message: string
     thinkMode?: boolean
     chatId?: string
     extendedSearch?: boolean
     screenshot?: string
+    attachedFile?: AttachedFile
     quote?: string
+    appMode?: string
   }) => void
   setModel: (modelKey: string) => void
   clearChat: () => void
@@ -41,7 +50,12 @@ export interface PrismAPI {
   ) => () => void
   onToolUpdate: (callback: (data: ToolUpdate & { chatId: string }) => void) => () => void
   onLauncherMessage: (
-    callback: (data: { message: string; thinkMode?: boolean; screenshot?: string }) => void
+    callback: (data: {
+      message: string
+      thinkMode?: boolean
+      screenshot?: string
+      appMode?: string
+    }) => void
   ) => () => void
   onLauncherFocus: (callback: () => void) => () => void
   onModelChanged: (callback: (modelKey: string) => void) => () => void
@@ -52,9 +66,17 @@ export interface PrismAPI {
   onChatSessionCreated: (callback: (data: { id: string }) => void) => () => void
   onChatTitleReceived: (callback: (data: { id: string; title: string }) => void) => () => void
   onSubagentMessage: (callback: (data: SubagentMessage) => void) => () => void
-  submitLauncher: (data: { message: string; thinkMode?: boolean; screenshot?: string }) => void
+  submitLauncher: (data: {
+    message: string
+    thinkMode?: boolean
+    screenshot?: string
+    appMode?: string
+  }) => void
   hideLauncher: () => void
   minimizeApp: () => void
+  maximizeApp: () => void
+  isMaximized: () => Promise<boolean>
+  onMaximizedChange: (callback: (isMaximized: boolean) => void) => () => void
   minimizeSubagentsWindow: () => void
   openSubagentsWindow: (initialMessages?: SubagentMessage[]) => void
   openSubagentSettingsWindow: () => void
@@ -68,6 +90,9 @@ export interface PrismAPI {
   onMiniAppData: (callback: (data: MiniAppData) => void) => () => void
   onMiniAppWindowClosed: (callback: (id: string) => void) => () => void
   getMiniAppData: () => Promise<MiniAppData | null>
+  getAvailableTerminals: () => Promise<Array<{ id: string; name: string; path: string }>>
+  getOpenWindows: () => Promise<Array<{ id: string; name: string; thumbnail: string }>>
+  captureWindow: (sourceId: string) => Promise<string>
   getConfig: () => Promise<AppConfig>
   saveConfig: (config: AppConfig) => Promise<boolean>
   getChats: () => Promise<Omit<ChatSession, 'messages'>[]>
@@ -94,6 +119,7 @@ export interface PrismAPI {
     message: string
     thinkMode?: boolean
     screenshot?: string
+    appMode?: string
   }) => void
   clearLauncherChat: () => void
   onLauncherReplyStart: (callback: () => void) => () => void

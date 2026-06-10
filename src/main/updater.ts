@@ -3,6 +3,53 @@ import { autoUpdater } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
 
 export function initAutoUpdater(mainWindow: BrowserWindow): void {
+  // Override isUpdateAvailable to support Sentimental Versioning.
+  // Instead of SemVer comparisons (greater than), we check if the latest version
+  // is different from the currently installed version.
+  const anyUpdater = autoUpdater as unknown as {
+    isUpdateAvailable: (updateInfo: { version: string }) => Promise<boolean>
+    app: { version: string }
+    isUpdateSupported: (updateInfo: { version: string }) => Promise<boolean>
+    isUserWithinRollout: (updateInfo: { version: string }) => Promise<boolean>
+    _logger: { info: (message: string) => void }
+  }
+
+  anyUpdater.isUpdateAvailable = async function (
+    this: typeof anyUpdater,
+    updateInfo: { version: string }
+  ): Promise<boolean> {
+    const latestVersion = (updateInfo.version || '').trim()
+    const currentVersion = (this.app.version || '').trim()
+
+    this._logger.info(
+      `[Sentimental Versioning] Checking if update is available. Current: ${currentVersion}, Latest: ${latestVersion}`
+    )
+
+    if (!latestVersion) {
+      this._logger.info('[Sentimental Versioning] Latest version is not specified. No update.')
+      return false
+    }
+
+    if (latestVersion === currentVersion) {
+      this._logger.info('[Sentimental Versioning] Current version is equal to latest. No update.')
+      return false
+    }
+
+    if (!(await Promise.resolve(this.isUpdateSupported(updateInfo)))) {
+      this._logger.info('[Sentimental Versioning] Update is not supported on this system.')
+      return false
+    }
+
+    const isUserWithinRollout = await Promise.resolve(this.isUserWithinRollout(updateInfo))
+    if (!isUserWithinRollout) {
+      this._logger.info('[Sentimental Versioning] User is not within rollout threshold.')
+      return false
+    }
+
+    this._logger.info(`[Sentimental Versioning] Update is available! Proceeding to download.`)
+    return true
+  }
+
   // Set logger
   autoUpdater.logger = console
 

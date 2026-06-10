@@ -253,7 +253,10 @@ export const toolsManifest: ToolDefinition[] = [
       userGeminiKey: 'Optional: API key.',
       username: 'Optional: User name.',
       ttsVoice: 'Optional: Aoede|Puck|Charon|Kore|Fenrir.',
-      theme: 'Optional: marine|vertez|akoustik|terno|ursula.'
+      theme: 'Optional: marine|vertez|akoustik|terno|ursula.',
+      terminalShell: 'Optional: Shell executable or path (e.g. powershell.exe, cmd.exe, pwsh.exe).',
+      zoomFactor:
+        'Optional: Interface zoom factor as a number between 0.5 and 3.0 (e.g., 1.0 for 100%, 1.25 for 125%).'
     }
   },
   {

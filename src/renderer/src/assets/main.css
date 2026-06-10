@@ -819,3 +819,45 @@
 .quick-launcher-overlay .model-menu-panel {
   background: var(--color-surface) !important;
 }
+
+/* ─── Settings: Interface Zoom slider ─── */
+.settings-zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-text-primary);
+  border: 2px solid var(--color-accent-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-accent-primary) 15%, transparent);
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.settings-zoom-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-accent-primary) 20%, transparent);
+}
+
+.settings-zoom-slider::-webkit-slider-thumb:active {
+  transform: scale(1.05);
+}
+
+.settings-zoom-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-text-primary);
+  border: 2px solid var(--color-accent-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-accent-primary) 15%, transparent);
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.settings-zoom-slider::-moz-range-thumb:hover {
+  transform: scale(1.15);
+}

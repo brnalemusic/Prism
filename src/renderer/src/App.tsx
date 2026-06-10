@@ -30,9 +30,16 @@ import { TtsButton } from './components/TtsButton'
 import { CopyMessageButton } from './components/CopyMessageButton'
 import { ErrorPopup } from './components/ErrorPopup'
 import { triggerErrorPopup } from './utils'
-import { StreamContext, StaticMarkdownComponents, useStreamStats } from './components/AnimatedStreamingText'
+import {
+  StreamContext,
+  StaticMarkdownComponents,
+  useStreamStats
+} from './components/AnimatedStreamingText'
 import clsx from 'clsx'
-import { CaretDown, Plus, Quotes, Brain } from '@phosphor-icons/react'
+import { CaretDown, Plus, Quotes, Brain, FilePdf, FilePpt } from '@phosphor-icons/react'
+import { ScreenshotModal } from './components/ScreenshotModal'
+import { SubagentDelegationModal } from './components/SubagentDelegationModal'
+import { YoutubeAppModal } from './components/YoutubeAppModal'
 import { AppConfig } from '../../main/config'
 
 interface HastNode {
@@ -146,6 +153,12 @@ const MarkdownComponents: Components = {
   )
 }
 
+export interface AttachedFile {
+  name: string
+  mimeType: string
+  data: string
+}
+
 interface Message {
   role: 'user' | 'ai' | 'separator'
   content: string
@@ -159,6 +172,7 @@ interface Message {
   toolType?: 'task' | 'search' | 'mini-app'
   isConnecting?: boolean
   screenshot?: string
+  file?: AttachedFile
   separatorType?: 'fallback' | 'error' | 'cancel'
 }
 
@@ -349,8 +363,6 @@ const AiMessage = React.memo(function AiMessage({
               />
             )}
 
-
-
           {!msg.isStreaming && msg.content && parts[parts.length - 1].trim() && (
             <div className="flex justify-start items-center gap-2 mt-2">
               <TtsButton text={parts[parts.length - 1].trim()} />
@@ -400,13 +412,15 @@ function App(): React.JSX.Element {
   }, [])
 
   const [isProcessing, setIsProcessing] = useState(false)
-  const [attachedScreenshot, setAttachedScreenshot] = useState<string | null>(null)
-  const attachedScreenshotRef = useRef<string | null>(null)
+  const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null)
+  const attachedFileRef = useRef<AttachedFile | null>(null)
   useEffect(() => {
-    attachedScreenshotRef.current = attachedScreenshot
-  }, [attachedScreenshot])
-  const [isFinishing, setIsFinishing] = useState(false)
-  const [isFocused, setIsFocused] = useState(true)
+    attachedFileRef.current = attachedFile
+  }, [attachedFile])
+
+  const [isScreenshotModalOpen, setIsScreenshotModalOpen] = useState(false)
+  const [isSubagentModalOpen, setIsSubagentModalOpen] = useState(false)
+  const [isYoutubeModalOpen, setIsYoutubeModalOpen] = useState(false)
   const [selectedModel, setSelectedModel] = useState('prism-6-super-fast')
   const [activeView, setActiveView] = useState('chat')
   const [currentChatId, setCurrentChatId] = useState<string | undefined>(undefined)
@@ -424,10 +438,13 @@ function App(): React.JSX.Element {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
 
   const [quotedText, setQuotedText] = useState<string | null>(null)
-  const markdownComponents = useMemo(() => ({
-    ...MarkdownComponents,
-    ...StaticMarkdownComponents
-  }), [])
+  const markdownComponents = useMemo(
+    () => ({
+      ...MarkdownComponents,
+      ...StaticMarkdownComponents
+    }),
+    []
+  )
   const quotedTextRef = useRef<string | null>(null)
   useEffect(() => {
     quotedTextRef.current = quotedText
@@ -517,6 +534,11 @@ function App(): React.JSX.Element {
     isExtendedSearchRef.current = isExtendedSearch
   }, [isExtendedSearch])
 
+  const isYoutubeModeRef = useRef(isYoutubeMode)
+  useEffect(() => {
+    isYoutubeModeRef.current = isYoutubeMode
+  }, [isYoutubeMode])
+
   useEffect(() => {
     async function initRunningChats(): Promise<void> {
       try {
@@ -533,16 +555,7 @@ function App(): React.JSX.Element {
     initRunningChats()
   }, [])
 
-  useEffect(() => {
-    const handleFocus = (): void => setIsFocused(true)
-    const handleBlur = (): void => setIsFocused(false)
-    window.addEventListener('focus', handleFocus)
-    window.addEventListener('blur', handleBlur)
-    return () => {
-      window.removeEventListener('focus', handleFocus)
-      window.removeEventListener('blur', handleBlur)
-    }
-  }, [])
+
 
   useEffect(() => {
     async function init(): Promise<void> {
@@ -626,13 +639,17 @@ function App(): React.JSX.Element {
       thinkMode?: boolean,
       searchEnabled?: boolean,
       extendedSearch?: boolean,
-      screenshot?: string
+      screenshot?: string,
+      file?: AttachedFile,
+      youtubeMode?: boolean
     ): void => {
       if (isProcessingRef.current) return
 
       setIsProcessing(true)
       isProcessingRef.current = true
-      setIsYoutubeMode(text.startsWith('/youtube'))
+
+      const targetYoutubeMode = youtubeMode ?? isYoutubeModeRef.current
+      setIsYoutubeMode(targetYoutubeMode)
 
       // If thinkMode is provided (e.g. from Launcher), update App state
       if (thinkMode !== undefined) {
@@ -662,17 +679,32 @@ function App(): React.JSX.Element {
       // Update running status
       setRunningChats((prev) => ({ ...prev, [chatId!]: true }))
 
-      const activeScreenshot = screenshot || attachedScreenshotRef.current
+      const activeFile = file || attachedFileRef.current
+      const activeScreenshot =
+        screenshot || (activeFile?.mimeType.startsWith('image/') ? activeFile.data : undefined)
 
       // Para a UI, removemos a tag feia se ela existir
-      const displayContent = text.replace(/^\[FORCE_SEARCH\]\s*/i, '')
+      const displayContent = text
+        .replace(/<attached_file[^>]*\/>/gi, '')
+        .replace(/^\[FORCE_SEARCH\]\s*/i, '')
+        .trim()
+
       setMessages((prev) => [
         ...prev,
-        { role: 'user', content: displayContent, screenshot: activeScreenshot || undefined }
+        {
+          role: 'user',
+          content: displayContent,
+          screenshot: activeScreenshot || undefined,
+          file: activeFile || undefined
+        }
       ])
 
       // If search is enabled, ensure [FORCE_SEARCH] is prefixed for API
       let apiMessage = text
+      if (activeFile && !activeFile.mimeType.startsWith('image/')) {
+        apiMessage = `<attached_file name="${activeFile.name}" mime="${activeFile.mimeType}" /> ${apiMessage}`
+      }
+
       const targetSearchEnabled = searchEnabled ?? isSearchEnabledRef.current
       if (targetSearchEnabled && !apiMessage.startsWith('[FORCE_SEARCH]')) {
         apiMessage = `[FORCE_SEARCH] ${apiMessage}`
@@ -685,11 +717,15 @@ function App(): React.JSX.Element {
         extendedSearch: extendedSearch ?? isExtendedSearchRef.current,
         chatId,
         screenshot: activeScreenshot || undefined,
-        quote: quotedTextRef.current || undefined
+        attachedFile: activeFile || undefined,
+        quote: quotedTextRef.current || undefined,
+        appMode: targetYoutubeMode ? 'youtube' : undefined
       })
 
-      setAttachedScreenshot(null)
+      setAttachedFile(null)
       setQuotedText(null)
+      setIsYoutubeMode(false)
+      isYoutubeModeRef.current = false
     },
     []
   )
@@ -745,10 +781,6 @@ function App(): React.JSX.Element {
     window.api.setModel(newModel)
   }, [])
 
-  const handleOpenSubagentSettings = useCallback((): void => {
-    window.api.openSubagentSettingsWindow()
-  }, [])
-
   const handleCancel = useCallback((): void => {
     if (currentChatIdRef.current) {
       window.api.cancelChat(currentChatIdRef.current)
@@ -771,13 +803,28 @@ function App(): React.JSX.Element {
         for (const m of history) {
           let text = ''
           let screenshot: string | undefined = undefined
+          let file: AttachedFile | undefined = undefined
 
           if (m.parts) {
             for (const part of m.parts) {
               if (part.text) {
                 text += part.text
-              } else if (part.inlineData && part.inlineData.mimeType?.startsWith('image/')) {
-                screenshot = part.inlineData.data
+              }
+            }
+            for (const part of m.parts) {
+              if (part.inlineData) {
+                if (part.inlineData.mimeType?.startsWith('image/')) {
+                  screenshot = part.inlineData.data
+                } else {
+                  const fileMatch = text.match(
+                    /<attached_file\s+name="([^"]+)"\s+mime="([^"]+)"\s*\/>/i
+                  )
+                  file = {
+                    name: fileMatch ? fileMatch[1] : 'Attached File',
+                    mimeType: part.inlineData.mimeType || 'application/octet-stream',
+                    data: part.inlineData.data || ''
+                  }
+                }
               }
             }
           }
@@ -832,6 +879,8 @@ function App(): React.JSX.Element {
           if (m.role === 'user') {
             const cleanText = text
               .replace(/<quote_context>[\s\S]*?<\/quote_context>/gi, '')
+              .replace(/<youtube_app_context>[\s\S]*?<\/youtube_app_context>/gi, '')
+              .replace(/<attached_file[^>]*\/>/gi, '')
               .replace(/^\[FORCE_SEARCH\]\s*/i, '')
               .trim()
 
@@ -839,6 +888,7 @@ function App(): React.JSX.Element {
               role: 'user',
               content: cleanText,
               screenshot,
+              file,
               isStreaming: false
             })
           } else if (m.role === 'model') {
@@ -1027,7 +1077,15 @@ function App(): React.JSX.Element {
     const removeLauncherListener = window.api.onLauncherMessage((data) => {
       setActiveView('chat')
       // If launcher message arrives with the tag, handleSend will take care of hiding it in the UI
-      handleSend(data.message, data.thinkMode, undefined, undefined, data.screenshot)
+      handleSend(
+        data.message,
+        data.thinkMode,
+        undefined,
+        undefined,
+        data.screenshot,
+        undefined,
+        data.appMode === 'youtube'
+      )
       // Ensure focus after message is sent
       setTimeout(() => {
         inputBarRef.current?.focus()
@@ -1149,11 +1207,12 @@ function App(): React.JSX.Element {
     // Set up IPC listeners from our Context Bridge
     const removeChatStartListener = window.api.onChatStart((data) => {
       const { chatId } = data
-      console.log(`[UI Chat] onChatStart: chatId=${chatId}, currentChatId=${currentChatIdRef.current}`);
+      console.log(
+        `[UI Chat] onChatStart: chatId=${chatId}, currentChatId=${currentChatIdRef.current}`
+      )
       setRunningChats((prev) => ({ ...prev, [chatId]: true }))
       if (chatId === currentChatIdRef.current) {
         setIsProcessing(true)
-        setIsFinishing(false)
         // Add an empty AI message to start streaming into
         setMessages((prev) => [
           ...prev,
@@ -1180,13 +1239,17 @@ function App(): React.JSX.Element {
         isWritingToolCall,
         toolType
       } = data
-      console.log(`[UI Chat] onChatChunk received: chatId=${chatId}, currentChatId=${currentChatIdRef.current}, responseLength=${finalResponse.length}`);
+      console.log(
+        `[UI Chat] onChatChunk received: chatId=${chatId}, currentChatId=${currentChatIdRef.current}, responseLength=${finalResponse.length}`
+      )
       if (chatId === currentChatIdRef.current) {
         setMessages((prev) => {
           const newMessages = [...prev]
           const lastMsgIndex = newMessages.length - 1
           const lastMsg = newMessages[lastMsgIndex]
-          console.log(`[UI Chat] onChatChunk state update: lastMsg index=${lastMsgIndex}, lastMsg role=${lastMsg?.role}, isStreaming=${lastMsg?.isStreaming}`);
+          console.log(
+            `[UI Chat] onChatChunk state update: lastMsg index=${lastMsgIndex}, lastMsg role=${lastMsg?.role}, isStreaming=${lastMsg?.isStreaming}`
+          )
           if (lastMsg && lastMsg.role === 'ai' && lastMsg.isStreaming) {
             newMessages[lastMsgIndex] = {
               ...lastMsg,
@@ -1199,7 +1262,9 @@ function App(): React.JSX.Element {
               isConnecting: false
             }
           } else {
-            console.warn(`[UI Chat] onChatChunk did NOT update message state because: lastMsg=${!!lastMsg}, lastMsg.role=${lastMsg?.role}, isStreaming=${lastMsg?.isStreaming}`);
+            console.warn(
+              `[UI Chat] onChatChunk did NOT update message state because: lastMsg=${!!lastMsg}, lastMsg.role=${lastMsg?.role}, isStreaming=${lastMsg?.isStreaming}`
+            )
           }
           return newMessages
         })
@@ -1208,19 +1273,21 @@ function App(): React.JSX.Element {
 
     const removeChatEndListener = window.api.onChatEnd((data) => {
       const { chatId, thoughts, finalResponse, usedFallback } = data
-      console.log(`[UI Chat] onChatEnd received: chatId=${chatId}, currentChatId=${currentChatIdRef.current}`);
+      console.log(
+        `[UI Chat] onChatEnd received: chatId=${chatId}, currentChatId=${currentChatIdRef.current}`
+      )
       setRunningChats((prev) => ({ ...prev, [chatId]: false }))
       if (chatId === currentChatIdRef.current) {
         setIsProcessing(false)
         setIsYoutubeMode(false)
-        setIsFinishing(true)
-        setTimeout(() => setIsFinishing(false), 2000)
 
         setMessages((prev) => {
           const newMessages = [...prev]
           const lastMsgIndex = newMessages.length - 1
           const lastMsg = newMessages[lastMsgIndex]
-          console.log(`[UI Chat] onChatEnd state update: lastMsg index=${lastMsgIndex}, lastMsg role=${lastMsg?.role}`);
+          console.log(
+            `[UI Chat] onChatEnd state update: lastMsg index=${lastMsgIndex}, lastMsg role=${lastMsg?.role}`
+          )
           if (lastMsg && lastMsg.role === 'ai') {
             newMessages[lastMsgIndex] = {
               ...lastMsg,
@@ -1568,8 +1635,6 @@ function App(): React.JSX.Element {
     }
   }, [])
 
-
-
   const renderedMessages = useMemo(() => {
     if (messages.length === 0) return null
     return (
@@ -1633,9 +1698,7 @@ function App(): React.JSX.Element {
                           className="text-text-muted/50 transition-transform duration-200 group-open:rotate-180"
                         />
                       </summary>
-                      <div
-                        className="mt-1.5 border-l border-white/[0.06] ml-1.5 pl-4 py-0.5 font-mono text-[11px] leading-relaxed select-text text-text-secondary/50"
-                      >
+                      <div className="mt-1.5 border-l border-white/[0.06] ml-1.5 pl-4 py-0.5 font-mono text-[11px] leading-relaxed select-text text-text-secondary/50">
                         <ReactMarkdown
                           remarkPlugins={[
                             remarkGfm,
@@ -1668,21 +1731,53 @@ function App(): React.JSX.Element {
                     />
                   ) : (
                     <div className="flex flex-col items-end gap-2.5 max-w-[90%] sm:max-w-[80%] lg:max-w-[70%]">
-                      {msg.screenshot && (
+                      {(msg.screenshot || (msg.file && msg.file.mimeType.startsWith('image/'))) && (
                         <div className="relative rounded-[20px] overflow-hidden border border-white/10 bg-black/10 shadow-xl max-w-full sm:max-w-[320px] hover:border-white/20 transition-all duration-300">
                           <img
-                            src={`data:image/png;base64,${msg.screenshot}`}
-                            alt="Screenshot"
+                            src={
+                              msg.file && msg.file.mimeType.startsWith('image/')
+                                ? `data:${msg.file.mimeType};base64,${msg.file.data}`
+                                : `data:image/png;base64,${msg.screenshot}`
+                            }
+                            alt={msg.file ? msg.file.name : 'Image'}
                             className="w-full h-auto cursor-zoom-in block"
                             onClick={() => {
+                              const imgSrc =
+                                msg.file && msg.file.mimeType.startsWith('image/')
+                                  ? `data:${msg.file.mimeType};base64,${msg.file.data}`
+                                  : `data:image/png;base64,${msg.screenshot}`
                               const newWin = window.open()
                               newWin?.document.write(`
                                 <body style="margin: 0; background: #0b0c0f; display: flex; align-items: center; justify-content: center; min-height: 100vh;">
-                                  <img src="data:image/png;base64,${msg.screenshot}" style="max-width: 100%; max-height: 100vh; object-fit: contain; box-shadow: 0 20px 50px rgba(0,0,0,0.5);" />
+                                  <img src="${imgSrc}" style="max-width: 100%; max-height: 100vh; object-fit: contain; box-shadow: 0 20px 50px rgba(0,0,0,0.5);" />
                                 </body>
                               `)
                             }}
                           />
+                        </div>
+                      )}
+                      {msg.file && !msg.file.mimeType.startsWith('image/') && (
+                        <div className="premium-panel-soft flex items-center gap-3 px-4 py-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.02] shadow-md select-none max-w-full sm:max-w-[280px]">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
+                            {msg.file.mimeType === 'application/pdf' ? (
+                              <FilePdf size={20} className="text-status-error" />
+                            ) : (
+                              <FilePpt size={20} className="text-accent-primary" />
+                            )}
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span
+                              className="text-xs font-semibold text-text-primary truncate max-w-[170px]"
+                              title={msg.file.name}
+                            >
+                              {msg.file.name}
+                            </span>
+                            <span className="text-[10px] text-text-secondary/60">
+                              {msg.file.mimeType === 'application/pdf'
+                                ? 'PDF Document'
+                                : 'Presentation'}
+                            </span>
+                          </div>
                         </div>
                       )}
                       {msg.content && (
@@ -1826,12 +1921,7 @@ function App(): React.JSX.Element {
         onClose={() => setIsSearchModalOpen(false)}
         onOpenChat={handleLoadChat}
       />
-      <PrismBackground
-        isFocused={isFocused}
-        isProcessing={isProcessing}
-        isFinishing={isFinishing}
-        isYoutubeMode={isYoutubeMode}
-      />
+      <PrismBackground />
 
       {/* Floating Toggle Button */}
       {!isSidebarOpen && (
@@ -1871,7 +1961,6 @@ function App(): React.JSX.Element {
               isKeyMissing={isKeyMissing}
               isThinkMode={isThinkMode}
               onThinkModeToggle={handleThinkModeToggle}
-              onOpenSubagentSettings={handleOpenSubagentSettings}
               disabled={isProcessing || isKeyMissing}
               selectedModel={selectedModel}
               onModelChange={handleModelChange}
@@ -1883,9 +1972,12 @@ function App(): React.JSX.Element {
               setIsExtendedSearch={handleExtendedSearchToggle}
               isFullscreen={true}
               onFullscreenToggle={() => setIsFullscreenInput(false)}
-              screenshot={attachedScreenshot}
-              onRemoveScreenshot={() => setAttachedScreenshot(null)}
-              onAttachScreenshot={(base64) => setAttachedScreenshot(base64)}
+              attachedFile={attachedFile}
+              onRemoveFile={() => setAttachedFile(null)}
+              onAttachFile={(file) => setAttachedFile(file)}
+              onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
+              onOpenSubagentModal={() => setIsSubagentModalOpen(true)}
+              onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
             />
           </div>
         ) : (
@@ -1935,7 +2027,6 @@ function App(): React.JSX.Element {
                           isKeyMissing={isKeyMissing}
                           isThinkMode={isThinkMode}
                           onThinkModeToggle={handleThinkModeToggle}
-                          onOpenSubagentSettings={handleOpenSubagentSettings}
                           disabled={isProcessing || isKeyMissing}
                           selectedModel={selectedModel}
                           onModelChange={handleModelChange}
@@ -1947,9 +2038,12 @@ function App(): React.JSX.Element {
                           setIsExtendedSearch={handleExtendedSearchToggle}
                           isFullscreen={false}
                           onFullscreenToggle={() => setIsFullscreenInput(true)}
-                          screenshot={attachedScreenshot}
-                          onRemoveScreenshot={() => setAttachedScreenshot(null)}
-                          onAttachScreenshot={(base64) => setAttachedScreenshot(base64)}
+                          attachedFile={attachedFile}
+                          onRemoveFile={() => setAttachedFile(null)}
+                          onAttachFile={(file) => setAttachedFile(file)}
+                          onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
+                          onOpenSubagentModal={() => setIsSubagentModalOpen(true)}
+                          onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
                         />
                       </div>
                     </div>
@@ -2007,7 +2101,6 @@ function App(): React.JSX.Element {
                   isKeyMissing={isKeyMissing}
                   isThinkMode={isThinkMode}
                   onThinkModeToggle={handleThinkModeToggle}
-                  onOpenSubagentSettings={handleOpenSubagentSettings}
                   disabled={isProcessing || isKeyMissing}
                   selectedModel={selectedModel}
                   onModelChange={handleModelChange}
@@ -2019,9 +2112,12 @@ function App(): React.JSX.Element {
                   setIsExtendedSearch={handleExtendedSearchToggle}
                   isFullscreen={false}
                   onFullscreenToggle={() => setIsFullscreenInput(true)}
-                  screenshot={attachedScreenshot}
-                  onRemoveScreenshot={() => setAttachedScreenshot(null)}
-                  onAttachScreenshot={(base64) => setAttachedScreenshot(base64)}
+                  attachedFile={attachedFile}
+                  onRemoveFile={() => setAttachedFile(null)}
+                  onAttachFile={(file) => setAttachedFile(file)}
+                  onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
+                  onOpenSubagentModal={() => setIsSubagentModalOpen(true)}
+                  onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
                 />
               </div>
             )}
@@ -2029,6 +2125,36 @@ function App(): React.JSX.Element {
         )}
       </main>
       <ErrorPopup />
+      <ScreenshotModal
+        isOpen={isScreenshotModalOpen}
+        onClose={() => setIsScreenshotModalOpen(false)}
+        onCapture={(base64) => {
+          setAttachedFile({
+            name: `Screenshot_${new Date().toISOString().replace(/[:.]/g, '-')}.png`,
+            mimeType: 'image/png',
+            data: base64
+          })
+        }}
+      />
+      <SubagentDelegationModal
+        isOpen={isSubagentModalOpen}
+        onClose={() => setIsSubagentModalOpen(false)}
+        defaultSubagentModel={config?.subagentModel || 'prism-6-dragon'}
+        onDelegate={(data) => {
+          handleSend(`[MANUAL_SUBAGENTS]${JSON.stringify(data)}`)
+        }}
+      />
+      <YoutubeAppModal
+        isOpen={isYoutubeModalOpen}
+        onClose={() => setIsYoutubeModalOpen(false)}
+        onRun={(data) => {
+          let msg = `Search YouTube for: **${data.query}**\n- Type: ${data.type}\n- Sort By: ${data.sortBy}\n- Duration: ${data.duration}`
+          if (data.customInstructions) {
+            msg += `\n- Instructions: ${data.customInstructions}`
+          }
+          handleSend(msg, undefined, undefined, undefined, undefined, undefined, true)
+        }}
+      />
       {floatingMenu && (
         <div
           className="fixed z-50 flex items-center justify-center bg-background-secondary/95 border border-white/10 px-3 py-1.5 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-md cursor-pointer select-none pointer-events-auto"
