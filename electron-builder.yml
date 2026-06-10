@@ -1,8 +1,8 @@
 appId: com.prism.app
 productName: Prism
-icon: build/icon.png
+icon: resources/icon.png
 directories:
-  buildResources: build
+  buildResources: resources
 files:
   - '!**/.vscode/*'
   - '!**/.antigravitycli/*'
@@ -15,14 +15,12 @@ asarUnpack:
   - resources/**
 win:
   executableName: Prism
-  icon: build/icon.ico
+  icon: resources/icon.png
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
-  installerIcon: build/icon.ico
-  uninstallerIcon: build/icon.ico
   oneClick: false
   allowToChangeInstallationDirectory: true
 mac:
