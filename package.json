@@ -1,6 +1,6 @@
 {
     "name":  "prism",
-    "version":  "2.0.0",
+    "version":  "2.0.1",
     "description":  "An Electron application with React and TypeScript",
     "main":  "./out/main/index.js",
     "author":  "Breno",
@@ -22,7 +22,7 @@
                     "sync":  "powershell -Command \"$v = Get-Content version.txt -Raw; $json = Get-Content package.json | ConvertFrom-Json; $json.version = $v.Trim(); $json | ConvertTo-Json -Depth 10 | Set-Content package.json\""
                 },
     "dependencies":  {
-                          "@electron-toolkit/preload":  "^3.0.2",
+                         "@electron-toolkit/preload":  "^3.0.2",
                          "@electron-toolkit/utils":  "^4.0.0",
                          "@fontsource/outfit":  "^5.2.8",
                          "@google/genai":  "^2.5.0",
@@ -35,7 +35,7 @@
                          "lightningcss":  "^1.32.0",
                          "lightningcss-win32-x64-msvc":  "^1.32.0",
                          "mime-types":  "^3.0.2",
-                         "playwright": "^1.49.0",
+                         "playwright":  "^1.49.0",
                          "react-markdown":  "^10.1.0",
                          "rehype-katex":  "^7.0.1",
                          "rehype-raw":  "^7.0.0",

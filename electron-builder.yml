@@ -13,6 +13,13 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
+extraResources:
+  - from: resources/icon.ico
+    to: resources/icon.ico
+  - from: resources/icon.png
+    to: resources/icon.png
+  - from: resources/icons
+    to: resources/icons
 win:
   executableName: Prism
   icon: resources/icon.ico

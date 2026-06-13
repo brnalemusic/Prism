@@ -9,23 +9,13 @@ import {
   Menu,
   nativeImage,
   desktopCapturer,
-  dialog
+  dialog,
+  type NativeImage
 } from 'electron'
 import { join, dirname } from 'path'
 import os from 'os'
 import fs from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import icon from '../../resources/icon.png?asset'
-
-const getTrayIconPath = (): string => {
-  const isWin = process.platform === 'win32'
-  if (app.isPackaged) {
-    const iconName = isWin ? 'icon.ico' : 'icon.png'
-    return join(process.resourcesPath, 'app.asar.unpacked', 'resources', iconName)
-  } else {
-    return icon
-  }
-}
 import {
   initGemini,
   handleChatMessage,
@@ -132,6 +122,69 @@ const miniAppDataMap = new Map<
   { id: string; title: string; html: string; css: string; js: string }
 >()
 
+function getEffectiveIconTheme(config?: AppConfig): AppConfig['theme'] {
+  const theme = config?.theme || 'marine'
+
+  if (theme === 'rgb' && !(config?.rgbThemeExpiry && Date.now() < config.rgbThemeExpiry)) {
+    return 'marine'
+  }
+
+  return theme
+}
+
+function getIconResourcePath(iconName: string): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'resources', 'icons', iconName)
+    : join(__dirname, '../../resources/icons', iconName)
+}
+
+function getAppIconPath(config: AppConfig | undefined = currentConfig): string {
+  const iconExt = process.platform === 'win32' ? 'ico' : 'png'
+  return getIconResourcePath(`prism-${getEffectiveIconTheme(config)}.${iconExt}`)
+}
+
+function getFallbackAppIconPath(): string {
+  const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
+  return app.isPackaged
+    ? join(process.resourcesPath, 'resources', iconName)
+    : join(__dirname, '../../resources', iconName)
+}
+
+function getAppNativeIcon(config?: AppConfig): NativeImage {
+  const themedIcon = nativeImage.createFromPath(getAppIconPath(config))
+  if (!themedIcon.isEmpty()) {
+    return themedIcon
+  }
+
+  const fallbackIcon = nativeImage.createFromPath(getFallbackAppIconPath())
+  if (fallbackIcon.isEmpty()) {
+    console.warn('Failed to load Prism app icon:', getAppIconPath(config))
+  }
+  return fallbackIcon
+}
+
+function updateNativeIcons(): void {
+  const appIcon = getAppNativeIcon(currentConfig)
+
+  if (tray && !appIcon.isEmpty()) {
+    tray.setImage(appIcon.resize({ width: 16, height: 16 }))
+  }
+
+  const windows = [
+    mainWindow,
+    launcherWindow,
+    subagentsWindow,
+    subagentSettingsWindow,
+    ...miniAppWindows.values()
+  ]
+
+  windows.forEach((window) => {
+    if (window && !window.isDestroyed() && !appIcon.isEmpty()) {
+      window.setIcon(appIcon)
+    }
+  })
+}
+
 function createMiniAppWindow(
   id: string,
   title: string,
@@ -157,7 +210,9 @@ function createMiniAppWindow(
     frame: process.platform !== 'win32',
     titleBarStyle: process.platform === 'win32' ? undefined : 'hidden',
     backgroundColor: '#0b0c0f',
-    ...(process.platform === 'linux' || process.platform === 'win32' ? { icon } : {}),
+    ...(process.platform === 'linux' || process.platform === 'win32'
+      ? { icon: getAppIconPath() }
+      : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -217,7 +272,7 @@ function createMiniAppWindow(
 }
 
 function createTray(): void {
-  const iconPath = getTrayIconPath()
+  const iconPath = getAppIconPath()
   const trayIcon = nativeImage.createFromPath(iconPath)
   tray = new Tray(trayIcon.resize({ width: 16, height: 16 }))
 
@@ -277,7 +332,9 @@ function createSubagentsWindow(initialMessages?: SubagentMessage[]): void {
     frame: process.platform !== 'win32',
     titleBarStyle: process.platform === 'win32' ? undefined : 'hidden',
     backgroundColor: '#0A0A0F',
-    ...(process.platform === 'linux' || process.platform === 'win32' ? { icon } : {}),
+    ...(process.platform === 'linux' || process.platform === 'win32'
+      ? { icon: getAppIconPath() }
+      : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -320,7 +377,9 @@ function createSubagentSettingsWindow(): void {
     resizable: false,
     maximizable: false,
     fullscreenable: false,
-    ...(process.platform === 'linux' || process.platform === 'win32' ? { icon } : {}),
+    ...(process.platform === 'linux' || process.platform === 'win32'
+      ? { icon: getAppIconPath() }
+      : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -430,7 +489,9 @@ function createWindow(): void {
     resizable: true,
     maximizable: true,
     fullscreenable: true,
-    ...(process.platform === 'linux' || process.platform === 'win32' ? { icon } : {}),
+    ...(process.platform === 'linux' || process.platform === 'win32'
+      ? { icon: getAppIconPath() }
+      : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -518,7 +579,9 @@ function createLauncherWindow(): void {
     skipTaskbar: true,
     resizable: false,
     hasShadow: false,
-    ...(process.platform === 'linux' || process.platform === 'win32' ? { icon } : {}),
+    ...(process.platform === 'linux' || process.platform === 'win32'
+      ? { icon: getAppIconPath() }
+      : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -903,6 +966,7 @@ if (!gotTheLock) {
       const success = saveConfig(config)
       if (success) {
         registerGlobalShortcuts()
+        updateNativeIcons()
         // Notify both windows
         mainWindow?.webContents.send('config-changed', config)
         launcherWindow?.webContents.send('config-changed', config)
@@ -915,6 +979,7 @@ if (!gotTheLock) {
       currentConfig = config
       registerGlobalShortcuts()
       app.setLoginItemSettings({ openAtLogin: config.autoLaunch })
+      updateNativeIcons()
       // Notify both windows
       mainWindow?.webContents.send('config-changed', config)
       launcherWindow?.webContents.send('config-changed', config)
@@ -950,6 +1015,7 @@ if (!gotTheLock) {
     createWindow()
     createLauncherWindow()
     createTray()
+    updateNativeIcons()
 
     app.on('activate', function () {
       if (BrowserWindow.getAllWindows().length === 0) {
