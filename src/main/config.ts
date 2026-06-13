@@ -2,6 +2,15 @@ import { app, safeStorage } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 
+export interface SlashWorkflow {
+  id: string
+  command: string       // e.g., "/summarize"
+  name: string          // e.g., "Summarizer"
+  description: string   // e.g., "Summarize text and check for errors"
+  systemInstruction: string // instructions injected into system prompt
+  toolConstraints?: string[] // optional list of allowed tools (empty/undefined = all allowed)
+}
+
 export interface AppConfig {
   launcherShortcut: string
   modelSelectionShortcut: string
@@ -21,6 +30,7 @@ export interface AppConfig {
   isRgbUnlocked?: boolean
   zoomFactor: number
   terminalShell?: string
+  workflows?: SlashWorkflow[]
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -37,7 +47,33 @@ const DEFAULT_CONFIG: AppConfig = {
   theme: 'marine',
   isRgbUnlocked: false,
   zoomFactor: 1.0,
-  terminalShell: 'powershell.exe'
+  terminalShell: 'powershell.exe',
+  workflows: [
+    {
+      id: 'default-search',
+      command: '/search',
+      name: 'Search',
+      description: 'Perform deep web research on a topic',
+      systemInstruction: 'You are running in Web Search Mode. Your goal is to conduct deep, comprehensive research on the user\'s query. Use the web_search tool to find relevant information. Analyze search results carefully, verify facts across multiple sources, and present a structured, clear summary of the findings with references.',
+      toolConstraints: ['web_search', 'saw_link_from_url', 'open_browser_link']
+    },
+    {
+      id: 'default-subagents',
+      command: '/subagents',
+      name: 'Subagents Swarm',
+      description: 'Delegate complex tasks to a swarm of subagents',
+      systemInstruction: 'You are running in Subagent Mode. Your goal is to delegate and orchestrate the user\'s request using worker subagents. First, analyze the task requirements and break them down. Then, spawn the required number of subagents using the run_subagents tool. Coordinate their execution, monitor group chat updates, and synthesize their individual outputs into a comprehensive final report.',
+      toolConstraints: ['run_subagents']
+    },
+    {
+      id: 'default-summarize',
+      command: '/summarize',
+      name: 'Summarizer',
+      description: 'Create a structured summary of the text and check for errors',
+      systemInstruction: 'You are running in Summarize Mode. Your goal is to analyze the user\'s input text, extract the key points, organize them in a clean structure, check for spelling, grammar, or factual errors, and output a concise, professional summary.',
+      toolConstraints: []
+    }
+  ]
 }
 
 const VALID_MODEL_KEYS = new Set([
@@ -73,7 +109,8 @@ function normalizeConfig(config: AppConfig): AppConfig {
       config.zoomFactor <= 3.0
         ? config.zoomFactor
         : DEFAULT_CONFIG.zoomFactor,
-    terminalShell: config.terminalShell || DEFAULT_CONFIG.terminalShell
+    terminalShell: config.terminalShell || DEFAULT_CONFIG.terminalShell,
+    workflows: Array.isArray(config.workflows) ? config.workflows : DEFAULT_CONFIG.workflows
   }
 }
 

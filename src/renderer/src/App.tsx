@@ -29,10 +29,12 @@ import { MiniAppRenderer } from './components/MiniAppRenderer'
 import { TtsButton } from './components/TtsButton'
 import { CopyMessageButton } from './components/CopyMessageButton'
 import { ErrorPopup } from './components/ErrorPopup'
+import { DownloadProgressOverlay } from './components/DownloadProgressOverlay'
 import { triggerErrorPopup } from './utils'
 import {
   StreamContext,
   StaticMarkdownComponents,
+  createStreamingFadeRehypePlugin,
   useStreamStats
 } from './components/AnimatedStreamingText'
 import clsx from 'clsx'
@@ -40,7 +42,8 @@ import { CaretDown, Plus, Quotes, Brain, FilePdf, FilePpt } from '@phosphor-icon
 import { ScreenshotModal } from './components/ScreenshotModal'
 import { SubagentDelegationModal } from './components/SubagentDelegationModal'
 import { YoutubeAppModal } from './components/YoutubeAppModal'
-import { AppConfig } from '../../main/config'
+import { AppConfig, SlashWorkflow } from '../../main/config'
+import type { DownloadProgress } from '../../shared/types'
 
 interface HastNode {
   type: string
@@ -233,6 +236,7 @@ const AiMessage = React.memo(function AiMessage({
     /(<tool_call>[\s\S]*?(?:<\/tool_call>|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
   )
   let toolCallIndex = 0
+  let partStartOffset = 0
 
   return (
     <StreamContext.Provider value={streamStats}>
@@ -244,6 +248,9 @@ const AiMessage = React.memo(function AiMessage({
       >
         <div className="flex flex-col gap-2 relative">
           {parts.map((part, index) => {
+            const currentPartStartOffset = partStartOffset
+            partStartOffset += part.length
+
             if (part.startsWith('<tool_call>')) {
               if (part.includes('</tool_call>')) {
                 const tc = msg.toolCalls?.[toolCallIndex]
@@ -339,7 +346,12 @@ const AiMessage = React.memo(function AiMessage({
                       remarkMath,
                       disableIndentedCode as unknown as import('unified').Pluggable
                     ]}
-                    rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
+                    rehypePlugins={[
+                      rehypeRaw,
+                      rehypeParseMath,
+                      rehypeKatex,
+                      createStreamingFadeRehypePlugin(streamStats, currentPartStartOffset)
+                    ]}
                     components={markdownComponents}
                   >
                     {part}
@@ -379,6 +391,7 @@ function App(): React.JSX.Element {
   const [showIntro, setShowIntro] = useState(true)
   const [messages, setMessages] = useState<Message[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
+  const [downloads, setDownloads] = useState<Record<string, DownloadProgress>>({})
 
   // Dedicated Mini-app Window Logic
   const [miniAppData, setMiniAppData] = useState<{
@@ -426,12 +439,21 @@ function App(): React.JSX.Element {
   const [currentChatId, setCurrentChatId] = useState<string | undefined>(undefined)
   const [runningChats, setRunningChats] = useState<Record<string, boolean>>({})
   const currentChatIdRef = useRef<string | undefined>(undefined)
+  const [currentChatTitle, setCurrentChatTitle] = useState<string | null>(null)
+  const [isTitleStreaming, setIsTitleStreaming] = useState(false)
+  const titleIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false)
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false)
   const [isYoutubeMode, setIsYoutubeMode] = useState(false)
   const [isThinkMode, setIsThinkMode] = useState(false)
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [inputText, setInputText] = useState('')
+  const [activeWorkflow, setActiveWorkflow] = useState<SlashWorkflow | null>(null)
+
+  useEffect(() => {
+    setActiveWorkflow(null)
+  }, [currentChatId])
+
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
   const [isExtendedSearch, setIsExtendedSearch] = useState(false)
   const [isFullscreenInput, setIsFullscreenInput] = useState(false)
@@ -555,7 +577,32 @@ function App(): React.JSX.Element {
     initRunningChats()
   }, [])
 
+  useEffect(() => {
+    const removeDownloadProgressListener = window.api.onDownloadProgress((download) => {
+      setDownloads((prev) => ({
+        ...prev,
+        [download.id]: download
+      }))
 
+      if (['completed', 'failed', 'cancelled'].includes(download.status)) {
+        const delay = download.status === 'completed' ? 4500 : 7000
+        window.setTimeout(() => {
+          setDownloads((prev) => {
+            const current = prev[download.id]
+            if (!current || current.updatedAt !== download.updatedAt) return prev
+
+            const next = { ...prev }
+            delete next[download.id]
+            return next
+          })
+        }, delay)
+      }
+    })
+
+    return () => {
+      removeDownloadProgressListener()
+    }
+  }, [])
 
   useEffect(() => {
     async function init(): Promise<void> {
@@ -726,6 +773,7 @@ function App(): React.JSX.Element {
       setQuotedText(null)
       setIsYoutubeMode(false)
       isYoutubeModeRef.current = false
+      setActiveWorkflow(null)
     },
     []
   )
@@ -1036,6 +1084,32 @@ function App(): React.JSX.Element {
         setTasks(allTasks)
         setCurrentChatId(id)
         currentChatIdRef.current = id
+
+        // Retrieve and set the chat title statically
+        window.api
+          .getChats()
+          .then((chatsList) => {
+            const foundChat = chatsList.find((c) => c.id === id)
+            if (
+              foundChat &&
+              foundChat.title &&
+              foundChat.title !== 'New Conversation' &&
+              foundChat.title !== 'Nova Conversa'
+            ) {
+              setCurrentChatTitle(foundChat.title)
+            } else {
+              setCurrentChatTitle(null)
+            }
+          })
+          .catch((err) => {
+            console.error('Failed to load title for chat:', id, err)
+            setCurrentChatTitle(null)
+          })
+        setIsTitleStreaming(false)
+        if (titleIntervalRef.current) {
+          clearInterval(titleIntervalRef.current)
+          titleIntervalRef.current = null
+        }
       }
     },
     [currentChatId, runningChats]
@@ -1056,6 +1130,12 @@ function App(): React.JSX.Element {
     setInputText('')
     setIsFullscreenInput(false)
     window.api.clearChat()
+    setCurrentChatTitle(null)
+    setIsTitleStreaming(false)
+    if (titleIntervalRef.current) {
+      clearInterval(titleIntervalRef.current)
+      titleIntervalRef.current = null
+    }
   }, [])
 
   useEffect(() => {
@@ -1622,6 +1702,45 @@ function App(): React.JSX.Element {
       }
     })
 
+    const removeTitleReceivedListener = window.api.onChatTitleReceived(({ id, title }) => {
+      if (id === currentChatIdRef.current) {
+        if (
+          !title ||
+          title.trim() === '' ||
+          title === 'New Conversation' ||
+          title === 'Nova Conversa'
+        ) {
+          setCurrentChatTitle(null)
+          setIsTitleStreaming(false)
+          if (titleIntervalRef.current) {
+            clearInterval(titleIntervalRef.current)
+            titleIntervalRef.current = null
+          }
+          return
+        }
+
+        if (titleIntervalRef.current) {
+          clearInterval(titleIntervalRef.current)
+        }
+
+        let currentIndex = 0
+        const fullTitle = title
+        setIsTitleStreaming(true)
+
+        titleIntervalRef.current = setInterval(() => {
+          setCurrentChatTitle(fullTitle.substring(0, currentIndex + 1))
+          currentIndex++
+          if (currentIndex >= fullTitle.length) {
+            if (titleIntervalRef.current) {
+              clearInterval(titleIntervalRef.current)
+              titleIntervalRef.current = null
+            }
+            setIsTitleStreaming(false)
+          }
+        }, 50)
+      }
+    })
+
     return () => {
       removeChatStartListener()
       removeChatChunkListener()
@@ -1632,6 +1751,11 @@ function App(): React.JSX.Element {
       removeToolUpdateListener()
       removeSubagentMessageListener()
       removeFallbackListener()
+      removeTitleReceivedListener()
+      if (titleIntervalRef.current) {
+        clearInterval(titleIntervalRef.current)
+        titleIntervalRef.current = null
+      }
     }
   }, [])
 
@@ -1814,6 +1938,14 @@ function App(): React.JSX.Element {
     setIsApiKeyModalOpen
   ])
 
+  const visibleDownloads = useMemo(
+    () =>
+      Object.values(downloads)
+        .sort((a, b) => a.startedAt - b.startedAt)
+        .slice(-4),
+    [downloads]
+  )
+
   const renderedSidebar = useMemo(() => {
     return (
       <>
@@ -1909,7 +2041,7 @@ function App(): React.JSX.Element {
       {showIntro && (
         <IntroScreen onComplete={() => setShowIntro(false)} username={config?.username} />
       )}
-      <TitleBar />
+      <TitleBar title={currentChatTitle || undefined} isStreaming={isTitleStreaming} />
       <ApiKeyModal
         isOpen={isApiKeyModalOpen}
         onClose={() => setIsApiKeyModalOpen(false)}
@@ -1978,6 +2110,8 @@ function App(): React.JSX.Element {
               onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
               onOpenSubagentModal={() => setIsSubagentModalOpen(true)}
               onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
+              activeWorkflow={activeWorkflow}
+              setActiveWorkflow={setActiveWorkflow}
             />
           </div>
         ) : (
@@ -2044,6 +2178,8 @@ function App(): React.JSX.Element {
                           onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
                           onOpenSubagentModal={() => setIsSubagentModalOpen(true)}
                           onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
+                          activeWorkflow={activeWorkflow}
+                          setActiveWorkflow={setActiveWorkflow}
                         />
                       </div>
                     </div>
@@ -2118,12 +2254,15 @@ function App(): React.JSX.Element {
                   onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
                   onOpenSubagentModal={() => setIsSubagentModalOpen(true)}
                   onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
+                  activeWorkflow={activeWorkflow}
+                  setActiveWorkflow={setActiveWorkflow}
                 />
               </div>
             )}
           </>
         )}
       </main>
+      <DownloadProgressOverlay downloads={visibleDownloads} />
       <ErrorPopup />
       <ScreenshotModal
         isOpen={isScreenshotModalOpen}

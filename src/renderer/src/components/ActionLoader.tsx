@@ -147,6 +147,46 @@ function useToolCallMeta(toolCall: ToolCall): {
     displayTitle = 'Orchestrating Agents'
     displayDetail = 'Coordinating parallel work.'
     tone = 'think'
+  } else if (
+    toolCall.name.startsWith('browser_') ||
+    toolCall.name === 'open_browser' ||
+    toolCall.name === 'web_script' ||
+    toolCall.name === 'detailed_dom_page'
+  ) {
+    displayTitle = 'Browser Use'
+    if (toolCall.name === 'open_browser') {
+      displayDetail = url ? `Opening browser to ${url}` : 'Opening browser.'
+    } else if (toolCall.name === 'browser_navigate') {
+      displayDetail = url ? `Navigating to ${url}` : 'Navigating to new page.'
+    } else if (toolCall.name === 'browser_snapshot') {
+      displayDetail = 'Capturing page snapshot.'
+    } else if (toolCall.name === 'browser_click') {
+      const elementId = getStringArg(toolCall.args, 'elementId')
+      displayDetail = elementId ? `Clicking element "${elementId}"` : 'Clicking element.'
+    } else if (toolCall.name === 'browser_type') {
+      const elementId = getStringArg(toolCall.args, 'elementId')
+      const text = getStringArg(toolCall.args, 'text')
+      displayDetail = elementId ? `Typing "${text}" into element "${elementId}"` : 'Typing into element.'
+    } else if (toolCall.name === 'browser_press') {
+      const key = getStringArg(toolCall.args, 'key')
+      displayDetail = key ? `Pressing key "${key}"` : 'Pressing key.'
+    } else if (toolCall.name === 'browser_scroll') {
+      const direction = getStringArg(toolCall.args, 'direction')
+      displayDetail = direction ? `Scrolling ${direction}` : 'Scrolling page.'
+    } else if (toolCall.name === 'browser_back') {
+      displayDetail = 'Going back to previous page.'
+    } else if (toolCall.name === 'browser_screenshot') {
+      displayDetail = 'Taking screenshot.'
+    } else if (toolCall.name === 'browser_close') {
+      displayDetail = 'Closing browser.'
+    } else if (toolCall.name === 'web_script') {
+      displayDetail = 'Executing custom script.'
+    } else if (toolCall.name === 'detailed_dom_page') {
+      displayDetail = 'Retrieving detailed page layout.'
+    } else {
+      displayDetail = 'Automating browser action.'
+    }
+    tone = 'search'
   } else if (toolCall.name === 'configure_prism') {
     displayTitle = 'Configuring Prism'
     const changedArgs = Object.keys(toolCall.args).filter(
@@ -204,6 +244,14 @@ function useToolCallMeta(toolCall: ToolCall): {
     if (toolCall.name === 'saw_link_from_url') return <FileText size={size} weight="regular" />
     if (toolCall.name === 'configure_prism')
       return <Gear size={size} weight="regular" className="animate-pulse" />
+    if (
+      toolCall.name.startsWith('browser_') ||
+      toolCall.name === 'open_browser' ||
+      toolCall.name === 'web_script' ||
+      toolCall.name === 'detailed_dom_page'
+    ) {
+      return <AppWindow size={size} weight="regular" className="animate-pulse" />
+    }
     return <CircleNotch size={size} weight="bold" className="animate-spin" />
   }
 
@@ -1133,9 +1181,45 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
   )
 }
 
+function BrowserSessionSeparator({
+  message,
+  isRunning
+}: {
+  message: string
+  isRunning: boolean
+}): React.JSX.Element {
+  return (
+    <div className="w-full flex items-center gap-4 py-4 select-none animate-fade-in">
+      <div className="flex-grow border-t border-dashed border-white/[0.08]" />
+      <div className="flex items-center gap-2 px-3 py-1 rounded-full border border-white/[0.04] bg-white/[0.01] shadow-sm">
+        <div className="flex gap-1.5 mr-1 select-none">
+          <span className={clsx('w-1.5 h-1.5 rounded-full bg-status-error/40', isRunning && 'animate-pulse')} />
+          <span className={clsx('w-1.5 h-1.5 rounded-full bg-status-warning/40', isRunning && 'animate-pulse')} />
+          <span className={clsx('w-1.5 h-1.5 rounded-full bg-status-success/40', isRunning && 'animate-pulse')} />
+        </div>
+        <span className="text-[10px] font-mono tracking-widest text-text-secondary/80 uppercase">
+          {message}
+        </span>
+        <span className={clsx('text-[10px] opacity-75 font-mono select-none', isRunning && 'animate-pulse')}>🌐</span>
+      </div>
+      <div className="flex-grow border-t border-dashed border-white/[0.08]" />
+    </div>
+  )
+}
+
 export function ActionLoader({ toolCall, mode = 'compact' }: ActionLoaderProps): React.JSX.Element {
+  const isRunning = toolCall.status === 'running' || toolCall.status === 'writing'
+
+  if (toolCall.name === 'open_browser') {
+    return <BrowserSessionSeparator message="AI has started a browser session" isRunning={isRunning} />
+  }
+  if (toolCall.name === 'browser_close' || toolCall.name === 'close_browser') {
+    return <BrowserSessionSeparator message="AI finished the browser session" isRunning={isRunning} />
+  }
+
   if (mode === 'full') {
     return <FullActionLoader toolCall={toolCall} />
   }
   return <CompactActionLoader toolCall={toolCall} />
 }
+

@@ -25,11 +25,14 @@ import clsx from 'clsx'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ActionLoader, ToolCall } from './ActionLoader'
-import { StreamContext, StaticMarkdownComponents, useStreamStats } from './AnimatedStreamingText'
+import {
+  StreamContext,
+  StaticMarkdownComponents,
+  createStreamingFadeRehypePlugin,
+  useStreamStats
+} from './AnimatedStreamingText'
 
 type LauncherBadge = 'youtube' | 'search' | 'think'
-
-
 
 function evaluateMathExpression(expr: string): string | null {
   const sanitized = expr.replace(/\s+/g, '')
@@ -129,7 +132,12 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
             /(<tool_call>[\s\S]*?<\/tool_call>|<mini_app>[\s\S]*?<\/mini_app>)/g
           )
           let toolCallIndex = 0
+          let partStartOffset = 0
+
           return parts.map((part, index) => {
+            const currentPartStartOffset = partStartOffset
+            partStartOffset += part.length
+
             if (part.startsWith('<tool_call>')) {
               if (part.includes('</tool_call>')) {
                 const tc = msg.toolCalls?.[toolCallIndex]
@@ -142,7 +150,13 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
             } else if (part.trim() !== '') {
               return (
                 <div key={`text-${index}`} className="prose prose-invert max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[
+                      createStreamingFadeRehypePlugin(streamStats, currentPartStartOffset)
+                    ]}
+                    components={markdownComponents}
+                  >
                     {part}
                   </ReactMarkdown>
                 </div>

@@ -26,6 +26,28 @@ export interface ToolUpdate {
   }
 }
 
+export type DownloadProgressStatus =
+  | 'starting'
+  | 'downloading'
+  | 'saving'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
+export interface DownloadProgress {
+  id: string
+  filename: string
+  url?: string
+  targetPath?: string
+  receivedBytes: number
+  totalBytes?: number
+  percent?: number
+  status: DownloadProgressStatus
+  error?: string
+  startedAt: number
+  updatedAt: number
+}
+
 export interface ToolCall {
   name: string
   args: Record<string, unknown>

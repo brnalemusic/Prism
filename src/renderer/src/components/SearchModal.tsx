@@ -20,7 +20,12 @@ import rehypeKatex from 'rehype-katex'
 import { ToolCall } from './ActionLoader'
 import { RenderChatHistory } from './RenderChatHistory'
 import { Spinner } from './Spinner'
-import { StreamContext, StaticMarkdownComponents, useStreamStats } from './AnimatedStreamingText'
+import {
+  StreamContext,
+  StaticMarkdownComponents,
+  createStreamingFadeRehypePlugin,
+  useStreamStats
+} from './AnimatedStreamingText'
 
 interface SearchModalProps {
   isOpen: boolean
@@ -66,11 +71,15 @@ const AiSearchOutput = React.memo(function AiSearchOutput({
   }
 
   const parts = aiResponse.split(/(<tool_call>[\s\S]*?(?:<\/tool_call>|$))/gi)
+  let partStartOffset = 0
 
   return (
     <StreamContext.Provider value={streamStats}>
       <div className="flex flex-col gap-4 animate-fade-in pr-2 select-text">
         {parts.map((part, idx) => {
+          const currentPartStartOffset = partStartOffset
+          partStartOffset += part.length
+
           if (part.startsWith('<tool_call>')) {
             if (part.includes('</tool_call>')) {
               try {
@@ -107,7 +116,11 @@ const AiSearchOutput = React.memo(function AiSearchOutput({
               >
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm, remarkMath]}
-                  rehypePlugins={[rehypeRaw, rehypeKatex]}
+                  rehypePlugins={[
+                    rehypeRaw,
+                    rehypeKatex,
+                    createStreamingFadeRehypePlugin(streamStats, currentPartStartOffset)
+                  ]}
                   components={markdownComponents}
                 >
                   {part}

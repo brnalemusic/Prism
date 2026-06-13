@@ -7,6 +7,7 @@ import type {
   SubagentMessage,
   MiniAppData,
   ToolUpdate,
+  DownloadProgress,
   ApplicationInfo,
   FileSearchResult
 } from '../shared/types'
@@ -18,6 +19,7 @@ export interface AttachedFile {
 }
 
 export interface PrismAPI {
+  platform: string
   getMimeType: (fileName: string) => string | false
   sendChatMessage: (data: {
     message: string
@@ -49,6 +51,7 @@ export interface PrismAPI {
     callback: (data: { name: string; result: string; chatId: string }) => void
   ) => () => void
   onToolUpdate: (callback: (data: ToolUpdate & { chatId: string }) => void) => () => void
+  onDownloadProgress: (callback: (data: DownloadProgress) => void) => () => void
   onLauncherMessage: (
     callback: (data: {
       message: string

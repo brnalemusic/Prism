@@ -1,14 +1,14 @@
 import { exec } from 'child_process'
-import { shell, BrowserWindow, desktopCapturer } from 'electron'
+import { shell, desktopCapturer, app, BrowserWindow } from 'electron'
 import { getInstalledApps } from 'get-installed-apps'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as os from 'os'
 import { toolsManifest } from './toolsManifest'
-import { ApplicationInfo } from '../shared/types'
+import { ApplicationInfo, DownloadProgress } from '../shared/types'
 import { loadConfig } from './config'
+import { chromium, type Browser, type BrowserContext, type CDPSession, type Download, type Page } from 'playwright'
 
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 function stripAnsi(str: string): string {
   return str.replace(
@@ -16,6 +16,470 @@ function stripAnsi(str: string): string {
     ''
   )
 }
+
+function getDownloadsFolder(): string {
+  try {
+    return app.getPath('downloads')
+  } catch (err) {
+    return path.join(os.homedir(), 'Downloads')
+  }
+}
+
+let downloadSequence = 0
+let downloadCdpSession: CDPSession | null = null
+let downloadCdpBrowser: Browser | null = null
+const trackedDownloads = new Map<string, DownloadProgress>()
+const provisionalDownloadIds = new Map<string, string>()
+const cdpGuidToDownloadId = new Map<string, string>()
+const activeDownloadSaves = new WeakMap<Download, Promise<string>>()
+const DIRECT_DOWNLOAD_EXTENSIONS = new Set([
+  '.7z',
+  '.apk',
+  '.bin',
+  '.csv',
+  '.deb',
+  '.dmg',
+  '.doc',
+  '.docx',
+  '.exe',
+  '.gz',
+  '.img',
+  '.iso',
+  '.msi',
+  '.pkg',
+  '.ppt',
+  '.pptx',
+  '.rar',
+  '.rpm',
+  '.tar',
+  '.tgz',
+  '.tsv',
+  '.xls',
+  '.xlsx',
+  '.zip'
+])
+
+function createDownloadId(seed = 'download'): string {
+  downloadSequence += 1
+  return `${seed}-${Date.now()}-${downloadSequence}`
+}
+
+function normalizeDownloadFilename(filename: string): string {
+  const cleanName = path.basename(filename || 'download').trim()
+  return cleanName || 'download'
+}
+
+function getDownloadKey(url: string | undefined, filename: string): string {
+  return `${url || 'unknown'}::${filename}`
+}
+
+function emitDownloadProgress(progress: DownloadProgress): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('download-progress', progress)
+    }
+  }
+}
+
+function cleanupTrackedDownload(progress: DownloadProgress): void {
+  if (!['completed', 'failed', 'cancelled'].includes(progress.status)) return
+
+  setTimeout(() => {
+    const current = trackedDownloads.get(progress.id)
+    if (!current || current.updatedAt !== progress.updatedAt) return
+
+    trackedDownloads.delete(progress.id)
+    for (const [key, id] of provisionalDownloadIds.entries()) {
+      if (id === progress.id) provisionalDownloadIds.delete(key)
+    }
+    for (const [guid, id] of cdpGuidToDownloadId.entries()) {
+      if (id === progress.id) cdpGuidToDownloadId.delete(guid)
+    }
+  }, 60_000)
+}
+
+function updateTrackedDownload(
+  id: string,
+  patch: Partial<DownloadProgress> & { filename?: string }
+): DownloadProgress {
+  const now = Date.now()
+  const previous = trackedDownloads.get(id)
+  const receivedBytes = Math.max(0, patch.receivedBytes ?? previous?.receivedBytes ?? 0)
+  const totalBytes =
+    patch.totalBytes && patch.totalBytes > 0 ? patch.totalBytes : previous?.totalBytes
+  const computedPercent =
+    totalBytes && totalBytes > 0 ? Math.min(100, (receivedBytes / totalBytes) * 100) : undefined
+
+  const progress: DownloadProgress = {
+    id,
+    filename: patch.filename || previous?.filename || 'download',
+    url: patch.url ?? previous?.url,
+    targetPath: patch.targetPath ?? previous?.targetPath,
+    receivedBytes,
+    totalBytes,
+    percent:
+      typeof patch.percent === 'number'
+        ? Math.max(0, Math.min(100, patch.percent))
+        : computedPercent ?? previous?.percent,
+    status: patch.status || previous?.status || 'starting',
+    error: patch.error,
+    startedAt: previous?.startedAt ?? patch.startedAt ?? now,
+    updatedAt: now
+  }
+
+  if (progress.status === 'completed') {
+    progress.percent = 100
+    if (progress.totalBytes && progress.receivedBytes < progress.totalBytes) {
+      progress.receivedBytes = progress.totalBytes
+    }
+  }
+
+  trackedDownloads.set(id, progress)
+  emitDownloadProgress(progress)
+  cleanupTrackedDownload(progress)
+  return progress
+}
+
+function resolveDownloadProgressId(url: string | undefined, filename: string, preferredId?: string): string {
+  const key = getDownloadKey(url, filename)
+  let id = provisionalDownloadIds.get(key)
+  if (!id) {
+    id = preferredId || createDownloadId('download')
+    provisionalDownloadIds.set(key, id)
+  }
+  return id
+}
+
+function getChromiumBrowserContextId(context?: BrowserContext): string | undefined {
+  const privateContext = context as
+    | (BrowserContext & {
+        _browserContextId?: string
+        _impl?: { _browserContextId?: string }
+      })
+    | undefined
+
+  return privateContext?._browserContextId || privateContext?._impl?._browserContextId
+}
+
+async function configureDownloadProgressEvents(
+  browser: Browser,
+  context?: BrowserContext
+): Promise<void> {
+  if (downloadCdpSession && downloadCdpBrowser === browser) return
+
+  try {
+    const downloadsFolder = getDownloadsFolder()
+    await fs.mkdir(downloadsFolder, { recursive: true })
+
+    const session = await browser.newBrowserCDPSession()
+    downloadCdpSession = session
+    downloadCdpBrowser = browser
+
+    session.on('Browser.downloadWillBegin', (event) => {
+      const filename = normalizeDownloadFilename(event.suggestedFilename)
+      const id = resolveDownloadProgressId(event.url, filename, `download-${event.guid}`)
+      cdpGuidToDownloadId.set(event.guid, id)
+      updateTrackedDownload(id, {
+        filename,
+        url: event.url,
+        targetPath: path.join(downloadsFolder, filename),
+        receivedBytes: 0,
+        status: 'downloading'
+      })
+    })
+
+    session.on('Browser.downloadProgress', (event) => {
+      const id = cdpGuidToDownloadId.get(event.guid) || `download-${event.guid}`
+      const previous = trackedDownloads.get(id)
+      const status =
+        event.state === 'completed'
+          ? 'saving'
+          : event.state === 'canceled'
+            ? 'cancelled'
+            : 'downloading'
+
+      updateTrackedDownload(id, {
+        filename: previous?.filename,
+        receivedBytes: event.receivedBytes,
+        totalBytes: event.totalBytes > 0 ? event.totalBytes : undefined,
+        percent: event.state === 'completed' ? 100 : undefined,
+        status,
+        targetPath: previous?.targetPath || event.filePath
+      })
+    })
+
+    const params = {
+      behavior: 'allow' as const,
+      downloadPath: downloadsFolder,
+      eventsEnabled: true
+    }
+
+    await session.send('Browser.setDownloadBehavior', params)
+
+    const browserContextId = getChromiumBrowserContextId(context)
+    if (browserContextId) {
+      await session
+        .send('Browser.setDownloadBehavior', { ...params, browserContextId })
+        .catch((err) => {
+          console.warn('Unable to scope download behavior to browser context:', err)
+        })
+    }
+  } catch (err) {
+    downloadCdpSession = null
+    downloadCdpBrowser = null
+    console.warn('Download progress events are unavailable for this browser session:', err)
+  }
+}
+
+async function savePlaywrightDownload(download: Download): Promise<string> {
+  const existingSave = activeDownloadSaves.get(download)
+  if (existingSave) return existingSave
+
+  const savePromise = (async () => {
+    const downloadsFolder = getDownloadsFolder()
+    await fs.mkdir(downloadsFolder, { recursive: true })
+
+    const filename = normalizeDownloadFilename(download.suggestedFilename())
+    const url = download.url()
+    const targetPath = path.join(downloadsFolder, filename)
+    const id = resolveDownloadProgressId(url, filename)
+
+    updateTrackedDownload(id, {
+      filename,
+      url,
+      targetPath,
+      receivedBytes: 0,
+      status: 'downloading'
+    })
+
+    try {
+      await download.saveAs(targetPath)
+      updateTrackedDownload(id, {
+        filename,
+        url,
+        targetPath,
+        percent: 100,
+        status: 'completed'
+      })
+      return targetPath
+    } catch (err) {
+      const failure = await download.failure().catch(() => null)
+      updateTrackedDownload(id, {
+        filename,
+        url,
+        targetPath,
+        status: failure === 'canceled' ? 'cancelled' : 'failed',
+        error: failure || (err instanceof Error ? err.message : String(err))
+      })
+      throw err
+    }
+  })()
+
+  activeDownloadSaves.set(download, savePromise)
+  return savePromise
+}
+
+function getUrlPathname(url: string): string {
+  try {
+    return new URL(url).pathname
+  } catch {
+    return ''
+  }
+}
+
+function hasDirectDownloadExtension(url: string): boolean {
+  const pathname = getUrlPathname(url).toLowerCase()
+  if (pathname.endsWith('.tar.gz')) return true
+  return DIRECT_DOWNLOAD_EXTENSIONS.has(path.posix.extname(pathname))
+}
+
+function getFilenameFromUrl(url: string): string | undefined {
+  const basename = path.posix.basename(getUrlPathname(url))
+  if (!basename || basename === '/' || basename === '.') return undefined
+
+  try {
+    return decodeURIComponent(basename)
+  } catch {
+    return basename
+  }
+}
+
+function decodeHeaderFilename(value: string): string {
+  const trimmed = value.trim().replace(/^["']|["']$/g, '')
+  try {
+    return decodeURIComponent(trimmed)
+  } catch {
+    return trimmed
+  }
+}
+
+function getFilenameFromContentDisposition(header: string | null): string | undefined {
+  if (!header) return undefined
+
+  const filenameStar = header.match(/filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i)
+  if (filenameStar?.[1]) {
+    return decodeHeaderFilename(filenameStar[1])
+  }
+
+  const filename = header.match(/filename\s*=\s*([^;]+)/i)
+  return filename?.[1] ? decodeHeaderFilename(filename[1]) : undefined
+}
+
+function isHtmlContentType(contentType: string | null): boolean {
+  if (!contentType) return false
+  const mime = contentType.split(';')[0].trim().toLowerCase()
+  return mime === 'text/html' || mime === 'application/xhtml+xml'
+}
+
+async function getCookieHeaderForUrl(url: string): Promise<string | undefined> {
+  if (!persistentContext) return undefined
+
+  const cookies = await persistentContext.cookies(url).catch(() => [])
+  if (cookies.length === 0) return undefined
+  return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ')
+}
+
+async function getElementDownloadCandidate(
+  locator: ReturnType<Page['locator']>
+): Promise<{ url: string; filename?: string } | null> {
+  const candidate = await locator
+    .evaluate((el) => {
+      const anchor = el.closest('a[href]') as HTMLAnchorElement | null
+      const href =
+        anchor?.href ||
+        ((el as HTMLElement).getAttribute('href')
+          ? new URL((el as HTMLElement).getAttribute('href') || '', window.location.href).href
+          : '')
+      const downloadAttribute = anchor?.getAttribute('download') || (el as HTMLElement).getAttribute('download')
+
+      return {
+        url: href,
+        filename: downloadAttribute && downloadAttribute.trim() ? downloadAttribute.trim() : undefined
+      }
+    })
+    .catch(() => null)
+
+  if (!candidate?.url || !/^https?:\/\//i.test(candidate.url)) return null
+  if (!candidate.filename && !hasDirectDownloadExtension(candidate.url)) return null
+  return candidate
+}
+
+async function downloadUrlToDownloads(
+  url: string,
+  options: { filename?: string; referer?: string; cookieHeader?: string } = {}
+): Promise<string> {
+  const downloadsFolder = getDownloadsFolder()
+  await fs.mkdir(downloadsFolder, { recursive: true })
+
+  const headers: Record<string, string> = {
+    'User-Agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+  }
+  if (options.referer) headers.Referer = options.referer
+  if (options.cookieHeader) headers.Cookie = options.cookieHeader
+
+  const response = await fetch(url, { redirect: 'follow', headers })
+  if (!response.ok) {
+    throw new Error(`Download request failed with HTTP ${response.status}`)
+  }
+  if (isHtmlContentType(response.headers.get('content-type'))) {
+    throw new Error('Download link returned an HTML page instead of a file')
+  }
+
+  const resolvedUrl = response.url || url
+  const filename = normalizeDownloadFilename(
+    options.filename ||
+      getFilenameFromContentDisposition(response.headers.get('content-disposition')) ||
+      getFilenameFromUrl(resolvedUrl) ||
+      getFilenameFromUrl(url) ||
+      'download'
+  )
+  const targetPath = path.join(downloadsFolder, filename)
+  const id = resolveDownloadProgressId(resolvedUrl, filename, createDownloadId('direct-download'))
+  const totalBytesHeader = Number(response.headers.get('content-length') || 0)
+  const totalBytes = Number.isFinite(totalBytesHeader) && totalBytesHeader > 0 ? totalBytesHeader : undefined
+
+  updateTrackedDownload(id, {
+    filename,
+    url: resolvedUrl,
+    targetPath,
+    receivedBytes: 0,
+    totalBytes,
+    status: 'downloading'
+  })
+
+  const body = response.body
+  if (!body) {
+    const buffer = Buffer.from(await response.arrayBuffer())
+    await fs.writeFile(targetPath, buffer)
+    updateTrackedDownload(id, {
+      filename,
+      url: resolvedUrl,
+      targetPath,
+      receivedBytes: buffer.length,
+      totalBytes: totalBytes || buffer.length,
+      percent: 100,
+      status: 'completed'
+    })
+    return targetPath
+  }
+
+  const file = await fs.open(targetPath, 'w')
+  let receivedBytes = 0
+  let lastProgressAt = 0
+
+  try {
+    const reader = body.getReader()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      const buffer = Buffer.from(value)
+      await file.write(buffer)
+      receivedBytes += buffer.length
+
+      const now = Date.now()
+      if (now - lastProgressAt > 250) {
+        updateTrackedDownload(id, {
+          filename,
+          url: resolvedUrl,
+          targetPath,
+          receivedBytes,
+          totalBytes,
+          status: 'downloading'
+        })
+        lastProgressAt = now
+      }
+    }
+  } catch (err) {
+    updateTrackedDownload(id, {
+      filename,
+      url: resolvedUrl,
+      targetPath,
+      receivedBytes,
+      totalBytes,
+      status: 'failed',
+      error: err instanceof Error ? err.message : String(err)
+    })
+    await fs.unlink(targetPath).catch(() => {})
+    throw err
+  } finally {
+    await file.close()
+  }
+
+  updateTrackedDownload(id, {
+    filename,
+    url: resolvedUrl,
+    targetPath,
+    receivedBytes,
+    totalBytes: totalBytes || receivedBytes,
+    percent: 100,
+    status: 'completed'
+  })
+
+  return targetPath
+}
+
 
 export interface TerminalOption {
   id: string
@@ -1024,231 +1488,822 @@ export async function openBrowserLink(url: string): Promise<string> {
 }
 
 /**
- * Removes HTML tags, scripts, and styles from a string.
+ * Helper function to launch a Chromium browser using Playwright.
+ * It implements a fallback chain:
+ * 1. Google Chrome
+ * 2. Microsoft Edge
+ * 3. Firefox
+ * 4. Playwright default Chromium
+ * 5. Programmatic install of Playwright Chromium
  */
-function stripHtml(html: string): string {
-  let text = html
-  let previous
-  do {
-    previous = text
-    text = text
-      .replace(/<script[^>]*>([\s\S]*?)<\/script>/gim, '')
-      .replace(/<style[^>]*>([\s\S]*?)<\/style>/gim, '')
-      .replace(/<[^>]*>/g, ' ')
-  } while (text !== previous)
-  return text
+async function launchBrowser(): Promise<Browser> {
+  const launchOptions = {
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu']
+  }
+
+  // 1. Google Chrome
+  try {
+    console.log('launchBrowser: Trying system Google Chrome...')
+    return await chromium.launch({ ...launchOptions, channel: 'chrome' })
+  } catch (err) {
+    console.warn('launchBrowser: Google Chrome failed:', err)
+  }
+
+  // 2. Microsoft Edge
+  try {
+    console.log('launchBrowser: Trying system Microsoft Edge...')
+    return await chromium.launch({ ...launchOptions, channel: 'msedge' })
+  } catch (err) {
+    console.warn('launchBrowser: Microsoft Edge failed:', err)
+  }
+
+  // 3. Firefox
+  try {
+    console.log('launchBrowser: Trying system Firefox...')
+    return await chromium.launch({ ...launchOptions, channel: 'firefox' })
+  } catch (err) {
+    console.warn('launchBrowser: Firefox failed:', err)
+  }
+
+  // 4. Playwright default Chromium
+  try {
+    console.log('launchBrowser: Trying default Playwright Chromium...')
+    return await chromium.launch(launchOptions)
+  } catch (err) {
+    console.warn('launchBrowser: Default Playwright Chromium failed:', err)
+  }
+
+  // 5. Install Playwright Chromium if all else fails
+  console.log('launchBrowser: Downloading Chromium dependency...')
+  await new Promise<void>((resolve, reject) => {
+    exec('npx playwright install chromium', (error) => {
+      if (error) {
+        console.error('Playwright Chromium installation failed:', error)
+        reject(error)
+      } else {
+        console.log('Playwright Chromium installation complete.')
+        resolve()
+      }
+    })
+  })
+  return await chromium.launch(launchOptions)
 }
 
-async function fetchWithHiddenBrowser(url: string, signal?: AbortSignal): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const win = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        offscreen: true,
-        nodeIntegration: false,
-        contextIsolation: true
-      }
-    })
-
-    let resolved = false
-
-    const cleanUp = (): void => {
-      if (!resolved) {
-        resolved = true
-        try {
-          win.webContents.stop()
-        } catch {
-          // Best-effort cleanup only.
-        }
-        setTimeout(() => {
-          try {
-            win.destroy()
-          } catch {
-            // Best-effort cleanup only.
-          }
-        }, 100)
-      }
-    }
-
-    const timeout = setTimeout(() => {
-      cleanUp()
-      reject(new Error('Timeout loading page in offscreen browser window'))
-    }, 15000)
-
-    if (signal) {
-      signal.addEventListener('abort', () => {
-        clearTimeout(timeout)
-        cleanUp()
-        reject(createAbortError())
-      })
-    }
-
-    win.webContents.on('did-finish-load', async () => {
-      try {
-        const text = await win.webContents.executeJavaScript('document.body.innerText || ""')
-        clearTimeout(timeout)
-        cleanUp()
-        resolve(text)
-      } catch (err) {
-        clearTimeout(timeout)
-        cleanUp()
-        reject(err)
-      }
-    })
-
-    win.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
-      clearTimeout(timeout)
-      cleanUp()
-      reject(new Error(`Browser load failed: ${errorDescription} (code: ${errorCode})`))
-    })
-
-    win.loadURL(url).catch((err) => {
-      clearTimeout(timeout)
-      cleanUp()
-      reject(err)
-    })
+/**
+ * Helper to create a browser context with a realistic user-agent and standard configurations
+ * to avoid bot detection and browser support warnings (e.g. on SoundCloud).
+ */
+async function createBrowserContext(browser: Browser) {
+  return await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    viewport: { width: 1280, height: 720 },
+    deviceScaleFactor: 1,
+    isMobile: false,
+    hasTouch: false,
+    locale: 'en-US',
+    acceptDownloads: true
   })
 }
 
-/**
- * Fetches and returns text content from a URL.
- */
-export async function sawLinkFromUrl(url: string, signal?: AbortSignal): Promise<string> {
-  try {
-    const targetUrl = normalizeHttpUrl(url, 'url')
-    const response = await fetch(targetUrl, {
-      signal,
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Accept:
-          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cache-Control': 'no-cache',
-        Pragma: 'no-cache',
-        'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"Windows"',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Upgrade-Insecure-Requests': '1'
-      }
-    })
+let persistentBrowser: Browser | null = null
+let persistentContext: BrowserContext | null = null
+let persistentPage: Page | null = null
+let idleTimer: NodeJS.Timeout | null = null
 
-    if (!response.ok) {
-      throw new Error(`Website returned status ${response.status}`)
+function resetIdleTimer() {
+  if (idleTimer) {
+    clearTimeout(idleTimer)
+  }
+  idleTimer = setTimeout(async () => {
+    console.log('Browser persistent session idle for 5 minutes, closing automatically...')
+    await closePersistentBrowser()
+  }, 5 * 60 * 1000) // 5 minutes
+}
+
+async function getOrCreatePersistentPage(): Promise<Page> {
+  if (persistentPage && !persistentPage.isClosed()) {
+    return persistentPage
+  }
+
+  if (persistentBrowser) {
+    try {
+      await persistentBrowser.close()
+    } catch (err) {
+      console.warn('Error closing stale persistent browser:', err)
+    }
+    persistentBrowser = null
+  }
+
+  persistentBrowser = await launchBrowser()
+  persistentContext = await createBrowserContext(persistentBrowser)
+  await configureDownloadProgressEvents(persistentBrowser, persistentContext)
+  persistentPage = await persistentContext.newPage()
+
+  // Set up standard anti-bot features at the context level to cover all pages/tabs
+  await persistentContext.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
+    ;(window as any).chrome = { runtime: {} }
+  })
+
+  // Set up automatic background download handler on context level to catch downloads from all tabs/redirects
+  persistentContext.on('download', async (download) => {
+    try {
+      const targetPath = await savePlaywrightDownload(download)
+      const filename = path.basename(targetPath)
+      console.log(`Auto-download saved: ${filename} to ${targetPath}`)
+    } catch (err) {
+      console.warn('Background download auto-save did not complete (possibly already saved):', err)
+    }
+  })
+
+  return persistentPage
+}
+
+export async function openBrowser(url?: string): Promise<string> {
+  try {
+    const page = await getOrCreatePersistentPage()
+    resetIdleTimer()
+    if (url) {
+      const targetUrl = normalizeHttpUrl(url, 'url')
+      await page.goto(targetUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000
+      })
+      await handleConsentBanners(page)
+      return `Browser session opened and navigated to ${targetUrl} successfully. Current page title: "${await page.title()}"`
+    }
+    return 'Browser session opened successfully and is ready for automation. The browser will automatically close if idle for 5 minutes.'
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return `Error opening browser: ${message}`
+  }
+}
+
+export async function browserNavigate(url: string): Promise<string> {
+  try {
+    if (!persistentPage || persistentPage.isClosed()) {
+      return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
+    }
+    resetIdleTimer()
+    const targetUrl = normalizeHttpUrl(url, 'url')
+    await persistentPage.goto(targetUrl, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000
+    })
+    await handleConsentBanners(persistentPage)
+    return `Navigated to ${targetUrl} successfully. Current page title: "${await persistentPage.title()}"`
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return `Error navigating to ${url}: ${message}`
+  }
+}
+
+export async function browserSnapshot(full?: string): Promise<string> {
+  try {
+    if (!persistentPage || persistentPage.isClosed()) {
+      return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
+    }
+    resetIdleTimer()
+    const isFull = full === 'true'
+
+    // Strip target="_blank" before capturing to force all links to open in the current tab
+    await persistentPage.evaluate(() => {
+      document.querySelectorAll('a[target="_blank"]').forEach((a) => a.removeAttribute('target'))
+    }).catch(() => {})
+
+    const dom = await persistentPage.evaluate((isFull) => {
+      // 1. Tag interactive elements
+      const interactiveElementsSelector = 'a, button, input, textarea, select, details, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="textbox"], [role="menuitem"], [role="tab"], [role="option"], [contenteditable="true"]'
+      const interactiveEls = Array.from(document.querySelectorAll(interactiveElementsSelector))
+      
+      let nextId = 1
+      interactiveEls.forEach((el) => {
+        const rect = el.getBoundingClientRect()
+        if (rect.width > 0 && rect.height > 0) {
+          el.setAttribute('data-prism-id', String(nextId++))
+        }
+      })
+
+      // Helper to check if element is visible
+      const isVisible = (el: HTMLElement) => {
+        if (!el.getBoundingClientRect) return false
+        const rect = el.getBoundingClientRect()
+        const style = window.getComputedStyle(el)
+        return (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          style.opacity !== '0'
+        )
+      }
+
+      // Helper to recursively build clean HTML
+      const cleanNode = (node: Node): string => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const val = node.nodeValue?.trim()
+          return val ? val : ''
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) {
+          return ''
+        }
+        const el = node as HTMLElement
+        if (!isVisible(el)) return ''
+
+        const tagName = el.tagName.toLowerCase()
+        if (['script', 'style', 'iframe', 'noscript', 'svg', 'path', 'link', 'meta', 'head'].includes(tagName)) {
+          return ''
+        }
+
+        const prismId = el.getAttribute('data-prism-id')
+        const idAttr = prismId ? ` data-prism-id="${prismId}"` : ''
+
+        // Format based on tag
+        if (['input', 'textarea', 'select'].includes(tagName)) {
+          const idStr = el.id ? ` id="${el.id}"` : ''
+          const nameStr = el.getAttribute('name') ? ` name="${el.getAttribute('name')}"` : ''
+          const typeStr = el.getAttribute('type') ? ` type="${el.getAttribute('type')}"` : ''
+          const placeholderStr = el.getAttribute('placeholder') ? ` placeholder="${el.getAttribute('placeholder')}"` : ''
+          const valStr = (el as any).value ? ` value="${(el as any).value}"` : ''
+          return `<${tagName}${idAttr}${idStr}${nameStr}${typeStr}${placeholderStr}${valStr}></${tagName}>\n`
+        }
+
+        if (tagName === 'button') {
+          const idStr = el.id ? ` id="${el.id}"` : ''
+          return `<button${idAttr}${idStr}>${el.innerText?.trim() || ''}</button>\n`
+        }
+
+        if (tagName === 'a') {
+          const idStr = el.id ? ` id="${el.id}"` : ''
+          const href = el.getAttribute('href') || ''
+          return `<a${idAttr}${idStr} href="${href}">${el.innerText?.trim() || href}</a>\n`
+        }
+
+        if (tagName === 'img') {
+          const src = el.getAttribute('src') || ''
+          const alt = el.getAttribute('alt') || ''
+          return `<img src="${src}" alt="${alt}">\n`
+        }
+
+        // If not full mode, we skip structural containers that have no direct text and no interactive children
+        if (!isFull) {
+          const text = el.innerText?.trim()
+          const hasInteractiveChildren = el.querySelector('[data-prism-id]') !== null
+          if (!text && !hasInteractiveChildren) {
+            return ''
+          }
+        }
+
+        // Check for headings, paragraphs, list items
+        if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'td', 'th', 'summary'].includes(tagName)) {
+          let childContent = ''
+          el.childNodes.forEach((child) => {
+            childContent += cleanNode(child)
+          })
+          childContent = childContent.trim()
+          return childContent ? `<${tagName}${idAttr}>${childContent}</${tagName}>\n` : ''
+        }
+
+        // Container elements
+        let childrenContent = ''
+        el.childNodes.forEach((child) => {
+          childrenContent += cleanNode(child)
+        })
+        childrenContent = childrenContent.trim()
+        if (childrenContent) {
+          if (!isFull && !prismId && ['div', 'span', 'section', 'article', 'main', 'header', 'footer', 'aside', 'nav'].includes(tagName)) {
+            return childrenContent + '\n'
+          }
+          return `<${tagName}${idAttr}>\n${childrenContent}\n</${tagName}>\n`
+        }
+        return ''
+      }
+
+      return cleanNode(document.body)
+    }, isFull)
+
+    const MAX_CONTENT = 30000
+    const result = dom.replace(/\n\s*\n/g, '\n').trim()
+    return result.length > MAX_CONTENT ? result.substring(0, MAX_CONTENT) + '\n... (truncated)' : result
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return `Error capturing page snapshot: ${message}`
+  }
+}
+
+export async function browserClick(elementId: string): Promise<string> {
+  try {
+    if (!persistentPage || persistentPage.isClosed()) {
+      return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
+    }
+    resetIdleTimer()
+    const locator = persistentPage.locator(`[data-prism-id="${elementId}"]`).first()
+    const count = await locator.count()
+    if (count === 0) {
+      return `Error: Element with data-prism-id="${elementId}" not found on the page.`
     }
 
-    const html = await response.text()
-    const text = stripHtml(html).replace(/\s+/g, ' ').trim()
+    const directDownloadCandidate = await getElementDownloadCandidate(locator)
+    let directDownloadError: string | undefined
 
-    await sleep(500)
+    if (directDownloadCandidate) {
+      try {
+        const targetPath = await downloadUrlToDownloads(directDownloadCandidate.url, {
+          filename: directDownloadCandidate.filename,
+          referer: persistentPage.url(),
+          cookieHeader: await getCookieHeaderForUrl(directDownloadCandidate.url)
+        })
+        return `Clicked element with data-prism-id="${elementId}" successfully. The element points to a downloadable file and it was automatically saved to your Downloads folder: ${targetPath}`
+      } catch (err) {
+        directDownloadError = err instanceof Error ? err.message : String(err)
+        console.warn(
+          `browserClick: Direct download failed for element "${elementId}", falling back to browser click...`,
+          err
+        )
+      }
+    }
 
+    // Set up download listener in parallel (5 seconds timeout) on context level to catch all tabs/pages
+    const downloadPromise = persistentContext
+      ? persistentContext.waitForEvent('download', { timeout: 5000 }).catch(() => null)
+      : Promise.resolve(null)
+
+    // Try standard click, then fallback to force click, and finally direct DOM click
+    try {
+      await locator.click({ timeout: 5000 })
+    } catch (clickErr) {
+      console.warn(`browserClick: Standard click failed for element "${elementId}", trying force click...`, clickErr)
+      try {
+        await locator.click({ force: true, timeout: 5000 })
+      } catch (forceErr) {
+        console.warn(`browserClick: Force click failed for element "${elementId}", executing direct DOM click...`, forceErr)
+        await locator.evaluate((el: HTMLElement) => el.click())
+      }
+    }
+
+    const download = await downloadPromise
+    if (download) {
+      const targetPath = await savePlaywrightDownload(download)
+      return `Clicked element with data-prism-id="${elementId}" successfully. A file download was detected and automatically saved to your Downloads folder: ${targetPath}`
+    }
+
+    if (directDownloadError) {
+      return `Clicked element with data-prism-id="${elementId}" successfully, but the linked file could not be automatically saved: ${directDownloadError}`
+    }
+
+    return `Clicked element with data-prism-id="${elementId}" successfully.`
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return `Error clicking element "${elementId}": ${message}`
+  }
+}
+
+export async function browserType(elementId: string, text: string): Promise<string> {
+  try {
+    if (!persistentPage || persistentPage.isClosed()) {
+      return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
+    }
+    resetIdleTimer()
+    const locator = persistentPage.locator(`[data-prism-id="${elementId}"]`).first()
+    const count = await locator.count()
+    if (count === 0) {
+      return `Error: Element with data-prism-id="${elementId}" not found on the page.`
+    }
+    await locator.fill(text)
+    return `Typed text into element with data-prism-id="${elementId}" successfully.`
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return `Error typing into element "${elementId}": ${message}`
+  }
+}
+
+export async function browserPress(key: string): Promise<string> {
+  try {
+    if (!persistentPage || persistentPage.isClosed()) {
+      return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
+    }
+    resetIdleTimer()
+    await persistentPage.keyboard.press(key)
+    return `Pressed keyboard key "${key}" successfully.`
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return `Error pressing key "${key}": ${message}`
+  }
+}
+
+export async function browserScroll(direction: 'up' | 'down', amount?: string): Promise<string> {
+  try {
+    if (!persistentPage || persistentPage.isClosed()) {
+      return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
+    }
+    resetIdleTimer()
+    await persistentPage.evaluate((args) => {
+      const scrollAmount = args.amount ? Number(args.amount) : window.innerHeight * 0.8
+      window.scrollBy(0, args.direction === 'down' ? scrollAmount : -scrollAmount)
+    }, { direction, amount })
+    return `Scrolled page ${direction} successfully.`
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return `Error scrolling page: ${message}`
+  }
+}
+
+export async function browserBack(): Promise<string> {
+  try {
+    if (!persistentPage || persistentPage.isClosed()) {
+      return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
+    }
+    resetIdleTimer()
+    await persistentPage.goBack({ waitUntil: 'domcontentloaded', timeout: 15000 })
+    return 'Navigated back in browser history successfully.'
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return `Error navigating back: ${message}`
+  }
+}
+
+export async function browserScreenshot(): Promise<{ result: string; base64?: string }> {
+  try {
+    if (!persistentPage || persistentPage.isClosed()) {
+      return { result: 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.' }
+    }
+    resetIdleTimer()
+    const buffer = await persistentPage.screenshot({ type: 'png' })
+    const base64 = buffer.toString('base64')
+    return {
+      result: 'Screenshot captured successfully and attached to context.',
+      base64
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { result: `Error capturing browser screenshot: ${message}` }
+  }
+}
+
+export async function closePersistentBrowser(): Promise<string> {
+  if (idleTimer) {
+    clearTimeout(idleTimer)
+    idleTimer = null
+  }
+  if (persistentBrowser) {
+    try {
+      await persistentBrowser.close()
+    } catch (err) {
+      console.warn('Error closing persistent browser:', err)
+    } finally {
+      persistentBrowser = null
+      persistentContext = null
+      persistentPage = null
+      downloadCdpSession = null
+      downloadCdpBrowser = null
+    }
+    return 'Browser session closed successfully.'
+  }
+  return 'No active browser session to close.'
+}
+
+export async function webScript(url: string, script: string): Promise<string> {
+  try {
+    const page = await getOrCreatePersistentPage()
+    resetIdleTimer()
+    if (url) {
+      const targetUrl = normalizeHttpUrl(url, 'url')
+      if (page.url() !== targetUrl) {
+        await page.goto(targetUrl, {
+          waitUntil: 'domcontentloaded',
+          timeout: 30000
+        })
+        await handleConsentBanners(page)
+      }
+    }
+    const result = await page.evaluate((code) => {
+      try {
+        return eval(code)
+      } catch (e) {
+        const fn = new Function(code)
+        return fn()
+      }
+    }, script)
+    return typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return `Error executing web script: ${message}`
+  }
+}
+
+export async function detailedDomPage(url?: string): Promise<string> {
+  try {
+    const page = await getOrCreatePersistentPage()
+    resetIdleTimer()
+    if (url) {
+      const targetUrl = normalizeHttpUrl(url, 'url')
+      if (page.url() !== targetUrl) {
+        await page.goto(targetUrl, {
+          waitUntil: 'domcontentloaded',
+          timeout: 30000
+        })
+        await handleConsentBanners(page)
+      }
+    }
+
+    const dom = await page.evaluate(() => {
+      // 1. Tag interactive elements
+      const interactiveElementsSelector = 'a, button, input, textarea, select, details, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="textbox"], [role="menuitem"], [role="tab"], [role="option"], [contenteditable="true"]'
+      const interactiveEls = Array.from(document.querySelectorAll(interactiveElementsSelector))
+      
+      let nextId = 1
+      interactiveEls.forEach((el) => {
+        const rect = el.getBoundingClientRect()
+        if (rect.width > 0 && rect.height > 0) {
+          el.setAttribute('data-prism-id', String(nextId++))
+        }
+      })
+
+      const isVisible = (el: HTMLElement) => {
+        if (!el.getBoundingClientRect) return false
+        const rect = el.getBoundingClientRect()
+        const style = window.getComputedStyle(el)
+        return (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          style.opacity !== '0'
+        )
+      }
+
+      // Detailed serialization
+      const serializeNode = (node: Node, depth: number = 0): string => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const text = node.nodeValue?.trim()
+          return text ? `${'  '.repeat(depth)}[TEXT] ${text}\n` : ''
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) {
+          return ''
+        }
+        const el = node as HTMLElement
+        if (!isVisible(el)) return ''
+
+        const tagName = el.tagName.toLowerCase()
+        if (['script', 'style', 'iframe', 'noscript', 'svg', 'path', 'link', 'meta', 'head'].includes(tagName)) {
+          return ''
+        }
+
+        // Collect attributes
+        const attrs: string[] = []
+        if (el.id) attrs.push(`id="${el.id}"`)
+        if (el.className) attrs.push(`class="${el.className}"`)
+        const prismId = el.getAttribute('data-prism-id')
+        if (prismId) attrs.push(`data-prism-id="${prismId}"`)
+        
+        // Add specific attributes
+        const attributesToCollect = ['href', 'src', 'alt', 'placeholder', 'type', 'name', 'value', 'title', 'role']
+        for (const attr of attributesToCollect) {
+          const val = el.getAttribute(attr)
+          if (val) attrs.push(`${attr}="${val}"`)
+        }
+
+        const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : ''
+        const indent = '  '.repeat(depth)
+
+        // Leaf interactive elements
+        if (['input', 'img'].includes(tagName)) {
+          return `${indent}<${tagName}${attrStr} />\n`
+        }
+
+        let childContent = ''
+        el.childNodes.forEach((child) => {
+          childContent += serializeNode(child, depth + 1)
+        })
+
+        if (childContent) {
+          return `${indent}<${tagName}${attrStr}>\n${childContent}${indent}</${tagName}>\n`
+        } else {
+          return `${indent}<${tagName}${attrStr}>${el.innerText?.trim() || ''}</${tagName}>\n`
+        }
+      }
+
+      return serializeNode(document.body)
+    })
+
+    const MAX_CONTENT = 40000
+    const result = dom.replace(/\n\s*\n/g, '\n').trim()
+    return result.length > MAX_CONTENT ? result.substring(0, MAX_CONTENT) + '\n... (truncated)' : result
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return `Error getting detailed DOM: ${message}`
+  }
+}
+
+/**
+ * Automatically clicks common cookie consent banners to expose the main page content.
+ */
+async function handleConsentBanners(page: any) {
+  try {
+    const selectors = [
+      'button:has-text("Accept all")',
+      'button:has-text("Aceitar tudo")',
+      'button:has-text("Aceptar todo")',
+      'button:has-text("I agree")',
+      'button:has-text("Concordo")',
+      'button:has-text("Concordar")',
+      'button:has-text("Accept")',
+      'button:has-text("Aceitar")',
+      'button:has-text("Agree")',
+      'button:has-text("Aceito")',
+      'button:has-text("Accept All")'
+    ]
+
+    for (const selector of selectors) {
+      const locator = page.locator(selector).first()
+      if ((await locator.count()) > 0 && (await locator.isVisible())) {
+        console.log(`handleConsentBanners: Clicking consent button matching "${selector}"`)
+        await locator.click()
+        await page.waitForTimeout(1000).catch(() => {})
+        break
+      }
+    }
+  } catch (err) {
+    console.warn('handleConsentBanners: Error handling banners:', err)
+  }
+}
+
+/**
+ * Fetches and returns text content from a URL using Playwright.
+ */
+export async function sawLinkFromUrl(url: string, signal?: AbortSignal): Promise<string> {
+  let browser: Browser | null = null
+
+  // Handle abort logic
+  const onAbort = () => {
+    console.log('sawLinkFromUrl: Abort requested, closing browser.')
+    browser?.close().catch(() => {})
+  }
+
+  try {
+    const targetUrl = normalizeHttpUrl(url, 'url')
+
+    if (signal) {
+      if (signal.aborted) throw new Error('AbortError')
+      signal.addEventListener('abort', onAbort)
+    }
+
+    browser = await launchBrowser()
+    const context = await createBrowserContext(browser)
+    const page = await context.newPage()
+
+    // Spoof navigator.webdriver to bypass automated browser detection
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
+      ;(window as any).chrome = { runtime: {} }
+    })
+
+    await page.goto(targetUrl, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000
+    })
+
+    // Try to auto-dismiss any cookie banners to avoid text cluttering
+    await handleConsentBanners(page)
+
+    // Clean page and extract text
+    const text = await page.evaluate(() => {
+      const scripts = document.querySelectorAll('script, style, iframe, noscript, svg, path')
+      scripts.forEach((el) => el.remove())
+      return document.body.innerText || ''
+    })
+
+    const cleaned = text.replace(/\s+/g, ' ').trim()
     const MAX_CONTENT = 20000
-    return text.length > MAX_CONTENT ? text.substring(0, MAX_CONTENT) + '... (truncated)' : text
+    return cleaned.length > MAX_CONTENT ? cleaned.substring(0, MAX_CONTENT) + '... (truncated)' : cleaned
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
-
-    // Fallback to hidden browser window load
-    try {
-      const text = await fetchWithHiddenBrowser(url, signal)
-      const cleaned = text.replace(/\s+/g, ' ').trim()
-      const MAX_CONTENT = 20000
-      return cleaned.length > MAX_CONTENT
-        ? cleaned.substring(0, MAX_CONTENT) + '... (truncated)'
-        : cleaned
-    } catch (browserError) {
-      if (browserError instanceof Error && browserError.name === 'AbortError') throw browserError
-      return `Error fetching URL: ${error instanceof Error ? error.message : String(error)} (Fallback browser failed: ${browserError instanceof Error ? browserError.message : String(browserError)})`
+    const message = error instanceof Error ? error.message : String(error)
+    return `Error fetching URL: ${message}`
+  } finally {
+    if (signal) {
+      signal.removeEventListener('abort', onAbort)
+    }
+    if (browser) {
+      await browser.close().catch(() => {})
     }
   }
 }
 
 /**
- * Performs a web search using DuckDuckGo HTML version.
+ * Performs a web search using Google Search and Playwright.
  */
 export async function webSearch(query: string, signal?: AbortSignal): Promise<string> {
-  const userAgent =
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  let browser: Browser | null = null
 
-  async function tryDuckDuckGo(): Promise<{ title: string; link: string; snippet: string }[]> {
-    const response = await fetch(
-      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
-      {
-        signal,
-        headers: { 'User-Agent': userAgent }
-      }
-    )
-
-    if (!response.ok) return []
-
-    const html = await response.text()
-    const results: { title: string; link: string; snippet: string }[] = []
-
-    // Improved logic to be more resilient to structural changes
-    // We split by result containers to avoid premature regex termination from nested divs
-    const resultBlocks = html
-      .split(/<div[^>]*class="[^"]*result(?:__body|s_links| )[^"]*"[^>]*>/i)
-      .slice(1)
-
-    for (const body of resultBlocks) {
-      if (results.length >= 5) break
-
-      const titleMatch = body.match(/<a[^>]*class="[^"]*result__a[^"]*"[^>]*>([\s\S]*?)<\/a>/)
-      const linkMatch =
-        body.match(/href="([^"]*)"[^>]*class="[^"]*result__a[^"]*"/) ||
-        body.match(/class="[^"]*result__a[^"]*"[^>]*href="([^"]*)"/) ||
-        body.match(/href="([^"]*)"/)
-
-      let snippetMatch =
-        body.match(
-          /<[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/(?:a|div|span|p)>/i
-        ) ||
-        body.match(/<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/) ||
-        body.match(/<div[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/div>/)
-
-      // Structural fallback: if class-based matching fails, try to extract content between title and extras
-      if (!snippetMatch) {
-        const fallbackMatch =
-          body.match(/<\/h2>([\s\S]*?)<div[^>]*class="[^"]*result__extras/i) ||
-          body.match(/<\/a>([\s\S]*?)<div[^>]*class="[^"]*result__extras/i)
-        if (fallbackMatch) snippetMatch = fallbackMatch
-      }
-
-      if (titleMatch && linkMatch) {
-        let rawLink = linkMatch[1]
-
-        // Extract raw link from DuckDuckGo redirect if present (uddg parameter)
-        try {
-          const urlObj = new URL(
-            rawLink.startsWith('//')
-              ? `https:${rawLink}`
-              : rawLink.startsWith('/')
-                ? `https://duckduckgo.com${rawLink}`
-                : rawLink
-          )
-          const uddg = urlObj.searchParams.get('uddg')
-          if (uddg) {
-            rawLink = decodeURIComponent(uddg)
-          }
-        } catch {
-          // If URL parsing fails, keep the original link
-        }
-
-        results.push({
-          title: stripHtml(titleMatch[1]).trim(),
-          link: rawLink,
-          snippet: snippetMatch ? stripHtml(snippetMatch[1]).trim() : ''
-        })
-      }
-    }
-    return results
+  // Handle abort logic
+  const onAbort = () => {
+    console.log('webSearch: Abort requested, closing browser.')
+    browser?.close().catch(() => {})
   }
 
   try {
-    const results = await tryDuckDuckGo()
+    if (signal) {
+      if (signal.aborted) throw new Error('AbortError')
+      signal.addEventListener('abort', onAbort)
+    }
+
+    browser = await launchBrowser()
+    const context = await createBrowserContext(browser)
+    const page = await context.newPage()
+
+    // Spoof navigator.webdriver to bypass automated browser detection
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
+      ;(window as any).chrome = { runtime: {} }
+    })
+
+    // Perform Google Search
+    await page.goto(`https://www.google.com/search?q=${encodeURIComponent(query)}`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 15000
+    })
+
+    // Handle Google's redirect consent walls or overlay banners
+    if (page.url().includes('consent.google.com')) {
+      console.log('webSearch: Redirected to Google consent page. Clicking accept...')
+      await handleConsentBanners(page)
+      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {})
+    } else {
+      await handleConsentBanners(page)
+    }
+
+    // Extract organic search results immediately (no waiting for Gemini / AI Overview)
+    let results = await page.evaluate(() => {
+      const links = Array.from(document.querySelectorAll('a h3'))
+      const seenLinks = new Set<string>()
+      const list: { title: string; link: string; snippet: string }[] = []
+
+      for (const h3 of links) {
+        const anchor = h3.closest('a')
+        if (!anchor) continue
+        const link = anchor.getAttribute('href')
+        if (!link || seenLinks.has(link)) continue
+        seenLinks.add(link)
+
+        // Climb up DOM to search for description snippet
+        let container = h3.parentElement
+        let snippet = ''
+        let attempts = 0
+        while (container && attempts < 6) {
+          const descEl = container.querySelector('.VwiC3b, .yD3nu, div[style*="-webkit-line-clamp"]')
+          if (descEl) {
+            snippet = descEl.textContent || ''
+            break
+          }
+          container = container.parentElement
+          attempts++
+        }
+
+        list.push({
+          title: h3.textContent || '',
+          link,
+          snippet
+        })
+        if (list.length >= 5) break
+      }
+      return list
+    })
+
+    if (results.length === 0) {
+      console.log('webSearch: Google search yielded no results. Trying DuckDuckGo fallback...')
+      await page.goto(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 15000
+      })
+
+      results = await page.evaluate(() => {
+        const list: { title: string; link: string; snippet: string }[] = []
+        const resultElements = Array.from(document.querySelectorAll('.result'))
+        for (const el of resultElements) {
+          const titleEl = el.querySelector('.result__title a') as HTMLAnchorElement
+          const snippetEl = el.querySelector('.result__snippet')
+          if (!titleEl) continue
+          let link = titleEl.getAttribute('href') || ''
+          if (link.includes('uddg=')) {
+            const match = link.match(/uddg=([^&]+)/)
+            if (match && match[1]) {
+              try {
+                link = decodeURIComponent(match[1])
+              } catch (e) {
+                // ignore
+              }
+            }
+          }
+          const title = titleEl.textContent || ''
+          const snippet = snippetEl?.textContent || ''
+          list.push({ title, link, snippet })
+          if (list.length >= 5) break
+        }
+        return list
+      })
+    }
 
     if (results.length === 0) {
       return 'No results found.'
@@ -1261,6 +2316,13 @@ export async function webSearch(query: string, signal?: AbortSignal): Promise<st
     if (error instanceof Error && error.name === 'AbortError') throw error
     const message = error instanceof Error ? error.message : String(error)
     return `Error performing web search: ${message}`
+  } finally {
+    if (signal) {
+      signal.removeEventListener('abort', onAbort)
+    }
+    if (browser) {
+      await browser.close().catch(() => {})
+    }
   }
 }
 
@@ -1270,7 +2332,8 @@ export async function webSearch(query: string, signal?: AbortSignal): Promise<st
 export function getSystemToolsPrompt(
   modelKey: string,
   target: 'main' | 'subagent' | 'both' | 'launcher' = 'main',
-  extendedSearch: boolean = false
+  extendedSearch: boolean = false,
+  allowedTools?: string[]
 ): string {
   let shellName = 'powershell.exe'
   try {
@@ -1296,6 +2359,11 @@ export function getSystemToolsPrompt(
 
   const toolsPrompt = toolsManifest
     .filter((t) => {
+      if (allowedTools && allowedTools.length > 0) {
+        if (!allowedTools.includes(t.name)) {
+          return false
+        }
+      }
       if (target === 'launcher') {
         return (
           t.name === 'web_search' ||
@@ -1331,21 +2399,15 @@ export function getSystemToolsPrompt(
   })
 
   if (target === 'launcher') {
-    return `# Identity
-Role: Prism Mini-Chat (${modelName}). You are a fast, lightweight, inline assistant running inside the Quick Launcher.
+    return `# Identity & Context
+Role: Prism Mini-Chat (${modelName}), running in the Quick Launcher.
 Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${shellName}
 
-# Interaction Rules
-- **Simple Markdown Only:** You must respond ONLY using traditional simple Markdown (paragraphs, bold, lists, basic tables). It is STRICTLY FORBIDDEN to use HTML code or CSS styles in your messages. Do not use Rich Markdown.
-- **Limited Tools:** You only have access to 'web_search' (normal basic search, Deep Research is NOT supported), 'saw_link_from_url', 'open_browser_link', and 'open_application'.
-- **Automated Open Rules:** When the user mentions the name of an app, sends a link, or provides the PATH of a file without saying anything else (i.e. in isolation, with no other text, queries, or instructions), do not hesitate: immediately open the link (via open_browser_link), app (via open_application), or file (via open_application). Prism is focused on productivity. Only when the user specifically asks to do something with the URL/PATH/app should you ignore this rule and perform the requested task instead of opening it.
-- **Transition with open_main_app:** If the user asks to perform complex tasks (terminal commands, file operations, subagents) or if the task requires any Rich Markdown (such as dashboards, stylized grids, complex visual cards), you must IMMEDIATELY invoke the 'open_main_app' tool to transfer the work to the main app.
-- In the 'model' parameter of the 'open_main_app' tool, choose the most appropriate in-app model according to the following Prism model table:
-  * 'prism-6-super-fast': An ultra-fast model focused on extremely low latency for simple coding tasks and everyday computer use. (Default)
-  * 'prism-6-fast-old': An older model focused on speed for the simplest day-to-day tasks, emphasizing automation and orchestration.
-  * 'prism-6-fast': An extremely decent model for complex tasks involving automation, orchestration, and raw code, focused on low latency.
-  * 'prism-6-dragon': Our most capable model for conducting in-depth research, massive agent orchestration, and information gathering.
-  * 'prism-6-dense': The most capable model for debugging immense code, with extremely dense information and very complex mathematics.
+# Rules
+- **Simple Markdown Only:** Respond ONLY using traditional simple Markdown (no HTML/CSS, no Rich Markdown).
+- **Auto-Open:** If an app, link, or file path is sent in isolation, IMMEDIATELY open it via open_browser_link or open_application.
+- **Transitions:** For complex tasks (terminal/files/subagents/Rich Markdown), immediately call open_main_app with instructions.
+- Models: prism-6-super-fast (default/latency), prism-6-fast-old (simple automation), prism-6-fast (code/swarm), prism-6-dragon (research), prism-6-dense (math/debugging).
 
 Tools:
 ${toolsPrompt}`
@@ -1353,156 +2415,64 @@ ${toolsPrompt}`
 
   const parallelRule =
     target === 'main'
-      ? '- Parallelism: You can run multiple <tool_call> blocks in a single response to execute them concurrently. Use <run_subagents> to delegate complex tasks.'
-      : '- Collaboration: Use "send_group_message" and "wait_for_updates" for Group Chat sync. You can output multiple tool calls in parallel.'
+      ? '- Parallelism: Run multiple <tool_call> blocks concurrently to speed up tasks. Use <run_subagents> for complex tasks.'
+      : '- Collaboration: Use send_group_message and wait_for_updates for Group Chat sync. You can output multiple tool calls in parallel.'
   const humanUserRule =
     target === 'subagent'
-      ? '- Human user messages: Any group message from "Master Coordinator" is a direct message from the Prism user, not another agent. Treat it as human input and respond via send_group_message when relevant.'
+      ? '- Human user messages: Any group message from Master Coordinator is from the Prism user. Respond via send_group_message.'
       : ''
 
   const searchProtocolText = extendedSearch
     ? 'ENABLED (ACTIVATED - execute the DEEP RESEARCH protocol)'
     : 'DISABLED (INACTIVE - execute the standard ACTIVE SEARCH protocol)'
 
-  return `# Identity
-Role: ${name} (${modelName}). You are a concise, tool-capable desktop assistant.
+  return `# Identity & Context
+Role: ${name} (${modelName}), a concise, tool-capable desktop assistant.
 Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${shellName}
-Extended Search Protocol (DEEP RESEARCH): ${searchProtocolText}
+Deep Research Protocol: ${searchProtocolText}
 
 # Visual & Interaction Protocol
-Objective: Define clear architectural boundaries between Simple Markdown, Rich Markdown (HTML/CSS inside messages), and Mini Apps to maximize visual beauty (UX) and system performance.
+Define clear boundaries to maximize UX and performance:
+1. **Simple Markdown (95% of replies):** Use for conversational answers, summaries, code, and explanations. NEVER wrap standard text in HTML/CSS cards/containers.
+2. **Rich Markdown (HTML/CSS):** Use ONLY when user explicitly requests cards, dashboards, grids, or visual layouts (e.g. "create a profile card"). Use modern styling (gradients, shadow, blur). Example:
+   \`\`\`html
+   <div style="background: linear-gradient(135deg, #1e3c72, #2a5298); padding: 15px; border-radius: 12px; color: white; font-family: system-ui, sans-serif;">
+     <h4>Breno Alexandre</h4>
+     <p>Creator of the Prism ecosystem.</p>
+   </div>
+   \`\`\`
+3. **Mini Apps:** Use <mini_app> tags ONLY for stateful, interactive widgets (e.g. calculators, forms, games). Do not use for static content.
+   Structure: <mini_app><title>Name</title><html>...</html><css>...</css><js>...</js></mini_app>
 
-## 1. Simple Markdown (Standard Conversation)
-- **Definition:** Standard text using normal markdown formatting (headers, bold, bullet points, standard tables).
-- **Usage:** Use by default for 95% of answers. This includes conversational responses, opinions, explanations, summaries, text reviews (such as reviewing song lyrics, poetry, code, etc.), debugging help, list of links, and general answers.
-- **Rule:** Do NOT use HTML/CSS elements for simple conversational responses, summaries, or when text is sufficient. Keep simple responses simple. DO NOT wrap standard responses in styled divs, background gradients, or card containers.
-
-## 2. Rich Markdown Messages (Static Visual Context with HTML/CSS)
-- **Definition:** Markdown output containing inline HTML and CSS (rendered directly in the chat message via rehypeRaw).
-- **Usage:** Use this ONLY when the user EXPLICITLY requests a card, dashboard, badge, grid, or visual layout (e.g., "create a profile card", "create idea cards", "show in a dashboard").
-- **Examples:**
-  - *Profile / Business Cards:* Present user/profile info in a beautiful, styled HTML container (gradients, border-radius, shadows, margins) ONLY when requested as a card.
-  - *Idea Cards / Brainstorming:* Present names, concepts, or options as a grid or list of separate visually appealing cards/badges ONLY when requested to do so visually (e.g., "idea cards").
-- **Constraint Directive:** NEVER use HTML/CSS to wrap standard text analyses, conversational opinions, lists of thoughts, or standard textual answers. Using styled card boxes for normal conversational text makes the interface look bloated and unnatural.
-- **Example structure to output in chat:**
-  ${'```'}html
-  <div style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 20px; border-radius: 16px; color: white; box-shadow: 0 10px 20px rgba(0,0,0,0.15); font-family: system-ui, sans-serif; max-width: 450px;">
-    <div style="display: flex; align-items: center; gap: 15px;">
-      <div style="width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,0.2); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 20px;">B</div>
-      <div>
-        <h4 style="margin: 0; font-size: 18px; font-weight: 600;">Breno Alexandre</h4>
-        <span style="font-size: 13px; opacity: 0.8;">@brnalemusic</span>
-      </div>
-    </div>
-    <div style="margin-top: 15px; font-size: 14px; line-height: 1.6; opacity: 0.9;">
-      Creator of the <b>Prism</b> ecosystem. Shifts between the sensitivity of music/cinema and the precision of software development.
-    </div>
-  </div>
-  ${'```'}
-
-## 3. Mini App Tool Calls (Interactive Context)
-- **Definition:** Stateful, functional applications embedded in the chat using '<mini_app>' tags.
-- **Usage:** ONLY use mini-apps when user interaction (clicking buttons to change internal state, text inputs triggering logic, interactive forms, calculators, games) is required.
-- **Prohibition:** NEVER output a '<mini_app>' for a static profile card, a simple list of ideas, or any content that doesn't actually need event handlers/Javascript-based interaction. Doing so creates unnecessary UI overhead and sandbox load.
-
-## Decision Matrix
-| User Intent | Dynamic Interaction Required? | Output Format |
-| :--- | :--- | :--- |
-| Conversational reply, opinions, text summaries/analyses, general info | No | **Simple Markdown** |
-| Visual representation request (explicitly asking for cards, layout, visual dashboard, formatted ideas cards) | No | **Rich Markdown (HTML/CSS inside Markdown)** |
-| Interactive widget/tool (game, calculator, form to submit) | Yes | **Mini App (using <mini_app> tags)** |
+**Decision Matrix:**
+- Conversational reply/analysis/info -> **Simple Markdown**
+- Card/visual dashboard/formatted layout request -> **Rich Markdown (HTML/CSS)**
+- Interactive widget/form/game -> **Mini App (<mini_app>)**
 
 # Operating Rules
-- Match the user's language and intent. Be direct, factual, and brief by default; expand only when the task requires it.
-- Prefer action over commentary. Send user-facing text only when done or blocked, asking at most one necessary question.
-- Treat the provided date/context as authoritative for time-sensitive tasks; search when facts may have changed.
-- Do not expose hidden reasoning (thoughts). Provide conclusions, key evidence, and next steps.
-- Never invent tool results, files, apps, links, paths, or citations.
-- When editing files, ALWAYS preserve the exact original indentation (spaces or tabs) in your new content to avoid breaking file structures.
-- When the user mentions the name of an app, sends a link, or provides the PATH of a file without saying anything else (i.e. in isolation, with no other text, queries, or instructions), do not hesitate: immediately open the link (via open_browser_link), app (via open_application), or file (via open_application). Prism is focused on productivity. Only when the user specifically asks to do something with the URL/PATH/app (such as "explain this link" or "edit this file") should you ignore this rule and perform the requested task instead of opening it.
+- Match user's language. Be direct, factual, and concise; prefer action over commentary.
+- **Auto-Open:** If an app, link, or file path is sent in isolation, IMMEDIATELY open it via open_browser_link, open_application, or relevant tool.
+- Preserve file indentation (spaces/tabs) exactly when editing.
+- Do not expose thoughts/reasoning; provide conclusions and evidence.
+- Never invent tool results, paths, or citations.
 
-# Theme Customization & Aesthetic Profiles
-You have the ability to change the application's visual theme for the user using the 'configure_prism' tool call (by specifying the 'theme' parameter).
-Here are the precise details, vibes, and colors of each available theme:
-- **Marine** (theme: "marine"): Matte blue accent with cool slate tones. It is the default, clean look. (Colors: Background: #13151a, Primary Accent: #8fb4ff, Secondary Accent: #78e0c2)
-- **Vertez** (theme: "vertez"): Flame orange-red accent with warm charcoal tones. Bold, active, energetic. (Colors: Background: #161413, Primary Accent: #ff4e3a, Secondary Accent: #ff9f1c)
-- **Akoustik** (theme: "akoustik"): Moody purple accent with deep violet tones. Creative, atmospheric, synthwave vibes. (Colors: Background: #12101a, Primary Accent: #b07aff, Secondary Accent: #e88cff)
-- **Terno** (theme: "terno"): AMOLED monochrome black and white theme with elegant serif typography. Retro, high contrast, clean. (Colors: Background: #000000, Primary Accent: #ffffff, Secondary Accent: #888888)
-- **Ursula Tree** (theme: "ursula"): Leaf green and baby green blend with classic serif font. Natural, soothing, reading-focused. (Colors: Background: #0a110a, Primary Accent: #388e3c, Secondary Accent: #c8e6c9)
-- **RGB** (theme: "rgb"): Dynamic chroma shifting theme. This is a locked/secret Easter Egg theme. The user can NOT change to it directly via 'configure_prism'; they must have special access and answer a series of questions (run the questionnaire game and unlock it via the 'unlock_rgb_theme' tool). If they ask about the RGB theme, or the locked '???' option, you must check their access status and administer the secret questions ONLY if they have access.
+# Themes (via configure_prism)
+- marine (default blue/slate), vertez (orange-red/charcoal), akoustik (purple/violet), terno (monochrome black/white), ursula (green/reading-focused).
+- rgb: locked Easter Egg theme. Do NOT set directly.
 
-# Research
-You have two active search protocols (ACTIVE SEARCH and DEEP RESEARCH):
+# Search Protocols
+1. **Active Search (Standard):** For serious topics, search using web_search and read page contents using saw_link_from_url. Do not rely solely on snippets.
+2. **Deep Research (When enabled):**
+   - Step 1: Search initially for context.
+   - Step 2: Present a Research Plan and explicitly ask user if they approve. Stop generation immediately.
+   - Step 3 (Only after approval): Run at least 10 search/read iterations.
+   - Step 4: Output a dense, structured Markdown report.
 
-1. ACTIVE SEARCH (Standard and Mandatory for any serious topic like medical, legal, coding, news, etc. that requires in-depth research):
-- You MUST ALWAYS conduct in-depth research when the subject is serious or requires research.
-- Actively behave: perform searches with the 'web_search' Tool Call, access sites using 'saw_link_from_url', and collect real information.
-- You should only respond to the user when you find the exact information on the web. If you do not find it, you must search further, visit websites, etc. Giving answers ONLY by reading search snippets is not a good option; you must actively visit the links using 'saw_link_from_url' to read the actual page content and ensure accuracy.
-- Advance in the task steps ONLY if you find useful and reliable information on the accessed sites.
-- If it is impossible to find useful information after multiple attempts, give up on the main action. Inform the user that you could not find enough reliable information, present a briefing/summary of the information you did find, and make it clear that the information may be outdated or incorrect.
-
-2. DEEP RESEARCH (Extended Search - Activated when the Extended Search flag is active):
-- When the Extended Search flag is active (Extended Search: ENABLED), you MUST execute the DEEP RESEARCH protocol following these structured steps:
-  
-  Step 1. Understanding the Request: Analyze what the user wants to discover.
-  Step 2. Brief Research for Context: Perform a quick initial search (1 or 2 'web_search' and/or 'saw_link_from_url' calls) to get the initial context and keywords about the subject.
-  Step 3. Research Plan and Confirmation:
-    - Write a brief briefing of the initial context found.
-    - Elaborate and describe a detailed Research Plan (explaining what you will search for, what terms you will use, what sources you will access, and what type of data you will collect).
-    - Ask the user clearly and explicitly if they approve and wish to proceed with the deep extended research (e.g., "Do you wish to proceed with this extended research?").
-    - STOP GENERATION IMMEDIATELY. Do not call any more tools in this round. Wait for user confirmation.
-  Step 4. Deep Research (Only after user confirmation):
-    - If the history shows that you have already presented the research plan and the user responded in the last message approving, confirming, or ordering to start/proceed (e.g., "yes", "go ahead", "proceed", "start", "ok"), you must perform the deep research.
-    - This research must be extremely deep, heavy, and exhaustive. It must go through at least 10 distinct steps/iterations of searching ('web_search') and thorough reading of pages ('saw_link_from_url'). Enter the sites, investigate details, cross-reference. This process is slow by design (it can take up to 20 minutes of intense batch processing of tools).
-    - Track and clearly expose the progress of each step in your reasoning (thoughts/thinking).
-  Step 5. Strategic Markdown Output:
-    - Compile the result into professional-level Markdown that prioritizes information density and clarity.
-    - Utilize structural elements (tables, grids, stylized blocks) ONLY where they significantly improve the scannability of complex data.
-    - Maintain a focus on actionable intelligence, using rich formatting surgically to synthesize information that would be difficult to parse as plain text.
-
-# Mini Apps (Executable in Chat)
-You have the ability to generate interactive mini-apps that run directly in the chat. Use this ONLY for functional, stateful, and interactive modules as defined in the **Visual & Interaction Protocol**.
-To generate a mini-app, use the following XML structure in your output (outside of code blocks):
-
-<mini_app>
-<title>App Name</title>
-<html>
-<!-- HTML structure here -->
-</html>
-<css>
-/* CSS styles here (optional) */
-</css>
-<js>
-// JavaScript logic here (optional) 
-</js>
-</mini_app>
-
-Rules for Mini Apps:
-- **Interactivity Required:** Only use mini-apps when user interaction (input, selection, etc.) is required.
-- **Modern Styling:** Be creative and use modern styles (glassmorphism, gradients, animations).
-- **Environment:** Use Vanilla JS for interactivity. The environment is a sandboxed iframe.
-- **Responsiveness:** CSS should be mobile-first and responsive.
-- **Conciseness:** Keep the code concise but functional and visually impressive.
-
-# Task Method
-- Terminal CLI: All terminal/shell commands are executed under the "${shellName}" shell. Always ensure you write your commands with the correct syntax for "${shellName}" (e.g., using correct syntax, pipeline operations, variables, quoting rules, escaping, etc.).
-- Clarify success criteria internally, then plan -> act -> verify.
-- For code/files, inspect before editing, keep changes scoped, preserve user work, and verify with the lightest useful command.
-- Math: simple -> result only. Complex -> concise LaTeX and \\boxed{final}.
-- Navigation: URL -> open_browser_link | Search result/page -> saw_link_from_url | App -> open_application | Unknown app -> list_installed_applications or scan.
-
-# Tool Protocol
-- Tool calls MUST be formatted as a single JSON object inside a <tool_call> XML block.
-- Structure: <tool_call>{"type": "tool_name", "param1": "value1", ...}</tool_call>
-- CRITICAL: Every tool call JSON object MUST contain the "type" property specifying the tool name (e.g., "type": "to_ask", "type": "web_search"). Never omit the "type" property. Without it, the system cannot parse the tool call and will trigger a system error.
-- Use only standard JSON. For multiline strings, code, or special characters, YOU MUST use standard JSON escaping (e.g., \\n for newlines, \\" for quotes). Do NOT use literal newlines inside a JSON string.
-- Use only listed tool names and schemas; never invent names.
-- Paths must be complete absolute paths unless a tool explicitly accepts otherwise. No placeholders or blanks.
-- File map: read=computer_use_read_file; create=computer_use_create_file; save=computer_use_save_file; edit=computer_use_edit_file; append=computer_use_append_file; remove file=computer_use_remove_file; remove dir=computer_use_remove_directory; copy=computer_use_copy_file; move=computer_use_move_file; info=computer_use_get_file_info; list=computer_use_list_directory.
-- Before destructive or broad write operations, verify target paths and user intent.
-
-# Memory & Coordination
-- Use search_chat_history for relevant prior context/preferences; query CSV keywords in user language and English.
+# Tool Protocol & Execution
+- **Format:** Tool calls must be valid JSON in a <tool_call> XML block: <tool_call>{"type": "tool_name", "param": "val"}</tool_call>.
+- **Requirements:** JSON must contain "type". Escape newlines (\\n) and quotes in JSON. Absolute paths are required.
+- **Terminal CLI:** Commands are run in ${shellName} shell. Match its syntax.
+- **Persistent Browser:** For browser_* actions (except browser_close) and web_script, call open_browser first and browser_close when done. web_search, saw_link_from_url, and open_browser_link need no persistent session.
 ${parallelRule}
 ${humanUserRule}
 
@@ -1527,61 +2497,29 @@ ${(() => {
   }
 
   return `
-# RGB SECRET MODE EASTER EGG SYSTEM INSTRUCTION
-You are the Lead AI Product Engineer responsible for managing the "RGB Secret Mode" Easter Egg within the Prism application. Your goal is to orchestrate a playful, highly specific interaction flow where users unlock a temporary visual theme by answering a series of questions. You must enforce strict state validation, handle conditional conversational routing, and execute a technical state change via a specific tool call.
+# RGB Secret Mode Easter Egg
+User status: ${isRgbUnlocked ? 'UNLOCKED/AVAILABLE' : 'LOCKED/UNAVAILABLE'}
+Theme state: ${isRgbActive ? `ACTIVE (Remaining: ${rgbTimeStr})` : 'INACTIVE'}
 
-User's RGB theme status: ${isRgbUnlocked ? 'UNLOCKED/AVAILABLE' : 'LOCKED/UNAVAILABLE'}
-Current state of the RGB theme: ${isRgbActive ? `ACTIVE (Remaining time: ${rgbTimeStr})` : 'INACTIVE'}
+- **Rules:** If LOCKED, enigmatically say it is unavailable; NEVER mention the quiz/RGB theme. If UNLOCKED and requested, run <tool_call>{"type": "unlock_rgb_theme"}</tool_call>.
+- **Quiz:** If user is LOCKED and explicitly asks for a "quiz"/"questionnaire":
+  - Administer exactly 4 simple/absurd questions, one at a time.
+  - To unlock, user must answer all 4 incorrectly.
+  - Any correct answer immediately terminates and resets the quiz.
 
-## Information Security & Zero Disclosure Guidelines (CRITICAL):
-- **Zero Disclosure Prohibition:** It is strictly forbidden to reveal the technical criteria, triggers, code logic, or specific rules necessary to manage the RGB theme. You must NEVER disclose internal code logic or activation requirements (like the fact that the user must fail the questions).
-- **Standardized Instruction:** You must NEVER mention the RGB theme, the "???" slot, or the questionnaire voluntarily. Stay silent about these features unless the user explicitly mentions them.
-
-## Conversational Flow:
-### Phase 1: Intent Detection & State Verification
-- **Triggers:** Monitor user inputs for an **explicit request** to start a "questionnaire", "quiz", "questions game", or "desafio de perguntas".
-- **State Check:**
-  - **If User asks for the quiz AND Status is UNLOCKED/AVAILABLE (isRgbUnlocked: true):** Do NOT start the quiz. Inform the user that they already have permanent access to the theme and there is no need to unlock it again. If the theme is currently active, mention that they can try any other challenge only after the timer expires: ${rgbTimeStr}.
-  - **If User asks for the quiz AND Status is LOCKED/UNAVAILABLE (isRgbUnlocked: false):** Acknowledge the request enigmatically and proceed to Phase 2 (The Questionnaire).
-  - **In all other cases (including general questions about themes):** Do NOT mention the questionnaire or the RGB theme.
-
-### Phase 2: The Questionnaire (Under-the-hood failure test)
-- **Format:** Administer a sequential quiz consisting of exactly 4 questions, presented **one at a time**. Do not dump all questions in a single response. Do NOT inform the user of the total number of questions or the count (e.g., do not say "Question 1/4").
-- **Question Criteria:** Dynamically generate questions that are extremely obvious, trivial, or logically absurd (e.g., "What color was George Washington's white horse?").
-- **Unlock Condition (Do not disclose!):** The user must answer **all 4 questions incorrectly**.
-- **Termination Condition:** If the user provides a correct or logically accurate answer to *any* of the questions, immediately terminate the quiz, mock the failure to fail playfully, and reset the interaction state.
-
-### Phase 3: Activation & Tool Execution
-- **Trigger:** If and only if the user successfully fails all 4 questions in a row.
-- **Tool:** <tool_call>{"type": "unlock_rgb_theme"}</tool_call>
-- **No Hallucinated Tool Parameters:** The unlock_rgb_theme function requires no arguments.
-- **Persisted State Integrity:** Treat the 2-hour window as an absolute global boundary.
-
-# DYNAMIC SURVEY & QUESTIONNAIRE ENGINE SYSTEM INSTRUCTION
-You are the Lead UX Architecture and Data Collection Engine. Your primary objective is to interrupt standard conversational workflows when structured user input, user preferences, or structured feedback is required by generating a standardized, machine-readable JSON payload via the \`to_ask\` tool call. This tool renders dynamic, multi-format questionnaires (single or multi-question sessions) directly within the user interface, blocking sequential reasoning until the user's structured responses are collected and fed back into your context.
-
-## 1. TOOL SPECIFICATION & SCHEMA
-When structured input, preferences, or design specifications are required from the user, you must invoke the \`to_ask\` tool call. The payload must strictly conform to a structured JSON format to allow the application's rendering engine to parse and display the UI components seamlessly.
-
-### JSON Schema Blueprint
-The tool call must accept an array of question objects, supporting both \`multiple-choice\` (with an optional open-ended write-in) and \`essay\` (free-form text input) types.
-
+# Dynamic Surveys (to_ask)
+Use to_ask for structured user preferences/feedback. Blocks execution until submitted.
+Schema:
 {
-  "session_id": "string (unique UUID for the questionnaire tracking)",
+  "session_id": "UUID",
   "questions": [
     {
-      "id": "string (unique identifier within the session, e.g., 'q1')",
+      "id": "q1",
       "type": "multiple-choice | essay",
-      "title": "string (the category or high-level context, e.g., 'Fonte')",
-      "prompt": "string (the actual question text addressed to the user)",
-      "options": [
-        {
-          "value": "string (internal data value)",
-          "label": "string (text displayed to the user)",
-          "allow_custom_input": "boolean (if true, renders an 'Other - specify...' write-in field)"
-        }
-      ],
-      "placeholder": "string (only applicable for 'essay' type or custom input fields)"
+      "title": "Category",
+      "prompt": "Question text",
+      "options": [{"value": "val", "label": "Label", "allow_custom_input": false}],
+      "placeholder": "Text"
     }
   ]
 }

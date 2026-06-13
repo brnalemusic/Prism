@@ -24,9 +24,21 @@ import {
   computerGetFileInfo,
   computerListDirectory,
   computerReadFile,
-  captureAppScreenshot
+  captureAppScreenshot,
+  openBrowser,
+  browserNavigate,
+  browserSnapshot,
+  browserClick,
+  browserType,
+  browserPress,
+  browserScroll,
+  browserBack,
+  browserScreenshot,
+  closePersistentBrowser,
+  webScript,
+  detailedDomPage
 } from './systemTools'
-import { saveChatSession, loadChatSession, searchChatHistory, searchChatMemory } from './history'
+import { saveChatSession, loadChatSession, searchChatHistory, searchChatMemory, getMessageText } from './history'
 import { loadConfig, saveConfig } from './config'
 import { toolsManifest } from './toolsManifest'
 
@@ -851,6 +863,28 @@ const toolFunctions: Record<
   list_installed_applications: () => listApplications(),
   open_application: (args) => openApplication(args.appPath || ''),
   open_browser_link: (args) => openBrowserLink(args.url || ''),
+  open_browser: (args) => openBrowser(args.url),
+  browser_navigate: (args) => browserNavigate(args.url || ''),
+  browser_snapshot: (args) => browserSnapshot(args.full),
+  browser_click: (args) => browserClick(args.elementId || ''),
+  browser_type: (args) => browserType(args.elementId || '', args.text || ''),
+  browser_press: (args) => browserPress(args.key || ''),
+  browser_scroll: (args) => browserScroll(args.direction as 'up' | 'down', args.amount),
+  browser_back: () => browserBack(),
+  browser_screenshot: async (_args, _event, _apiKey, _signal, chatId) => {
+    const res = await browserScreenshot()
+    if (res.base64) {
+      if (chatId) {
+        lastScreenshots.set(chatId, res.base64)
+      } else {
+        lastScreenshots.set('launcher', res.base64)
+      }
+    }
+    return res.result
+  },
+  browser_close: () => closePersistentBrowser(),
+  web_script: (args) => webScript(args.url || '', args.script || ''),
+  detailed_dom_page: (args) => detailedDomPage(args.url),
   web_search: (args, _event, _apiKey, signal) => webSearch(args.query || '', signal),
   saw_link_from_url: (args, _event, _apiKey, signal) => sawLinkFromUrl(args.url || '', signal),
   computer_use_create_file: (args, _event, _apiKey, signal) =>
@@ -1494,6 +1528,7 @@ async function runSubagents(
  * Initializes or clears the history with system instructions.
  */
 export function initGemini(): boolean {
+  closePersistentBrowser().catch((err) => console.warn('Failed to close persistent browser in initGemini:', err))
   currentSessionId = Date.now().toString()
   chatHistory = [
     { role: 'system', parts: [{ text: getSystemToolsPrompt(currentModelKey) }] },
@@ -1513,6 +1548,7 @@ export function initGemini(): boolean {
  * Loads a past session into the current history.
  */
 export function loadChatIntoHistory(id: string): Content[] {
+  closePersistentBrowser().catch((err) => console.warn('Failed to close persistent browser in loadChatIntoHistory:', err))
   const session = loadChatSession(id)
   if (session) {
     currentSessionId = session.id
@@ -1816,16 +1852,27 @@ export async function handleChatMessage(
     return
   }
 
-  // TODO: Hardcoded slash commands like /youtube, /search, and /subagents are deprecated and will be removed.
-  // In the future, these commands will be fully settings-configurable workflows.
-  // The configuration will allow users to define custom workflows driven by dynamic System Instructions
-  // and specific tool constraints in their configuration file. For example, a user could configure a
-  // "/youtube" slash command that maps to a specific prompt template, forcing the model to perform a web search
-  // and open a browser link, without hardcoding this behavior in the main application logic.
-  // This will make Prism extensible, customizable, and cleaner.
-  const basePrompt = getSystemToolsPrompt(currentModelKey, 'main', extendedSearch)
+  // Load config to check for customizable slash workflows
+  const config = loadConfig()
+  const firstUserMsg = runHistory.find((m) => m.role === 'user')
+  const firstMsgText = firstUserMsg ? getMessageText(firstUserMsg).trim() : message.trim()
+  const matchedWorkflow = config.workflows?.find((w) =>
+    firstMsgText.toLowerCase().startsWith(w.command.toLowerCase())
+  )
+
+  const basePrompt = getSystemToolsPrompt(
+    currentModelKey,
+    'main',
+    extendedSearch,
+    matchedWorkflow?.toolConstraints
+  )
+  let fullPrompt = basePrompt
+  if (matchedWorkflow) {
+    fullPrompt += `\n\n# Active Workflow: ${matchedWorkflow.name}\n${matchedWorkflow.systemInstruction}`
+  }
+
   if (runHistory.length > 0 && runHistory[0].role === 'system') {
-    runHistory[0].parts = [{ text: basePrompt }]
+    runHistory[0].parts = [{ text: fullPrompt }]
   }
 
   // Add the user's real question to the manual history
@@ -2038,8 +2085,19 @@ export async function handleChatMessage(
           if (toolMatches.length > 0) {
             const toolPromises = toolMatches.map(async (toolContent) => {
               const validation = validateToolCall(toolContent)
-              const isMalformed = validation.isMalformed
-              const actualName = isMalformed ? 'malformed_tool_call' : validation.name!
+              let isMalformed = validation.isMalformed
+              let actualName = isMalformed ? 'malformed_tool_call' : validation.name!
+
+              if (!isMalformed && matchedWorkflow?.toolConstraints && matchedWorkflow.toolConstraints.length > 0) {
+                if (!matchedWorkflow.toolConstraints.includes(actualName)) {
+                  isMalformed = true
+                  validation.isMalformed = true
+                  validation.errorType = 'invalid_tool'
+                  validation.errorMessage = `Error: The tool "${actualName}" is not allowed under the active workflow constraints. Allowed tools for this workflow are: ${matchedWorkflow.toolConstraints.join(', ')}.`
+                  actualName = 'malformed_tool_call'
+                }
+              }
+
               let toolArgs = validation.args
 
               if (isMalformed) {

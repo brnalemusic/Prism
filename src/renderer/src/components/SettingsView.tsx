@@ -14,11 +14,16 @@ import {
   MagnifyingGlassPlus as ZoomIcon,
   TerminalWindow,
   Check,
-  Warning
+  Warning,
+  Lightning,
+  Plus,
+  Trash,
+  Pencil
 } from '@phosphor-icons/react'
 import { MODELS } from '../constants'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import clsx from 'clsx'
+import type { SlashWorkflow } from '../../../main/config'
 
 interface Config {
   launcherShortcut: string
@@ -38,9 +43,10 @@ interface Config {
   isRgbUnlocked?: boolean
   zoomFactor: number
   terminalShell?: string
+  workflows?: SlashWorkflow[]
 }
 
-type SectionId = 'shortcuts' | 'intelligence' | 'appearance' | 'voice' | 'system' | 'about'
+type SectionId = 'shortcuts' | 'intelligence' | 'appearance' | 'voice' | 'workflows' | 'system' | 'about'
 
 interface NavSection {
   id: SectionId
@@ -64,7 +70,8 @@ export function SettingsView(): React.JSX.Element {
     theme: 'marine',
     isRgbUnlocked: false,
     zoomFactor: 1.0,
-    terminalShell: 'powershell.exe'
+    terminalShell: 'powershell.exe',
+    workflows: []
   })
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState({ text: '', type: '' })
@@ -74,6 +81,15 @@ export function SettingsView(): React.JSX.Element {
   >([])
   const [activeSection, setActiveSection] = useState<SectionId>('shortcuts')
   const contentRef = useRef<HTMLDivElement>(null)
+
+  const [editingWorkflow, setEditingWorkflow] = useState<SlashWorkflow | null>(null)
+  const [isAddingWorkflow, setIsAddingWorkflow] = useState(false)
+  const [formCommand, setFormCommand] = useState('')
+  const [formName, setFormName] = useState('')
+  const [formDescription, setFormDescription] = useState('')
+  const [formPrompt, setFormPrompt] = useState('')
+  const [formTools, setFormTools] = useState<string[]>([])
+  const [formError, setFormError] = useState('')
 
   useEffect(() => {
     async function fetchTerminals(): Promise<void> {
@@ -104,7 +120,8 @@ export function SettingsView(): React.JSX.Element {
           theme: savedConfig.theme || 'marine',
           isRgbUnlocked: savedConfig.isRgbUnlocked ?? false,
           zoomFactor: savedConfig.zoomFactor ?? 1.0,
-          terminalShell: savedConfig.terminalShell || 'powershell.exe'
+          terminalShell: savedConfig.terminalShell || 'powershell.exe',
+          workflows: savedConfig.workflows || []
         })
       }
     }
@@ -124,7 +141,8 @@ export function SettingsView(): React.JSX.Element {
           theme: cfg.theme || 'marine',
           isRgbUnlocked: cfg.isRgbUnlocked ?? prev.isRgbUnlocked ?? false,
           zoomFactor: cfg.zoomFactor ?? prev.zoomFactor ?? 1.0,
-          terminalShell: cfg.terminalShell ?? prev.terminalShell ?? 'powershell.exe'
+          terminalShell: cfg.terminalShell ?? prev.terminalShell ?? 'powershell.exe',
+          workflows: cfg.workflows || prev.workflows || []
         }))
       }
     })
@@ -182,7 +200,8 @@ export function SettingsView(): React.JSX.Element {
       theme: 'marine',
       isRgbUnlocked: config.isRgbUnlocked,
       zoomFactor: 1.0,
-      terminalShell: 'powershell.exe'
+      terminalShell: 'powershell.exe',
+      workflows: config.workflows
     })
   }
 
@@ -198,6 +217,7 @@ export function SettingsView(): React.JSX.Element {
     { id: 'intelligence', label: 'Intelligence', icon: <Bot size={18} /> },
     { id: 'appearance', label: 'Appearance', icon: <Palette size={18} /> },
     { id: 'voice', label: 'Voice', icon: <Volume2 size={18} /> },
+    { id: 'workflows', label: 'Workflows', icon: <Lightning size={18} /> },
     { id: 'system', label: 'System', icon: <Monitor size={18} /> },
     { id: 'about', label: 'About', icon: <Info size={18} /> }
   ]
@@ -731,6 +751,337 @@ export function SettingsView(): React.JSX.Element {
     </div>
   )
 
+  const AVAILABLE_TOOLS = [
+    { name: 'execute_terminal_command', label: 'Terminal Commands', desc: 'Execute commands in the terminal' },
+    { name: 'web_search', label: 'Web Search', desc: 'Search DuckDuckGo for live info' },
+    { name: 'saw_link_from_url', label: 'Read URL Page', desc: 'Fetch website text contents' },
+    { name: 'open_browser_link', label: 'Open Browser Link', desc: 'Open links in the system browser' },
+    { name: 'open_application', label: 'Open App', desc: 'Start a program using its path' },
+    { name: 'list_installed_applications', label: 'List Apps', desc: 'View all installed desktop applications' },
+    { name: 'search_chat_history', label: 'Search History', desc: 'Search keywords in prior conversations' },
+    { name: 'run_subagents', label: 'Run Subagents Swarm', desc: 'Delegate sub-tasks to nested agents' },
+    { name: 'computer_use_see_screen', label: 'See Screen', desc: 'Take screenshot of screen or specific app' },
+    { name: 'computer_use_read_file', label: 'Read File', desc: 'Read file contents' },
+    { name: 'computer_use_create_file', label: 'Create File', desc: 'Create a new file with text' },
+    { name: 'computer_use_save_file', label: 'Save File', desc: 'Overwrite file contents' },
+    { name: 'computer_use_edit_file', label: 'Edit File', desc: 'Edit specific lines of code in a file' },
+    { name: 'computer_use_list_directory', label: 'List Directory', desc: 'List contents of folder' },
+    { name: 'computer_use_remove_file', label: 'Remove File', desc: 'Delete a file' }
+  ]
+
+  const handleEditWorkflow = (w: SlashWorkflow) => {
+    setEditingWorkflow(w)
+    setFormCommand(w.command)
+    setFormName(w.name)
+    setFormDescription(w.description || '')
+    setFormPrompt(w.systemInstruction)
+    setFormTools(w.toolConstraints || [])
+    setFormError('')
+    setIsAddingWorkflow(false)
+  }
+
+  const handleAddWorkflowClick = () => {
+    setIsAddingWorkflow(true)
+    setEditingWorkflow(null)
+    setFormCommand('/')
+    setFormName('')
+    setFormDescription('')
+    setFormPrompt('')
+    setFormTools([])
+    setFormError('')
+  }
+
+  const handleSaveWorkflowForm = () => {
+    if (!formCommand.startsWith('/')) {
+      setFormError('Command must start with a slash (/)')
+      return
+    }
+    if (formCommand.includes(' ')) {
+      setFormError('Command cannot contain spaces')
+      return
+    }
+    if (formCommand.length <= 1) {
+      setFormError('Command is too short')
+      return
+    }
+    if (!formName.trim()) {
+      setFormError('Name is required')
+      return
+    }
+    if (!formPrompt.trim()) {
+      setFormError('System Instruction is required')
+      return
+    }
+
+    const wList = config.workflows || []
+    
+    // Check duplicate
+    const isDuplicate = wList.some(
+      (w) => w.command.toLowerCase() === formCommand.toLowerCase() && 
+             w.id !== (editingWorkflow?.id || '')
+    )
+    if (isDuplicate) {
+      setFormError(`Workflow with command "${formCommand}" already exists`)
+      return
+    }
+
+    const targetWorkflow: SlashWorkflow = {
+      id: editingWorkflow?.id || Math.random().toString(36).substring(2, 9),
+      command: formCommand.trim(),
+      name: formName.trim(),
+      description: formDescription.trim(),
+      systemInstruction: formPrompt,
+      toolConstraints: formTools
+    }
+
+    let updatedWorkflows: SlashWorkflow[] = []
+    if (isAddingWorkflow) {
+      updatedWorkflows = [...wList, targetWorkflow]
+    } else {
+      updatedWorkflows = wList.map((w) => (w.id === editingWorkflow?.id ? targetWorkflow : w))
+    }
+
+    const updatedConfig = { ...config, workflows: updatedWorkflows }
+    setConfig(updatedConfig)
+    
+    // Auto persist to disk
+    window.api.saveConfig(updatedConfig)
+
+    setEditingWorkflow(null)
+    setIsAddingWorkflow(false)
+  }
+
+  const handleDeleteWorkflow = (id: string) => {
+    const updatedWorkflows = (config.workflows || []).filter((w) => w.id !== id)
+    const updatedConfig = { ...config, workflows: updatedWorkflows }
+    setConfig(updatedConfig)
+    window.api.saveConfig(updatedConfig)
+  }
+
+  const renderWorkflows = (): React.JSX.Element => {
+    if (isAddingWorkflow || editingWorkflow) {
+      return (
+        <div className="space-y-6 animate-soft-pop">
+          <div className="flex items-center justify-between">
+            <SectionHeader
+              title={isAddingWorkflow ? 'Add Custom Workflow' : 'Edit Custom Workflow'}
+              subtitle="Configure your dynamic Gems-style prompt profile and tool constraints."
+            />
+            <button
+              onClick={() => {
+                setEditingWorkflow(null)
+                setIsAddingWorkflow(false)
+              }}
+              className="rounded-xl px-4 py-2 text-xs font-semibold border border-white/10 bg-white/[0.03] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary transition-all active:scale-[0.98] cursor-pointer"
+            >
+              Back to List
+            </button>
+          </div>
+
+          {formError && (
+            <div className="flex items-center gap-2 rounded-xl border border-status-error/15 bg-status-error/[0.08] p-3 text-xs text-status-error font-semibold">
+              <Warning size={14} />
+              <span>{formError}</span>
+            </div>
+          )}
+
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-text-secondary/70">
+                  Trigger Command
+                </label>
+                <input
+                  type="text"
+                  value={formCommand}
+                  onChange={(e) => setFormCommand(e.target.value)}
+                  placeholder="e.g. /summarize"
+                  disabled={!isAddingWorkflow}
+                  className="rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                <span className="text-[10px] text-text-secondary/40 leading-normal">
+                  Must start with a slash (/) and cannot contain spaces. Cannot be modified after creation.
+                </span>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-text-secondary/70">
+                  Workflow Name
+                </label>
+                <input
+                  type="text"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  placeholder="e.g. Summarizer"
+                  className="rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-text-secondary/70">
+                Brief Description
+              </label>
+              <input
+                type="text"
+                value={formDescription}
+                onChange={(e) => setFormDescription(e.target.value)}
+                placeholder="e.g. Summarize text and check for spelling errors"
+                className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-text-secondary/70">
+                System Instructions
+              </label>
+              <textarea
+                value={formPrompt}
+                onChange={(e) => setFormPrompt(e.target.value)}
+                rows={6}
+                placeholder="Write system instructions that explain to the model what role it should take, what it should do with the input, and how it should format the output."
+                className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none resize-none font-medium leading-relaxed"
+              />
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-xs font-semibold text-text-secondary/70 block">
+                Allowed Tools (Mechanical Constraints)
+              </label>
+              <span className="text-[10px] text-text-secondary/40 leading-normal block -mt-2 mb-2">
+                Check the tools the AI is allowed to use during this workflow. Unchecked tools will be completely hidden from the AI prompt, and blocked during runtime. Leave all unchecked to allow default conversational behavior without tools.
+              </span>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[220px] overflow-y-auto pr-2 custom-scrollbar border border-white/[0.06] rounded-[20px] bg-white/[0.015] p-3">
+                {AVAILABLE_TOOLS.map((tool) => {
+                  const isChecked = formTools.includes(tool.name)
+                  return (
+                    <button
+                      key={tool.name}
+                      type="button"
+                      onClick={() => {
+                        if (isChecked) {
+                          setFormTools(formTools.filter((t) => t !== tool.name))
+                        } else {
+                          setFormTools([...formTools, tool.name])
+                        }
+                      }}
+                      className={clsx(
+                        'flex items-start gap-3 rounded-[16px] border p-3 text-left transition-all duration-150 active:scale-[0.98] cursor-pointer',
+                        isChecked
+                          ? 'border-accent-primary/30 bg-accent-primary/[0.07] text-text-primary'
+                          : 'border-white/[0.06] bg-white/[0.025] hover:bg-white/[0.045] text-text-secondary'
+                      )}
+                    >
+                      <div className="flex items-center h-5 shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          readOnly
+                          className="w-3.5 h-3.5 rounded border-white/20 bg-transparent text-accent-primary focus:ring-0 focus:ring-offset-0 cursor-pointer pointer-events-none accent-accent-primary"
+                        />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-xs font-semibold text-text-primary leading-tight">{tool.label}</span>
+                        <span className="text-[9px] text-text-secondary/60 leading-tight mt-0.5">{tool.desc}</span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button
+                onClick={handleSaveWorkflowForm}
+                className="flex items-center gap-2 rounded-2xl bg-text-primary px-6 py-2.5 text-sm font-semibold text-black hover:bg-white transition-all active:scale-[0.98] cursor-pointer"
+              >
+                <Save size={16} />
+                Save Workflow
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    const wList = config.workflows || []
+
+    return (
+      <div className="space-y-6 animate-soft-pop">
+        <div className="flex items-center justify-between">
+          <SectionHeader
+            title="Slash Workflows"
+            subtitle="Create and customize prompt profiles triggered by typing slash commands in the message box."
+          />
+          <button
+            onClick={handleAddWorkflowClick}
+            className="flex items-center gap-1.5 rounded-2xl bg-accent-primary px-4 py-2.5 text-xs font-semibold text-black hover:bg-accent-primary/95 transition-all active:scale-[0.98] cursor-pointer"
+          >
+            <Plus size={14} weight="bold" />
+            Add Workflow
+          </button>
+        </div>
+
+        {wList.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-[24px] border border-dashed border-white/[0.08] bg-white/[0.015] p-10 text-center select-none">
+            <Lightning size={36} className="text-text-secondary/40 mb-3 animate-pulse" />
+            <span className="text-sm font-semibold text-text-secondary/70">No Workflows Configured</span>
+            <span className="text-xs text-text-secondary/40 mt-1 max-w-sm">
+              Click the "Add Workflow" button above to create your first customizable Gems-style prompt profile!
+            </span>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {wList.map((w) => (
+              <div
+                key={w.id}
+                className="flex flex-col sm:flex-row sm:items-center justify-between rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-4 gap-4 transition-all duration-200 hover:border-white/[0.12]"
+              >
+                <div className="flex items-start gap-4">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+                    <Lightning size={20} weight="fill" />
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-sm text-text-primary">{w.name}</span>
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-accent-primary/15 text-accent-primary border border-accent-primary/20">
+                        {w.command}
+                      </span>
+                      {w.toolConstraints && w.toolConstraints.length > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-accent-secondary/15 text-accent-secondary border border-accent-secondary/20 font-mono">
+                          {w.toolConstraints.length} tools
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-text-secondary/70 mt-1">{w.description}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0 sm:self-center self-end">
+                  <button
+                    onClick={() => handleEditWorkflow(w)}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/5 bg-white/[0.02] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary transition-all active:scale-[0.96] cursor-pointer"
+                    title="Edit Workflow"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteWorkflow(w.id)}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-status-error/10 bg-status-error/[0.02] text-status-error hover:bg-status-error/[0.08] transition-all active:scale-[0.96] cursor-pointer"
+                    title="Delete Workflow"
+                  >
+                    <Trash size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   const renderActiveSection = (): React.JSX.Element => {
     switch (activeSection) {
       case 'shortcuts':
@@ -741,6 +1092,8 @@ export function SettingsView(): React.JSX.Element {
         return renderAppearance()
       case 'voice':
         return renderVoice()
+      case 'workflows':
+        return renderWorkflows()
       case 'system':
         return renderSystem()
       case 'about':

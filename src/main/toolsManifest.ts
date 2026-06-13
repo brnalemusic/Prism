@@ -184,18 +184,18 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'web_search',
-    description: 'Web search for real-time info.',
+    description: 'Search Google for live information. Returns a list of organic titles, links, and snippets.',
     usage: '<tool_call>{"type":"web_search","query":"QRY"}</tool_call>',
     parameters: {
-      query: 'Keywords.'
+      query: 'Keywords to search.'
     }
   },
   {
     name: 'saw_link_from_url',
-    description: 'Read text content from URL.',
+    description: 'Read full text content from a URL via a headless browser. It is best practice to always visit the actual page URLs returned by web_search to read full contents (especially for Wikis, documentation, personal/business info) rather than relying only on search snippets, and to read multiple URLs before formulating the final response.',
     usage: '<tool_call>{"type":"saw_link_from_url","url":"URL"}</tool_call>',
     parameters: {
-      url: 'Target URL.'
+      url: 'Target URL to read.'
     }
   },
   {
@@ -204,6 +204,99 @@ export const toolsManifest: ToolDefinition[] = [
     usage: '<tool_call>{"type":"open_browser_link","url":"URL"}</tool_call>',
     parameters: {
       url: 'Target URL.'
+    }
+  },
+  {
+    name: 'open_browser',
+    description: 'Open a persistent browser session for automation tasks. Accepts an optional url to load immediately.',
+    usage: '<tool_call>{"type":"open_browser","url":"URL"}</tool_call>',
+    parameters: {
+      url: 'Optional: Initial URL to open.'
+    }
+  },
+  {
+    name: 'browser_navigate',
+    description: 'Navigate the persistent browser session to a specified URL.',
+    usage: '<tool_call>{"type":"browser_navigate","url":"URL"}</tool_call>',
+    parameters: {
+      url: 'Target URL to load.'
+    }
+  },
+  {
+    name: 'browser_snapshot',
+    description: 'Retrieve a structured semantic DOM snapshot of the current page. Interactive elements are tagged with data-prism-id attributes (e.g. data-prism-id="1"). Set full to "true" for all structural containers.',
+    usage: '<tool_call>{"type":"browser_snapshot","full":"false"}</tool_call>',
+    parameters: {
+      full: 'Optional: "true"|"false" (default "false").'
+    }
+  },
+  {
+    name: 'browser_click',
+    description: 'Click an element on the page using its reference ID (data-prism-id). If the click initiates a file download, it will automatically download and save directly to the user\'s Downloads folder.',
+    usage: '<tool_call>{"type":"browser_click","elementId":"1"}</tool_call>',
+    parameters: {
+      elementId: 'The reference ID from the snapshot.'
+    }
+  },
+  {
+    name: 'browser_type',
+    description: 'Input text into a form or input element on the page using its reference ID (data-prism-id).',
+    usage: '<tool_call>{"type":"browser_type","elementId":"2","text":"hello"}</tool_call>',
+    parameters: {
+      elementId: 'The reference ID from the snapshot.',
+      text: 'Text to input.'
+    }
+  },
+  {
+    name: 'browser_press',
+    description: 'Press a keyboard key (e.g., Enter, Tab, Escape, Backspace) on the active page.',
+    usage: '<tool_call>{"type":"browser_press","key":"Enter"}</tool_call>',
+    parameters: {
+      key: 'The key name to press.'
+    }
+  },
+  {
+    name: 'browser_scroll',
+    description: 'Scroll the active page view.',
+    usage: '<tool_call>{"type":"browser_scroll","direction":"down","amount":"300"}</tool_call>',
+    parameters: {
+      direction: '"up"|"down".',
+      amount: 'Optional: pixels to scroll.'
+    }
+  },
+  {
+    name: 'browser_back',
+    description: 'Go back one page in history for the persistent browser session.',
+    usage: '<tool_call>{"type":"browser_back"}</tool_call>',
+    parameters: {}
+  },
+  {
+    name: 'browser_screenshot',
+    description: 'Take a screenshot of the active browser view and attach it to the current message context.',
+    usage: '<tool_call>{"type":"browser_screenshot"}</tool_call>',
+    parameters: {}
+  },
+  {
+    name: 'browser_close',
+    description: 'Close the persistent browser session. Use this once you are done with the browser tasks.',
+    usage: '<tool_call>{"type":"browser_close"}</tool_call>',
+    parameters: {}
+  },
+  {
+    name: 'web_script',
+    description: 'Execute a custom JavaScript script/expression on a web page and return the result. Can optionally load a URL first.',
+    usage: '<tool_call>{"type":"web_script","url":"URL","script":"return document.title"}</tool_call>',
+    parameters: {
+      url: 'Optional: URL to load.',
+      script: 'JavaScript code to execute.'
+    }
+  },
+  {
+    name: 'detailed_dom_page',
+    description: 'Extract a highly detailed HTML DOM layout tree of a web page showing classes, IDs, placeholders, roles, and text. Can optionally load a URL first.',
+    usage: '<tool_call>{"type":"detailed_dom_page","url":"URL"}</tool_call>',
+    parameters: {
+      url: 'Optional: URL to read DOM from.'
     }
   },
   {

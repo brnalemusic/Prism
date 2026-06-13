@@ -4,6 +4,7 @@ import type { StructuredChatResponse } from '../main/gemini'
 import type { AppConfig } from '../main/config'
 import type {
   ToolUpdate,
+  DownloadProgress,
   SubagentMessage,
   MiniAppData,
   ApplicationInfo,
@@ -116,6 +117,7 @@ window.addEventListener('keydown', (event) => {
 
 // Custom APIs for renderer
 const api = {
+  platform: process.platform,
   getMimeType: (fileName: string): string | false => {
     return mime.lookup(fileName)
   },
@@ -193,6 +195,11 @@ const api = {
       callback(data)
     ipcRenderer.on('chat-tool-update', listener)
     return () => ipcRenderer.removeListener('chat-tool-update', listener)
+  },
+  onDownloadProgress: (callback: (data: DownloadProgress) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: DownloadProgress): void => callback(data)
+    ipcRenderer.on('download-progress', listener)
+    return () => ipcRenderer.removeListener('download-progress', listener)
   },
   onLauncherMessage: (
     callback: (data: {

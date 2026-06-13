@@ -8,13 +8,24 @@ import {
   Tray,
   Menu,
   nativeImage,
-  desktopCapturer
+  desktopCapturer,
+  dialog
 } from 'electron'
 import { join, dirname } from 'path'
 import os from 'os'
 import fs from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+
+const getTrayIconPath = (): string => {
+  const isWin = process.platform === 'win32'
+  if (app.isPackaged) {
+    const iconName = isWin ? 'icon.ico' : 'icon.png'
+    return join(process.resourcesPath, 'app.asar.unpacked', 'resources', iconName)
+  } else {
+    return icon
+  }
+}
 import {
   initGemini,
   handleChatMessage,
@@ -143,7 +154,8 @@ function createMiniAppWindow(
     height: 600,
     show: false,
     autoHideMenuBar: true,
-    titleBarStyle: 'hidden',
+    frame: process.platform !== 'win32',
+    titleBarStyle: process.platform === 'win32' ? undefined : 'hidden',
     backgroundColor: '#0b0c0f',
     ...(process.platform === 'linux' || process.platform === 'win32' ? { icon } : {}),
     webPreferences: {
@@ -205,7 +217,8 @@ function createMiniAppWindow(
 }
 
 function createTray(): void {
-  const trayIcon = nativeImage.createFromPath(icon)
+  const iconPath = getTrayIconPath()
+  const trayIcon = nativeImage.createFromPath(iconPath)
   tray = new Tray(trayIcon.resize({ width: 16, height: 16 }))
 
   const contextMenu = Menu.buildFromTemplate([
@@ -261,7 +274,8 @@ function createSubagentsWindow(initialMessages?: SubagentMessage[]): void {
     height: 650,
     show: false,
     autoHideMenuBar: true,
-    titleBarStyle: 'hidden',
+    frame: process.platform !== 'win32',
+    titleBarStyle: process.platform === 'win32' ? undefined : 'hidden',
     backgroundColor: '#0A0A0F',
     ...(process.platform === 'linux' || process.platform === 'win32' ? { icon } : {}),
     webPreferences: {
@@ -300,7 +314,8 @@ function createSubagentSettingsWindow(): void {
     height: 560,
     show: false,
     autoHideMenuBar: true,
-    titleBarStyle: 'hidden',
+    frame: process.platform !== 'win32',
+    titleBarStyle: process.platform === 'win32' ? undefined : 'hidden',
     backgroundColor: '#0A0A0F',
     resizable: false,
     maximizable: false,
@@ -409,8 +424,8 @@ function createWindow(): void {
     minWidth: 800,
     minHeight: 600,
     show: false,
-    autoHideMenuBar: true,
-    titleBarStyle: 'hidden',
+    frame: process.platform !== 'win32',
+    titleBarStyle: process.platform === 'win32' ? undefined : 'hidden',
     backgroundColor: '#0b0c0f',
     resizable: true,
     maximizable: true,
@@ -543,6 +558,49 @@ function toggleLauncher(): void {
     launcherWindow.focus()
     launcherWindow.webContents.send('launcher-focus')
   }
+}
+
+if (process.argv.includes('--install-playwright-browsers')) {
+  app.whenReady().then(async () => {
+    const { execSync } = require('child_process')
+    const commonPaths = [
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+      'C:\\Program Files\\Mozilla Firefox\\firefox.exe'
+    ]
+
+    const hasSystemBrowser = commonPaths.some((p) => fs.existsSync(p))
+    if (hasSystemBrowser) {
+      console.log('install-playwright-browsers: Compatible system browser found. Skipping install.')
+      app.exit(0)
+      return
+    }
+
+    const response = dialog.showMessageBoxSync({
+      type: 'question',
+      buttons: ['Yes', 'No'],
+      title: 'Prism Setup - Browser Dependency Required',
+      message:
+        'No compatible web browser (Chrome, Edge, or Firefox) was found on your system.\n\nPrism needs to install Chromium to enable web search and page reading. A command prompt window will open to download the browser.\n\nDo you want to proceed?',
+      defaultId: 0,
+      cancelId: 1
+    })
+
+    if (response === 0) {
+      const cmd =
+        'cmd.exe /c start /wait cmd.exe /c "echo Prism is downloading the Chromium browser dependency... && npx playwright install chromium && exit"'
+      try {
+        execSync(cmd)
+        app.exit(0)
+      } catch (err) {
+        console.error('Failed to run browser installer:', err)
+        app.exit(1)
+      }
+    } else {
+      app.exit(0)
+    }
+  })
 }
 
 const gotTheLock = app.requestSingleInstanceLock()

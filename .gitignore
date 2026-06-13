@@ -8,6 +8,8 @@ out
 calc*.js
 prism_system_prompt_raw.txt
 generate_prompt.js
+*system_prompt*.txt
+prism_system_prompt.txt
 
 .env
 .geminiignore

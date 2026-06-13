@@ -1,14 +1,37 @@
 import { Minus, X } from '@phosphor-icons/react'
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
+import { StreamContext, AnimatedStreamingText, useStreamStats } from './AnimatedStreamingText'
 
 interface TitleBarProps {
   onClose?: () => void
   onMinimize?: () => void
   onMaximize?: () => void
+  title?: string
+  isStreaming?: boolean
 }
 
-export function TitleBar({ onClose, onMinimize, onMaximize }: TitleBarProps): React.JSX.Element {
+interface StreamTitleWrapperProps {
+  title: string
+}
+
+const StreamTitleWrapper = React.memo(function StreamTitleWrapper({ title }: StreamTitleWrapperProps) {
+  const streamStats = useStreamStats(title, true)
+  return (
+    <StreamContext.Provider value={streamStats}>
+      <AnimatedStreamingText text={title} isStreaming={true} mode="chars" />
+    </StreamContext.Provider>
+  )
+})
+
+export function TitleBar({
+  onClose,
+  onMinimize,
+  onMaximize,
+  title,
+  isStreaming
+}: TitleBarProps): React.JSX.Element {
   const [isMaximized, setIsMaximized] = useState(false)
+  const isMac = navigator.userAgent.toLowerCase().includes('mac')
 
   useEffect(() => {
     // Check initial state on mount
@@ -50,66 +73,74 @@ export function TitleBar({ onClose, onMinimize, onMaximize }: TitleBarProps): Re
   }
 
   return (
-    <div className="fixed left-0 top-0 z-[100] flex h-10 w-full select-none items-center justify-between border-b border-white/[0.04] bg-[#09090b]/90 px-4 backdrop-blur-2xl drag-region">
-      <div className="flex items-center gap-2.5 no-drag-region">
+    <div className="fixed left-0 top-0 z-[100] flex h-10 w-full select-none items-center justify-between border-b border-white/[0.04] bg-transparent px-4 drag-region">
+      <div className={`flex items-center gap-2.5 no-drag-region ${isMac ? 'pl-[72px]' : ''}`}>
         <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-accent-primary/20 to-accent-secondary/10">
           <span className="text-[11px] font-bold prism-top-gradient">P</span>
         </div>
         <span className="text-[12px] font-medium text-text-muted">Prism</span>
       </div>
 
-      <div className="flex items-center no-drag-region">
-        <button
-          onClick={handleMinimize}
-          className="flex h-8 w-10 items-center justify-center rounded-lg text-text-muted transition-all duration-200 hover:bg-white/[0.05] hover:text-text-secondary active:scale-95"
-          title="Minimize"
-        >
-          <Minus size={14} />
-        </button>
-        <button
-          onClick={handleMaximize}
-          className="flex h-8 w-10 items-center justify-center rounded-lg text-text-muted transition-all duration-200 hover:bg-white/[0.05] hover:text-text-secondary active:scale-95"
-          title={isMaximized ? 'Restore' : 'Maximize'}
-        >
-          {isMaximized ? (
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 10 10"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path d="M3 1.5H8.5V7" stroke="currentColor" strokeWidth="1" />
-              <rect
-                x="1.5"
-                y="3"
-                width="5.5"
-                height="5.5"
-                stroke="currentColor"
-                strokeWidth="1"
+      {title && (
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none text-[12.5px] font-medium text-text-primary/95 flex items-center justify-center select-none whitespace-nowrap">
+          {isStreaming ? <StreamTitleWrapper title={title} /> : title}
+        </div>
+      )}
+
+      {!isMac && (
+        <div className="flex items-center no-drag-region">
+          <button
+            onClick={handleMinimize}
+            className="flex h-8 w-10 items-center justify-center rounded-lg text-text-muted transition-all duration-200 hover:bg-white/[0.05] hover:text-text-secondary active:scale-95"
+            title="Minimize"
+          >
+            <Minus size={14} />
+          </button>
+          <button
+            onClick={handleMaximize}
+            className="flex h-8 w-10 items-center justify-center rounded-lg text-text-muted transition-all duration-200 hover:bg-white/[0.05] hover:text-text-secondary active:scale-95"
+            title={isMaximized ? 'Restore' : 'Maximize'}
+          >
+            {isMaximized ? (
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
                 fill="none"
-              />
-            </svg>
-          ) : (
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 10 10"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect x="1.5" y="1.5" width="7" height="7" stroke="currentColor" strokeWidth="1" />
-            </svg>
-          )}
-        </button>
-        <button
-          onClick={handleClose}
-          className="flex h-8 w-10 items-center justify-center rounded-lg text-text-muted transition-all duration-200 hover:bg-[#e81123]/90 hover:text-white active:scale-95"
-          title="Close"
-        >
-          <X size={14} />
-        </button>
-      </div>
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path d="M3 1.5H8.5V7" stroke="currentColor" strokeWidth="1" />
+                <rect
+                  x="1.5"
+                  y="3"
+                  width="5.5"
+                  height="5.5"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                  fill="none"
+                />
+              </svg>
+            ) : (
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <rect x="1.5" y="1.5" width="7" height="7" stroke="currentColor" strokeWidth="1" />
+              </svg>
+            )}
+          </button>
+          <button
+            onClick={handleClose}
+            className="flex h-8 w-10 items-center justify-center rounded-lg text-text-muted transition-all duration-200 hover:bg-[#e81123]/90 hover:text-white active:scale-95"
+            title="Close"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -17,12 +17,14 @@ import {
   CaretRight,
   FilePdf,
   FilePpt,
-  Trash
+  Trash,
+  Lightning
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 import { ModelSelector } from './ModelSelector'
 import { AttachedFile } from '../App'
+import type { SlashWorkflow } from '../../../main/config'
 import { triggerErrorPopup } from '../utils'
 
 interface InputBarProps {
@@ -56,6 +58,8 @@ interface InputBarProps {
   onOpenScreenshotModal?: () => void
   onOpenSubagentModal?: () => void
   onOpenYoutubeModal?: () => void
+  activeWorkflow?: SlashWorkflow | null
+  setActiveWorkflow?: (val: SlashWorkflow | null) => void
 }
 
 export interface InputBarHandle {
@@ -87,7 +91,9 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       onAttachFile,
       onOpenScreenshotModal,
       onOpenSubagentModal,
-      onOpenYoutubeModal
+      onOpenYoutubeModal,
+      activeWorkflow,
+      setActiveWorkflow
     },
     ref
   ) => {
@@ -129,10 +135,102 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             ? 'think'
             : 'default'
 
-    // TODO: Hardcoded slash commands like /search, /youtube, and /subagents have been removed from the slash menu.
-    // In the future, slash commands will be dynamically generated based on settings-defined workflows.
-    // The user will be able to customize commands via system instructions and tool constraints in their configuration files.
-    // This removes hardcoded UI behaviors and moves command execution to a workflows-driven system.
+    const [workflows, setWorkflows] = useState<any[]>([])
+    const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
+
+    useEffect(() => {
+      window.api.getConfig().then((cfg) => {
+        if (cfg?.workflows) {
+          setWorkflows(cfg.workflows)
+        }
+      })
+
+      const removeListener = window.api.onConfigChanged((cfg) => {
+        if (cfg?.workflows) {
+          setWorkflows(cfg.workflows)
+        }
+      })
+      return () => removeListener()
+    }, [])
+
+    useEffect(() => {
+      if (!text || !setActiveWorkflow) return
+
+      const spaceMatch = text.match(/^(\/[^\s]+)\s/)
+      if (spaceMatch) {
+        const cmd = spaceMatch[1]
+        const wf = workflows.find((w) => w.command.toLowerCase() === cmd.toLowerCase())
+        if (wf) {
+          setActiveWorkflow(wf)
+          // Set text to the remaining text after the command and space
+          setText(text.substring(spaceMatch[0].length))
+
+          // Move cursor to the end of textarea
+          setTimeout(() => {
+            if (inputRef.current) {
+              inputRef.current.focus()
+              inputRef.current.selectionStart = inputRef.current.selectionEnd = inputRef.current.value.length
+            }
+          }, 50)
+        }
+      }
+    }, [text, workflows, setActiveWorkflow, setText])
+
+    const filteredWorkflows = text.startsWith('/')
+      ? workflows.filter((w) => w.command.toLowerCase().startsWith(text.toLowerCase().split(' ')[0]))
+      : []
+
+    const showSlashMenu = text.startsWith('/') && filteredWorkflows.length > 0 && !text.includes(' ')
+
+    useEffect(() => {
+      if (showSlashMenu) {
+        setSlashSelectedIndex(0)
+      }
+    }, [showSlashMenu, text])
+
+    const handleSelectWorkflow = (workflow: any) => {
+      setText(workflow.command + ' ')
+      setSlashSelectedIndex(0)
+      setTimeout(() => inputRef.current?.focus(), 50)
+    }
+
+    const renderSlashMenu = (): React.JSX.Element | null => {
+      if (!showSlashMenu) return null
+      return (
+        <div className="premium-panel-soft mb-3 w-full overflow-hidden rounded-[22px] border border-white/[0.08] bg-background-main/95 backdrop-blur-md shadow-2xl animate-soft-pop z-30">
+          <div className="border-b border-white/[0.055] px-4 py-3 text-xs font-semibold text-text-secondary/70">
+            Workflows
+          </div>
+          <div className="max-h-60 overflow-y-auto">
+            {filteredWorkflows.map((w, i) => (
+              <button
+                key={w.id}
+                onClick={() => handleSelectWorkflow(w)}
+                onMouseEnter={() => setSlashSelectedIndex(i)}
+                className={clsx(
+                  'flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors duration-200 border-0 outline-none w-full cursor-pointer',
+                  slashSelectedIndex === i
+                    ? 'bg-white/[0.065] text-text-primary'
+                    : 'text-text-secondary hover:bg-white/[0.04]'
+                )}
+              >
+                <span
+                  className={clsx(
+                    'flex h-8 w-8 items-center justify-center rounded-2xl bg-accent-primary/[0.12] text-accent-primary shrink-0'
+                  )}
+                >
+                  <Lightning size={16} weight="fill" />
+                </span>
+                <div className="flex flex-col">
+                  <span className="font-semibold text-text-primary">{w.command}</span>
+                  <span className="text-xs text-text-secondary/70">{w.name} — {w.description}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )
+    }
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
       const file = e.target.files?.[0]
@@ -325,7 +423,11 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
 
         let finalMessage = trimmedText
         if (trimmedText !== '/clear' && trimmedText !== '') {
-          finalMessage = isSearchEnabled ? `[FORCE_SEARCH] ${trimmedText}` : trimmedText
+          if (activeWorkflow) {
+            finalMessage = `${activeWorkflow.command} ${trimmedText}`
+          } else {
+            finalMessage = isSearchEnabled ? `[FORCE_SEARCH] ${trimmedText}` : trimmedText
+          }
         }
 
         onSend(
@@ -337,6 +439,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           attachedFile || undefined
         )
         setText('')
+        setActiveWorkflow?.(null)
 
         if (isFullscreen) {
           onFullscreenToggle()
@@ -349,6 +452,24 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     }
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+      if (showSlashMenu) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          setSlashSelectedIndex((prev) => (prev + 1) % filteredWorkflows.length)
+          return
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          setSlashSelectedIndex(
+            (prev) => (prev - 1 + filteredWorkflows.length) % filteredWorkflows.length
+          )
+          return
+        } else if (e.key === 'Enter') {
+          e.preventDefault()
+          handleSelectWorkflow(filteredWorkflows[slashSelectedIndex])
+          return
+        }
+      }
+
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         handleSend()
@@ -382,6 +503,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     const getPlaceholder = (): string => {
       if (isKeyMissing) return 'API key required'
       if (isProcessing) return 'Prism is responding'
+      if (activeWorkflow) return `Ask with ${activeWorkflow.name}`
       if (isSearchAndThinkMode) return 'Search, and then Think Deeply with Prism'
       if (isExtendedSearch) return 'Search deeply with Extended Search'
       if (isSearchEnabled) return 'Search the web with Prism'
@@ -799,9 +921,28 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               </div>
             )}
 
-            {/* TODO: Legacy slash menu was rendered here. Hardcoded slash commands are deprecated in favor of user-customizable workflows. */}
+            {renderSlashMenu()}
 
             <div className="flex-1 relative flex flex-col min-h-[100px]">
+              {activeWorkflow && (
+                <div className="flex pb-2 select-none">
+                  <div className="flex items-center gap-1.5 rounded-xl bg-accent-primary/15 border border-accent-primary/25 px-2.5 py-1 text-xs font-semibold text-accent-primary shrink-0 select-none animate-soft-pop">
+                    <Lightning size={12} weight="fill" />
+                    <span>{activeWorkflow.command}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveWorkflow?.(null)
+                        inputRef.current?.focus()
+                      }}
+                      className="ml-1 text-accent-primary/60 hover:text-accent-primary font-bold cursor-pointer focus:outline-none"
+                      title="Remove Workflow"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                </div>
+              )}
               <textarea
                 ref={inputRef}
                 value={text}
@@ -845,7 +986,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           </button>
         )}
 
-        {/* TODO: Legacy slash menu was rendered here. Hardcoded slash commands are deprecated in favor of user-customizable workflows. */}
+        {renderSlashMenu()}
 
         <div className="relative">
           <div
@@ -936,7 +1077,24 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               </div>
             )}
 
-            <div className="w-full relative flex items-center min-w-[280px]">
+            <div className="w-full relative flex items-center min-w-[280px] gap-2">
+              {activeWorkflow && (
+                <div className="flex items-center gap-1.5 rounded-xl bg-accent-primary/15 border border-accent-primary/25 px-2.5 py-1 text-xs font-semibold text-accent-primary shrink-0 select-none animate-soft-pop">
+                  <Lightning size={12} weight="fill" />
+                  <span>{activeWorkflow.command}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveWorkflow?.(null)
+                      inputRef.current?.focus()
+                    }}
+                    className="ml-1 text-accent-primary/60 hover:text-accent-primary font-bold cursor-pointer focus:outline-none"
+                    title="Remove Workflow"
+                  >
+                    &times;
+                  </button>
+                </div>
+              )}
               <textarea
                 ref={inputRef}
                 value={text}
