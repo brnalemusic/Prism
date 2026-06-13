@@ -508,13 +508,13 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     }
 
     const modeStyles = {
-      youtube: 'border-accent-primary/30 bg-accent-primary/[0.045] text-accent-primary',
-      extended: 'border-accent-primary/35 bg-accent-primary/[0.045] text-accent-primary',
+      youtube: 'border-accent-primary/30 bg-accent-primary/[0.04] text-accent-primary',
+      extended: 'border-accent-primary/35 bg-accent-primary/[0.04] text-accent-primary',
       search: isSearchAndThinkMode
-        ? 'border-[#8ee8b0]/25 bg-[linear-gradient(110deg,rgba(45,212,191,0.055),rgba(245,158,11,0.06))] text-[#d9c77a]'
-        : 'border-accent-secondary/30 bg-accent-secondary/[0.045] text-accent-secondary',
-      think: 'border-status-warning/30 bg-status-warning/[0.045] text-status-warning',
-      default: 'border-white/[0.09] bg-white/[0.035] text-text-primary'
+        ? 'border-[#8ee8b0]/25 bg-[linear-gradient(110deg,rgba(45,212,191,0.045),rgba(245,158,11,0.05))] text-[#d9c77a]'
+        : 'border-accent-secondary/30 bg-accent-secondary/[0.04] text-accent-secondary',
+      think: 'border-status-warning/30 bg-status-warning/[0.04] text-status-warning',
+      default: 'border-white/[0.085] bg-white/[0.028] text-text-primary'
     }[activeMode]
 
     const searchLabel = isExtendedSearch
@@ -526,7 +526,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     const renderSearchDropdown = (): React.JSX.Element => (
       <div
         ref={searchDropdownRef}
-        className="absolute bottom-full right-0 mb-2 z-50 w-72 rounded-2xl border border-white/[0.12] bg-background-main p-2 shadow-2xl animate-soft-pop text-left opacity-100"
+        className="model-menu-panel absolute bottom-full right-0 mb-2 z-50 w-72 p-2 animate-soft-pop text-left opacity-100"
       >
         <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.04] mb-1">
           Web Search Mode
@@ -585,8 +585,8 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     )
 
     const renderBottomControls = (): React.JSX.Element => (
-      <div className="flex w-full items-center justify-between border-t border-white/[0.055] pt-2 mt-2 select-none relative z-20">
-        <div className="flex-1 flex items-center gap-2">
+      <div className="flex w-full flex-wrap items-center justify-between gap-3 border-t border-white/[0.045] pt-2.5 mt-2 select-none relative z-20">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {isFullscreen && (
             <div className="text-xs text-text-muted font-medium">
               {text.length} characters | Press{' '}
@@ -610,7 +610,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               onClick={() => setShowAttachMenu(!showAttachMenu)}
               disabled={disabled}
               className={clsx(
-                'flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-200 border border-white/10 bg-white/[0.035] text-text-secondary hover:bg-white/[0.08] hover:text-text-primary cursor-pointer',
+                'flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-200 border border-white/[0.08] bg-white/[0.028] text-text-secondary hover:bg-white/[0.065] hover:text-text-primary cursor-pointer',
                 showAttachMenu && 'bg-white/[0.08] text-text-primary border-white/20'
               )}
               title="Add attachment / App"
@@ -619,7 +619,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             </button>
 
             {showAttachMenu && (
-              <div className="absolute bottom-full left-0 mb-2 z-[60] w-48 rounded-2xl border border-white/[0.12] bg-background-main p-1.5 shadow-2xl animate-soft-pop text-left">
+              <div className="model-menu-panel absolute bottom-full left-0 mb-2 z-[60] w-48 p-1.5 animate-soft-pop text-left">
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.04] transition-all text-left"
@@ -674,7 +674,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                   {/* Drop-side submenu to the right */}
                   {showAppsMenu && (
                     <div className="absolute left-full bottom-0 pl-1.5 z-[70] -ml-px">
-                      <div className="w-44 rounded-2xl border border-white/[0.12] bg-background-main p-1.5 shadow-2xl animate-soft-pop text-left">
+                      <div className="model-menu-panel w-44 p-1.5 animate-soft-pop text-left">
                         <button
                           onClick={() => {
                             setIsSearchEnabled(false)
@@ -725,7 +725,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 ? 'bg-status-error/20 border-status-error/30 text-status-error animate-pulse'
                 : isTranscribing
                   ? 'bg-accent-primary/20 border-accent-primary/30 text-accent-primary cursor-wait'
-                  : 'bg-white/[0.035] border-white/10 text-text-secondary hover:bg-white/[0.08] hover:text-text-primary'
+                  : 'bg-white/[0.028] border-white/[0.08] text-text-secondary hover:bg-white/[0.065] hover:text-text-primary'
             )}
             title={isRecording ? 'Stop and review' : 'Start Dictation'}
           >
@@ -757,7 +757,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           )}
         </div>
 
-        <div className="flex items-center gap-2 relative">
+        <div className="flex shrink-0 items-center gap-2 relative">
           <ModelSelector
             selectedModel={selectedModel}
             onModelChange={onModelChange || (() => {})}
@@ -772,7 +772,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               onClick={() => setShowSearchDropdown(!showSearchDropdown)}
               disabled={disabled}
               className={clsx(
-                'flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold outline-none transition-all duration-200 border border-transparent hover:bg-white/[0.055] hover:border-white/10',
+                'flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold outline-none transition-all duration-200 border border-transparent hover:bg-white/[0.05] hover:border-white/[0.09]',
                 showSearchDropdown
                   ? 'bg-white/[0.08] text-text-primary border-white/10'
                   : 'bg-transparent',
@@ -830,15 +830,15 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
 
     if (isFullscreen) {
       return (
-        <div className="flex-1 flex flex-col w-full h-full p-6 animate-fade-in relative z-20 pointer-events-auto">
+        <div className="flex-1 flex flex-col w-full h-full p-5 sm:p-6 animate-fade-in relative z-20 pointer-events-auto">
           {/* Custom header */}
           <div className="flex items-center justify-between border-b border-white/[0.055] pb-4 mb-4 select-none">
             <div className="flex items-center gap-3">
-              <h2 className="text-xl font-semibold text-text-primary">Message Editor</h2>
+              <h2 className="text-lg font-medium text-text-primary">Message Editor</h2>
             </div>
             <button
               onClick={onFullscreenToggle}
-              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.035] px-4 py-2 text-xs font-semibold text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-all duration-200 active:scale-95"
+              className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.028] px-3.5 py-2 text-xs font-semibold text-text-secondary hover:bg-white/[0.065] hover:text-text-primary transition-all duration-200 active:scale-95"
               title="Exit fullscreen"
             >
               <Minimize2 size={14} />
@@ -848,7 +848,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
 
           <div
             className={clsx(
-              'premium-panel flex-1 flex flex-col rounded-[24px] border p-4 transition-all duration-300 relative input-border-glow',
+              'premium-panel flex-1 flex flex-col rounded-[22px] border p-4 transition-all duration-300 relative input-border-glow',
               modeStyles,
               isFocused && 'prism-glow active',
               disabled && 'opacity-60'
@@ -926,7 +926,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             )}
 
             {isKeyMissing && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center rounded-[24px] bg-background-main/35 backdrop-blur-sm">
+              <div className="absolute inset-0 z-20 flex items-center justify-center rounded-[22px] bg-background-main/35 backdrop-blur-sm">
                 <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.055] px-3 py-2 text-xs font-semibold text-text-secondary">
                   <Lock size={14} />
                   API key required
@@ -988,11 +988,11 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     }
 
     return (
-      <div className="relative z-20 w-full max-w-4xl mx-auto px-6 sm:px-12 pointer-events-auto">
+      <div className="relative z-20 w-full max-w-[820px] mx-auto px-4 sm:px-8 pointer-events-auto">
         {showFullscreenBtn && (
           <button
             onClick={onFullscreenToggle}
-            className="absolute -top-10 left-6 sm:left-12 flex items-center gap-1.5 rounded-full border border-white/10 bg-background-secondary/90 px-3 py-1.5 text-xs font-semibold text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-all duration-200 shadow-md backdrop-blur-md animate-soft-pop z-30"
+            className="absolute -top-10 left-4 sm:left-8 flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-background-secondary/90 px-3 py-1.5 text-xs font-semibold text-text-secondary hover:bg-white/[0.065] hover:text-text-primary transition-all duration-200 shadow-md backdrop-blur-md animate-soft-pop z-30"
           >
             <Maximize2 size={13} />
             Fullscreen
@@ -1004,7 +1004,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
         <div className="relative">
           <div
             className={clsx(
-              'premium-panel relative rounded-[28px] border transition-all duration-300 input-border-glow flex flex-col overflow-visible px-4 pt-4 pb-2',
+              'premium-panel relative rounded-[22px] border transition-all duration-300 input-border-glow flex flex-col overflow-visible px-3.5 pt-3.5 pb-2.5',
               modeStyles,
               isFocused && !disabled && 'prism-glow active',
               disabled && 'opacity-60'
@@ -1061,7 +1061,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             )}
 
             {isKeyMissing && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center bg-background-main/35 backdrop-blur-sm rounded-[28px]">
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-background-main/35 backdrop-blur-sm rounded-[22px]">
                 <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.055] px-3 py-2 text-xs font-semibold text-text-secondary">
                   <Lock size={14} />
                   API key required

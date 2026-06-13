@@ -73,16 +73,16 @@ export function TitleBar({
   }
 
   return (
-    <div className="fixed left-0 top-0 z-[100] flex h-10 w-full select-none items-center justify-between border-b border-white/[0.04] bg-transparent px-4 drag-region">
+    <div className="fixed left-0 top-0 z-[100] flex h-10 w-full select-none items-center justify-between border-b border-white/[0.055] bg-background-main/80 px-4 shadow-[0_1px_0_rgba(255,255,255,0.018)] backdrop-blur-md drag-region">
       <div className={`flex items-center gap-2.5 no-drag-region ${isMac ? 'pl-[72px]' : ''}`}>
-        <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-accent-primary/20 to-accent-secondary/10">
+        <div className="flex h-6 w-6 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.035]">
           <span className="text-[11px] font-bold prism-top-gradient">P</span>
         </div>
-        <span className="text-[12px] font-medium text-text-muted">Prism</span>
+        <span className="text-[12px] font-medium text-text-secondary/75">Prism</span>
       </div>
 
       {title && (
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none text-[12.5px] font-medium text-text-primary/95 flex items-center justify-center select-none whitespace-nowrap">
+        <div className="absolute left-1/2 top-1/2 flex max-w-[46vw] -translate-x-1/2 -translate-y-1/2 items-center justify-center truncate whitespace-nowrap text-[12.5px] font-medium text-text-primary/90 pointer-events-none select-none">
           {isStreaming ? <StreamTitleWrapper title={title} /> : title}
         </div>
       )}
@@ -91,14 +91,14 @@ export function TitleBar({
         <div className="flex items-center no-drag-region">
           <button
             onClick={handleMinimize}
-            className="flex h-8 w-10 items-center justify-center rounded-lg text-text-muted transition-all duration-200 hover:bg-white/[0.05] hover:text-text-secondary active:scale-95"
+            className="flex h-8 w-10 items-center justify-center rounded-lg text-text-muted transition-all duration-200 hover:bg-white/[0.055] hover:text-text-secondary active:scale-95"
             title="Minimize"
           >
             <Minus size={14} />
           </button>
           <button
             onClick={handleMaximize}
-            className="flex h-8 w-10 items-center justify-center rounded-lg text-text-muted transition-all duration-200 hover:bg-white/[0.05] hover:text-text-secondary active:scale-95"
+            className="flex h-8 w-10 items-center justify-center rounded-lg text-text-muted transition-all duration-200 hover:bg-white/[0.055] hover:text-text-secondary active:scale-95"
             title={isMaximized ? 'Restore' : 'Maximize'}
           >
             {isMaximized ? (

@@ -572,22 +572,28 @@
   }
 
   .premium-panel {
-    background: var(--color-surface);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: color-mix(in srgb, var(--color-surface) 92%, black);
+    border: 1px solid rgba(255, 255, 255, 0.075);
     border-radius: 16px;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.026),
+      0 18px 42px rgba(0, 0, 0, 0.22);
   }
 
   .model-menu-panel {
-    background: var(--color-surface);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: color-mix(in srgb, var(--color-surface) 88%, black);
+    border: 1px solid rgba(255, 255, 255, 0.09);
     border-radius: 16px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.026),
+      0 18px 44px rgba(0, 0, 0, 0.34);
   }
 
   .premium-panel-soft {
-    background: var(--color-background-secondary);
-    border: 1px solid rgba(255, 255, 255, 0.04);
+    background: color-mix(in srgb, var(--color-background-secondary) 92%, black);
+    border: 1px solid rgba(255, 255, 255, 0.055);
     border-radius: 16px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
   }
 
   .premium-control {
@@ -608,11 +614,17 @@
   .input-border-glow {
     position: relative;
     border: 1px solid transparent;
-    transition: border-color 0.3s ease;
+    transition:
+      border-color 0.22s ease,
+      background-color 0.22s ease,
+      box-shadow 0.22s ease;
   }
 
   .input-border-glow.active {
-    border-color: var(--color-accent-primary);
+    border-color: color-mix(in srgb, var(--color-accent-primary) 44%, rgba(255, 255, 255, 0.12));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.032),
+      0 16px 44px rgba(0, 0, 0, 0.26);
   }
 
   .hairline-grid {
@@ -652,6 +664,24 @@
 
   .prism-5-dot {
     background: var(--color-accent-primary);
+  }
+
+  .prism-background-field {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.018) 0%, transparent 30%),
+      linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0%, transparent 34%),
+      var(--color-background-main);
+  }
+
+  .prism-background-field::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+    background-size: 100% 56px;
+    opacity: 0.4;
+    mask-image: linear-gradient(to bottom, transparent, black 18%, black 82%, transparent);
   }
 
   /* Drag region for Electron frameless windows */

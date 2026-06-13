@@ -1762,13 +1762,13 @@ function App(): React.JSX.Element {
   const renderedMessages = useMemo(() => {
     if (messages.length === 0) return null
     return (
-      <div className="w-full flex flex-col max-w-4xl mx-auto">
+      <div className="w-full flex flex-col max-w-[860px] mx-auto">
         {messages.map((msg, i) => {
           if (msg.role === 'separator') {
             return (
               <div
                 key={i}
-                className="w-full flex items-center gap-4 px-6 sm:px-12 py-4 select-none animate-message"
+                className="w-full flex items-center gap-4 px-4 sm:px-8 py-3 select-none animate-message"
               >
                 <div className="flex-grow border-t border-dashed border-white/[0.08]" />
                 <span className="shrink-0 px-4 text-[10px] font-mono tracking-widest text-text-secondary/60 uppercase">
@@ -1783,12 +1783,12 @@ function App(): React.JSX.Element {
             <div key={i} className="flex flex-col w-full transition-all duration-700">
               <div
                 className={clsx(
-                  'w-full px-6 sm:px-12 py-8 flex flex-col transition-all duration-700 animate-message',
+                  'w-full px-4 sm:px-8 py-5 flex flex-col transition-all duration-700 animate-message',
                   msg.role === 'user' ? 'items-end' : 'items-start'
                 )}
               >
                 {msg.role === 'ai' && (msg.isThinking || msg.thoughts) && (
-                  <div className="w-full mb-3">
+                  <div className="w-full mb-2">
                     <details className="group w-full select-none">
                       <summary
                         className={clsx(
@@ -1854,9 +1854,9 @@ function App(): React.JSX.Element {
                       setIsApiKeyModalOpen={setIsApiKeyModalOpen}
                     />
                   ) : (
-                    <div className="flex flex-col items-end gap-2.5 max-w-[90%] sm:max-w-[80%] lg:max-w-[70%]">
+                    <div className="flex flex-col items-end gap-2.5 max-w-[92%] sm:max-w-[78%] lg:max-w-[68%]">
                       {(msg.screenshot || (msg.file && msg.file.mimeType.startsWith('image/'))) && (
-                        <div className="relative rounded-[20px] overflow-hidden border border-white/10 bg-black/10 shadow-xl max-w-full sm:max-w-[320px] hover:border-white/20 transition-all duration-300">
+                        <div className="relative rounded-[16px] overflow-hidden border border-white/[0.085] bg-black/10 shadow-xl max-w-full sm:max-w-[320px] hover:border-white/[0.16] transition-all duration-300">
                           <img
                             src={
                               msg.file && msg.file.mimeType.startsWith('image/')
@@ -1881,7 +1881,7 @@ function App(): React.JSX.Element {
                         </div>
                       )}
                       {msg.file && !msg.file.mimeType.startsWith('image/') && (
-                        <div className="premium-panel-soft flex items-center gap-3 px-4 py-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.02] shadow-md select-none max-w-full sm:max-w-[280px]">
+                        <div className="premium-panel-soft flex items-center gap-3 px-4 py-2.5 rounded-[16px] border border-white/[0.07] bg-white/[0.02] shadow-md select-none max-w-full sm:max-w-[280px]">
                           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
                             {msg.file.mimeType === 'application/pdf' ? (
                               <FilePdf size={20} className="text-status-error" />
@@ -1905,7 +1905,7 @@ function App(): React.JSX.Element {
                         </div>
                       )}
                       {msg.content && (
-                        <div className="premium-panel-soft w-full rounded-[24px] rounded-tr-[8px] px-5 py-3.5 text-sm md:text-base text-text-primary prose prose-invert prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base max-w-none">
+                        <div className="premium-panel-soft w-full rounded-[18px] rounded-tr-md px-4 py-3 text-sm md:text-base text-text-primary prose prose-invert prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base max-w-none">
                           <ReactMarkdown
                             remarkPlugins={[
                               remarkGfm,
@@ -2076,7 +2076,7 @@ function App(): React.JSX.Element {
               handleNewChat()
               setIsSidebarOpen(false)
             }}
-            className="absolute right-6 top-4 z-30 flex h-9 items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3.5 text-xs font-medium text-text-secondary shadow-[0_8px_32px_rgba(0,0,0,0.37)] backdrop-blur-md transition-all duration-300 hover:bg-white/[0.08] hover:text-text-primary hover:border-white/[0.1] active:scale-[0.97] animate-fade-in rgb-new-chat-btn"
+            className="absolute right-5 top-4 z-30 flex h-9 items-center gap-2 rounded-xl border border-white/[0.065] bg-white/[0.026] px-3.5 text-xs font-medium text-text-secondary shadow-[0_8px_28px_rgba(0,0,0,0.28)] backdrop-blur-md transition-all duration-300 hover:bg-white/[0.065] hover:text-text-primary hover:border-white/[0.1] active:scale-[0.97] animate-fade-in rgb-new-chat-btn"
             title="New Chat (Ctrl+N)"
           >
             <Plus size={14} weight="bold" className="text-accent-primary" />
@@ -2128,16 +2128,16 @@ function App(): React.JSX.Element {
               <div
                 ref={contentRef}
                 className={clsx(
-                  'flex-grow flex flex-col pt-8',
-                  messages.length > 0 ? 'pb-36' : 'pb-8'
+                  'flex-grow flex flex-col pt-6',
+                  messages.length > 0 ? 'pb-40' : 'pb-8'
                 )}
               >
                 {isKeyMissing && <MissingKeyBanner onAddKey={() => setIsApiKeyModalOpen(true)} />}
                 {messages.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center px-4 relative select-none">
+                  <div className="flex-1 flex flex-col items-center justify-center px-4 pb-[8vh] relative select-none">
                     {/* Radial glow similar to the image */}
                     <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                      <div className="relative h-[380px] w-[580px] blur-[90px] opacity-80">
+                      <div className="relative h-[320px] w-[560px] max-w-[calc(100vw-48px)] blur-[96px] opacity-[0.55]">
                         {/* Default single glow for non-rgb themes */}
                         <div className="absolute inset-0 rounded-full home-radial-glow rgb-glow-default" />
                         {/* Custom RGB animatable glows with smooth opacity transitions */}
@@ -2147,8 +2147,8 @@ function App(): React.JSX.Element {
                       </div>
                     </div>
 
-                    <div className="relative z-10 flex flex-col items-center w-full max-w-4xl text-center gap-7">
-                      <h1 className="text-[28px] sm:text-[36px] font-light tracking-tight text-white/90 select-none leading-tight">
+                    <div className="relative z-10 flex flex-col items-center w-full max-w-[820px] text-center gap-6">
+                      <h1 className="text-[26px] sm:text-[32px] font-light text-text-primary/90 select-none leading-tight">
                         {getGreeting()}
                       </h1>
 
@@ -2211,7 +2211,7 @@ function App(): React.JSX.Element {
             )}
 
             {activeView === 'chat' && messages.length > 0 && (
-              <div className="absolute bottom-0 left-0 right-0 pb-6 z-20 pointer-events-none">
+              <div className="absolute bottom-0 left-0 right-0 pb-6 pt-14 z-20 pointer-events-none bg-gradient-to-t from-background-main via-background-main/95 to-transparent">
                 {/* Scroll to bottom button */}
                 {showScrollButton && (
                   <div className="absolute left-0 right-0 -top-12 flex justify-center pointer-events-none z-20 animate-soft-pop">

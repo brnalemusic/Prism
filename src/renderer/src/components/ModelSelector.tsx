@@ -84,7 +84,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
           disabled={disabled}
           onClick={() => setIsOpen(!isOpen)}
           className={clsx(
-            'flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold outline-none transition-all duration-200 border border-transparent hover:bg-white/[0.055] hover:border-white/10',
+            'flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold outline-none transition-all duration-200 border border-transparent hover:bg-white/[0.05] hover:border-white/[0.09]',
             isOpen
               ? 'bg-white/[0.08] text-text-primary border-white/10'
               : 'bg-transparent text-text-secondary',
@@ -102,7 +102,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         </button>
 
         {isOpen && (
-          <div className="absolute bottom-full right-0 mb-4 z-50 w-72 max-h-[360px] overflow-y-auto rounded-2xl border border-white/[0.12] bg-background-main p-2 shadow-2xl animate-soft-pop text-left opacity-100">
+          <div className="model-menu-panel absolute bottom-full right-0 mb-4 z-50 w-72 max-h-[360px] overflow-y-auto p-2 animate-soft-pop text-left opacity-100">
             <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.04] mb-1">
               Select Prism Engine
             </div>

@@ -174,19 +174,22 @@ export function Sidebar({
   return (
     <aside
       className={clsx(
-        'fixed inset-y-0 left-0 z-40 w-[260px] flex flex-col border-r border-white/[0.04] bg-background-main transition-transform duration-300 ease-in-out',
+        'fixed inset-y-0 left-0 z-40 w-[272px] flex flex-col border-r border-white/[0.055] bg-background-main/95 shadow-[18px_0_46px_rgba(0,0,0,0.22)] backdrop-blur-md transition-transform duration-300 ease-in-out',
         isOpen ? 'translate-x-0' : '-translate-x-full',
         className
       )}
     >
-      <div className="flex h-14 shrink-0 items-center px-6 mt-10">
-        <h1 className="text-lg font-medium text-text-primary tracking-wide">Prism</h1>
+      <div className="flex h-16 shrink-0 items-center gap-3 px-5 mt-10">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.065] bg-white/[0.035]">
+          <span className="text-[12px] font-bold text-accent-primary">P</span>
+        </div>
+        <h1 className="text-base font-medium text-text-primary">Prism</h1>
       </div>
 
-      <div className="px-4 py-2 shrink-0">
+      <div className="px-4 pb-2 pt-1 shrink-0">
         <button
           onClick={() => onNewChat()}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-white/[0.03] border border-white/[0.05] px-4 py-2.5 text-sm font-medium text-text-primary transition-all duration-200 hover:bg-white/[0.06] active:scale-[0.98] rgb-new-chat-btn"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/[0.04] border border-white/[0.07] px-4 py-2.5 text-sm font-medium text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] transition-all duration-200 hover:bg-white/[0.065] hover:border-white/[0.1] active:scale-[0.98] rgb-new-chat-btn"
         >
           <Plus size={16} weight="bold" />
           New Chat
@@ -215,10 +218,10 @@ export function Sidebar({
         />
       </nav>
 
-      <div className="mx-4 h-px shrink-0 bg-white/[0.04]" />
+      <div className="mx-4 h-px shrink-0 bg-white/[0.055]" />
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4">
-        <div className="mb-2 flex shrink-0 items-center gap-2 px-2 text-[11px] font-medium tracking-wider text-text-secondary uppercase">
+        <div className="mb-2 flex shrink-0 items-center gap-2 px-2 text-[11px] font-medium uppercase text-text-secondary/75">
           <Clock size={14} />
           History
         </div>
@@ -231,10 +234,10 @@ export function Sidebar({
                   onLoadChat(chat.id)
                 }}
                 className={clsx(
-                  'min-h-[36px] w-full truncate rounded-lg px-3 py-2 pr-8 text-left text-sm transition-all duration-200 active:scale-[0.98]',
+                  'min-h-[38px] w-full truncate rounded-xl border px-3 py-2 pr-8 text-left text-sm transition-all duration-200 active:scale-[0.98]',
                   currentChatId === chat.id
-                    ? 'bg-white/[0.05] text-text-primary'
-                    : 'text-text-secondary hover:bg-white/[0.03] hover:text-text-primary'
+                    ? 'border-white/[0.075] bg-white/[0.055] text-text-primary'
+                    : 'border-transparent text-text-secondary hover:bg-white/[0.035] hover:text-text-primary'
                 )}
                 title={chat.title}
               >
@@ -302,12 +305,15 @@ function NavItem({
     <button
       onClick={onClick}
       className={clsx(
-        'group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-200',
+        'group relative flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-sm transition-all duration-200',
         active
-          ? 'bg-white/[0.05] text-text-primary font-medium'
-          : 'text-text-secondary hover:bg-white/[0.03] hover:text-text-primary'
+          ? 'border-white/[0.07] bg-white/[0.055] text-text-primary font-medium'
+          : 'border-transparent text-text-secondary hover:bg-white/[0.035] hover:text-text-primary'
       )}
     >
+      {active && (
+        <span className="absolute bottom-2 left-0 top-2 w-px rounded-full bg-accent-primary/80" />
+      )}
       <span
         className={clsx(
           'transition-colors duration-200',
