@@ -8,6 +8,8 @@ import {
   ChatTeardropText,
   Stop,
   Microphone,
+  PaperPlaneRight,
+  StopCircle,
   Warning
 } from '@phosphor-icons/react'
 import { useSpeechToText } from '../hooks/useSpeechToText'
@@ -159,7 +161,6 @@ export function SearchModal({
   const [aiError, setAiError] = useState<string | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
 
-  const shouldSendRef = useRef(false)
   const activeTabRef = useRef(activeTab)
   const queryRef = useRef(query)
   const aiPromptRef = useRef(aiPrompt)
@@ -211,8 +212,9 @@ export function SearchModal({
   const {
     isRecording: isRecordingSTT,
     isTranscribing: isTranscribingSTT,
-    toggleRecording: toggleRecordingSTT
-  } = useSpeechToText((transcription) => {
+    toggleRecording: toggleRecordingSTT,
+    stopRecording: stopRecordingSTT
+  } = useSpeechToText((transcription, action) => {
     if (activeTabRef.current === 'quick') {
       const newQuery = queryRef.current.trim()
         ? queryRef.current + ' ' + transcription
@@ -223,8 +225,7 @@ export function SearchModal({
         ? aiPromptRef.current + ' ' + transcription
         : transcription
       setAiPrompt(newPrompt)
-      if (shouldSendRef.current) {
-        shouldSendRef.current = false
+      if (action === 'send') {
         handleStartAiSearch(newPrompt)
       }
     }
@@ -235,9 +236,6 @@ export function SearchModal({
     const handleKeyDown = (e: KeyboardEvent): void => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
         e.preventDefault()
-        if (isRecordingSTT) {
-          shouldSendRef.current = true
-        }
         toggleRecordingSTT()
       }
     }
@@ -530,7 +528,13 @@ export function SearchModal({
                 {isSearchingQuick && <Spinner size="xs" />}
                 <button
                   type="button"
-                  onClick={toggleRecordingSTT}
+                  onClick={() => {
+                    if (isRecordingSTT) {
+                      stopRecordingSTT('insert')
+                    } else {
+                      toggleRecordingSTT()
+                    }
+                  }}
                   disabled={isTranscribingSTT}
                   className={clsx(
                     'p-1.5 rounded-lg transition-all duration-200 border',
@@ -540,7 +544,7 @@ export function SearchModal({
                         ? 'bg-accent-primary/20 border-accent-primary/30 text-accent-primary cursor-wait'
                         : 'bg-white/5 border-white/10 text-text-secondary/50 hover:bg-white/10 hover:text-text-primary'
                   )}
-                  title={isRecordingSTT ? 'Stop Recording' : 'Start Dictation'}
+                  title={isRecordingSTT ? 'Stop and review' : 'Start Dictation'}
                 >
                   {isTranscribingSTT ? (
                     <div className="flex items-center gap-0.5 px-0.5">
@@ -548,8 +552,10 @@ export function SearchModal({
                       <span className="h-1 w-1 rounded-full bg-current animate-bounce [animation-delay:-0.15s]" />
                       <span className="h-1 w-1 rounded-full bg-current animate-bounce" />
                     </div>
+                  ) : isRecordingSTT ? (
+                    <StopCircle size={16} weight="fill" />
                   ) : (
-                    <Microphone size={16} weight={isRecordingSTT ? 'fill' : 'regular'} />
+                    <Microphone size={16} />
                   )}
                 </button>
               </div>
@@ -561,7 +567,10 @@ export function SearchModal({
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
                 placeholder="Describe the context of the chat you are looking for"
-                className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] pl-4 pr-[76px] py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
+                className={clsx(
+                  'w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] pl-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none',
+                  isRecordingSTT ? 'pr-[112px]' : 'pr-[76px]'
+                )}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault()
@@ -573,7 +582,13 @@ export function SearchModal({
               <div className="absolute right-3 flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={toggleRecordingSTT}
+                  onClick={() => {
+                    if (isRecordingSTT) {
+                      stopRecordingSTT('insert')
+                    } else {
+                      toggleRecordingSTT()
+                    }
+                  }}
                   disabled={isTranscribingSTT || isAiProcessing}
                   className={clsx(
                     'p-1.5 rounded-lg transition-all duration-200 border',
@@ -583,7 +598,7 @@ export function SearchModal({
                         ? 'bg-accent-primary/20 border-accent-primary/30 text-accent-primary cursor-wait'
                         : 'bg-white/5 border-white/10 text-text-secondary/50 hover:bg-white/10 hover:text-text-primary'
                   )}
-                  title={isRecordingSTT ? 'Stop Recording' : 'Start Dictation'}
+                  title={isRecordingSTT ? 'Stop and review' : 'Start Dictation'}
                 >
                   {isTranscribingSTT ? (
                     <div className="flex items-center gap-0.5 px-0.5">
@@ -591,10 +606,23 @@ export function SearchModal({
                       <span className="h-1 w-1 rounded-full bg-current animate-bounce [animation-delay:-0.15s]" />
                       <span className="h-1 w-1 rounded-full bg-current animate-bounce" />
                     </div>
+                  ) : isRecordingSTT ? (
+                    <StopCircle size={16} weight="fill" />
                   ) : (
-                    <Microphone size={16} weight={isRecordingSTT ? 'fill' : 'regular'} />
+                    <Microphone size={16} />
                   )}
                 </button>
+                {isRecordingSTT && (
+                  <button
+                    type="button"
+                    onClick={() => stopRecordingSTT('send')}
+                    disabled={isTranscribingSTT || isAiProcessing}
+                    className="p-1.5 rounded-lg bg-text-primary hover:bg-white text-black transition-all cursor-pointer active:scale-95 flex items-center justify-center"
+                    title="Stop and run search"
+                  >
+                    <PaperPlaneRight size={16} weight="fill" />
+                  </button>
+                )}
                 {isAiProcessing ? (
                   <button
                     onClick={handleCancelAiSearch}

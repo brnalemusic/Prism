@@ -110,21 +110,20 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     const attachButtonRef = useRef<HTMLButtonElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
-    const shouldSendRef = useRef(false)
+    const { isRecording, isTranscribing, toggleRecording, stopRecording } = useSpeechToText(
+      (transcription, action) => {
+        const newText = textRef.current.trim()
+          ? textRef.current + '\n\n' + transcription
+          : transcription
+        setText(newText)
 
-    const { isRecording, isTranscribing, toggleRecording } = useSpeechToText((transcription) => {
-      const newText = textRef.current.trim()
-        ? textRef.current + '\n\n' + transcription
-        : transcription
-      setText(newText)
+        if (action === 'send') {
+          handleSend(newText)
+        }
 
-      if (shouldSendRef.current) {
-        shouldSendRef.current = false
-        handleSend(newText)
+        setTimeout(() => inputRef.current?.focus(), 100)
       }
-
-      setTimeout(() => inputRef.current?.focus(), 100)
-    })
+    )
 
     const isSearchAndThinkMode = isSearchEnabled && isThinkMode
     const activeMode = isExtendedSearch
@@ -339,9 +338,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       const handleGlobalKeyDown = (e: KeyboardEvent): void => {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
           e.preventDefault()
-          if (isRecording) {
-            shouldSendRef.current = true
-          }
           toggleRecording()
         }
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
@@ -715,7 +711,13 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
 
 
           <button
-            onClick={toggleRecording}
+            onClick={() => {
+              if (isRecording) {
+                stopRecording('insert')
+              } else {
+                toggleRecording()
+              }
+            }}
             disabled={disabled || isTranscribing}
             className={clsx(
               'flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-200 border relative overflow-hidden group',
@@ -725,7 +727,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                   ? 'bg-accent-primary/20 border-accent-primary/30 text-accent-primary cursor-wait'
                   : 'bg-white/[0.035] border-white/10 text-text-secondary hover:bg-white/[0.08] hover:text-text-primary'
             )}
-            title={isRecording ? 'Stop Recording' : 'Start Dictation'}
+            title={isRecording ? 'Stop and review' : 'Start Dictation'}
           >
             {isTranscribing ? (
               <div className="flex items-center gap-0.5">
@@ -742,6 +744,17 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               <div className="absolute inset-0 bg-status-error/10 animate-[ping_2s_ease-in-out_infinite]" />
             )}
           </button>
+
+          {isRecording && (
+            <button
+              onClick={() => stopRecording('send')}
+              disabled={disabled || isTranscribing}
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-text-primary/20 bg-text-primary text-black transition-all duration-200 hover:bg-white active:scale-95"
+              title="Stop and send"
+            >
+              <SendHorizontal size={14} weight="fill" />
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-2 relative">

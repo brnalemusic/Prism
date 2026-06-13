@@ -123,32 +123,32 @@ These shortcuts are registered system-wide and are **fully configurable** in Set
 
 ### Main Chat Shortcuts (InputBar)
 
-| Shortcut      | Action                                 |
-| ------------- | -------------------------------------- |
-| `Enter`       | Send message                           |
-| `Shift+Enter` | Insert newline without sending         |
-| `Ctrl+T`      | Toggle Think mode                      |
-| `Ctrl+S`      | Toggle web search (Active Search)      |
-| `Ctrl+E`      | Toggle extended search (Deep Research) |
-| `Ctrl+Y`      | Toggle YouTube mode                    |
-| `Ctrl+D`      | Start/stop microphone dictation        |
-| `Escape`      | Exit fullscreen input mode             |
-| `Ctrl+N`      | Start a new conversation               |
+| Shortcut      | Action                                     |
+| ------------- | ------------------------------------------ |
+| `Enter`       | Send message                               |
+| `Shift+Enter` | Insert newline without sending             |
+| `Ctrl+T`      | Toggle Think mode                          |
+| `Ctrl+S`      | Toggle web search (Active Search)          |
+| `Ctrl+E`      | Toggle extended search (Deep Research)     |
+| `Ctrl+Y`      | Toggle YouTube mode                        |
+| `Ctrl+D`      | Start/stop microphone dictation for review |
+| `Escape`      | Exit fullscreen input mode                 |
+| `Ctrl+N`      | Start a new conversation                   |
 
 ### Quick Launcher Shortcuts
 
-| Shortcut                     | Action                                                    |
-| ---------------------------- | --------------------------------------------------------- |
-| `Escape`                     | Close the launcher                                        |
-| `↑` / `↓`                    | Navigate suggestions (apps, files, commands, math result) |
-| `Enter`                      | Execute selected suggestion / Send message                |
-| `Ctrl+T`                     | Toggle Think mode in the launcher                         |
-| `Ctrl+S`                     | Toggle web search in the launcher                         |
-| `Ctrl+Y`                     | Toggle YouTube mode                                       |
-| `Ctrl+D`                     | Start/stop microphone dictation in the launcher           |
-| `Ctrl+M` (default)           | Open model selector (Advanced mode only)                  |
-| `↑` / `↓` + `Enter`          | Navigate and confirm model in the model selector          |
-| `Escape` (in model selector) | Close selector without changing model                     |
+| Shortcut                     | Action                                                     |
+| ---------------------------- | ---------------------------------------------------------- |
+| `Escape`                     | Close the launcher                                         |
+| `↑` / `↓`                    | Navigate suggestions (apps, files, commands, math result)  |
+| `Enter`                      | Execute selected suggestion / Send message                 |
+| `Ctrl+T`                     | Toggle Think mode in the launcher                          |
+| `Ctrl+S`                     | Toggle web search in the launcher                          |
+| `Ctrl+Y`                     | Toggle YouTube mode                                        |
+| `Ctrl+D`                     | Start/stop microphone dictation for review in the launcher |
+| `Ctrl+M` (default)           | Open model selector (Advanced mode only)                   |
+| `↑` / `↓` + `Enter`          | Navigate and confirm model in the model selector           |
+| `Escape` (in model selector) | Close selector without changing model                      |
 
 > The model selection shortcut is configurable in Settings (default: `CommandOrControl+M`).
 
@@ -262,8 +262,8 @@ Available in both the main chat and the Quick Launcher.
 
 - **Toggle:** `Ctrl+D`
 - Audio is captured from the microphone and sent for transcription via `transcribeAudio` (using the Gemini API).
-- In the launcher, if recording is stopped while `shouldSendRef` is active, the message is sent automatically after transcription.
-- In the main chat, the transcription is inserted into the text field for review before sending.
+- `Ctrl+D` always stops dictation for review and inserts the transcription into the input.
+- While recording, the user can choose to stop for review or stop and send directly.
 - Visual indicators: animated microphone icon while recording; transcribing indicator while processing.
 
 ---
@@ -271,6 +271,25 @@ Available in both the main chat and the Quick Launcher.
 ## System Tools (Computer Use)
 
 Prism exposes an extensive set of tools the AI can invoke to interact with the operating system.
+
+### Local AI Runtime Sandbox
+
+AI terminal commands run in the user's selected system terminal instead of a Docker/Podman
+container. This works on Windows machines without WSL 2, Hyper-V, Docker Desktop, Podman, or CPU
+virtualization support.
+
+The runtime is guarded before execution:
+
+- `execute_terminal_command` uses the terminal selected in **Settings → AI Runtime**.
+- Prism detects common shells such as Windows PowerShell, CMD, PowerShell 7 (`pwsh`), Git Bash, and
+  WSL when installed.
+- The model prompt receives a short syntax hint for the selected terminal, such as PowerShell 7,
+  Windows PowerShell, CMD, or Bash/POSIX.
+- Dangerous system operations are blocked before they reach the shell, including shutdown/restart,
+  disk formatting/partitioning, boot configuration, service/account/firewall/Defender/registry
+  mutation, elevation prompts, broad recursive deletes, and writes to protected system paths.
+- Filesystem tools manipulate real files at explicit paths, but refuse filesystem roots and protected
+  system locations such as Windows, Program Files, and ProgramData.
 
 ### Filesystem Tools
 
@@ -293,7 +312,7 @@ Prism exposes an extensive set of tools the AI can invoke to interact with the o
 
 | Tool                          | Action                                                                                  |
 | ----------------------------- | --------------------------------------------------------------------------------------- |
-| `execute_terminal_command`    | Run a shell/PowerShell command (truncated at 50,000 chars)                              |
+| `execute_terminal_command`    | Run a guarded command in the configured system terminal (truncated at 50,000 chars)     |
 | `list_installed_applications` | List installed apps (Windows registry + manual path scan, cached)                       |
 | `open_application`            | Launch an app by `.exe` path (resolves `.lnk` shortcuts)                                |
 | `open_browser_link`           | Open a URL in the system default browser                                                |

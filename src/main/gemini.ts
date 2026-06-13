@@ -38,7 +38,13 @@ import {
   webScript,
   detailedDomPage
 } from './systemTools'
-import { saveChatSession, loadChatSession, searchChatHistory, searchChatMemory, getMessageText } from './history'
+import {
+  saveChatSession,
+  loadChatSession,
+  searchChatHistory,
+  searchChatMemory,
+  getMessageText
+} from './history'
 import { loadConfig, saveConfig } from './config'
 import { toolsManifest } from './toolsManifest'
 
@@ -1052,8 +1058,12 @@ const toolFunctions: Record<
         }
       }
       if (args.terminalShell !== undefined && args.terminalShell !== '') {
-        config.terminalShell = args.terminalShell
-        changed.push(`terminalShell: "${args.terminalShell}"`)
+        const shell = args.terminalShell.trim()
+        if (!shell || /[\r\n;&|]/.test(shell)) {
+          return `Error: terminalShell contains invalid characters. Passed: "${args.terminalShell}"`
+        }
+        config.terminalShell = shell
+        changed.push(`terminalShell: "${shell}"`)
       }
       if (args.zoomFactor !== undefined && args.zoomFactor !== '') {
         const val = parseFloat(args.zoomFactor)
@@ -1528,7 +1538,9 @@ async function runSubagents(
  * Initializes or clears the history with system instructions.
  */
 export function initGemini(): boolean {
-  closePersistentBrowser().catch((err) => console.warn('Failed to close persistent browser in initGemini:', err))
+  closePersistentBrowser().catch((err) =>
+    console.warn('Failed to close persistent browser in initGemini:', err)
+  )
   currentSessionId = Date.now().toString()
   chatHistory = [
     { role: 'system', parts: [{ text: getSystemToolsPrompt(currentModelKey) }] },
@@ -1548,7 +1560,9 @@ export function initGemini(): boolean {
  * Loads a past session into the current history.
  */
 export function loadChatIntoHistory(id: string): Content[] {
-  closePersistentBrowser().catch((err) => console.warn('Failed to close persistent browser in loadChatIntoHistory:', err))
+  closePersistentBrowser().catch((err) =>
+    console.warn('Failed to close persistent browser in loadChatIntoHistory:', err)
+  )
   const session = loadChatSession(id)
   if (session) {
     currentSessionId = session.id
@@ -1879,7 +1893,9 @@ export async function handleChatMessage(
   const userParts: NonNullable<Content['parts']> = []
   let userText = message
   if (appMode === 'youtube') {
-    userText = `<youtube_app_context>\n<instruction>You are running in YouTube App Mode. The user wants to find and play a video. Use web_search to find a suitable YouTube video link and then use open_browser_link to open it for the user.</instruction>\n</youtube_app_context>\n\n` + userText
+    userText =
+      `<youtube_app_context>\n<instruction>You are running in YouTube App Mode. The user wants to find and play a video. Use web_search to find a suitable YouTube video link and then use open_browser_link to open it for the user.</instruction>\n</youtube_app_context>\n\n` +
+      userText
   }
 
   if (quote) {
@@ -2088,7 +2104,11 @@ export async function handleChatMessage(
               let isMalformed = validation.isMalformed
               let actualName = isMalformed ? 'malformed_tool_call' : validation.name!
 
-              if (!isMalformed && matchedWorkflow?.toolConstraints && matchedWorkflow.toolConstraints.length > 0) {
+              if (
+                !isMalformed &&
+                matchedWorkflow?.toolConstraints &&
+                matchedWorkflow.toolConstraints.length > 0
+              ) {
                 if (!matchedWorkflow.toolConstraints.includes(actualName)) {
                   isMalformed = true
                   validation.isMalformed = true
@@ -2338,7 +2358,9 @@ export async function handleLauncherChatMessage(
 
   let userText = message
   if (appMode === 'youtube') {
-    userText = `<youtube_app_context>\n<instruction>You are running in YouTube App Mode. The user wants to find and play a video. Use web_search to find a suitable YouTube video link and then use open_browser_link to open it for the user.</instruction>\n</youtube_app_context>\n\n` + userText
+    userText =
+      `<youtube_app_context>\n<instruction>You are running in YouTube App Mode. The user wants to find and play a video. Use web_search to find a suitable YouTube video link and then use open_browser_link to open it for the user.</instruction>\n</youtube_app_context>\n\n` +
+      userText
   }
 
   const userParts: NonNullable<Content['parts']> = [{ text: userText }]

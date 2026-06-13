@@ -51,10 +51,10 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'execute_terminal_command',
-    description: 'Run shell command (cmd/powershell).',
+    description: 'Run a guarded shell command in the user-selected system terminal.',
     usage: '<tool_call>{"type":"execute_terminal_command","command":"CMD"}</tool_call>',
     parameters: {
-      command: 'Shell command.'
+      command: 'Shell command using the configured terminal syntax.'
     }
   },
   {

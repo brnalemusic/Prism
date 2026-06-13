@@ -15,7 +15,8 @@ const FALLBACK_CONFIG: AppConfig = {
   userGeminiKey: '',
   ttsVoice: 'Aoede',
   theme: 'marine',
-  zoomFactor: 1.0
+  zoomFactor: 1.0,
+  terminalShell: 'powershell.exe'
 }
 
 export function SubagentModelSettings(): React.JSX.Element {

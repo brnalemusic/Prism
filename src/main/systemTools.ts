@@ -7,15 +7,21 @@ import * as os from 'os'
 import { toolsManifest } from './toolsManifest'
 import { ApplicationInfo, DownloadProgress } from '../shared/types'
 import { loadConfig } from './config'
-import { chromium, type Browser, type BrowserContext, type CDPSession, type Download, type Page } from 'playwright'
-
-
-function stripAnsi(str: string): string {
-  return str.replace(
-    /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
-    ''
-  )
-}
+import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type CDPSession,
+  type Download,
+  type Page
+} from 'playwright'
+import {
+  assertSafeBulkMutationPath,
+  assertSafeFileMutationPath,
+  getLocalCommandSandboxSummary,
+  getShellSyntaxSummary,
+  runGuardedTerminalCommand
+} from './localCommandSandbox'
 
 function getDownloadsFolder(): string {
   try {
@@ -120,7 +126,7 @@ function updateTrackedDownload(
     percent:
       typeof patch.percent === 'number'
         ? Math.max(0, Math.min(100, patch.percent))
-        : computedPercent ?? previous?.percent,
+        : (computedPercent ?? previous?.percent),
     status: patch.status || previous?.status || 'starting',
     error: patch.error,
     startedAt: previous?.startedAt ?? patch.startedAt ?? now,
@@ -140,7 +146,11 @@ function updateTrackedDownload(
   return progress
 }
 
-function resolveDownloadProgressId(url: string | undefined, filename: string, preferredId?: string): string {
+function resolveDownloadProgressId(
+  url: string | undefined,
+  filename: string,
+  preferredId?: string
+): string {
   const key = getDownloadKey(url, filename)
   let id = provisionalDownloadIds.get(key)
   if (!id) {
@@ -350,11 +360,13 @@ async function getElementDownloadCandidate(
         ((el as HTMLElement).getAttribute('href')
           ? new URL((el as HTMLElement).getAttribute('href') || '', window.location.href).href
           : '')
-      const downloadAttribute = anchor?.getAttribute('download') || (el as HTMLElement).getAttribute('download')
+      const downloadAttribute =
+        anchor?.getAttribute('download') || (el as HTMLElement).getAttribute('download')
 
       return {
         url: href,
-        filename: downloadAttribute && downloadAttribute.trim() ? downloadAttribute.trim() : undefined
+        filename:
+          downloadAttribute && downloadAttribute.trim() ? downloadAttribute.trim() : undefined
       }
     })
     .catch(() => null)
@@ -397,7 +409,8 @@ async function downloadUrlToDownloads(
   const targetPath = path.join(downloadsFolder, filename)
   const id = resolveDownloadProgressId(resolvedUrl, filename, createDownloadId('direct-download'))
   const totalBytesHeader = Number(response.headers.get('content-length') || 0)
-  const totalBytes = Number.isFinite(totalBytesHeader) && totalBytesHeader > 0 ? totalBytesHeader : undefined
+  const totalBytes =
+    Number.isFinite(totalBytesHeader) && totalBytesHeader > 0 ? totalBytesHeader : undefined
 
   updateTrackedDownload(id, {
     filename,
@@ -480,7 +493,6 @@ async function downloadUrlToDownloads(
   return targetPath
 }
 
-
 export interface TerminalOption {
   id: string
   name: string
@@ -513,21 +525,18 @@ export async function detectAvailableTerminals(): Promise<TerminalOption[]> {
     return terminals
   }
 
-  // Windows PowerShell (always installed)
   terminals.push({
     id: 'powershell',
     name: 'PowerShell do Windows',
     path: 'powershell.exe'
   })
 
-  // CMD (always installed)
   terminals.push({
     id: 'cmd',
     name: 'CMD',
     path: 'cmd.exe'
   })
 
-  // Check Pwsh 7
   if (await checkIfExecutableExists('pwsh.exe')) {
     terminals.push({
       id: 'pwsh',
@@ -554,7 +563,6 @@ export async function detectAvailableTerminals(): Promise<TerminalOption[]> {
     }
   }
 
-  // Check Git Bash
   if (await checkIfExecutableExists('bash.exe')) {
     terminals.push({
       id: 'gitbash',
@@ -583,7 +591,6 @@ export async function detectAvailableTerminals(): Promise<TerminalOption[]> {
     }
   }
 
-  // Check WSL
   if (await checkIfExecutableExists('wsl.exe')) {
     terminals.push({
       id: 'wsl',
@@ -612,56 +619,16 @@ export async function runTerminalCommand(
   apiKey?: string,
   signal?: AbortSignal
 ): Promise<string> {
-  const isWindows = process.platform === 'win32'
   const config = loadConfig()
+  const isWindows = process.platform === 'win32'
   const shellToUse = config.terminalShell || (isWindows ? 'powershell.exe' : undefined)
-
   const fallbackApiKey = config.userGeminiKey || process.env.GEMINI_API_KEY
   const activeApiKey = apiKey || fallbackApiKey
 
-  const env = { ...process.env }
-  if (activeApiKey) {
-    env.GEMINI_API_KEY = activeApiKey
-  }
-
-  let normalizedCommand = command
-  const execOptions: any = { env, signal, maxBuffer: 10 * 1024 * 1024 }
-
-  if (isWindows && shellToUse) {
-    execOptions.shell = shellToUse
-    const lowerShell = shellToUse.toLowerCase()
-    if (lowerShell.includes('powershell') || lowerShell.includes('pwsh')) {
-      normalizedCommand = `$OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; chcp 65001 | Out-Null; ${command}`
-    } else if (lowerShell.includes('cmd')) {
-      normalizedCommand = `chcp 65001 > nul & ${command}`
-    } else {
-      normalizedCommand = command
-    }
-  }
-
-  return new Promise((resolve, reject) => {
-    exec(normalizedCommand, execOptions, (error, stdout, stderr) => {
-      const stdoutStr = (stdout as any).toString()
-      const stderrStr = (stderr as any).toString()
-      if (error) {
-        if (error.name === 'AbortError') {
-          reject(error)
-          return
-        }
-        resolve(`Error executing command: ${stripAnsi(error.message)}\n${stripAnsi(stderrStr)}`)
-        return
-      }
-      const cleanStdout = stripAnsi(stdoutStr)
-      const cleanStderr = stripAnsi(stderrStr)
-      const output = cleanStdout || cleanStderr || 'Command executed successfully (no output).'
-      // Truncate output if it exceeds 50,000 characters to prevent renderer crash
-      const MAX_OUTPUT = 50000
-      if (output.length > MAX_OUTPUT) {
-        resolve(output.substring(0, MAX_OUTPUT) + '\n\n... (Output truncated for performance)')
-        return
-      }
-      resolve(output)
-    })
+  return runGuardedTerminalCommand(command, {
+    shell: shellToUse,
+    apiKey: activeApiKey,
+    signal
   })
 }
 
@@ -678,44 +645,10 @@ function resolveRequiredPath(input: string, label: string): string {
   return path.resolve(cleaned)
 }
 
-function assertNotRootPath(fullPath: string, label: string): void {
-  const normalized = path.normalize(fullPath)
-  const root = path.parse(normalized).root
-  if (normalized === root) {
-    throw new Error(`Refusing to operate on filesystem root as ${label}: ${fullPath}`)
-  }
-}
-
 function createAbortError(): Error {
   const error = new Error('AbortError')
   error.name = 'AbortError'
   return error
-}
-
-function normalizeHttpUrl(input: string, label: string): string {
-  const cleaned = input.trim()
-  if (!cleaned) {
-    throw new Error(`Missing required ${label}. Provide a complete URL.`)
-  }
-
-  if (/^(URL|LINK|WEBPAGE|TARGET)([_-]?\w+)?$/i.test(cleaned)) {
-    throw new Error(`Invalid ${label}: "${input}". Replace placeholders with a real URL.`)
-  }
-
-  const hasHttpScheme = /^https?:\/\//i.test(cleaned)
-  const localhostWithoutScheme = /^(localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(cleaned)
-  const candidate = hasHttpScheme
-    ? cleaned
-    : localhostWithoutScheme
-      ? `http://${cleaned}`
-      : `https://${cleaned}`
-
-  const parsed = new URL(candidate)
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Unsupported ${label} protocol: ${parsed.protocol}`)
-  }
-
-  return parsed.toString()
 }
 
 function parseToolBoolean(value: string | undefined, defaultValue: boolean): boolean {
@@ -755,6 +688,32 @@ function describeStats(fullPath: string, stats: Awaited<ReturnType<typeof fs.sta
   )
 }
 
+function normalizeHttpUrl(input: string, label: string): string {
+  const cleaned = input.trim()
+  if (!cleaned) {
+    throw new Error(`Missing required ${label}. Provide a complete URL.`)
+  }
+
+  if (/^(URL|LINK|WEBPAGE|TARGET)([_-]?\w+)?$/i.test(cleaned)) {
+    throw new Error(`Invalid ${label}: "${input}". Replace placeholders with a real URL.`)
+  }
+
+  const hasHttpScheme = /^https?:\/\//i.test(cleaned)
+  const localhostWithoutScheme = /^(localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(cleaned)
+  const candidate = hasHttpScheme
+    ? cleaned
+    : localhostWithoutScheme
+      ? `http://${cleaned}`
+      : `https://${cleaned}`
+
+  const parsed = new URL(candidate)
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Unsupported ${label} protocol: ${parsed.protocol}`)
+  }
+
+  return parsed.toString()
+}
+
 /**
  * COMPUTER USE: Create a new file with content.
  */
@@ -765,7 +724,7 @@ export async function computerCreateFile(
 ): Promise<string> {
   try {
     const fullPath = resolveRequiredPath(filePath, 'path')
-    assertNotRootPath(fullPath, 'path')
+    assertSafeFileMutationPath(fullPath, 'path')
     await fs.mkdir(path.dirname(fullPath), { recursive: true })
     await fs.writeFile(fullPath, content, { encoding: 'utf8', flag: 'wx', signal })
     return `File created successfully: ${fullPath}`
@@ -784,7 +743,7 @@ export async function computerCreateDirectory(
 ): Promise<string> {
   try {
     const fullPath = resolveRequiredPath(dirPath, 'path')
-    assertNotRootPath(fullPath, 'path')
+    assertSafeFileMutationPath(fullPath, 'path')
     throwIfAborted(signal)
     await fs.mkdir(fullPath, { recursive: true })
     throwIfAborted(signal)
@@ -801,7 +760,7 @@ export async function computerCreateDirectory(
 export async function computerRemoveFile(filePath: string, signal?: AbortSignal): Promise<string> {
   try {
     const fullPath = resolveRequiredPath(filePath, 'path')
-    assertNotRootPath(fullPath, 'path')
+    assertSafeBulkMutationPath(fullPath, 'path')
     throwIfAborted(signal)
     await fs.unlink(fullPath)
     throwIfAborted(signal)
@@ -821,7 +780,7 @@ export async function computerRemoveDirectory(
 ): Promise<string> {
   try {
     const fullPath = resolveRequiredPath(dirPath, 'path')
-    assertNotRootPath(fullPath, 'path')
+    assertSafeBulkMutationPath(fullPath, 'path')
     throwIfAborted(signal)
     await fs.rm(fullPath, { recursive: true, force: false })
     throwIfAborted(signal)
@@ -842,7 +801,7 @@ export async function computerSaveFile(
 ): Promise<string> {
   try {
     const fullPath = resolveRequiredPath(filePath, 'path')
-    assertNotRootPath(fullPath, 'path')
+    assertSafeFileMutationPath(fullPath, 'path')
     await fs.mkdir(path.dirname(fullPath), { recursive: true })
     await fs.writeFile(fullPath, content, { encoding: 'utf8', signal })
     return `File saved successfully: ${fullPath}`
@@ -862,7 +821,7 @@ export async function computerAppendToFile(
 ): Promise<string> {
   try {
     const fullPath = resolveRequiredPath(filePath, 'path')
-    assertNotRootPath(fullPath, 'path')
+    assertSafeFileMutationPath(fullPath, 'path')
     await fs.mkdir(path.dirname(fullPath), { recursive: true })
     throwIfAborted(signal)
     await fs.appendFile(fullPath, content, { encoding: 'utf8' })
@@ -886,8 +845,7 @@ export async function computerCopyFile(
   try {
     const sourceFullPath = resolveRequiredPath(sourcePath, 'sourcePath')
     const destinationFullPath = resolveRequiredPath(destinationPath, 'destinationPath')
-    assertNotRootPath(sourceFullPath, 'sourcePath')
-    assertNotRootPath(destinationFullPath, 'destinationPath')
+    assertSafeFileMutationPath(destinationFullPath, 'destinationPath')
 
     throwIfAborted(signal)
     await fs.stat(sourceFullPath)
@@ -921,8 +879,8 @@ export async function computerMoveFile(
   try {
     const sourceFullPath = resolveRequiredPath(sourcePath, 'sourcePath')
     const destinationFullPath = resolveRequiredPath(destinationPath, 'destinationPath')
-    assertNotRootPath(sourceFullPath, 'sourcePath')
-    assertNotRootPath(destinationFullPath, 'destinationPath')
+    assertSafeBulkMutationPath(sourceFullPath, 'sourcePath')
+    assertSafeFileMutationPath(destinationFullPath, 'destinationPath')
 
     throwIfAborted(signal)
     await fs.stat(sourceFullPath)
@@ -934,6 +892,7 @@ export async function computerMoveFile(
       if (!shouldOverwrite) {
         return `Error moving file: destination already exists: ${destinationFullPath}`
       }
+      assertSafeBulkMutationPath(destinationFullPath, 'destinationPath')
       await fs.rm(destinationFullPath, { recursive: true, force: true })
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
@@ -991,7 +950,6 @@ export async function computerReadFile(filePath: string, signal?: AbortSignal): 
     const fullPath = resolveRequiredPath(filePath, 'path')
     const content = await fs.readFile(fullPath, { encoding: 'utf8', signal })
 
-    // Add line numbers
     const lines = content.split('\n')
     const numberedLines = lines.map((line, index) => `${index + 1} | ${line}`)
     const fullOutput = numberedLines.join('\n')
@@ -1000,7 +958,7 @@ export async function computerReadFile(filePath: string, signal?: AbortSignal): 
     if (fullOutput.length > MAX_READ_OUTPUT) {
       return (
         fullOutput.substring(0, MAX_READ_OUTPUT) +
-        '\n\n... (File content truncated for performance. Use computerEditFile or read smaller chunks if needed)'
+        '\n\n... (File content truncated for performance. Use computer_use_edit_file or read smaller chunks if needed)'
       )
     }
     return fullOutput
@@ -1022,7 +980,7 @@ export async function computerEditFile(
 ): Promise<string> {
   try {
     const fullPath = resolveRequiredPath(filePath, 'path')
-    assertNotRootPath(fullPath, 'path')
+    assertSafeFileMutationPath(fullPath, 'path')
 
     const startLine = parseInt(startLineStr, 10)
     const endLine = parseInt(endLineStr, 10)
@@ -1041,35 +999,21 @@ export async function computerEditFile(
       return `Error editing file lines: startLine (${startLine}) is beyond the end of the file (${lines.length} lines).`
     }
 
-    // Replace the specified lines. End line is inclusive, but slice end index is exclusive,
-    // so we replace from startLine - 1 to endLine.
-    // If newContent is empty, this acts as a deletion of those lines.
     const newLines = newContent.split('\n')
-
-    // Auto-indentation logic
     const originalFirstLine = lines[startLine - 1] || ''
-    const originalIndentMatch = originalFirstLine.match(/^([ \t]+)/)
-    const originalIndent = originalIndentMatch ? originalIndentMatch[1] : ''
+    const originalIndent = originalFirstLine.match(/^[ \t]+/)?.[0] || ''
+    const shouldPreserveIndent = originalIndent && newLines.some((line) => line.trim().length > 0)
+    const adjustedNewLines = shouldPreserveIndent
+      ? newLines.map((line) => {
+          if (!line.trim()) return line
+          if (/^[ \t]/.test(line)) return line
+          return originalIndent + line
+        })
+      : newLines
 
-    if (originalIndent && newLines.length > 0) {
-      const firstNewLineIndentMatch = newLines[0].match(/^([ \t]+)/)
-      const firstNewLineIndent = firstNewLineIndentMatch ? firstNewLineIndentMatch[1] : ''
+    lines.splice(startLine - 1, endLine - startLine + 1, ...adjustedNewLines)
+    await fs.writeFile(fullPath, lines.join('\n'), { encoding: 'utf8', signal })
 
-      // If the AI provided no indentation on the first new line, but the original line had it,
-      // we prepend the original indentation to all non-empty new lines.
-      if (firstNewLineIndent === '') {
-        for (let i = 0; i < newLines.length; i++) {
-          if (newLines[i].trim() !== '') {
-            newLines[i] = originalIndent + newLines[i]
-          }
-        }
-      }
-    }
-
-    lines.splice(startLine - 1, endLine - startLine + 1, ...newLines)
-
-    const updatedContent = lines.join('\n')
-    await fs.writeFile(fullPath, updatedContent, { encoding: 'utf8', signal })
     return `Lines ${startLine} to ${endLine} replaced successfully in: ${fullPath}`
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
@@ -1556,7 +1500,8 @@ async function launchBrowser(): Promise<Browser> {
  */
 async function createBrowserContext(browser: Browser) {
   return await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     viewport: { width: 1280, height: 720 },
     deviceScaleFactor: 1,
     isMobile: false,
@@ -1575,10 +1520,13 @@ function resetIdleTimer() {
   if (idleTimer) {
     clearTimeout(idleTimer)
   }
-  idleTimer = setTimeout(async () => {
-    console.log('Browser persistent session idle for 5 minutes, closing automatically...')
-    await closePersistentBrowser()
-  }, 5 * 60 * 1000) // 5 minutes
+  idleTimer = setTimeout(
+    async () => {
+      console.log('Browser persistent session idle for 5 minutes, closing automatically...')
+      await closePersistentBrowser()
+    },
+    5 * 60 * 1000
+  ) // 5 minutes
 }
 
 async function getOrCreatePersistentPage(): Promise<Page> {
@@ -1668,15 +1616,18 @@ export async function browserSnapshot(full?: string): Promise<string> {
     const isFull = full === 'true'
 
     // Strip target="_blank" before capturing to force all links to open in the current tab
-    await persistentPage.evaluate(() => {
-      document.querySelectorAll('a[target="_blank"]').forEach((a) => a.removeAttribute('target'))
-    }).catch(() => {})
+    await persistentPage
+      .evaluate(() => {
+        document.querySelectorAll('a[target="_blank"]').forEach((a) => a.removeAttribute('target'))
+      })
+      .catch(() => {})
 
     const dom = await persistentPage.evaluate((isFull) => {
       // 1. Tag interactive elements
-      const interactiveElementsSelector = 'a, button, input, textarea, select, details, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="textbox"], [role="menuitem"], [role="tab"], [role="option"], [contenteditable="true"]'
+      const interactiveElementsSelector =
+        'a, button, input, textarea, select, details, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="textbox"], [role="menuitem"], [role="tab"], [role="option"], [contenteditable="true"]'
       const interactiveEls = Array.from(document.querySelectorAll(interactiveElementsSelector))
-      
+
       let nextId = 1
       interactiveEls.forEach((el) => {
         const rect = el.getBoundingClientRect()
@@ -1712,7 +1663,11 @@ export async function browserSnapshot(full?: string): Promise<string> {
         if (!isVisible(el)) return ''
 
         const tagName = el.tagName.toLowerCase()
-        if (['script', 'style', 'iframe', 'noscript', 'svg', 'path', 'link', 'meta', 'head'].includes(tagName)) {
+        if (
+          ['script', 'style', 'iframe', 'noscript', 'svg', 'path', 'link', 'meta', 'head'].includes(
+            tagName
+          )
+        ) {
           return ''
         }
 
@@ -1724,7 +1679,9 @@ export async function browserSnapshot(full?: string): Promise<string> {
           const idStr = el.id ? ` id="${el.id}"` : ''
           const nameStr = el.getAttribute('name') ? ` name="${el.getAttribute('name')}"` : ''
           const typeStr = el.getAttribute('type') ? ` type="${el.getAttribute('type')}"` : ''
-          const placeholderStr = el.getAttribute('placeholder') ? ` placeholder="${el.getAttribute('placeholder')}"` : ''
+          const placeholderStr = el.getAttribute('placeholder')
+            ? ` placeholder="${el.getAttribute('placeholder')}"`
+            : ''
           const valStr = (el as any).value ? ` value="${(el as any).value}"` : ''
           return `<${tagName}${idAttr}${idStr}${nameStr}${typeStr}${placeholderStr}${valStr}></${tagName}>\n`
         }
@@ -1756,7 +1713,9 @@ export async function browserSnapshot(full?: string): Promise<string> {
         }
 
         // Check for headings, paragraphs, list items
-        if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'td', 'th', 'summary'].includes(tagName)) {
+        if (
+          ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'td', 'th', 'summary'].includes(tagName)
+        ) {
           let childContent = ''
           el.childNodes.forEach((child) => {
             childContent += cleanNode(child)
@@ -1772,7 +1731,21 @@ export async function browserSnapshot(full?: string): Promise<string> {
         })
         childrenContent = childrenContent.trim()
         if (childrenContent) {
-          if (!isFull && !prismId && ['div', 'span', 'section', 'article', 'main', 'header', 'footer', 'aside', 'nav'].includes(tagName)) {
+          if (
+            !isFull &&
+            !prismId &&
+            [
+              'div',
+              'span',
+              'section',
+              'article',
+              'main',
+              'header',
+              'footer',
+              'aside',
+              'nav'
+            ].includes(tagName)
+          ) {
             return childrenContent + '\n'
           }
           return `<${tagName}${idAttr}>\n${childrenContent}\n</${tagName}>\n`
@@ -1785,7 +1758,9 @@ export async function browserSnapshot(full?: string): Promise<string> {
 
     const MAX_CONTENT = 30000
     const result = dom.replace(/\n\s*\n/g, '\n').trim()
-    return result.length > MAX_CONTENT ? result.substring(0, MAX_CONTENT) + '\n... (truncated)' : result
+    return result.length > MAX_CONTENT
+      ? result.substring(0, MAX_CONTENT) + '\n... (truncated)'
+      : result
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return `Error capturing page snapshot: ${message}`
@@ -1833,11 +1808,17 @@ export async function browserClick(elementId: string): Promise<string> {
     try {
       await locator.click({ timeout: 5000 })
     } catch (clickErr) {
-      console.warn(`browserClick: Standard click failed for element "${elementId}", trying force click...`, clickErr)
+      console.warn(
+        `browserClick: Standard click failed for element "${elementId}", trying force click...`,
+        clickErr
+      )
       try {
         await locator.click({ force: true, timeout: 5000 })
       } catch (forceErr) {
-        console.warn(`browserClick: Force click failed for element "${elementId}", executing direct DOM click...`, forceErr)
+        console.warn(
+          `browserClick: Force click failed for element "${elementId}", executing direct DOM click...`,
+          forceErr
+        )
         await locator.evaluate((el: HTMLElement) => el.click())
       }
     }
@@ -1898,10 +1879,13 @@ export async function browserScroll(direction: 'up' | 'down', amount?: string): 
       return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
     }
     resetIdleTimer()
-    await persistentPage.evaluate((args) => {
-      const scrollAmount = args.amount ? Number(args.amount) : window.innerHeight * 0.8
-      window.scrollBy(0, args.direction === 'down' ? scrollAmount : -scrollAmount)
-    }, { direction, amount })
+    await persistentPage.evaluate(
+      (args) => {
+        const scrollAmount = args.amount ? Number(args.amount) : window.innerHeight * 0.8
+        window.scrollBy(0, args.direction === 'down' ? scrollAmount : -scrollAmount)
+      },
+      { direction, amount }
+    )
     return `Scrolled page ${direction} successfully.`
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -1926,7 +1910,10 @@ export async function browserBack(): Promise<string> {
 export async function browserScreenshot(): Promise<{ result: string; base64?: string }> {
   try {
     if (!persistentPage || persistentPage.isClosed()) {
-      return { result: 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.' }
+      return {
+        result:
+          'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
+      }
     }
     resetIdleTimer()
     const buffer = await persistentPage.screenshot({ type: 'png' })
@@ -2009,9 +1996,10 @@ export async function detailedDomPage(url?: string): Promise<string> {
 
     const dom = await page.evaluate(() => {
       // 1. Tag interactive elements
-      const interactiveElementsSelector = 'a, button, input, textarea, select, details, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="textbox"], [role="menuitem"], [role="tab"], [role="option"], [contenteditable="true"]'
+      const interactiveElementsSelector =
+        'a, button, input, textarea, select, details, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="textbox"], [role="menuitem"], [role="tab"], [role="option"], [contenteditable="true"]'
       const interactiveEls = Array.from(document.querySelectorAll(interactiveElementsSelector))
-      
+
       let nextId = 1
       interactiveEls.forEach((el) => {
         const rect = el.getBoundingClientRect()
@@ -2046,7 +2034,11 @@ export async function detailedDomPage(url?: string): Promise<string> {
         if (!isVisible(el)) return ''
 
         const tagName = el.tagName.toLowerCase()
-        if (['script', 'style', 'iframe', 'noscript', 'svg', 'path', 'link', 'meta', 'head'].includes(tagName)) {
+        if (
+          ['script', 'style', 'iframe', 'noscript', 'svg', 'path', 'link', 'meta', 'head'].includes(
+            tagName
+          )
+        ) {
           return ''
         }
 
@@ -2056,9 +2048,19 @@ export async function detailedDomPage(url?: string): Promise<string> {
         if (el.className) attrs.push(`class="${el.className}"`)
         const prismId = el.getAttribute('data-prism-id')
         if (prismId) attrs.push(`data-prism-id="${prismId}"`)
-        
+
         // Add specific attributes
-        const attributesToCollect = ['href', 'src', 'alt', 'placeholder', 'type', 'name', 'value', 'title', 'role']
+        const attributesToCollect = [
+          'href',
+          'src',
+          'alt',
+          'placeholder',
+          'type',
+          'name',
+          'value',
+          'title',
+          'role'
+        ]
         for (const attr of attributesToCollect) {
           const val = el.getAttribute(attr)
           if (val) attrs.push(`${attr}="${val}"`)
@@ -2089,7 +2091,9 @@ export async function detailedDomPage(url?: string): Promise<string> {
 
     const MAX_CONTENT = 40000
     const result = dom.replace(/\n\s*\n/g, '\n').trim()
-    return result.length > MAX_CONTENT ? result.substring(0, MAX_CONTENT) + '\n... (truncated)' : result
+    return result.length > MAX_CONTENT
+      ? result.substring(0, MAX_CONTENT) + '\n... (truncated)'
+      : result
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return `Error getting detailed DOM: ${message}`
@@ -2176,7 +2180,9 @@ export async function sawLinkFromUrl(url: string, signal?: AbortSignal): Promise
 
     const cleaned = text.replace(/\s+/g, ' ').trim()
     const MAX_CONTENT = 20000
-    return cleaned.length > MAX_CONTENT ? cleaned.substring(0, MAX_CONTENT) + '... (truncated)' : cleaned
+    return cleaned.length > MAX_CONTENT
+      ? cleaned.substring(0, MAX_CONTENT) + '... (truncated)'
+      : cleaned
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
     const message = error instanceof Error ? error.message : String(error)
@@ -2229,7 +2235,9 @@ export async function webSearch(query: string, signal?: AbortSignal): Promise<st
     if (page.url().includes('consent.google.com')) {
       console.log('webSearch: Redirected to Google consent page. Clicking accept...')
       await handleConsentBanners(page)
-      await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {})
+      await page
+        .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 })
+        .catch(() => {})
     } else {
       await handleConsentBanners(page)
     }
@@ -2252,7 +2260,9 @@ export async function webSearch(query: string, signal?: AbortSignal): Promise<st
         let snippet = ''
         let attempts = 0
         while (container && attempts < 6) {
-          const descEl = container.querySelector('.VwiC3b, .yD3nu, div[style*="-webkit-line-clamp"]')
+          const descEl = container.querySelector(
+            '.VwiC3b, .yD3nu, div[style*="-webkit-line-clamp"]'
+          )
           if (descEl) {
             snippet = descEl.textContent || ''
             break
@@ -2335,13 +2345,15 @@ export function getSystemToolsPrompt(
   extendedSearch: boolean = false,
   allowedTools?: string[]
 ): string {
-  let shellName = 'powershell.exe'
+  let shellName = process.platform === 'win32' ? 'powershell.exe' : '/bin/sh'
   try {
     const config = loadConfig()
-    shellName = config.terminalShell || 'powershell.exe'
+    shellName = config.terminalShell || shellName
   } catch (err) {
-    console.error('Failed to load config for system tools prompt:', err)
+    console.error('Failed to load config for terminal prompt:', err)
   }
+  const terminalSummary = getLocalCommandSandboxSummary(shellName)
+  const shellSyntax = getShellSyntaxSummary(shellName)
   const name = 'Prism AI'
   const modelNames: Record<string, string> = {
     'prism-4': 'Prism 4',
@@ -2401,7 +2413,7 @@ export function getSystemToolsPrompt(
   if (target === 'launcher') {
     return `# Identity & Context
 Role: Prism Mini-Chat (${modelName}), running in the Quick Launcher.
-Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${shellName}
+Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
 # Rules
 - **Simple Markdown Only:** Respond ONLY using traditional simple Markdown (no HTML/CSS, no Rich Markdown).
@@ -2428,7 +2440,7 @@ ${toolsPrompt}`
 
   return `# Identity & Context
 Role: ${name} (${modelName}), a concise, tool-capable desktop assistant.
-Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${shellName}
+Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 Deep Research Protocol: ${searchProtocolText}
 
 # Visual & Interaction Protocol
@@ -2471,7 +2483,8 @@ Define clear boundaries to maximize UX and performance:
 # Tool Protocol & Execution
 - **Format:** Tool calls must be valid JSON in a <tool_call> XML block: <tool_call>{"type": "tool_name", "param": "val"}</tool_call>.
 - **Requirements:** JSON must contain "type". Escape newlines (\\n) and quotes in JSON. Absolute paths are required.
-- **Terminal CLI:** Commands are run in ${shellName} shell. Match its syntax.
+- **Terminal CLI:** Commands run in the user's selected host terminal \`${shellName}\`; use ${shellSyntax} syntax. Prism blocks dangerous system commands before execution.
+- **Filesystem Safety:** \`computer_use_*\` file tools modify real files only at explicit paths and refuse filesystem roots or protected system paths.
 - **Persistent Browser:** For browser_* actions (except browser_close) and web_script, call open_browser first and browser_close when done. web_search, saw_link_from_url, and open_browser_link need no persistent session.
 ${parallelRule}
 ${humanUserRule}

@@ -14,6 +14,8 @@ import {
   ArrowRight,
   ChatCircle as MessageSquare,
   Microphone,
+  PaperPlaneRight as SendHorizontal,
+  StopCircle,
   CaretDown
 } from '@phosphor-icons/react'
 import { useSpeechToText } from '../hooks/useSpeechToText'
@@ -209,25 +211,25 @@ export function QuickLauncher(): React.JSX.Element {
   const [isMiniChatOpen, setIsMiniChatOpen] = useState(false)
   const [launcherMessages, setLauncherMessages] = useState<Message[]>([])
 
-  const shouldSendRef = useRef(false)
   const queryRef = useRef(query)
   useEffect(() => {
     queryRef.current = query
   }, [query])
 
-  const { isRecording, isTranscribing, toggleRecording } = useSpeechToText((transcription) => {
-    const newQuery = queryRef.current.trim()
-      ? queryRef.current + ' ' + transcription
-      : transcription
-    setQuery(newQuery)
+  const { isRecording, isTranscribing, toggleRecording, stopRecording } = useSpeechToText(
+    (transcription, action) => {
+      const newQuery = queryRef.current.trim()
+        ? queryRef.current + ' ' + transcription
+        : transcription
+      setQuery(newQuery)
 
-    if (shouldSendRef.current) {
-      shouldSendRef.current = false
-      submitMessage(newQuery)
+      if (action === 'send') {
+        submitMessage(newQuery)
+      }
+
+      setTimeout(() => inputRef.current?.focus(), 100)
     }
-
-    setTimeout(() => inputRef.current?.focus(), 100)
-  })
+  )
 
   const activeMode = isYoutubeMode
     ? 'youtube'
@@ -636,9 +638,6 @@ export function QuickLauncher(): React.JSX.Element {
       // Dictation shortcut (Ctrl+D)
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
         e.preventDefault()
-        if (isRecording) {
-          shouldSendRef.current = true
-        }
         toggleRecording()
         return
       }
@@ -1078,30 +1077,52 @@ export function QuickLauncher(): React.JSX.Element {
               />
             </form>
 
-            <button
-              type="button"
-              onClick={toggleRecording}
-              disabled={isTranscribing}
-              className={clsx(
-                'relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] border transition-all duration-200',
-                isRecording
-                  ? 'border-status-error/30 bg-status-error/20 text-status-error animate-pulse'
-                  : isTranscribing
-                    ? 'border-accent-primary/30 bg-accent-primary/20 text-accent-primary cursor-wait'
-                    : 'border-white/[0.08] bg-[#1e2026] text-text-secondary hover:bg-[#25272e] hover:text-text-primary'
+            <div className="relative z-10 flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (isRecording) {
+                    stopRecording('insert')
+                  } else {
+                    toggleRecording()
+                  }
+                }}
+                disabled={isTranscribing}
+                className={clsx(
+                  'flex h-10 w-10 items-center justify-center rounded-[16px] border transition-all duration-200',
+                  isRecording
+                    ? 'border-status-error/30 bg-status-error/20 text-status-error animate-pulse'
+                    : isTranscribing
+                      ? 'border-accent-primary/30 bg-accent-primary/20 text-accent-primary cursor-wait'
+                      : 'border-white/[0.08] bg-[#1e2026] text-text-secondary hover:bg-[#25272e] hover:text-text-primary'
+                )}
+                title={isRecording ? 'Stop and review' : 'Start Dictation'}
+              >
+                {isTranscribing ? (
+                  <div className="flex items-center gap-0.5">
+                    <span className="h-1 w-1 rounded-full bg-current animate-bounce [animation-delay:-0.3s]" />
+                    <span className="h-1 w-1 rounded-full bg-current animate-bounce [animation-delay:-0.15s]" />
+                    <span className="h-1 w-1 rounded-full bg-current animate-bounce" />
+                  </div>
+                ) : isRecording ? (
+                  <StopCircle size={20} weight="fill" />
+                ) : (
+                  <Microphone size={20} />
+                )}
+              </button>
+
+              {isRecording && (
+                <button
+                  type="button"
+                  onClick={() => stopRecording('send')}
+                  disabled={isTranscribing}
+                  className="flex h-10 w-10 items-center justify-center rounded-[16px] border border-text-primary/20 bg-text-primary text-black transition-all duration-200 hover:bg-white active:scale-95"
+                  title="Stop and send"
+                >
+                  <SendHorizontal size={17} weight="fill" />
+                </button>
               )}
-              title={isRecording ? 'Stop Recording' : 'Start Dictation'}
-            >
-              {isTranscribing ? (
-                <div className="flex items-center gap-0.5">
-                  <span className="h-1 w-1 rounded-full bg-current animate-bounce [animation-delay:-0.3s]" />
-                  <span className="h-1 w-1 rounded-full bg-current animate-bounce [animation-delay:-0.15s]" />
-                  <span className="h-1 w-1 rounded-full bg-current animate-bounce" />
-                </div>
-              ) : (
-                <Microphone size={20} weight={isRecording ? 'fill' : 'regular'} />
-              )}
-            </button>
+            </div>
 
             {/* Indicators badges */}
             {activeBadges.length > 0 && (

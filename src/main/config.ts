@@ -4,9 +4,9 @@ import * as path from 'path'
 
 export interface SlashWorkflow {
   id: string
-  command: string       // e.g., "/summarize"
-  name: string          // e.g., "Summarizer"
-  description: string   // e.g., "Summarize text and check for errors"
+  command: string // e.g., "/summarize"
+  name: string // e.g., "Summarizer"
+  description: string // e.g., "Summarize text and check for errors"
   systemInstruction: string // instructions injected into system prompt
   toolConstraints?: string[] // optional list of allowed tools (empty/undefined = all allowed)
 }
@@ -54,7 +54,8 @@ const DEFAULT_CONFIG: AppConfig = {
       command: '/search',
       name: 'Search',
       description: 'Perform deep web research on a topic',
-      systemInstruction: 'You are running in Web Search Mode. Your goal is to conduct deep, comprehensive research on the user\'s query. Use the web_search tool to find relevant information. Analyze search results carefully, verify facts across multiple sources, and present a structured, clear summary of the findings with references.',
+      systemInstruction:
+        "You are running in Web Search Mode. Your goal is to conduct deep, comprehensive research on the user's query. Use the web_search tool to find relevant information. Analyze search results carefully, verify facts across multiple sources, and present a structured, clear summary of the findings with references.",
       toolConstraints: ['web_search', 'saw_link_from_url', 'open_browser_link']
     },
     {
@@ -62,7 +63,8 @@ const DEFAULT_CONFIG: AppConfig = {
       command: '/subagents',
       name: 'Subagents Swarm',
       description: 'Delegate complex tasks to a swarm of subagents',
-      systemInstruction: 'You are running in Subagent Mode. Your goal is to delegate and orchestrate the user\'s request using worker subagents. First, analyze the task requirements and break them down. Then, spawn the required number of subagents using the run_subagents tool. Coordinate their execution, monitor group chat updates, and synthesize their individual outputs into a comprehensive final report.',
+      systemInstruction:
+        "You are running in Subagent Mode. Your goal is to delegate and orchestrate the user's request using worker subagents. First, analyze the task requirements and break them down. Then, spawn the required number of subagents using the run_subagents tool. Coordinate their execution, monitor group chat updates, and synthesize their individual outputs into a comprehensive final report.",
       toolConstraints: ['run_subagents']
     },
     {
@@ -70,7 +72,8 @@ const DEFAULT_CONFIG: AppConfig = {
       command: '/summarize',
       name: 'Summarizer',
       description: 'Create a structured summary of the text and check for errors',
-      systemInstruction: 'You are running in Summarize Mode. Your goal is to analyze the user\'s input text, extract the key points, organize them in a clean structure, check for spelling, grammar, or factual errors, and output a concise, professional summary.',
+      systemInstruction:
+        "You are running in Summarize Mode. Your goal is to analyze the user's input text, extract the key points, organize them in a clean structure, check for spelling, grammar, or factual errors, and output a concise, professional summary.",
       toolConstraints: []
     }
   ]

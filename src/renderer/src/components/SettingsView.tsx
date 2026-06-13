@@ -46,7 +46,15 @@ interface Config {
   workflows?: SlashWorkflow[]
 }
 
-type SectionId = 'shortcuts' | 'intelligence' | 'appearance' | 'voice' | 'workflows' | 'system' | 'about'
+type SectionId =
+  | 'shortcuts'
+  | 'intelligence'
+  | 'runtime'
+  | 'appearance'
+  | 'voice'
+  | 'workflows'
+  | 'system'
+  | 'about'
 
 interface NavSection {
   id: SectionId
@@ -150,7 +158,7 @@ export function SettingsView(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
-    const updateRgbActive = () => {
+    const updateRgbActive = (): void => {
       const active = !!(config.rgbThemeExpiry && config.rgbThemeExpiry > Date.now())
       setIsRgbActive(active)
       if (!active && config.theme === 'rgb') {
@@ -215,6 +223,7 @@ export function SettingsView(): React.JSX.Element {
   const sections: NavSection[] = [
     { id: 'shortcuts', label: 'Shortcuts', icon: <Keyboard size={18} /> },
     { id: 'intelligence', label: 'Intelligence', icon: <Bot size={18} /> },
+    { id: 'runtime', label: 'AI Runtime', icon: <Shield size={18} /> },
     { id: 'appearance', label: 'Appearance', icon: <Palette size={18} /> },
     { id: 'voice', label: 'Voice', icon: <Volume2 size={18} /> },
     { id: 'workflows', label: 'Workflows', icon: <Lightning size={18} /> },
@@ -585,12 +594,55 @@ export function SettingsView(): React.JSX.Element {
     </div>
   )
 
+  const renderRuntime = (): React.JSX.Element => (
+    <div className="space-y-6 animate-soft-pop">
+      <SectionHeader
+        title="AI Runtime"
+        subtitle="Choose the host terminal Prism uses for guarded AI commands."
+      />
+
+      <div className="space-y-4">
+        <div className="rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-4">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+              <TerminalWindow size={16} className="text-accent-primary" />
+              Local Command Sandbox
+            </h3>
+            <p className="text-xs text-text-secondary/60 mt-1 leading-normal">
+              Prism runs AI terminal commands in the selected system terminal, then blocks dangerous
+              system-level operations before execution.
+            </p>
+          </div>
+        </div>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[11px] font-semibold text-text-secondary/70">
+            Terminal CLI Shell
+          </span>
+          <select
+            value={config.terminalShell || 'powershell.exe'}
+            onChange={(e) => setConfig({ ...config, terminalShell: e.target.value })}
+            className="w-full rounded-[16px] border border-white/[0.08] bg-white/[0.035] px-3 py-2.5 text-xs text-text-primary focus:border-accent-primary/40 focus:outline-none"
+          >
+            {availableTerminals.map((term) => (
+              <option key={term.path} value={term.path} className="bg-[#13151a] text-text-primary">
+                {term.name} ({term.path})
+              </option>
+            ))}
+          </select>
+          {availableTerminals.length === 0 && (
+            <span className="text-[10px] text-text-secondary/50 leading-normal">
+              Checking installed terminals...
+            </span>
+          )}
+        </label>
+      </div>
+    </div>
+  )
+
   const renderSystem = (): React.JSX.Element => (
     <div className="space-y-8 animate-soft-pop">
-      <SectionHeader
-        title="System"
-        subtitle="Behavior, terminal preferences, and API authentication."
-      />
+      <SectionHeader title="System" subtitle="Behavior preferences and API authentication." />
 
       {/* Behavior toggles */}
       <div className="space-y-3">
@@ -650,39 +702,6 @@ export function SettingsView(): React.JSX.Element {
       </div>
 
       <div className="h-px bg-white/[0.04]" />
-
-      {/* Terminal CLI Shell */}
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-          <TerminalWindow size={16} className="text-accent-primary" />
-          Terminal CLI Shell
-        </h3>
-        <p className="text-xs text-text-secondary/60">
-          Select which terminal environment Prism will use to run commands.
-        </p>
-        <div className="relative w-full">
-          <select
-            value={config.terminalShell || 'powershell.exe'}
-            onChange={(e) => setConfig({ ...config, terminalShell: e.target.value })}
-            className="w-full appearance-none rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none cursor-pointer"
-          >
-            {availableTerminals.map((term) => (
-              <option key={term.path} value={term.path} className="bg-[#13151a] text-text-primary">
-                {term.name} ({term.path})
-              </option>
-            ))}
-          </select>
-          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-text-secondary/70">
-            <svg
-              className="fill-current h-4 w-4"
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 20 20"
-            >
-              <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
-            </svg>
-          </div>
-        </div>
-      </div>
 
       <div className="h-px bg-white/[0.04]" />
 
@@ -752,24 +771,56 @@ export function SettingsView(): React.JSX.Element {
   )
 
   const AVAILABLE_TOOLS = [
-    { name: 'execute_terminal_command', label: 'Terminal Commands', desc: 'Execute commands in the terminal' },
+    {
+      name: 'execute_terminal_command',
+      label: 'Guarded Terminal',
+      desc: 'Execute commands in the selected terminal'
+    },
     { name: 'web_search', label: 'Web Search', desc: 'Search DuckDuckGo for live info' },
     { name: 'saw_link_from_url', label: 'Read URL Page', desc: 'Fetch website text contents' },
-    { name: 'open_browser_link', label: 'Open Browser Link', desc: 'Open links in the system browser' },
+    {
+      name: 'open_browser_link',
+      label: 'Open Browser Link',
+      desc: 'Open links in the system browser'
+    },
     { name: 'open_application', label: 'Open App', desc: 'Start a program using its path' },
-    { name: 'list_installed_applications', label: 'List Apps', desc: 'View all installed desktop applications' },
-    { name: 'search_chat_history', label: 'Search History', desc: 'Search keywords in prior conversations' },
-    { name: 'run_subagents', label: 'Run Subagents Swarm', desc: 'Delegate sub-tasks to nested agents' },
-    { name: 'computer_use_see_screen', label: 'See Screen', desc: 'Take screenshot of screen or specific app' },
+    {
+      name: 'list_installed_applications',
+      label: 'List Apps',
+      desc: 'View all installed desktop applications'
+    },
+    {
+      name: 'search_chat_history',
+      label: 'Search History',
+      desc: 'Search keywords in prior conversations'
+    },
+    {
+      name: 'run_subagents',
+      label: 'Run Subagents Swarm',
+      desc: 'Delegate sub-tasks to nested agents'
+    },
+    {
+      name: 'computer_use_see_screen',
+      label: 'See Screen',
+      desc: 'Take screenshot of screen or specific app'
+    },
     { name: 'computer_use_read_file', label: 'Read File', desc: 'Read file contents' },
     { name: 'computer_use_create_file', label: 'Create File', desc: 'Create a new file with text' },
     { name: 'computer_use_save_file', label: 'Save File', desc: 'Overwrite file contents' },
-    { name: 'computer_use_edit_file', label: 'Edit File', desc: 'Edit specific lines of code in a file' },
-    { name: 'computer_use_list_directory', label: 'List Directory', desc: 'List contents of folder' },
+    {
+      name: 'computer_use_edit_file',
+      label: 'Edit File',
+      desc: 'Edit specific lines of code in a file'
+    },
+    {
+      name: 'computer_use_list_directory',
+      label: 'List Directory',
+      desc: 'List contents of folder'
+    },
     { name: 'computer_use_remove_file', label: 'Remove File', desc: 'Delete a file' }
   ]
 
-  const handleEditWorkflow = (w: SlashWorkflow) => {
+  const handleEditWorkflow = (w: SlashWorkflow): void => {
     setEditingWorkflow(w)
     setFormCommand(w.command)
     setFormName(w.name)
@@ -780,7 +831,7 @@ export function SettingsView(): React.JSX.Element {
     setIsAddingWorkflow(false)
   }
 
-  const handleAddWorkflowClick = () => {
+  const handleAddWorkflowClick = (): void => {
     setIsAddingWorkflow(true)
     setEditingWorkflow(null)
     setFormCommand('/')
@@ -791,7 +842,7 @@ export function SettingsView(): React.JSX.Element {
     setFormError('')
   }
 
-  const handleSaveWorkflowForm = () => {
+  const handleSaveWorkflowForm = (): void => {
     if (!formCommand.startsWith('/')) {
       setFormError('Command must start with a slash (/)')
       return
@@ -814,11 +865,12 @@ export function SettingsView(): React.JSX.Element {
     }
 
     const wList = config.workflows || []
-    
+
     // Check duplicate
     const isDuplicate = wList.some(
-      (w) => w.command.toLowerCase() === formCommand.toLowerCase() && 
-             w.id !== (editingWorkflow?.id || '')
+      (w) =>
+        w.command.toLowerCase() === formCommand.toLowerCase() &&
+        w.id !== (editingWorkflow?.id || '')
     )
     if (isDuplicate) {
       setFormError(`Workflow with command "${formCommand}" already exists`)
@@ -843,7 +895,7 @@ export function SettingsView(): React.JSX.Element {
 
     const updatedConfig = { ...config, workflows: updatedWorkflows }
     setConfig(updatedConfig)
-    
+
     // Auto persist to disk
     window.api.saveConfig(updatedConfig)
 
@@ -851,7 +903,7 @@ export function SettingsView(): React.JSX.Element {
     setIsAddingWorkflow(false)
   }
 
-  const handleDeleteWorkflow = (id: string) => {
+  const handleDeleteWorkflow = (id: string): void => {
     const updatedWorkflows = (config.workflows || []).filter((w) => w.id !== id)
     const updatedConfig = { ...config, workflows: updatedWorkflows }
     setConfig(updatedConfig)
@@ -900,7 +952,8 @@ export function SettingsView(): React.JSX.Element {
                   className="rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <span className="text-[10px] text-text-secondary/40 leading-normal">
-                  Must start with a slash (/) and cannot contain spaces. Cannot be modified after creation.
+                  Must start with a slash (/) and cannot contain spaces. Cannot be modified after
+                  creation.
                 </span>
               </div>
 
@@ -949,9 +1002,11 @@ export function SettingsView(): React.JSX.Element {
                 Allowed Tools (Mechanical Constraints)
               </label>
               <span className="text-[10px] text-text-secondary/40 leading-normal block -mt-2 mb-2">
-                Check the tools the AI is allowed to use during this workflow. Unchecked tools will be completely hidden from the AI prompt, and blocked during runtime. Leave all unchecked to allow default conversational behavior without tools.
+                Check the tools the AI is allowed to use during this workflow. Unchecked tools will
+                be completely hidden from the AI prompt, and blocked during runtime. Leave all
+                unchecked to allow default conversational behavior without tools.
               </span>
-              
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[220px] overflow-y-auto pr-2 custom-scrollbar border border-white/[0.06] rounded-[20px] bg-white/[0.015] p-3">
                 {AVAILABLE_TOOLS.map((tool) => {
                   const isChecked = formTools.includes(tool.name)
@@ -982,8 +1037,12 @@ export function SettingsView(): React.JSX.Element {
                         />
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-xs font-semibold text-text-primary leading-tight">{tool.label}</span>
-                        <span className="text-[9px] text-text-secondary/60 leading-tight mt-0.5">{tool.desc}</span>
+                        <span className="text-xs font-semibold text-text-primary leading-tight">
+                          {tool.label}
+                        </span>
+                        <span className="text-[9px] text-text-secondary/60 leading-tight mt-0.5">
+                          {tool.desc}
+                        </span>
                       </div>
                     </button>
                   )
@@ -1026,9 +1085,12 @@ export function SettingsView(): React.JSX.Element {
         {wList.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-[24px] border border-dashed border-white/[0.08] bg-white/[0.015] p-10 text-center select-none">
             <Lightning size={36} className="text-text-secondary/40 mb-3 animate-pulse" />
-            <span className="text-sm font-semibold text-text-secondary/70">No Workflows Configured</span>
+            <span className="text-sm font-semibold text-text-secondary/70">
+              No Workflows Configured
+            </span>
             <span className="text-xs text-text-secondary/40 mt-1 max-w-sm">
-              Click the "Add Workflow" button above to create your first customizable Gems-style prompt profile!
+              Click the &quot;Add Workflow&quot; button above to create your first customizable
+              Gems-style prompt profile!
             </span>
           </div>
         ) : (
@@ -1088,6 +1150,8 @@ export function SettingsView(): React.JSX.Element {
         return renderShortcuts()
       case 'intelligence':
         return renderIntelligence()
+      case 'runtime':
+        return renderRuntime()
       case 'appearance':
         return renderAppearance()
       case 'voice':

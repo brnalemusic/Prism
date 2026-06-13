@@ -161,6 +161,14 @@ function addClassName(node: HastNode, className: string): void {
   }
 }
 
+function setStreamToken(node: HastNode, token: string): void {
+  node.properties = {
+    ...(node.properties || {}),
+    dataStreamToken: token,
+    'data-stream-token': token
+  }
+}
+
 function getTextLength(node: HastNode): number {
   if (node.type === 'text') return node.value?.length || 0
   return node.children?.reduce((total, child) => total + getTextLength(child), 0) || 0
@@ -178,12 +186,14 @@ function shouldFadeNode(node: HastNode, boundary: number, fallbackStart: number)
   return end > boundary
 }
 
-function createFadeSpan(textNode: HastNode, value: string): HastNode {
+function createFadeSpan(textNode: HastNode, value: string, token: string): HastNode {
   return {
     type: 'element',
     tagName: 'span',
     properties: {
-      className: [STREAMING_CHUNK_FADE_CLASS]
+      className: [STREAMING_CHUNK_FADE_CLASS],
+      dataStreamToken: token,
+      'data-stream-token': token
     },
     children: [
       {
@@ -203,12 +213,13 @@ function splitTextNodeForFade(node: HastNode, boundary: number, fallbackStart: n
   const positionedEnd = getOffset(node.position?.end)
   const start = positionedStart ?? fallbackStart
   const end = positionedEnd ?? start + value.length
+  const token = `${boundary}:${start}:${end}`
 
   if (end <= boundary) return [node]
-  if (start >= boundary) return [createFadeSpan(node, value)]
+  if (start >= boundary) return [createFadeSpan(node, value, token)]
 
   const splitIndex = Math.max(0, Math.min(value.length, boundary - start))
-  if (splitIndex <= 0) return [createFadeSpan(node, value)]
+  if (splitIndex <= 0) return [createFadeSpan(node, value, token)]
   if (splitIndex >= value.length) return [node]
 
   return [
@@ -216,7 +227,7 @@ function splitTextNodeForFade(node: HastNode, boundary: number, fallbackStart: n
       ...node,
       value: value.slice(0, splitIndex)
     },
-    createFadeSpan(node, value.slice(splitIndex))
+    createFadeSpan(node, value.slice(splitIndex), token)
   ]
 }
 
@@ -245,18 +256,24 @@ export function createStreamingFadeRehypePlugin(
           }
 
           if (shouldSkipChildren(child)) {
+            const childTextLength = getTextLength(child)
             if (
               canFadeSkippedElement(child) &&
               shouldFadeNode(child, boundary, fallbackTextOffset)
             ) {
               addClassName(child, STREAMING_CHUNK_FADE_CLASS)
+              setStreamToken(
+                child,
+                `${boundary}:${fallbackTextOffset}:${fallbackTextOffset + childTextLength}`
+              )
             }
-            fallbackTextOffset += getTextLength(child)
+            fallbackTextOffset += childTextLength
             nextChildren.push(child)
             continue
           }
 
           visit(child)
+          fallbackTextOffset += getTextLength(child)
           nextChildren.push(child)
         }
 
@@ -274,6 +291,41 @@ const wrapTextWithAnimation = (
   return children
 }
 
+interface StreamingSpanProps extends React.ComponentPropsWithoutRef<'span'> {
+  node?: unknown
+  dataStreamToken?: string
+  'data-stream-token'?: string
+}
+
+function StreamingSpan({
+  children,
+  className,
+  dataStreamToken,
+  'data-stream-token': dataStreamTokenAttribute,
+  node: _node,
+  ...props
+}: StreamingSpanProps): React.JSX.Element {
+  const ref = useRef<HTMLSpanElement>(null)
+  const streamToken = dataStreamTokenAttribute ?? dataStreamToken
+  const isStreamingFade =
+    typeof className === 'string' && className.split(/\s+/).includes(STREAMING_CHUNK_FADE_CLASS)
+
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element || !isStreamingFade) return
+
+    element.style.animation = 'none'
+    void element.offsetWidth
+    element.style.animation = ''
+  }, [streamToken, isStreamingFade])
+
+  return (
+    <span ref={ref} className={className} data-stream-token={streamToken} {...props}>
+      {children}
+    </span>
+  )
+}
+
 // Static component definitions for ReactMarkdown. Re-rendered elements will reconcile stably.
 export const StaticMarkdownComponents: Partial<Components> = {
   p: ({ children, ...props }) => {
@@ -286,7 +338,7 @@ export const StaticMarkdownComponents: Partial<Components> = {
   },
   span: ({ children, ...props }) => {
     const { isStreaming } = useContext(StreamContext)
-    return <span {...props}>{wrapTextWithAnimation(children, isStreaming)}</span>
+    return <StreamingSpan {...props}>{wrapTextWithAnimation(children, isStreaming)}</StreamingSpan>
   },
   strong: ({ children, ...props }) => {
     const { isStreaming } = useContext(StreamContext)
