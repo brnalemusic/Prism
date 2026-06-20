@@ -17,7 +17,9 @@ import type {
   DemoDownloadResult,
   DemoInstallProgress,
   DemoOpenResult,
-  DemoProcessResult
+  DemoProcessResult,
+  Dependency,
+  DemoDependencyProgress
 } from '../shared/demo'
 import mime from 'mime-types'
 
@@ -217,6 +219,19 @@ const api = {
     const listener = (_event: IpcRendererEvent, data: DemoInstallProgress): void => callback(data)
     ipcRenderer.on('demo-install-progress', listener)
     return () => ipcRenderer.removeListener('demo-install-progress', listener)
+  },
+  demoGetPrismDependencies: (): Promise<{
+    ok: boolean
+    dependencies?: Dependency[]
+    error?: string
+  }> => ipcRenderer.invoke('demo-get-prism-dependencies'),
+  demoInstallDependency: (dependency: Dependency): Promise<DemoProcessResult> =>
+    ipcRenderer.invoke('demo-install-dependency', dependency),
+  onDemoDependencyProgress: (callback: (data: DemoDependencyProgress) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: DemoDependencyProgress): void =>
+      callback(data)
+    ipcRenderer.on('demo-dependency-progress', listener)
+    return () => ipcRenderer.removeListener('demo-dependency-progress', listener)
   },
   onLauncherMessage: (
     callback: (data: {

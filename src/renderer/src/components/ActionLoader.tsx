@@ -170,7 +170,9 @@ function useToolCallMeta(toolCall: ToolCall): {
     } else if (toolCall.name === 'browser_type') {
       const elementId = getStringArg(toolCall.args, 'elementId')
       const text = getStringArg(toolCall.args, 'text')
-      displayDetail = elementId ? `Typing "${text}" into element "${elementId}"` : 'Typing into element.'
+      displayDetail = elementId
+        ? `Typing "${text}" into element "${elementId}"`
+        : 'Typing into element.'
     } else if (toolCall.name === 'browser_press') {
       const key = getStringArg(toolCall.args, 'key')
       displayDetail = key ? `Pressing key "${key}"` : 'Pressing key.'
@@ -389,33 +391,39 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
       </div>
 
       {/* ── Continuous Web Search List ── */}
-      {toolCall.name === 'web_search' && toolCall.searchUpdates && toolCall.searchUpdates.length > 0 && (
-        <div className="flex flex-col gap-1.5 border-l border-white/[0.08] ml-[7px] pl-3.5 py-0.5 animate-fade-in">
-          {(() => {
-            const updates = toolCall.searchUpdates!
-            return updates.map((title, idx) => {
-              const isLast = idx === updates.length - 1
-              const isItemRunning = isLast && (toolCall.status === 'running' || toolCall.status === 'writing')
-              return (
-                <div
-                  key={idx}
-                  className={clsx(
-                    'flex items-center gap-2 text-[12px] leading-relaxed transition-colors duration-200',
-                    isItemRunning ? 'text-text-secondary font-medium' : 'text-text-secondary/65'
-                  )}
-                >
-                  {isItemRunning ? (
-                    <CircleNotch size={11} className="animate-spin text-accent-secondary shrink-0" />
-                  ) : (
-                    <div className="w-1.5 h-1.5 rounded-full bg-text-muted/40 shrink-0 ml-0.5" />
-                  )}
-                  <span>{title}...</span>
-                </div>
-              )
-            })
-          })()}
-        </div>
-      )}
+      {toolCall.name === 'web_search' &&
+        toolCall.searchUpdates &&
+        toolCall.searchUpdates.length > 0 && (
+          <div className="flex flex-col gap-1.5 border-l border-white/[0.08] ml-[7px] pl-3.5 py-0.5 animate-fade-in">
+            {(() => {
+              const updates = toolCall.searchUpdates!
+              return updates.map((title, idx) => {
+                const isLast = idx === updates.length - 1
+                const isItemRunning =
+                  isLast && (toolCall.status === 'running' || toolCall.status === 'writing')
+                return (
+                  <div
+                    key={idx}
+                    className={clsx(
+                      'flex items-center gap-2 text-[12px] leading-relaxed transition-colors duration-200',
+                      isItemRunning ? 'text-text-secondary font-medium' : 'text-text-secondary/65'
+                    )}
+                  >
+                    {isItemRunning ? (
+                      <CircleNotch
+                        size={11}
+                        className="animate-spin text-accent-secondary shrink-0"
+                      />
+                    ) : (
+                      <div className="w-1.5 h-1.5 rounded-full bg-text-muted/40 shrink-0 ml-0.5" />
+                    )}
+                    <span>{title}...</span>
+                  </div>
+                )
+              })
+            })()}
+          </div>
+        )}
 
       {/* ── Expanded View (Success/Fail Status Only) ── */}
       {isExpanded && (
@@ -872,33 +880,39 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
       </div>
 
       {/* ── Continuous Web Search List ── */}
-      {toolCall.name === 'web_search' && toolCall.searchUpdates && toolCall.searchUpdates.length > 0 && (
-        <div className="flex flex-col gap-1.5 border-l border-white/[0.08] ml-[7px] pl-3.5 py-0.5 animate-fade-in">
-          {(() => {
-            const updates = toolCall.searchUpdates!
-            return updates.map((title, idx) => {
-              const isLast = idx === updates.length - 1
-              const isItemRunning = isLast && (toolCall.status === 'running' || toolCall.status === 'writing')
-              return (
-                <div
-                  key={idx}
-                  className={clsx(
-                    'flex items-center gap-2 text-[12px] leading-relaxed transition-colors duration-200',
-                    isItemRunning ? 'text-text-secondary font-medium' : 'text-text-secondary/65'
-                  )}
-                >
-                  {isItemRunning ? (
-                    <CircleNotch size={11} className="animate-spin text-accent-secondary shrink-0" />
-                  ) : (
-                    <div className="w-1.5 h-1.5 rounded-full bg-text-muted/40 shrink-0 ml-0.5" />
-                  )}
-                  <span>{title}...</span>
-                </div>
-              )
-            })
-          })()}
-        </div>
-      )}
+      {toolCall.name === 'web_search' &&
+        toolCall.searchUpdates &&
+        toolCall.searchUpdates.length > 0 && (
+          <div className="flex flex-col gap-1.5 border-l border-white/[0.08] ml-[7px] pl-3.5 py-0.5 animate-fade-in">
+            {(() => {
+              const updates = toolCall.searchUpdates!
+              return updates.map((title, idx) => {
+                const isLast = idx === updates.length - 1
+                const isItemRunning =
+                  isLast && (toolCall.status === 'running' || toolCall.status === 'writing')
+                return (
+                  <div
+                    key={idx}
+                    className={clsx(
+                      'flex items-center gap-2 text-[12px] leading-relaxed transition-colors duration-200',
+                      isItemRunning ? 'text-text-secondary font-medium' : 'text-text-secondary/65'
+                    )}
+                  >
+                    {isItemRunning ? (
+                      <CircleNotch
+                        size={11}
+                        className="animate-spin text-accent-secondary shrink-0"
+                      />
+                    ) : (
+                      <div className="w-1.5 h-1.5 rounded-full bg-text-muted/40 shrink-0 ml-0.5" />
+                    )}
+                    <span>{title}...</span>
+                  </div>
+                )
+              })
+            })()}
+          </div>
+        )}
 
       {/* ── Expanded View (Success/Fail Status Only) ── */}
       {isExpanded && (
@@ -1255,14 +1269,36 @@ function BrowserSessionSeparator({
       <div className="flex-grow border-t border-dashed border-white/[0.08]" />
       <div className="flex items-center gap-2 px-3 py-1 rounded-full border border-white/[0.04] bg-white/[0.01] shadow-sm">
         <div className="flex gap-1.5 mr-1 select-none">
-          <span className={clsx('w-1.5 h-1.5 rounded-full bg-status-error/40', isRunning && 'animate-pulse')} />
-          <span className={clsx('w-1.5 h-1.5 rounded-full bg-status-warning/40', isRunning && 'animate-pulse')} />
-          <span className={clsx('w-1.5 h-1.5 rounded-full bg-status-success/40', isRunning && 'animate-pulse')} />
+          <span
+            className={clsx(
+              'w-1.5 h-1.5 rounded-full bg-status-error/40',
+              isRunning && 'animate-pulse'
+            )}
+          />
+          <span
+            className={clsx(
+              'w-1.5 h-1.5 rounded-full bg-status-warning/40',
+              isRunning && 'animate-pulse'
+            )}
+          />
+          <span
+            className={clsx(
+              'w-1.5 h-1.5 rounded-full bg-status-success/40',
+              isRunning && 'animate-pulse'
+            )}
+          />
         </div>
         <span className="text-[10px] font-mono tracking-widest text-text-secondary/80 uppercase">
           {message}
         </span>
-        <span className={clsx('text-[10px] opacity-75 font-mono select-none', isRunning && 'animate-pulse')}>🌐</span>
+        <span
+          className={clsx(
+            'text-[10px] opacity-75 font-mono select-none',
+            isRunning && 'animate-pulse'
+          )}
+        >
+          🌐
+        </span>
       </div>
       <div className="flex-grow border-t border-dashed border-white/[0.08]" />
     </div>
@@ -1273,10 +1309,14 @@ export function ActionLoader({ toolCall, mode = 'compact' }: ActionLoaderProps):
   const isRunning = toolCall.status === 'running' || toolCall.status === 'writing'
 
   if (toolCall.name === 'open_browser') {
-    return <BrowserSessionSeparator message="AI has started a browser session" isRunning={isRunning} />
+    return (
+      <BrowserSessionSeparator message="AI has started a browser session" isRunning={isRunning} />
+    )
   }
   if (toolCall.name === 'browser_close' || toolCall.name === 'close_browser') {
-    return <BrowserSessionSeparator message="AI finished the browser session" isRunning={isRunning} />
+    return (
+      <BrowserSessionSeparator message="AI finished the browser session" isRunning={isRunning} />
+    )
   }
 
   if (mode === 'full') {
@@ -1284,4 +1324,3 @@ export function ActionLoader({ toolCall, mode = 'compact' }: ActionLoaderProps):
   }
   return <CompactActionLoader toolCall={toolCall} />
 }
-

@@ -6,10 +6,7 @@ interface LicenseViewProps {
   onAcceptedChange: (accepted: boolean) => void
 }
 
-export function LicenseView({
-  accepted,
-  onAcceptedChange
-}: LicenseViewProps): React.JSX.Element {
+export function LicenseView({ accepted, onAcceptedChange }: LicenseViewProps): React.JSX.Element {
   return (
     <div className="flex flex-col gap-3">
       <details className="group rounded-lg border border-white/[0.08] bg-white/[0.025] transition-colors hover:border-white/[0.12]">

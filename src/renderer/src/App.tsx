@@ -1002,7 +1002,9 @@ function RealApp(): React.JSX.Element {
                     status: 'done' // Default to done for history
                   }
                   if (name === 'web_search' && args.searches && Array.isArray(args.searches)) {
-                    newToolCall.searchUpdates = args.searches.map((s: any) => s.title).filter(Boolean)
+                    newToolCall.searchUpdates = args.searches
+                      .map((s: any) => s.title)
+                      .filter(Boolean)
                   }
                   aiMsg.toolCalls.push(newToolCall)
                 }
@@ -1630,7 +1632,10 @@ function RealApp(): React.JSX.Element {
                 const toolCalls = [...(lastMsg.toolCalls || [])]
                 const toolCall = { ...toolCalls[toolCallIndex] }
                 if (data.toolCallName === 'web_search' && data.update.searchTitle) {
-                  toolCall.searchUpdates = [...(toolCall.searchUpdates || []), data.update.searchTitle]
+                  toolCall.searchUpdates = [
+                    ...(toolCall.searchUpdates || []),
+                    data.update.searchTitle
+                  ]
                 } else if (data.update.agentIndex !== undefined) {
                   const prevUpdate = toolCall.agentUpdates?.[data.update.agentIndex]
                   const newPhase = data.update.phase || prevUpdate?.phase || 'thinking'

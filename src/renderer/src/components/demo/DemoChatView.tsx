@@ -126,11 +126,7 @@ function DemoAiMessage({ message }: { message: DemoChatMessage }): React.JSX.Ele
   )
 }
 
-export function DemoChatView({
-  script,
-  onBack,
-  onDownload
-}: DemoChatViewProps): React.JSX.Element {
+export function DemoChatView({ script, onBack, onDownload }: DemoChatViewProps): React.JSX.Element {
   const [messages, setMessages] = useState<DemoChatMessage[]>([])
   const [isDone, setIsDone] = useState(false)
   const [runId, setRunId] = useState(0)
@@ -305,7 +301,9 @@ export function DemoChatView({
               {isDone ? 'Demo complete' : 'Playing scripted conversation'}
             </div>
             <div className="truncate text-xs text-text-secondary">
-              {isDone ? 'Prism is available as the full desktop app.' : 'Input is disabled for this demo.'}
+              {isDone
+                ? 'Prism is available as the full desktop app.'
+                : 'Input is disabled for this demo.'}
             </div>
           </div>
           <button

@@ -39,7 +39,7 @@ jobs:
           Write-Host "Building Prism version $version"
 
       - name: Build App
-        run: npm run build:win -- --publish never
+        run: npm run build:demo -- --publish never
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

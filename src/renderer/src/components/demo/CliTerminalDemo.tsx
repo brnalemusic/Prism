@@ -13,7 +13,8 @@ const EXAMPLES: TerminalExample[] = [
   },
   {
     command: 'prism "Open FL Studio"',
-    response: 'Opening FL Studio 2025. I also found your last project in Documents\\Music\\Sessions.'
+    response:
+      'Opening FL Studio 2025. I also found your last project in Documents\\Music\\Sessions.'
   },
   {
     command: 'prism "Gimme the Git status of this folder"',
@@ -42,7 +43,8 @@ const EXAMPLES: TerminalExample[] = [
   },
   {
     command: 'prism "Check if Node and Git are ready"',
-    response: 'Node 22 and Git are available. npm dependencies are installed. This repo is ready for typecheck.'
+    response:
+      'Node 22 and Git are available. npm dependencies are installed. This repo is ready for typecheck.'
   }
 ]
 

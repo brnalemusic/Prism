@@ -1,29 +1,22 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
-import { execSync, spawn } from 'child_process'
+import { spawn, exec, execFile, execSync } from 'child_process'
 import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
+import { createReadStream, createWriteStream } from 'fs'
+import { pipeline } from 'stream/promises'
+import { Transform } from 'stream'
+import { DEPENDENCIES } from './dependenciesManifest'
 import type {
   DemoDownloadResult,
   DemoInstallProgress,
   DemoOpenResult,
-  DemoProcessResult
+  DemoProcessResult,
+  Dependency,
+  DemoDependencyProgress
 } from '../shared/demo'
 import type { DownloadProgress } from '../shared/types'
 
-interface GithubReleaseAsset {
-  name: string
-  browser_download_url: string
-  size?: number
-}
-
-interface GithubRelease {
-  tag_name?: string
-  name?: string
-  assets?: GithubReleaseAsset[]
-}
-
-const RELEASE_API_URL = 'https://api.github.com/repos/brnalemusic/Prism/releases/latest'
 const DEMO_DOWNLOAD_ID = 'demo-prism-installer'
 
 function emitDemoProgress(progress: Omit<DemoInstallProgress, 'updatedAt'>): void {
@@ -45,172 +38,6 @@ function emitDownloadProgress(progress: DownloadProgress): void {
       win.webContents.send('download-progress', progress)
     }
   }
-}
-
-function getDownloadsFolder(): string {
-  try {
-    return app.getPath('downloads')
-  } catch {
-    return path.join(os.homedir(), 'Downloads')
-  }
-}
-
-function sanitizeFilename(filename: string): string {
-  const clean = path.basename(filename || 'Prism-setup.exe').replace(/[<>:"/\\|?*]+/g, '-')
-  return clean.trim() || 'Prism-setup.exe'
-}
-
-function selectInstallerAsset(release: GithubRelease): GithubReleaseAsset | null {
-  const assets = release.assets || []
-  const executableAssets = assets.filter((asset) => /\.exe$/i.test(asset.name))
-  const setupAsset =
-    executableAssets.find((asset) => /setup/i.test(asset.name) && /prism/i.test(asset.name)) ||
-    executableAssets.find((asset) => /setup|installer/i.test(asset.name)) ||
-    executableAssets.find((asset) => /prism/i.test(asset.name))
-
-  return setupAsset || executableAssets[0] || null
-}
-
-async function resolveLatestInstaller(): Promise<{
-  asset: GithubReleaseAsset
-  version?: string
-}> {
-  emitDemoProgress({
-    stage: 'resolving-release',
-    message: 'Finding the latest Prism release...'
-  })
-
-  const response = await fetch(RELEASE_API_URL, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      'User-Agent': 'Prism-Demo'
-    }
-  })
-
-  if (!response.ok) {
-    throw new Error(`GitHub release lookup failed with HTTP ${response.status}`)
-  }
-
-  const release = (await response.json()) as GithubRelease
-  const asset = selectInstallerAsset(release)
-
-  if (!asset?.browser_download_url) {
-    throw new Error('No Windows Prism installer asset was found in the latest release.')
-  }
-
-  return {
-    asset,
-    version: release.tag_name || release.name
-  }
-}
-
-async function downloadInstaller(asset: GithubReleaseAsset): Promise<{
-  setupPath: string
-  filename: string
-}> {
-  const filename = sanitizeFilename(asset.name)
-  const downloadsFolder = getDownloadsFolder()
-  await fs.mkdir(downloadsFolder, { recursive: true })
-  const setupPath = path.join(downloadsFolder, filename)
-
-  emitDemoProgress({
-    stage: 'downloading',
-    message: `Downloading ${filename}...`,
-    setupPath
-  })
-
-  const response = await fetch(asset.browser_download_url, {
-    redirect: 'follow',
-    headers: {
-      'User-Agent': 'Prism-Demo'
-    }
-  })
-
-  if (!response.ok) {
-    throw new Error(`Installer download failed with HTTP ${response.status}`)
-  }
-
-  const totalHeader = Number(response.headers.get('content-length') || asset.size || 0)
-  const totalBytes = Number.isFinite(totalHeader) && totalHeader > 0 ? totalHeader : undefined
-  const startedAt = Date.now()
-
-  const updateProgress = (
-    patch: Partial<DownloadProgress> & Pick<DownloadProgress, 'status'>
-  ): void => {
-    const receivedBytes = Math.max(0, patch.receivedBytes ?? 0)
-    const percent =
-      typeof patch.percent === 'number'
-        ? patch.percent
-        : totalBytes
-          ? Math.min(100, (receivedBytes / totalBytes) * 100)
-          : undefined
-
-    emitDownloadProgress({
-      id: DEMO_DOWNLOAD_ID,
-      filename,
-      url: response.url || asset.browser_download_url,
-      targetPath: setupPath,
-      receivedBytes,
-      totalBytes,
-      percent,
-      status: patch.status,
-      error: patch.error,
-      startedAt,
-      updatedAt: Date.now()
-    })
-  }
-
-  updateProgress({ status: 'downloading', receivedBytes: 0 })
-
-  const body = response.body
-  if (!body) {
-    const buffer = Buffer.from(await response.arrayBuffer())
-    await fs.writeFile(setupPath, buffer)
-    updateProgress({
-      status: 'completed',
-      receivedBytes: buffer.length,
-      percent: 100
-    })
-    return { setupPath, filename }
-  }
-
-  const file = await fs.open(setupPath, 'w')
-  let receivedBytes = 0
-  let lastProgressAt = 0
-
-  try {
-    const reader = body.getReader()
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      const buffer = Buffer.from(value)
-      await file.write(buffer)
-      receivedBytes += buffer.length
-
-      const now = Date.now()
-      if (now - lastProgressAt > 220) {
-        updateProgress({ status: 'downloading', receivedBytes })
-        lastProgressAt = now
-      }
-    }
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err)
-    updateProgress({ status: 'failed', receivedBytes, error })
-    await fs.unlink(setupPath).catch(() => {})
-    throw err
-  } finally {
-    await file.close()
-  }
-
-  updateProgress({ status: 'completed', receivedBytes, percent: 100 })
-  emitDemoProgress({
-    stage: 'downloaded',
-    message: 'Prism installer is ready.',
-    setupPath
-  })
-
-  return { setupPath, filename }
 }
 
 function runProcess(
@@ -285,6 +112,13 @@ async function runInstaller(setupPath: string): Promise<DemoProcessResult> {
   })
 
   if (result.ok) {
+    try {
+      await fs.rm(resolvedPath, { force: true })
+      console.log(`Successfully cleaned up temporary installer at: ${resolvedPath}`)
+    } catch (err) {
+      console.error(`Failed to clean up temporary installer: ${err}`)
+    }
+
     emitDemoProgress({
       stage: 'installer-finished',
       message: 'Prism installer finished.',
@@ -338,63 +172,6 @@ async function installPrismCli(): Promise<DemoProcessResult> {
       }
 }
 
-async function installDependencies(): Promise<DemoProcessResult> {
-  emitDemoProgress({
-    stage: 'deps-running',
-    message: 'Checking browser dependencies...'
-  })
-
-  const commonPaths = [
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-    'C:\\Program Files\\Mozilla Firefox\\firefox.exe'
-  ]
-
-  const hasSystemBrowser = commonPaths.some((p) => {
-    try {
-      require('fs').accessSync(p)
-      return true
-    } catch {
-      return false
-    }
-  })
-
-  if (hasSystemBrowser) {
-    emitDemoProgress({
-      stage: 'deps-finished',
-      message: 'System browser found. Dependencies are ready.'
-    })
-    return { ok: true, output: 'Compatible system browser found. No extra download needed.' }
-  }
-
-  emitDemoProgress({
-    stage: 'deps-running',
-    message: 'Installing Chromium browser dependency...'
-  })
-
-  try {
-    const output = execSync('npx playwright install chromium', {
-      timeout: 5 * 60 * 1000,
-      encoding: 'utf-8'
-    })
-    emitDemoProgress({
-      stage: 'deps-finished',
-      message: 'Browser dependency installed.',
-      cliOutput: (output || '').slice(-4000)
-    })
-    return { ok: true, output }
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err)
-    emitDemoProgress({
-      stage: 'failed',
-      message: 'Failed to install browser dependency.',
-      error
-    })
-    return { ok: false, error }
-  }
-}
-
 async function openInstalledPrism(): Promise<DemoOpenResult> {
   const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local')
   const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
@@ -426,19 +203,325 @@ async function openInstalledPrism(): Promise<DemoOpenResult> {
   }
 }
 
-async function resolveVersionFromHtmlRedirect(): Promise<string> {
-  const response = await fetch('https://github.com/brnalemusic/Prism/releases/latest', {
-    redirect: 'follow',
-    headers: {
-      'User-Agent': 'Prism-Demo'
+function getEmbeddedInstallerPath(): string {
+  const prodPath = path.join(process.resourcesPath, 'resources', 'prism-setup.exe')
+  const devPath = path.join(process.cwd(), 'resources', 'prism-setup.exe')
+  return app.isPackaged ? prodPath : devPath
+}
+
+async function unpackEmbeddedInstaller(): Promise<DemoDownloadResult> {
+  const tempPath = app.getPath('temp')
+  const setupPath = path.join(tempPath, 'prism-setup.exe')
+  const embeddedPath = getEmbeddedInstallerPath()
+
+  try {
+    emitDemoProgress({
+      stage: 'unpacking',
+      message: 'Preparing installer files...',
+      setupPath
+    })
+
+    await fs.mkdir(tempPath, { recursive: true })
+
+    if (!app.isPackaged) {
+      try {
+        await fs.access(embeddedPath)
+      } catch {
+        console.warn(`[Dev Mode] ${embeddedPath} not found. Creating a mock fallback using a system executable.`)
+        const resourcesDir = path.dirname(embeddedPath)
+        await fs.mkdir(resourcesDir, { recursive: true })
+
+        const systemExes = [
+          'C:\\Windows\\System32\\whoami.exe',
+          'C:\\Windows\\System32\\ping.exe',
+          'C:\\Windows\\System32\\cmd.exe'
+        ]
+
+        let copied = false
+        for (const exe of systemExes) {
+          try {
+            await fs.access(exe)
+            await fs.copyFile(exe, embeddedPath)
+            copied = true
+            console.log(`[Dev Mode] Successfully copied mock installer from ${exe} to ${embeddedPath}`)
+            break
+          } catch {
+            // try next
+          }
+        }
+
+        if (!copied) {
+          await fs.writeFile(embeddedPath, 'DUMMY INSTALLER CONTENT FOR DEV TESTING')
+          console.log(`[Dev Mode] Fallback to writing dummy text file at ${embeddedPath}`)
+        }
+      }
     }
-  })
-  const finalUrl = response.url
-  const tagMatch = finalUrl.match(/\/releases\/tag\/(v?([0-9.]+))/i)
-  if (!tagMatch) {
-    throw new Error(`Could not parse tag from redirect URL: ${finalUrl}`)
+
+    const stats = await fs.stat(embeddedPath)
+    const totalBytes = stats.size
+    let copiedBytes = 0
+    let lastProgressAt = 0
+    const startedAt = Date.now()
+
+    const updateProgress = (receivedBytes: number, percent: number) => {
+      emitDownloadProgress({
+        id: DEMO_DOWNLOAD_ID,
+        filename: 'prism-setup.exe',
+        url: 'local-unpack',
+        targetPath: setupPath,
+        receivedBytes,
+        totalBytes,
+        percent,
+        status: 'downloading',
+        startedAt,
+        updatedAt: Date.now()
+      })
+    }
+
+    updateProgress(0, 0)
+
+    const readStream = createReadStream(embeddedPath)
+    const writeStream = createWriteStream(setupPath)
+
+    const progressStream = new Transform({
+      transform(chunk, _encoding, callback) {
+        copiedBytes += chunk.length
+        const now = Date.now()
+        if (now - lastProgressAt > 150 || copiedBytes === totalBytes) {
+          lastProgressAt = now
+          const percent = Math.min(100, Math.round((copiedBytes / totalBytes) * 100))
+          updateProgress(copiedBytes, percent)
+        }
+        callback(null, chunk)
+      }
+    })
+
+    await pipeline(readStream, progressStream, writeStream)
+
+    emitDemoProgress({
+      stage: 'unpacked',
+      message: 'Prism installer is ready.',
+      setupPath
+    })
+
+    return {
+      ok: true,
+      setupPath,
+      filename: 'prism-setup.exe',
+      version: app.getVersion()
+    }
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err)
+    emitDemoProgress({
+      stage: 'failed',
+      message: `Failed to unpack installer: ${error}`,
+      error
+    })
+    return { ok: false, error }
   }
-  return tagMatch[2] // e.g. "2.1.0"
+}
+
+async function findInstalledPrismExe(): Promise<string | null> {
+  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local')
+  const programFiles = process.env.ProgramFiles || 'C:\\Program Files'
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
+
+  const candidates = [
+    path.join(localAppData, 'Programs', 'Prism', 'Prism.exe'),
+    path.join(localAppData, 'Prism', 'Prism.exe'),
+    path.join(programFiles, 'Prism', 'Prism.exe'),
+    path.join(programFilesX86, 'Prism', 'Prism.exe')
+  ]
+
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate)
+      return candidate
+    } catch (err) {
+      // Candidate not accessible
+    }
+  }
+  return null
+}
+
+function refreshEnvPath(): void {
+  try {
+    let userPath = ''
+    try {
+      const out = execSync('reg query HKCU\\Environment /v Path', {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'ignore']
+      })
+      const lines = out.split('\r\n')
+      const line = lines.find((l) => l.includes('REG_SZ') || l.includes('REG_EXPAND_SZ'))
+      if (line) {
+        userPath = line.split(/REG_(?:SZ|EXPAND_SZ)\s+/)[1]?.trim() || ''
+      }
+    } catch (err) {
+      // Registry key not found
+    }
+
+    let systemPath = ''
+    try {
+      const out = execSync(
+        'reg query "HKLM\\System\\CurrentControlSet\\Control\\Session Manager\\Environment" /v Path',
+        { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }
+      )
+      const lines = out.split('\r\n')
+      const line = lines.find((l) => l.includes('REG_SZ') || l.includes('REG_EXPAND_SZ'))
+      if (line) {
+        systemPath = line.split(/REG_(?:SZ|EXPAND_SZ)\s+/)[1]?.trim() || ''
+      }
+    } catch (err) {
+      // Registry key not found
+    }
+
+    if (userPath || systemPath) {
+      const expand = (str: string) => {
+        return str.replace(/%([^%]+)%/g, (_, key) => process.env[key] || `%${key}%`)
+      }
+      const expandedUser = expand(userPath)
+      const expandedSystem = expand(systemPath)
+
+      const merged = [expandedUser, expandedSystem].filter(Boolean).join(';')
+      if (merged) {
+        process.env.PATH = merged
+      }
+    }
+  } catch (err) {
+    console.error('refreshEnvPath error:', err)
+  }
+}
+
+async function checkDependencyInstalled(dependency: Dependency): Promise<boolean> {
+  refreshEnvPath()
+  return new Promise((resolve) => {
+    exec(dependency.checkCommand, { env: process.env }, (error) => {
+      resolve(!error)
+    })
+  })
+}
+
+async function downloadDependencyFile(
+  dependency: Dependency,
+  emitProgress: (percent: number, message: string) => void
+): Promise<string> {
+  const tempDir = app.getPath('temp')
+  const filename = dependency.downloadFilename || `${dependency.id}-setup.exe`
+  const targetPath = path.join(tempDir, filename)
+
+  await fs.unlink(targetPath).catch(() => {})
+
+  emitProgress(0, `Starting download of ${dependency.name}...`)
+
+  const response = await fetch(dependency.downloadUrl!, {
+    redirect: 'follow',
+    headers: { 'User-Agent': 'Prism-Demo' }
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to download ${dependency.name}: HTTP ${response.status}`)
+  }
+
+  const totalHeader = Number(response.headers.get('content-length') || 0)
+  const totalBytes = Number.isFinite(totalHeader) && totalHeader > 0 ? totalHeader : undefined
+  const file = await fs.open(targetPath, 'w')
+  let receivedBytes = 0
+  let lastProgressAt = 0
+
+  const body = response.body
+  if (!body) {
+    const buffer = Buffer.from(await response.arrayBuffer())
+    await file.write(buffer)
+    await file.close()
+    emitProgress(100, `Downloaded ${dependency.name}.`)
+    return targetPath
+  }
+
+  try {
+    const reader = body.getReader()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      const chunk = Buffer.from(value)
+      await file.write(chunk)
+      receivedBytes += chunk.length
+
+      const now = Date.now()
+      if (now - lastProgressAt > 150) {
+        lastProgressAt = now
+        const percent = totalBytes
+          ? Math.min(99, Math.round((receivedBytes / totalBytes) * 100))
+          : undefined
+        emitProgress(percent || 0, `Downloading ${dependency.name}...`)
+      }
+    }
+  } finally {
+    await file.close()
+  }
+
+  emitProgress(100, `Downloaded ${dependency.name}.`)
+  return targetPath
+}
+
+async function installDependency(
+  dependency: Dependency,
+  filePath?: string,
+  emitProgress?: (percent: number, message: string, cliOutput?: string) => void
+): Promise<DemoProcessResult> {
+  const command = dependency.installCommand.replace('{filepath}', filePath || '')
+
+  return new Promise((resolve) => {
+    let output = ''
+
+    emitProgress?.(0, `Installing ${dependency.name}...`)
+
+    const child = exec(command, { env: process.env })
+
+    child.stdout?.on('data', (chunk) => {
+      output += chunk.toString()
+      emitProgress?.(50, `Installing ${dependency.name}...`, output.slice(-2000))
+    })
+
+    child.stderr?.on('data', (chunk) => {
+      output += chunk.toString()
+      emitProgress?.(50, `Installing ${dependency.name}...`, output.slice(-2000))
+    })
+
+    child.on('close', async (exitCode) => {
+      if (exitCode === 0) {
+        refreshEnvPath()
+        const verified = await checkDependencyInstalled(dependency)
+        if (verified) {
+          emitProgress?.(100, `Installed ${dependency.name} successfully.`)
+          resolve({ ok: true, exitCode, output })
+        } else {
+          resolve({
+            ok: false,
+            exitCode,
+            output,
+            error: `${dependency.name} verification failed after installation.`
+          })
+        }
+      } else {
+        resolve({
+          ok: false,
+          exitCode,
+          output,
+          error: `${dependency.name} setup exited with code ${exitCode}`
+        })
+      }
+    })
+
+    child.on('error', (err) => {
+      resolve({
+        ok: false,
+        output,
+        error: err.message
+      })
+    })
+  })
 }
 
 export function registerDemoDownloadHandlers(): void {
@@ -448,65 +531,15 @@ export function registerDemoDownloadHandlers(): void {
     'demo-install-deps',
     'demo-install-cli',
     'demo-open-prism',
-    'demo-quit-app'
+    'demo-quit-app',
+    'demo-get-prism-dependencies',
+    'demo-install-dependency'
   ]) {
     ipcMain.removeHandler(channel)
   }
 
   ipcMain.handle('demo-download-prism', async (): Promise<DemoDownloadResult> => {
-    try {
-      const { asset, version } = await resolveLatestInstaller()
-      const { setupPath, filename } = await downloadInstaller(asset)
-      return {
-        ok: true,
-        setupPath,
-        filename,
-        version
-      }
-    } catch (err) {
-      const error = err instanceof Error ? err.message : String(err)
-      console.warn('GitHub API lookup failed, trying HTML redirect lookup fallback. Error:', error)
-
-      try {
-        let appVersion: string
-        try {
-          appVersion = await resolveVersionFromHtmlRedirect()
-          console.log('Resolved latest version from HTML redirect:', appVersion)
-        } catch (redirectErr) {
-          appVersion = app.getVersion()
-          console.warn('HTML redirect lookup failed, falling back to local app version:', redirectErr)
-        }
-
-        const fallbackFilename = `Prism-${appVersion}-setup.exe`
-        const fallbackUrl = `https://github.com/brnalemusic/Prism/releases/latest/download/${fallbackFilename}`
-
-        emitDemoProgress({
-          stage: 'downloading',
-          message: 'GitHub API offline. Resolving mirrors...'
-        })
-
-        const fallbackAsset = {
-          name: fallbackFilename,
-          browser_download_url: fallbackUrl
-        }
-
-        const { setupPath, filename } = await downloadInstaller(fallbackAsset)
-        return {
-          ok: true,
-          setupPath,
-          filename,
-          version: appVersion
-        }
-      } catch (fallbackErr) {
-        const finalError = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)
-        emitDemoProgress({
-          stage: 'failed',
-          message: finalError,
-          error: finalError
-        })
-        return { ok: false, error: finalError }
-      }
-    }
+    return await unpackEmbeddedInstaller()
   })
 
   ipcMain.handle(
@@ -547,18 +580,104 @@ export function registerDemoDownloadHandlers(): void {
   })
 
   ipcMain.handle('demo-install-deps', async (): Promise<DemoProcessResult> => {
+    return { ok: true, output: 'Dependencies managed dynamically.' }
+  })
+
+  ipcMain.handle('demo-get-prism-dependencies', async (): Promise<{ ok: boolean; dependencies?: Dependency[]; error?: string }> => {
     try {
-      return await installDependencies()
+      const exePath = await findInstalledPrismExe()
+      if (!exePath) {
+        console.warn('Prism executable not found. Falling back to default dependency manifest.')
+        return { ok: true, dependencies: DEPENDENCIES }
+      }
+
+      return new Promise((resolve) => {
+        execFile(exePath, ['--get-dependencies'], (error, stdout) => {
+          if (error) {
+            console.warn(
+              'Failed to run Prism --get-dependencies, falling back to local manifest:',
+              error
+            )
+            resolve({ ok: true, dependencies: DEPENDENCIES })
+            return
+          }
+
+          try {
+            const dependencies = JSON.parse(stdout.trim())
+            resolve({ ok: true, dependencies })
+          } catch (parseErr) {
+            console.warn(
+              'Failed to parse dependencies stdout, falling back to local manifest:',
+              parseErr
+            )
+            resolve({ ok: true, dependencies: DEPENDENCIES })
+          }
+        })
+      })
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err)
-      emitDemoProgress({
-        stage: 'failed',
-        message: error,
-        error
-      })
       return { ok: false, error }
     }
   })
+
+  ipcMain.handle(
+    'demo-install-dependency',
+    async (event, dependency: Dependency): Promise<DemoProcessResult> => {
+      const emitDepProgress = (
+        status: DemoDependencyProgress['status'],
+        percent: number | undefined,
+        msg: string,
+        cliOutput?: string
+      ): void => {
+        event.sender.send('demo-dependency-progress', {
+          dependencyId: dependency.id,
+          status,
+          percent,
+          message: msg,
+          cliOutput
+        })
+      }
+
+      try {
+        emitDepProgress('checking', undefined, `Checking if ${dependency.name} is installed...`)
+        const isInstalled = await checkDependencyInstalled(dependency)
+        if (isInstalled) {
+          emitDepProgress('completed', 100, `${dependency.name} is already installed.`)
+          return { ok: true, output: 'Already installed' }
+        }
+
+        let filePath: string | undefined
+        if (dependency.downloadUrl) {
+          emitDepProgress('downloading', 0, `Downloading ${dependency.name}...`)
+          filePath = await downloadDependencyFile(dependency, (percent, msg) => {
+            emitDepProgress('downloading', percent, msg)
+          })
+        }
+
+        emitDepProgress('installing', 0, `Installing ${dependency.name}...`)
+        const result = await installDependency(dependency, filePath, (percent, msg, cliOutput) => {
+          emitDepProgress('installing', percent, msg, cliOutput)
+        })
+
+        if (result.ok) {
+          emitDepProgress('completed', 100, `Installed ${dependency.name} successfully.`)
+        } else {
+          emitDepProgress(
+            'failed',
+            undefined,
+            `Failed to install ${dependency.name}: ${result.error}`,
+            result.output
+          )
+        }
+
+        return result
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err)
+        emitDepProgress('failed', undefined, `Error: ${error}`)
+        return { ok: false, error }
+      }
+    }
+  )
 
   ipcMain.handle('demo-open-prism', async (): Promise<DemoOpenResult> => {
     return await openInstalledPrism()

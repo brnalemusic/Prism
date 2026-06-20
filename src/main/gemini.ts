@@ -244,25 +244,25 @@ function parseToolCall(toolContent: string): { name: string | null; args: ToolAr
   // JSON format detection
   if (trimmed.startsWith('{')) {
     try {
-    const obj = JSON.parse(trimmed)
-    const name = (obj.type || obj.name || null) as string | null
-    const args: ToolArgs = {}
-    for (const [key, value] of Object.entries(obj)) {
-      if (key !== 'type' && key !== 'name') {
-        // Preserve structured values (arrays/objects) for tagged keys so they
-        // survive parse/validate without being stringified.
-        if (OBJECT_TOOL_ARG_TAGS.has(key) && typeof value === 'object' && value !== null) {
-          args[key] = value as unknown as string
-          continue
+      const obj = JSON.parse(trimmed)
+      const name = (obj.type || obj.name || null) as string | null
+      const args: ToolArgs = {}
+      for (const [key, value] of Object.entries(obj)) {
+        if (key !== 'type' && key !== 'name') {
+          // Preserve structured values (arrays/objects) for tagged keys so they
+          // survive parse/validate without being stringified.
+          if (OBJECT_TOOL_ARG_TAGS.has(key) && typeof value === 'object' && value !== null) {
+            args[key] = value as unknown as string
+            continue
+          }
+          let val = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+          if (!RAW_TOOL_ARG_TAGS.has(key)) {
+            val = val.trim()
+          }
+          args[key] = val
         }
-        let val = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
-        if (!RAW_TOOL_ARG_TAGS.has(key)) {
-          val = val.trim()
-        }
-        args[key] = val
       }
-    }
-    return { name, args }
+      return { name, args }
     } catch (e) {
       console.warn('Tool call looks like JSON but failed to parse.', e)
     }
@@ -1936,11 +1936,7 @@ export async function handleChatMessage(
     firstMsgText.toLowerCase().startsWith(w.command.toLowerCase())
   )
 
-  const basePrompt = getSystemToolsPrompt(
-    currentModelKey,
-    'main',
-    matchedWorkflow?.toolConstraints
-  )
+  const basePrompt = getSystemToolsPrompt(currentModelKey, 'main', matchedWorkflow?.toolConstraints)
   let fullPrompt = basePrompt
   if (matchedWorkflow) {
     fullPrompt += `\n\n# Active Workflow: ${matchedWorkflow.name}\n${matchedWorkflow.systemInstruction}`

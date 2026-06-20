@@ -15,7 +15,9 @@ import type {
   DemoDownloadResult,
   DemoInstallProgress,
   DemoOpenResult,
-  DemoProcessResult
+  DemoProcessResult,
+  Dependency,
+  DemoDependencyProgress
 } from '../shared/demo'
 
 export interface AttachedFile {
@@ -64,6 +66,13 @@ export interface PrismAPI {
   demoOpenPrism: () => Promise<DemoOpenResult>
   demoQuitApp: () => Promise<void>
   onDemoInstallProgress: (callback: (data: DemoInstallProgress) => void) => () => void
+  demoGetPrismDependencies: () => Promise<{
+    ok: boolean
+    dependencies?: Dependency[]
+    error?: string
+  }>
+  demoInstallDependency: (dependency: Dependency) => Promise<DemoProcessResult>
+  onDemoDependencyProgress: (callback: (data: DemoDependencyProgress) => void) => () => void
   onLauncherMessage: (
     callback: (data: {
       message: string

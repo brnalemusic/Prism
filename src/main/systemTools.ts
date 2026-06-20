@@ -2287,7 +2287,9 @@ export async function webSearchSingle(query: string, signal?: AbortSignal): Prom
     })
 
     if (results.length === 0) {
-      console.log('webSearchSingle: Google search yielded no results. Trying DuckDuckGo fallback...')
+      console.log(
+        'webSearchSingle: Google search yielded no results. Trying DuckDuckGo fallback...'
+      )
       await page.goto(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
         waitUntil: 'domcontentloaded',
         timeout: 15000
@@ -2388,10 +2390,7 @@ export async function webSearchContinuous(
 
     const result = await webSearchSingle(entry.query, opts.signal)
 
-    const header =
-      searches.length > 1
-        ? `### ${entry.title}\n(Query: ${entry.query})\n\n`
-        : ''
+    const header = searches.length > 1 ? `### ${entry.title}\n(Query: ${entry.query})\n\n` : ''
 
     sections.push(`${header}${result}`)
   }

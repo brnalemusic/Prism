@@ -1,7 +1,8 @@
 import type { DemoScript } from '../../../../shared/demo'
 import { answerChunks, doneAfter } from './utils'
 
-const answer = `I found a simple focus setup that keeps your desktop ready for writing and light research.
+const answer =
+  `I found a simple focus setup that keeps your desktop ready for writing and light research.
 
 **Workspace plan**
 - Open your notes app and browser side by side.
@@ -12,7 +13,9 @@ const answer = `I found a simple focus setup that keeps your desktop ready for w
 **PrismCLI angle**
 You could run this as a repeatable command later, for example:
 
-` + '```powershell\nprism "set up my writing workspace and start a focus timer"\n```' + `
+` +
+  '```powershell\nprism "set up my writing workspace and start a focus timer"\n```' +
+  `
 
 The useful part is not just launching apps. It is remembering the sequence: arrange windows, reduce distractions, start the timer, and keep a short note of what you planned to finish.`
 

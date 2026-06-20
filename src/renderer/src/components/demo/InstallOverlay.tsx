@@ -3,7 +3,6 @@ import {
   CheckCircle,
   CircleNotch,
   Copy,
-  DownloadSimple,
   Package,
   Rocket,
   ShieldCheck,
@@ -11,7 +10,12 @@ import {
   X,
   XCircle
 } from '@phosphor-icons/react'
-import type { DemoInstallProgress, DemoInstallStage } from '../../../../shared/demo'
+import type {
+  DemoInstallProgress,
+  DemoInstallStage,
+  Dependency,
+  DemoDependencyProgress
+} from '../../../../shared/demo'
 import type { DownloadProgress } from '../../../../shared/types'
 import { Carousel } from './Carousel'
 import { CliTerminalDemo } from './CliTerminalDemo'
@@ -42,7 +46,7 @@ function formatBytes(bytes?: number): string {
 }
 
 const STEPS: { key: WizardStep; label: string }[] = [
-  { key: 'download', label: 'Download' },
+  { key: 'download', label: 'Unpack' },
   { key: 'installing', label: 'Install' },
   { key: 'deps', label: 'Dependencies' },
   { key: 'cli-choice', label: 'PrismCLI' },
@@ -131,7 +135,7 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
   const [accepted, setAccepted] = useState(false)
   const [wizardStep, setWizardStep] = useState<WizardStep>('download')
   const [stage, setStage] = useState<DemoInstallStage>('idle')
-  const [message, setMessage] = useState('Preparing Prism download...')
+  const [message, setMessage] = useState('Preparing Prism installer...')
   const [setupPath, setSetupPath] = useState<string | undefined>()
   const [download, setDownload] = useState<DownloadProgress | null>(null)
   const [cliOutput, setCliOutput] = useState('')
@@ -140,7 +144,14 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
   const [installerStarted, setInstallerStarted] = useState(false)
   const [cliInstalling, setCliInstalling] = useState(false)
   const [cliSkipped, setCliSkipped] = useState(false)
-  const [depsInstalling, setDepsInstalling] = useState(false)
+
+  // New state variables for dynamic dependencies
+  const [dependencies, setDependencies] = useState<Dependency[]>([])
+  const [dependencyProgresses, setDependencyProgresses] = useState<
+    Record<string, DemoDependencyProgress>
+  >({})
+  const [loadingDeps, setLoadingDeps] = useState(false)
+  const [activeDependencyId, setActiveDependencyId] = useState<string | null>(null)
 
   useEffect(() => {
     const removeProgress = window.api.onDownloadProgress((progress) => {
@@ -151,19 +162,30 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
       }
     })
 
-    const removeDemoProgress = window.api.onDemoInstallProgress(
-      (progress: DemoInstallProgress) => {
-        setStage(progress.stage)
-        setMessage(progress.message)
-        if (progress.setupPath) setSetupPath(progress.setupPath)
-        if (progress.cliOutput) setCliOutput(progress.cliOutput)
-        if (progress.error) setError(progress.error)
+    const removeDemoProgress = window.api.onDemoInstallProgress((progress: DemoInstallProgress) => {
+      setStage(progress.stage)
+      setMessage(progress.message)
+      if (progress.setupPath) setSetupPath(progress.setupPath)
+      if (progress.cliOutput) setCliOutput(progress.cliOutput)
+      if (progress.error) setError(progress.error)
+    })
+
+    const removeDependencyProgress = window.api.onDemoDependencyProgress(
+      (progress: DemoDependencyProgress) => {
+        setDependencyProgresses((prev) => ({
+          ...prev,
+          [progress.dependencyId]: progress
+        }))
+        if (progress.status === 'installing' && progress.cliOutput) {
+          setCliOutput(progress.cliOutput)
+        }
       }
     )
 
     return () => {
       removeProgress()
       removeDemoProgress()
+      removeDependencyProgress()
     }
   }, [])
 
@@ -172,19 +194,19 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
     startedDownloadRef.current = true
 
     async function startDownload(): Promise<void> {
-      setStage('resolving-release')
-      setMessage('Finding the latest Prism installer...')
+      setStage('unpacking')
+      setMessage('Unpacking Prism installer...')
       const result = await window.api.demoDownloadPrism()
 
       if (!result.ok || !result.setupPath) {
         setStage('failed')
-        setError(result.error || 'Could not download Prism.')
-        setMessage(result.error || 'Could not download Prism.')
+        setError(result.error || 'Could not unpack Prism.')
+        setMessage(result.error || 'Could not unpack Prism.')
         return
       }
 
       setSetupPath(result.setupPath)
-      setStage('downloaded')
+      setStage('unpacked')
       setMessage('Prism installer is ready.')
     }
 
@@ -197,15 +219,49 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
   }, [])
 
   const runDeps = useCallback(async (): Promise<boolean> => {
-    setDepsInstalling(true)
-    const depsResult = await window.api.demoInstallDeps()
-    setDepsInstalling(false)
-    if (!depsResult.ok) {
+    setLoadingDeps(true)
+    setStage('deps-running')
+    setMessage('Searching for dependencies...')
+
+    const res = await window.api.demoGetPrismDependencies()
+    setLoadingDeps(false)
+
+    if (!res.ok || !res.dependencies) {
       setStage('failed')
-      setError(depsResult.error || 'Dependency installation failed.')
-      setMessage(depsResult.error || 'Dependency installation failed.')
+      const err = res.error || 'Failed to check system dependencies.'
+      setError(err)
+      setMessage(err)
       return false
     }
+
+    setDependencies(res.dependencies)
+
+    // Initialize progress for each dependency
+    const initialProgresses: Record<string, DemoDependencyProgress> = {}
+    for (const dep of res.dependencies) {
+      initialProgresses[dep.id] = {
+        dependencyId: dep.id,
+        status: 'checking',
+        message: 'Pending check...'
+      }
+    }
+    setDependencyProgresses(initialProgresses)
+
+    // Install/verify sequentially
+    for (const dep of res.dependencies) {
+      setActiveDependencyId(dep.id)
+      setCliOutput('')
+      const depResult = await window.api.demoInstallDependency(dep)
+      if (!depResult.ok) {
+        setStage('failed')
+        const err = depResult.error || `Failed to setup ${dep.name}.`
+        setError(err)
+        setMessage(err)
+        return false
+      }
+    }
+
+    setActiveDependencyId(null)
     setStage('deps-finished')
     setMessage('Dependencies are ready.')
     return true
@@ -289,13 +345,11 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
   const progress = useMemo(() => {
     if (download?.percent !== undefined) return Math.max(0, Math.min(100, download.percent))
     if (
-      ['downloaded', 'launching-installer', 'installer-running', 'installer-finished'].includes(
-        stage
-      )
+      ['unpacked', 'launching-installer', 'installer-running', 'installer-finished'].includes(stage)
     ) {
       return 100
     }
-    if (stage === 'resolving-release') return 8
+    if (stage === 'unpacking') return 8
     return 0
   }, [download?.percent, stage])
 
@@ -320,11 +374,21 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
             ) : wizardStep === 'done' ? (
               <CheckCircle size={18} weight="fill" className="text-status-success" />
             ) : (
-              <DownloadSimple size={18} weight="bold" className="text-accent-secondary" />
+              <Package size={18} weight="bold" className="text-accent-secondary" />
             )}
           </div>
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">Download Prism</div>
+            <div className="truncate text-sm font-semibold">
+              {wizardStep === 'download'
+                ? 'Unpack Prism'
+                : wizardStep === 'installing'
+                  ? 'Install Prism'
+                  : wizardStep === 'deps'
+                    ? 'Dependencies'
+                    : wizardStep === 'cli-choice'
+                      ? 'PrismCLI'
+                      : 'Prism Ready'}
+            </div>
             <div className="truncate text-xs text-text-secondary">{message}</div>
           </div>
         </div>
@@ -345,18 +409,18 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
       {/* Content */}
       <div className="flex flex-1 items-center justify-center overflow-y-auto p-4 sm:p-8">
         <div className="w-full max-w-xl">
-          {/* Step 1: Download */}
+          {/* Step 1: Download / Unpack */}
           {wizardStep === 'download' && (
             <div className="flex flex-col gap-6 animate-message">
               <div className="text-center">
                 <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.04]">
-                  <DownloadSimple size={28} className="text-accent-secondary" />
+                  <Package size={28} className="text-accent-secondary" />
                 </div>
-                <h2 className="text-xl font-semibold text-text-primary">Download Prism</h2>
+                <h2 className="text-xl font-semibold text-text-primary">Unpack Prism</h2>
                 <p className="mt-1.5 text-sm text-text-secondary">
-                  {stage === 'downloaded'
+                  {stage === 'unpacked'
                     ? 'Installer ready. Accept the license to continue.'
-                    : 'Downloading the latest Prism installer...'}
+                    : 'Unpacking Prism installer...'}
                 </p>
               </div>
 
@@ -382,7 +446,7 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
               </div>
 
               {/* License */}
-              {stage === 'downloaded' && (
+              {stage === 'unpacked' && (
                 <div className="animate-message">
                   <LicenseView accepted={accepted} onAcceptedChange={setAccepted} />
                 </div>
@@ -396,7 +460,7 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
               )}
 
               {/* Install button */}
-              {accepted && setupPath && stage === 'downloaded' && (
+              {accepted && setupPath && stage === 'unpacked' && (
                 <button
                   onClick={() => runInstaller()}
                   className="mx-auto flex h-11 items-center gap-2.5 rounded-xl bg-accent-primary px-6 text-sm font-semibold text-background-main transition-all hover:opacity-90 hover:shadow-[0_0_20px_rgba(var(--accent-primary-rgb,130,100,255),0.25)] animate-message"
@@ -444,45 +508,154 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
 
           {/* Step 3: Dependencies */}
           {wizardStep === 'deps' && (
-            <div className="flex flex-col items-center gap-6 animate-message">
-              <div className="relative flex h-20 w-20 items-center justify-center">
-                {depsInstalling ? (
-                  <>
+            <div className="flex flex-col gap-6 w-full animate-message">
+              {loadingDeps ? (
+                <div className="flex flex-col items-center gap-6 animate-message">
+                  <div className="relative flex h-20 w-20 items-center justify-center">
                     <div className="absolute inset-0 animate-spin rounded-full border-2 border-accent-primary/20 border-t-accent-primary" />
-                    <Package
+                    <CircleNotch
                       size={32}
                       weight="bold"
-                      className="animate-pulse text-accent-primary"
+                      className="animate-spin text-accent-primary"
                     />
-                  </>
-                ) : (
-                  <>
-                    <div className="absolute inset-0 rounded-full bg-status-success/10" />
-                    <CheckCircle size={40} weight="fill" className="text-status-success" />
-                  </>
-                )}
-              </div>
-              <div className="text-center">
-                <h2 className="text-xl font-semibold text-text-primary">
-                  {depsInstalling ? 'Setting Up Dependencies' : 'Dependencies Ready'}
-                </h2>
-                <p className="mt-1.5 max-w-md text-sm text-text-secondary">{message}</p>
-              </div>
-              {depsInstalling && (
-                <div className="w-full space-y-2">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
-                    <div className="h-full w-full animate-pulse rounded-full bg-accent-primary/60" />
                   </div>
+                  <div className="text-center">
+                    <h2 className="text-xl font-semibold text-text-primary">
+                      Searching for Dependencies...
+                    </h2>
+                    <p className="mt-1.5 text-sm text-text-secondary">
+                      Analyzing system environment for required runtimes.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-6 w-full max-w-md mx-auto animate-message">
+                  <div className="text-center">
+                    <h2 className="text-xl font-semibold text-text-primary">System Dependencies</h2>
+                    <p className="mt-1.5 text-sm text-text-secondary">
+                      Prism needs a few runtimes to enable all command & web search features.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3.5">
+                    {dependencies.map((dep) => {
+                      const prog = dependencyProgresses[dep.id] || {
+                        status: 'checking',
+                        message: 'Pending check...'
+                      }
+                      const isActive = activeDependencyId === dep.id
+
+                      let statusIcon = <div className="h-2.5 w-2.5 rounded-full bg-white/10" />
+                      if (prog.status === 'completed') {
+                        statusIcon = (
+                          <CheckCircle
+                            size={16}
+                            weight="fill"
+                            className="text-status-success shrink-0"
+                          />
+                        )
+                      } else if (prog.status === 'failed') {
+                        statusIcon = (
+                          <XCircle size={16} weight="fill" className="text-status-error shrink-0" />
+                        )
+                      } else if (
+                        prog.status === 'checking' ||
+                        prog.status === 'downloading' ||
+                        prog.status === 'installing'
+                      ) {
+                        statusIcon = (
+                          <CircleNotch
+                            size={16}
+                            className="animate-spin text-accent-primary shrink-0"
+                          />
+                        )
+                      }
+
+                      return (
+                        <div
+                          key={dep.id}
+                          className={`rounded-xl border p-4 transition-all duration-300 ${
+                            isActive
+                              ? 'border-accent-primary/30 bg-accent-primary/5'
+                              : prog.status === 'completed'
+                                ? 'border-white/[0.04] bg-white/[0.01]'
+                                : 'border-white/[0.06] bg-white/[0.02]'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-[13px] font-semibold text-text-primary flex items-center gap-1.5">
+                                {dep.name}
+                                {isActive && (
+                                  <span className="rounded-full bg-accent-primary/15 px-1.5 py-0.5 text-[9px] font-medium text-accent-primary uppercase tracking-wider">
+                                    Installing
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-0.5 text-[11px] text-text-secondary leading-relaxed">
+                                {dep.description}
+                              </div>
+                            </div>
+                            {statusIcon}
+                          </div>
+
+                          {/* Progress bar inside the card */}
+                          {isActive && (
+                            <div className="mt-3.5 space-y-2 animate-message">
+                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
+                                {prog.percent !== undefined ? (
+                                  <div
+                                    className="h-full bg-accent-primary rounded-full transition-[width] duration-300"
+                                    style={{ width: `${prog.percent}%` }}
+                                  />
+                                ) : (
+                                  <div className="h-full bg-accent-primary/60 rounded-full w-full animate-pulse" />
+                                )}
+                              </div>
+                              <div className="flex justify-between items-center text-[10px] text-text-muted">
+                                <span>{prog.message}</span>
+                                {prog.percent !== undefined && <span>{prog.percent}%</span>}
+                              </div>
+                            </div>
+                          )}
+
+                          {!isActive && prog.status !== 'checking' && (
+                            <div className="mt-2 text-[10px] text-text-muted">
+                              Status:{' '}
+                              <span
+                                className={
+                                  prog.status === 'completed'
+                                    ? 'text-status-success'
+                                    : prog.status === 'failed'
+                                      ? 'text-status-error'
+                                      : ''
+                                }
+                              >
+                                {prog.message}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+
                   {cliOutput && (
-                    <div className="max-w-md mx-auto truncate rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 font-mono text-[10.5px] text-text-muted">
-                      {cliOutput}
+                    <div className="w-full animate-message">
+                      <div className="text-[10px] font-medium text-text-muted uppercase tracking-wider mb-1.5">
+                        Installation Log
+                      </div>
+                      <pre className="max-h-28 overflow-y-auto rounded-lg border border-white/[0.06] bg-[#07080b] px-3 py-2 font-mono text-[10px] text-text-muted leading-relaxed whitespace-pre-wrap">
+                        {cliOutput}
+                      </pre>
                     </div>
                   )}
-                </div>
-              )}
-              {isFailed && error && (
-                <div className="w-full rounded-lg border border-status-error/20 bg-status-error/5 px-4 py-3 text-sm text-status-error">
-                  {error}
+
+                  {isFailed && error && (
+                    <div className="rounded-lg border border-status-error/20 bg-status-error/5 px-4 py-3 text-xs text-status-error leading-relaxed animate-message">
+                      {error}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -497,8 +670,8 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
                 </div>
                 <h2 className="text-xl font-semibold text-text-primary">Install PrismCLI?</h2>
                 <p className="mt-1.5 max-w-md mx-auto text-sm text-text-secondary">
-                  PrismCLI lets you use Prism from the terminal. It&apos;s optional — you
-                  can always install it later.
+                  PrismCLI lets you use Prism from the terminal. It&apos;s optional — you can always
+                  install it later.
                 </p>
               </div>
 
@@ -579,9 +752,7 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
                 Launch Prism
               </button>
 
-              {error && (
-                <div className="text-xs text-status-error">{error}</div>
-              )}
+              {error && <div className="text-xs text-status-error">{error}</div>}
             </div>
           )}
         </div>

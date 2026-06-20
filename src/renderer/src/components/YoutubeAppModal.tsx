@@ -128,9 +128,15 @@ export function YoutubeAppModal({
                   onChange={(e) => setType(e.target.value)}
                   className="w-full appearance-none rounded-[14px] border border-white/[0.08] bg-white/[0.035] px-3.5 py-2.5 text-xs text-text-primary placeholder:text-text-muted transition-all focus:border-red-500/40 focus:outline-none cursor-pointer"
                 >
-                  <option value="video" className="bg-[#13151a] text-text-primary">Video</option>
-                  <option value="playlist" className="bg-[#13151a] text-text-primary">Playlist</option>
-                  <option value="channel" className="bg-[#13151a] text-text-primary">Channel</option>
+                  <option value="video" className="bg-[#13151a] text-text-primary">
+                    Video
+                  </option>
+                  <option value="playlist" className="bg-[#13151a] text-text-primary">
+                    Playlist
+                  </option>
+                  <option value="channel" className="bg-[#13151a] text-text-primary">
+                    Channel
+                  </option>
                 </select>
                 <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-text-secondary/50">
                   <svg className="fill-current h-3.5 w-3.5" viewBox="0 0 20 20">
@@ -149,10 +155,18 @@ export function YoutubeAppModal({
                   onChange={(e) => setSortBy(e.target.value)}
                   className="w-full appearance-none rounded-[14px] border border-white/[0.08] bg-white/[0.035] px-3.5 py-2.5 text-xs text-text-primary placeholder:text-text-muted transition-all focus:border-red-500/40 focus:outline-none cursor-pointer"
                 >
-                  <option value="relevance" className="bg-[#13151a] text-text-primary">Relevance</option>
-                  <option value="date" className="bg-[#13151a] text-text-primary">Upload Date</option>
-                  <option value="views" className="bg-[#13151a] text-text-primary">View Count</option>
-                  <option value="rating" className="bg-[#13151a] text-text-primary">Rating</option>
+                  <option value="relevance" className="bg-[#13151a] text-text-primary">
+                    Relevance
+                  </option>
+                  <option value="date" className="bg-[#13151a] text-text-primary">
+                    Upload Date
+                  </option>
+                  <option value="views" className="bg-[#13151a] text-text-primary">
+                    View Count
+                  </option>
+                  <option value="rating" className="bg-[#13151a] text-text-primary">
+                    Rating
+                  </option>
                 </select>
                 <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-text-secondary/50">
                   <svg className="fill-current h-3.5 w-3.5" viewBox="0 0 20 20">
@@ -171,10 +185,18 @@ export function YoutubeAppModal({
                   onChange={(e) => setDuration(e.target.value)}
                   className="w-full appearance-none rounded-[14px] border border-white/[0.08] bg-white/[0.035] px-3.5 py-2.5 text-xs text-text-primary placeholder:text-text-muted transition-all focus:border-red-500/40 focus:outline-none cursor-pointer"
                 >
-                  <option value="any" className="bg-[#13151a] text-text-primary">Any</option>
-                  <option value="short" className="bg-[#13151a] text-text-primary">Short (&lt; 4 min)</option>
-                  <option value="medium" className="bg-[#13151a] text-text-primary">Medium (4-20 min)</option>
-                  <option value="long" className="bg-[#13151a] text-text-primary">Long (&gt; 20 min)</option>
+                  <option value="any" className="bg-[#13151a] text-text-primary">
+                    Any
+                  </option>
+                  <option value="short" className="bg-[#13151a] text-text-primary">
+                    Short (&lt; 4 min)
+                  </option>
+                  <option value="medium" className="bg-[#13151a] text-text-primary">
+                    Medium (4-20 min)
+                  </option>
+                  <option value="long" className="bg-[#13151a] text-text-primary">
+                    Long (&gt; 20 min)
+                  </option>
                 </select>
                 <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-text-secondary/50">
                   <svg className="fill-current h-3.5 w-3.5" viewBox="0 0 20 20">

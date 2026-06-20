@@ -669,8 +669,7 @@
   .prism-background-field {
     background:
       linear-gradient(180deg, rgba(255, 255, 255, 0.018) 0%, transparent 30%),
-      linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0%, transparent 34%),
-      var(--color-background-main);
+      linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0%, transparent 34%), var(--color-background-main);
   }
 
   .prism-background-field::after {

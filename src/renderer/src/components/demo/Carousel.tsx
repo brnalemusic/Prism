@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Images } from '@phosphor-icons/react'
 
-const imageModules = import.meta.glob<string>('../../assets/install/examples/*.{png,jpg,jpeg,webp}', {
-  eager: true,
-  import: 'default'
-})
+const imageModules = import.meta.glob<string>(
+  '../../assets/install/examples/*.{png,jpg,jpeg,webp}',
+  {
+    eager: true,
+    import: 'default'
+  }
+)
 
 const FALLBACK_SLIDES = [
   {

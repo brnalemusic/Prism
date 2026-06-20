@@ -118,11 +118,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     )
 
     const isSearchAndThinkMode = isSearchEnabled && isThinkMode
-    const activeMode = isSearchEnabled
-        ? 'search'
-        : isThinkMode
-          ? 'think'
-          : 'default'
+    const activeMode = isSearchEnabled ? 'search' : isThinkMode ? 'think' : 'default'
 
     const [workflows, setWorkflows] = useState<any[]>([])
     const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
@@ -158,7 +154,8 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           setTimeout(() => {
             if (inputRef.current) {
               inputRef.current.focus()
-              inputRef.current.selectionStart = inputRef.current.selectionEnd = inputRef.current.value.length
+              inputRef.current.selectionStart = inputRef.current.selectionEnd =
+                inputRef.current.value.length
             }
           }, 50)
         }
@@ -166,10 +163,13 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     }, [text, workflows, setActiveWorkflow, setText])
 
     const filteredWorkflows = text.startsWith('/')
-      ? workflows.filter((w) => w.command.toLowerCase().startsWith(text.toLowerCase().split(' ')[0]))
+      ? workflows.filter((w) =>
+          w.command.toLowerCase().startsWith(text.toLowerCase().split(' ')[0])
+        )
       : []
 
-    const showSlashMenu = text.startsWith('/') && filteredWorkflows.length > 0 && !text.includes(' ')
+    const showSlashMenu =
+      text.startsWith('/') && filteredWorkflows.length > 0 && !text.includes(' ')
 
     useEffect(() => {
       if (showSlashMenu) {
@@ -212,7 +212,9 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 </span>
                 <div className="flex flex-col">
                   <span className="font-semibold text-text-primary">{w.command}</span>
-                  <span className="text-xs text-text-secondary/70">{w.name} — {w.description}</span>
+                  <span className="text-xs text-text-secondary/70">
+                    {w.name} — {w.description}
+                  </span>
                 </div>
               </button>
             ))}
@@ -556,7 +558,10 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                     isSearchEnabled ? 'text-accent-secondary' : 'text-text-primary'
                   )}
                 >
-                  <Globe size={16} className={isSearchEnabled ? 'text-accent-secondary' : 'text-text-secondary'} />
+                  <Globe
+                    size={16}
+                    className={isSearchEnabled ? 'text-accent-secondary' : 'text-text-secondary'}
+                  />
                   <div className="flex flex-col">
                     <span>Web Search</span>
                     <span className="text-[9px] text-text-secondary/50 font-normal">
@@ -623,8 +628,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             )}
           </div>
 
-
-
           <button
             onClick={() => {
               if (isRecording) {
@@ -680,8 +683,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             onThinkModeToggle={onThinkModeToggle}
             disabled={disabled}
           />
-
-
 
           {isProcessing ? (
             <button
@@ -795,12 +796,8 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                       <Globe size={20} className="text-accent-secondary" />
                     </div>
                     <div className="flex flex-col min-w-0">
-                      <span className="text-xs font-semibold text-text-primary">
-                        Web Search
-                      </span>
-                      <span className="text-[10px] text-text-secondary/60">
-                        Active
-                      </span>
+                      <span className="text-xs font-semibold text-text-primary">Web Search</span>
+                      <span className="text-[10px] text-text-secondary/60">Active</span>
                     </div>
                     <button
                       type="button"
@@ -972,12 +969,8 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                       <Globe size={20} className="text-accent-secondary" />
                     </div>
                     <div className="flex flex-col min-w-0">
-                      <span className="text-xs font-semibold text-text-primary">
-                        Web Search
-                      </span>
-                      <span className="text-[10px] text-text-secondary/60">
-                        Active
-                      </span>
+                      <span className="text-xs font-semibold text-text-primary">Web Search</span>
+                      <span className="text-[10px] text-text-secondary/60">Active</span>
                     </div>
                     <button
                       type="button"

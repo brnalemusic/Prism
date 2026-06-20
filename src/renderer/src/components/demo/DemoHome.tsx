@@ -78,8 +78,8 @@ export function DemoHome({
                 key={script.id}
                 onClick={() => onSelectScript(script)}
                 className={clsx(
-                  "group relative flex min-h-[105px] flex-col justify-between rounded-xl border border-white/[0.06] bg-white/[0.015] p-4.5 text-left shadow-sm backdrop-blur-md transition-all duration-300 hover:translate-y-[-2px] hover:border-accent-secondary/35 hover:bg-white/[0.045] hover:shadow-md hover:shadow-accent-secondary/2 active:scale-[0.98] cursor-pointer",
-                  index === 4 && "sm:col-span-2"
+                  'group relative flex min-h-[105px] flex-col justify-between rounded-xl border border-white/[0.06] bg-white/[0.015] p-4.5 text-left shadow-sm backdrop-blur-md transition-all duration-300 hover:translate-y-[-2px] hover:border-accent-secondary/35 hover:bg-white/[0.045] hover:shadow-md hover:shadow-accent-secondary/2 active:scale-[0.98] cursor-pointer',
+                  index === 4 && 'sm:col-span-2'
                 )}
               >
                 <div className="flex flex-col gap-2.5">

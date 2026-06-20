@@ -22,7 +22,13 @@ export const IS_DEMO: boolean = __DEMO_MODE__ === true
  */
 export type DemoEvent =
   | { kind: 'user_message'; text: string; at: number }
-  | { kind: 'tool_start'; tool: string; toolType: 'task' | 'search' | 'mini-app'; label: string; at: number }
+  | {
+      kind: 'tool_start'
+      tool: string
+      toolType: 'task' | 'search' | 'mini-app'
+      label: string
+      at: number
+    }
   | { kind: 'tool_update'; text: string; at: number }
   | { kind: 'tool_end'; at: number }
   | { kind: 'thinking_chunk'; text: string; at: number }
@@ -56,9 +62,8 @@ export function fullAnswer(script: DemoScript): string {
 
 export type DemoInstallStage =
   | 'idle'
-  | 'resolving-release'
-  | 'downloading'
-  | 'downloaded'
+  | 'unpacking'
+  | 'unpacked'
   | 'launching-installer'
   | 'installer-running'
   | 'installer-finished'
@@ -97,4 +102,23 @@ export interface DemoOpenResult {
   ok: boolean
   path?: string
   error?: string
+}
+
+export interface Dependency {
+  id: string
+  name: string
+  description: string
+  checkCommand: string
+  downloadUrl?: string
+  downloadFilename?: string
+  installCommand: string
+}
+
+export interface DemoDependencyProgress {
+  dependencyId: string
+  status: 'checking' | 'downloading' | 'installing' | 'completed' | 'failed'
+  percent?: number
+  message: string
+  error?: string
+  cliOutput?: string
 }

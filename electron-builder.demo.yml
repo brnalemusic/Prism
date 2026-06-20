@@ -23,6 +23,8 @@ extraResources:
     to: resources/icon.png
   - from: resources/icons
     to: resources/icons
+  - from: resources/prism-setup.exe
+    to: resources/prism-setup.exe
 win:
   executableName: Prism Demo
   icon: resources/icon.ico

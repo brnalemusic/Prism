@@ -171,8 +171,6 @@ Legacy slash commands have been discontinued and replaced with state-driven **AI
 
 Enabled via the search toggle (`Ctrl+S`) or the `/search` command. The AI executes `web_search` and `saw_link_from_url` calls to collect real-time information. **Mandatory for serious topics** (medical, legal, current events, up-to-date code).
 
-
-
 ## Sub-Agent System
 
 Prism supports orchestrating multiple parallel sub-agents (up to 20 per invocation). The system is built on an asynchronous "Group Chat" blackboard.

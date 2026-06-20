@@ -39,7 +39,11 @@ export const downloadsCleanupScript: DemoScript = {
     },
     { kind: 'tool_update', text: 'Listing files by type and modified date...', at: 1100 },
     { kind: 'tool_update', text: 'Found 182 files across 9 common categories...', at: 2240 },
-    { kind: 'tool_update', text: 'Marking risky files for review instead of deletion...', at: 3340 },
+    {
+      kind: 'tool_update',
+      text: 'Marking risky files for review instead of deletion...',
+      at: 3340
+    },
     { kind: 'tool_end', at: 4050 },
     {
       kind: 'thinking_chunk',

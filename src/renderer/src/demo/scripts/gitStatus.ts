@@ -1,10 +1,13 @@
 import type { DemoScript } from '../../../../shared/demo'
 import { answerChunks, doneAfter } from './utils'
 
-const answer = `Your folder has a cleanly understandable Git state: there are edited source files, one new component folder, and no merge conflict markers.
+const answer =
+  `Your folder has a cleanly understandable Git state: there are edited source files, one new component folder, and no merge conflict markers.
 
 **Current summary**
-- Branch: ` + '`feature/demo-installer`' + `
+- Branch: ` +
+  '`feature/demo-installer`' +
+  `
 - Modified: renderer UI, preload typings, and main-process IPC.
 - Added: demo playback data and installer overlay components.
 - No staged files yet.
@@ -13,7 +16,9 @@ const answer = `Your folder has a cleanly understandable Git state: there are ed
 1. Run the typecheck so we know the IPC typings and renderer imports are sound.
 2. Start the demo build in dev mode and click through one scripted conversation.
 3. Stage only the demo-related files.
-4. Commit with a message like ` + '`Add Prism Demo installer showcase`' + `.
+4. Commit with a message like ` +
+  '`Add Prism Demo installer showcase`' +
+  `.
 
 I can also prepare the exact staging command, but I would wait until the typecheck passes so the commit represents a working point instead of a partial checkpoint.`
 

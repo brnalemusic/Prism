@@ -15,6 +15,8 @@ import {
 import { join, dirname } from 'path'
 import os from 'os'
 import fs from 'fs'
+import { execSync } from 'child_process'
+import { DEPENDENCIES } from './dependenciesManifest'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import {
   initGemini,
@@ -626,9 +628,15 @@ function toggleLauncher(): void {
   }
 }
 
+if (process.argv.includes('--get-dependencies')) {
+  app.whenReady().then(async () => {
+    console.log(JSON.stringify(DEPENDENCIES))
+    app.exit(0)
+  })
+}
+
 if (process.argv.includes('--install-playwright-browsers')) {
   app.whenReady().then(async () => {
-    const { execSync } = require('child_process')
     const commonPaths = [
       'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
       'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
