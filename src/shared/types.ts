@@ -19,10 +19,12 @@ export interface MiniAppData {
 export interface ToolUpdate {
   toolCallName: string
   update: {
-    agentIndex: number
-    phase: 'thinking' | 'tool_use' | 'done' | 'error'
+    agentIndex?: number
+    phase?: 'thinking' | 'tool_use' | 'done' | 'error'
     command?: string
     output?: string
+    // Novo: progresso de web_search contínua
+    searchTitle?: string
   }
 }
 

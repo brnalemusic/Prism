@@ -129,7 +129,6 @@ These shortcuts are registered system-wide and are **fully configurable** in Set
 | `Shift+Enter` | Insert newline without sending             |
 | `Ctrl+T`      | Toggle Think mode                          |
 | `Ctrl+S`      | Toggle web search (Active Search)          |
-| `Ctrl+E`      | Toggle extended search (Deep Research)     |
 | `Ctrl+Y`      | Toggle YouTube mode                        |
 | `Ctrl+D`      | Start/stop microphone dictation for review |
 | `Escape`      | Exit fullscreen input mode                 |
@@ -172,17 +171,7 @@ Legacy slash commands have been discontinued and replaced with state-driven **AI
 
 Enabled via the search toggle (`Ctrl+S`) or the `/search` command. The AI executes `web_search` and `saw_link_from_url` calls to collect real-time information. **Mandatory for serious topics** (medical, legal, current events, up-to-date code).
 
-### Deep Research (Extended Search)
 
-Enabled via the extended search toggle (`Ctrl+E`). When active, the AI follows a structured 5-step protocol:
-
-1. **Understanding:** Analyzes what the user wants to discover.
-2. **Brief initial research:** 1–2 searches for context and keywords.
-3. **Research plan + confirmation:** Presents a briefing and a detailed plan, **stops and explicitly waits for user confirmation** before proceeding.
-4. **Deep research (after confirmation):** At least 10 distinct iterations of `web_search` + `saw_link_from_url`, cross-referencing sources and investigating details. Can take up to 20 minutes.
-5. **Strategic output:** Compiles the result into professional-level Markdown with tables and structures where useful.
-
----
 
 ## Sub-Agent System
 

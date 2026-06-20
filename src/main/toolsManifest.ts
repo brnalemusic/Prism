@@ -184,10 +184,13 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'web_search',
-    description: 'Search Google for live information. Returns a list of organic titles, links, and snippets.',
-    usage: '<tool_call>{"type":"web_search","query":"QRY"}</tool_call>',
+    description:
+      'Search Google for live information. Batch multiple distinct angles into one call using the "searches" array. Each entry runs sequentially and the user sees each friendly title appear live in the UI. Returns aggregated organic titles, links, and snippets under per-search headers.',
+    usage:
+      '<tool_call>{"type":"web_search","searches":[{"title":"Finding common errors with X","query":"X not working windows"},{"title":"Searching on how to update X","query":"how to update X"}]}</tool_call>',
     parameters: {
-      query: 'Keywords to search.'
+      searches:
+        'Array of search objects. Each object must have "title" (a concise human-friendly action phrase shown to the user, e.g. "Finding common errors with...", never raw query syntax) and "query" (the actual keywords sent to Google). Use multiple entries when the task benefits from exploring several angles; one entry is valid for focused lookups.'
     }
   },
   {
@@ -317,8 +320,7 @@ export const toolsManifest: ToolDefinition[] = [
       instructions: 'Target instructions.',
       model: 'Model key (super-fast|fast|dragon|dense).',
       thinkMode: 'Optional: "true"|"false".',
-      searchEnabled: 'Optional: "true"|"false".',
-      extendedSearch: 'Optional: "true"|"false".'
+      searchEnabled: 'Optional: "true"|"false".'
     },
     target: 'launcher'
   },

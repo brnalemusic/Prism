@@ -11,6 +11,7 @@ import {
   openApplication,
   openBrowserLink,
   webSearch,
+  webSearchContinuous,
   sawLinkFromUrl,
   computerCreateFile,
   computerCreateDirectory,
@@ -38,6 +39,7 @@ import {
   webScript,
   detailedDomPage
 } from './systemTools'
+import type { WebSearchEntry } from './systemTools'
 import {
   saveChatSession,
   loadChatSession,
@@ -185,7 +187,7 @@ export interface StructuredChatResponse {
   toolType?: 'task' | 'search'
 }
 
-interface ToolArgs extends Record<string, string | undefined> {
+interface ToolArgs extends Record<string, any> {
   command?: string
   appPath?: string
   url?: string
@@ -213,13 +215,20 @@ interface ToolArgs extends Record<string, string | undefined> {
   model?: string
   thinkMode?: string
   searchEnabled?: string
-  extendedSearch?: string
   ttsVoice?: string
   terminalShell?: string
   zoomFactor?: string
+  // Continuous web_search: array of { title, query } kept as a structured value
+  // (not stringified) so the backend can iterate and the UI can render titles.
+  searches?: WebSearchEntry[]
 }
 
 const RAW_TOOL_ARG_TAGS = new Set(['command', 'content', 'oldText', 'newText'])
+
+// Argument keys whose values must be preserved as structured JS objects/arrays
+// rather than stringified. Currently used by the continuous web_search tool to
+// keep the `searches` array intact through parse/validate.
+const OBJECT_TOOL_ARG_TAGS = new Set(['searches'])
 
 function parseToolCall(toolContent: string): { name: string | null; args: ToolArgs } {
   let trimmed = toolContent.trim()
@@ -235,19 +244,25 @@ function parseToolCall(toolContent: string): { name: string | null; args: ToolAr
   // JSON format detection
   if (trimmed.startsWith('{')) {
     try {
-      const obj = JSON.parse(trimmed)
-      const name = (obj.type || obj.name || null) as string | null
-      const args: ToolArgs = {}
-      for (const [key, value] of Object.entries(obj)) {
-        if (key !== 'type' && key !== 'name') {
-          let val = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
-          if (!RAW_TOOL_ARG_TAGS.has(key)) {
-            val = val.trim()
-          }
-          args[key] = val
+    const obj = JSON.parse(trimmed)
+    const name = (obj.type || obj.name || null) as string | null
+    const args: ToolArgs = {}
+    for (const [key, value] of Object.entries(obj)) {
+      if (key !== 'type' && key !== 'name') {
+        // Preserve structured values (arrays/objects) for tagged keys so they
+        // survive parse/validate without being stringified.
+        if (OBJECT_TOOL_ARG_TAGS.has(key) && typeof value === 'object' && value !== null) {
+          args[key] = value as unknown as string
+          continue
         }
+        let val = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+        if (!RAW_TOOL_ARG_TAGS.has(key)) {
+          val = val.trim()
+        }
+        args[key] = val
       }
-      return { name, args }
+    }
+    return { name, args }
     } catch (e) {
       console.warn('Tool call looks like JSON but failed to parse.', e)
     }
@@ -406,6 +421,9 @@ function validateSchemaArgs(
   // 3. Type/format validation
   for (const [key, value] of Object.entries(args)) {
     if (key === 'rawContent' || key === 'originalName') continue
+    // Structured object/array args (e.g. web_search "searches") skip string
+    // type/format checks; they are validated by their own branch below.
+    if (OBJECT_TOOL_ARG_TAGS.has(key)) continue
     const desc = expectedParams[key] ? expectedParams[key].toLowerCase() : ''
 
     // Boolean checks
@@ -436,6 +454,33 @@ function validateSchemaArgs(
         return {
           type: 'invalid_args',
           message: `Argument "${key}" for tool "${toolName}" must be a valid number representation. Passed: "${value}".`
+        }
+      }
+    }
+  }
+
+  // 4. Continuous web_search "searches" validation
+  if (toolName === 'web_search' && args.searches !== undefined) {
+    const raw = args.searches as unknown
+    if (!Array.isArray(raw) || raw.length === 0) {
+      return {
+        type: 'invalid_args',
+        message:
+          'Argument "searches" for tool "web_search" must be a non-empty array of objects, each with "title" and "query" strings.'
+      }
+    }
+    for (let i = 0; i < raw.length; i++) {
+      const entry = raw[i] as { title?: unknown; query?: unknown }
+      if (
+        typeof entry !== 'object' ||
+        entry === null ||
+        typeof entry.title !== 'string' ||
+        typeof entry.query !== 'string' ||
+        entry.query.trim() === ''
+      ) {
+        return {
+          type: 'invalid_args',
+          message: `Each item in "searches" (index ${i}) must be an object with non-empty string "title" and "query".`
         }
       }
     }
@@ -514,6 +559,11 @@ function validateToolCall(toolContent: string): ValidationResult {
     const args: ToolArgs = {}
     for (const [key, value] of Object.entries(obj)) {
       if (key !== 'type' && key !== 'name') {
+        // Preserve structured values (arrays/objects) for tagged keys.
+        if (OBJECT_TOOL_ARG_TAGS.has(key) && typeof value === 'object' && value !== null) {
+          args[key] = value as unknown as string
+          continue
+        }
         let val = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
         if (!RAW_TOOL_ARG_TAGS.has(key)) {
           val = val.trim()
@@ -891,7 +941,23 @@ const toolFunctions: Record<
   browser_close: () => closePersistentBrowser(),
   web_script: (args) => webScript(args.url || '', args.script || ''),
   detailed_dom_page: (args) => detailedDomPage(args.url),
-  web_search: (args, _event, _apiKey, signal) => webSearch(args.query || '', signal),
+  web_search: (args, event, _apiKey, signal, chatId) => {
+    if (args.searches && Array.isArray(args.searches)) {
+      return webSearchContinuous(args.searches as any, {
+        signal,
+        onProgress: (title) => {
+          if (chatId) {
+            event.sender.send('chat-tool-update', {
+              toolCallName: 'web_search',
+              update: { searchTitle: title },
+              chatId
+            })
+          }
+        }
+      })
+    }
+    return webSearch(args.query || '', signal)
+  },
   saw_link_from_url: (args, _event, _apiKey, signal) => sawLinkFromUrl(args.url || '', signal),
   computer_use_create_file: (args, _event, _apiKey, signal) =>
     computerCreateFile(args.path || '', args.content || '', signal),
@@ -953,7 +1019,6 @@ const toolFunctions: Record<
     const model = args.model || 'prism-5'
     const thinkMode = String(args.thinkMode).trim().toLowerCase() === 'true'
     const searchEnabled = String(args.searchEnabled).trim().toLowerCase() === 'true'
-    const extendedSearch = String(args.extendedSearch).trim().toLowerCase() === 'true'
 
     // Find and hide launcher
     const launcherWin = BrowserWindow.getAllWindows().find((win) =>
@@ -982,8 +1047,7 @@ const toolFunctions: Record<
         instructions,
         model,
         thinkMode,
-        searchEnabled,
-        extendedSearch
+        searchEnabled
       })
     }
 
@@ -1682,7 +1746,6 @@ export async function handleChatMessage(
         message: string
         thinkMode?: boolean
         chatId?: string
-        extendedSearch?: boolean
         screenshot?: string
         quote?: string
         attachedFile?: AttachedFile
@@ -1692,7 +1755,6 @@ export async function handleChatMessage(
   const message = typeof data === 'string' ? data : data.message
   const thinkMode = typeof data === 'object' ? !!data.thinkMode : false
   const chatId = typeof data === 'object' && data.chatId ? data.chatId : currentSessionId
-  const extendedSearch = typeof data === 'object' ? !!data.extendedSearch : false
   const screenshot = typeof data === 'object' ? data.screenshot : undefined
   const quote = typeof data === 'object' ? data.quote : undefined
   const attachedFile = typeof data === 'object' ? data.attachedFile : undefined
@@ -1726,7 +1788,7 @@ export async function handleChatMessage(
       runHistory = [
         {
           role: 'system',
-          parts: [{ text: getSystemToolsPrompt(currentModelKey, 'main', extendedSearch) }]
+          parts: [{ text: getSystemToolsPrompt(currentModelKey, 'main') }]
         },
         {
           role: 'system',
@@ -1742,7 +1804,7 @@ export async function handleChatMessage(
       runHistory = [
         {
           role: 'system',
-          parts: [{ text: getSystemToolsPrompt(currentModelKey, 'main', extendedSearch) }]
+          parts: [{ text: getSystemToolsPrompt(currentModelKey, 'main') }]
         },
         {
           role: 'system',
@@ -1877,7 +1939,6 @@ export async function handleChatMessage(
   const basePrompt = getSystemToolsPrompt(
     currentModelKey,
     'main',
-    extendedSearch,
     matchedWorkflow?.toolConstraints
   )
   let fullPrompt = basePrompt
@@ -1989,7 +2050,7 @@ export async function handleChatMessage(
         let accumulatedThoughts = ''
         let accumulatedFinalResponse = ''
         let iterationCount = 0
-        const MAX_ITERATIONS = extendedSearch ? 35 : 10
+        const MAX_ITERATIONS = 10
 
         while (iterationCount < MAX_ITERATIONS) {
           iterationCount++
@@ -2343,7 +2404,7 @@ export async function handleLauncherChatMessage(
     launcherChatHistory = [
       {
         role: 'system',
-        parts: [{ text: getSystemToolsPrompt(launcherModelKey, 'launcher', false) }]
+        parts: [{ text: getSystemToolsPrompt(launcherModelKey, 'launcher') }]
       },
       {
         role: 'system',
@@ -2515,11 +2576,6 @@ export async function handleLauncherChatMessage(
                     }
                     if (toolArgs.searchEnabled === undefined) {
                       toolArgs.searchEnabled = message.startsWith('[FORCE_SEARCH]')
-                        ? 'true'
-                        : 'false'
-                    }
-                    if (toolArgs.extendedSearch === undefined) {
-                      toolArgs.extendedSearch = message.startsWith('[FORCE_SEARCH]')
                         ? 'true'
                         : 'false'
                     }

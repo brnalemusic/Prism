@@ -7,7 +7,6 @@ import {
   Robot as Bot,
   CornersOut as Maximize2,
   CornersIn as Minimize2,
-  CaretDown as ChevronDown,
   Microphone,
   StopCircle,
   Plus,
@@ -18,7 +17,8 @@ import {
   FilePdf,
   FilePpt,
   Trash,
-  Lightning
+  Lightning,
+  Globe
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
 import { useSpeechToText } from '../hooks/useSpeechToText'
@@ -32,7 +32,6 @@ interface InputBarProps {
     message: string,
     thinkMode?: boolean,
     searchEnabled?: boolean,
-    extendedSearch?: boolean,
     screenshot?: string,
     attachedFile?: AttachedFile
   ) => void
@@ -48,8 +47,6 @@ interface InputBarProps {
   setText: (val: string | ((prev: string) => string)) => void
   isSearchEnabled: boolean
   setIsSearchEnabled: (val: boolean) => void
-  isExtendedSearch: boolean
-  setIsExtendedSearch: (val: boolean) => void
   isFullscreen: boolean
   onFullscreenToggle: () => void
   attachedFile?: AttachedFile | null
@@ -82,8 +79,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       setText,
       isSearchEnabled,
       setIsSearchEnabled,
-      isExtendedSearch,
-      setIsExtendedSearch,
       isFullscreen,
       onFullscreenToggle,
       attachedFile,
@@ -99,13 +94,10 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
   ) => {
     const [isFocused, setIsFocused] = useState(false)
     const [showFullscreenBtn, setShowFullscreenBtn] = useState(false)
-    const [showSearchDropdown, setShowSearchDropdown] = useState(false)
     const [showAttachMenu, setShowAttachMenu] = useState(false)
     const [showAppsMenu, setShowAppsMenu] = useState(false)
 
     const inputRef = useRef<HTMLTextAreaElement>(null)
-    const searchDropdownRef = useRef<HTMLDivElement>(null)
-    const searchButtonRef = useRef<HTMLButtonElement>(null)
     const attachMenuRef = useRef<HTMLDivElement>(null)
     const attachButtonRef = useRef<HTMLButtonElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
@@ -126,13 +118,11 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     )
 
     const isSearchAndThinkMode = isSearchEnabled && isThinkMode
-    const activeMode = isExtendedSearch
-        ? 'extended'
-        : isSearchEnabled
-          ? 'search'
-          : isThinkMode
-            ? 'think'
-            : 'default'
+    const activeMode = isSearchEnabled
+        ? 'search'
+        : isThinkMode
+          ? 'think'
+          : 'default'
 
     const [workflows, setWorkflows] = useState<any[]>([])
     const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
@@ -344,17 +334,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           e.preventDefault()
           const nextVal = !isSearchEnabled
           setIsSearchEnabled(nextVal)
-          if (!nextVal) {
-            setIsExtendedSearch(false)
-          }
-        }
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
-          e.preventDefault()
-          const nextVal = !isExtendedSearch
-          setIsExtendedSearch(nextVal)
-          if (nextVal) {
-            setIsSearchEnabled(true)
-          }
         }
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't') {
           e.preventDefault()
@@ -363,7 +342,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
           e.preventDefault()
           setIsSearchEnabled(false)
-          setIsExtendedSearch(false)
           onOpenYoutubeModal?.()
         }
       }
@@ -374,24 +352,13 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       onThinkModeToggle,
       selectedModel,
       isSearchEnabled,
-      isExtendedSearch,
       setIsSearchEnabled,
-      setIsExtendedSearch,
       setText,
       isRecording
     ])
 
     useEffect(() => {
       const handleClickOutside = (event: MouseEvent): void => {
-        const isClickInsideDropdown =
-          searchDropdownRef.current && searchDropdownRef.current.contains(event.target as Node)
-        const isClickOnButton =
-          searchButtonRef.current && searchButtonRef.current.contains(event.target as Node)
-
-        if (!isClickInsideDropdown && !isClickOnButton) {
-          setShowSearchDropdown(false)
-        }
-
         const isClickInsideAttach =
           attachMenuRef.current && attachMenuRef.current.contains(event.target as Node)
         const isClickOnAttachBtn =
@@ -430,7 +397,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           finalMessage,
           isThinkMode,
           isSearchEnabled,
-          isExtendedSearch,
           attachedFile?.mimeType.startsWith('image/') ? attachedFile.data : undefined,
           attachedFile || undefined
         )
@@ -501,7 +467,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       if (isProcessing) return 'Prism is responding'
       if (activeWorkflow) return `Ask with ${activeWorkflow.name}`
       if (isSearchAndThinkMode) return 'Search, and then Think Deeply with Prism'
-      if (isExtendedSearch) return 'Search deeply with Extended Search'
       if (isSearchEnabled) return 'Search the web with Prism'
       if (isThinkMode) return 'Ask Prism to think deeply'
       return 'Ask Prism'
@@ -509,80 +474,12 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
 
     const modeStyles = {
       youtube: 'border-accent-primary/30 bg-accent-primary/[0.04] text-accent-primary',
-      extended: 'border-accent-primary/35 bg-accent-primary/[0.04] text-accent-primary',
       search: isSearchAndThinkMode
         ? 'border-[#8ee8b0]/25 bg-[linear-gradient(110deg,rgba(45,212,191,0.045),rgba(245,158,11,0.05))] text-[#d9c77a]'
         : 'border-accent-secondary/30 bg-accent-secondary/[0.04] text-accent-secondary',
       think: 'border-status-warning/30 bg-status-warning/[0.04] text-status-warning',
       default: 'border-white/[0.085] bg-white/[0.028] text-text-primary'
     }[activeMode]
-
-    const searchLabel = isExtendedSearch
-      ? 'Extended Search'
-      : isSearchEnabled
-        ? 'Search Default'
-        : 'Search Disabled'
-
-    const renderSearchDropdown = (): React.JSX.Element => (
-      <div
-        ref={searchDropdownRef}
-        className="model-menu-panel absolute bottom-full right-0 mb-2 z-50 w-72 p-2 animate-soft-pop text-left opacity-100"
-      >
-        <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.04] mb-1">
-          Web Search Mode
-        </div>
-        <button
-          onClick={() => {
-            setIsSearchEnabled(true)
-            setIsExtendedSearch(false)
-            setShowSearchDropdown(false)
-          }}
-          className={clsx(
-            'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2.5 transition-all text-left',
-            isSearchEnabled && !isExtendedSearch
-              ? 'bg-accent-secondary/[0.12] text-accent-secondary border border-accent-secondary/20'
-              : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
-          )}
-        >
-          <div className="font-semibold text-xs text-text-primary">Default</div>
-          <div className="text-[10px] text-text-secondary/70 leading-normal font-medium">
-            Search on Web in Default Mode. Commonly faster.
-          </div>
-        </button>
-
-        <button
-          onClick={() => {
-            setIsSearchEnabled(true)
-            setIsExtendedSearch(true)
-            setShowSearchDropdown(false)
-          }}
-          className={clsx(
-            'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2.5 transition-all text-left mt-1',
-            isSearchEnabled && isExtendedSearch
-              ? 'bg-accent-primary/[0.12] text-accent-primary border border-accent-primary/20'
-              : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
-          )}
-        >
-          <div className="font-semibold text-xs text-text-primary">Extended</div>
-          <div className="text-[10px] text-text-secondary/70 leading-normal font-medium">
-            Super deep grounding and analisys for ultra-detailed outputs. Can be very slow.
-          </div>
-        </button>
-
-        {isSearchEnabled && (
-          <button
-            onClick={() => {
-              setIsSearchEnabled(false)
-              setIsExtendedSearch(false)
-              setShowSearchDropdown(false)
-            }}
-            className="w-full mt-2 rounded-xl px-3 py-2 text-xs font-semibold text-center text-status-error hover:bg-status-error/[0.08] transition-all border border-transparent hover:border-status-error/10"
-          >
-            Disable Search
-          </button>
-        )}
-      </div>
-    )
 
     const renderBottomControls = (): React.JSX.Element => (
       <div className="flex w-full flex-wrap items-center justify-between gap-3 border-t border-white/[0.045] pt-2.5 mt-2 select-none relative z-20">
@@ -649,6 +546,25 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                   </div>
                 </button>
 
+                <button
+                  onClick={() => {
+                    setIsSearchEnabled(!isSearchEnabled)
+                    setShowAttachMenu(false)
+                  }}
+                  className={clsx(
+                    'w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-white/[0.04] transition-all text-left',
+                    isSearchEnabled ? 'text-accent-secondary' : 'text-text-primary'
+                  )}
+                >
+                  <Globe size={16} className={isSearchEnabled ? 'text-accent-secondary' : 'text-text-secondary'} />
+                  <div className="flex flex-col">
+                    <span>Web Search</span>
+                    <span className="text-[9px] text-text-secondary/50 font-normal">
+                      Search the web with Prism
+                    </span>
+                  </div>
+                </button>
+
                 {/* Hoverable / Clickable Apps item */}
                 <div
                   className="relative group/apps"
@@ -678,7 +594,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                         <button
                           onClick={() => {
                             setIsSearchEnabled(false)
-                            setIsExtendedSearch(false)
                             onOpenYoutubeModal?.()
                             setShowAttachMenu(false)
                             setShowAppsMenu(false)
@@ -766,35 +681,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             disabled={disabled}
           />
 
-          <div className="relative">
-            <button
-              ref={searchButtonRef}
-              onClick={() => setShowSearchDropdown(!showSearchDropdown)}
-              disabled={disabled}
-              className={clsx(
-                'flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold outline-none transition-all duration-200 border border-transparent hover:bg-white/[0.05] hover:border-white/[0.09]',
-                showSearchDropdown
-                  ? 'bg-white/[0.08] text-text-primary border-white/10'
-                  : 'bg-transparent',
-                isSearchEnabled
-                  ? 'text-accent-secondary'
-                  : isExtendedSearch
-                    ? 'text-accent-primary'
-                    : 'text-text-secondary',
-                disabled && 'cursor-not-allowed opacity-50'
-              )}
-            >
-              <span>{searchLabel}</span>
-              <ChevronDown
-                size={12}
-                className={clsx(
-                  'text-text-secondary/70 transition-transform duration-200',
-                  showSearchDropdown && 'rotate-180'
-                )}
-              />
-            </button>
-            {showSearchDropdown && !disabled && renderSearchDropdown()}
-          </div>
+
 
           {isProcessing ? (
             <button
@@ -811,13 +698,11 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               className={clsx(
                 'ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-200',
                 text.trim() && !disabled
-                  ? activeMode === 'extended'
-                    ? 'bg-accent-primary text-black hover:bg-accent-primary/90 active:scale-95'
-                    : activeMode === 'search'
-                      ? 'bg-accent-secondary text-black hover:bg-accent-secondary/90 active:scale-95'
-                      : activeMode === 'think'
-                        ? 'bg-status-warning text-black hover:bg-status-warning/90 active:scale-95'
-                        : 'bg-text-primary text-black hover:bg-white active:scale-95'
+                  ? activeMode === 'search'
+                    ? 'bg-accent-secondary text-black hover:bg-accent-secondary/90 active:scale-95'
+                    : activeMode === 'think'
+                      ? 'bg-status-warning text-black hover:bg-status-warning/90 active:scale-95'
+                      : 'bg-text-primary text-black hover:bg-white active:scale-95'
                   : 'bg-white/[0.055] text-text-muted'
               )}
             >
@@ -854,53 +739,78 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               disabled && 'opacity-60'
             )}
           >
-            {attachedFile && (
-              <div className="w-full pb-3 flex items-center justify-start relative animate-soft-pop select-none">
-                <div className="relative group/thumb flex items-center gap-2">
-                  {attachedFile.mimeType.startsWith('image/') ? (
-                    <div className="relative">
-                      <img
-                        src={`data:${attachedFile.mimeType};base64,${attachedFile.data}`}
-                        alt={attachedFile.name}
-                        className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
-                      />
-                      <button
-                        type="button"
-                        onClick={onRemoveFile}
-                        className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/85 text-text-secondary hover:text-white border border-white/10 transition-colors text-xs font-bold leading-none cursor-pointer"
-                      >
-                        &times;
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
-                        {attachedFile.mimeType === 'application/pdf' ? (
-                          <FilePdf size={20} className="text-status-error" />
-                        ) : (
-                          <FilePpt size={20} className="text-accent-primary" />
-                        )}
+            {(attachedFile || isSearchEnabled) && (
+              <div className="w-full pb-3 flex flex-wrap items-center justify-start gap-3 relative animate-soft-pop select-none">
+                {attachedFile && (
+                  <div className="relative group/thumb flex items-center gap-2">
+                    {attachedFile.mimeType.startsWith('image/') ? (
+                      <div className="relative">
+                        <img
+                          src={`data:${attachedFile.mimeType};base64,${attachedFile.data}`}
+                          alt={attachedFile.name}
+                          className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
+                        />
+                        <button
+                          type="button"
+                          onClick={onRemoveFile}
+                          className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/85 text-text-secondary hover:text-white border border-white/10 transition-colors text-xs font-bold leading-none cursor-pointer"
+                        >
+                          &times;
+                        </button>
                       </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-xs font-semibold text-text-primary truncate max-w-[150px]">
-                          {attachedFile.name}
-                        </span>
-                        <span className="text-[10px] text-text-secondary/60">
-                          {attachedFile.mimeType === 'application/pdf'
-                            ? 'PDF Document'
-                            : 'Presentation'}
-                        </span>
+                    ) : (
+                      <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
+                          {attachedFile.mimeType === 'application/pdf' ? (
+                            <FilePdf size={20} className="text-status-error" />
+                          ) : (
+                            <FilePpt size={20} className="text-accent-primary" />
+                          )}
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-xs font-semibold text-text-primary truncate max-w-[150px]">
+                            {attachedFile.name}
+                          </span>
+                          <span className="text-[10px] text-text-secondary/60">
+                            {attachedFile.mimeType === 'application/pdf'
+                              ? 'PDF Document'
+                              : 'Presentation'}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={onRemoveFile}
+                          className="absolute top-1/2 -translate-y-1/2 right-3 text-text-secondary/50 hover:text-status-error transition-colors cursor-pointer"
+                        >
+                          <Trash size={14} />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={onRemoveFile}
-                        className="absolute top-1/2 -translate-y-1/2 right-3 text-text-secondary/50 hover:text-status-error transition-colors cursor-pointer"
-                      >
-                        <Trash size={14} />
-                      </button>
+                    )}
+                  </div>
+                )}
+
+                {isSearchEnabled && (
+                  <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative animate-soft-pop">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
+                      <Globe size={20} className="text-accent-secondary" />
                     </div>
-                  )}
-                </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-xs font-semibold text-text-primary">
+                        Web Search
+                      </span>
+                      <span className="text-[10px] text-text-secondary/60">
+                        Active
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsSearchEnabled(false)}
+                      className="absolute top-1/2 -translate-y-1/2 right-3 text-text-secondary/50 hover:text-status-error transition-colors cursor-pointer"
+                    >
+                      <Trash size={14} />
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -916,9 +826,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                           activeMode === 'think' &&
                             'animate-[line-sweep_2100ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]',
                           activeMode === 'search' &&
-                            'animate-[line-sweep_1500ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]',
-                          activeMode === 'extended' &&
-                            'animate-[line-sweep_1200ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]'
+                            'animate-[line-sweep_1500ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]'
                         ]
                   )}
                 />
@@ -974,9 +882,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                       ? 'caret-accent-secondary'
                       : activeMode === 'think'
                         ? 'caret-status-warning'
-                        : activeMode !== 'default'
-                          ? 'caret-accent-primary'
-                          : 'caret-white'
+                        : 'caret-white'
                 )}
               />
             </div>
@@ -1010,53 +916,78 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               disabled && 'opacity-60'
             )}
           >
-            {attachedFile && (
-              <div className="w-full pb-3 flex items-center justify-start relative animate-soft-pop select-none">
-                <div className="relative group/thumb flex items-center gap-2">
-                  {attachedFile.mimeType.startsWith('image/') ? (
-                    <div className="relative">
-                      <img
-                        src={`data:${attachedFile.mimeType};base64,${attachedFile.data}`}
-                        alt={attachedFile.name}
-                        className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
-                      />
-                      <button
-                        type="button"
-                        onClick={onRemoveFile}
-                        className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/85 text-text-secondary hover:text-white border border-white/10 transition-colors text-xs font-bold leading-none cursor-pointer"
-                      >
-                        &times;
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
-                        {attachedFile.mimeType === 'application/pdf' ? (
-                          <FilePdf size={20} className="text-status-error" />
-                        ) : (
-                          <FilePpt size={20} className="text-accent-primary" />
-                        )}
+            {(attachedFile || isSearchEnabled) && (
+              <div className="w-full pb-3 flex flex-wrap items-center justify-start gap-3 relative animate-soft-pop select-none">
+                {attachedFile && (
+                  <div className="relative group/thumb flex items-center gap-2">
+                    {attachedFile.mimeType.startsWith('image/') ? (
+                      <div className="relative">
+                        <img
+                          src={`data:${attachedFile.mimeType};base64,${attachedFile.data}`}
+                          alt={attachedFile.name}
+                          className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
+                        />
+                        <button
+                          type="button"
+                          onClick={onRemoveFile}
+                          className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/85 text-text-secondary hover:text-white border border-white/10 transition-colors text-xs font-bold leading-none cursor-pointer"
+                        >
+                          &times;
+                        </button>
                       </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-xs font-semibold text-text-primary truncate max-w-[150px]">
-                          {attachedFile.name}
-                        </span>
-                        <span className="text-[10px] text-text-secondary/60">
-                          {attachedFile.mimeType === 'application/pdf'
-                            ? 'PDF Document'
-                            : 'Presentation'}
-                        </span>
+                    ) : (
+                      <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
+                          {attachedFile.mimeType === 'application/pdf' ? (
+                            <FilePdf size={20} className="text-status-error" />
+                          ) : (
+                            <FilePpt size={20} className="text-accent-primary" />
+                          )}
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-xs font-semibold text-text-primary truncate max-w-[150px]">
+                            {attachedFile.name}
+                          </span>
+                          <span className="text-[10px] text-text-secondary/60">
+                            {attachedFile.mimeType === 'application/pdf'
+                              ? 'PDF Document'
+                              : 'Presentation'}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={onRemoveFile}
+                          className="absolute top-1/2 -translate-y-1/2 right-3 text-text-secondary/50 hover:text-status-error transition-colors cursor-pointer"
+                        >
+                          <Trash size={14} />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={onRemoveFile}
-                        className="absolute top-1/2 -translate-y-1/2 right-3 text-text-secondary/50 hover:text-status-error transition-colors cursor-pointer"
-                      >
-                        <Trash size={14} />
-                      </button>
+                    )}
+                  </div>
+                )}
+
+                {isSearchEnabled && (
+                  <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative animate-soft-pop">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
+                      <Globe size={20} className="text-accent-secondary" />
                     </div>
-                  )}
-                </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-xs font-semibold text-text-primary">
+                        Web Search
+                      </span>
+                      <span className="text-[10px] text-text-secondary/60">
+                        Active
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsSearchEnabled(false)}
+                      className="absolute top-1/2 -translate-y-1/2 right-3 text-text-secondary/50 hover:text-status-error transition-colors cursor-pointer"
+                    >
+                      <Trash size={14} />
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1081,9 +1012,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                           activeMode === 'think' &&
                             'animate-[line-sweep_2100ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]',
                           activeMode === 'search' &&
-                            'animate-[line-sweep_1500ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]',
-                          activeMode === 'extended' &&
-                            'animate-[line-sweep_1200ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]'
+                            'animate-[line-sweep_1500ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]'
                         ]
                   )}
                 />

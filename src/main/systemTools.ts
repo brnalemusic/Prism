@@ -2198,14 +2198,19 @@ export async function sawLinkFromUrl(url: string, signal?: AbortSignal): Promise
 }
 
 /**
- * Performs a web search using Google Search and Playwright.
+ * Performs a single web search query using Google Search and Playwright.
+ * Returns the formatted results string (or an error message on failure).
+ *
+ * Reused by the continuous `webSearch` (one call per search term) and kept as
+ * a standalone export for surfaces that still use the legacy `{query}` shape
+ * (e.g. the AI Search modal and the Launcher).
  */
-export async function webSearch(query: string, signal?: AbortSignal): Promise<string> {
+export async function webSearchSingle(query: string, signal?: AbortSignal): Promise<string> {
   let browser: Browser | null = null
 
   // Handle abort logic
   const onAbort = () => {
-    console.log('webSearch: Abort requested, closing browser.')
+    console.log('webSearchSingle: Abort requested, closing browser.')
     browser?.close().catch(() => {})
   }
 
@@ -2233,7 +2238,7 @@ export async function webSearch(query: string, signal?: AbortSignal): Promise<st
 
     // Handle Google's redirect consent walls or overlay banners
     if (page.url().includes('consent.google.com')) {
-      console.log('webSearch: Redirected to Google consent page. Clicking accept...')
+      console.log('webSearchSingle: Redirected to Google consent page. Clicking accept...')
       await handleConsentBanners(page)
       await page
         .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 })
@@ -2282,7 +2287,7 @@ export async function webSearch(query: string, signal?: AbortSignal): Promise<st
     })
 
     if (results.length === 0) {
-      console.log('webSearch: Google search yielded no results. Trying DuckDuckGo fallback...')
+      console.log('webSearchSingle: Google search yielded no results. Trying DuckDuckGo fallback...')
       await page.goto(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
         waitUntil: 'domcontentloaded',
         timeout: 15000
@@ -2337,12 +2342,69 @@ export async function webSearch(query: string, signal?: AbortSignal): Promise<st
 }
 
 /**
+ * Backwards-compatible alias for `webSearchSingle`. Kept so existing imports
+ * (Launcher, AI Search modal, tests) continue to work untouched.
+ */
+export async function webSearch(query: string, signal?: AbortSignal): Promise<string> {
+  return webSearchSingle(query, signal)
+}
+
+/**
+ * A single continuous web search session. Each entry carries a human-friendly
+ * `title` (what the user sees in the UI) and the actual `query` keywords sent
+ * to Google.
+ */
+export interface WebSearchEntry {
+  title: string
+  query: string
+}
+
+/**
+ * Performs a continuous web search across multiple terms. Each search runs
+ * sequentially via `webSearchSingle`; before every term, `onProgress(title)`
+ * fires so the UI can append the friendly title to the live "Searching Web"
+ * list. All results are concatenated under per-title headers and returned as
+ * one string for the model to consume.
+ */
+export async function webSearchContinuous(
+  searches: WebSearchEntry[],
+  opts: { onProgress?: (title: string) => void; signal?: AbortSignal } = {}
+): Promise<string> {
+  if (!searches || searches.length === 0) {
+    return 'No search terms provided.'
+  }
+
+  const sections: string[] = []
+
+  for (const entry of searches) {
+    if (opts.signal?.aborted) throw new Error('AbortError')
+
+    // Notify the UI a new search is starting before actually running it.
+    try {
+      opts.onProgress?.(entry.title)
+    } catch (e) {
+      // onProgress failures must never break the search itself.
+    }
+
+    const result = await webSearchSingle(entry.query, opts.signal)
+
+    const header =
+      searches.length > 1
+        ? `### ${entry.title}\n(Query: ${entry.query})\n\n`
+        : ''
+
+    sections.push(`${header}${result}`)
+  }
+
+  return sections.join('\n\n---\n\n')
+}
+
+/**
  * Returns the system prompt configured with the correct model identity.
  */
 export function getSystemToolsPrompt(
   modelKey: string,
   target: 'main' | 'subagent' | 'both' | 'launcher' = 'main',
-  extendedSearch: boolean = false,
   allowedTools?: string[]
 ): string {
   let shellName = process.platform === 'win32' ? 'powershell.exe' : '/bin/sh'
@@ -2434,14 +2496,9 @@ ${toolsPrompt}`
       ? '- Human user messages: Any group message from Master Coordinator is from the Prism user. Respond via send_group_message.'
       : ''
 
-  const searchProtocolText = extendedSearch
-    ? 'ENABLED (ACTIVATED - execute the DEEP RESEARCH protocol)'
-    : 'DISABLED (INACTIVE - execute the standard ACTIVE SEARCH protocol)'
-
   return `# Identity & Context
 Role: ${name} (${modelName}), a concise, tool-capable desktop assistant.
 Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
-Deep Research Protocol: ${searchProtocolText}
 
 # Visual & Interaction Protocol
 Define clear boundaries to maximize UX and performance:
@@ -2479,6 +2536,11 @@ Define clear boundaries to maximize UX and performance:
    - Step 2: Present a Research Plan and explicitly ask user if they approve. Stop generation immediately.
    - Step 3 (Only after approval): Run at least 10 search/read iterations.
    - Step 4: Output a dense, structured Markdown report.
+3. **Continuous Web Search (web_search shape):** When a question benefits from exploring more than one angle (errors, updates, compatibility, alternatives, etc.), batch them into a SINGLE web_search call using the "searches" array:
+   <tool_call>{"type":"web_search","searches":[{"title":"Finding common errors with X","query":"X not working windows"},{"title":"Searching on how to update X","query":"how to update X"}]}</tool_call>
+   - Each entry has a "title" (human-friendly label, shown verbatim to the user) and a "query" (the raw keywords actually sent to Google).
+   - The "title" is what the user sees. Write it as a concise action phrase ('Finding...', 'Searching...', 'Looking for...', 'Checking...'). NEVER expose raw boolean/quoted query syntax (OR, quotes, site:) in the title.
+   - Use 1 entry for focused lookups, multiple entries for multi-angle research. One entry is perfectly valid when that is all that is needed.
 
 # Tool Protocol & Execution
 - **Format:** Tool calls must be valid JSON in a <tool_call> XML block: <tool_call>{"type": "tool_name", "param": "val"}</tool_call>.

@@ -31,7 +31,6 @@ export interface PrismAPI {
     message: string
     thinkMode?: boolean
     chatId?: string
-    extendedSearch?: boolean
     screenshot?: string
     attachedFile?: AttachedFile
     quote?: string
@@ -117,10 +116,8 @@ export interface PrismAPI {
   getRunningChats: () => Promise<string[]>
   setThinkMode: (val: boolean) => void
   setSearchEnabled: (val: boolean) => void
-  setExtendedSearch: (val: boolean) => void
   onThinkModeChanged: (callback: (val: boolean) => void) => () => void
   onSearchEnabledChanged: (callback: (val: boolean) => void) => () => void
-  onExtendedSearchChanged: (callback: (val: boolean) => void) => () => void
   removeLauncherListeners: () => void
   removeAllChatListeners: () => void
   launcherGetApps: () => Promise<ApplicationInfo[]>
@@ -162,7 +159,6 @@ export interface PrismAPI {
       model: string
       thinkMode?: boolean
       searchEnabled?: boolean
-      extendedSearch?: boolean
     }) => void
   ) => () => void
   submitQuestionnaire: (data: {

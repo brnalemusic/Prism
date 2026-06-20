@@ -131,7 +131,6 @@ const api = {
     message: string
     thinkMode?: boolean
     chatId?: string
-    extendedSearch?: boolean
     screenshot?: string
     attachedFile?: AttachedFile
     quote?: string
@@ -327,7 +326,6 @@ const api = {
   getRunningChats: (): Promise<string[]> => ipcRenderer.invoke('get-running-chats'),
   setThinkMode: (val: boolean): void => ipcRenderer.send('set-think-mode', val),
   setSearchEnabled: (val: boolean): void => ipcRenderer.send('set-search-enabled', val),
-  setExtendedSearch: (val: boolean): void => ipcRenderer.send('set-extended-search', val),
   onThinkModeChanged: (callback: (val: boolean) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, val: boolean): void => callback(val)
     ipcRenderer.on('think-mode-changed', listener)
@@ -337,11 +335,6 @@ const api = {
     const listener = (_event: IpcRendererEvent, val: boolean): void => callback(val)
     ipcRenderer.on('search-enabled-changed', listener)
     return () => ipcRenderer.removeListener('search-enabled-changed', listener)
-  },
-  onExtendedSearchChanged: (callback: (val: boolean) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, val: boolean): void => callback(val)
-    ipcRenderer.on('extended-search-changed', listener)
-    return () => ipcRenderer.removeListener('extended-search-changed', listener)
   },
   removeLauncherListeners: (): void => {
     ipcRenderer.removeAllListeners('launcher-message')
@@ -363,7 +356,6 @@ const api = {
     ipcRenderer.removeAllListeners('demo-install-progress')
     ipcRenderer.removeAllListeners('think-mode-changed')
     ipcRenderer.removeAllListeners('search-enabled-changed')
-    ipcRenderer.removeAllListeners('extended-search-changed')
     ipcRenderer.removeAllListeners('window-maximized-change')
   },
   launcherGetApps: (): Promise<ApplicationInfo[]> => ipcRenderer.invoke('launcher-get-apps'),
@@ -461,7 +453,6 @@ const api = {
       model: string
       thinkMode?: boolean
       searchEnabled?: boolean
-      extendedSearch?: boolean
     }) => void
   ): (() => void) => {
     const listener = (
@@ -471,7 +462,6 @@ const api = {
         model: string
         thinkMode?: boolean
         searchEnabled?: boolean
-        extendedSearch?: boolean
       }
     ): void => callback(data)
     ipcRenderer.on('open-main-app-with-instructions', listener)

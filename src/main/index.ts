@@ -734,10 +734,7 @@ if (!gotTheLock) {
       mainWindow?.webContents.send('search-enabled-changed', val)
       launcherWindow?.webContents.send('search-enabled-changed', val)
     })
-    ipcMain.on('set-extended-search', (_event, val) => {
-      mainWindow?.webContents.send('extended-search-changed', val)
-      launcherWindow?.webContents.send('extended-search-changed', val)
-    })
+
     ipcMain.on('clear-chat', () => initGemini())
     ipcMain.on('chat-cancel', (_event, chatId?: string) => cancelChatMessage(chatId))
     ipcMain.on('ai-search-message', (event, data) => {

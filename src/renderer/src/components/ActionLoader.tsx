@@ -33,6 +33,7 @@ export interface ToolCall {
       output?: string
     }
   >
+  searchUpdates?: string[]
 }
 
 interface ActionLoaderProps {
@@ -117,7 +118,10 @@ function useToolCallMeta(toolCall: ToolCall): {
     tone = toolCall.name === 'search' ? 'search' : 'think'
   } else if (toolCall.name === 'web_search') {
     displayTitle = isYoutube ? 'Searching Video' : 'Searching Web'
-    displayDetail = query || 'Collecting web results.'
+    displayDetail =
+      toolCall.searchUpdates && toolCall.searchUpdates.length > 0
+        ? ''
+        : query || 'Collecting web results.'
     tone = isYoutube ? 'youtube' : 'search'
   } else if (toolCall.name === 'search_chat_history') {
     displayTitle = 'Searching Memory'
@@ -383,6 +387,35 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
           )}
         </div>
       </div>
+
+      {/* ── Continuous Web Search List ── */}
+      {toolCall.name === 'web_search' && toolCall.searchUpdates && toolCall.searchUpdates.length > 0 && (
+        <div className="flex flex-col gap-1.5 border-l border-white/[0.08] ml-[7px] pl-3.5 py-0.5 animate-fade-in">
+          {(() => {
+            const updates = toolCall.searchUpdates!
+            return updates.map((title, idx) => {
+              const isLast = idx === updates.length - 1
+              const isItemRunning = isLast && (toolCall.status === 'running' || toolCall.status === 'writing')
+              return (
+                <div
+                  key={idx}
+                  className={clsx(
+                    'flex items-center gap-2 text-[12px] leading-relaxed transition-colors duration-200',
+                    isItemRunning ? 'text-text-secondary font-medium' : 'text-text-secondary/65'
+                  )}
+                >
+                  {isItemRunning ? (
+                    <CircleNotch size={11} className="animate-spin text-accent-secondary shrink-0" />
+                  ) : (
+                    <div className="w-1.5 h-1.5 rounded-full bg-text-muted/40 shrink-0 ml-0.5" />
+                  )}
+                  <span>{title}...</span>
+                </div>
+              )
+            })
+          })()}
+        </div>
+      )}
 
       {/* ── Expanded View (Success/Fail Status Only) ── */}
       {isExpanded && (
@@ -837,6 +870,35 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
           )}
         </div>
       </div>
+
+      {/* ── Continuous Web Search List ── */}
+      {toolCall.name === 'web_search' && toolCall.searchUpdates && toolCall.searchUpdates.length > 0 && (
+        <div className="flex flex-col gap-1.5 border-l border-white/[0.08] ml-[7px] pl-3.5 py-0.5 animate-fade-in">
+          {(() => {
+            const updates = toolCall.searchUpdates!
+            return updates.map((title, idx) => {
+              const isLast = idx === updates.length - 1
+              const isItemRunning = isLast && (toolCall.status === 'running' || toolCall.status === 'writing')
+              return (
+                <div
+                  key={idx}
+                  className={clsx(
+                    'flex items-center gap-2 text-[12px] leading-relaxed transition-colors duration-200',
+                    isItemRunning ? 'text-text-secondary font-medium' : 'text-text-secondary/65'
+                  )}
+                >
+                  {isItemRunning ? (
+                    <CircleNotch size={11} className="animate-spin text-accent-secondary shrink-0" />
+                  ) : (
+                    <div className="w-1.5 h-1.5 rounded-full bg-text-muted/40 shrink-0 ml-0.5" />
+                  )}
+                  <span>{title}...</span>
+                </div>
+              )
+            })
+          })()}
+        </div>
+      )}
 
       {/* ── Expanded View (Success/Fail Status Only) ── */}
       {isExpanded && (

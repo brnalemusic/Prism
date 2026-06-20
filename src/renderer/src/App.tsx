@@ -457,7 +457,6 @@ function RealApp(): React.JSX.Element {
   }, [currentChatId])
 
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
-  const [isExtendedSearch, setIsExtendedSearch] = useState(false)
   const [isFullscreenInput, setIsFullscreenInput] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
 
@@ -552,11 +551,6 @@ function RealApp(): React.JSX.Element {
   useEffect(() => {
     isSearchEnabledRef.current = isSearchEnabled
   }, [isSearchEnabled])
-
-  const isExtendedSearchRef = useRef(isExtendedSearch)
-  useEffect(() => {
-    isExtendedSearchRef.current = isExtendedSearch
-  }, [isExtendedSearch])
 
   const isYoutubeModeRef = useRef(isYoutubeMode)
   useEffect(() => {
@@ -678,16 +672,11 @@ function RealApp(): React.JSX.Element {
     window.api.setSearchEnabled(val)
   }, [])
 
-  const handleExtendedSearchToggle = useCallback((val: boolean) => {
-    window.api.setExtendedSearch(val)
-  }, [])
-
   const handleSend = useCallback(
     (
       text: string,
       thinkMode?: boolean,
       searchEnabled?: boolean,
-      extendedSearch?: boolean,
       screenshot?: string,
       file?: AttachedFile,
       youtubeMode?: boolean
@@ -710,11 +699,6 @@ function RealApp(): React.JSX.Element {
         window.api.setSearchEnabled(searchEnabled)
         setIsSearchEnabled(searchEnabled)
         isSearchEnabledRef.current = searchEnabled
-      }
-      if (extendedSearch !== undefined) {
-        window.api.setExtendedSearch(extendedSearch)
-        setIsExtendedSearch(extendedSearch)
-        isExtendedSearchRef.current = extendedSearch
       }
 
       // Generate a unique chatId if not set
@@ -759,11 +743,10 @@ function RealApp(): React.JSX.Element {
         apiMessage = `[FORCE_SEARCH] ${apiMessage}`
       }
 
-      // Para a API, enviamos o texto original, thinkMode e o extendedSearch
+      // Para a API, enviamos o texto original e o thinkMode
       window.api.sendChatMessage({
         message: apiMessage,
         thinkMode: thinkMode ?? isThinkModeRef.current,
-        extendedSearch: extendedSearch ?? isExtendedSearchRef.current,
         chatId,
         screenshot: activeScreenshot || undefined,
         attachedFile: activeFile || undefined,
@@ -1013,11 +996,15 @@ function RealApp(): React.JSX.Element {
                   }
 
                   if (!aiMsg.toolCalls) aiMsg.toolCalls = []
-                  aiMsg.toolCalls.push({
+                  const newToolCall: ToolCall = {
                     name,
                     args,
                     status: 'done' // Default to done for history
-                  })
+                  }
+                  if (name === 'web_search' && args.searches && Array.isArray(args.searches)) {
+                    newToolCall.searchUpdates = args.searches.map((s: any) => s.title).filter(Boolean)
+                  }
+                  aiMsg.toolCalls.push(newToolCall)
                 }
               } else {
                 // Legacy XML parsing fallback
@@ -1163,7 +1150,6 @@ function RealApp(): React.JSX.Element {
         data.message,
         data.thinkMode,
         undefined,
-        undefined,
         data.screenshot,
         undefined,
         data.appMode === 'youtube'
@@ -1193,10 +1179,6 @@ function RealApp(): React.JSX.Element {
       setIsSearchEnabled(val)
     })
 
-    const removeExtendedSearchListener = window.api.onExtendedSearchChanged((val) => {
-      setIsExtendedSearch(val)
-    })
-
     const removeOpenMainAppListener = window.api.onOpenMainAppWithInstructions((data) => {
       setActiveView('chat')
       handleModelChange(data.model)
@@ -1210,13 +1192,9 @@ function RealApp(): React.JSX.Element {
         window.api.setSearchEnabled(data.searchEnabled)
         setIsSearchEnabled(data.searchEnabled)
       }
-      if (data.extendedSearch !== undefined) {
-        window.api.setExtendedSearch(data.extendedSearch)
-        setIsExtendedSearch(data.extendedSearch)
-      }
 
       setTimeout(() => {
-        handleSend(data.instructions, data.thinkMode, data.searchEnabled, data.extendedSearch)
+        handleSend(data.instructions, data.thinkMode, data.searchEnabled)
         setTimeout(() => {
           inputBarRef.current?.focus()
         }, 100)
@@ -1229,7 +1207,6 @@ function RealApp(): React.JSX.Element {
       removeConfigListener()
       removeThinkModeListener()
       removeSearchEnabledListener()
-      removeExtendedSearchListener()
       removeOpenMainAppListener()
     }
   }, [handleSend, handleModelChange, handleNewChat])
@@ -1612,16 +1589,24 @@ function RealApp(): React.JSX.Element {
         setTasks((prev) => {
           const newTasks = [...prev]
           const taskIndex = newTasks.findLastIndex(
-            (t) => t.name === data.toolCallName && (t.status === 'running' || t.status === 'done')
+            (t) =>
+              t.name === data.toolCallName &&
+              (t.status === 'running' || t.status === 'writing' || t.status === 'done')
           )
           if (taskIndex !== -1) {
             const task = { ...newTasks[taskIndex] }
-            const prevUpdate = task.agentUpdates?.[data.update.agentIndex]
-            task.agentUpdates = {
-              ...(task.agentUpdates || {}),
-              [data.update.agentIndex]: {
-                ...prevUpdate,
-                ...data.update
+            if (data.toolCallName === 'web_search' && data.update.searchTitle) {
+              task.searchUpdates = [...(task.searchUpdates || []), data.update.searchTitle]
+            } else if (data.update.agentIndex !== undefined) {
+              const prevUpdate = task.agentUpdates?.[data.update.agentIndex]
+              const newPhase = data.update.phase || prevUpdate?.phase || 'thinking'
+              task.agentUpdates = {
+                ...(task.agentUpdates || {}),
+                [data.update.agentIndex]: {
+                  phase: newPhase,
+                  command: data.update.command ?? prevUpdate?.command,
+                  output: data.update.output ?? prevUpdate?.output
+                }
               }
             }
             newTasks[taskIndex] = task
@@ -1637,18 +1622,25 @@ function RealApp(): React.JSX.Element {
             if (msg.role === 'ai' && msg.toolCalls) {
               const toolCallIndex = msg.toolCalls.findLastIndex(
                 (t) =>
-                  t.name === data.toolCallName && (t.status === 'running' || t.status === 'done')
+                  t.name === data.toolCallName &&
+                  (t.status === 'running' || t.status === 'writing' || t.status === 'done')
               )
               if (toolCallIndex !== -1) {
                 const lastMsg = { ...msg }
                 const toolCalls = [...(lastMsg.toolCalls || [])]
                 const toolCall = { ...toolCalls[toolCallIndex] }
-                const prevUpdate = toolCall.agentUpdates?.[data.update.agentIndex]
-                toolCall.agentUpdates = {
-                  ...(toolCall.agentUpdates || {}),
-                  [data.update.agentIndex]: {
-                    ...prevUpdate,
-                    ...data.update
+                if (data.toolCallName === 'web_search' && data.update.searchTitle) {
+                  toolCall.searchUpdates = [...(toolCall.searchUpdates || []), data.update.searchTitle]
+                } else if (data.update.agentIndex !== undefined) {
+                  const prevUpdate = toolCall.agentUpdates?.[data.update.agentIndex]
+                  const newPhase = data.update.phase || prevUpdate?.phase || 'thinking'
+                  toolCall.agentUpdates = {
+                    ...(toolCall.agentUpdates || {}),
+                    [data.update.agentIndex]: {
+                      phase: newPhase,
+                      command: data.update.command ?? prevUpdate?.command,
+                      output: data.update.output ?? prevUpdate?.output
+                    }
                   }
                 }
                 toolCalls[toolCallIndex] = toolCall
@@ -2102,8 +2094,6 @@ function RealApp(): React.JSX.Element {
               setText={setInputText}
               isSearchEnabled={isSearchEnabled}
               setIsSearchEnabled={handleSearchEnabledToggle}
-              isExtendedSearch={isExtendedSearch}
-              setIsExtendedSearch={handleExtendedSearchToggle}
               isFullscreen={true}
               onFullscreenToggle={() => setIsFullscreenInput(false)}
               attachedFile={attachedFile}
@@ -2170,8 +2160,6 @@ function RealApp(): React.JSX.Element {
                           setText={setInputText}
                           isSearchEnabled={isSearchEnabled}
                           setIsSearchEnabled={handleSearchEnabledToggle}
-                          isExtendedSearch={isExtendedSearch}
-                          setIsExtendedSearch={handleExtendedSearchToggle}
                           isFullscreen={false}
                           onFullscreenToggle={() => setIsFullscreenInput(true)}
                           attachedFile={attachedFile}
@@ -2246,8 +2234,6 @@ function RealApp(): React.JSX.Element {
                   setText={setInputText}
                   isSearchEnabled={isSearchEnabled}
                   setIsSearchEnabled={handleSearchEnabledToggle}
-                  isExtendedSearch={isExtendedSearch}
-                  setIsExtendedSearch={handleExtendedSearchToggle}
                   isFullscreen={false}
                   onFullscreenToggle={() => setIsFullscreenInput(true)}
                   attachedFile={attachedFile}
@@ -2293,7 +2279,7 @@ function RealApp(): React.JSX.Element {
           if (data.customInstructions) {
             msg += `\n- Instructions: ${data.customInstructions}`
           }
-          handleSend(msg, undefined, undefined, undefined, undefined, undefined, true)
+          handleSend(msg, undefined, undefined, undefined, undefined, true)
         }}
       />
       {floatingMenu && (
