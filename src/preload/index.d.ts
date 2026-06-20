@@ -11,6 +11,12 @@ import type {
   ApplicationInfo,
   FileSearchResult
 } from '../shared/types'
+import type {
+  DemoDownloadResult,
+  DemoInstallProgress,
+  DemoOpenResult,
+  DemoProcessResult
+} from '../shared/demo'
 
 export interface AttachedFile {
   name: string
@@ -52,6 +58,13 @@ export interface PrismAPI {
   ) => () => void
   onToolUpdate: (callback: (data: ToolUpdate & { chatId: string }) => void) => () => void
   onDownloadProgress: (callback: (data: DownloadProgress) => void) => () => void
+  demoDownloadPrism: () => Promise<DemoDownloadResult>
+  demoRunPrismInstaller: (setupPath: string) => Promise<DemoProcessResult>
+  demoInstallCli: () => Promise<DemoProcessResult>
+  demoInstallDeps: () => Promise<DemoProcessResult>
+  demoOpenPrism: () => Promise<DemoOpenResult>
+  demoQuitApp: () => Promise<void>
+  onDemoInstallProgress: (callback: (data: DemoInstallProgress) => void) => () => void
   onLauncherMessage: (
     callback: (data: {
       message: string

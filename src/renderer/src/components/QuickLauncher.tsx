@@ -941,7 +941,7 @@ export function QuickLauncher(): React.JSX.Element {
                     {model.name}
                   </span>
                   <span className="mt-0.5 block text-xs leading-snug text-text-secondary/70">
-                    {model.description}
+                    {model.shortDescription || model.description}
                   </span>
                 </span>
                 {activeModelId === model.id && (

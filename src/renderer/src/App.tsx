@@ -30,6 +30,7 @@ import { TtsButton } from './components/TtsButton'
 import { CopyMessageButton } from './components/CopyMessageButton'
 import { ErrorPopup } from './components/ErrorPopup'
 import { DownloadProgressOverlay } from './components/DownloadProgressOverlay'
+import { DemoApp } from './components/demo/DemoApp'
 import { triggerErrorPopup } from './utils'
 import {
   StreamContext,
@@ -44,6 +45,7 @@ import { SubagentDelegationModal } from './components/SubagentDelegationModal'
 import { YoutubeAppModal } from './components/YoutubeAppModal'
 import { AppConfig, SlashWorkflow } from '../../main/config'
 import type { DownloadProgress } from '../../shared/types'
+import { IS_DEMO } from '../../shared/demo'
 
 interface HastNode {
   type: string
@@ -387,7 +389,7 @@ const AiMessage = React.memo(function AiMessage({
   )
 })
 
-function App(): React.JSX.Element {
+function RealApp(): React.JSX.Element {
   const [showIntro, setShowIntro] = useState(true)
   const [messages, setMessages] = useState<Message[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
@@ -2316,6 +2318,14 @@ function App(): React.JSX.Element {
       )}
     </div>
   )
+}
+
+function App(): React.JSX.Element {
+  if (IS_DEMO) {
+    return <DemoApp />
+  }
+
+  return <RealApp />
 }
 
 export default App

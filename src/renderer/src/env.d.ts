@@ -4,3 +4,8 @@ declare module '*?asset' {
   const src: string
   export default src
 }
+
+declare module '*?raw' {
+  const text: string
+  export default text
+}

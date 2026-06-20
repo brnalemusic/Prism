@@ -28,8 +28,9 @@ nsis:
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
-  oneClick: false
-  allowToChangeInstallationDirectory: true
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
   include: build/installer.nsh
 mac:
   entitlementsInherit: build/entitlements.mac.plist

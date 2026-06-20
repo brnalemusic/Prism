@@ -2,37 +2,38 @@ export interface Model {
   id: string
   name: string
   description: string
+  shortDescription: string
 }
 
 export const MODELS: Model[] = [
   {
     id: 'prism-6-super-fast',
     name: 'Prism 6 Super-Fast',
-    description:
-      'An ultra-fast model focused on extremely low latency for simple coding tasks and everyday computer use.'
+    description: 'Ultra-fast model for everyday tasks with low latency.',
+    shortDescription: 'Ultra-fast for simple tasks.'
   },
   {
     id: 'prism-6-fast-old',
     name: 'Prism 6 Fast-Old',
-    description:
-      'An older model focused on speed for the simplest day-to-day tasks, emphasizing automation and orchestration.'
+    description: 'Older speed-focused model for simple automation tasks.',
+    shortDescription: 'Older model for simple automation.'
   },
   {
     id: 'prism-6-fast',
     name: 'Prism 6 Fast',
-    description:
-      'An extremely decent model for complex tasks involving automation, orchestration, and raw code, focused on low latency.'
+    description: 'Decent model for complex automation and raw coding.',
+    shortDescription: 'Decent for complex coding tasks.'
   },
   {
     id: 'prism-6-dragon',
     name: 'Prism 6 Dragon',
-    description:
-      'Our most capable model for conducting in-depth research, massive agent orchestration, and information gathering.'
+    description: 'Capable model for research and complex agent orchestration.',
+    shortDescription: 'Best for research and orchestration.'
   },
   {
     id: 'prism-6-dense',
     name: 'Prism 6 Dense',
-    description:
-      'The most capable model for debugging immense code, with extremely dense information and very complex mathematics.'
+    description: 'Advanced model for deep debugging and complex mathematics.',
+    shortDescription: 'Best for debugging and math.'
   }
 ]

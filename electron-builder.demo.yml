@@ -1,0 +1,38 @@
+# Prism Demo build variant — key-less showcase + installer.
+# Separate appId/productName so it installs side-by-side with the real Prism.
+appId: com.prism.demo.app
+productName: Prism Demo
+icon: resources/icon.png
+directories:
+  buildResources: resources
+files:
+  - '!**/.vscode/*'
+  - '!**/.antigravitycli/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!electron-builder*.yml'
+asarUnpack:
+  - resources/**
+extraResources:
+  - from: resources/icon.ico
+    to: resources/icon.ico
+  - from: resources/icon.png
+    to: resources/icon.png
+  - from: resources/icons
+    to: resources/icons
+win:
+  executableName: Prism Demo
+  icon: resources/icon.ico
+  target:
+    - portable
+portable:
+  artifactName: ${name}-demo-${version}-portable.${ext}
+# The Demo does not run Playwright (no browser_use tools), so skip the
+# playwright-browser install hook from the regular installer.nsh.
+# (No `include:` -> uses default NSIS template only.)
+npmRebuild: false
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/

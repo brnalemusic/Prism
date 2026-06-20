@@ -13,6 +13,12 @@ import type {
 } from '../shared/types'
 import type { ChatSession } from '../main/history'
 import type { Content } from '@google/genai'
+import type {
+  DemoDownloadResult,
+  DemoInstallProgress,
+  DemoOpenResult,
+  DemoProcessResult
+} from '../shared/demo'
 import mime from 'mime-types'
 
 // Initialize Zoom Factor
@@ -201,6 +207,18 @@ const api = {
     ipcRenderer.on('download-progress', listener)
     return () => ipcRenderer.removeListener('download-progress', listener)
   },
+  demoDownloadPrism: (): Promise<DemoDownloadResult> => ipcRenderer.invoke('demo-download-prism'),
+  demoRunPrismInstaller: (setupPath: string): Promise<DemoProcessResult> =>
+    ipcRenderer.invoke('demo-run-prism-installer', setupPath),
+  demoInstallCli: (): Promise<DemoProcessResult> => ipcRenderer.invoke('demo-install-cli'),
+  demoInstallDeps: (): Promise<DemoProcessResult> => ipcRenderer.invoke('demo-install-deps'),
+  demoOpenPrism: (): Promise<DemoOpenResult> => ipcRenderer.invoke('demo-open-prism'),
+  demoQuitApp: (): Promise<void> => ipcRenderer.invoke('demo-quit-app'),
+  onDemoInstallProgress: (callback: (data: DemoInstallProgress) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: DemoInstallProgress): void => callback(data)
+    ipcRenderer.on('demo-install-progress', listener)
+    return () => ipcRenderer.removeListener('demo-install-progress', listener)
+  },
   onLauncherMessage: (
     callback: (data: {
       message: string
@@ -342,6 +360,7 @@ const api = {
     ipcRenderer.removeAllListeners('model-changed')
     ipcRenderer.removeAllListeners('chat-fallback-activated')
     ipcRenderer.removeAllListeners('config-changed')
+    ipcRenderer.removeAllListeners('demo-install-progress')
     ipcRenderer.removeAllListeners('think-mode-changed')
     ipcRenderer.removeAllListeners('search-enabled-changed')
     ipcRenderer.removeAllListeners('extended-search-changed')

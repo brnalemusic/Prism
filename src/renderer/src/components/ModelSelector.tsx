@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
-import { CaretDown as ChevronDown, Check } from '@phosphor-icons/react'
+import { CaretDown as ChevronDown, Check, CaretLeft } from '@phosphor-icons/react'
 import { clsx } from 'clsx'
 import { MODELS } from '../constants'
 import { isShortcutPressed } from '../utils'
@@ -102,7 +102,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         </button>
 
         {isOpen && (
-          <div className="model-menu-panel absolute bottom-full right-0 mb-4 z-50 w-72 max-h-[360px] overflow-y-auto p-2 animate-soft-pop text-left opacity-100">
+          <div className="model-menu-panel absolute bottom-full right-0 mb-4 z-50 w-72 p-2 animate-soft-pop text-left opacity-100">
             <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.04] mb-1">
               Select Prism Engine
             </div>
@@ -128,54 +128,79 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
                   {selectedModel === model.id && <Check size={12} />}
                 </div>
                 <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
-                  {model.description}
+                  {model.shortDescription || model.description}
                 </div>
               </button>
             ))}
 
-            <div className="mt-2 mb-1 border-t border-white/[0.04] pt-2 px-3 py-1 text-[11px] font-semibold text-text-secondary/70">
-              Thinking Mode
+            <div className="relative group/submenu mt-2 border-t border-white/[0.04] pt-2">
+              <button
+                type="button"
+                className="w-full flex items-center justify-between rounded-xl px-3 py-2 transition-all text-left border border-transparent hover:bg-white/[0.04] text-text-primary"
+              >
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-semibold text-xs text-text-primary">Thinking Mode</span>
+                  <span className="text-[10px] text-text-secondary/70 leading-normal font-medium animate-pulse">
+                    {isThinkMode ? 'Extended' : 'Default'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-text-secondary/50 font-medium">Configure</span>
+                  <CaretLeft
+                    size={12}
+                    className="text-text-secondary/70 transition-transform duration-200 group-hover/submenu:-translate-x-0.5"
+                  />
+                </div>
+              </button>
+
+              <div className="hidden group-hover/submenu:block absolute right-full top-0 mr-1.5 z-[60] w-64 model-menu-panel p-2 animate-soft-pop text-left">
+                <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.04] mb-1">
+                  Select Thinking Mode
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onThinkModeToggle?.(false)
+                  }}
+                  className={clsx(
+                    'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-0.5',
+                    !isThinkMode
+                      ? 'bg-white/[0.08] text-text-primary border border-white/10'
+                      : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold text-xs">Default</div>
+                    {!isThinkMode && <Check size={12} />}
+                  </div>
+                  <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
+                    Minimal thinking for speed. Recommended for simple tasks.
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onThinkModeToggle?.(true)
+                  }}
+                  className={clsx(
+                    'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-1',
+                    isThinkMode
+                      ? 'bg-status-warning/[0.12] text-status-warning border border-status-warning/20'
+                      : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold text-xs">Extended</div>
+                    {isThinkMode && <Check size={12} />}
+                  </div>
+                  <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
+                    Careful thinking before response. Best for heavy tasks.
+                  </div>
+                </button>
+              </div>
             </div>
-
-            <button
-              onClick={() => {
-                onThinkModeToggle?.(false)
-              }}
-              className={clsx(
-                'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left',
-                !isThinkMode
-                  ? 'bg-white/[0.08] text-text-primary border border-white/10'
-                  : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
-              )}
-            >
-              <div className="flex items-center justify-between">
-                <div className="font-semibold text-xs">Default</div>
-                {!isThinkMode && <Check size={12} />}
-              </div>
-              <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
-                The model will think minimally to prioritize speed. Recommended for simple tasks.
-              </div>
-            </button>
-
-            <button
-              onClick={() => {
-                onThinkModeToggle?.(true)
-              }}
-              className={clsx(
-                'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-1',
-                isThinkMode
-                  ? 'bg-status-warning/[0.12] text-status-warning border border-status-warning/20'
-                  : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
-              )}
-            >
-              <div className="flex items-center justify-between">
-                <div className="font-semibold text-xs">Extended</div>
-                {isThinkMode && <Check size={12} />}
-              </div>
-              <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
-                The model will think carefully before responding. Best for heavy tasks.
-              </div>
-            </button>
           </div>
         )}
       </div>

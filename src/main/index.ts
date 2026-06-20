@@ -43,12 +43,15 @@ import {
 import { loadConfig, saveConfig, AppConfig } from './config'
 import { listChatSessions, deleteChatSession, searchChatsOffline } from './history'
 import { SubagentMessage, ApplicationInfo } from '../shared/types'
+import { IS_DEMO } from '../shared/demo'
 
 import { initAutoUpdater } from './updater'
+import { registerDemoDownloadHandlers } from './demoDownload'
 
+const APP_DATA_DIR_NAME = IS_DEMO ? 'PrismDemo' : 'PrismDesktop'
 const WINDOW_STATE_FILE = join(
   process.env.LOCALAPPDATA || join(os.homedir(), 'AppData', 'Local'),
-  'PrismDesktop',
+  APP_DATA_DIR_NAME,
   'window-state.json'
 )
 
@@ -61,8 +64,8 @@ interface WindowState {
 }
 
 const DEFAULT_WINDOW_STATE: WindowState = {
-  width: 1200,
-  height: 900,
+  width: IS_DEMO ? 1080 : 1200,
+  height: IS_DEMO ? 700 : 900,
   isMaximized: false
 }
 
@@ -538,7 +541,7 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => {
     console.log('ready-to-show event fired')
     mainWindow?.focus()
-    if (mainWindow) initAutoUpdater(mainWindow)
+    if (mainWindow && !IS_DEMO) initAutoUpdater(mainWindow)
   })
 
   mainWindow.on('close', (event) => {
@@ -550,7 +553,7 @@ function createWindow(): void {
       })
     }
 
-    if (!isQuitting && currentConfig.minimizeToTray) {
+    if (!IS_DEMO && !isQuitting && currentConfig.minimizeToTray) {
       event.preventDefault()
       mainWindow?.hide()
     }
@@ -687,7 +690,7 @@ if (!gotTheLock) {
   })
 
   app.whenReady().then(() => {
-    electronApp.setAppUserModelId('com.prism.app')
+    electronApp.setAppUserModelId(IS_DEMO ? 'com.prism.demo.app' : 'com.prism.app')
 
     // Set working directory to user home directory in production/packaged mode
     if (app.isPackaged) {
@@ -702,7 +705,9 @@ if (!gotTheLock) {
     currentConfig = loadConfig()
 
     // Enforce auto-launch state based on loaded configuration
-    app.setLoginItemSettings({ openAtLogin: currentConfig.autoLaunch })
+    if (!IS_DEMO) {
+      app.setLoginItemSettings({ openAtLogin: currentConfig.autoLaunch })
+    }
 
     app.on('browser-window-created', (_, window) => {
       optimizer.watchWindowShortcuts(window, { zoom: true })
@@ -900,7 +905,7 @@ if (!gotTheLock) {
     })
 
     ipcMain.on('close-app', () => {
-      if (currentConfig.minimizeToTray) {
+      if (!IS_DEMO && currentConfig.minimizeToTray) {
         mainWindow?.hide()
       } else {
         isQuitting = true
@@ -965,7 +970,7 @@ if (!gotTheLock) {
 
       const success = saveConfig(config)
       if (success) {
-        registerGlobalShortcuts()
+        if (!IS_DEMO) registerGlobalShortcuts()
         updateNativeIcons()
         // Notify both windows
         mainWindow?.webContents.send('config-changed', config)
@@ -977,8 +982,10 @@ if (!gotTheLock) {
 
     ipcMain.on('update-config-from-tools', (_event, config: AppConfig) => {
       currentConfig = config
-      registerGlobalShortcuts()
-      app.setLoginItemSettings({ openAtLogin: config.autoLaunch })
+      if (!IS_DEMO) {
+        registerGlobalShortcuts()
+        app.setLoginItemSettings({ openAtLogin: config.autoLaunch })
+      }
       updateNativeIcons()
       // Notify both windows
       mainWindow?.webContents.send('config-changed', config)
@@ -986,35 +993,41 @@ if (!gotTheLock) {
       subagentSettingsWindow?.webContents.send('config-changed', config)
     })
 
-    registerGlobalShortcuts()
-    setGeminiModel(currentConfig.defaultModel)
-    setSubagentModel(currentConfig.subagentModel)
+    if (IS_DEMO) {
+      registerDemoDownloadHandlers()
+    } else {
+      registerGlobalShortcuts()
+      setGeminiModel(currentConfig.defaultModel)
+      setSubagentModel(currentConfig.subagentModel)
 
-    if (currentConfig.userGeminiKey) {
-      setUserApiKey(currentConfig.userGeminiKey)
+      if (currentConfig.userGeminiKey) {
+        setUserApiKey(currentConfig.userGeminiKey)
+      }
+
+      registerAppsUpdatedCallback((apps) => {
+        cachedApps = apps
+        launcherWindow?.webContents.send('launcher-apps-updated', cachedApps)
+      })
+
+      listApplications()
+        .then((res) => {
+          try {
+            cachedApps = JSON.parse(res)
+          } catch (e) {
+            console.error('Failed to parse applications list:', e)
+          }
+        })
+        .catch((e) => {
+          console.error('Failed to cache applications:', e)
+        })
+
+      initGemini()
     }
-
-    registerAppsUpdatedCallback((apps) => {
-      cachedApps = apps
-      launcherWindow?.webContents.send('launcher-apps-updated', cachedApps)
-    })
-
-    listApplications()
-      .then((res) => {
-        try {
-          cachedApps = JSON.parse(res)
-        } catch (e) {
-          console.error('Failed to parse applications list:', e)
-        }
-      })
-      .catch((e) => {
-        console.error('Failed to cache applications:', e)
-      })
-
-    initGemini()
     createWindow()
-    createLauncherWindow()
-    createTray()
+    if (!IS_DEMO) {
+      createLauncherWindow()
+      createTray()
+    }
     updateNativeIcons()
 
     app.on('activate', function () {
