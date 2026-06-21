@@ -19,7 +19,9 @@ export interface ModelSelectorHandle {
 export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>(
   ({ selectedModel, onModelChange, isThinkMode = false, onThinkModeToggle, disabled }, ref) => {
     const [isOpen, setIsOpen] = useState(false)
+    const [isSubmenuOpen, setIsSubmenuOpen] = useState(false)
     const [shortcut, setShortcut] = useState('CommandOrControl+M')
+    const submenuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
     useImperativeHandle(ref, () => ({
@@ -50,6 +52,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
       function handleClickOutside(event: MouseEvent): void {
         if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
           setIsOpen(false)
+          setIsSubmenuOpen(false)
         }
       }
 
@@ -65,6 +68,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         if (isOpen && e.key === 'Escape') {
           e.preventDefault()
           setIsOpen(false)
+          setIsSubmenuOpen(false)
         }
       }
 
@@ -76,6 +80,27 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         window.removeEventListener('keydown', handleKeyDown)
       }
     }, [isOpen, selectedModel, shortcut, disabled])
+
+    // Close submenu when main menu closes
+    useEffect(() => {
+      if (!isOpen) {
+        setIsSubmenuOpen(false)
+      }
+    }, [isOpen])
+
+    const handleSubmenuEnter = () => {
+      if (submenuCloseTimer.current) {
+        clearTimeout(submenuCloseTimer.current)
+        submenuCloseTimer.current = null
+      }
+      setIsSubmenuOpen(true)
+    }
+
+    const handleSubmenuLeave = () => {
+      submenuCloseTimer.current = setTimeout(() => {
+        setIsSubmenuOpen(false)
+      }, 120)
+    }
 
     return (
       <div className="relative" ref={containerRef}>
@@ -133,7 +158,12 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
               </button>
             ))}
 
-            <div className="relative group/submenu mt-2 border-t border-white/[0.04] pt-2">
+            {/* Thinking Mode submenu — hover-stable via React state + close delay */}
+            <div
+              className="relative mt-2 border-t border-white/[0.04] pt-2"
+              onMouseEnter={handleSubmenuEnter}
+              onMouseLeave={handleSubmenuLeave}
+            >
               <button
                 type="button"
                 className="w-full flex items-center justify-between rounded-xl px-3 py-2 transition-all text-left border border-transparent hover:bg-white/[0.04] text-text-primary"
@@ -148,58 +178,71 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
                   <span className="text-[10px] text-text-secondary/50 font-medium">Configure</span>
                   <CaretLeft
                     size={12}
-                    className="text-text-secondary/70 transition-transform duration-200 group-hover/submenu:-translate-x-0.5"
+                    className={clsx(
+                      'text-text-secondary/70 transition-transform duration-200',
+                      isSubmenuOpen && '-translate-x-0.5'
+                    )}
                   />
                 </div>
               </button>
 
-              <div className="hidden group-hover/submenu:block absolute right-full top-0 mr-1.5 z-[60] w-64 model-menu-panel p-2 animate-soft-pop text-left">
-                <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.04] mb-1">
-                  Select Thinking Mode
+              {isSubmenuOpen && (
+                <div
+                  className="absolute right-full top-0 mr-1.5 z-[60] w-64 model-menu-panel p-2 animate-soft-pop text-left"
+                  onMouseEnter={handleSubmenuEnter}
+                  onMouseLeave={handleSubmenuLeave}
+                >
+                  <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.04] mb-1">
+                    Select Thinking Mode
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onThinkModeToggle?.(false)
+                      setIsSubmenuOpen(false)
+                      setIsOpen(false)
+                    }}
+                    className={clsx(
+                      'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-0.5',
+                      !isThinkMode
+                        ? 'bg-white/[0.08] text-text-primary border border-white/10'
+                        : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold text-xs">Default</div>
+                      {!isThinkMode && <Check size={12} />}
+                    </div>
+                    <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
+                      Minimal thinking for speed. Recommended for simple tasks.
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onThinkModeToggle?.(true)
+                      setIsSubmenuOpen(false)
+                      setIsOpen(false)
+                    }}
+                    className={clsx(
+                      'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-1',
+                      isThinkMode
+                        ? 'bg-status-warning/[0.12] text-status-warning border border-status-warning/20'
+                        : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold text-xs">Extended</div>
+                      {isThinkMode && <Check size={12} />}
+                    </div>
+                    <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
+                      Careful thinking before response. Best for heavy tasks.
+                    </div>
+                  </button>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    onThinkModeToggle?.(false)
-                  }}
-                  className={clsx(
-                    'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-0.5',
-                    !isThinkMode
-                      ? 'bg-white/[0.08] text-text-primary border border-white/10'
-                      : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
-                  )}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="font-semibold text-xs">Default</div>
-                    {!isThinkMode && <Check size={12} />}
-                  </div>
-                  <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
-                    Minimal thinking for speed. Recommended for simple tasks.
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    onThinkModeToggle?.(true)
-                  }}
-                  className={clsx(
-                    'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-1',
-                    isThinkMode
-                      ? 'bg-status-warning/[0.12] text-status-warning border border-status-warning/20'
-                      : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
-                  )}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="font-semibold text-xs">Extended</div>
-                    {isThinkMode && <Check size={12} />}
-                  </div>
-                  <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
-                    Careful thinking before response. Best for heavy tasks.
-                  </div>
-                </button>
-              </div>
+              )}
             </div>
           </div>
         )}

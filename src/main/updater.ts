@@ -1,9 +1,15 @@
 import { BrowserWindow, ipcMain, app } from 'electron'
-import { autoUpdater } from 'electron-updater'
 import { is } from '@electron-toolkit/utils'
 import { join } from 'path'
 import { spawn } from 'child_process'
+import * as fs from 'fs'
+import * as https from 'https'
 
+// ─── Constants ───────────────────────────────────────────────────────────────
+const GITHUB_OWNER = 'brnalemusic'
+const GITHUB_REPO = 'Prism'
+
+// ─── State ───────────────────────────────────────────────────────────────────
 let updaterWindow: BrowserWindow | null = null
 let downloadedFile: string | null = null
 let isForceClosing = false
@@ -30,6 +36,8 @@ let updaterState: UpdaterState = {
   recommendationLevel: 'patch',
   releaseNotes: ''
 }
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getAppIconPath(): string {
   const iconExt = process.platform === 'win32' ? 'ico' : 'png'
@@ -61,6 +69,157 @@ function getRecommendationLevel(current: string, latest: string): 'patch' | 'min
   }
 }
 
+/** Performs a GET request and returns the response body as a string. */
+function fetchUrl(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const options = new URL(url)
+    const req = https.get(
+      {
+        hostname: options.hostname,
+        path: options.pathname + options.search,
+        headers: {
+          'User-Agent': `Prism/${app.getVersion()} Electron Updater`,
+          Accept: 'application/vnd.github+json'
+        }
+      },
+      (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          // Follow redirect
+          fetchUrl(res.headers.location).then(resolve).catch(reject)
+          res.resume()
+          return
+        }
+        if (res.statusCode && res.statusCode >= 400) {
+          reject(new Error(`HTTP ${res.statusCode} for ${url}`))
+          res.resume()
+          return
+        }
+        const chunks: Buffer[] = []
+        res.on('data', (chunk) => chunks.push(chunk))
+        res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+        res.on('error', reject)
+      }
+    )
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+interface GitHubRelease {
+  tag_name: string
+  name: string
+  body: string
+  assets: Array<{ name: string; browser_download_url: string; size: number }>
+}
+
+/** Fetches the latest release info from GitHub. */
+async function fetchLatestRelease(): Promise<GitHubRelease> {
+  const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`
+  const body = await fetchUrl(url)
+  return JSON.parse(body) as GitHubRelease
+}
+
+/**
+ * Resolves the download URL for the installer asset.
+ *
+ * Priority:
+ *   1. Primary pattern:  prism-invisible-setup-${version}.exe
+ *   2. Fallback pattern: prism-${version}-setup.exe
+ *
+ * Returns null if neither is found (triggers error screen).
+ */
+function resolveInstallerUrl(
+  assets: GitHubRelease['assets'],
+  version: string
+): { url: string; size: number; pattern: 'primary' | 'fallback' } | null {
+  // Primary: new invisible-setup naming convention
+  const primaryPattern = new RegExp(`^prism-invisible-setup-${version.replace(/\./g, '\\.')}\\.(exe)$`, 'i')
+  const primaryAsset = assets.find((a) => primaryPattern.test(a.name))
+  if (primaryAsset) {
+    return { url: primaryAsset.browser_download_url, size: primaryAsset.size, pattern: 'primary' }
+  }
+
+  // Fallback: legacy naming convention
+  const fallbackPattern = new RegExp(`^prism-${version.replace(/\./g, '\\.')}-setup\\.(exe)$`, 'i')
+  const fallbackAsset = assets.find((a) => fallbackPattern.test(a.name))
+  if (fallbackAsset) {
+    return { url: fallbackAsset.browser_download_url, size: fallbackAsset.size, pattern: 'fallback' }
+  }
+
+  return null
+}
+
+/** Downloads a file from a URL to a destination path, reporting progress. */
+function downloadFile(
+  url: string,
+  dest: string,
+  totalSize: number,
+  onProgress: (transferred: number, speed: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const doDownload = (downloadUrl: string): void => {
+      const parsedUrl = new URL(downloadUrl)
+      const req = https.get(
+        {
+          hostname: parsedUrl.hostname,
+          path: parsedUrl.pathname + parsedUrl.search,
+          headers: { 'User-Agent': `Prism/${app.getVersion()} Electron Updater` }
+        },
+        (res) => {
+          // Follow redirects (GitHub releases use CDN redirects)
+          if (
+            res.statusCode &&
+            res.statusCode >= 300 &&
+            res.statusCode < 400 &&
+            res.headers.location
+          ) {
+            res.resume()
+            doDownload(res.headers.location)
+            return
+          }
+          if (res.statusCode && res.statusCode >= 400) {
+            reject(new Error(`HTTP ${res.statusCode} while downloading installer`))
+            res.resume()
+            return
+          }
+
+          const fileStream = fs.createWriteStream(dest)
+          let transferred = 0
+          let lastTime = Date.now()
+          let lastTransferred = 0
+
+          res.on('data', (chunk: Buffer) => {
+            transferred += chunk.length
+            const now = Date.now()
+            const elapsed = (now - lastTime) / 1000
+            if (elapsed >= 0.5) {
+              const speed = (transferred - lastTransferred) / elapsed
+              onProgress(transferred, speed)
+              lastTime = now
+              lastTransferred = transferred
+            }
+          })
+
+          res.pipe(fileStream)
+          fileStream.on('finish', () => {
+            fileStream.close()
+            onProgress(totalSize, 0)
+            resolve()
+          })
+          fileStream.on('error', reject)
+          res.on('error', reject)
+        }
+      )
+      req.on('error', reject)
+      req.end()
+    }
+
+    doDownload(url)
+  })
+}
+
+// ─── Window ───────────────────────────────────────────────────────────────────
+
 function createUpdaterWindow(mainWindow: BrowserWindow): void {
   if (updaterWindow) {
     updaterWindow.focus()
@@ -72,12 +231,12 @@ function createUpdaterWindow(mainWindow: BrowserWindow): void {
     height: 400,
     show: false,
     autoHideMenuBar: true,
-    frame: false, // Frameless design
+    frame: false,
     resizable: false,
     maximizable: false,
     fullscreenable: false,
     backgroundColor: '#13151a',
-    parent: mainWindow, // Set parent but keep non-modal
+    parent: mainWindow,
     ...(process.platform === 'linux' || process.platform === 'win32'
       ? { icon: getAppIconPath() }
       : {}),
@@ -87,7 +246,7 @@ function createUpdaterWindow(mainWindow: BrowserWindow): void {
     }
   })
 
-  // Prevent closing unless we explicitly force it (like when installing or quitting the app)
+  // Prevent closing unless we explicitly force it
   updaterWindow.on('close', (e) => {
     if (!isForceClosing) {
       e.preventDefault()
@@ -100,6 +259,7 @@ function createUpdaterWindow(mainWindow: BrowserWindow): void {
 
   updaterWindow.on('closed', () => {
     updaterWindow = null
+    isForceClosing = false
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -111,66 +271,128 @@ function createUpdaterWindow(mainWindow: BrowserWindow): void {
   }
 }
 
-export function initAutoUpdater(mainWindow: BrowserWindow): void {
-  // Override isUpdateAvailable to support Sentimental Versioning.
-  // Instead of SemVer comparisons (greater than), we check if the latest version
-  // is different from the currently installed version.
-  const anyUpdater = autoUpdater as any
+// ─── Core update logic ────────────────────────────────────────────────────────
 
-  anyUpdater.isUpdateAvailable = async function (
-    this: typeof anyUpdater,
-    updateInfo: { version: string }
-  ): Promise<boolean> {
-    const latestVersion = (updateInfo.version || '').trim()
-    const currentVersion = (this.app.version || '').trim()
+let pendingDownload: { url: string; size: number } | null = null
 
-    this._logger.info(
-      `[Sentimental Versioning] Checking if update is available. Current: ${currentVersion}, Latest: ${latestVersion}`
-    )
+async function checkForUpdates(mainWindow: BrowserWindow): Promise<void> {
+  const currentVersion = app.getVersion()
+  console.log(`[Auto-Updater] Checking for updates. Current version: ${currentVersion}`)
 
-    if (!latestVersion) {
-      this._logger.info('[Sentimental Versioning] Latest version is not specified. No update.')
-      return false
-    }
-
-    if (latestVersion === currentVersion) {
-      this._logger.info('[Sentimental Versioning] Current version is equal to latest. No update.')
-      return false
-    }
-
-    if (!(await Promise.resolve(this.isUpdateSupported(updateInfo)))) {
-      this._logger.info('[Sentimental Versioning] Update is not supported on this system.')
-      return false
-    }
-
-    const isUserWithinRollout = await Promise.resolve(this.isUserWithinRollout(updateInfo))
-    if (!isUserWithinRollout) {
-      this._logger.info('[Sentimental Versioning] User is not within rollout threshold.')
-      return false
-    }
-
-    this._logger.info(`[Sentimental Versioning] Update is available! Proceeding to download.`)
-    return true
+  let release: GitHubRelease
+  try {
+    release = await fetchLatestRelease()
+  } catch (err) {
+    console.error('[Auto-Updater] Failed to fetch latest release:', err)
+    // Don't open the updater window if we couldn't even reach GitHub
+    return
   }
 
-  // Set logger
-  autoUpdater.logger = console
+  const latestVersion = (release.tag_name || release.name || '').replace(/^v/, '').trim()
+  console.log(`[Auto-Updater] Latest version on GitHub: ${latestVersion}`)
 
-  // Disable auto-download so we can ask the user first
-  autoUpdater.autoDownload = false
+  if (!latestVersion) {
+    console.warn('[Auto-Updater] Could not determine latest version from GitHub release.')
+    return
+  }
 
-  // Setup IPC Handlers
+  // Sentimental Versioning: trigger on any difference, not just "newer"
+  if (latestVersion === currentVersion) {
+    console.log('[Auto-Updater] Already on the latest version. No update needed.')
+    updaterState = { ...updaterState, status: 'not-available', currentVersion, latestVersion }
+    return
+  }
+
+  console.log(
+    `[Auto-Updater] Version mismatch detected (${currentVersion} → ${latestVersion}). Looking for installer asset…`
+  )
+
+  const resolved = resolveInstallerUrl(release.assets, latestVersion)
+
+  if (!resolved) {
+    // Could not find installer with either naming pattern — show error screen
+    // so at least we know the updater *fired* and detected the version difference.
+    console.warn(
+      `[Auto-Updater] Could not find installer asset for v${latestVersion}. Neither primary nor fallback pattern matched. Showing error screen.`
+    )
+    updaterState = {
+      status: 'error',
+      currentVersion,
+      latestVersion,
+      recommendationLevel: getRecommendationLevel(currentVersion, latestVersion),
+      releaseNotes: typeof release.body === 'string' ? release.body : '',
+      error: `Installer not found for v${latestVersion}. Expected: prism-invisible-setup-${latestVersion}.exe or prism-${latestVersion}-setup.exe`
+    }
+    createUpdaterWindow(mainWindow)
+    return
+  }
+
+  console.log(
+    `[Auto-Updater] Found installer via '${resolved.pattern}' pattern: ${resolved.url}`
+  )
+
+  pendingDownload = { url: resolved.url, size: resolved.size }
+
+  updaterState = {
+    status: 'available',
+    currentVersion,
+    latestVersion,
+    recommendationLevel: getRecommendationLevel(currentVersion, latestVersion),
+    releaseNotes: typeof release.body === 'string' ? release.body : ''
+  }
+
+  createUpdaterWindow(mainWindow)
+}
+
+// ─── Export ───────────────────────────────────────────────────────────────────
+
+export function initAutoUpdater(mainWindow: BrowserWindow): void {
+  // ── IPC Handlers ────────────────────────────────────────────────────────────
   ipcMain.handle('get-updater-state', () => {
     return updaterState
   })
 
-  ipcMain.on('download-update', () => {
-    if (updaterState.status === 'available' || updaterState.status === 'error') {
-      updaterState.status = 'downloading'
+  ipcMain.on('download-update', async () => {
+    if (updaterState.status !== 'available' && updaterState.status !== 'error') return
+    if (!pendingDownload) {
+      console.error('[Auto-Updater] download-update fired but pendingDownload is null.')
+      return
+    }
+
+    updaterState.status = 'downloading'
+    if (updaterWindow && !updaterWindow.isDestroyed()) {
+      updaterWindow.webContents.send('updater-state', updaterState)
+    }
+
+    const tempDir = app.getPath('temp')
+    const fileName = pendingDownload.url.split('/').pop() || `prism-setup-${updaterState.latestVersion}.exe`
+    const destPath = join(tempDir, fileName)
+    const totalSize = pendingDownload.size
+
+    try {
+      await downloadFile(pendingDownload.url, destPath, totalSize, (transferred, speed) => {
+        const percent = totalSize > 0 ? Math.round((transferred / totalSize) * 100) : 0
+        updaterState.status = 'downloading'
+        updaterState.progress = { percent, speed, transferred, total: totalSize }
+        if (updaterWindow && !updaterWindow.isDestroyed()) {
+          updaterWindow.webContents.send('updater-state', { ...updaterState })
+        }
+      })
+
+      downloadedFile = destPath
+      updaterState.status = 'downloaded'
+      updaterState.progress = { percent: 100, speed: 0, transferred: totalSize, total: totalSize }
       if (updaterWindow && !updaterWindow.isDestroyed()) {
-        updaterWindow.webContents.send('updater-state', updaterState)
+        updaterWindow.webContents.send('updater-state', { ...updaterState })
       }
-      autoUpdater.downloadUpdate()
+      console.log(`[Auto-Updater] Download complete: ${destPath}`)
+    } catch (err: any) {
+      console.error('[Auto-Updater] Download failed:', err)
+      updaterState.status = 'error'
+      updaterState.error = err?.message || String(err)
+      if (updaterWindow && !updaterWindow.isDestroyed()) {
+        updaterWindow.webContents.send('updater-state', { ...updaterState })
+      }
     }
   })
 
@@ -188,16 +410,16 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
 
     console.log(`[Auto-Updater] Preparing post-install command for installer: ${downloadedFile}`)
 
-    // Create a detached PowerShell script block that:
-    // 1. Waits for the parent Prism process to exit so files aren't locked.
-    // 2. Runs the silent installer (/S) and waits for it to finish installing.
-    // 3. Automatically relaunches Prism.
+    // Detached PowerShell script that:
+    // 1. Waits for Prism to exit (so files aren't locked).
+    // 2. Runs the silent installer and waits for it to finish.
+    // 3. Relaunches Prism.
     const cmd = `Start-Job -ScriptBlock {
       $pidToWait = ${process.pid}
       while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {
         Start-Sleep -Milliseconds 100
       }
-      Start-Process -FilePath "${escapedInstallerPath}" -ArgumentList "/S" -Wait
+      Start-Process -FilePath "${escapedInstallerPath}" -Wait
       Start-Process -FilePath "${escapedAppPath}"
     }`
 
@@ -220,7 +442,7 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
     }
   })
 
-  // Development simulation listeners
+  // ── Dev simulation listeners ────────────────────────────────────────────────
   if (is.dev) {
     ipcMain.on('dev-trigger-updater-ui', (_event, level: 'patch' | 'minor' | 'major') => {
       updaterState = {
@@ -249,7 +471,6 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
         }
         if (percent >= 100) {
           clearInterval(interval)
-          // Mock a downloaded installer file path
           downloadedFile = join(app.getPath('temp'), 'prism-invisible-setup-mock.exe')
           updaterState.status = 'downloaded'
           if (updaterWindow && !updaterWindow.isDestroyed()) {
@@ -258,66 +479,13 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
         }
       }, 150)
     })
-  }
 
-  // Register updater events
-  autoUpdater.on('update-available', (info) => {
-    console.log('Auto-updater: Update available:', info)
-    const currentVersion = anyUpdater.app.version || app.getVersion()
-    const latestVersion = info.version
-
-    updaterState = {
-      status: 'available',
-      currentVersion,
-      latestVersion,
-      recommendationLevel: getRecommendationLevel(currentVersion, latestVersion),
-      releaseNotes: typeof info.releaseNotes === 'string' ? info.releaseNotes : ''
-    }
-
-    createUpdaterWindow(mainWindow)
-  })
-
-  autoUpdater.on('update-not-available', (info) => {
-    console.log('Auto-updater: Update not available:', info)
-    updaterState.status = 'not-available'
-  })
-
-  autoUpdater.on('download-progress', (progressObj) => {
-    updaterState.status = 'downloading'
-    updaterState.progress = {
-      percent: Math.round(progressObj.percent),
-      speed: progressObj.bytesPerSecond,
-      transferred: progressObj.transferred,
-      total: progressObj.total
-    }
-    if (updaterWindow && !updaterWindow.isDestroyed()) {
-      updaterWindow.webContents.send('updater-state', updaterState)
-    }
-  })
-
-  autoUpdater.on('update-downloaded', (event: any) => {
-    console.log('Auto-updater: Update downloaded:', event)
-    downloadedFile = event.downloadedFile
-    updaterState.status = 'downloaded'
-    if (updaterWindow && !updaterWindow.isDestroyed()) {
-      updaterWindow.webContents.send('updater-state', updaterState)
-    }
-  })
-
-  autoUpdater.on('error', (err) => {
-    console.error('Auto-updater error:', err)
-    updaterState.status = 'error'
-    updaterState.error = err.message || String(err)
-    if (updaterWindow && !updaterWindow.isDestroyed()) {
-      updaterWindow.webContents.send('updater-state', updaterState)
-    }
-  })
-
-  // In development mode, do not run check automatically
-  if (is.dev) {
+    // In development mode, don't check automatically
     return
   }
 
-  // Start the check
-  autoUpdater.checkForUpdatesAndNotify()
+  // ── Production: kick off the check ─────────────────────────────────────────
+  checkForUpdates(mainWindow).catch((err) => {
+    console.error('[Auto-Updater] Unhandled error in checkForUpdates:', err)
+  })
 }

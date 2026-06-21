@@ -2151,7 +2151,8 @@ export async function handleChatMessage(
           }
 
           accumulatedThoughts += currentThoughts
-          accumulatedFinalResponse += currentFinalResponse
+          const needsSeparator = accumulatedFinalResponse.length > 0 && currentFinalResponse.trim().length > 0
+          accumulatedFinalResponse += needsSeparator ? '\n\n' + currentFinalResponse : currentFinalResponse
 
           const toolMatches = extractToolCalls(fullAiResponse)
 
