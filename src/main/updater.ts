@@ -75,7 +75,8 @@ function getRecommendationLevel(current: string, latest: string): 'patch' | 'min
 }
 
 /** Performs a GET request and returns the response body as a string. */
-function fetchUrl(url: string): Promise<string> {
+function fetchUrl(url: string, redirects = 0): Promise<string> {
+  if (redirects > 5) return Promise.reject(new Error(`Too many redirects for ${url}`))
   return new Promise((resolve, reject) => {
     const options = new URL(url)
     const req = https.get(
@@ -89,8 +90,22 @@ function fetchUrl(url: string): Promise<string> {
       },
       (res) => {
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          // Follow redirect
-          fetchUrl(res.headers.location).then(resolve).catch(reject)
+          // Follow redirect securely
+          try {
+            const redirectUrl = new URL(res.headers.location, url)
+            if (
+              redirectUrl.protocol === 'https:' &&
+              (redirectUrl.hostname === 'github.com' ||
+                redirectUrl.hostname === 'api.github.com' ||
+                redirectUrl.hostname.endsWith('.githubusercontent.com'))
+            ) {
+              fetchUrl(redirectUrl.toString(), redirects + 1).then(resolve).catch(reject)
+            } else {
+              reject(new Error(`Insecure redirect to ${redirectUrl.toString()}`))
+            }
+          } catch (e) {
+            reject(new Error(`Invalid redirect URL: ${res.headers.location}`))
+          }
           res.resume()
           return
         }
@@ -162,7 +177,8 @@ function downloadFile(
   onProgress: (transferred: number, speed: number) => void
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const doDownload = (downloadUrl: string): void => {
+    const doDownload = (downloadUrl: string, redirects = 0): void => {
+      if (redirects > 5) return reject(new Error('Too many redirects'))
       const parsedUrl = new URL(downloadUrl)
       const req = https.get(
         {
@@ -171,7 +187,7 @@ function downloadFile(
           headers: { 'User-Agent': `Prism/${app.getVersion()} Electron Updater` }
         },
         (res) => {
-          // Follow redirects (GitHub releases use CDN redirects)
+          // Follow redirects securely
           if (
             res.statusCode &&
             res.statusCode >= 300 &&
@@ -179,7 +195,21 @@ function downloadFile(
             res.headers.location
           ) {
             res.resume()
-            doDownload(res.headers.location)
+            try {
+              const redirectUrl = new URL(res.headers.location, downloadUrl)
+              if (
+                redirectUrl.protocol === 'https:' &&
+                (redirectUrl.hostname === 'github.com' ||
+                  redirectUrl.hostname === 'api.github.com' ||
+                  redirectUrl.hostname.endsWith('.githubusercontent.com'))
+              ) {
+                doDownload(redirectUrl.toString(), redirects + 1)
+              } else {
+                reject(new Error(`Insecure redirect to ${redirectUrl.toString()}`))
+              }
+            } catch (e) {
+              reject(new Error(`Invalid redirect URL: ${res.headers.location}`))
+            }
             return
           }
           if (res.statusCode && res.statusCode >= 400) {

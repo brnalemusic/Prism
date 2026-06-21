@@ -1,4 +1,4 @@
-import { exec } from 'child_process'
+import { exec, execFile } from 'child_process'
 import { shell, desktopCapturer, app, BrowserWindow } from 'electron'
 import { getInstalledApps } from 'get-installed-apps'
 import * as fs from 'fs/promises'
@@ -501,7 +501,7 @@ export interface TerminalOption {
 
 function checkIfExecutableExists(exeName: string): Promise<boolean> {
   return new Promise((resolve) => {
-    exec(`where ${exeName}`, (error) => {
+    execFile('where', [exeName], (error) => {
       resolve(!error)
     })
   })

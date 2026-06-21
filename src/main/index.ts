@@ -563,7 +563,14 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    try {
+      const parsed = new URL(details.url)
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        shell.openExternal(details.url)
+      }
+    } catch {
+      /* ignore malformed URLs */
+    }
     return { action: 'deny' }
   })
 
@@ -949,7 +956,7 @@ if (!gotTheLock) {
     ipcMain.handle('get-config', () => {
       return {
         ...currentConfig,
-        envGeminiKey: process.env.GEMINI_API_KEY,
+        envGeminiKey: process.env.GEMINI_API_KEY ? 'present' : 'none',
         username: os.userInfo().username,
         appVersion: app.getVersion()
       }
@@ -958,7 +965,7 @@ if (!gotTheLock) {
     ipcMain.on('get-config-sync', (event) => {
       event.returnValue = {
         ...currentConfig,
-        envGeminiKey: process.env.GEMINI_API_KEY,
+        envGeminiKey: process.env.GEMINI_API_KEY ? 'present' : 'none',
         username: os.userInfo().username,
         appVersion: app.getVersion()
       }

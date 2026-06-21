@@ -261,8 +261,8 @@ const ALWAYS_BLOCKED_RULES: CommandRule[] = [
     reason: 'HKLM registry mutation is blocked'
   },
   {
-    pattern: commandRule(String.raw`net(?:\.exe)?\s+(?:user|localgroup|accounts|share|stop)`),
-    reason: 'account, share, or service control commands are blocked'
+    pattern: commandRule(String.raw`net(?:\.exe)?\s+(?:user|localgroup|accounts|share|stop|start|use)`),
+    reason: 'account, share, network, or service control commands are blocked'
   },
   {
     pattern:

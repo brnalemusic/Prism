@@ -26,6 +26,14 @@ function ensureChatsDir(): void {
 }
 
 /**
+ * Sanitizes a session ID to prevent path traversal.
+ */
+function sanitizeId(id: string): string {
+  // Only allow alphanumeric characters and hyphens
+  return id.replace(/[^a-zA-Z0-9-]/g, '')
+}
+
+/**
  * Safely extracts text from content parts, combining all text components.
  * Optionally filters out technical blocks like tool calls and system results.
  */
@@ -85,7 +93,9 @@ export function listChatSessions(): Omit<ChatSession, 'messages'>[] {
  */
 export function loadChatSession(id: string): ChatSession | null {
   ensureChatsDir()
-  const filePath = path.join(CHATS_DIR, `chat_${id}.json`)
+  const cleanId = sanitizeId(id)
+  if (!cleanId) return null
+  const filePath = path.join(CHATS_DIR, `chat_${cleanId}.json`)
   try {
     if (fs.existsSync(filePath)) {
       const data = fs.readFileSync(filePath, 'utf-8')
@@ -124,7 +134,9 @@ function sanitizeMessagesForSaving(messages: Content[]): Content[] {
  */
 export function saveChatSession(id: string, messages: Content[], title?: string): boolean {
   ensureChatsDir()
-  const filePath = path.join(CHATS_DIR, `chat_${id}.json`)
+  const cleanId = sanitizeId(id)
+  if (!cleanId) return false
+  const filePath = path.join(CHATS_DIR, `chat_${cleanId}.json`)
 
   try {
     let sessionTitle = title
@@ -188,7 +200,9 @@ export function saveChatSession(id: string, messages: Content[], title?: string)
  */
 export function deleteChatSession(id: string): boolean {
   ensureChatsDir()
-  const filePath = path.join(CHATS_DIR, `chat_${id}.json`)
+  const cleanId = sanitizeId(id)
+  if (!cleanId) return false
+  const filePath = path.join(CHATS_DIR, `chat_${cleanId}.json`)
   try {
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath)
