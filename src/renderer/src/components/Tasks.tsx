@@ -15,7 +15,8 @@ import {
   Sparkle,
   AppWindow,
   ClipboardText,
-  ChatTeardropText
+  ChatTeardropText,
+  Book
 } from '@phosphor-icons/react'
 import { ToolCall } from './ActionLoader'
 
@@ -73,6 +74,9 @@ function renderTaskIcon(name: string): React.JSX.Element {
   }
   if (name === 'wait_for_updates') {
     return <CircleDashed size={18} className="animate-spin" />
+  }
+  if (name.startsWith('internal_docs_')) {
+    return <Book size={18} />
   }
   return <Terminal size={18} />
 }

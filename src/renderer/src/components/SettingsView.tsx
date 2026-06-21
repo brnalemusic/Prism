@@ -38,9 +38,7 @@ interface Config {
   username?: string
   appVersion?: string
   ttsVoice: string
-  theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb'
-  rgbThemeExpiry?: number
-  isRgbUnlocked?: boolean
+  theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula'
   zoomFactor: number
   terminalShell?: string
   workflows?: SlashWorkflow[]
@@ -76,14 +74,12 @@ export function SettingsView(): React.JSX.Element {
     appVersion: '',
     ttsVoice: 'Aoede',
     theme: 'marine',
-    isRgbUnlocked: false,
     zoomFactor: 1.0,
     terminalShell: 'powershell.exe',
     workflows: []
   })
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState({ text: '', type: '' })
-  const [isRgbActive, setIsRgbActive] = useState(false)
   const [availableTerminals, setAvailableTerminals] = useState<
     Array<{ id: string; name: string; path: string }>
   >([])
@@ -126,7 +122,6 @@ export function SettingsView(): React.JSX.Element {
           appVersion: savedConfig.appVersion || '',
           ttsVoice: savedConfig.ttsVoice || 'Aoede',
           theme: savedConfig.theme || 'marine',
-          isRgbUnlocked: savedConfig.isRgbUnlocked ?? false,
           zoomFactor: savedConfig.zoomFactor ?? 1.0,
           terminalShell: savedConfig.terminalShell || 'powershell.exe',
           workflows: savedConfig.workflows || []
@@ -147,7 +142,6 @@ export function SettingsView(): React.JSX.Element {
           appVersion: cfg.appVersion || '',
           ttsVoice: cfg.ttsVoice || 'Aoede',
           theme: cfg.theme || 'marine',
-          isRgbUnlocked: cfg.isRgbUnlocked ?? prev.isRgbUnlocked ?? false,
           zoomFactor: cfg.zoomFactor ?? prev.zoomFactor ?? 1.0,
           terminalShell: cfg.terminalShell ?? prev.terminalShell ?? 'powershell.exe',
           workflows: cfg.workflows || prev.workflows || []
@@ -157,26 +151,7 @@ export function SettingsView(): React.JSX.Element {
     return () => removeConfigListener()
   }, [])
 
-  useEffect(() => {
-    const updateRgbActive = (): void => {
-      const active = !!(config.rgbThemeExpiry && config.rgbThemeExpiry > Date.now())
-      setIsRgbActive(active)
-      if (!active && config.theme === 'rgb') {
-        setConfig((prev) => ({ ...prev, theme: 'marine' }))
-      }
-    }
 
-    updateRgbActive()
-
-    if (config.rgbThemeExpiry && config.rgbThemeExpiry > Date.now()) {
-      const msLeft = config.rgbThemeExpiry - Date.now()
-      const timer = setTimeout(() => {
-        updateRgbActive()
-      }, msLeft)
-      return () => clearTimeout(timer)
-    }
-    return undefined
-  }, [config.rgbThemeExpiry, config.theme])
 
   const handleSave = async (): Promise<void> => {
     setIsSaving(true)
@@ -206,7 +181,6 @@ export function SettingsView(): React.JSX.Element {
       appVersion: config.appVersion,
       ttsVoice: 'Aoede',
       theme: 'marine',
-      isRgbUnlocked: config.isRgbUnlocked,
       zoomFactor: 1.0,
       terminalShell: 'powershell.exe',
       workflows: config.workflows
@@ -378,16 +352,7 @@ export function SettingsView(): React.JSX.Element {
               desc: 'Leaf green and baby green blend with classic serif font',
               colors: ['#0a110a', '#388e3c', '#c8e6c9']
             },
-            ...(isRgbActive
-              ? [
-                  {
-                    id: 'rgb',
-                    name: 'RGB',
-                    desc: 'Dynamic chroma shifting theme',
-                    colors: ['#FF0000', '#007BFF', '#2D5A27']
-                  }
-                ]
-              : [])
+
           ].map((themeOpt) => (
             <button
               key={themeOpt.id}
@@ -400,7 +365,6 @@ export function SettingsView(): React.JSX.Element {
                     | 'akoustik'
                     | 'terno'
                     | 'ursula'
-                    | 'rgb'
                 })
               }
               className={clsx(
@@ -433,19 +397,7 @@ export function SettingsView(): React.JSX.Element {
             </button>
           ))}
 
-          {!isRgbActive && config.isRgbUnlocked && (
-            <div className="flex items-center gap-4 rounded-[20px] border border-dashed border-white/[0.08] bg-white/[0.015] p-4 text-left select-none opacity-40">
-              <div className="flex items-center justify-center p-2.5 rounded-xl bg-black/40 border border-white/5 shrink-0 text-text-muted">
-                <Lock size={20} />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-sm font-semibold mb-0.5 text-text-muted">???</span>
-                <span className="text-xs text-text-secondary/40 leading-tight">
-                  ???????????????
-                </span>
-              </div>
-            </div>
-          )}
+
         </div>
       </div>
 

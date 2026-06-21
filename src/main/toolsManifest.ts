@@ -365,10 +365,18 @@ export const toolsManifest: ToolDefinition[] = [
     }
   },
   {
-    name: 'unlock_rgb_theme',
-    description: 'Activate temporary RGB theme. No args.',
-    usage: '<tool_call>{"type":"unlock_rgb_theme"}</tool_call>',
+    name: 'internal_docs_list',
+    description: 'List all available internal documentation files about Prism.',
+    usage: '<tool_call>{"type":"internal_docs_list"}</tool_call>',
     parameters: {}
+  },
+  {
+    name: 'internal_docs_read',
+    description: 'Read the contents of a specific internal documentation file.',
+    usage: '<tool_call>{"type":"internal_docs_read","filename":"01_prism_creator.md"}</tool_call>',
+    parameters: {
+      filename: 'The exact filename to read from the docs list.'
+    }
   },
   {
     name: 'to_ask',

@@ -147,6 +147,14 @@ function useToolCallMeta(toolCall: ToolCall): {
   } else if (toolCall.name === 'list_installed_applications') {
     displayTitle = 'Listing Apps'
     displayDetail = 'Scanning installed applications.'
+  } else if (toolCall.name === 'internal_docs_list') {
+    displayTitle = 'Checking Knowledge Base'
+    displayDetail = 'Looking up internal documentation.'
+    tone = 'search'
+  } else if (toolCall.name === 'internal_docs_read') {
+    displayTitle = 'Reading Documentation'
+    displayDetail = getStringArg(toolCall.args, 'filename') || 'Loading documentation file.'
+    tone = 'search'
   } else if (toolCall.name === 'run_subagents') {
     displayTitle = 'Orchestrating Agents'
     displayDetail = 'Coordinating parallel work.'
@@ -247,7 +255,7 @@ function useToolCallMeta(toolCall: ToolCall): {
     if (toolCall.name === 'list_installed_applications')
       return <List size={size} weight="regular" />
     if (toolCall.name.startsWith('computer_use_')) return <HardDrive size={size} weight="regular" />
-    if (toolCall.name === 'saw_link_from_url') return <FileText size={size} weight="regular" />
+    if (toolCall.name === 'saw_link_from_url' || toolCall.name.startsWith('internal_docs_')) return <FileText size={size} weight="regular" />
     if (toolCall.name === 'configure_prism')
       return <Gear size={size} weight="regular" className="animate-pulse" />
     if (

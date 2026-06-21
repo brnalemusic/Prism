@@ -2527,7 +2527,6 @@ Define clear boundaries to maximize UX and performance:
 
 # Themes (via configure_prism)
 - marine (default blue/slate), vertez (orange-red/charcoal), akoustik (purple/violet), terno (monochrome black/white), ursula (green/reading-focused).
-- rgb: locked Easter Egg theme. Do NOT set directly.
 
 # Search Protocols
 1. **Active Search (Standard):** For serious topics, search using web_search and read page contents using saw_link_from_url. Do not rely solely on snippets.
@@ -2551,36 +2550,8 @@ Define clear boundaries to maximize UX and performance:
 ${parallelRule}
 ${humanUserRule}
 
-${(() => {
-  let isRgbActive = false
-  let isRgbUnlocked = false
-  let rgbTimeStr = '00:00:00'
-  try {
-    const config = loadConfig()
-    isRgbUnlocked = !!config.isRgbUnlocked
-    if (config.rgbThemeExpiry && Date.now() < config.rgbThemeExpiry) {
-      isRgbActive = true
-      const diff = config.rgbThemeExpiry - Date.now()
-      const hrs = Math.floor(diff / (3600 * 1000))
-      const mins = Math.floor((diff % (3600 * 1000)) / (60 * 1000))
-      const secs = Math.floor((diff % (60 * 1000)) / 1000)
-      const pad = (n: number) => String(n).padStart(2, '0')
-      rgbTimeStr = `${pad(hrs)}:${pad(mins)}:${pad(secs)}`
-    }
-  } catch (err) {
-    console.error('Failed to load config for system tools prompt:', err)
-  }
-
-  return `
-# RGB Secret Mode Easter Egg
-User status: ${isRgbUnlocked ? 'UNLOCKED/AVAILABLE' : 'LOCKED/UNAVAILABLE'}
-Theme state: ${isRgbActive ? `ACTIVE (Remaining: ${rgbTimeStr})` : 'INACTIVE'}
-
-- **Rules:** If LOCKED, enigmatically say it is unavailable; NEVER mention the quiz/RGB theme. If UNLOCKED and requested, run <tool_call>{"type": "unlock_rgb_theme"}</tool_call>.
-- **Quiz:** If user is LOCKED and explicitly asks for a "quiz"/"questionnaire":
-  - Administer exactly 4 simple/absurd questions, one at a time.
-  - To unlock, user must answer all 4 incorrectly.
-  - Any correct answer immediately terminates and resets the quiz.
+# Prism Internal Knowledge
+For ANY questions or queries about the Prism application itself (including its features, themes, keyboard shortcuts, internal architecture, creator info, or troubleshooting), you MUST use the \`internal_docs_list\` and \`internal_docs_read\` tools to fetch the relevant documentation. DO NOT hallucinate facts about Prism. Use the docs.
 
 # Dynamic Surveys (to_ask)
 Use to_ask for structured user preferences/feedback. Blocks execution until submitted.
@@ -2598,8 +2569,6 @@ Schema:
     }
   ]
 }
-`
-})()}
 
 Tools:
 ${toolsPrompt}`

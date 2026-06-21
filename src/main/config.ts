@@ -25,9 +25,7 @@ export interface AppConfig {
   username?: string
   appVersion?: string
   ttsVoice: string
-  theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb'
-  rgbThemeExpiry?: number
-  isRgbUnlocked?: boolean
+  theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula'
   zoomFactor: number
   terminalShell?: string
   workflows?: SlashWorkflow[]
@@ -45,7 +43,6 @@ const DEFAULT_CONFIG: AppConfig = {
   userGeminiKey: '',
   ttsVoice: 'Aoede',
   theme: 'marine',
-  isRgbUnlocked: false,
   zoomFactor: 1.0,
   terminalShell: 'powershell.exe',
   workflows: [
@@ -87,7 +84,7 @@ const VALID_MODEL_KEYS = new Set([
   'prism-6-dense'
 ])
 const VALID_VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'])
-const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno', 'ursula', 'rgb'])
+const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno', 'ursula'])
 
 function normalizeConfig(config: AppConfig): AppConfig {
   return {
@@ -101,10 +98,8 @@ function normalizeConfig(config: AppConfig): AppConfig {
       : DEFAULT_CONFIG.subagentModel,
     ttsVoice: VALID_VOICES.has(config.ttsVoice) ? config.ttsVoice : DEFAULT_CONFIG.ttsVoice,
     theme: VALID_THEMES.has(config.theme)
-      ? (config.theme as 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb')
+      ? (config.theme as 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula')
       : DEFAULT_CONFIG.theme,
-    rgbThemeExpiry: config.rgbThemeExpiry,
-    isRgbUnlocked: config.isRgbUnlocked ?? DEFAULT_CONFIG.isRgbUnlocked,
     zoomFactor:
       config.zoomFactor !== undefined &&
       !isNaN(config.zoomFactor) &&

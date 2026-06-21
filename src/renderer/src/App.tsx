@@ -616,30 +616,7 @@ function RealApp(): React.JSX.Element {
 
   useEffect(() => {
     if (!config) return
-
-    const updateTheme = () => {
-      const isRgbActive = !!(config.rgbThemeExpiry && Date.now() < config.rgbThemeExpiry)
-      const themeToApply =
-        config.theme === 'rgb' && !isRgbActive ? 'marine' : config.theme || 'marine'
-      document.documentElement.setAttribute('data-theme', themeToApply)
-    }
-
-    updateTheme()
-
-    if (config.rgbThemeExpiry && config.rgbThemeExpiry > Date.now()) {
-      const msLeft = config.rgbThemeExpiry - Date.now()
-      const timer = setTimeout(() => {
-        updateTheme()
-        const updatedConfig = {
-          ...config,
-          theme: config.theme === 'rgb' ? 'marine' : config.theme
-        } as AppConfig
-        window.api.saveConfig(updatedConfig)
-      }, msLeft)
-      return () => clearTimeout(timer)
-    }
-
-    return undefined
+    document.documentElement.setAttribute('data-theme', config.theme || 'marine')
   }, [config])
 
   const route = window.location.hash

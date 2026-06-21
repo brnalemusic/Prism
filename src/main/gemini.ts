@@ -1155,22 +1155,46 @@ const toolFunctions: Record<
       return `Error configuring Prism settings: ${error instanceof Error ? error.message : String(error)}`
     }
   },
-  unlock_rgb_theme: async () => {
+  internal_docs_list: async () => {
     try {
-      const config = loadConfig()
-      config.isRgbUnlocked = true
-      config.rgbThemeExpiry = Date.now() + 2 * 60 * 60 * 1000 // 2 hours
-      config.theme = 'rgb' // Set the theme to rgb
-      const success = saveConfig(config)
-      if (success) {
-        // Emit to main process so it updates currentConfig and UI
-        ipcMain.emit('update-config-from-tools', null, config)
-        return 'RGB theme unlocked successfully for 2 hours.'
-      } else {
-        return 'Error: Failed to save updated theme configuration.'
+      const { app } = require('electron')
+      const isDev = !app.isPackaged
+      const docsPath = isDev ? path.join(__dirname, '../../resources/docs') : path.join(process.resourcesPath, 'docs')
+      
+      try {
+        const files = await require('fs/promises').readdir(docsPath)
+        const mdFiles = files.filter((f: string) => f.endsWith('.md'))
+        if (mdFiles.length === 0) return 'No internal documentation found.'
+        return `Available internal documentation files:\n${mdFiles.map((f: string) => `- ${f}`).join('\n')}`
+      } catch (e: any) {
+        if (e.code === 'ENOENT') return 'Documentation directory not found.'
+        throw e
       }
     } catch (error) {
-      return `Error unlocking RGB theme: ${error instanceof Error ? error.message : String(error)}`
+      return `Error listing docs: ${error instanceof Error ? error.message : String(error)}`
+    }
+  },
+  internal_docs_read: async (args) => {
+    try {
+      const { app } = require('electron')
+      const isDev = !app.isPackaged
+      const docsPath = isDev ? path.join(__dirname, '../../resources/docs') : path.join(process.resourcesPath, 'docs')
+      
+      const filename = args.filename
+      if (!filename || !filename.endsWith('.md')) {
+         return 'Error: Invalid filename. Must be a .md file from the internal_docs_list.'
+      }
+      
+      const filePath = path.join(docsPath, path.basename(filename))
+      try {
+        const content = await require('fs/promises').readFile(filePath, 'utf-8')
+        return content
+      } catch (e: any) {
+        if (e.code === 'ENOENT') return `Error: Documentation file "${filename}" not found.`
+        throw e
+      }
+    } catch (error) {
+      return `Error reading doc: ${error instanceof Error ? error.message : String(error)}`
     }
   },
   to_ask: (args, _event, _apiKey, signal) => {
