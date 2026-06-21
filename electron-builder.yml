@@ -24,7 +24,7 @@ win:
   executableName: Prism
   icon: resources/icon.ico
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
+  artifactName: prism-invisible-setup-${version}.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
@@ -32,6 +32,7 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: false
   runAfterFinish: false
+  warningsAsErrors: false
   include: build/installer.nsh
 mac:
   entitlementsInherit: build/entitlements.mac.plist

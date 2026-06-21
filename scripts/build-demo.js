@@ -13,7 +13,7 @@ function run() {
     const packageJsonPath = path.join(__dirname, '..', 'package.json')
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'))
     const version = packageJson.version
-    const setupFilename = `prism-${version}-setup.exe`
+    const setupFilename = `prism-invisible-setup-${version}.exe`
     const distDir = path.join(__dirname, '..', 'dist')
     const builtSetupPath = path.join(distDir, setupFilename)
 
@@ -36,7 +36,7 @@ function run() {
     console.log('\n--- Step 4: Building Prism Demo portable variant ---')
     // We run the build with process.env.DEMO_MODE set to true
     execSync(
-      'npx cross-env DEMO_MODE=true npm run build && npx electron-builder --win --config electron-builder.demo.yml',
+      'npx cross-env DEMO_MODE=true npm run build && npx electron-builder --win --config electron-builder.demo.js',
       {
         stdio: 'inherit',
         env: { ...process.env, DEMO_MODE: 'true' }

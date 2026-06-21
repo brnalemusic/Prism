@@ -554,6 +554,26 @@ const api = {
       callback(data)
     ipcRenderer.on('ai-search-tool-end', listener)
     return () => ipcRenderer.removeListener('ai-search-tool-end', listener)
+  },
+  getUpdaterState: (): Promise<any> => {
+    return ipcRenderer.invoke('get-updater-state')
+  },
+  downloadUpdate: (): void => {
+    ipcRenderer.send('download-update')
+  },
+  installUpdate: (): void => {
+    ipcRenderer.send('install-update')
+  },
+  onUpdaterState: (callback: (state: any) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, state: any): void => callback(state)
+    ipcRenderer.on('updater-state', listener)
+    return () => ipcRenderer.removeListener('updater-state', listener)
+  },
+  devTriggerUpdaterUi: (level: 'patch' | 'minor' | 'major'): void => {
+    ipcRenderer.send('dev-trigger-updater-ui', level)
+  },
+  devSimulateUpdaterProgress: (): void => {
+    ipcRenderer.send('dev-simulate-updater-progress')
   }
 }
 

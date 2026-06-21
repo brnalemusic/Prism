@@ -198,6 +198,12 @@ export interface PrismAPI {
     callback: (data: { name: string; args: Record<string, unknown>; timestamp?: number }) => void
   ) => () => void
   onAiSearchToolEnd: (callback: (data: { name: string; result: string }) => void) => () => void
+  getUpdaterState: () => Promise<any>
+  downloadUpdate: () => void
+  installUpdate: () => void
+  onUpdaterState: (callback: (state: any) => void) => () => void
+  devTriggerUpdaterUi?: (level: 'patch' | 'minor' | 'major') => void
+  devSimulateUpdaterProgress?: () => void
 }
 
 declare global {

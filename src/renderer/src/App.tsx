@@ -31,6 +31,7 @@ import { CopyMessageButton } from './components/CopyMessageButton'
 import { ErrorPopup } from './components/ErrorPopup'
 import { DownloadProgressOverlay } from './components/DownloadProgressOverlay'
 import { DemoApp } from './components/demo/DemoApp'
+import { UpdaterView } from './components/UpdaterView'
 import { triggerErrorPopup } from './utils'
 import {
   StreamContext,
@@ -2033,6 +2034,10 @@ function RealApp(): React.JSX.Element {
 
   if (route === '#subagent-settings') {
     return <SubagentModelSettings />
+  }
+
+  if (route === '#updater') {
+    return <UpdaterView />
   }
 
   return (

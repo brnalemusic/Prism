@@ -54,7 +54,7 @@ jobs:
             throw "dist/latest.yml does not match package version $version`n$latestYml"
           }
 
-          $installerPath = "dist/prism-$version-setup.exe"
+          $installerPath = "dist/prism-invisible-setup-$version.exe"
           if (-not (Test-Path $installerPath)) {
             throw "Missing expected installer artifact: $installerPath"
           }
