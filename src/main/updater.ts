@@ -289,7 +289,9 @@ function createUpdaterWindow(mainWindow: BrowserWindow): void {
   })
 
   updaterWindow.on('ready-to-show', () => {
+    console.log('[Auto-Updater] updaterWindow ready-to-show fired')
     updaterWindow?.show()
+    updaterWindow?.focus()
   })
 
   updaterWindow.on('closed', () => {
@@ -297,13 +299,24 @@ function createUpdaterWindow(mainWindow: BrowserWindow): void {
     isForceClosing = false
   })
 
+  let urlToLoad = ''
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    updaterWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#updater`)
+    urlToLoad = `${process.env['ELECTRON_RENDERER_URL']}/#updater`
+    updaterWindow.loadURL(urlToLoad)
   } else {
     updaterWindow.loadFile(join(__dirname, '../renderer/index.html'), {
       hash: 'updater'
     })
   }
+  
+  // Fallback if ready-to-show doesn't fire
+  setTimeout(() => {
+    if (updaterWindow && !updaterWindow.isVisible()) {
+      console.log('[Auto-Updater] ready-to-show fallback triggered')
+      updaterWindow.show()
+      updaterWindow.focus()
+    }
+  }, 1000)
 }
 
 // ─── Core update logic ────────────────────────────────────────────────────────
@@ -476,48 +489,6 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
       updaterWindow.close()
     }
   })
-
-  // ── Dev simulation listeners ────────────────────────────────────────────────
-  if (is.dev) {
-    ipcMain.on('dev-trigger-updater-ui', (_event, level: 'patch' | 'minor' | 'major') => {
-      updaterState = {
-        status: 'available',
-        currentVersion: '3.0.0',
-        latestVersion: level === 'major' ? '4.0.0' : level === 'minor' ? '3.1.0' : '3.0.1',
-        recommendationLevel: level,
-        releaseNotes: 'Esta é uma atualização simulada no modo de desenvolvimento do Prism.'
-      }
-      createUpdaterWindow(mainWindow)
-    })
-
-    ipcMain.on('dev-simulate-updater-progress', () => {
-      let percent = 0
-      const interval = setInterval(() => {
-        percent += 5
-        updaterState.status = 'downloading'
-        updaterState.progress = {
-          percent,
-          speed: 1024 * 1024 * 3.4, // 3.4 MB/s
-          transferred: Math.round(1024 * 1024 * 45 * (percent / 100)),
-          total: 1024 * 1024 * 45
-        }
-        if (updaterWindow && !updaterWindow.isDestroyed()) {
-          updaterWindow.webContents.send('updater-state', updaterState)
-        }
-        if (percent >= 100) {
-          clearInterval(interval)
-          downloadedFile = join(app.getPath('temp'), 'prism-invisible-setup-mock.exe')
-          updaterState.status = 'downloaded'
-          if (updaterWindow && !updaterWindow.isDestroyed()) {
-            updaterWindow.webContents.send('updater-state', updaterState)
-          }
-        }
-      }, 150)
-    })
-
-    // In development mode, don't check automatically
-    return
-  }
 
   // ── Production: kick off the check ─────────────────────────────────────────
   checkForUpdates(mainWindow).catch((err) => {

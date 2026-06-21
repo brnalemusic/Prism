@@ -70,25 +70,23 @@ export function UpdaterView(): React.JSX.Element {
     window.electron.ipcRenderer.send('close-updater-window')
   }
 
-  const isDev = !!window.api.devTriggerUpdaterUi
-
   // Set recommendation level styling parameters
   let recStyle = {
     bg: 'bg-green-500/10 border-green-500/20 text-green-400',
     icon: <Sparkle size={14} className="animate-pulse" />,
-    label: 'Recomendação Baixa (Patch)'
+    label: 'Low Recommendation (Patch)'
   }
   if (state.recommendationLevel === 'major') {
     recStyle = {
       bg: 'bg-red-500/10 border-red-500/20 text-red-400',
-      icon: <Warning size={14} className="animate-bounce" />,
-      label: 'Recomendação Crítica (Major Update)'
+      icon: <Warning size={14} />,
+      label: 'Critical Recommendation (Major Update)'
     }
   } else if (state.recommendationLevel === 'minor') {
     recStyle = {
       bg: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400',
       icon: <Info size={14} />,
-      label: 'Recomendação Importante (Minor Update)'
+      label: 'Important Recommendation (Minor Update)'
     }
   }
 
@@ -101,19 +99,16 @@ export function UpdaterView(): React.JSX.Element {
           <div className="flex h-5 w-5 items-center justify-center rounded bg-gradient-to-br from-accent-primary to-accent-secondary text-[10px] font-bold text-background-main select-none">
             P
           </div>
-          <span className="text-[12px] font-semibold tracking-wide text-text-secondary">Atualizador Prism</span>
+          <span className="text-[12px] font-semibold tracking-wide text-text-secondary">Prism Updater</span>
         </div>
         
-        {/* Render close button only if status is error or not-available */}
-        {(state.status === 'error' || state.status === 'not-available') && (
-          <button
-            onClick={handleClose}
-            className="no-drag-region flex h-6 w-6 items-center justify-center rounded hover:bg-white/[0.08] text-text-muted hover:text-text-primary transition duration-150 text-[18px]"
-            title="Fechar"
-          >
-            &times;
-          </button>
-        )}
+        <button
+          onClick={handleClose}
+          className="no-drag-region flex h-6 w-6 items-center justify-center rounded hover:bg-white/[0.08] text-text-muted hover:text-text-primary transition duration-150 text-[18px]"
+          title="Close"
+        >
+          &times;
+        </button>
       </div>
 
       {/* Main Content Area */}
@@ -123,8 +118,8 @@ export function UpdaterView(): React.JSX.Element {
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center">
             <div className="w-10 h-10 rounded-full border-2 border-accent-primary/20 border-t-accent-primary animate-spin" />
             <div>
-              <h2 className="text-[14px] font-medium text-text-primary">Buscando atualizações...</h2>
-              <p className="text-[11px] text-text-muted mt-1 max-w-[280px]">Verificando lançamentos no repositório GitHub do Prism.</p>
+              <h2 className="text-[14px] font-medium text-text-primary">Checking for updates...</h2>
+              <p className="text-[11px] text-text-muted mt-1 max-w-[280px]">Checking for releases in the Prism GitHub repository.</p>
             </div>
           </div>
         )}
@@ -135,14 +130,14 @@ export function UpdaterView(): React.JSX.Element {
               <CheckCircle size={24} />
             </div>
             <div>
-              <h2 className="text-[14px] font-medium text-text-primary">Você está atualizado!</h2>
-              <p className="text-[11px] text-text-muted mt-1">O Prism já está executando a versão mais recente.</p>
+              <h2 className="text-[14px] font-medium text-text-primary">You are up to date!</h2>
+              <p className="text-[11px] text-text-muted mt-1">Prism is already running the latest version.</p>
             </div>
             <button
               onClick={handleClose}
               className="mt-2 px-5 py-1.5 bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] text-text-primary text-[11px] font-medium rounded-lg transition duration-200 no-drag-region"
             >
-              Fechar Janela
+              Close Window
             </button>
           </div>
         )}
@@ -153,9 +148,9 @@ export function UpdaterView(): React.JSX.Element {
               <WarningOctagon size={24} />
             </div>
             <div className="max-w-[420px]">
-              <h2 className="text-[14px] font-medium text-text-primary">Erro ao verificar atualizações</h2>
+              <h2 className="text-[14px] font-medium text-text-primary">Error checking for updates</h2>
               <div className="text-[10px] text-status-error/90 font-mono mt-2 bg-status-error/5 p-2 rounded border border-status-error/15 break-all select-text max-h-[100px] overflow-y-auto scrollbar-thin text-left">
-                {state.error || 'Não foi possível baixar os metadados do update.'}
+                {state.error || 'Could not download update metadata.'}
               </div>
             </div>
             <div className="flex items-center gap-3 mt-2 no-drag-region">
@@ -163,13 +158,13 @@ export function UpdaterView(): React.JSX.Element {
                 onClick={handleDownload}
                 className="px-4 py-1.5 bg-accent-primary text-background-main hover:brightness-110 font-bold text-[11px] rounded-lg transition duration-200"
               >
-                Tentar Novamente
+                Try Again
               </button>
               <button
                 onClick={handleClose}
                 className="px-4 py-1.5 bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] text-text-primary text-[11px] font-medium rounded-lg transition duration-200"
               >
-                Fechar
+                Close
               </button>
             </div>
           </div>
@@ -182,12 +177,12 @@ export function UpdaterView(): React.JSX.Element {
             <div className="flex flex-col items-center gap-3">
               <div className="flex items-center justify-center gap-4 bg-white/[0.02] border border-white/[0.04] py-2.5 px-6 rounded-xl w-full">
                 <div className="flex flex-col items-center">
-                  <span className="text-[9px] text-text-muted font-medium uppercase tracking-wider">Versão Atual</span>
+                  <span className="text-[9px] text-text-muted font-medium uppercase tracking-wider">Current Version</span>
                   <span className="text-[14px] font-bold text-text-secondary mt-0.5">v{state.currentVersion}</span>
                 </div>
                 <ArrowRight size={16} className="text-text-muted mt-2" />
                 <div className="flex flex-col items-center">
-                  <span className="text-[9px] text-text-muted font-medium uppercase tracking-wider">Nova Versão</span>
+                  <span className="text-[9px] text-text-muted font-medium uppercase tracking-wider">New Version</span>
                   <span className="text-[14px] font-bold text-accent-primary mt-0.5">v{state.latestVersion}</span>
                 </div>
               </div>
@@ -203,21 +198,15 @@ export function UpdaterView(): React.JSX.Element {
             {state.status === 'available' && (
               <div className="flex-1 flex flex-col justify-center items-center py-2">
                 <p className="text-[11.5px] text-text-secondary text-center max-w-[340px] leading-relaxed">
-                  Uma nova atualização está disponível. O download será feito de forma invisível em segundo plano.
+                  A new update is available. The download will be performed invisibly in the background.
                 </p>
-                {state.releaseNotes && (
-                  <div className="w-full mt-3 p-2 bg-white/[0.015] border border-white/[0.04] rounded-lg max-h-[75px] overflow-y-auto text-[10px] text-text-muted scrollbar-thin select-text text-left">
-                    <div className="font-semibold text-text-secondary mb-0.5">Notas da versão:</div>
-                    {state.releaseNotes}
-                  </div>
-                )}
               </div>
             )}
 
             {state.status === 'downloading' && (
               <div className="flex-1 flex flex-col justify-center gap-3 py-2 w-full px-1">
                 <div className="flex justify-between items-center text-[10.5px] text-text-secondary">
-                  <span>Baixando arquivos...</span>
+                  <span>Downloading files...</span>
                   <span className="font-semibold text-accent-primary">{(state.progress?.percent || 0)}%</span>
                 </div>
                 
@@ -246,9 +235,9 @@ export function UpdaterView(): React.JSX.Element {
                   <CheckCircle size={20} />
                 </div>
                 <div>
-                  <h3 className="text-[12.5px] font-semibold text-text-primary">Download Concluído</h3>
+                  <h3 className="text-[12.5px] font-semibold text-text-primary">Download Complete</h3>
                   <p className="text-[10.5px] text-text-muted mt-0.5 max-w-[320px]">
-                    Prism está pronto para reiniciar e instalar a nova versão silenciosamente.
+                    Prism is ready to restart and install the new version silently.
                   </p>
                 </div>
               </div>
@@ -262,7 +251,7 @@ export function UpdaterView(): React.JSX.Element {
                   className="w-full flex items-center justify-center gap-2 py-2 bg-gradient-to-r from-accent-primary to-accent-secondary hover:brightness-105 active:scale-[0.99] transition duration-200 text-background-main font-bold text-[12px] rounded-lg shadow-md shadow-accent-primary/5"
                 >
                   <Download size={14} weight="bold" />
-                  <span>Baixar Update</span>
+                  <span>Download Update</span>
                 </button>
               )}
 
@@ -272,7 +261,7 @@ export function UpdaterView(): React.JSX.Element {
                   className="w-full flex items-center justify-center gap-2 py-2 bg-white/[0.03] border border-white/[0.06] text-text-muted text-[12px] font-semibold rounded-lg cursor-not-allowed"
                 >
                   <div className="w-3 h-3 border-2 border-text-muted/20 border-t-text-muted animate-spin rounded-full" />
-                  <span>Baixando Atualização...</span>
+                  <span>Downloading Update...</span>
                 </button>
               )}
 
@@ -282,7 +271,7 @@ export function UpdaterView(): React.JSX.Element {
                   className="w-full flex items-center justify-center gap-2 py-2 bg-gradient-to-r from-green-400 to-[#79d89f] hover:brightness-105 active:scale-[0.99] transition duration-200 text-background-main font-bold text-[12px] rounded-lg shadow-md shadow-green-500/10"
                 >
                   <CheckCircle size={14} weight="bold" />
-                  <span>Instalar Agora</span>
+                  <span>Install Now</span>
                 </button>
               )}
             </div>
@@ -291,37 +280,6 @@ export function UpdaterView(): React.JSX.Element {
         )}
 
       </div>
-
-      {/* Floating Development Sim Toolbar */}
-      {isDev && (
-        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-2.5 py-1 bg-black/60 border border-white/[0.08] rounded-full z-50 text-[9px] font-mono no-drag-region shadow-lg">
-          <span className="text-text-muted select-none">SIM:</span>
-          <button 
-            onClick={() => window.api.devTriggerUpdaterUi!('patch')} 
-            className="px-1.5 py-0.5 bg-green-500/20 text-green-400 hover:bg-green-500/30 rounded border border-green-500/30"
-          >
-            Patch
-          </button>
-          <button 
-            onClick={() => window.api.devTriggerUpdaterUi!('minor')} 
-            className="px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 rounded border border-yellow-500/30"
-          >
-            Minor
-          </button>
-          <button 
-            onClick={() => window.api.devTriggerUpdaterUi!('major')} 
-            className="px-1.5 py-0.5 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded border border-red-500/30"
-          >
-            Major
-          </button>
-          <button 
-            onClick={() => window.api.devSimulateUpdaterProgress?.()} 
-            className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 rounded border border-blue-500/30"
-          >
-            Progress
-          </button>
-        </div>
-      )}
     </div>
   )
 }
