@@ -6,7 +6,8 @@ const path = require('path')
 function run() {
   try {
     const extraArgs = process.argv.slice(2).join(' ')
-    execSync(`npm run build:win ${extraArgs}`.trim(), { stdio: 'inherit' })
+    execSync('npm run build', { stdio: 'inherit' })
+    execSync(`npx electron-builder --win ${extraArgs}`.trim(), { stdio: 'inherit' })
 
     // 2. Locate the built installer
     console.log('\n--- Step 2: Locating built installer ---')
@@ -36,7 +37,7 @@ function run() {
     console.log('\n--- Step 4: Building Prism Demo portable variant ---')
     // We run the build with process.env.DEMO_MODE set to true
     execSync(
-      'npx cross-env DEMO_MODE=true npm run build && npx electron-builder --win --config electron-builder.demo.js',
+      `npx cross-env DEMO_MODE=true npm run build && npx electron-builder --win --config electron-builder.demo.js ${extraArgs}`.trim(),
       {
         stdio: 'inherit',
         env: { ...process.env, DEMO_MODE: 'true' }
