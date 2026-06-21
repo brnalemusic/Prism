@@ -1176,7 +1176,7 @@ const toolFunctions: Record<
   to_ask: (args, _event, _apiKey, signal) => {
     return new Promise<string>((resolve, reject) => {
       const sessionId =
-        args.session_id || `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+        args.session_id || `session-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
 
       const onAbort = () => {
         activeQuestionnaireResolvers.delete(sessionId)

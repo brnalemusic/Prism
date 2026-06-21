@@ -5,6 +5,11 @@ import { spawn } from 'child_process'
 import * as fs from 'fs'
 import * as https from 'https'
 
+/** Escapes all RegExp special characters in a string. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 const GITHUB_OWNER = 'brnalemusic'
 const GITHUB_REPO = 'Prism'
@@ -133,14 +138,14 @@ function resolveInstallerUrl(
   version: string
 ): { url: string; size: number; pattern: 'primary' | 'fallback' } | null {
   // Primary: new invisible-setup naming convention
-  const primaryPattern = new RegExp(`^prism-invisible-setup-${version.replace(/\./g, '\\.')}\\.(exe)$`, 'i')
+  const primaryPattern = new RegExp(`^prism-invisible-setup-${escapeRegExp(version)}\\.(exe)$`, 'i')
   const primaryAsset = assets.find((a) => primaryPattern.test(a.name))
   if (primaryAsset) {
     return { url: primaryAsset.browser_download_url, size: primaryAsset.size, pattern: 'primary' }
   }
 
   // Fallback: legacy naming convention
-  const fallbackPattern = new RegExp(`^prism-${version.replace(/\./g, '\\.')}-setup\\.(exe)$`, 'i')
+  const fallbackPattern = new RegExp(`^prism-${escapeRegExp(version)}-setup\\.(exe)$`, 'i')
   const fallbackAsset = assets.find((a) => fallbackPattern.test(a.name))
   if (fallbackAsset) {
     return { url: fallbackAsset.browser_download_url, size: fallbackAsset.size, pattern: 'fallback' }

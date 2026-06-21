@@ -2237,7 +2237,8 @@ export async function webSearchSingle(query: string, signal?: AbortSignal): Prom
     })
 
     // Handle Google's redirect consent walls or overlay banners
-    if (page.url().includes('consent.google.com')) {
+    const currentHost = (() => { try { return new URL(page.url()).hostname } catch { return '' } })()
+    if (currentHost === 'consent.google.com') {
       console.log('webSearchSingle: Redirected to Google consent page. Clicking accept...')
       await handleConsentBanners(page)
       await page
