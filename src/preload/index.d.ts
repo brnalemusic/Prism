@@ -119,6 +119,7 @@ export interface PrismAPI {
   captureWindow: (sourceId: string) => Promise<string>
   getConfig: () => Promise<AppConfig>
   saveConfig: (config: AppConfig) => Promise<boolean>
+  getToolDefinitions: () => Promise<any[]>
   getChats: () => Promise<Omit<ChatSession, 'messages'>[]>
   loadChat: (id: string) => Promise<Content[]>
   deleteChat: (id: string) => Promise<boolean>

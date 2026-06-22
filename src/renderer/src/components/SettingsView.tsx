@@ -10,7 +10,6 @@ import {
   Info,
   SpeakerHigh as Volume2,
   Palette,
-  Lock,
   MagnifyingGlassPlus as ZoomIcon,
   TerminalWindow,
   Check,
@@ -38,10 +37,11 @@ interface Config {
   username?: string
   appVersion?: string
   ttsVoice: string
-  theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula'
+  theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb'
   zoomFactor: number
   terminalShell?: string
   workflows?: SlashWorkflow[]
+  rgbThemeExpiry?: number
 }
 
 type SectionId =
@@ -58,6 +58,67 @@ interface NavSection {
   id: SectionId
   label: string
   icon: React.ReactNode
+}
+
+const STATIC_TOOLS = [
+  {
+    name: 'execute_terminal_command',
+    label: 'Guarded Terminal',
+    desc: 'Execute commands in the selected terminal'
+  },
+  { name: 'web_search', label: 'Web Search', desc: 'Search DuckDuckGo for live info' },
+  { name: 'saw_link_from_url', label: 'Read URL Page', desc: 'Fetch website text contents' },
+  {
+    name: 'open_browser_link',
+    label: 'Open Browser Link',
+    desc: 'Open links in the system browser'
+  },
+  { name: 'open_application', label: 'Open App', desc: 'Start a program using its path' },
+  {
+    name: 'list_installed_applications',
+    label: 'List Apps',
+    desc: 'View all installed desktop applications'
+  },
+  {
+    name: 'search_chat_history',
+    label: 'Search History',
+    desc: 'Search keywords in prior conversations'
+  },
+  {
+    name: 'run_subagents',
+    label: 'Run Subagents Swarm',
+    desc: 'Delegate sub-tasks to nested agents'
+  },
+  {
+    name: 'computer_use_see_screen',
+    label: 'See Screen',
+    desc: 'Take screenshot of screen or specific app'
+  },
+  { name: 'computer_use_read_file', label: 'Read File', desc: 'Read file contents' },
+  { name: 'computer_use_create_file', label: 'Create File', desc: 'Create a new file with text' },
+  { name: 'computer_use_save_file', label: 'Save File', desc: 'Overwrite file contents' },
+  {
+    name: 'computer_use_edit_file',
+    label: 'Edit File',
+    desc: 'Edit specific lines of code in a file'
+  },
+  {
+    name: 'computer_use_list_directory',
+    label: 'List Directory',
+    desc: 'List contents of folder'
+  },
+  { name: 'computer_use_remove_file', label: 'Remove File', desc: 'Delete a file' }
+]
+
+function formatToolName(name: string): string {
+  let formatted = name
+  if (formatted.startsWith('computer_use_')) {
+    formatted = formatted.substring('computer_use_'.length)
+  }
+  return formatted
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
 }
 
 export function SettingsView(): React.JSX.Element {
@@ -95,6 +156,34 @@ export function SettingsView(): React.JSX.Element {
   const [formTools, setFormTools] = useState<string[]>([])
   const [formError, setFormError] = useState('')
 
+  const [availableTools, setAvailableTools] = useState<
+    Array<{ name: string; label: string; desc: string }>
+  >(STATIC_TOOLS)
+
+  useEffect(() => {
+    async function fetchTools(): Promise<void> {
+      try {
+        if (window.api && window.api.getToolDefinitions) {
+          const tools = await window.api.getToolDefinitions()
+          if (tools) {
+            const formatted = tools.map((t: any) => {
+              const staticTool = STATIC_TOOLS.find((st) => st.name === t.name)
+              return {
+                name: t.name,
+                label: staticTool ? staticTool.label : formatToolName(t.name),
+                desc: staticTool ? staticTool.desc : t.description
+              }
+            })
+            setAvailableTools(formatted)
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch tool definitions:', err)
+      }
+    }
+    fetchTools()
+  }, [])
+
   useEffect(() => {
     async function fetchTerminals(): Promise<void> {
       try {
@@ -124,7 +213,8 @@ export function SettingsView(): React.JSX.Element {
           theme: savedConfig.theme || 'marine',
           zoomFactor: savedConfig.zoomFactor ?? 1.0,
           terminalShell: savedConfig.terminalShell || 'powershell.exe',
-          workflows: savedConfig.workflows || []
+          workflows: savedConfig.workflows || [],
+          rgbThemeExpiry: savedConfig.rgbThemeExpiry
         })
       }
     }
@@ -144,7 +234,8 @@ export function SettingsView(): React.JSX.Element {
           theme: cfg.theme || 'marine',
           zoomFactor: cfg.zoomFactor ?? prev.zoomFactor ?? 1.0,
           terminalShell: cfg.terminalShell ?? prev.terminalShell ?? 'powershell.exe',
-          workflows: cfg.workflows || prev.workflows || []
+          workflows: cfg.workflows || prev.workflows || [],
+          rgbThemeExpiry: cfg.rgbThemeExpiry ?? prev.rgbThemeExpiry
         }))
       }
     })
@@ -722,55 +813,7 @@ export function SettingsView(): React.JSX.Element {
     </div>
   )
 
-  const AVAILABLE_TOOLS = [
-    {
-      name: 'execute_terminal_command',
-      label: 'Guarded Terminal',
-      desc: 'Execute commands in the selected terminal'
-    },
-    { name: 'web_search', label: 'Web Search', desc: 'Search DuckDuckGo for live info' },
-    { name: 'saw_link_from_url', label: 'Read URL Page', desc: 'Fetch website text contents' },
-    {
-      name: 'open_browser_link',
-      label: 'Open Browser Link',
-      desc: 'Open links in the system browser'
-    },
-    { name: 'open_application', label: 'Open App', desc: 'Start a program using its path' },
-    {
-      name: 'list_installed_applications',
-      label: 'List Apps',
-      desc: 'View all installed desktop applications'
-    },
-    {
-      name: 'search_chat_history',
-      label: 'Search History',
-      desc: 'Search keywords in prior conversations'
-    },
-    {
-      name: 'run_subagents',
-      label: 'Run Subagents Swarm',
-      desc: 'Delegate sub-tasks to nested agents'
-    },
-    {
-      name: 'computer_use_see_screen',
-      label: 'See Screen',
-      desc: 'Take screenshot of screen or specific app'
-    },
-    { name: 'computer_use_read_file', label: 'Read File', desc: 'Read file contents' },
-    { name: 'computer_use_create_file', label: 'Create File', desc: 'Create a new file with text' },
-    { name: 'computer_use_save_file', label: 'Save File', desc: 'Overwrite file contents' },
-    {
-      name: 'computer_use_edit_file',
-      label: 'Edit File',
-      desc: 'Edit specific lines of code in a file'
-    },
-    {
-      name: 'computer_use_list_directory',
-      label: 'List Directory',
-      desc: 'List contents of folder'
-    },
-    { name: 'computer_use_remove_file', label: 'Remove File', desc: 'Delete a file' }
-  ]
+
 
   const handleEditWorkflow = (w: SlashWorkflow): void => {
     setEditingWorkflow(w)
@@ -960,7 +1003,7 @@ export function SettingsView(): React.JSX.Element {
               </span>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[220px] overflow-y-auto pr-2 custom-scrollbar border border-white/[0.06] rounded-[20px] bg-white/[0.015] p-3">
-                {AVAILABLE_TOOLS.map((tool) => {
+                {availableTools.map((tool) => {
                   const isChecked = formTools.includes(tool.name)
                   return (
                     <button

@@ -408,5 +408,38 @@ export const toolsManifest: ToolDefinition[] = [
     description: 'Call this when no matching chat histories are found.',
     usage: '<tool_call>{"type":"not_found_chat_history"}</tool_call>',
     parameters: {}
+  },
+  {
+    name: 'list_workflows',
+    description: 'Get all configured custom slash command workflows in Prism.',
+    usage: '<tool_call>{"type":"list_workflows"}</tool_call>',
+    parameters: {},
+    target: 'main'
+  },
+  {
+    name: 'save_workflow',
+    description: 'Create a new workflow or update an existing one in Prism.',
+    usage:
+      '<tool_call>{"type":"save_workflow","command":"/code","name":"Coder","description":"Coding mode","systemInstruction":"Be a code assistant.","toolConstraints":"execute_terminal_command,computer_use_edit_file"}</tool_call>',
+    parameters: {
+      command: 'Required: Slash command starting with "/" and containing no spaces.',
+      name: 'Required: Name of the workflow.',
+      systemInstruction: 'Required: Guidelines and instructions for this workflow.',
+      description: 'Optional: Brief description.',
+      id: 'Optional: Unique ID of workflow to edit. If omitted, will update existing matching command or create new.',
+      toolConstraints:
+        'Optional: Comma-separated list of allowed tool names, or empty/omitted to allow all tools.'
+    },
+    target: 'main'
+  },
+  {
+    name: 'delete_workflow',
+    description: 'Delete a custom workflow in Prism by command or ID.',
+    usage: '<tool_call>{"type":"delete_workflow","command":"/code"}</tool_call>',
+    parameters: {
+      command: 'Optional: The command of the workflow to delete (e.g., "/code"), or its unique ID.',
+      id: 'Optional: Alternative to command: the unique ID of the workflow to delete.'
+    },
+    target: 'main'
   }
 ]

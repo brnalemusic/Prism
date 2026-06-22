@@ -47,7 +47,7 @@ import {
   searchChatMemory,
   getMessageText
 } from './history'
-import { loadConfig, saveConfig } from './config'
+import { loadConfig, saveConfig, SlashWorkflow } from './config'
 import { toolsManifest } from './toolsManifest'
 
 // Load environment variables from .env
@@ -228,7 +228,7 @@ const RAW_TOOL_ARG_TAGS = new Set(['command', 'content', 'oldText', 'newText'])
 // Argument keys whose values must be preserved as structured JS objects/arrays
 // rather than stringified. Currently used by the continuous web_search tool to
 // keep the `searches` array intact through parse/validate.
-const OBJECT_TOOL_ARG_TAGS = new Set(['searches'])
+const OBJECT_TOOL_ARG_TAGS = new Set(['searches', 'toolConstraints'])
 
 function parseToolCall(toolContent: string): { name: string | null; args: ToolArgs } {
   let trimmed = toolContent.trim()
@@ -241,26 +241,26 @@ function parseToolCall(toolContent: string): { name: string | null; args: ToolAr
       .trim()
   }
 
-  // JSON format detection
   if (trimmed.startsWith('{')) {
     try {
       const obj = JSON.parse(trimmed)
       const name = (obj.type || obj.name || null) as string | null
       const args: ToolArgs = {}
       for (const [key, value] of Object.entries(obj)) {
-        if (key !== 'type' && key !== 'name') {
-          // Preserve structured values (arrays/objects) for tagged keys so they
-          // survive parse/validate without being stringified.
-          if (OBJECT_TOOL_ARG_TAGS.has(key) && typeof value === 'object' && value !== null) {
-            args[key] = value as unknown as string
-            continue
-          }
-          let val = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
-          if (!RAW_TOOL_ARG_TAGS.has(key)) {
-            val = val.trim()
-          }
-          args[key] = val
+        if (key === 'type') continue
+        if (key === 'name' && value === name) continue
+
+        // Preserve structured values (arrays/objects) for tagged keys so they
+        // survive parse/validate without being stringified.
+        if (OBJECT_TOOL_ARG_TAGS.has(key) && typeof value === 'object' && value !== null) {
+          args[key] = value as unknown as string
+          continue
         }
+        let val = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+        if (!RAW_TOOL_ARG_TAGS.has(key)) {
+          val = val.trim()
+        }
+        args[key] = val
       }
       return { name, args }
     } catch (e) {
@@ -556,21 +556,22 @@ function validateToolCall(toolContent: string): ValidationResult {
       }
     }
 
-    const args: ToolArgs = {}
-    for (const [key, value] of Object.entries(obj)) {
-      if (key !== 'type' && key !== 'name') {
-        // Preserve structured values (arrays/objects) for tagged keys.
-        if (OBJECT_TOOL_ARG_TAGS.has(key) && typeof value === 'object' && value !== null) {
-          args[key] = value as unknown as string
-          continue
-        }
-        let val = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
-        if (!RAW_TOOL_ARG_TAGS.has(key)) {
-          val = val.trim()
-        }
-        args[key] = val
-      }
-    }
+     const args: ToolArgs = {}
+     for (const [key, value] of Object.entries(obj)) {
+       if (key === 'type') continue
+       if (key === 'name' && value === name) continue
+
+       // Preserve structured values (arrays/objects) for tagged keys.
+       if (OBJECT_TOOL_ARG_TAGS.has(key) && typeof value === 'object' && value !== null) {
+         args[key] = value as unknown as string
+         continue
+       }
+       let val = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+       if (!RAW_TOOL_ARG_TAGS.has(key)) {
+         val = val.trim()
+       }
+       args[key] = val
+     }
 
     const schemaError = validateSchemaArgs(name, args)
     if (schemaError) {
@@ -1221,6 +1222,161 @@ const toolFunctions: Record<
         resolve(result)
       })
     })
+  },
+  list_workflows: async () => {
+    try {
+      const config = loadConfig()
+      const workflows = config.workflows || []
+      if (workflows.length === 0) {
+        return 'No custom workflows configured.'
+      }
+      return JSON.stringify(workflows, null, 2)
+    } catch (err) {
+      return `Error listing workflows: ${err instanceof Error ? err.message : String(err)}`
+    }
+  },
+  save_workflow: async (args) => {
+    try {
+      const config = loadConfig()
+      const wList = config.workflows || []
+
+      const command = (args.command || '').trim()
+      const name = (args.name || '').trim()
+      const description = (args.description || '').trim()
+      const systemInstruction = (args.systemInstruction || '').trim()
+      
+      // Handle tool constraints. It can be a comma-separated string or an array if passed via OBJECT_TOOL_ARG_TAGS
+      let toolConstraints: string[] = []
+      if (args.toolConstraints) {
+        if (Array.isArray(args.toolConstraints)) {
+          toolConstraints = args.toolConstraints
+        } else if (typeof args.toolConstraints === 'string') {
+          try {
+            // Check if it's a JSON array string
+            const parsed = JSON.parse(args.toolConstraints)
+            if (Array.isArray(parsed)) {
+              toolConstraints = parsed.map(t => String(t).trim())
+            } else {
+              toolConstraints = args.toolConstraints.split(',').map(t => t.trim()).filter(Boolean)
+            }
+          } catch {
+            toolConstraints = args.toolConstraints.split(',').map(t => t.trim()).filter(Boolean)
+          }
+        }
+      }
+
+      if (!command.startsWith('/')) {
+        return 'Error: Workflow command must start with a slash (/) (e.g., "/coder")'
+      }
+      if (command.includes(' ')) {
+        return 'Error: Workflow command cannot contain spaces'
+      }
+      if (command.length <= 1) {
+        return 'Error: Workflow command is too short'
+      }
+      if (!name) {
+        return 'Error: Workflow name is required'
+      }
+      if (!systemInstruction) {
+        return 'Error: Workflow systemInstruction (System Instruction) is required'
+      }
+
+      // Check if editing or creating
+      const id = args.id ? String(args.id).trim() : ''
+      let targetId = id
+      let existingIndex = -1
+
+      if (id) {
+        existingIndex = wList.findIndex(w => w.id === id)
+      } else {
+        // Fallback to match by command
+        existingIndex = wList.findIndex(w => w.command.toLowerCase() === command.toLowerCase())
+        if (existingIndex !== -1) {
+          targetId = wList[existingIndex].id
+        } else {
+          targetId = Math.random().toString(36).substring(2, 9)
+        }
+      }
+
+      // Check duplicate command for other workflows
+      const isDuplicate = wList.some(
+        (w) => w.command.toLowerCase() === command.toLowerCase() && w.id !== targetId
+      )
+      if (isDuplicate) {
+        return `Error: A workflow with command "${command}" already exists.`
+      }
+
+      // Validate toolConstraints exist in manifest
+      if (toolConstraints.length > 0) {
+        const validToolNames = new Set(toolsManifest.map(t => t.name))
+        const invalidTools = toolConstraints.filter(t => !validToolNames.has(t))
+        if (invalidTools.length > 0) {
+          return `Error: The following tool constraints are invalid or unrecognized: ${invalidTools.join(', ')}. Available tools are: ${Array.from(validToolNames).join(', ')}`
+        }
+      }
+
+      const updatedWorkflow: SlashWorkflow = {
+        id: targetId,
+        command,
+        name,
+        description,
+        systemInstruction,
+        toolConstraints
+      }
+
+      let updatedWorkflows: SlashWorkflow[] = []
+      if (existingIndex !== -1) {
+        updatedWorkflows = [...wList]
+        updatedWorkflows[existingIndex] = updatedWorkflow
+      } else {
+        updatedWorkflows = [...wList, updatedWorkflow]
+      }
+
+      const updatedConfig = { ...config, workflows: updatedWorkflows }
+      const success = saveConfig(updatedConfig)
+      if (success) {
+        // Emit to main process so it updates currentConfig and notifications
+        ipcMain.emit('update-config-from-tools', null, updatedConfig)
+        return `Successfully saved workflow "${name}" (${command}).`
+      } else {
+        return 'Error: Failed to save the configuration containing the updated workflow.'
+      }
+    } catch (err) {
+      return `Error saving workflow: ${err instanceof Error ? err.message : String(err)}`
+    }
+  },
+  delete_workflow: async (args) => {
+    try {
+      const config = loadConfig()
+      const wList = config.workflows || []
+      const identifier = (args.command || args.id || '').trim().toLowerCase()
+
+      if (!identifier) {
+        return 'Error: Please specify "command" or "id" of the workflow to delete.'
+      }
+
+      const index = wList.findIndex(
+        w => w.id.toLowerCase() === identifier || w.command.toLowerCase() === identifier
+      )
+
+      if (index === -1) {
+        return `Error: No workflow found matching "${identifier}".`
+      }
+
+      const removedWorkflow = wList[index]
+      const updatedWorkflows = wList.filter((_, i) => i !== index)
+      const updatedConfig = { ...config, workflows: updatedWorkflows }
+
+      const success = saveConfig(updatedConfig)
+      if (success) {
+        ipcMain.emit('update-config-from-tools', null, updatedConfig)
+        return `Successfully deleted workflow "${removedWorkflow.name}" (${removedWorkflow.command}).`
+      } else {
+        return 'Error: Failed to save the configuration after deleting the workflow.'
+      }
+    } catch (err) {
+      return `Error deleting workflow: ${err instanceof Error ? err.message : String(err)}`
+    }
   }
 }
 

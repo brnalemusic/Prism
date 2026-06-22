@@ -131,31 +131,234 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
         {/* Content rendering: split by tool call and mini-app tags to render inline */}
         {(() => {
           const parts = msg.content.split(
-            /(<tool_call>[\s\S]*?<\/tool_call>|<mini_app>[\s\S]*?<\/mini_app>)/g
+            /(<tool_call>[\s\S]*?(?:<\/tool_call>|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
           )
-          let toolCallIndex = 0
+
+          interface PartItem {
+            partIndex: number
+            part: string
+            type: 'text' | 'mini_app' | 'tool_call'
+            isClosed: boolean
+            toolCall?: ToolCall
+            writingToolName?: string
+            startOffset: number
+          }
+
+          let tempToolCallIndex = 0
           let partStartOffset = 0
 
-          return parts.map((part, index) => {
+          const items: PartItem[] = parts.map((part, index) => {
             const currentPartStartOffset = partStartOffset
             partStartOffset += part.length
 
             if (part.startsWith('<tool_call>')) {
               if (part.includes('</tool_call>')) {
-                const tc = msg.toolCalls?.[toolCallIndex]
-                toolCallIndex++
-                if (tc) {
-                  return <ActionLoader key={`tc-${index}`} toolCall={tc} />
+                const tc = msg.toolCalls?.[tempToolCallIndex]
+                tempToolCallIndex++
+                return {
+                  partIndex: index,
+                  part,
+                  type: 'tool_call',
+                  isClosed: true,
+                  toolCall: tc,
+                  startOffset: currentPartStartOffset
                 }
+              } else {
+                const nameMatch = part.match(/<name>([\s\S]*?)(?:<\/name>|$)/i)
+                let toolName = nameMatch ? nameMatch[1].trim() : ''
+                if (!toolName) {
+                  const typeMatch = part.match(/"type"\s*:\s*"([^"]+)"/i)
+                  if (typeMatch) {
+                    toolName = typeMatch[1]
+                  }
+                }
+                return {
+                  partIndex: index,
+                  part,
+                  type: 'tool_call',
+                  isClosed: false,
+                  writingToolName: toolName,
+                  startOffset: currentPartStartOffset
+                }
+              }
+            } else if (part.startsWith('<mini_app>')) {
+              return {
+                partIndex: index,
+                part,
+                type: 'mini_app',
+                isClosed: part.includes('</mini_app>'),
+                startOffset: currentPartStartOffset
+              }
+            } else {
+              return {
+                partIndex: index,
+                part,
+                type: 'text',
+                isClosed: true,
+                startOffset: currentPartStartOffset
+              }
+            }
+          })
+
+          // Group consecutive web_search items
+          const groupedItems: Array<PartItem | { type: 'grouped_web_searches'; items: PartItem[] }> = []
+          let currentGroup: PartItem[] = []
+
+          const isWebSearch = (item: PartItem): boolean => {
+            if (item.type !== 'tool_call') return false
+            if (item.isClosed) {
+              return item.toolCall?.name === 'web_search'
+            } else {
+              return item.writingToolName === 'web_search' || item.writingToolName === 'search'
+            }
+          }
+
+          const isWhitespace = (item: PartItem): boolean => {
+            return item.type === 'text' && item.part.trim() === ''
+          }
+
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i]
+            if (isWebSearch(item)) {
+              currentGroup.push(item)
+            } else if (isWhitespace(item)) {
+              if (currentGroup.length > 0) {
+                let foundNextWebSearch = false
+                for (let j = i + 1; j < items.length; j++) {
+                  const nextItem = items[j]
+                  if (isWhitespace(nextItem)) {
+                    continue
+                  }
+                  if (isWebSearch(nextItem)) {
+                    foundNextWebSearch = true
+                  }
+                  break
+                }
+                if (foundNextWebSearch) {
+                  currentGroup.push(item)
+                } else {
+                  if (currentGroup.length > 1) {
+                    groupedItems.push({ type: 'grouped_web_searches', items: currentGroup })
+                  } else if (currentGroup.length === 1) {
+                    groupedItems.push(currentGroup[0])
+                  }
+                  currentGroup = []
+                  groupedItems.push(item)
+                }
+              } else {
+                groupedItems.push(item)
+              }
+            } else {
+              if (currentGroup.length > 1) {
+                groupedItems.push({ type: 'grouped_web_searches', items: currentGroup })
+              } else if (currentGroup.length === 1) {
+                groupedItems.push(currentGroup[0])
+              }
+              currentGroup = []
+              groupedItems.push(item)
+            }
+          }
+          if (currentGroup.length > 1) {
+            groupedItems.push({ type: 'grouped_web_searches', items: currentGroup })
+          } else if (currentGroup.length === 1) {
+            groupedItems.push(currentGroup[0])
+          }
+
+          return groupedItems.map((gItem) => {
+            if ('items' in gItem) {
+               const group = gItem as { type: 'grouped_web_searches'; items: PartItem[] }
+               const toolCallItems = group.items.filter((item) => item.type === 'tool_call')
+
+              // 1. Determine merged status
+              let mergedStatus: ToolCall['status'] = 'done'
+              if (toolCallItems.some((item) => !item.isClosed || item.toolCall?.status === 'writing')) {
+                mergedStatus = 'writing'
+              } else if (toolCallItems.some((item) => item.toolCall?.status === 'running')) {
+                mergedStatus = 'running'
+              } else if (toolCallItems.some((item) => item.toolCall?.status === 'error')) {
+                mergedStatus = 'error'
+              } else if (toolCallItems.some((item) => item.toolCall?.status === 'cancelled')) {
+                mergedStatus = 'cancelled'
+              }
+
+              // 2. Consolidate search updates and detect if it's youtube
+              const consolidatedUpdates: string[] = []
+              let isYoutube = false
+
+              toolCallItems.forEach((tcItem) => {
+                const tc = tcItem.toolCall
+                if (tc) {
+                  const url = typeof tc.args?.url === 'string' ? tc.args.url : ''
+                  const query = typeof tc.args?.query === 'string' ? tc.args.query : ''
+                  if (/youtube\.com|youtu\.be|^\/youtube|\byoutube\b/i.test(`${url} ${query}`)) {
+                    isYoutube = true
+                  }
+
+                  if (tc.searchUpdates && tc.searchUpdates.length > 0) {
+                    consolidatedUpdates.push(...tc.searchUpdates)
+                  } else if (typeof tc.args?.query === 'string' && tc.args.query) {
+                    consolidatedUpdates.push(tc.args.query)
+                  }
+                } else {
+                  // Unclosed (writing) tool call
+                  const partText = tcItem.part
+                  const queryMatch = partText.match(/"query"\s*:\s*"([^"]*)/i)
+                  if (queryMatch) {
+                    consolidatedUpdates.push(queryMatch[1])
+                  } else {
+                    consolidatedUpdates.push('Composing search')
+                  }
+                }
+              })
+
+              const mergedToolCall: ToolCall = {
+                name: 'web_search',
+                args: {
+                  query: isYoutube ? 'youtube' : 'search'
+                },
+                status: mergedStatus,
+                searchUpdates: consolidatedUpdates
+              }
+
+              const firstItem = group.items[0]
+              return <ActionLoader key={`tc-group-${firstItem.partIndex}`} toolCall={mergedToolCall} />
+            }
+
+            const item = gItem as PartItem
+            const { part, startOffset } = item
+
+            if (item.type === 'tool_call') {
+              if (item.isClosed) {
+                const tc = item.toolCall
+                if (tc) {
+                  return <ActionLoader key={`tc-${item.partIndex}`} toolCall={tc} />
+                }
+              } else {
+                const isSearch =
+                  item.writingToolName === 'web_search' ||
+                  item.writingToolName === 'search_chat_history' ||
+                  item.writingToolName === 'saw_link_from_url' ||
+                  item.writingToolName === 'search'
+                const toolType = isSearch ? 'search' : 'task'
+                return (
+                  <ActionLoader
+                    key={`writing-tc-${item.partIndex}`}
+                    toolCall={{
+                      name: toolType,
+                      status: 'writing',
+                      args: {}
+                    }}
+                  />
+                )
               }
               return null
             } else if (part.trim() !== '') {
               return (
-                <div key={`text-${index}`} className="prose prose-invert max-w-none">
+                <div key={`text-${item.partIndex}`} className="prose prose-invert max-w-none">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     rehypePlugins={[
-                      createStreamingFadeRehypePlugin(streamStats, currentPartStartOffset)
+                      createStreamingFadeRehypePlugin(streamStats, startOffset)
                     ]}
                     components={markdownComponents}
                   >
@@ -168,16 +371,18 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
           })
         })()}
 
-        {msg.isWritingToolCall && (
-          <ActionLoader
-            key="writing-tc"
-            toolCall={{
-              name: msg.toolType || 'task',
-              status: 'writing',
-              args: {}
-            }}
-          />
-        )}
+        {msg.isWritingToolCall &&
+          !msg.content.includes('<tool_call>') &&
+          !msg.content.includes('<mini_app>') && (
+            <ActionLoader
+              key="writing-tc"
+              toolCall={{
+                name: msg.toolType || 'task',
+                status: 'writing',
+                args: {}
+              }}
+            />
+          )}
       </div>
     </StreamContext.Provider>
   )

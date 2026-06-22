@@ -5,9 +5,10 @@ import { clsx } from 'clsx'
 export interface CopyMessageButtonProps {
   text: string
   className?: string
+  title?: string
 }
 
-export function CopyMessageButton({ text, className }: CopyMessageButtonProps): React.JSX.Element {
+export function CopyMessageButton({ text, className, title = 'Copy message' }: CopyMessageButtonProps): React.JSX.Element {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async (): Promise<void> => {
@@ -24,7 +25,7 @@ export function CopyMessageButton({ text, className }: CopyMessageButtonProps): 
   return (
     <button
       onClick={handleCopy}
-      title="Copy message"
+      title={copied ? 'Copied!' : title}
       className={clsx(
         'flex items-center justify-center p-1.5 rounded-full transition-all duration-200',
         'hover:bg-white/10 text-text-secondary/70 hover:text-text-primary',

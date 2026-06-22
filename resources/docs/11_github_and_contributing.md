@@ -178,7 +178,7 @@ Prism follows clean, structured Git guidelines to maintain commit history integr
 When developing new features or fixing bugs, create branches following these naming patterns:
 * **Feature Branches:** `feature/your-feature-name` (e.g. `feature/subagent-timeout-guard`)
 * **Bug Fixes:** `bugfix/target-bug-name` (e.g. `bugfix/tts-500-error-filter`)
-* **Releases:** `release/vX.Y.Z`
+* **Releases:** `release/X.Y.Z`
 
 ### 7.2. Semantic Commit Messages
 Prism enforces semantic commit messages to automatically generate changelogs during builds. Commit prefixes must match:

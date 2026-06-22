@@ -25,10 +25,11 @@ export interface AppConfig {
   username?: string
   appVersion?: string
   ttsVoice: string
-  theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula'
+  theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb'
   zoomFactor: number
   terminalShell?: string
   workflows?: SlashWorkflow[]
+  rgbThemeExpiry?: number
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -84,7 +85,7 @@ const VALID_MODEL_KEYS = new Set([
   'prism-6-dense'
 ])
 const VALID_VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'])
-const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno', 'ursula'])
+const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno', 'ursula', 'rgb'])
 
 function normalizeConfig(config: AppConfig): AppConfig {
   return {
@@ -98,7 +99,7 @@ function normalizeConfig(config: AppConfig): AppConfig {
       : DEFAULT_CONFIG.subagentModel,
     ttsVoice: VALID_VOICES.has(config.ttsVoice) ? config.ttsVoice : DEFAULT_CONFIG.ttsVoice,
     theme: VALID_THEMES.has(config.theme)
-      ? (config.theme as 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula')
+      ? (config.theme as 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb')
       : DEFAULT_CONFIG.theme,
     zoomFactor:
       config.zoomFactor !== undefined &&
@@ -108,7 +109,8 @@ function normalizeConfig(config: AppConfig): AppConfig {
         ? config.zoomFactor
         : DEFAULT_CONFIG.zoomFactor,
     terminalShell: config.terminalShell || DEFAULT_CONFIG.terminalShell,
-    workflows: Array.isArray(config.workflows) ? config.workflows : DEFAULT_CONFIG.workflows
+    workflows: Array.isArray(config.workflows) ? config.workflows : DEFAULT_CONFIG.workflows,
+    rgbThemeExpiry: config.rgbThemeExpiry
   }
 }
 

@@ -335,6 +335,7 @@ const api = {
     ipcRenderer.invoke('capture-window', sourceId),
   getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('get-config'),
   saveConfig: (config: AppConfig): Promise<boolean> => ipcRenderer.invoke('save-config', config),
+  getToolDefinitions: (): Promise<any[]> => ipcRenderer.invoke('get-tool-definitions'),
   getChats: (): Promise<Omit<ChatSession, 'messages'>[]> => ipcRenderer.invoke('get-chats'),
   loadChat: (id: string): Promise<Content[]> => ipcRenderer.invoke('load-chat', id),
   deleteChat: (id: string): Promise<boolean> => ipcRenderer.invoke('delete-chat', id),

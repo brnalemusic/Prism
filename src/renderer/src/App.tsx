@@ -238,8 +238,136 @@ const AiMessage = React.memo(function AiMessage({
   const parts = msg.content.split(
     /(<tool_call>[\s\S]*?(?:<\/tool_call>|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
   )
-  let toolCallIndex = 0
+
+  interface PartItem {
+    partIndex: number
+    part: string
+    type: 'text' | 'mini_app' | 'tool_call'
+    isClosed: boolean
+    toolCall?: ToolCall
+    writingToolName?: string
+    startOffset: number
+  }
+
+  let tempToolCallIndex = 0
   let partStartOffset = 0
+
+  const items: PartItem[] = parts.map((part, index) => {
+    const currentPartStartOffset = partStartOffset
+    partStartOffset += part.length
+
+    if (part.startsWith('<tool_call>')) {
+      if (part.includes('</tool_call>')) {
+        const tc = msg.toolCalls?.[tempToolCallIndex]
+        tempToolCallIndex++
+        return {
+          partIndex: index,
+          part,
+          type: 'tool_call',
+          isClosed: true,
+          toolCall: tc,
+          startOffset: currentPartStartOffset
+        }
+      } else {
+        const nameMatch = part.match(/<name>([\s\S]*?)(?:<\/name>|$)/i)
+        let toolName = nameMatch ? nameMatch[1].trim() : ''
+        if (!toolName) {
+          const typeMatch = part.match(/"type"\s*:\s*"([^"]+)"/i)
+          if (typeMatch) {
+            toolName = typeMatch[1]
+          }
+        }
+        return {
+          partIndex: index,
+          part,
+          type: 'tool_call',
+          isClosed: false,
+          writingToolName: toolName,
+          startOffset: currentPartStartOffset
+        }
+      }
+    } else if (part.startsWith('<mini_app>')) {
+      return {
+        partIndex: index,
+        part,
+        type: 'mini_app',
+        isClosed: part.includes('</mini_app>'),
+        startOffset: currentPartStartOffset
+      }
+    } else {
+      return {
+        partIndex: index,
+        part,
+        type: 'text',
+        isClosed: true,
+        startOffset: currentPartStartOffset
+      }
+    }
+  })
+
+  // Group consecutive web_search items
+  const groupedItems: Array<PartItem | { type: 'grouped_web_searches'; items: PartItem[] }> = []
+  let currentGroup: PartItem[] = []
+
+  const isWebSearch = (item: PartItem): boolean => {
+    if (item.type !== 'tool_call') return false
+    if (item.isClosed) {
+      return item.toolCall?.name === 'web_search'
+    } else {
+      return item.writingToolName === 'web_search' || item.writingToolName === 'search'
+    }
+  }
+
+  const isWhitespace = (item: PartItem): boolean => {
+    return item.type === 'text' && item.part.trim() === ''
+  }
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (isWebSearch(item)) {
+      currentGroup.push(item)
+    } else if (isWhitespace(item)) {
+      if (currentGroup.length > 0) {
+        let foundNextWebSearch = false
+        for (let j = i + 1; j < items.length; j++) {
+          const nextItem = items[j]
+          if (isWhitespace(nextItem)) {
+            continue
+          }
+          if (isWebSearch(nextItem)) {
+            foundNextWebSearch = true
+          }
+          break
+        }
+        if (foundNextWebSearch) {
+          currentGroup.push(item)
+        } else {
+          if (currentGroup.length > 1) {
+            groupedItems.push({ type: 'grouped_web_searches', items: currentGroup })
+          } else if (currentGroup.length === 1) {
+            groupedItems.push(currentGroup[0])
+          }
+          currentGroup = []
+          groupedItems.push(item)
+        }
+      } else {
+        groupedItems.push(item)
+      }
+    } else {
+      if (currentGroup.length > 1) {
+        groupedItems.push({ type: 'grouped_web_searches', items: currentGroup })
+      } else if (currentGroup.length === 1) {
+        groupedItems.push(currentGroup[0])
+      }
+      currentGroup = []
+      groupedItems.push(item)
+    }
+  }
+  if (currentGroup.length > 1) {
+    groupedItems.push({ type: 'grouped_web_searches', items: currentGroup })
+  } else if (currentGroup.length === 1) {
+    groupedItems.push(currentGroup[0])
+  }
 
   return (
     <StreamContext.Provider value={streamStats}>
@@ -250,19 +378,77 @@ const AiMessage = React.memo(function AiMessage({
         )}
       >
         <div className="flex flex-col gap-2 relative">
-          {parts.map((part, index) => {
-            const currentPartStartOffset = partStartOffset
-            partStartOffset += part.length
+          {groupedItems.map((gItem) => {
+            if ('items' in gItem) {
+              const group = gItem as { type: 'grouped_web_searches'; items: PartItem[] }
+              const toolCallItems = group.items.filter((item) => item.type === 'tool_call')
 
-            if (part.startsWith('<tool_call>')) {
-              if (part.includes('</tool_call>')) {
-                const tc = msg.toolCalls?.[toolCallIndex]
-                toolCallIndex++
+              // 1. Determine merged status
+              let mergedStatus: ToolCall['status'] = 'done'
+              if (toolCallItems.some((item) => !item.isClosed || item.toolCall?.status === 'writing')) {
+                mergedStatus = 'writing'
+              } else if (toolCallItems.some((item) => item.toolCall?.status === 'running')) {
+                mergedStatus = 'running'
+              } else if (toolCallItems.some((item) => item.toolCall?.status === 'error')) {
+                mergedStatus = 'error'
+              } else if (toolCallItems.some((item) => item.toolCall?.status === 'cancelled')) {
+                mergedStatus = 'cancelled'
+              }
+
+              // 2. Consolidate search updates and detect if it's youtube
+              const consolidatedUpdates: string[] = []
+              let isYoutube = false
+
+              toolCallItems.forEach((tcItem) => {
+                const tc = tcItem.toolCall
+                if (tc) {
+                  const url = typeof tc.args?.url === 'string' ? tc.args.url : ''
+                  const query = typeof tc.args?.query === 'string' ? tc.args.query : ''
+                  if (/youtube\.com|youtu\.be|^\/youtube|\byoutube\b/i.test(`${url} ${query}`)) {
+                    isYoutube = true
+                  }
+
+                  if (tc.searchUpdates && tc.searchUpdates.length > 0) {
+                    consolidatedUpdates.push(...tc.searchUpdates)
+                  } else if (typeof tc.args?.query === 'string' && tc.args.query) {
+                    consolidatedUpdates.push(tc.args.query)
+                  }
+                } else {
+                  // Unclosed (writing) tool call
+                  const partText = tcItem.part
+                  const queryMatch = partText.match(/"query"\s*:\s*"([^"]*)/i)
+                  if (queryMatch) {
+                    consolidatedUpdates.push(queryMatch[1])
+                  } else {
+                    consolidatedUpdates.push('Composing search')
+                  }
+                }
+              })
+
+              const mergedToolCall: ToolCall = {
+                name: 'web_search',
+                args: {
+                  query: isYoutube ? 'youtube' : 'search'
+                },
+                status: mergedStatus,
+                searchUpdates: consolidatedUpdates
+              }
+
+              const firstItem = group.items[0]
+              return <ActionLoader key={`tc-group-${firstItem.partIndex}`} toolCall={mergedToolCall} />
+            }
+
+            const item = gItem as PartItem
+            const { part, startOffset } = item
+
+            if (item.type === 'tool_call') {
+              if (item.isClosed) {
+                const tc = item.toolCall
                 if (tc) {
                   if (tc.name === 'to_ask') {
                     return (
                       <QuestionnaireRenderer
-                        key={`tc-${index}`}
+                        key={`tc-${item.partIndex}`}
                         toolCall={tc}
                         chatId={currentChatId || ''}
                       />
@@ -271,28 +457,27 @@ const AiMessage = React.memo(function AiMessage({
                   if (tc.name === 'render_chat_history') {
                     return (
                       <RenderChatHistory
-                        key={`tc-${index}`}
+                        key={`tc-${item.partIndex}`}
                         chatId={String(tc.args.query || '')}
                         onOpenChat={handleLoadChat}
                       />
                     )
                   }
                   if (tc.name === 'malformed_tool_call') {
-                    return <MalformedToolCallWarning key={`tc-${index}`} toolCall={tc} />
+                    return <MalformedToolCallWarning key={`tc-${item.partIndex}`} toolCall={tc} />
                   }
-                  return <ActionLoader key={`tc-${index}`} toolCall={tc} />
+                  return <ActionLoader key={`tc-${item.partIndex}`} toolCall={tc} />
                 }
               } else {
-                const nameMatch = part.match(/<name>([\s\S]*?)(?:<\/name>|$)/i)
-                const toolName = nameMatch ? nameMatch[1].trim() : ''
                 const isSearch =
-                  toolName === 'web_search' ||
-                  toolName === 'search_chat_history' ||
-                  toolName === 'saw_link_from_url'
+                  item.writingToolName === 'web_search' ||
+                  item.writingToolName === 'search_chat_history' ||
+                  item.writingToolName === 'saw_link_from_url' ||
+                  item.writingToolName === 'search'
                 const toolType = isSearch ? 'search' : 'task'
                 return (
                   <ActionLoader
-                    key={`writing-tc-${index}`}
+                    key={`writing-tc-${item.partIndex}`}
                     toolCall={{
                       name: toolType,
                       status: 'writing',
@@ -302,16 +487,15 @@ const AiMessage = React.memo(function AiMessage({
                 )
               }
               return null
-            } else if (part.startsWith('<mini_app>')) {
-              if (part.includes('</mini_app>')) {
+            } else if (item.type === 'mini_app') {
+              if (item.isClosed) {
                 const titleMatch = part.match(/<title>([\s\S]*?)<\/title>/i)
                 const htmlMatch = part.match(/<html>([\s\S]*?)<\/html>/i)
                 const cssMatch = part.match(/<css>([\s\S]*?)<\/css>/i)
                 const jsMatch = part.match(/<js>([\s\S]*?)<\/js>/i)
 
-                // Use a simple hash of the content as part of the ID to keep it stable
                 const contentHash = part.length.toString(36)
-                const miniAppId = `mini-app-${index}-${contentHash}`
+                const miniAppId = `mini-app-${item.partIndex}-${contentHash}`
 
                 return (
                   <div key={miniAppId} className="w-full my-4 px-0">
@@ -327,7 +511,7 @@ const AiMessage = React.memo(function AiMessage({
               } else {
                 return (
                   <ActionLoader
-                    key={`writing-ma-${index}`}
+                    key={`writing-ma-${item.partIndex}`}
                     toolCall={{
                       name: 'mini-app',
                       status: 'writing',
@@ -340,7 +524,7 @@ const AiMessage = React.memo(function AiMessage({
             } else if (part.trim() !== '') {
               return (
                 <div
-                  key={`text-${index}`}
+                  key={`text-${item.partIndex}`}
                   className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
                 >
                   <ReactMarkdown
@@ -353,7 +537,7 @@ const AiMessage = React.memo(function AiMessage({
                       rehypeRaw,
                       rehypeParseMath,
                       rehypeKatex,
-                      createStreamingFadeRehypePlugin(streamStats, currentPartStartOffset)
+                      createStreamingFadeRehypePlugin(streamStats, startOffset)
                     ]}
                     components={markdownComponents}
                   >
@@ -968,9 +1152,9 @@ function RealApp(): React.JSX.Element {
                 if (name) {
                   const args: Record<string, any> = {}
                   for (const [key, value] of Object.entries(parsedJson)) {
-                    if (key !== 'type' && key !== 'name') {
-                      args[key] = value
-                    }
+                    if (key === 'type') continue
+                    if (key === 'name' && value === name) continue
+                    args[key] = value
                   }
 
                   if (!aiMsg.toolCalls) aiMsg.toolCalls = []
@@ -1882,7 +2066,7 @@ function RealApp(): React.JSX.Element {
                         </div>
                       )}
                       {msg.content && (
-                        <div className="premium-panel-soft w-full rounded-[18px] rounded-tr-md px-4 py-3 text-sm md:text-base text-text-primary prose prose-invert prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base max-w-none">
+                        <div className="premium-panel-soft w-full rounded-[18px] rounded-tr-md px-4 py-3 text-sm md:text-base text-text-primary prose prose-invert prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base max-w-none relative group">
                           <ReactMarkdown
                             remarkPlugins={[
                               remarkGfm,
@@ -1894,6 +2078,13 @@ function RealApp(): React.JSX.Element {
                           >
                             {msg.content}
                           </ReactMarkdown>
+                          <div className="absolute top-full mt-1.5 right-0 opacity-0 scale-95 translate-y-0.5 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 transition-all duration-300 ease-out pointer-events-none group-hover:pointer-events-auto z-10">
+                            <CopyMessageButton
+                              text={msg.content}
+                              title="Copy raw message (Markdown)"
+                              className="bg-background-secondary/80 hover:bg-background-secondary border border-white/[0.08] hover:border-white/20 shadow-md backdrop-blur-md"
+                            />
+                          </div>
                         </div>
                       )}
                     </div>

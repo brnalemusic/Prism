@@ -43,6 +43,7 @@ import {
   detectAvailableTerminals
 } from './systemTools'
 import { loadConfig, saveConfig, AppConfig } from './config'
+import { toolsManifest } from './toolsManifest'
 import { listChatSessions, deleteChatSession, searchChatsOffline } from './history'
 import { SubagentMessage, ApplicationInfo } from '../shared/types'
 import { IS_DEMO } from '../shared/demo'
@@ -990,6 +991,10 @@ if (!gotTheLock) {
         subagentSettingsWindow?.webContents.send('config-changed', config)
       }
       return success
+    })
+
+    ipcMain.handle('get-tool-definitions', () => {
+      return toolsManifest
     })
 
     ipcMain.on('update-config-from-tools', (_event, config: AppConfig) => {
