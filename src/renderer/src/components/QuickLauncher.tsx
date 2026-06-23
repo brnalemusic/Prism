@@ -641,12 +641,8 @@ export function QuickLauncher(): React.JSX.Element {
     handleInitialFocus()
     const removeFocusListener = window.api.onLauncherFocus(() => {
       handleInitialFocus()
-      // Reset chat whenever launcher is opened/focused anew
-      setLauncherMessages([])
-      setIsMiniChatOpen(false)
       setQuery('')
       setIsYoutubeMode(false)
-      window.api.clearLauncherChat()
       // Re-fetch applications list in case it wasn't ready at startup
       window.api.launcherGetApps().then((res) => {
         setApps(res || [])

@@ -2785,7 +2785,10 @@ export async function handleLauncherChatMessage(
             if (openMainAppCalled) {
               success = true
               launcherChatHistory = []
-              event.sender.send('launcher-reply-end', { thoughts: '', finalResponse: '' })
+              event.sender.send('launcher-reply-end', {
+                thoughts: accumulatedThoughts.trim(),
+                finalResponse: accumulatedFinalResponse.trim() || 'Opening the main application with instructions...'
+              })
               return
             }
 
