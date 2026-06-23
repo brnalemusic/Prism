@@ -1078,6 +1078,26 @@ const toolFunctions: Record<
         config.modelSelectionShortcut = args.modelSelectionShortcut
         changed.push(`modelSelectionShortcut: "${args.modelSelectionShortcut}"`)
       }
+      if (args.newChatShortcut !== undefined && args.newChatShortcut !== '') {
+        config.newChatShortcut = args.newChatShortcut
+        changed.push(`newChatShortcut: "${args.newChatShortcut}"`)
+      }
+      if (args.dictationShortcut !== undefined && args.dictationShortcut !== '') {
+        config.dictationShortcut = args.dictationShortcut
+        changed.push(`dictationShortcut: "${args.dictationShortcut}"`)
+      }
+      if (args.webSearchShortcut !== undefined && args.webSearchShortcut !== '') {
+        config.webSearchShortcut = args.webSearchShortcut
+        changed.push(`webSearchShortcut: "${args.webSearchShortcut}"`)
+      }
+      if (args.thinkModeShortcut !== undefined && args.thinkModeShortcut !== '') {
+        config.thinkModeShortcut = args.thinkModeShortcut
+        changed.push(`thinkModeShortcut: "${args.thinkModeShortcut}"`)
+      }
+      if (args.youtubeModeShortcut !== undefined && args.youtubeModeShortcut !== '') {
+        config.youtubeModeShortcut = args.youtubeModeShortcut
+        changed.push(`youtubeModeShortcut: "${args.youtubeModeShortcut}"`)
+      }
       if (args.defaultModel !== undefined && args.defaultModel !== '') {
         config.defaultModel = args.defaultModel
         setGeminiModel(args.defaultModel)

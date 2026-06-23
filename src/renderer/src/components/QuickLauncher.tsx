@@ -23,6 +23,7 @@ import { MODELS } from '../constants'
 import { isShortcutPressed, triggerErrorPopup } from '../utils'
 import { ErrorPopup } from './ErrorPopup'
 import { ApplicationInfo, FileSearchResult } from '../../../shared/types'
+import { AppConfig } from '../../../main/config'
 import clsx from 'clsx'
 import { LandingBackgroundEffects } from './LandingBackgroundEffects'
 import ReactMarkdown from 'react-markdown'
@@ -390,6 +391,7 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
 })
 
 export function QuickLauncher(): React.JSX.Element {
+  const [config, setConfig] = useState<AppConfig | null>(null)
   const [query, setQuery] = useState('')
   const markdownComponents = useMemo(() => StaticMarkdownComponents, [])
   const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false)
@@ -538,15 +540,16 @@ export function QuickLauncher(): React.JSX.Element {
 
   // Fetch configs and apps list
   useEffect(() => {
-    window.api.getConfig().then((config) => {
-      if (config.modelSelectionShortcut) {
-        setShortcut(config.modelSelectionShortcut)
+    window.api.getConfig().then((cfg) => {
+      setConfig(cfg)
+      if (cfg.modelSelectionShortcut) {
+        setShortcut(cfg.modelSelectionShortcut)
       }
-      if (config.defaultModel) {
-        setActiveModelId(config.defaultModel)
+      if (cfg.defaultModel) {
+        setActiveModelId(cfg.defaultModel)
       }
-      if (config.quickLauncherMode) {
-        setQuickLauncherMode(config.quickLauncherMode)
+      if (cfg.quickLauncherMode) {
+        setQuickLauncherMode(cfg.quickLauncherMode)
       }
     })
 
@@ -558,15 +561,16 @@ export function QuickLauncher(): React.JSX.Element {
       setApps(updatedApps || [])
     })
 
-    const removeConfigListener = window.api.onConfigChanged((config) => {
-      if (config.modelSelectionShortcut) {
-        setShortcut(config.modelSelectionShortcut)
+    const removeConfigListener = window.api.onConfigChanged((cfg) => {
+      setConfig(cfg)
+      if (cfg.modelSelectionShortcut) {
+        setShortcut(cfg.modelSelectionShortcut)
       }
-      if (config.defaultModel) {
-        setActiveModelId(config.defaultModel)
+      if (cfg.defaultModel) {
+        setActiveModelId(cfg.defaultModel)
       }
-      if (config.quickLauncherMode) {
-        setQuickLauncherMode(config.quickLauncherMode)
+      if (cfg.quickLauncherMode) {
+        setQuickLauncherMode(cfg.quickLauncherMode)
       }
     })
 
@@ -837,26 +841,31 @@ export function QuickLauncher(): React.JSX.Element {
         return
       }
 
-      // Dictation shortcut (Ctrl+D)
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+      const dictationKey = config?.dictationShortcut || 'CommandOrControl+D'
+      const webSearchKey = config?.webSearchShortcut || 'CommandOrControl+S'
+      const thinkModeKey = config?.thinkModeShortcut || 'CommandOrControl+T'
+      const youtubeModeKey = config?.youtubeModeShortcut || 'CommandOrControl+Y'
+
+      // Dictation shortcut
+      if (isShortcutPressed(e, dictationKey)) {
         e.preventDefault()
         toggleRecording()
         return
       }
 
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      if (isShortcutPressed(e, webSearchKey)) {
         e.preventDefault()
         window.api.setSearchEnabled(!isSearchEnabled)
         return
       }
 
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't') {
+      if (isShortcutPressed(e, thinkModeKey)) {
         e.preventDefault()
         window.api.setThinkMode(!isThinkMode)
         return
       }
 
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+      if (isShortcutPressed(e, youtubeModeKey)) {
         e.preventDefault()
         window.api.setSearchEnabled(false)
         setIsYoutubeMode(!isYoutubeMode)
@@ -930,7 +939,8 @@ export function QuickLauncher(): React.JSX.Element {
     quickLauncherMode,
     isMiniChatOpen,
     handleSuggestionAction,
-    isRecording
+    isRecording,
+    config
   ])
 
   const buildMessage = (targetQuery: string): string => {

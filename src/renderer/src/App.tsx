@@ -33,7 +33,7 @@ import { ErrorPopup } from './components/ErrorPopup'
 import { DownloadProgressOverlay } from './components/DownloadProgressOverlay'
 import { DemoApp } from './components/demo/DemoApp'
 import { UpdaterView } from './components/UpdaterView'
-import { triggerErrorPopup } from './utils'
+import { triggerErrorPopup, isShortcutPressed } from './utils'
 import {
   StreamContext,
   StaticMarkdownComponents,
@@ -1319,7 +1319,8 @@ function RealApp(): React.JSX.Element {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+      const shortcut = config?.newChatShortcut || 'CommandOrControl+N'
+      if (isShortcutPressed(e, shortcut)) {
         e.preventDefault()
         handleNewChat()
         setIsSidebarOpen(false)
@@ -1329,7 +1330,7 @@ function RealApp(): React.JSX.Element {
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [handleNewChat])
+  }, [handleNewChat, config?.newChatShortcut])
 
   useEffect(() => {
     // Listen for launcher messages
@@ -2328,7 +2329,7 @@ function RealApp(): React.JSX.Element {
                 ref={contentRef}
                 className={clsx(
                   'flex-grow flex flex-col pt-6',
-                  messages.length > 0 ? 'pb-40' : 'pb-8'
+                  messages.length > 0 ? 'pb-40' : 'pb-0'
                 )}
               >
                 {isKeyMissing && <MissingKeyBanner onAddKey={() => setIsApiKeyModalOpen(true)} />}

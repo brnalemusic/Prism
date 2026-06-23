@@ -144,7 +144,7 @@ export function LandingBackgroundEffects({ theme }: LandingBackgroundEffectsProp
         {/* Shifting warm volcanic heat zones */}
         <div className="absolute top-1/2 left-[15%] -translate-y-1/2 w-[500px] h-[300px] bg-red-950/15 blur-[120px] animate-morph-lava" style={{ '--duration': '22s' } as any} />
         <div className="absolute top-1/3 right-[15%] w-[450px] h-[350px] bg-orange-950/20 blur-[120px] animate-morph-lava" style={{ '--duration': '18s', animationDelay: '-4s' } as any} />
-        <div className="absolute bottom-0 left-[35%] w-[600px] h-[200px] bg-red-900/10 blur-[90px] rounded-full" />
+        <div className="absolute bottom-[-80px] left-[20%] w-[700px] h-[300px] bg-red-950/20 blur-[130px] rounded-full" />
 
         {/* Rising embers */}
         {embers.map((ember) => (

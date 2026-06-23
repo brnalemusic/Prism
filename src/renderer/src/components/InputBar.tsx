@@ -24,8 +24,8 @@ import clsx from 'clsx'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 import { ModelSelector } from './ModelSelector'
 import { AttachedFile } from '../App'
-import type { SlashWorkflow } from '../../../main/config'
-import { triggerErrorPopup } from '../utils'
+import type { AppConfig, SlashWorkflow } from '../../../main/config'
+import { triggerErrorPopup, isShortcutPressed } from '../utils'
 
 interface InputBarProps {
   onSend: (
@@ -120,19 +120,26 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     const isSearchAndThinkMode = isSearchEnabled && isThinkMode
     const activeMode = isSearchEnabled ? 'search' : isThinkMode ? 'think' : 'default'
 
+    const [config, setConfig] = useState<AppConfig | null>(null)
     const [workflows, setWorkflows] = useState<any[]>([])
     const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
 
     useEffect(() => {
       window.api.getConfig().then((cfg) => {
-        if (cfg?.workflows) {
-          setWorkflows(cfg.workflows)
+        if (cfg) {
+          setConfig(cfg)
+          if (cfg.workflows) {
+            setWorkflows(cfg.workflows)
+          }
         }
       })
 
       const removeListener = window.api.onConfigChanged((cfg) => {
-        if (cfg?.workflows) {
-          setWorkflows(cfg.workflows)
+        if (cfg) {
+          setConfig(cfg)
+          if (cfg.workflows) {
+            setWorkflows(cfg.workflows)
+          }
         }
       })
       return () => removeListener()
@@ -325,23 +332,28 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       textRef.current = text
     }, [text])
 
-    // Global keyboard shortcuts (Ctrl+S, Ctrl+E, Ctrl+T, Ctrl+Y, Ctrl+D)
+    // Global keyboard shortcuts (configurable)
     useEffect(() => {
       const handleGlobalKeyDown = (e: KeyboardEvent): void => {
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        const dictationKey = config?.dictationShortcut || 'CommandOrControl+D'
+        const webSearchKey = config?.webSearchShortcut || 'CommandOrControl+S'
+        const thinkModeKey = config?.thinkModeShortcut || 'CommandOrControl+T'
+        const youtubeModeKey = config?.youtubeModeShortcut || 'CommandOrControl+Y'
+
+        if (isShortcutPressed(e, dictationKey)) {
           e.preventDefault()
           toggleRecording()
         }
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        if (isShortcutPressed(e, webSearchKey)) {
           e.preventDefault()
           const nextVal = !isSearchEnabled
           setIsSearchEnabled(nextVal)
         }
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't') {
+        if (isShortcutPressed(e, thinkModeKey)) {
           e.preventDefault()
           onThinkModeToggle?.(!isThinkMode)
         }
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        if (isShortcutPressed(e, youtubeModeKey)) {
           e.preventDefault()
           setIsSearchEnabled(false)
           onOpenYoutubeModal?.()
@@ -350,6 +362,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       window.addEventListener('keydown', handleGlobalKeyDown)
       return () => window.removeEventListener('keydown', handleGlobalKeyDown)
     }, [
+      config,
       isThinkMode,
       onThinkModeToggle,
       selectedModel,

@@ -17,7 +17,13 @@ import {
   Lightning,
   Plus,
   Trash,
-  Pencil
+  Pencil,
+  Globe,
+  Brain,
+  Microphone,
+  ChatTeardropText,
+  Camera,
+  YoutubeLogo
 } from '@phosphor-icons/react'
 import { MODELS } from '../constants'
 import { ShortcutRecorder } from './ShortcutRecorder'
@@ -28,6 +34,11 @@ interface Config {
   launcherShortcut: string
   modelSelectionShortcut: string
   screenshotShortcut: string
+  newChatShortcut: string
+  dictationShortcut: string
+  webSearchShortcut: string
+  thinkModeShortcut: string
+  youtubeModeShortcut: string
   defaultModel: string
   subagentModel: string
   minimizeToTray: boolean
@@ -126,6 +137,11 @@ export function SettingsView(): React.JSX.Element {
     launcherShortcut: 'CommandOrControl+Space',
     modelSelectionShortcut: 'CommandOrControl+M',
     screenshotShortcut: 'Ctrl+Alt+Space',
+    newChatShortcut: 'CommandOrControl+N',
+    dictationShortcut: 'CommandOrControl+D',
+    webSearchShortcut: 'CommandOrControl+S',
+    thinkModeShortcut: 'CommandOrControl+T',
+    youtubeModeShortcut: 'CommandOrControl+Y',
     defaultModel: 'prism-6-super-fast',
     subagentModel: 'prism-6-dragon',
     minimizeToTray: false,
@@ -208,6 +224,11 @@ export function SettingsView(): React.JSX.Element {
           quickLauncherMode: savedConfig.quickLauncherMode ?? 'simple',
           userGeminiKey: savedConfig.userGeminiKey || '',
           screenshotShortcut: savedConfig.screenshotShortcut || 'Ctrl+Alt+Space',
+          newChatShortcut: savedConfig.newChatShortcut || 'CommandOrControl+N',
+          dictationShortcut: savedConfig.dictationShortcut || 'CommandOrControl+D',
+          webSearchShortcut: savedConfig.webSearchShortcut || 'CommandOrControl+S',
+          thinkModeShortcut: savedConfig.thinkModeShortcut || 'CommandOrControl+T',
+          youtubeModeShortcut: savedConfig.youtubeModeShortcut || 'CommandOrControl+Y',
           appVersion: savedConfig.appVersion || '',
           ttsVoice: savedConfig.ttsVoice || 'Aoede',
           theme: savedConfig.theme || 'marine',
@@ -229,6 +250,11 @@ export function SettingsView(): React.JSX.Element {
           quickLauncherMode: cfg.quickLauncherMode ?? 'simple',
           userGeminiKey: cfg.userGeminiKey || '',
           screenshotShortcut: cfg.screenshotShortcut || 'Ctrl+Alt+Space',
+          newChatShortcut: cfg.newChatShortcut || prev.newChatShortcut || 'CommandOrControl+N',
+          dictationShortcut: cfg.dictationShortcut || prev.dictationShortcut || 'CommandOrControl+D',
+          webSearchShortcut: cfg.webSearchShortcut || prev.webSearchShortcut || 'CommandOrControl+S',
+          thinkModeShortcut: cfg.thinkModeShortcut || prev.thinkModeShortcut || 'CommandOrControl+T',
+          youtubeModeShortcut: cfg.youtubeModeShortcut || prev.youtubeModeShortcut || 'CommandOrControl+Y',
           appVersion: cfg.appVersion || '',
           ttsVoice: cfg.ttsVoice || 'Aoede',
           theme: cfg.theme || 'marine',
@@ -263,6 +289,11 @@ export function SettingsView(): React.JSX.Element {
       launcherShortcut: 'CommandOrControl+Space',
       modelSelectionShortcut: 'CommandOrControl+M',
       screenshotShortcut: 'Ctrl+Alt+Space',
+      newChatShortcut: 'CommandOrControl+N',
+      dictationShortcut: 'CommandOrControl+D',
+      webSearchShortcut: 'CommandOrControl+S',
+      thinkModeShortcut: 'CommandOrControl+T',
+      youtubeModeShortcut: 'CommandOrControl+Y',
       defaultModel: 'prism-6-super-fast',
       subagentModel: 'prism-6-dragon',
       minimizeToTray: false,
@@ -300,34 +331,178 @@ export function SettingsView(): React.JSX.Element {
 
   const renderShortcuts = (): React.JSX.Element => (
     <div className="space-y-6 animate-soft-pop">
-      <SectionHeader title="Keyboard Shortcuts" subtitle="Global hotkeys to control Prism." />
-      <div className="space-y-5">
-        <div className="flex flex-col gap-2">
-          <label className="text-xs font-semibold text-text-secondary/70">
-            Open Quick Launcher
-          </label>
-          <ShortcutRecorder
-            value={config.launcherShortcut}
-            onChange={(v) => setConfig({ ...config, launcherShortcut: v })}
-          />
+      <SectionHeader
+        title="Keyboard Shortcuts"
+        subtitle="Configure global hotkeys and local interface hotkeys to control Prism."
+      />
+
+      {/* Global Hotkeys Section */}
+      <div className="space-y-3">
+        <h3 className="text-xs font-bold text-text-secondary/40 uppercase tracking-wider">
+          Global System Hotkeys
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Quick Launcher Card */}
+          <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+                <Keyboard size={16} />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-semibold text-text-primary">Open Quick Launcher</span>
+                <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
+                  Toggle the launcher search bar from anywhere
+                </span>
+              </div>
+            </div>
+            <ShortcutRecorder
+              value={config.launcherShortcut}
+              onChange={(v) => setConfig({ ...config, launcherShortcut: v })}
+            />
+          </div>
+
+          {/* Screenshot & Ask Card */}
+          <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+                <Camera size={16} />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-semibold text-text-primary">Screenshot &amp; Ask</span>
+                <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
+                  Capture a screen region to analyze with AI
+                </span>
+              </div>
+            </div>
+            <ShortcutRecorder
+              value={config.screenshotShortcut}
+              onChange={(v) => setConfig({ ...config, screenshotShortcut: v })}
+            />
+          </div>
         </div>
-        <div className="flex flex-col gap-2">
-          <label className="text-xs font-semibold text-text-secondary/70">
-            Model Selection (In Launcher)
-          </label>
-          <ShortcutRecorder
-            value={config.modelSelectionShortcut}
-            onChange={(v) => setConfig({ ...config, modelSelectionShortcut: v })}
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <label className="text-xs font-semibold text-text-secondary/70">
-            Screenshot &amp; Ask (Global)
-          </label>
-          <ShortcutRecorder
-            value={config.screenshotShortcut}
-            onChange={(v) => setConfig({ ...config, screenshotShortcut: v })}
-          />
+      </div>
+
+      <div className="h-px bg-white/[0.04]" />
+
+      {/* Local Hotkeys Section */}
+      <div className="space-y-3">
+        <h3 className="text-xs font-bold text-text-secondary/40 uppercase tracking-wider">
+          Interface &amp; Chat Hotkeys
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Start New Chat Card */}
+          <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+                <ChatTeardropText size={16} />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-semibold text-text-primary">Start New Chat</span>
+                <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
+                  Clear the current conversation thread instantly
+                </span>
+              </div>
+            </div>
+            <ShortcutRecorder
+              value={config.newChatShortcut}
+              onChange={(v) => setConfig({ ...config, newChatShortcut: v })}
+            />
+          </div>
+
+          {/* Model Selection Card */}
+          <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+                <Bot size={16} />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-semibold text-text-primary">Model Picker Toggle</span>
+                <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
+                  Quickly select a different Gemini model in search bar
+                </span>
+              </div>
+            </div>
+            <ShortcutRecorder
+              value={config.modelSelectionShortcut}
+              onChange={(v) => setConfig({ ...config, modelSelectionShortcut: v })}
+            />
+          </div>
+
+          {/* Toggle Web Search Card */}
+          <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+                <Globe size={16} />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-semibold text-text-primary">Toggle Web Search</span>
+                <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
+                  Enable or disable web search mode in input bar
+                </span>
+              </div>
+            </div>
+            <ShortcutRecorder
+              value={config.webSearchShortcut}
+              onChange={(v) => setConfig({ ...config, webSearchShortcut: v })}
+            />
+          </div>
+
+          {/* Toggle Deep Think Card */}
+          <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+                <Brain size={16} />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-semibold text-text-primary">Toggle Deep Think</span>
+                <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
+                  Enable or disable reasoning mode in input bar
+                </span>
+              </div>
+            </div>
+            <ShortcutRecorder
+              value={config.thinkModeShortcut}
+              onChange={(v) => setConfig({ ...config, thinkModeShortcut: v })}
+            />
+          </div>
+
+          {/* Voice Dictation Card */}
+          <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+                <Microphone size={16} />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-semibold text-text-primary">Voice Dictation</span>
+                <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
+                  Start or stop speech-to-text recording
+                </span>
+              </div>
+            </div>
+            <ShortcutRecorder
+              value={config.dictationShortcut}
+              onChange={(v) => setConfig({ ...config, dictationShortcut: v })}
+            />
+          </div>
+
+          {/* YouTube Mode Card */}
+          <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+                <YoutubeLogo size={16} />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-semibold text-text-primary">YouTube Mode Toggle</span>
+                <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
+                  Open YouTube video query assistant panel
+                </span>
+              </div>
+            </div>
+            <ShortcutRecorder
+              value={config.youtubeModeShortcut}
+              onChange={(v) => setConfig({ ...config, youtubeModeShortcut: v })}
+            />
+          </div>
         </div>
       </div>
     </div>

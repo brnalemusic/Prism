@@ -29,6 +29,9 @@ import {
   useStreamStats
 } from './AnimatedStreamingText'
 
+import { isShortcutPressed } from '../utils'
+import { AppConfig } from '../../../main/config'
+
 interface SearchModalProps {
   isOpen: boolean
   onClose: () => void
@@ -142,6 +145,7 @@ export function SearchModal({
   onClose,
   onOpenChat
 }: SearchModalProps): React.JSX.Element | null {
+  const [config, setConfig] = useState<AppConfig | null>(null)
   const [activeTab, setActiveTab] = useState<'quick' | 'ai'>('quick')
   const markdownComponents = useMemo(() => StaticMarkdownComponents, [])
   const [isVisible, setIsVisible] = useState(false)
@@ -158,6 +162,16 @@ export function SearchModal({
   const [isAiProcessing, setIsAiProcessing] = useState(false)
   const [isWritingToolCall, setIsWritingToolCall] = useState(false)
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
+
+  useEffect(() => {
+    window.api.getConfig().then((cfg) => {
+      if (cfg) setConfig(cfg)
+    })
+    const removeListener = window.api.onConfigChanged((cfg) => {
+      if (cfg) setConfig(cfg)
+    })
+    return () => removeListener()
+  }, [])
   const [aiError, setAiError] = useState<string | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
 
@@ -234,14 +248,15 @@ export function SearchModal({
   useEffect(() => {
     if (!isOpen) return
     const handleKeyDown = (e: KeyboardEvent): void => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+      const dictationKey = config?.dictationShortcut || 'CommandOrControl+D'
+      if (isShortcutPressed(e, dictationKey)) {
         e.preventDefault()
         toggleRecordingSTT()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, isRecordingSTT])
+  }, [isOpen, isRecordingSTT, config])
 
   const aiResponseEndRef = useRef<HTMLDivElement>(null)
 

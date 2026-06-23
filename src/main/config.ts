@@ -15,6 +15,11 @@ export interface AppConfig {
   launcherShortcut: string
   modelSelectionShortcut: string
   screenshotShortcut: string
+  newChatShortcut: string
+  dictationShortcut: string
+  webSearchShortcut: string
+  thinkModeShortcut: string
+  youtubeModeShortcut: string
   defaultModel: string
   subagentModel: string
   minimizeToTray: boolean
@@ -36,6 +41,11 @@ const DEFAULT_CONFIG: AppConfig = {
   launcherShortcut: 'CommandOrControl+Space',
   modelSelectionShortcut: 'CommandOrControl+M',
   screenshotShortcut: 'Ctrl+Alt+Space',
+  newChatShortcut: 'CommandOrControl+N',
+  dictationShortcut: 'CommandOrControl+D',
+  webSearchShortcut: 'CommandOrControl+S',
+  thinkModeShortcut: 'CommandOrControl+T',
+  youtubeModeShortcut: 'CommandOrControl+Y',
   defaultModel: 'prism-6-super-fast',
   subagentModel: 'prism-6-dragon',
   minimizeToTray: false,
@@ -90,7 +100,14 @@ const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno', 'ursula',
 function normalizeConfig(config: AppConfig): AppConfig {
   return {
     ...config,
+    launcherShortcut: config.launcherShortcut || DEFAULT_CONFIG.launcherShortcut,
+    modelSelectionShortcut: config.modelSelectionShortcut || DEFAULT_CONFIG.modelSelectionShortcut,
     screenshotShortcut: config.screenshotShortcut || DEFAULT_CONFIG.screenshotShortcut,
+    newChatShortcut: config.newChatShortcut || DEFAULT_CONFIG.newChatShortcut,
+    dictationShortcut: config.dictationShortcut || DEFAULT_CONFIG.dictationShortcut,
+    webSearchShortcut: config.webSearchShortcut || DEFAULT_CONFIG.webSearchShortcut,
+    thinkModeShortcut: config.thinkModeShortcut || DEFAULT_CONFIG.thinkModeShortcut,
+    youtubeModeShortcut: config.youtubeModeShortcut || DEFAULT_CONFIG.youtubeModeShortcut,
     defaultModel: VALID_MODEL_KEYS.has(config.defaultModel)
       ? config.defaultModel
       : DEFAULT_CONFIG.defaultModel,
