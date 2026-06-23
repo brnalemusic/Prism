@@ -18,7 +18,7 @@ interface StepStatus {
 }
 
 interface LoadingScreenProps {
-  onComplete: () => void
+  onComplete: (connectionFailed?: boolean) => void
   isKeyMissing: boolean
   apiKey: string
   onApiKeySave: (key: string) => void
@@ -181,7 +181,7 @@ export function LoadingScreen({
               <button
                 onClick={() => {
                   setVisible(false)
-                  setTimeout(onComplete, 600)
+                  setTimeout(() => onComplete(true), 600)
                 }}
                 className="flex-1 rounded-[14px] border border-white/[0.08] px-4 py-2.5 text-xs font-semibold text-text-secondary transition-all hover:bg-white/[0.055] hover:text-text-primary active:scale-[0.98]"
               >

@@ -737,13 +737,53 @@ function RealApp(): React.JSX.Element {
     isOnlineRef.current = isOnline
   }, [isOnline])
 
-  // Track connectivity via the browser online/offline events. No IPC needed.
+  // Track connectivity via browser events AND periodic IPC-based checks.
+  // navigator.onLine is unreliable in Electron (it checks if a network
+  // interface is up, not actual internet connectivity), so we also poll the
+  // Gemini connection test every 15 seconds to get a reliable signal.
   useEffect(() => {
     const goOnline = (): void => setIsOnline(true)
     const goOffline = (): void => setIsOnline(false)
     window.addEventListener('online', goOnline)
     window.addEventListener('offline', goOffline)
+
+    let mounted = true
+    let checkCount = 0
+
+    const CHECK_INTERVAL_MS = 15_000
+
+    const checkConnectivity = async (): Promise<void> => {
+      if (!mounted) return
+      try {
+        const result = await window.api.testGeminiConnection()
+        if (!mounted) return
+        if (result.ok) {
+          if (!isOnlineRef.current) {
+            window.location.reload()
+          }
+          setIsOnline(true)
+        } else if (result.errorType === 'offline') {
+          setIsOnline(false)
+        }
+      } catch {
+        // IPC failure — treat as offline unless navigator.onLine says otherwise.
+        if (navigator.onLine) {
+          setIsOnline(false)
+        }
+      }
+    }
+
+    const interval = setInterval(() => {
+      checkCount++
+      // Skip the very first check (boot already tested connectivity).
+      if (checkCount > 1) {
+        checkConnectivity()
+      }
+    }, CHECK_INTERVAL_MS)
+
     return () => {
+      mounted = false
+      clearInterval(interval)
       window.removeEventListener('online', goOnline)
       window.removeEventListener('offline', goOffline)
     }
@@ -2265,7 +2305,12 @@ function RealApp(): React.JSX.Element {
     <div className="flex h-screen w-screen overflow-hidden bg-background-main font-sans selection:bg-accent-primary/30 pt-10">
       {!bootComplete && (
         <LoadingScreen
-          onComplete={() => setBootComplete(true)}
+          onComplete={(connectionFailed?: boolean) => {
+            setBootComplete(true)
+            if (connectionFailed) {
+              setIsOnline(false)
+            }
+          }}
           isKeyMissing={isKeyMissing}
           apiKey={config?.userGeminiKey || ''}
           onApiKeySave={handleSaveApiKey}
