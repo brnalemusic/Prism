@@ -175,3 +175,25 @@ export function stopKeepAlive(): void {
     heartbeatTimer = null
   }
 }
+
+/**
+ * Lightweight internet connectivity check that does NOT hit the Gemini API.
+ * Uses a simple fetch to Google's generate_204 endpoint (returns 204 No
+ * Content when online, fails on network errors). This is safe to call
+ * frequently without rate-limit or keep-alive side effects.
+ */
+export async function checkInternetConnectivity(): Promise<boolean> {
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5000)
+    const res = await fetch('https://www.google.com/generate_204', {
+      method: 'HEAD',
+      signal: controller.signal,
+      cache: 'no-store'
+    })
+    clearTimeout(timeout)
+    return res.ok || res.status === 204
+  } catch {
+    return false
+  }
+}

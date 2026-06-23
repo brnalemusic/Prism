@@ -387,7 +387,9 @@ const AiMessage = React.memo(function AiMessage({
 
               // 1. Determine merged status
               let mergedStatus: ToolCall['status'] = 'done'
-              if (toolCallItems.some((item) => !item.isClosed || item.toolCall?.status === 'writing')) {
+              if (
+                toolCallItems.some((item) => !item.isClosed || item.toolCall?.status === 'writing')
+              ) {
                 mergedStatus = 'writing'
               } else if (toolCallItems.some((item) => item.toolCall?.status === 'running')) {
                 mergedStatus = 'running'
@@ -437,7 +439,9 @@ const AiMessage = React.memo(function AiMessage({
               }
 
               const firstItem = group.items[0]
-              return <ActionLoader key={`tc-group-${firstItem.partIndex}`} toolCall={mergedToolCall} />
+              return (
+                <ActionLoader key={`tc-group-${firstItem.partIndex}`} toolCall={mergedToolCall} />
+              )
             }
 
             const item = gItem as PartItem
@@ -737,53 +741,29 @@ function RealApp(): React.JSX.Element {
     isOnlineRef.current = isOnline
   }, [isOnline])
 
-  // Track connectivity via browser events AND periodic IPC-based checks.
+  // Track connectivity via browser events AND main-process push events.
   // navigator.onLine is unreliable in Electron (it checks if a network
-  // interface is up, not actual internet connectivity), so we also poll the
-  // Gemini connection test every 15 seconds to get a reliable signal.
+  // interface is up, not actual internet connectivity). The main process
+  // monitors real connectivity every 5 s and pushes changes via IPC.
   useEffect(() => {
     const goOnline = (): void => setIsOnline(true)
     const goOffline = (): void => setIsOnline(false)
     window.addEventListener('online', goOnline)
     window.addEventListener('offline', goOffline)
 
-    let mounted = true
-    let checkCount = 0
-
-    const CHECK_INTERVAL_MS = 15_000
-
-    const checkConnectivity = async (): Promise<void> => {
-      if (!mounted) return
-      try {
-        const result = await window.api.testGeminiConnection()
-        if (!mounted) return
-        if (result.ok) {
-          if (!isOnlineRef.current) {
-            window.location.reload()
-          }
-          setIsOnline(true)
-        } else if (result.errorType === 'offline') {
-          setIsOnline(false)
-        }
-      } catch {
-        // IPC failure — treat as offline unless navigator.onLine says otherwise.
-        if (navigator.onLine) {
-          setIsOnline(false)
-        }
+    // Main-process connectivity push: instant state changes without polling.
+    const removeConnectivityListener = window.api.onConnectivityChanged((online: boolean) => {
+      if (online && !isOnlineRef.current) {
+        // Connection restored — reset boot to show loading screen and
+        // re-run the connection test (equivalent to Ctrl+R, but avoids
+        // the main-process crash caused by reloading the renderer).
+        setBootComplete(false)
       }
-    }
-
-    const interval = setInterval(() => {
-      checkCount++
-      // Skip the very first check (boot already tested connectivity).
-      if (checkCount > 1) {
-        checkConnectivity()
-      }
-    }, CHECK_INTERVAL_MS)
+      setIsOnline(online)
+    })
 
     return () => {
-      mounted = false
-      clearInterval(interval)
+      removeConnectivityListener()
       window.removeEventListener('online', goOnline)
       window.removeEventListener('offline', goOffline)
     }

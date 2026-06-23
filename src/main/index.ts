@@ -49,7 +49,8 @@ import {
   testGeminiConnection,
   setConnectionApiKey,
   markConnectionActive,
-  stopKeepAlive
+  stopKeepAlive,
+  checkInternetConnectivity
 } from './connection'
 import { SubagentMessage, ApplicationInfo } from '../shared/types'
 import { IS_DEMO } from '../shared/demo'
@@ -1063,6 +1064,19 @@ if (!gotTheLock) {
       createTray()
     }
     updateNativeIcons()
+
+    // ── Connectivity monitor ──────────────────────────────────────────────────
+    // Polls for internet connectivity every 5 seconds and pushes state changes
+    // to the renderer via IPC. Uses a lightweight fetch (no Gemini API call)
+    // so it's safe to run frequently without side effects.
+    let lastConnectivityState: boolean | null = null
+    setInterval(async () => {
+      const online = await checkInternetConnectivity()
+      if (online !== lastConnectivityState) {
+        lastConnectivityState = online
+        mainWindow?.webContents.send('connectivity-changed', online)
+      }
+    }, 5000)
 
     app.on('activate', function () {
       if (BrowserWindow.getAllWindows().length === 0) {

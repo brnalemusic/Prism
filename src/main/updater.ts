@@ -89,7 +89,12 @@ function fetchUrl(url: string, redirects = 0): Promise<string> {
         }
       },
       (res) => {
-        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        if (
+          res.statusCode &&
+          res.statusCode >= 300 &&
+          res.statusCode < 400 &&
+          res.headers.location
+        ) {
           // Follow redirect securely
           try {
             const redirectUrl = new URL(res.headers.location, url)
@@ -99,7 +104,9 @@ function fetchUrl(url: string, redirects = 0): Promise<string> {
                 redirectUrl.hostname === 'api.github.com' ||
                 redirectUrl.hostname.endsWith('.githubusercontent.com'))
             ) {
-              fetchUrl(redirectUrl.toString(), redirects + 1).then(resolve).catch(reject)
+              fetchUrl(redirectUrl.toString(), redirects + 1)
+                .then(resolve)
+                .catch(reject)
             } else {
               reject(new Error(`Insecure redirect to ${redirectUrl.toString()}`))
             }
@@ -163,7 +170,11 @@ function resolveInstallerUrl(
   const fallbackPattern = new RegExp(`^prism-${escapeRegExp(version)}-setup\\.(exe)$`, 'i')
   const fallbackAsset = assets.find((a) => fallbackPattern.test(a.name))
   if (fallbackAsset) {
-    return { url: fallbackAsset.browser_download_url, size: fallbackAsset.size, pattern: 'fallback' }
+    return {
+      url: fallbackAsset.browser_download_url,
+      size: fallbackAsset.size,
+      pattern: 'fallback'
+    }
   }
 
   return null
@@ -308,7 +319,7 @@ function createUpdaterWindow(mainWindow: BrowserWindow): void {
       hash: 'updater'
     })
   }
-  
+
   // Fallback if ready-to-show doesn't fire
   setTimeout(() => {
     if (updaterWindow && !updaterWindow.isVisible()) {
@@ -375,9 +386,7 @@ async function checkForUpdates(mainWindow: BrowserWindow): Promise<void> {
     return
   }
 
-  console.log(
-    `[Auto-Updater] Found installer via '${resolved.pattern}' pattern: ${resolved.url}`
-  )
+  console.log(`[Auto-Updater] Found installer via '${resolved.pattern}' pattern: ${resolved.url}`)
 
   pendingDownload = { url: resolved.url, size: resolved.size }
 
@@ -394,7 +403,12 @@ async function checkForUpdates(mainWindow: BrowserWindow): Promise<void> {
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 
+let autoUpdaterInitialized = false
+
 export function initAutoUpdater(mainWindow: BrowserWindow): void {
+  if (autoUpdaterInitialized) return
+  autoUpdaterInitialized = true
+
   // ── IPC Handlers ────────────────────────────────────────────────────────────
   ipcMain.handle('get-updater-state', () => {
     return updaterState
@@ -413,7 +427,8 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
     }
 
     const tempDir = app.getPath('temp')
-    const fileName = pendingDownload.url.split('/').pop() || `prism-setup-${updaterState.latestVersion}.exe`
+    const fileName =
+      pendingDownload.url.split('/').pop() || `prism-setup-${updaterState.latestVersion}.exe`
     const destPath = join(tempDir, fileName)
     const totalSize = pendingDownload.size
 
@@ -471,10 +486,14 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
       Start-Process -FilePath "${escapedAppPath}"
     }`
 
-    const child = spawn('powershell.exe', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', cmd], {
-      detached: true,
-      stdio: 'ignore'
-    })
+    const child = spawn(
+      'powershell.exe',
+      ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', cmd],
+      {
+        detached: true,
+        stdio: 'ignore'
+      }
+    )
     child.unref()
 
     if (updaterWindow && !updaterWindow.isDestroyed()) {

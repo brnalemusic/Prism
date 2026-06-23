@@ -580,6 +580,11 @@ const api = {
   },
   devSimulateUpdaterProgress: (): void => {
     ipcRenderer.send('dev-simulate-updater-progress')
+  },
+  onConnectivityChanged: (callback: (online: boolean) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, online: boolean): void => callback(online)
+    ipcRenderer.on('connectivity-changed', listener)
+    return () => ipcRenderer.removeListener('connectivity-changed', listener)
   }
 }
 

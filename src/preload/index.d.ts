@@ -210,6 +210,7 @@ export interface PrismAPI {
   onUpdaterState: (callback: (state: any) => void) => () => void
   devTriggerUpdaterUi?: (level: 'patch' | 'minor' | 'major') => void
   devSimulateUpdaterProgress?: () => void
+  onConnectivityChanged: (callback: (online: boolean) => void) => () => void
 }
 
 declare global {
