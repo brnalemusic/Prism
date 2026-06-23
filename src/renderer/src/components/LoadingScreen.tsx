@@ -47,6 +47,7 @@ export function LoadingScreen({
 
   const isMounted = useRef(true)
   useEffect(() => {
+    isMounted.current = true
     return () => {
       isMounted.current = false
     }
@@ -87,35 +88,31 @@ export function LoadingScreen({
     }
   }, [])
 
-  const hasStartedRef = useRef(false)
-
   // Drive the staged boot flow.
   useEffect(() => {
-    // Wait until configuration is loaded before driving the boot sequence.
     if (!configLoaded) return
 
-    // Ensure we run the start sequence only once.
-    if (hasStartedRef.current) return
-    hasStartedRef.current = true
+    let active = true
 
     const run = async (): Promise<void> => {
-      // Stage 1: Establishing connection (brief, for perceived progression).
       await delay(500)
-      if (!isMounted.current) return
+      if (!active) return
 
-      // Stage 2: API key. If missing, pause the flow and prompt inline.
       if (keyMissing) {
         setBootState('needs-key')
         setShowKeyModal(true)
         return
       }
 
-      // Stage 3: Testing connection.
       setBootState('testing')
       await runConnectionTest()
     }
 
     run()
+
+    return () => {
+      active = false
+    }
   }, [configLoaded, keyMissing, runConnectionTest])
 
   const handleRetry = useCallback(async (): Promise<void> => {
