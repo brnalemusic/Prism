@@ -95,11 +95,74 @@ export function ShortcutRecorder({ value, onChange }: ShortcutRecorderProps): Re
     return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, [isRecording, handleKeyDown])
 
-  const displayValue = isRecording
-    ? recordedKeys.length > 0
-      ? recordedKeys.join(' + ')
-      : 'Press keys...'
-    : value || 'No shortcut set'
+  const renderShortcutKeys = (): React.JSX.Element => {
+    if (isRecording) {
+      if (recordedKeys.length === 0) {
+        return (
+          <span className="text-sm font-medium text-accent-primary animate-pulse">
+            Press keys...
+          </span>
+        )
+      }
+      return (
+        <div className="flex items-center gap-1.5 select-none">
+          {recordedKeys.map((key, idx) => {
+            let displayKey = key
+            if (
+              displayKey === 'Control' ||
+              displayKey === 'Command' ||
+              displayKey === 'CommandOrControl' ||
+              displayKey === 'CmdOrCtrl'
+            ) {
+              displayKey = 'Ctrl'
+            }
+            return (
+              <span key={idx} className="flex items-center gap-1.5">
+                <kbd className="px-2 py-1 text-xs font-mono font-bold rounded bg-white/10 border border-white/20 shadow-sm text-accent-primary">
+                  {displayKey}
+                </kbd>
+                {idx < recordedKeys.length - 1 && (
+                  <span className="text-xs font-light text-text-secondary/40 select-none">+</span>
+                )}
+              </span>
+            )
+          })}
+        </div>
+      )
+    }
+
+    if (!value) {
+      return <span className="text-sm font-medium text-text-secondary/40">No shortcut set</span>
+    }
+
+    const parts = value.split('+').map((p) => {
+      const clean = p.trim()
+      if (
+        clean === 'CommandOrControl' ||
+        clean === 'Control' ||
+        clean === 'CmdOrCtrl' ||
+        clean === 'Command'
+      ) {
+        return 'Ctrl'
+      }
+      return clean
+    })
+
+    return (
+      <div className="flex items-center gap-1.5 select-none">
+        {parts.map((part, idx) => (
+          <span key={idx} className="flex items-center gap-1.5">
+            <kbd className="px-2 py-1 text-xs font-mono font-bold rounded bg-white/10 border border-white/20 shadow-sm text-text-primary">
+              {part}
+            </kbd>
+            {idx < parts.length - 1 && (
+              <span className="text-xs font-light text-text-secondary/40 select-none">+</span>
+            )}
+          </span>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -118,18 +181,7 @@ export function ShortcutRecorder({ value, onChange }: ShortcutRecorderProps): Re
             size={18}
             className={clsx(isRecording ? 'text-accent-primary' : 'text-text-secondary/40')}
           />
-          <span
-            className={clsx(
-              'text-sm font-medium',
-              isRecording
-                ? 'text-accent-primary'
-                : value
-                  ? 'text-text-primary'
-                  : 'text-text-secondary/40'
-            )}
-          >
-            {displayValue}
-          </span>
+          {renderShortcutKeys()}
         </div>
 
         {isRecording ? (

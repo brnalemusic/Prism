@@ -6,6 +6,7 @@ import rehypeRaw from 'rehype-raw'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
 import { PrismBackground } from './components/PrismBackground'
+import { LandingBackgroundEffects } from './components/LandingBackgroundEffects'
 import { IntroScreen } from './components/IntroScreen'
 import { Sidebar } from './components/Sidebar'
 import { InputBar, InputBarHandle } from './components/InputBar'
@@ -814,16 +815,41 @@ function RealApp(): React.JSX.Element {
   const inputBarRef = useRef<InputBarHandle>(null)
   const modelSelectorRef = useRef<ModelSelectorHandle>(null)
 
+  const [greetingIndex, setGreetingIndex] = useState(0)
+
+  useEffect(() => {
+    if (messages.length === 0) {
+      const randomIndex = Math.floor(Math.random() * 15)
+      setGreetingIndex(randomIndex)
+    }
+  }, [messages.length])
+
   const getGreeting = (): React.JSX.Element => {
     const rawName = config?.username || 'user'
     const formattedName = rawName.charAt(0).toUpperCase() + rawName.slice(1)
-    return (
-      <>
-        Hello,{' '}
-        <span className="font-medium text-accent-primary rgb-chroma-username">{formattedName}</span>
-        . What are we working on?
-      </>
+    const highlight = (
+      <span className="font-medium text-accent-primary rgb-chroma-username">{formattedName}</span>
     )
+
+    const greetings = [
+      <>Talk to me, {highlight}.</>,
+      <>Hey, {highlight}. Whenever you want.</>,
+      <>Hi, {highlight}, can I help you?</>,
+      <>What can I do for you today, {highlight}?</>,
+      <>Ready when you are, {highlight}.</>,
+      <>How's it going, {highlight}? Let's build.</>,
+      <>What's on your mind, {highlight}?</>,
+      <>Welcome back, {highlight}. What are we creating?</>,
+      <>How can I make your day easier, {highlight}?</>,
+      <>Tell me what you need, {highlight}.</>,
+      <>I'm listening, {highlight}.</>,
+      <>Let's get to work, {highlight}.</>,
+      <>What's the plan today, {highlight}?</>,
+      <>Need a hand with something, {highlight}?</>,
+      <>Let's code, {highlight}!</>
+    ]
+
+    return greetings[greetingIndex] || greetings[0]
   }
 
   const handleThinkModeToggle = useCallback((val: boolean) => {
@@ -1944,7 +1970,7 @@ function RealApp(): React.JSX.Element {
             <div key={i} className="flex flex-col w-full transition-all duration-700">
               <div
                 className={clsx(
-                  'w-full px-4 sm:px-8 py-5 flex flex-col transition-all duration-700 animate-message',
+                  'w-full px-4 sm:px-8 py-5 flex flex-col transition-all duration-700 animate-message relative hover:z-50',
                   msg.role === 'user' ? 'items-end' : 'items-start'
                 )}
               >
@@ -2066,7 +2092,7 @@ function RealApp(): React.JSX.Element {
                         </div>
                       )}
                       {msg.content && (
-                        <div className="premium-panel-soft w-full rounded-[18px] rounded-tr-md px-4 py-3 text-sm md:text-base text-text-primary prose prose-invert prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base max-w-none relative group">
+                        <div className="premium-panel-soft w-full rounded-[18px] rounded-tr-md px-4 py-3 text-sm md:text-base text-text-primary prose prose-invert prose-p:my-0 prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base max-w-none relative group">
                           <ReactMarkdown
                             remarkPlugins={[
                               remarkGfm,
@@ -2076,14 +2102,16 @@ function RealApp(): React.JSX.Element {
                             rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
                             components={MarkdownComponents}
                           >
-                            {msg.content}
+                            {msg.content.trim()}
                           </ReactMarkdown>
-                          <div className="absolute top-full mt-1.5 right-0 opacity-0 scale-95 translate-y-0.5 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 transition-all duration-300 ease-out pointer-events-none group-hover:pointer-events-auto z-10">
-                            <CopyMessageButton
-                              text={msg.content}
-                              title="Copy raw message (Markdown)"
-                              className="bg-background-secondary/80 hover:bg-background-secondary border border-white/[0.08] hover:border-white/20 shadow-md backdrop-blur-md"
-                            />
+                          <div className="absolute top-full -right-4 pt-1 pb-4 pl-4 pr-4 pointer-events-none group-hover:pointer-events-auto z-10">
+                            <div className="opacity-0 scale-90 translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 transition-all duration-300 ease-out">
+                              <CopyMessageButton
+                                text={msg.content}
+                                title="Copy raw message (Markdown)"
+                                className="bg-background-secondary/95 hover:bg-background-secondary border border-white/[0.12] hover:border-white/30 shadow-lg backdrop-blur-md"
+                              />
+                            </div>
                           </div>
                         </div>
                       )}
@@ -2125,6 +2153,7 @@ function RealApp(): React.JSX.Element {
         )}
         <Sidebar
           isOpen={isSidebarOpen}
+          onClose={() => setIsSidebarOpen(false)}
           activeView={activeView}
           onViewChange={(view) => {
             setActiveView(view)
@@ -2291,7 +2320,7 @@ function RealApp(): React.JSX.Element {
               ref={scrollContainerRef}
               onScroll={handleScroll}
               className={clsx(
-                'flex-1 overflow-y-auto flex flex-col',
+                'flex-1 overflow-y-auto flex flex-col relative z-10',
                 activeView !== 'chat' && 'hidden'
               )}
             >
@@ -2303,26 +2332,31 @@ function RealApp(): React.JSX.Element {
                 )}
               >
                 {isKeyMissing && <MissingKeyBanner onAddKey={() => setIsApiKeyModalOpen(true)} />}
-                {messages.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center px-4 pb-[8vh] relative select-none">
-                    {/* Radial glow similar to the image */}
-                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                      <div className="relative h-[320px] w-[560px] max-w-[calc(100vw-48px)] blur-[96px] opacity-[0.55]">
-                        {/* Default single glow for non-rgb themes */}
-                        <div className="absolute inset-0 rounded-full home-radial-glow rgb-glow-default" />
-                        {/* Custom RGB animatable glows with smooth opacity transitions */}
-                        <div className="absolute inset-0 rounded-full rgb-glow-red" />
-                        <div className="absolute inset-0 rounded-full rgb-glow-green" />
-                        <div className="absolute inset-0 rounded-full rgb-glow-blue" />
-                      </div>
-                    </div>
+                <div className="flex-1 flex flex-col relative min-h-[450px]">
+                  {/* Empty state container (always in DOM, fades out when messages appear) */}
+                  <div
+                    className={clsx(
+                      'absolute inset-0 flex flex-col items-center justify-center px-4 pb-[8vh] select-none transition-all duration-[800ms] ease-[cubic-bezier(0.25,1,0.5,1)] z-10',
+                      messages.length === 0
+                        ? 'opacity-100 scale-100 pointer-events-auto'
+                        : 'opacity-0 scale-[0.97] pointer-events-none blur-[6px]'
+                    )}
+                  >
+                    {/* Background effects matching current theme */}
+                    <LandingBackgroundEffects theme={config?.theme || 'marine'} />
 
                     <div className="relative z-10 flex flex-col items-center w-full max-w-[820px] text-center gap-6">
                       <h1 className="text-[26px] sm:text-[32px] font-light text-text-primary/90 select-none leading-tight">
                         {getGreeting()}
                       </h1>
 
-                      <div className="w-full">
+                      <div className="w-full relative z-20">
+                        {/* White glow behind input box for Terno theme */}
+                        {(config?.theme || 'marine') === 'terno' && (
+                          <div className="absolute inset-0 pointer-events-none flex items-center justify-center -z-10 animate-slow-pulse">
+                            <div className="w-[520px] h-[150px] rounded-full bg-white opacity-[0.4] blur-[75px]" />
+                          </div>
+                        )}
                         <InputBar
                           ref={inputBarRef}
                           onSend={handleSend}
@@ -2352,9 +2386,19 @@ function RealApp(): React.JSX.Element {
                       </div>
                     </div>
                   </div>
-                ) : (
-                  renderedMessages
-                )}
+
+                  {/* Chat messages container (fades in when messages are present) */}
+                  <div
+                    className={clsx(
+                      'flex-grow flex flex-col transition-all duration-500 ease-out',
+                      messages.length > 0
+                        ? 'opacity-100 pointer-events-auto'
+                        : 'opacity-0 pointer-events-none'
+                    )}
+                  >
+                    {messages.length > 0 && renderedMessages}
+                  </div>
+                </div>
               </div>
             </div>
 

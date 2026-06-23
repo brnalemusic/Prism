@@ -5,7 +5,8 @@ import {
   Plus,
   Trash,
   Clock,
-  MagnifyingGlass
+  MagnifyingGlass,
+  CaretLeft
 } from '@phosphor-icons/react'
 import React, { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
@@ -32,6 +33,7 @@ interface SidebarProps {
   isOpen?: boolean
   config?: AppConfig | null
   onOpenSearch?: () => void
+  onClose?: () => void
 }
 
 interface StreamTitleWrapperProps {
@@ -60,7 +62,8 @@ export function Sidebar({
   className,
   isOpen = false,
   config,
-  onOpenSearch
+  onOpenSearch,
+  onClose
 }: SidebarProps): React.JSX.Element {
   const [chats, setChats] = useState<ChatSession[]>([])
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
@@ -179,17 +182,28 @@ export function Sidebar({
         className
       )}
     >
-      <div className="flex h-16 shrink-0 items-center gap-3 px-5 mt-10">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.065] bg-white/[0.035]">
-          <span className="text-[12px] font-bold text-accent-primary">P</span>
+      <div className="flex h-16 shrink-0 items-center justify-between px-5 mt-10">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-white/[0.08] to-white/[0.02] border border-white/[0.08] shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)]">
+            <span className="text-[12px] font-extrabold text-accent-primary">P</span>
+          </div>
+          <h1 className="text-base font-semibold text-text-primary tracking-wide">Prism</h1>
         </div>
-        <h1 className="text-base font-medium text-text-primary">Prism</h1>
+        {isOpen && onClose && (
+          <button
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-xl text-text-muted hover:bg-white/[0.05] hover:text-text-primary transition-all duration-200 active:scale-95"
+            title="Close sidebar"
+          >
+            <CaretLeft size={18} weight="bold" />
+          </button>
+        )}
       </div>
 
       <div className="px-4 pb-2 pt-1 shrink-0">
         <button
           onClick={() => onNewChat()}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/[0.04] border border-white/[0.07] px-4 py-2.5 text-sm font-medium text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] transition-all duration-200 hover:bg-white/[0.065] hover:border-white/[0.1] active:scale-[0.98] rgb-new-chat-btn"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent-primary/[0.08] to-accent-primary/[0.02] border border-accent-primary/[0.15] px-4 py-2.5 text-sm font-medium text-accent-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] transition-all duration-200 hover:from-accent-primary/[0.12] hover:to-accent-primary/[0.06] hover:border-accent-primary/[0.25] active:scale-[0.98] rgb-new-chat-btn"
         >
           <Plus size={16} weight="bold" />
           New Chat
@@ -218,61 +232,67 @@ export function Sidebar({
         />
       </nav>
 
-      <div className="mx-4 h-px shrink-0 bg-white/[0.055]" />
+      <div className="mx-4 h-px shrink-0 bg-white/[0.04]" />
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4">
-        <div className="mb-2 flex shrink-0 items-center gap-2 px-2 text-[11px] font-medium uppercase text-text-secondary/75">
-          <Clock size={14} />
+        <div className="mb-2 flex shrink-0 items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-text-secondary/60">
+          <Clock size={12} />
           History
         </div>
         <div className="flex-1 overflow-y-auto flex flex-col gap-1 pr-1">
-          {chats.map((chat) => (
-            <div key={chat.id} className="group relative">
-              <button
-                onClick={() => {
-                  onViewChange('chat')
-                  onLoadChat(chat.id)
-                }}
-                className={clsx(
-                  'min-h-[38px] w-full truncate rounded-xl border px-3 py-2 pr-8 text-left text-sm transition-all duration-200 active:scale-[0.98]',
-                  currentChatId === chat.id
-                    ? 'border-white/[0.075] bg-white/[0.055] text-text-primary'
-                    : 'border-transparent text-text-secondary hover:bg-white/[0.035] hover:text-text-primary'
-                )}
-                title={chat.title}
-              >
-                {chat.title ? (
-                  streamingIntervals.current[chat.id] ? (
-                    <StreamTitleWrapper title={chat.title} />
-                  ) : (
-                    chat.title
-                  )
-                ) : (
-                  <LoadingDots className="h-full py-1" size="xs" />
-                )}
-              </button>
-              {runningChats[chat.id] && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none transition-opacity duration-300 group-hover:opacity-0">
-                  <Spinner size="xxs" />
-                </div>
-              )}
-              <button
-                onClick={(e) => handleDelete(e, chat.id)}
-                disabled={isDeleting === chat.id}
-                className={clsx(
-                  'absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-text-muted opacity-0 transition-all duration-200 hover:bg-white/[0.05] hover:text-status-error group-hover:opacity-100 active:scale-90',
-                  isDeleting === chat.id && 'opacity-100 animate-pulse'
-                )}
-                title="Delete chat"
-              >
-                <Trash size={14} />
-              </button>
+          {chats.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center text-xs text-text-muted/60">
+              No recent chats
             </div>
-          ))}
+          ) : (
+            chats.map((chat) => (
+              <div key={chat.id} className="group relative">
+                <button
+                  onClick={() => {
+                    onViewChange('chat')
+                    onLoadChat(chat.id)
+                  }}
+                  className={clsx(
+                    'min-h-[38px] w-full truncate rounded-xl border px-3 py-2 pr-8 text-left text-sm transition-all duration-200 active:scale-[0.98]',
+                    currentChatId === chat.id
+                      ? 'border-white/[0.06] bg-white/[0.045] text-text-primary font-medium shadow-[inset_0_1px_0_rgba(255,255,255,0.01)]'
+                      : 'border-transparent text-text-secondary hover:bg-white/[0.025] hover:text-text-primary'
+                  )}
+                  title={chat.title}
+                >
+                  {chat.title ? (
+                    streamingIntervals.current[chat.id] ? (
+                      <StreamTitleWrapper title={chat.title} />
+                    ) : (
+                      chat.title
+                    )
+                  ) : (
+                    <LoadingDots className="h-full py-1" size="xs" />
+                  )}
+                </button>
+                {runningChats[chat.id] && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none transition-opacity duration-300 group-hover:opacity-0">
+                    <Spinner size="xxs" />
+                  </div>
+                )}
+                <button
+                  onClick={(e) => handleDelete(e, chat.id)}
+                  disabled={isDeleting === chat.id}
+                  className={clsx(
+                    'absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-text-muted opacity-0 scale-95 transition-all duration-200 hover:bg-white/[0.05] hover:text-status-error hover:scale-105 group-hover:opacity-100 group-hover:scale-100 active:scale-90',
+                    isDeleting === chat.id && 'opacity-100 animate-pulse'
+                  )}
+                  title="Delete chat"
+                >
+                  <Trash size={14} />
+                </button>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
-      <div className="mt-auto p-4 shrink-0">
+      <div className="mt-auto p-4 shrink-0 border-t border-white/[0.04] bg-background-main/30 backdrop-blur-md">
         <NavItem
           icon={<Gear size={18} weight={activeView === 'settings' ? 'fill' : 'regular'} />}
           label="Settings"
@@ -307,12 +327,12 @@ function NavItem({
       className={clsx(
         'group relative flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-sm transition-all duration-200',
         active
-          ? 'border-white/[0.07] bg-white/[0.055] text-text-primary font-medium'
-          : 'border-transparent text-text-secondary hover:bg-white/[0.035] hover:text-text-primary'
+          ? 'border-white/[0.07] bg-white/[0.055] text-text-primary font-medium shadow-[inset_0_1px_0_rgba(255,255,255,0.015)]'
+          : 'border-transparent text-text-secondary hover:bg-white/[0.025] hover:text-text-primary'
       )}
     >
       {active && (
-        <span className="absolute bottom-2 left-0 top-2 w-px rounded-full bg-accent-primary/80" />
+        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-accent-primary shadow-[0_0_8px_var(--accent-primary)]" />
       )}
       <span
         className={clsx(

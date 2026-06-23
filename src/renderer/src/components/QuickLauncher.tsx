@@ -24,6 +24,7 @@ import { isShortcutPressed, triggerErrorPopup } from '../utils'
 import { ErrorPopup } from './ErrorPopup'
 import { ApplicationInfo, FileSearchResult } from '../../../shared/types'
 import clsx from 'clsx'
+import { LandingBackgroundEffects } from './LandingBackgroundEffects'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ActionLoader, ToolCall } from './ActionLoader'
@@ -989,11 +990,14 @@ export function QuickLauncher(): React.JSX.Element {
     default: 'border-white/[0.09] bg-white/[0.045] text-text-primary'
   }[activeMode]
 
+  const activeTheme = (document.documentElement.getAttribute('data-theme') as any) || 'marine'
+
   return (
     <div
-      className="quick-launcher-overlay flex h-screen w-screen flex-col items-center justify-start p-8 pt-[20vh] font-sans"
+      className="quick-launcher-overlay flex h-screen w-screen flex-col items-center justify-start p-8 pt-[20vh] font-sans relative overflow-hidden"
       onClick={() => window.api.hideLauncher()}
     >
+      <LandingBackgroundEffects theme={activeTheme} />
       {/* Magical live moving border and diagonal glows */}
       {glowState !== 'idle' && (
         <>
@@ -1158,198 +1162,205 @@ export function QuickLauncher(): React.JSX.Element {
         )}
 
         {/* Input Bar */}
-        <div
-          className={clsx(
-            'premium-panel relative flex flex-col w-full gap-3 overflow-hidden rounded-[30px] border px-4 py-4 transition-all duration-300 input-border-glow',
-            modeClasses,
-            ((isModelSelectorOpen && quickLauncherMode === 'advanced') || isFocused) &&
-              'prism-glow active'
-          )}
-        >
-          {attachedScreenshot && (
-            <div className="relative flex items-center justify-start self-start bg-white/[0.03] border border-white/[0.08] p-1.5 rounded-xl pr-8 animate-soft-pop group/thumb">
-              <img
-                src={`data:image/png;base64,${attachedScreenshot}`}
-                alt="Screenshot preview"
-                className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
-              />
-              <button
-                type="button"
-                onClick={() => setAttachedScreenshot(null)}
-                className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-text-secondary hover:text-white transition-colors text-xs font-bold leading-none cursor-pointer"
-              >
-                &times;
-              </button>
+        <div className="relative w-full">
+          {activeTheme === 'terno' && (
+            <div className="absolute inset-0 pointer-events-none flex items-center justify-center -z-10 animate-slow-pulse">
+              <div className="w-[520px] h-[120px] rounded-full bg-white opacity-[0.4] blur-[70px]" />
             </div>
           )}
-
-          <div className="flex w-full items-center gap-4">
-            {activeMode !== 'default' && (
-              <div className="pointer-events-none absolute inset-x-6 top-0 h-px overflow-hidden">
-                <div
-                  className={clsx(
-                    'h-px w-full animate-[line-sweep_1600ms_cubic-bezier(0.2,0.82,0.2,1)_infinite] opacity-80',
-                    isSearchAndThinkMode
-                      ? 'bg-[linear-gradient(to_right,transparent,var(--accent-secondary),var(--status-warning),transparent)]'
-                      : 'bg-gradient-to-r from-transparent via-current to-transparent'
-                  )}
-                />
-              </div>
+          <div
+            className={clsx(
+              'premium-panel relative flex flex-col w-full gap-3 overflow-hidden rounded-[22px] border px-4 py-4 transition-all duration-300 input-border-glow quick-launcher-input-bar',
+              modeClasses,
+              ((isModelSelectorOpen && quickLauncherMode === 'advanced') || isFocused) &&
+                'prism-glow active'
             )}
-
-            {/* Model selector toggle or simple mode indicator */}
-            {quickLauncherMode === 'advanced' ? (
-              <button
-                onClick={() => {
-                  setIsModelSelectorOpen(!isModelSelectorOpen)
-                  setSelectedIndex(
-                    Math.max(
-                      0,
-                      MODELS.findIndex((m) => m.id === activeModelId)
-                    )
-                  )
-                }}
-                className={clsx(
-                  'flex h-10 shrink-0 items-center gap-2 rounded-[16px] border px-3 text-sm font-semibold transition-all duration-200',
-                  isModelSelectorOpen
-                    ? 'border-accent-primary/35 bg-[#251b2d] text-accent-primary'
-                    : 'border-white/[0.08] bg-[#1e2026] text-text-secondary hover:bg-[#25272e] hover:text-text-primary'
-                )}
-              >
-                <Command size={15} />
-                <span
-                  className={
-                    activeModel.id === 'prism-5' ? 'prism-top-gradient' : 'text-text-primary'
-                  }
-                >
-                  {activeModel.name.replace('Prism ', '')}
-                </span>
-                <ChevronRight
-                  size={15}
-                  className={clsx(
-                    'transition-transform duration-200',
-                    isModelSelectorOpen && 'rotate-90'
-                  )}
+          >
+            {attachedScreenshot && (
+              <div className="relative flex items-center justify-start self-start bg-white/[0.03] border border-white/[0.08] p-1.5 rounded-xl pr-8 animate-soft-pop group/thumb">
+                <img
+                  src={`data:image/png;base64,${attachedScreenshot}`}
+                  alt="Screenshot preview"
+                  className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
                 />
-              </button>
-            ) : (
-              <div className="flex h-10 shrink-0 items-center gap-2 rounded-[16px] border border-white/[0.08] bg-[#1e2026] px-3 text-sm font-semibold text-text-secondary select-none">
-                <Sparkles size={15} className="text-accent-secondary animate-pulse" />
-                <span>Prism 6</span>
-              </div>
-            )}
-
-            {/* Input field */}
-            <form onSubmit={handleSubmit} className="relative z-10 flex-1">
-              <input
-                ref={inputRef}
-                type="text"
-                autoFocus
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value)
-                  setSelectedIndex(0)
-                }}
-                onFocus={() => setIsFocused(true)}
-                onBlur={() => setIsFocused(false)}
-                placeholder={
-                  isModelSelectorOpen
-                    ? 'Select a Prism model'
-                    : isYoutubeMode
-                      ? 'Search and play videos'
-                      : isSearchAndThinkMode
-                        ? 'Search, and then Think Deeply with Prism'
-                        : isSearchEnabled
-                          ? 'Search the web'
-                          : isThinkMode
-                            ? 'Think with Prism'
-                            : quickLauncherMode === 'simple'
-                              ? 'Ask quick AI or search files/apps...'
-                              : 'What should Prism do?'
-                }
-                className={clsx(
-                  'w-full border-none bg-transparent text-[22px] font-medium outline-none transition-colors duration-200 placeholder:text-text-muted',
-                  activeMode === 'youtube'
-                    ? 'text-accent-primary placeholder:text-accent-primary/40'
-                    : isSearchAndThinkMode
-                      ? 'text-[#d9c77a] placeholder:text-[#d9c77a]/45'
-                      : activeMode === 'search'
-                        ? 'text-accent-secondary placeholder:text-accent-secondary/40'
-                        : activeMode === 'think'
-                          ? 'text-status-warning placeholder:text-status-warning/40'
-                          : 'text-text-primary'
-                )}
-              />
-            </form>
-
-            <div className="relative z-10 flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  if (isRecording) {
-                    stopRecording('insert')
-                  } else {
-                    toggleRecording()
-                  }
-                }}
-                disabled={isTranscribing}
-                className={clsx(
-                  'flex h-10 w-10 items-center justify-center rounded-[16px] border transition-all duration-200',
-                  isRecording
-                    ? 'border-status-error/30 bg-status-error/20 text-status-error animate-pulse'
-                    : isTranscribing
-                      ? 'border-accent-primary/30 bg-accent-primary/20 text-accent-primary cursor-wait'
-                      : 'border-white/[0.08] bg-[#1e2026] text-text-secondary hover:bg-[#25272e] hover:text-text-primary'
-                )}
-                title={isRecording ? 'Stop and review' : 'Start Dictation'}
-              >
-                {isTranscribing ? (
-                  <div className="flex items-center gap-0.5">
-                    <span className="h-1 w-1 rounded-full bg-current animate-bounce [animation-delay:-0.3s]" />
-                    <span className="h-1 w-1 rounded-full bg-current animate-bounce [animation-delay:-0.15s]" />
-                    <span className="h-1 w-1 rounded-full bg-current animate-bounce" />
-                  </div>
-                ) : isRecording ? (
-                  <StopCircle size={20} weight="fill" />
-                ) : (
-                  <Microphone size={20} />
-                )}
-              </button>
-
-              {isRecording && (
                 <button
                   type="button"
-                  onClick={() => stopRecording('send')}
-                  disabled={isTranscribing}
-                  className="flex h-10 w-10 items-center justify-center rounded-[16px] border border-text-primary/20 bg-text-primary text-black transition-all duration-200 hover:bg-white active:scale-95"
-                  title="Stop and send"
+                  onClick={() => setAttachedScreenshot(null)}
+                  className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-text-secondary hover:text-white transition-colors text-xs font-bold leading-none cursor-pointer"
                 >
-                  <SendHorizontal size={17} weight="fill" />
+                  &times;
                 </button>
-              )}
-            </div>
-
-            {/* Indicators badges */}
-            {activeBadges.length > 0 && (
-              <div
-                className={clsx(
-                  'relative z-10 flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[16px] border px-2',
-                  isSearchAndThinkMode
-                    ? 'border-transparent bg-gradient-to-r from-[#10221c] to-[#221d10] text-[#d9c77a]'
-                    : 'border-white/[0.15] bg-[#22242d]'
-                )}
-              >
-                {activeBadges.map((badge) =>
-                  badge === 'youtube' ? (
-                    <CirclePlay key={badge} size={19} />
-                  ) : badge === 'search' ? (
-                    <Search key={badge} size={19} className="animate-slow-pulse" />
-                  ) : (
-                    <Brain key={badge} size={19} className="animate-slow-pulse" />
-                  )
-                )}
               </div>
             )}
+
+            <div className="flex w-full items-center gap-4">
+              {activeMode !== 'default' && (
+                <div className="pointer-events-none absolute inset-x-6 top-0 h-px overflow-hidden">
+                  <div
+                    className={clsx(
+                      'h-px w-full animate-[line-sweep_1600ms_cubic-bezier(0.2,0.82,0.2,1)_infinite] opacity-80',
+                      isSearchAndThinkMode
+                        ? 'bg-[linear-gradient(to_right,transparent,var(--accent-secondary),var(--status-warning),transparent)]'
+                        : 'bg-gradient-to-r from-transparent via-current to-transparent'
+                    )}
+                  />
+                </div>
+              )}
+
+              {/* Model selector toggle or simple mode indicator */}
+              {quickLauncherMode === 'advanced' ? (
+                <button
+                  onClick={() => {
+                    setIsModelSelectorOpen(!isModelSelectorOpen)
+                    setSelectedIndex(
+                      Math.max(
+                        0,
+                        MODELS.findIndex((m) => m.id === activeModelId)
+                      )
+                    )
+                  }}
+                  className={clsx(
+                    'flex h-10 shrink-0 items-center gap-2 rounded-[16px] border px-3 text-sm font-semibold transition-all duration-200',
+                    isModelSelectorOpen
+                      ? 'border-accent-primary/35 bg-[#251b2d] text-accent-primary'
+                      : 'border-white/[0.08] bg-[#1e2026] text-text-secondary hover:bg-[#25272e] hover:text-text-primary'
+                  )}
+                >
+                  <Command size={15} />
+                  <span
+                    className={
+                      activeModel.id === 'prism-5' ? 'prism-top-gradient' : 'text-text-primary'
+                    }
+                  >
+                    {activeModel.name.replace('Prism ', '')}
+                  </span>
+                  <ChevronRight
+                    size={15}
+                    className={clsx(
+                      'transition-transform duration-200',
+                      isModelSelectorOpen && 'rotate-90'
+                    )}
+                  />
+                </button>
+              ) : (
+                <div className="flex h-10 shrink-0 items-center gap-2 rounded-[16px] border border-white/[0.08] bg-[#1e2026] px-3 text-sm font-semibold text-text-secondary select-none">
+                  <Sparkles size={15} className="text-accent-secondary animate-pulse" />
+                  <span>Prism 6</span>
+                </div>
+              )}
+
+              {/* Input field */}
+              <form onSubmit={handleSubmit} className="relative z-10 flex-1">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  autoFocus
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value)
+                    setSelectedIndex(0)
+                  }}
+                  onFocus={() => setIsFocused(true)}
+                  onBlur={() => setIsFocused(false)}
+                  placeholder={
+                    isModelSelectorOpen
+                      ? 'Select a Prism model'
+                      : isYoutubeMode
+                        ? 'Search and play videos'
+                        : isSearchAndThinkMode
+                          ? 'Search, and then Think Deeply with Prism'
+                          : isSearchEnabled
+                            ? 'Search the web'
+                            : isThinkMode
+                              ? 'Think with Prism'
+                              : quickLauncherMode === 'simple'
+                                ? 'Ask quick AI or search files/apps...'
+                                : 'What should Prism do?'
+                  }
+                  className={clsx(
+                    'w-full border-none bg-transparent text-[22px] font-medium outline-none transition-colors duration-200 placeholder:text-text-muted',
+                    activeMode === 'youtube'
+                      ? 'text-accent-primary placeholder:text-accent-primary/40'
+                      : isSearchAndThinkMode
+                        ? 'text-[#d9c77a] placeholder:text-[#d9c77a]/45'
+                        : activeMode === 'search'
+                          ? 'text-accent-secondary placeholder:text-accent-secondary/40'
+                          : activeMode === 'think'
+                            ? 'text-status-warning placeholder:text-status-warning/40'
+                            : 'text-text-primary'
+                  )}
+                />
+              </form>
+
+              <div className="relative z-10 flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isRecording) {
+                      stopRecording('insert')
+                    } else {
+                      toggleRecording()
+                    }
+                  }}
+                  disabled={isTranscribing}
+                  className={clsx(
+                    'flex h-10 w-10 items-center justify-center rounded-[16px] border transition-all duration-200',
+                    isRecording
+                      ? 'border-status-error/30 bg-status-error/20 text-status-error animate-pulse'
+                      : isTranscribing
+                        ? 'border-accent-primary/30 bg-accent-primary/20 text-accent-primary cursor-wait'
+                        : 'border-white/[0.08] bg-[#1e2026] text-text-secondary hover:bg-[#25272e] hover:text-text-primary'
+                  )}
+                  title={isRecording ? 'Stop and review' : 'Start Dictation'}
+                >
+                  {isTranscribing ? (
+                    <div className="flex items-center gap-0.5">
+                      <span className="h-1 w-1 rounded-full bg-current animate-bounce [animation-delay:-0.3s]" />
+                      <span className="h-1 w-1 rounded-full bg-current animate-bounce [animation-delay:-0.15s]" />
+                      <span className="h-1 w-1 rounded-full bg-current animate-bounce" />
+                    </div>
+                  ) : isRecording ? (
+                    <StopCircle size={20} weight="fill" />
+                  ) : (
+                    <Microphone size={20} />
+                  )}
+                </button>
+
+                {isRecording && (
+                  <button
+                    type="button"
+                    onClick={() => stopRecording('send')}
+                    disabled={isTranscribing}
+                    className="flex h-10 w-10 items-center justify-center rounded-[16px] border border-text-primary/20 bg-text-primary text-black transition-all duration-200 hover:bg-white active:scale-95"
+                    title="Stop and send"
+                  >
+                    <SendHorizontal size={17} weight="fill" />
+                  </button>
+                )}
+              </div>
+
+              {/* Indicators badges */}
+              {activeBadges.length > 0 && (
+                <div
+                  className={clsx(
+                    'relative z-10 flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[16px] border px-2',
+                    isSearchAndThinkMode
+                      ? 'border-transparent bg-gradient-to-r from-[#10221c] to-[#221d10] text-[#d9c77a]'
+                      : 'border-white/[0.15] bg-[#22242d]'
+                  )}
+                >
+                  {activeBadges.map((badge) =>
+                    badge === 'youtube' ? (
+                      <CirclePlay key={badge} size={19} />
+                    ) : badge === 'search' ? (
+                      <Search key={badge} size={19} className="animate-slow-pulse" />
+                    ) : (
+                      <Brain key={badge} size={19} className="animate-slow-pulse" />
+                    )
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

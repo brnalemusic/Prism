@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @plugin "@tailwindcss/typography";
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
 
 :root,
 [data-theme='marine'] {
@@ -47,7 +48,7 @@
   --home-glow-color-1: rgba(255, 78, 58, 0.08);
   --home-glow-color-2: rgba(255, 78, 58, 0.15);
 
-  --theme-font-sans: 'Shadows Into Light', cursive, sans-serif;
+  --theme-font-sans: 'Plus Jakarta Sans', 'Outfit', 'Inter', ui-sans-serif, system-ui, sans-serif;
 }
 
 [data-theme='akoustik'] {
@@ -622,4 +623,262 @@
 
 .settings-zoom-slider::-moz-range-thumb:hover {
   transform: scale(1.15);
+}
+
+/* ─── Custom Background Animations for Prism Landing Themes ─── */
+
+/* Stars & Twinkling (Marine & Akoustik) */
+@keyframes twinkle-star {
+  0%, 100% {
+    opacity: 0.15;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes float-star {
+  0%, 100% {
+    transform: translateY(0px) translateX(0px);
+  }
+  50% {
+    transform: translateY(-8px) translateX(6px);
+  }
+}
+
+/* Vertez Lava & Embers */
+@keyframes morph-lava {
+  0%, 100% {
+    border-radius: 42% 58% 70% 30% / 45% 45% 55% 55%;
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    border-radius: 70% 30% 52% 48% / 60% 40% 60% 40%;
+    transform: translate(15px, -20px) scale(1.05);
+  }
+  66% {
+    border-radius: 50% 50% 30% 70% / 40% 60% 30% 70%;
+    transform: translate(-10px, 15px) scale(0.95);
+  }
+}
+
+@keyframes rise-ember {
+  0% {
+    transform: translateY(10vh) translateX(0) scale(0.8);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.7;
+  }
+  85% {
+    opacity: 0.4;
+  }
+  100% {
+    transform: translateY(-60vh) translateX(35px) scale(0.4);
+    opacity: 0;
+  }
+}
+
+/* Ursula Leaves & Wind */
+@keyframes drift-leaf {
+  0% {
+    transform: translate(-5vw, -5vh) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.85;
+  }
+  88% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate(105vw, 45vh) rotate(280deg);
+    opacity: 0;
+  }
+}
+
+@keyframes wind-sweep {
+  0% {
+    transform: translateX(-40vw) scaleX(0.6);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.18;
+  }
+  80% {
+    opacity: 0.18;
+  }
+  100% {
+    transform: translateX(110vw) scaleX(1.4);
+    opacity: 0;
+  }
+}
+
+@keyframes sparkle-green {
+  0%, 100% {
+    opacity: 0.1;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.1);
+  }
+}
+
+.animate-twinkle-star {
+  animation: twinkle-star var(--duration, 4s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+.animate-float-star {
+  animation: float-star var(--duration, 8s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+.animate-morph-lava {
+  animation: morph-lava var(--duration, 20s) ease-in-out infinite;
+}
+
+.animate-rise-ember {
+  animation: rise-ember var(--duration, 12s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+.animate-drift-leaf {
+  animation: drift-leaf var(--duration, 16s) linear infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+.animate-wind-sweep {
+  animation: wind-sweep var(--duration, 10s) cubic-bezier(0.25, 1, 0.5, 1) infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+.animate-sparkle-green {
+  animation: sparkle-green var(--duration, 3s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+/* ─── Quick Launcher Input Bar custom theme effects ─── */
+.quick-launcher-input-bar {
+  opacity: 1 !important;
+  background-color: var(--surface) !important;
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  border-width: 1px;
+}
+
+/* Default state borders and shadows per theme */
+[data-theme='marine'] .quick-launcher-input-bar {
+  border-color: rgba(143, 180, 255, 0.15) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+[data-theme='akoustik'] .quick-launcher-input-bar {
+  border-color: rgba(176, 122, 255, 0.15) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+[data-theme='vertez'] .quick-launcher-input-bar {
+  border-color: rgba(255, 78, 58, 0.15) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+[data-theme='terno'] .quick-launcher-input-bar {
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  background-color: #000000 !important;
+}
+[data-theme='ursula'] .quick-launcher-input-bar {
+  border-color: rgba(56, 142, 60, 0.15) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+[data-theme='rgb'] .quick-launcher-input-bar {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+/* Active / Focused state styling and animations per theme */
+[data-theme='marine'] .quick-launcher-input-bar.active {
+  animation: marine-border-pulse 3s infinite ease-in-out;
+}
+[data-theme='akoustik'] .quick-launcher-input-bar.active {
+  animation: akoustik-border-pulse 3s infinite ease-in-out;
+}
+[data-theme='vertez'] .quick-launcher-input-bar.active {
+  animation: vertez-lava-pulse 3s infinite ease-in-out;
+}
+[data-theme='terno'] .quick-launcher-input-bar.active {
+  animation: terno-border-pulse 3s infinite ease-in-out;
+  background-color: #000000 !important;
+}
+[data-theme='ursula'] .quick-launcher-input-bar.active {
+  animation: ursula-wind-pulse 3s infinite ease-in-out;
+}
+[data-theme='rgb'] .quick-launcher-input-bar.active {
+  animation: rgb-rainbow-border 4s infinite linear;
+}
+
+/* Keyframes for the active borders */
+@keyframes marine-border-pulse {
+  0%, 100% {
+    border-color: rgba(143, 180, 255, 0.45);
+    box-shadow: 0 0 16px rgba(143, 180, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+  50% {
+    border-color: rgba(120, 224, 194, 0.95);
+    box-shadow: 0 0 28px rgba(120, 224, 194, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+}
+
+@keyframes akoustik-border-pulse {
+  0%, 100% {
+    border-color: rgba(176, 122, 255, 0.45);
+    box-shadow: 0 0 16px rgba(176, 122, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+  50% {
+    border-color: rgba(232, 140, 255, 0.95);
+    box-shadow: 0 0 28px rgba(232, 140, 255, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+}
+
+@keyframes vertez-lava-pulse {
+  0%, 100% {
+    border-color: #ff4e3a;
+    box-shadow: 0 0 18px rgba(255, 78, 58, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+  50% {
+    border-color: #ff9f1c;
+    box-shadow: 0 0 32px rgba(255, 159, 28, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+}
+
+@keyframes terno-border-pulse {
+  0%, 100% {
+    border-color: rgba(255, 255, 255, 0.35);
+    box-shadow: 0 0 18px rgba(255, 255, 255, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+  50% {
+    border-color: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 0 32px rgba(255, 255, 255, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  }
+}
+
+@keyframes ursula-wind-pulse {
+  0%, 100% {
+    border-color: rgba(56, 142, 60, 0.5);
+    box-shadow: 0 0 16px rgba(56, 142, 60, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+  50% {
+    border-color: rgba(200, 230, 201, 0.95);
+    box-shadow: 0 0 28px rgba(200, 230, 201, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+}
+
+@keyframes rgb-rainbow-border {
+  0% { border-color: #ff0000; box-shadow: 0 0 20px rgba(255, 0, 0, 0.45); }
+  17% { border-color: #ff8800; box-shadow: 0 0 20px rgba(255, 136, 0, 0.45); }
+  33% { border-color: #ffff00; box-shadow: 0 0 20px rgba(255, 255, 0, 0.45); }
+  50% { border-color: #00ff00; box-shadow: 0 0 20px rgba(0, 255, 0, 0.45); }
+  67% { border-color: #0000ff; box-shadow: 0 0 20px rgba(0, 0, 255, 0.45); }
+  83% { border-color: #8800ff; box-shadow: 0 0 20px rgba(136, 0, 255, 0.45); }
+  100% { border-color: #ff0000; box-shadow: 0 0 20px rgba(255, 0, 0, 0.45); }
 }
