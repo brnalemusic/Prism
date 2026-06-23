@@ -2269,6 +2269,7 @@ function RealApp(): React.JSX.Element {
           isKeyMissing={isKeyMissing}
           apiKey={config?.userGeminiKey || ''}
           onApiKeySave={handleSaveApiKey}
+          configLoaded={config !== null}
         />
       )}
       <TitleBar title={currentChatTitle || undefined} isStreaming={isTitleStreaming} />

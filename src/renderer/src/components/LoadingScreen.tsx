@@ -22,13 +22,15 @@ interface LoadingScreenProps {
   isKeyMissing: boolean
   apiKey: string
   onApiKeySave: (key: string) => void
+  configLoaded: boolean
 }
 
 export function LoadingScreen({
   onComplete,
   isKeyMissing,
   apiKey,
-  onApiKeySave
+  onApiKeySave,
+  configLoaded
 }: LoadingScreenProps): React.JSX.Element {
   const [visible, setVisible] = useState(true)
   const [bootState, setBootState] = useState<BootState>('connecting')
@@ -36,12 +38,24 @@ export function LoadingScreen({
   const [keyMissing, setKeyMissing] = useState(isKeyMissing)
   const [showKeyModal, setShowKeyModal] = useState(false)
 
+  // Keep mutable references to prevent recreating callback instances from triggering resets.
+  const onCompleteRef = useRef(onComplete)
+  onCompleteRef.current = onComplete
+
+  const onApiKeySaveRef = useRef(onApiKeySave)
+  onApiKeySaveRef.current = onApiKeySave
+
   const isMounted = useRef(true)
   useEffect(() => {
     return () => {
       isMounted.current = false
     }
   }, [])
+
+  // Sync state if parent resolves isKeyMissing after loading config.
+  useEffect(() => {
+    setKeyMissing(isKeyMissing)
+  }, [isKeyMissing])
 
   const steps = buildSteps(bootState)
 
@@ -58,7 +72,7 @@ export function LoadingScreen({
           setVisible(false)
           setTimeout(() => {
             if (isMounted.current) {
-              onComplete()
+              onCompleteRef.current()
             }
           }, 600)
         }, 500)
@@ -71,16 +85,23 @@ export function LoadingScreen({
       setErrorMsg(err instanceof Error ? err.message : 'Could not reach the Gemini API.')
       setBootState('failed')
     }
-  }, [onComplete])
+  }, [])
+
+  const hasStartedRef = useRef(false)
 
   // Drive the staged boot flow.
   useEffect(() => {
-    let active = true
+    // Wait until configuration is loaded before driving the boot sequence.
+    if (!configLoaded) return
+
+    // Ensure we run the start sequence only once.
+    if (hasStartedRef.current) return
+    hasStartedRef.current = true
 
     const run = async (): Promise<void> => {
       // Stage 1: Establishing connection (brief, for perceived progression).
       await delay(500)
-      if (!active || !isMounted.current) return
+      if (!isMounted.current) return
 
       // Stage 2: API key. If missing, pause the flow and prompt inline.
       if (keyMissing) {
@@ -95,11 +116,7 @@ export function LoadingScreen({
     }
 
     run()
-
-    return () => {
-      active = false
-    }
-  }, [keyMissing, runConnectionTest])
+  }, [configLoaded, keyMissing, runConnectionTest])
 
   const handleRetry = useCallback(async (): Promise<void> => {
     setErrorMsg('')
@@ -118,13 +135,13 @@ export function LoadingScreen({
   // When the user saves a key from the inline modal, persist it, then resume.
   const handleKeySaved = useCallback(
     (key: string): void => {
-      onApiKeySave(key)
+      onApiKeySaveRef.current(key)
       setKeyMissing(false)
       setShowKeyModal(false)
       setBootState('testing')
       void runConnectionTest()
     },
-    [onApiKeySave, runConnectionTest]
+    [runConnectionTest]
   )
 
   return (
