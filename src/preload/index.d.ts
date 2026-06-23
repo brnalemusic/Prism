@@ -119,6 +119,11 @@ export interface PrismAPI {
   captureWindow: (sourceId: string) => Promise<string>
   getConfig: () => Promise<AppConfig>
   saveConfig: (config: AppConfig) => Promise<boolean>
+  testGeminiConnection: () => Promise<{
+    ok: boolean
+    errorType?: 'offline' | 'invalid-key' | 'server' | 'unknown'
+    message?: string
+  }>
   getToolDefinitions: () => Promise<any[]>
   getChats: () => Promise<Omit<ChatSession, 'messages'>[]>
   loadChat: (id: string) => Promise<Content[]>

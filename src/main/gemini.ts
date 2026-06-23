@@ -49,6 +49,7 @@ import {
 } from './history'
 import { loadConfig, saveConfig, SlashWorkflow } from './config'
 import { toolsManifest } from './toolsManifest'
+import { markConnectionActive } from './connection'
 
 // Load environment variables from .env
 dotenv.config({ path: path.join(__dirname, '../../.env') })
@@ -2202,6 +2203,10 @@ export async function handleChatMessage(
   // Notify the start of the response ONLY ONCE
   event.sender.send('chat-reply-start', { chatId })
 
+  // The user is actively chatting — reset the 2h keep-alive window so the
+  // connection to Gemini stays warm and subsequent messages have low latency.
+  markConnectionActive()
+
   // Create abort controller for this request session
   const runAbortController = new AbortController()
   activeRuns.set(chatId, {
@@ -2634,6 +2639,9 @@ export async function handleLauncherChatMessage(
 
   let success = false
   event.sender.send('launcher-reply-start')
+
+  // Launcher chat is also a user-initiated message — keep the connection warm.
+  markConnectionActive()
 
   try {
     while (!success) {

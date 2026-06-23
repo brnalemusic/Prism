@@ -335,6 +335,11 @@ const api = {
     ipcRenderer.invoke('capture-window', sourceId),
   getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('get-config'),
   saveConfig: (config: AppConfig): Promise<boolean> => ipcRenderer.invoke('save-config', config),
+  testGeminiConnection: (): Promise<{
+    ok: boolean
+    errorType?: 'offline' | 'invalid-key' | 'server' | 'unknown'
+    message?: string
+  }> => ipcRenderer.invoke('test-gemini-connection'),
   getToolDefinitions: (): Promise<any[]> => ipcRenderer.invoke('get-tool-definitions'),
   getChats: (): Promise<Omit<ChatSession, 'messages'>[]> => ipcRenderer.invoke('get-chats'),
   loadChat: (id: string): Promise<Content[]> => ipcRenderer.invoke('load-chat', id),

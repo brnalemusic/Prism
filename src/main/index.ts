@@ -45,6 +45,12 @@ import {
 import { loadConfig, saveConfig, AppConfig } from './config'
 import { toolsManifest } from './toolsManifest'
 import { listChatSessions, deleteChatSession, searchChatsOffline } from './history'
+import {
+  testGeminiConnection,
+  setConnectionApiKey,
+  markConnectionActive,
+  stopKeepAlive
+} from './connection'
 import { SubagentMessage, ApplicationInfo } from '../shared/types'
 import { IS_DEMO } from '../shared/demo'
 
@@ -978,6 +984,7 @@ if (!gotTheLock) {
       // Update the API key in the gemini module
       if (config.userGeminiKey) {
         setUserApiKey(config.userGeminiKey)
+        setConnectionApiKey(config.userGeminiKey)
       }
       setSubagentModel(config.subagentModel)
 
@@ -995,6 +1002,15 @@ if (!gotTheLock) {
 
     ipcMain.handle('get-tool-definitions', () => {
       return toolsManifest
+    })
+
+    // Pre-launch connection test used by the loading screen.
+    ipcMain.handle('test-gemini-connection', async () => {
+      const res = await testGeminiConnection()
+      if (res.ok) {
+        markConnectionActive()
+      }
+      return res
     })
 
     ipcMain.on('update-config-from-tools', (_event, config: AppConfig) => {
@@ -1019,6 +1035,7 @@ if (!gotTheLock) {
 
       if (currentConfig.userGeminiKey) {
         setUserApiKey(currentConfig.userGeminiKey)
+        setConnectionApiKey(currentConfig.userGeminiKey)
       }
 
       registerAppsUpdatedCallback((apps) => {
@@ -1064,5 +1081,6 @@ if (!gotTheLock) {
 
   app.on('will-quit', () => {
     globalShortcut.unregisterAll()
+    stopKeepAlive()
   })
 }

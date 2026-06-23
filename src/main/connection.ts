@@ -1,0 +1,177 @@
+import { GoogleGenAI } from '@google/genai'
+import * as dotenv from 'dotenv'
+import * as path from 'path'
+
+// Load environment variables from .env (same convention as gemini.ts)
+dotenv.config({ path: path.join(__dirname, '../../.env') })
+
+/**
+ * Connection result returned by testGeminiConnection() and surfaced to the
+ * renderer via the `test-gemini-connection` IPC channel.
+ */
+export interface ConnectionTestResult {
+  ok: boolean
+  errorType?: 'offline' | 'invalid-key' | 'server' | 'unknown'
+  message?: string
+}
+
+// --- Keep-alive engine -------------------------------------------------------
+//
+// Two cooperating mechanisms keep the connection to Google warm:
+//
+// 1. The undici Agent (declared in gemini.ts) reuses TCP/HTTP sockets with a
+//    3.5-minute keepAliveTimeout. That is the transport layer.
+// 2. THIS engine is the application layer: while the user is actively using
+//    Prism, it sends a lightweight ping every HEARTBEAT_INTERVAL_MS so the
+//    pooled socket never goes cold. The window resets to KEEPALIVE_WINDOW_MS
+//    (2 hours) on every message the user sends; once 2 hours pass with no
+//    activity, the heartbeat stops itself to avoid unnecessary calls.
+
+/** Total length of the keep-alive window, reset on every user message. */
+export const KEEPALIVE_WINDOW_MS = 2 * 60 * 60 * 1000 // 2 hours
+
+/** Heartbeat cadence — kept safely under the undici 3.5-min keepAliveTimeout. */
+export const HEARTBEAT_INTERVAL_MS = 150000 // 2.5 minutes
+
+let userApiKey: string | null = null
+
+/** In-memory expiry timestamp of the current keep-alive window. */
+let connectionSessionExpiry = 0
+let heartbeatTimer: NodeJS.Timeout | null = null
+
+/**
+ * Sets the user's API key for connection testing. Mirrors gemini.ts so this
+ * module can validate the key independently.
+ */
+export function setConnectionApiKey(key: string): void {
+  userApiKey = key
+}
+
+/**
+ * Lightweight ping to the Gemini API used both as the pre-launch connection
+ * test and as the keep-alive heartbeat. Prefer countTokens (cheap); fall back
+ * to a 1-token generateContent if the SDK/model rejects countTokens.
+ */
+export async function testGeminiConnection(overrideKey?: string): Promise<ConnectionTestResult> {
+  const apiKey = overrideKey || userApiKey || process.env.GEMINI_API_KEY
+
+  if (!apiKey || apiKey.trim() === '' || apiKey === 'your_api_key_here') {
+    return {
+      ok: false,
+      errorType: 'invalid-key',
+      message: 'No Gemini API key is configured.'
+    }
+  }
+
+  const ai = new GoogleGenAI({ apiKey })
+
+  try {
+    // countTokens is the cheapest call that still exercises auth + transport.
+    await ai.models.countTokens({ model: 'gemini-3.1-flash-lite', contents: 'hi' })
+    return { ok: true }
+  } catch (countError) {
+    // Some models/endpoints don't support countTokens; retry with a minimal
+    // generateContent before declaring failure.
+    try {
+      await ai.models.generateContent({
+        model: 'gemini-3.1-flash-lite',
+        contents: 'hi'
+      })
+      return { ok: true }
+    } catch (genError) {
+      return classifyError(genError, countError)
+    }
+  }
+}
+
+/**
+ * Maps a Gemini/HTTP error to a coarse errorType for the loading screen.
+ */
+function classifyError(primary: unknown, secondary: unknown): ConnectionTestResult {
+  const msg = (e: unknown): string =>
+    e instanceof Error ? e.message : typeof e === 'string' ? e : JSON.stringify(e)
+
+  const text = `${msg(primary)} ${msg(secondary)}`.toLowerCase()
+
+  if (
+    text.includes('api key not valid') ||
+    text.includes('api_key_invalid') ||
+    text.includes('unauthorized') ||
+    text.includes('401') ||
+    text.includes('permission_denied') ||
+    text.includes('api key expired')
+  ) {
+    return {
+      ok: false,
+      errorType: 'invalid-key',
+      message: 'Your Gemini API key is invalid or expired.'
+    }
+  }
+
+  if (
+    text.includes('fetch failed') ||
+    text.includes('getaddrinfo') ||
+    text.includes('enotfound') ||
+    text.includes('econnrefused') ||
+    text.includes('etimedout') ||
+    text.includes('network') ||
+    text.includes('failed to fetch') ||
+    text.includes('internet')
+  ) {
+    return {
+      ok: false,
+      errorType: 'offline',
+      message: 'No internet connection. Check your network and try again.'
+    }
+  }
+
+  if (text.includes('503') || text.includes('500') || text.includes('overloaded')) {
+    return {
+      ok: false,
+      errorType: 'server',
+      message: 'Gemini servers are busy. Try again in a moment.'
+    }
+  }
+
+  return {
+    ok: false,
+    errorType: 'unknown',
+    message: msg(primary) || 'Could not reach the Gemini API.'
+  }
+}
+
+/**
+ * Resets the keep-alive window to 2 hours from now and ensures the heartbeat
+ * is running. Called on every successful connection test and on every message
+ * the user sends — so active sessions stay warm while idle ones wind down.
+ */
+export function markConnectionActive(): void {
+  connectionSessionExpiry = Date.now() + KEEPALIVE_WINDOW_MS
+
+  if (heartbeatTimer) return
+
+  heartbeatTimer = setInterval(async () => {
+    if (Date.now() >= connectionSessionExpiry) {
+      // The 2-hour window lapsed with no user activity — stop the heartbeat.
+      stopKeepAlive()
+      return
+    }
+
+    try {
+      await testGeminiConnection()
+    } catch {
+      // Heartbeat failures are non-fatal; the next real message will surface
+      // any persistent problem through the normal chat error flow.
+    }
+  }, HEARTBEAT_INTERVAL_MS)
+}
+
+/**
+ * Stops the keep-alive heartbeat immediately (e.g. on app quit).
+ */
+export function stopKeepAlive(): void {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+  }
+}

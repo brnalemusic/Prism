@@ -7,7 +7,8 @@ import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
 import { PrismBackground } from './components/PrismBackground'
 import { LandingBackgroundEffects } from './components/LandingBackgroundEffects'
-import { IntroScreen } from './components/IntroScreen'
+import { LoadingScreen } from './components/LoadingScreen'
+import { OfflineBanner } from './components/OfflineBanner'
 import { Sidebar } from './components/Sidebar'
 import { InputBar, InputBarHandle } from './components/InputBar'
 import { Spinner } from './components/Spinner'
@@ -576,7 +577,8 @@ const AiMessage = React.memo(function AiMessage({
 })
 
 function RealApp(): React.JSX.Element {
-  const [showIntro, setShowIntro] = useState(true)
+  const [bootComplete, setBootComplete] = useState(false)
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine)
   const [messages, setMessages] = useState<Message[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [downloads, setDownloads] = useState<Record<string, DownloadProgress>>({})
@@ -728,6 +730,25 @@ function RealApp(): React.JSX.Element {
     isProcessingRef.current = isProcessing
   }, [isProcessing])
 
+  // Mirror online status into a ref so handleSend (a useCallback) reads the
+  // latest value without stale closures.
+  const isOnlineRef = useRef(isOnline)
+  useEffect(() => {
+    isOnlineRef.current = isOnline
+  }, [isOnline])
+
+  // Track connectivity via the browser online/offline events. No IPC needed.
+  useEffect(() => {
+    const goOnline = (): void => setIsOnline(true)
+    const goOffline = (): void => setIsOnline(false)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    return () => {
+      window.removeEventListener('online', goOnline)
+      window.removeEventListener('offline', goOffline)
+    }
+  }, [])
+
   const isThinkModeRef = useRef(isThinkMode)
   useEffect(() => {
     isThinkModeRef.current = isThinkMode
@@ -870,6 +891,8 @@ function RealApp(): React.JSX.Element {
       youtubeMode?: boolean
     ): void => {
       if (isProcessingRef.current) return
+      // Block messaging while offline.
+      if (!isOnlineRef.current) return
 
       setIsProcessing(true)
       isProcessingRef.current = true
@@ -2240,8 +2263,13 @@ function RealApp(): React.JSX.Element {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background-main font-sans selection:bg-accent-primary/30 pt-10">
-      {showIntro && (
-        <IntroScreen onComplete={() => setShowIntro(false)} username={config?.username} />
+      {!bootComplete && (
+        <LoadingScreen
+          onComplete={() => setBootComplete(true)}
+          isKeyMissing={isKeyMissing}
+          apiKey={config?.userGeminiKey || ''}
+          onApiKeySave={handleSaveApiKey}
+        />
       )}
       <TitleBar title={currentChatTitle || undefined} isStreaming={isTitleStreaming} />
       <ApiKeyModal
@@ -2272,6 +2300,7 @@ function RealApp(): React.JSX.Element {
       {renderedSidebar}
 
       <main className="flex-1 flex flex-col relative z-10 min-w-0 h-full">
+        {!isOnline && <OfflineBanner />}
         {activeView === 'chat' && messages.length > 0 && !isFullscreenInput && (
           <button
             onClick={() => {
@@ -2295,7 +2324,7 @@ function RealApp(): React.JSX.Element {
               isKeyMissing={isKeyMissing}
               isThinkMode={isThinkMode}
               onThinkModeToggle={handleThinkModeToggle}
-              disabled={isProcessing || isKeyMissing}
+              disabled={isProcessing || isKeyMissing || !isOnline}
               selectedModel={selectedModel}
               onModelChange={handleModelChange}
               text={inputText}
@@ -2366,7 +2395,7 @@ function RealApp(): React.JSX.Element {
                           isKeyMissing={isKeyMissing}
                           isThinkMode={isThinkMode}
                           onThinkModeToggle={handleThinkModeToggle}
-                          disabled={isProcessing || isKeyMissing}
+                          disabled={isProcessing || isKeyMissing || !isOnline}
                           selectedModel={selectedModel}
                           onModelChange={handleModelChange}
                           text={inputText}
@@ -2450,7 +2479,7 @@ function RealApp(): React.JSX.Element {
                   isKeyMissing={isKeyMissing}
                   isThinkMode={isThinkMode}
                   onThinkModeToggle={handleThinkModeToggle}
-                  disabled={isProcessing || isKeyMissing}
+                  disabled={isProcessing || isKeyMissing || !isOnline}
                   selectedModel={selectedModel}
                   onModelChange={handleModelChange}
                   text={inputText}
