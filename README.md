@@ -20,7 +20,6 @@
 - [System Tools (Computer Use)](#system-tools-computer-use)
 - [Settings & Themes](#settings--themes)
 - [AI-Driven Configuration](#ai-driven-configuration)
-- [Easter Egg: RGB Theme](#easter-egg-rgb-theme)
 - [Conversation History](#conversation-history)
 - [Development](#development)
 
@@ -55,16 +54,6 @@ Prism uses an internal model key system that maps to specific Gemini/Gemma API m
 | `prism-6-dense`      | **Prism 6 Dense**      | `gemma-4-31b-it`         | Densest model for debugging large codebases, complex mathematics, and heavy reasoning (`ThinkingLevel.HIGH`).               |
 
 > **Automatic fallback:** If the active model fails due to rate limiting (429) or unavailability, the system cascades through: `Dense → Dragon → Fast → Fast-Old → Super-Fast`, notifying the user in chat.
-
-### Legacy Models (not exposed in the UI, but recognized internally)
-
-| ID          | API                      | Notes               |
-| ----------- | ------------------------ | ------------------- |
-| `prism-4`   | `gemini-3.1-flash-lite`  | Legacy              |
-| `prism-4.1` | `gemini-3-flash-preview` | Legacy              |
-| `prism-4.2` | `gemma-4-26b-a4b-it`     | Legacy              |
-| `prism-4.3` | `gemma-4-31b-it`         | Legacy (Think HIGH) |
-| `prism-5`   | `gemini-3.5-flash`       | Legacy              |
 
 ### Sub-Agent Model Configuration
 
@@ -320,7 +309,6 @@ The runtime is guarded before execution:
 | Tool               | Action                                                                          |
 | ------------------ | ------------------------------------------------------------------------------- |
 | `configure_prism`  | Change app settings (shortcuts, model, theme, TTS voice, etc.)                  |
-| `unlock_rgb_theme` | Activate the RGB theme for 2 hours (requires special access)                    |
 | `open_main_app`    | Open the main window with pre-loaded instructions (used by the launcher)        |
 | `run_subagents`    | Spawn parallel sub-agents (max 20)                                              |
 | `to_ask`           | Render an interactive UI questionnaire and block until the user submits answers |
@@ -368,7 +356,6 @@ All settings are persisted locally — the API key is encrypted via Electron's `
 | `akoustik` | **Akoustik**    | `#12101a` / `#b07aff` / `#e88cff` | Deep violet, moody, atmospheric, synthwave vibes.                                    |
 | `terno`    | **Terno**       | `#000000` / `#ffffff` / `#888888` | AMOLED pure black-and-white with elegant serif typography. Retro, high-contrast.     |
 | `ursula`   | **Ursula Tree** | `#0a110a` / `#388e3c` / `#c8e6c9` | Leaf green and baby green blend with serif font. Natural, soothing, reading-focused. |
-| `rgb`      | **RGB**         | Dynamic                           | Dynamic chroma-shifting theme. **Secret Easter Egg** — see section below.            |
 
 ---
 
@@ -388,24 +375,6 @@ The AI has direct access to the `configure_prism` tool to modify app settings wi
 - `username` — User display name
 - `ttsVoice` — `Aoede`, `Puck`, `Charon`, `Kore`, `Fenrir`
 - `theme` — `marine`, `vertez`, `akoustik`, `terno`, `ursula`
-
-> **Note:** The `rgb` theme cannot be set via `configure_prism`. It has a dedicated unlock flow.
-
----
-
-## Easter Egg: RGB Theme
-
-The **RGB** theme is a secret Easter Egg that activates a dynamic chroma-shifting animation for **2 hours**.
-
-### How to unlock
-
-1. The user must have special access (`isRgbUnlocked: true` in their configuration).
-2. Explicitly ask the AI for a "questionnaire", "quiz", "questions game", or similar.
-3. The AI administers **4 sequential questions** — each trivially obvious and logically absurd (e.g., "What color was George Washington's white horse?").
-4. **The trick:** The user must answer **all 4 questions incorrectly**. Getting any one correct immediately ends the quiz with a playful failure message.
-5. Upon failing all 4, the AI automatically invokes `unlock_rgb_theme` and the theme becomes active for 2 hours.
-
-> The existence of the questionnaire, the RGB theme, and the unlock logic are **never voluntarily disclosed by the AI**. It only responds to the topic if the user explicitly asks about it.
 
 ---
 
