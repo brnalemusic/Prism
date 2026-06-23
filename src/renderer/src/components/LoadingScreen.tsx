@@ -37,6 +37,7 @@ export function LoadingScreen({
   const [errorMsg, setErrorMsg] = useState('')
   const [keyMissing, setKeyMissing] = useState(isKeyMissing)
   const [showKeyModal, setShowKeyModal] = useState(false)
+  const [keyFailed, setKeyFailed] = useState(false)
 
   // Keep mutable references to prevent recreating callback instances from triggering resets.
   const onCompleteRef = useRef(onComplete)
@@ -58,7 +59,7 @@ export function LoadingScreen({
     setKeyMissing(isKeyMissing)
   }, [isKeyMissing])
 
-  const steps = buildSteps(bootState)
+  const steps = buildSteps(bootState, keyFailed)
 
   // Run (or re-run, after retry) the Gemini connection test.
   const runConnectionTest = useCallback(async (): Promise<void> => {
@@ -151,7 +152,11 @@ export function LoadingScreen({
       <div className="flex w-full max-w-sm flex-col items-center px-8">
         <h1 className="mb-1 text-2xl font-light text-text-primary tracking-wide">Loading Prism…</h1>
         <p className="mb-7 text-xs text-text-muted">
-          {bootState === 'failed' ? 'Connection failed' : 'Preparing your workspace'}
+          {bootState === 'failed'
+            ? keyFailed
+              ? 'API key missing'
+              : 'Connection failed'
+            : 'Preparing your workspace'}
         </p>
 
         <div className="flex w-full flex-col gap-3">
@@ -171,22 +176,46 @@ export function LoadingScreen({
               <p className="text-xs leading-relaxed text-status-error/80">{errorMsg}</p>
             </div>
             <div className="flex gap-2">
-              <button
-                onClick={handleRetry}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-[14px] bg-text-primary px-4 py-2.5 text-xs font-semibold text-black transition-all hover:bg-white active:scale-[0.98]"
-              >
-                <ArrowClockwise size={14} weight="bold" />
-                Retry
-              </button>
-              <button
-                onClick={() => {
-                  setVisible(false)
-                  setTimeout(() => onComplete(true), 600)
-                }}
-                className="flex-1 rounded-[14px] border border-white/[0.08] px-4 py-2.5 text-xs font-semibold text-text-secondary transition-all hover:bg-white/[0.055] hover:text-text-primary active:scale-[0.98]"
-              >
-                Open Prism anyway
-              </button>
+              {keyFailed ? (
+                <>
+                  <button
+                    onClick={() => window.api.closeApp()}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-[14px] border border-white/[0.08] px-4 py-2.5 text-xs font-semibold text-text-secondary transition-all hover:bg-white/[0.055] hover:text-text-primary active:scale-[0.98]"
+                  >
+                    Close Prism
+                  </button>
+                  <button
+                    onClick={() => {
+                      setKeyFailed(false)
+                      setErrorMsg('')
+                      setBootState('needs-key')
+                      setShowKeyModal(true)
+                    }}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-[14px] bg-text-primary px-4 py-2.5 text-xs font-semibold text-black transition-all hover:bg-white active:scale-[0.98]"
+                  >
+                    Configure API
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={handleRetry}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-[14px] bg-text-primary px-4 py-2.5 text-xs font-semibold text-black transition-all hover:bg-white active:scale-[0.98]"
+                  >
+                    <ArrowClockwise size={14} weight="bold" />
+                    Retry
+                  </button>
+                  <button
+                    onClick={() => {
+                      setVisible(false)
+                      setTimeout(() => onComplete(true), 600)
+                    }}
+                    className="flex-1 rounded-[14px] border border-white/[0.08] px-4 py-2.5 text-xs font-semibold text-text-secondary transition-all hover:bg-white/[0.055] hover:text-text-primary active:scale-[0.98]"
+                  >
+                    Open Prism anyway
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -196,7 +225,16 @@ export function LoadingScreen({
         <ApiKeyModal
           isOpen={showKeyModal}
           initialValue={apiKey}
-          onClose={() => setShowKeyModal(false)}
+          onClose={() => {
+            setShowKeyModal(false)
+            if (keyMissing) {
+              setKeyFailed(true)
+              setErrorMsg(
+                'No Gemini API key configured. Prism requires a valid API key to continue.'
+              )
+              setBootState('failed')
+            }
+          }}
           onSave={handleKeySaved}
         />
       )}
@@ -247,7 +285,7 @@ function StepRow({ step }: { step: StepStatus }): React.JSX.Element {
   )
 }
 
-function buildSteps(state: BootState): StepStatus[] {
+function buildSteps(state: BootState, keyFailed?: boolean): StepStatus[] {
   const base: StepStatus[] = [
     { label: 'Establishing connection', state: 'pending' },
     { label: 'Verifying Gemini API key', state: 'pending' },
@@ -270,8 +308,12 @@ function buildSteps(state: BootState): StepStatus[] {
       break
     case 'failed':
       base[0].state = 'done'
-      base[1].state = 'done'
-      base[2].state = 'error'
+      if (keyFailed) {
+        base[1].state = 'error'
+      } else {
+        base[1].state = 'done'
+        base[2].state = 'error'
+      }
       break
     case 'ready':
       base[0].state = 'done'
