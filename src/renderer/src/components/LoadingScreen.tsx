@@ -135,15 +135,6 @@ export function LoadingScreen({
       )}
     >
       <div className="flex w-full max-w-sm flex-col items-center px-8">
-        <div
-          className={clsx(
-            'mb-8 flex items-center justify-center transition-all duration-700',
-            visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
-          )}
-        >
-          <Spinner size="lg" className="!text-accent-primary" />
-        </div>
-
         <h1 className="mb-1 text-2xl font-light text-text-primary tracking-wide">Loading Prism…</h1>
         <p className="mb-7 text-xs text-text-muted">
           {bootState === 'failed' ? 'Connection failed' : 'Preparing your workspace'}
