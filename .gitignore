@@ -10,7 +10,7 @@ prism_system_prompt_raw.txt
 generate_prompt.js
 *system_prompt*.txt
 prism_system_prompt.txt
-
+ace_*
 .env
 .geminiignore
 PROTOTYPE.md
@@ -23,3 +23,5 @@ toolcalls.json
 GEMINI.md
 resources/prism-setup.exe
 text.md
+scripts/*ace*
+.playwright-mcp/
