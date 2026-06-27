@@ -912,3 +912,27 @@
   overflow: hidden;
 }
 
+/* ─── Model Selector Dropdown ─── */
+.model-selector-dropdown {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  scroll-behavior: smooth;
+}
+
+.model-selector-dropdown::-webkit-scrollbar {
+  width: 5px;
+}
+
+.model-selector-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.model-selector-dropdown::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+}
+
+.model-selector-dropdown::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+

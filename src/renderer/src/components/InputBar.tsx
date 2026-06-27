@@ -101,7 +101,12 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       sessionMode,
       disciplinePath,
       onModeChange,
-      onSelectFolder
+      onSelectFolder,
+      hasGeminiKey,
+      hasNvidiaNimKey,
+      hasOpenaiKey,
+      openaiModelId,
+      openaiModelName
     },
     ref
   ) => {

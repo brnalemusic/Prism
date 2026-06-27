@@ -50,7 +50,7 @@ import {
   searchChatMemory,
   getMessageText
 } from './history'
-import { loadConfig, saveConfig, SlashWorkflow } from './config'
+import { loadConfig, saveConfig, SlashWorkflow, AppConfig } from './config'
 import { toolsManifest } from './toolsManifest'
 import { markConnectionActive } from './connection'
 
@@ -144,93 +144,6 @@ function convertHistoryToOpenAiFormat(history: Content[]) {
   return messages
 }
 
-// First message JSON stream parser for inline titles
-class FirstMessageJsonStreamParser {
-  private buffer = ''
-  private titleSent = false
-  private messageStarted = false
-  private lastStreamedLength = 0
-  private onTitle: (title: string) => void
-  private onMessageChunk: (chunk: string) => void
-
-  constructor(onTitle: (title: string) => void, onMessageChunk: (chunk: string) => void) {
-    this.onTitle = onTitle
-    this.onMessageChunk = onMessageChunk
-  }
-
-  append(chunk: string) {
-    this.buffer += chunk
-    this.process()
-  }
-
-  private process() {
-    if (!this.titleSent) {
-      const titleKeyIdx = this.buffer.indexOf('"title"')
-      if (titleKeyIdx !== -1) {
-        const colonIdx = this.buffer.indexOf(':', titleKeyIdx)
-        if (colonIdx !== -1) {
-          const firstQuoteIdx = this.buffer.indexOf('"', colonIdx)
-          if (firstQuoteIdx !== -1) {
-            let endQuoteIdx = -1
-            for (let i = firstQuoteIdx + 1; i < this.buffer.length; i++) {
-              if (this.buffer[i] === '"' && this.buffer[i - 1] !== '\\') {
-                endQuoteIdx = i
-                break
-              }
-            }
-            if (endQuoteIdx !== -1) {
-              const titleValue = this.buffer.substring(firstQuoteIdx + 1, endQuoteIdx)
-              const cleanTitle = titleValue.replace(/\\"/g, '"').trim()
-              this.onTitle(cleanTitle || 'New Conversation')
-              this.titleSent = true
-            }
-          }
-        }
-      }
-    }
-
-    if (!this.messageStarted) {
-      const messageKeyIdx = this.buffer.indexOf('"message"')
-      if (messageKeyIdx !== -1) {
-        const colonIdx = this.buffer.indexOf(':', messageKeyIdx)
-        if (colonIdx !== -1) {
-          const firstQuoteIdx = this.buffer.indexOf('"', colonIdx)
-          if (firstQuoteIdx !== -1) {
-            this.messageStarted = true
-            const remaining = this.buffer.substring(firstQuoteIdx + 1)
-            this.streamRemainingMessage(remaining)
-          }
-        }
-      }
-    } else {
-      const messageKeyIdx = this.buffer.indexOf('"message"')
-      if (messageKeyIdx !== -1) {
-        const colonIdx = this.buffer.indexOf(':', messageKeyIdx)
-        if (colonIdx !== -1) {
-          const firstQuoteIdx = this.buffer.indexOf('"', colonIdx)
-          const messageStartIdx = firstQuoteIdx + 1
-          const currentMessageContent = this.buffer.substring(messageStartIdx)
-          this.streamRemainingMessage(currentMessageContent)
-        }
-      }
-    }
-  }
-
-  private streamRemainingMessage(content: string) {
-    let cleanContent = content
-    const trailingPattern = /"\s*}?\s*$/
-    if (trailingPattern.test(cleanContent)) {
-      cleanContent = cleanContent.replace(trailingPattern, '')
-    }
-
-    if (cleanContent.length > this.lastStreamedLength) {
-      const newSegment = cleanContent.substring(this.lastStreamedLength)
-      const cleanSegment = newSegment.replace(/\\"/g, '"').replace(/\\n/g, '\n')
-      this.onMessageChunk(cleanSegment)
-      this.lastStreamedLength = cleanContent.length
-    }
-  }
-}
 
 interface StreamChunk {
   thought: string
@@ -272,7 +185,7 @@ async function* generateAiStream(
   } else {
     const baseURL =
       provider === 'nvidia-nim' ? 'https://integrate.api.nvidia.com/v1' : loadConfig().openaiBaseUrl
-    const openai = new OpenAI({ apiKey, baseURL, dangerAllowBrowser: true })
+    const openai = new OpenAI({ apiKey, baseURL, dangerouslyAllowBrowser: true })
     const messages = convertHistoryToOpenAiFormat(history)
 
     const responseStream = await openai.chat.completions.create(
@@ -318,7 +231,7 @@ async function generateAiContent(
   } else {
     const baseURL =
       provider === 'nvidia-nim' ? 'https://integrate.api.nvidia.com/v1' : loadConfig().openaiBaseUrl
-    const openai = new OpenAI({ apiKey, baseURL, dangerAllowBrowser: true })
+    const openai = new OpenAI({ apiKey, baseURL, dangerouslyAllowBrowser: true })
     const messages = convertHistoryToOpenAiFormat(history)
 
     const result = await openai.chat.completions.create(
@@ -343,7 +256,7 @@ async function getOpenaiCompatibleSearchModel(config: AppConfig): Promise<string
     const openai = new OpenAI({
       apiKey: openaiKey,
       baseURL: config.openaiBaseUrl,
-      dangerAllowBrowser: true
+      dangerouslyAllowBrowser: true
     })
     const response = await openai.models.list()
     const models = response.data || []
@@ -409,13 +322,6 @@ const AGENT_TEMPERATURE = 0.7
 const TITLE_GENERATION_TEMPERATURE = 1.4
 const DEFAULT_SUBAGENT_MODEL_KEY = 'gemma-4-26b-a4b-it'
 let currentSubagentModelKey = DEFAULT_SUBAGENT_MODEL_KEY
-
-function getSubagentModelConfig(modelKey = currentSubagentModelKey): ModelConfig {
-  const config = MODEL_CONFIGS[modelKey] || MODEL_CONFIGS[DEFAULT_SUBAGENT_MODEL_KEY]
-  return {
-    apiModel: config.apiModel
-  }
-}
 
 function getModelFriendlyName(modelKey: string): string {
   const names: Record<string, string> = {
@@ -1114,40 +1020,6 @@ function getFinalResponseText(response: {
   return allParts.length > 0 ? finalParts.join('') : response.text || ''
 }
 
-function getStreamingThinkingConfig(config: ModelConfig): ModelConfig['thinkingConfig'] {
-  if (config.apiModel === 'gemma-4-31b-it' && config.thinkingConfig?.includeThoughts) {
-    return { ...config.thinkingConfig, includeThoughts: false }
-  }
-
-  return config.thinkingConfig
-}
-
-function isRetryableGemmaStreamError(error: unknown): boolean {
-  const status = (error as { status?: number })?.status
-  return status === 500 || status === 503
-}
-
-async function collectFinalTextFromStream(
-  stream: AsyncGenerator<{
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>
-  }>,
-  signal?: AbortSignal
-): Promise<string> {
-  let finalText = ''
-
-  for await (const chunk of stream) {
-    if (signal?.aborted) throw new Error('AbortError')
-    const parts = chunk.candidates?.[0]?.content?.parts || []
-    for (const part of parts) {
-      if (part.text && !part.thought) {
-        finalText += part.text
-      }
-    }
-  }
-
-  return finalText
-}
-
 async function generateSubagentResponse(
   history: Content[],
   signal?: AbortSignal
@@ -1724,7 +1596,6 @@ async function runSubagents(
   if (prompts.length === 0) return 'Error: No prompts provided for agents.'
 
   const subagentModelKey = currentSubagentModelKey
-  const subagentModelConfig = getSubagentModelConfig(subagentModelKey)
 
   const blackboard: GroupMessage[] = []
   const waiters: (() => void)[] = []
@@ -1772,8 +1643,6 @@ async function runSubagents(
 
       // Small delay to offset workers
       await new Promise((r) => setTimeout(r, 100 + index * 50))
-
-      const ai = new GoogleGenAI({ apiKey })
 
       const subAgentSystemPrompt = getSubagentSystemPrompt(subagentModelKey, index, quantity)
 
@@ -2255,7 +2124,6 @@ export async function handleChatMessage(
       }
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
-  const thinkMode = typeof data === 'object' ? !!data.thinkMode : false
   const chatId = typeof data === 'object' && data.chatId ? data.chatId : currentSessionId
   const screenshot = typeof data === 'object' ? data.screenshot : undefined
   const quote = typeof data === 'object' ? data.quote : undefined
@@ -2665,7 +2533,8 @@ export async function handleChatMessage(
             saveChatSession(chatId, runHistory)
           }
 
-          accumulatedThoughts += currentThoughts
+          const needsThoughtSeparator = accumulatedThoughts.length > 0 && currentThoughts.length > 0
+          accumulatedThoughts += needsThoughtSeparator ? '\n\n' + currentThoughts : currentThoughts
           const needsSeparator = accumulatedFinalResponse.length > 0 && currentFinalResponse.trim().length > 0
           accumulatedFinalResponse += needsSeparator ? '\n\n' + currentFinalResponse : currentFinalResponse
 
@@ -2907,8 +2776,8 @@ export async function handleLauncherChatMessage(
   const screenshot = typeof data === 'object' ? data.screenshot : undefined
   const appMode = typeof data === 'object' ? data.appMode : undefined
 
-  const launcherProvider = getModelProvider(currentModelKey)
-  const apiKey = getProviderApiKey(launcherProvider)
+  const modelProvider = getModelProvider(currentModelKey)
+  const apiKey = getProviderApiKey(modelProvider)
   if (!apiKey || apiKey.trim() === '' || apiKey === 'your_api_key_here') {
     event.sender.send('launcher-reply-error', { error: 'API_KEY_MISSING' })
     return
@@ -2923,15 +2792,11 @@ export async function handleLauncherChatMessage(
   launcherAbortController = runAbortController
 
   let launcherModelKey = 'gemini-3.1-flash-lite'
-  let launcherProvider: 'gemini' | 'nvidia-nim' | 'openai-compatible' = 'gemini'
-  let launcherApiKey = apiKey
 
   const launcherConfig = loadConfig()
-  if (launcherProvider === 'nvidia-nim' || (launcherConfig.userNvidiaNimKey || process.env.NVIDIA_API_KEY)) {
+  if (modelProvider === 'nvidia-nim' || (launcherConfig.userNvidiaNimKey || process.env.NVIDIA_API_KEY)) {
     if (getModelProvider(currentModelKey) === 'nvidia-nim' || (!launcherConfig.userGeminiKey && !process.env.GEMINI_API_KEY)) {
       launcherModelKey = 'stepfun-ai/step-3.5-flash'
-      launcherProvider = 'nvidia-nim'
-      launcherApiKey = launcherConfig.userNvidiaNimKey || process.env.NVIDIA_API_KEY || ''
     }
   }
 
@@ -2996,7 +2861,7 @@ export async function handleLauncherChatMessage(
           config.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: false }
         }
 
-        const ai = new GoogleGenAI({ apiKey })
+      const ai = new GoogleGenAI({ apiKey })
 
         let accumulatedThoughts = ''
         let accumulatedFinalResponse = ''
@@ -3085,7 +2950,8 @@ export async function handleLauncherChatMessage(
             launcherChatHistory.push({ role: 'model', parts: [{ text: fullAiResponse }] })
           }
 
-          accumulatedThoughts += currentThoughts
+          const needsThoughtSeparator = accumulatedThoughts.length > 0 && currentThoughts.length > 0
+          accumulatedThoughts += needsThoughtSeparator ? '\n\n' + currentThoughts : currentThoughts
           accumulatedFinalResponse += currentFinalResponse
 
           const toolMatches = extractToolCalls(fullAiResponse)
@@ -3586,7 +3452,7 @@ Available tools:
                 try {
                   const signal = runAbortController.signal
                   if (signal?.aborted) throw new Error('AbortError')
-                  toolResult = await toolFunctions[actualName](toolArgs, event, apiKey, signal)
+                  toolResult = await toolFunctions[actualName](toolArgs, event, searchApiKey, signal)
                 } catch (err) {
                   if (
                     runAbortController.signal.aborted ||
@@ -3738,7 +3604,7 @@ export async function transcribeAudio(audioBase64: string): Promise<string> {
     const openai = new OpenAI({
       apiKey,
       baseURL: 'https://integrate.api.nvidia.com/v1',
-      dangerAllowBrowser: true
+      dangerouslyAllowBrowser: true
     })
     const buffer = Buffer.from(audioBase64, 'base64')
     const file = await OpenAI.toFile(buffer, 'audio.webm', { type: 'audio/webm' })

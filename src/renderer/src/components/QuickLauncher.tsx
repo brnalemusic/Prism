@@ -1254,9 +1254,7 @@ export function QuickLauncher(): React.JSX.Element {
                       ? 'text-accent-primary placeholder:text-accent-primary/40'
                       : activeMode === 'search'
                           ? 'text-accent-secondary placeholder:text-accent-secondary/40'
-                          : activeMode === 'think'
-                            ? 'text-status-warning placeholder:text-status-warning/40'
-                            : 'text-text-primary'
+                          : 'text-text-primary'
                   )}
                 />
               </form>
