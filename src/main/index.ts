@@ -731,7 +731,12 @@ if (!gotTheLock) {
 
     // Enforce auto-launch state based on loaded configuration
     if (!IS_DEMO) {
-      app.setLoginItemSettings({ openAtLogin: currentConfig.autoLaunch })
+      if (app.isPackaged) {
+        app.setLoginItemSettings({ openAtLogin: currentConfig.autoLaunch })
+      } else {
+        // Clean up dev-mode startup entries
+        app.setLoginItemSettings({ openAtLogin: false })
+      }
     }
 
     app.on('browser-window-created', (_, window) => {
@@ -1052,7 +1057,11 @@ if (!gotTheLock) {
       currentConfig = config
       if (!IS_DEMO) {
         registerGlobalShortcuts()
-        app.setLoginItemSettings({ openAtLogin: config.autoLaunch })
+        if (app.isPackaged) {
+          app.setLoginItemSettings({ openAtLogin: config.autoLaunch })
+        } else {
+          app.setLoginItemSettings({ openAtLogin: false })
+        }
       }
       updateNativeIcons()
       // Notify both windows
