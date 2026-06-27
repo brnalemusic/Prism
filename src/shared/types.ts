@@ -83,3 +83,6 @@ export interface AttachedFile {
   mimeType: string
   data: string
 }
+
+export type SessionMode = 'conversation' | 'execution' | 'discipline'
+

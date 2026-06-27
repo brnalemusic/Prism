@@ -1,6 +1,7 @@
 import { app, safeStorage } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
+import { SessionMode } from '../shared/types'
 
 export interface SlashWorkflow {
   id: string
@@ -35,7 +36,10 @@ export interface AppConfig {
   terminalShell?: string
   workflows?: SlashWorkflow[]
   rgbThemeExpiry?: number
+  sessionMode: SessionMode
+  disciplinePath?: string
 }
+
 
 const DEFAULT_CONFIG: AppConfig = {
   launcherShortcut: 'CommandOrControl+Space',
@@ -56,6 +60,8 @@ const DEFAULT_CONFIG: AppConfig = {
   theme: 'marine',
   zoomFactor: 1.0,
   terminalShell: 'powershell.exe',
+  sessionMode: 'execution',
+  disciplinePath: '',
   workflows: [
     {
       id: 'default-search',
@@ -96,6 +102,7 @@ const VALID_MODEL_KEYS = new Set([
 ])
 const VALID_VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'])
 const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno', 'ursula', 'rgb'])
+const VALID_SESSION_MODES = new Set(['conversation', 'execution', 'discipline'])
 
 function normalizeConfig(config: AppConfig): AppConfig {
   return {
@@ -127,7 +134,9 @@ function normalizeConfig(config: AppConfig): AppConfig {
         : DEFAULT_CONFIG.zoomFactor,
     terminalShell: config.terminalShell || DEFAULT_CONFIG.terminalShell,
     workflows: Array.isArray(config.workflows) ? config.workflows : DEFAULT_CONFIG.workflows,
-    rgbThemeExpiry: config.rgbThemeExpiry
+    rgbThemeExpiry: config.rgbThemeExpiry,
+    sessionMode: VALID_SESSION_MODES.has(config.sessionMode) ? config.sessionMode : DEFAULT_CONFIG.sessionMode,
+    disciplinePath: typeof config.disciplinePath === 'string' ? config.disciplinePath : DEFAULT_CONFIG.disciplinePath
   }
 }
 

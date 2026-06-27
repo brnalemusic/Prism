@@ -9,7 +9,8 @@ import type {
   MiniAppData,
   ApplicationInfo,
   FileSearchResult,
-  AttachedFile
+  AttachedFile,
+  SessionMode
 } from '../shared/types'
 import type { ChatSession } from '../main/history'
 import type { Content } from '@google/genai'
@@ -22,6 +23,7 @@ import type {
   DemoDependencyProgress
 } from '../shared/demo'
 import mime from 'mime-types'
+
 
 // Initialize Zoom Factor
 const DEFAULT_ZOOM = 1.0
@@ -137,6 +139,8 @@ const api = {
     attachedFile?: AttachedFile
     quote?: string
     appMode?: string
+    sessionMode?: SessionMode
+    disciplinePath?: string
   }): void => ipcRenderer.send('chat-message', data),
   setModel: (modelKey: string): void => ipcRenderer.send('set-model', modelKey),
   clearChat: (): void => ipcRenderer.send('clear-chat'),
@@ -335,6 +339,11 @@ const api = {
     ipcRenderer.invoke('capture-window', sourceId),
   getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('get-config'),
   saveConfig: (config: AppConfig): Promise<boolean> => ipcRenderer.invoke('save-config', config),
+  selectFolder: (): Promise<string | null> => ipcRenderer.invoke('select-folder'),
+  setSessionMode: (mode: SessionMode, disciplinePath?: string): void =>
+    ipcRenderer.send('set-session-mode', { mode, disciplinePath }),
+  getSessionMode: (): Promise<{ mode: SessionMode; disciplinePath?: string }> =>
+    ipcRenderer.invoke('get-session-mode'),
   testGeminiConnection: (): Promise<{
     ok: boolean
     errorType?: 'offline' | 'invalid-key' | 'server' | 'unknown'

@@ -59,3 +59,11 @@ Think on how to implement       Try another Plan until user accepts
             |
         Finish work
 ```
+### Branch Rules
+Those are rules for Source Control and Git Control.
+
+1. ALWAYS create a new branch when changing the source code.
+    a. This ONLY APPLIES for MAJOR or MINOR updates.
+    b. PATCH updates MUST be made fully in main branch.
+    c. This rule ONLY APPLIES if you ARE in a main or master branch.
+    d. Run git status. If you ARE in main/master and is NOT a PATCH update, create a new branch. If you ARE NOT in branch main/master, stay on it.

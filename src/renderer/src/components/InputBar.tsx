@@ -18,13 +18,16 @@ import {
   FilePpt,
   Trash,
   Lightning,
-  Globe
+  Globe,
+  ChatTeardropText,
+  Folder
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 import { ModelSelector } from './ModelSelector'
 import { AttachedFile } from '../App'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
+import type { SessionMode } from '../../../shared/types'
 import { triggerErrorPopup, isShortcutPressed } from '../utils'
 
 interface InputBarProps {
@@ -57,6 +60,8 @@ interface InputBarProps {
   onOpenYoutubeModal?: () => void
   activeWorkflow?: SlashWorkflow | null
   setActiveWorkflow?: (val: SlashWorkflow | null) => void
+  sessionMode: SessionMode
+  disciplinePath: string
 }
 
 export interface InputBarHandle {
@@ -88,7 +93,9 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       onOpenSubagentModal,
       onOpenYoutubeModal,
       activeWorkflow,
-      setActiveWorkflow
+      setActiveWorkflow,
+      sessionMode,
+      disciplinePath
     },
     ref
   ) => {
@@ -689,6 +696,25 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
         </div>
 
         <div className="flex shrink-0 items-center gap-2 relative">
+          {sessionMode === 'conversation' && (
+            <div className="flex items-center gap-1.5 rounded-xl border border-white/[0.04] bg-white/[0.02] px-2.5 py-1.5 text-xs text-text-secondary select-none animate-soft-pop" title="Conversation Mode: Chat only">
+              <ChatTeardropText size={14} className="text-text-muted" />
+              <span className="text-[11px] text-text-muted">Chat Only</span>
+            </div>
+          )}
+          {sessionMode === 'execution' && (
+            <div className="flex items-center gap-1.5 rounded-xl border border-accent-primary/10 bg-accent-primary/5 px-2.5 py-1.5 text-xs text-accent-primary select-none animate-soft-pop" title="Execution Mode: Terminal & Tools enabled in user profile">
+              <Lightning size={14} weight="fill" className="text-accent-primary" />
+              <span className="text-[11px] font-medium">Execution</span>
+            </div>
+          )}
+          {sessionMode === 'discipline' && (
+            <div className="flex items-center gap-1.5 rounded-xl border border-accent-primary/15 bg-accent-primary/5 px-2.5 py-1.5 text-xs text-accent-primary select-none max-w-[160px] truncate animate-soft-pop" title={`Discipline Mode: Operating in ${disciplinePath || 'selected project folder'}`}>
+              <Folder size={14} weight="fill" className="text-accent-primary" />
+              <span className="text-[11px] font-medium truncate">{disciplinePath ? (disciplinePath.split(/[\\/]/).pop() || disciplinePath) : 'Discipline'}</span>
+            </div>
+          )}
+
           <ModelSelector
             selectedModel={selectedModel}
             onModelChange={onModelChange || (() => {})}

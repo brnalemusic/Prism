@@ -28,6 +28,8 @@ import {
   loadChatIntoHistory,
   activeRuns,
   handleLauncherChatMessage,
+  setSessionMode, // Imported here
+
   clearLauncherChat,
   generateTts,
   handleAiSearchChatMessage,
@@ -1013,6 +1015,38 @@ if (!gotTheLock) {
       }
       return res
     })
+
+    ipcMain.handle('select-folder', async () => {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        properties: ['openDirectory']
+      })
+      if (result.canceled || result.filePaths.length === 0) {
+        return null
+      }
+      return result.filePaths[0]
+    })
+
+    ipcMain.handle('get-session-mode', () => {
+      return {
+        mode: currentConfig.sessionMode,
+        disciplinePath: currentConfig.disciplinePath
+      }
+    })
+
+    ipcMain.on('set-session-mode', (_event, { mode, disciplinePath }) => {
+      currentConfig.sessionMode = mode
+      if (disciplinePath !== undefined) {
+        currentConfig.disciplinePath = disciplinePath
+      }
+      saveConfig(currentConfig)
+      setSessionMode(mode, disciplinePath)
+
+      // Notify windows of config-changed to keep states synchronized
+      mainWindow?.webContents.send('config-changed', currentConfig)
+      launcherWindow?.webContents.send('config-changed', currentConfig)
+      subagentSettingsWindow?.webContents.send('config-changed', currentConfig)
+    })
+
 
     ipcMain.on('update-config-from-tools', (_event, config: AppConfig) => {
       currentConfig = config

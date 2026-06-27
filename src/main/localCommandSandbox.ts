@@ -19,6 +19,7 @@ interface RunOptions {
   shell?: string
   apiKey?: string
   signal?: AbortSignal
+  cwd?: string
 }
 
 class CommandBlockedError extends Error {
@@ -399,7 +400,8 @@ export async function runGuardedTerminalCommand(
     env,
     signal: options.signal,
     maxBuffer: MAX_PROCESS_BUFFER,
-    timeout: PROCESS_TIMEOUT_MS
+    timeout: PROCESS_TIMEOUT_MS,
+    cwd: options.cwd
   }
 
   if (isWindows && shellToUse) {

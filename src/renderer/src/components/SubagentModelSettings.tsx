@@ -21,7 +21,9 @@ const FALLBACK_CONFIG: AppConfig = {
   ttsVoice: 'Aoede',
   theme: 'marine',
   zoomFactor: 1.0,
-  terminalShell: 'powershell.exe'
+  terminalShell: 'powershell.exe',
+  sessionMode: 'execution',
+  disciplinePath: ''
 }
 
 export function SubagentModelSettings(): React.JSX.Element {

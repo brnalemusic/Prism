@@ -9,7 +9,8 @@ import type {
   ToolUpdate,
   DownloadProgress,
   ApplicationInfo,
-  FileSearchResult
+  FileSearchResult,
+  SessionMode
 } from '../shared/types'
 import type {
   DemoDownloadResult,
@@ -37,7 +38,10 @@ export interface PrismAPI {
     attachedFile?: AttachedFile
     quote?: string
     appMode?: string
+    sessionMode?: SessionMode
+    disciplinePath?: string
   }) => void
+
   setModel: (modelKey: string) => void
   clearChat: () => void
   cancelChat: (chatId?: string) => void
@@ -119,6 +123,9 @@ export interface PrismAPI {
   captureWindow: (sourceId: string) => Promise<string>
   getConfig: () => Promise<AppConfig>
   saveConfig: (config: AppConfig) => Promise<boolean>
+  selectFolder: () => Promise<string | null>
+  setSessionMode: (mode: SessionMode, disciplinePath?: string) => void
+  getSessionMode: () => Promise<{ mode: SessionMode; disciplinePath?: string }>
   testGeminiConnection: () => Promise<{
     ok: boolean
     errorType?: 'offline' | 'invalid-key' | 'server' | 'unknown'

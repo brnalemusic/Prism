@@ -29,6 +29,7 @@ import { MODELS } from '../constants'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import clsx from 'clsx'
 import type { SlashWorkflow } from '../../../main/config'
+import type { SessionMode } from '../../../shared/types'
 
 interface Config {
   launcherShortcut: string
@@ -53,6 +54,8 @@ interface Config {
   terminalShell?: string
   workflows?: SlashWorkflow[]
   rgbThemeExpiry?: number
+  sessionMode: SessionMode
+  disciplinePath?: string
 }
 
 type SectionId =
@@ -153,7 +156,9 @@ export function SettingsView(): React.JSX.Element {
     theme: 'marine',
     zoomFactor: 1.0,
     terminalShell: 'powershell.exe',
-    workflows: []
+    workflows: [],
+    sessionMode: 'execution',
+    disciplinePath: ''
   })
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState({ text: '', type: '' })
@@ -235,7 +240,9 @@ export function SettingsView(): React.JSX.Element {
           zoomFactor: savedConfig.zoomFactor ?? 1.0,
           terminalShell: savedConfig.terminalShell || 'powershell.exe',
           workflows: savedConfig.workflows || [],
-          rgbThemeExpiry: savedConfig.rgbThemeExpiry
+          rgbThemeExpiry: savedConfig.rgbThemeExpiry,
+          sessionMode: savedConfig.sessionMode || 'execution',
+          disciplinePath: savedConfig.disciplinePath || ''
         })
       }
     }
@@ -261,7 +268,9 @@ export function SettingsView(): React.JSX.Element {
           zoomFactor: cfg.zoomFactor ?? prev.zoomFactor ?? 1.0,
           terminalShell: cfg.terminalShell ?? prev.terminalShell ?? 'powershell.exe',
           workflows: cfg.workflows || prev.workflows || [],
-          rgbThemeExpiry: cfg.rgbThemeExpiry ?? prev.rgbThemeExpiry
+          rgbThemeExpiry: cfg.rgbThemeExpiry ?? prev.rgbThemeExpiry,
+          sessionMode: cfg.sessionMode || prev.sessionMode || 'execution',
+          disciplinePath: cfg.disciplinePath ?? prev.disciplinePath ?? ''
         }))
       }
     })
@@ -305,7 +314,9 @@ export function SettingsView(): React.JSX.Element {
       theme: 'marine',
       zoomFactor: 1.0,
       terminalShell: 'powershell.exe',
-      workflows: config.workflows
+      workflows: config.workflows,
+      sessionMode: 'execution',
+      disciplinePath: ''
     })
   }
 
@@ -854,6 +865,56 @@ export function SettingsView(): React.JSX.Element {
             </span>
           )}
         </label>
+
+        <label className="flex flex-col gap-1.5 mt-4">
+          <span className="text-[11px] font-semibold text-text-secondary/70">
+            Default Session Mode
+          </span>
+          <select
+            value={config.sessionMode || 'execution'}
+            onChange={(e) => setConfig({ ...config, sessionMode: e.target.value as any })}
+            className="w-full rounded-[16px] border border-white/[0.08] bg-white/[0.035] px-3 py-2.5 text-xs text-text-primary focus:border-accent-primary/40 focus:outline-none"
+          >
+            <option value="conversation" className="bg-[#13151a] text-text-primary">
+              Conversation Mode (Chat only, no tools)
+            </option>
+            <option value="execution" className="bg-[#13151a] text-text-primary">
+              Execution Mode (Operate in USERPROFILE)
+            </option>
+            <option value="discipline" className="bg-[#13151a] text-text-primary">
+              Discipline Mode (Operate inside a project folder)
+            </option>
+          </select>
+        </label>
+
+        {config.sessionMode === 'discipline' && (
+          <div className="flex flex-col gap-1.5 mt-4 animate-fade-in">
+            <span className="text-[11px] font-semibold text-text-secondary/70">
+              Default Discipline Folder
+            </span>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                readOnly
+                value={config.disciplinePath || ''}
+                placeholder="No folder selected"
+                className="flex-grow rounded-[16px] border border-white/[0.08] bg-white/[0.035] px-3 py-2.5 text-xs text-text-primary focus:outline-none truncate"
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  const selected = await window.api.selectFolder()
+                  if (selected) {
+                    setConfig({ ...config, disciplinePath: selected })
+                  }
+                }}
+                className="rounded-[16px] bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 px-4 py-2.5 text-xs font-semibold text-text-primary transition-all active:scale-[0.98] cursor-pointer"
+              >
+                Browse
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

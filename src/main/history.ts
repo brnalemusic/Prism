@@ -2,12 +2,15 @@ import { app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { Content } from '@google/genai'
+import { SessionMode } from '../shared/types'
 
 export interface ChatSession {
   id: string
   title: string
   lastUpdated: number
   messages: Content[]
+  sessionMode?: SessionMode
+  disciplinePath?: string
 }
 
 const CHATS_DIR = path.join(
@@ -77,7 +80,9 @@ export function listChatSessions(): Omit<ChatSession, 'messages'>[] {
         return {
           id: session.id,
           title: session.title,
-          lastUpdated: session.lastUpdated
+          lastUpdated: session.lastUpdated,
+          sessionMode: session.sessionMode,
+          disciplinePath: session.disciplinePath
         }
       })
       .sort((a, b) => b.lastUpdated - a.lastUpdated)
@@ -132,7 +137,13 @@ function sanitizeMessagesForSaving(messages: Content[]): Content[] {
 /**
  * Saves or updates a chat session.
  */
-export function saveChatSession(id: string, messages: Content[], title?: string): boolean {
+export function saveChatSession(
+  id: string,
+  messages: Content[],
+  title?: string,
+  sessionMode?: SessionMode,
+  disciplinePath?: string
+): boolean {
   ensureChatsDir()
   const cleanId = sanitizeId(id)
   if (!cleanId) return false
@@ -140,18 +151,30 @@ export function saveChatSession(id: string, messages: Content[], title?: string)
 
   try {
     let sessionTitle = title
+    let existingMode = sessionMode
+    let existingPath = disciplinePath
 
-    // If title not provided (undefined), try to keep the existing one from the file or generate fallback
-    if (sessionTitle === undefined) {
+    // If title or modes not provided, try to keep the existing ones from the file
+    if (sessionTitle === undefined || existingMode === undefined || existingPath === undefined) {
       if (fs.existsSync(filePath)) {
         try {
           const existingData = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
-          const firstMsgText = getMessageText(messages[0])
-          if (
-            existingData.title &&
-            !existingData.title.startsWith(firstMsgText.substring(0, 5) || '___')
-          ) {
-            sessionTitle = existingData.title
+          
+          if (sessionTitle === undefined) {
+            const firstMsgText = getMessageText(messages[0])
+            if (
+              existingData.title &&
+              !existingData.title.startsWith(firstMsgText.substring(0, 5) || '___')
+            ) {
+              sessionTitle = existingData.title
+            }
+          }
+          
+          if (existingMode === undefined) {
+            existingMode = existingData.sessionMode
+          }
+          if (existingPath === undefined) {
+            existingPath = existingData.disciplinePath
           }
         } catch {
           /* ignore parse errors */
@@ -184,7 +207,9 @@ export function saveChatSession(id: string, messages: Content[], title?: string)
       id,
       title: sessionTitle !== undefined ? sessionTitle : 'New Conversation',
       lastUpdated: Date.now(),
-      messages: messagesToSave
+      messages: messagesToSave,
+      sessionMode: existingMode,
+      disciplinePath: existingPath
     }
 
     fs.writeFileSync(filePath, JSON.stringify(session, null, 2))

@@ -1,6 +1,7 @@
 import { GoogleGenAI, Content, ThinkingLevel } from '@google/genai'
 import * as dotenv from 'dotenv'
 import { IpcMainEvent, ipcMain, BrowserWindow } from 'electron'
+import { SessionMode } from '../shared/types'
 import * as path from 'path'
 import { Agent, setGlobalDispatcher, fetch as undiciFetch } from 'undici'
 import {
@@ -9,6 +10,7 @@ import {
   runTerminalCommand,
   listApplications,
   openApplication,
+  setActiveCwd,
   openBrowserLink,
   webSearch,
   webSearchContinuous,
@@ -41,7 +43,7 @@ import {
 } from './systemTools'
 import type { WebSearchEntry } from './systemTools'
 import {
-  saveChatSession,
+  saveChatSession as saveChatSessionRaw,
   loadChatSession,
   searchChatHistory,
   searchChatMemory,
@@ -1831,6 +1833,20 @@ export function loadChatIntoHistory(id: string): Content[] {
   const session = loadChatSession(id)
   if (session) {
     currentSessionId = session.id
+    
+    currentSessionMode = session.sessionMode || 'execution'
+    currentDisciplinePath = session.disciplinePath || ''
+
+    // Set CWD for the system tools
+    const os = require('os')
+    if (currentSessionMode === 'discipline' && currentDisciplinePath) {
+      setActiveCwd(currentDisciplinePath)
+    } else if (currentSessionMode === 'execution') {
+      setActiveCwd(os.homedir())
+    } else {
+      setActiveCwd(process.cwd())
+    }
+
     const cleanMessages = session.messages.filter((msg) => {
       if (msg.role === 'system') {
         const text = msg.parts?.[0]?.text || ''
@@ -1841,7 +1857,7 @@ export function loadChatIntoHistory(id: string): Content[] {
 
     // Prepend system messages to the history loaded from disk
     chatHistory = [
-      { role: 'system', parts: [{ text: getSystemToolsPrompt(currentModelKey) }] },
+      { role: 'system', parts: [{ text: getSystemToolsPrompt(currentModelKey, 'main', undefined, currentSessionMode, currentDisciplinePath) }] },
       {
         role: 'system',
         parts: [
@@ -1871,6 +1887,23 @@ export function setSubagentModel(modelKey: string): boolean {
   if (!MODEL_CONFIGS[modelKey]) return false
   currentSubagentModelKey = modelKey
   return true
+}
+
+let currentSessionMode: SessionMode = 'execution'
+let currentDisciplinePath: string = ''
+
+export function setSessionMode(mode: SessionMode, disciplinePath?: string): void {
+  currentSessionMode = mode
+  if (disciplinePath !== undefined) {
+    currentDisciplinePath = disciplinePath
+  }
+}
+
+export function getSessionMode(): { mode: SessionMode; disciplinePath?: string } {
+  return {
+    mode: currentSessionMode,
+    disciplinePath: currentDisciplinePath
+  }
 }
 
 // API Key provided by the user manually
@@ -1933,6 +1966,10 @@ User message: "${firstMessage}"`
   }
 }
 
+function saveChatSession(id: string, messages: Content[], title?: string): boolean {
+  return saveChatSessionRaw(id, messages, title, currentSessionMode, currentDisciplinePath)
+}
+
 interface AttachedFile {
   name: string
   mimeType: string
@@ -1951,6 +1988,8 @@ export async function handleChatMessage(
         quote?: string
         attachedFile?: AttachedFile
         appMode?: string
+        sessionMode?: SessionMode
+        disciplinePath?: string
       }
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
@@ -1960,6 +1999,9 @@ export async function handleChatMessage(
   const quote = typeof data === 'object' ? data.quote : undefined
   const attachedFile = typeof data === 'object' ? data.attachedFile : undefined
   const appMode = typeof data === 'object' ? data.appMode : undefined
+
+  let sessionMode = typeof data === 'object' ? data.sessionMode : undefined
+  let disciplinePath = typeof data === 'object' ? data.disciplinePath : undefined
 
   // Priority: User key > Environment key
   const apiKey = userApiKey || process.env.GEMINI_API_KEY
@@ -1979,6 +2021,28 @@ export async function handleChatMessage(
     currentSessionId = chatId
     const session = loadChatSession(chatId)
     if (session) {
+      if (!sessionMode) sessionMode = session.sessionMode
+      if (!disciplinePath) disciplinePath = session.disciplinePath
+    }
+
+    if (sessionMode) {
+      currentSessionMode = sessionMode
+    }
+    if (disciplinePath !== undefined) {
+      currentDisciplinePath = disciplinePath
+    }
+
+    // Set CWD for the system tools
+    const os = require('os')
+    if (currentSessionMode === 'discipline' && currentDisciplinePath) {
+      setActiveCwd(currentDisciplinePath)
+    } else if (currentSessionMode === 'execution') {
+      setActiveCwd(os.homedir())
+    } else {
+      setActiveCwd(process.cwd())
+    }
+
+    if (session) {
       const cleanMessages = session.messages.filter((msg) => {
         if (msg.role === 'system') {
           const text = msg.parts?.[0]?.text || ''
@@ -1989,7 +2053,7 @@ export async function handleChatMessage(
       runHistory = [
         {
           role: 'system',
-          parts: [{ text: getSystemToolsPrompt(currentModelKey, 'main') }]
+          parts: [{ text: getSystemToolsPrompt(currentModelKey, 'main', undefined, currentSessionMode, currentDisciplinePath) }]
         },
         {
           role: 'system',
@@ -2005,7 +2069,7 @@ export async function handleChatMessage(
       runHistory = [
         {
           role: 'system',
-          parts: [{ text: getSystemToolsPrompt(currentModelKey, 'main') }]
+          parts: [{ text: getSystemToolsPrompt(currentModelKey, 'main', undefined, currentSessionMode, currentDisciplinePath) }]
         },
         {
           role: 'system',
@@ -2137,7 +2201,13 @@ export async function handleChatMessage(
     firstMsgText.toLowerCase().startsWith(w.command.toLowerCase())
   )
 
-  const basePrompt = getSystemToolsPrompt(currentModelKey, 'main', matchedWorkflow?.toolConstraints)
+  const basePrompt = getSystemToolsPrompt(
+    currentModelKey,
+    'main',
+    matchedWorkflow?.toolConstraints,
+    currentSessionMode,
+    currentDisciplinePath
+  )
   let fullPrompt = basePrompt
   if (matchedWorkflow) {
     fullPrompt += `\n\n# Active Workflow: ${matchedWorkflow.name}\n${matchedWorkflow.systemInstruction}`
@@ -2381,6 +2451,14 @@ export async function handleChatMessage(
                 }
               }
 
+              if (currentSessionMode === 'conversation') {
+                isMalformed = true
+                validation.isMalformed = true
+                validation.errorType = 'invalid_tool'
+                validation.errorMessage = 'Tools are disabled in Conversation Mode.'
+                actualName = 'malformed_tool_call'
+              }
+
               let toolArgs = validation.args
 
               if (isMalformed) {
@@ -2401,7 +2479,10 @@ export async function handleChatMessage(
 
               let toolResult = ''
               if (isMalformed) {
-                toolResult = `Error: AI stopped due to a malformed Tool Call.
+                if (currentSessionMode === 'conversation') {
+                  toolResult = `Error: Tool execution is disabled in Conversation Mode. You cannot run tools (attempted: "${validation.name || 'unknown'}"). Please answer the user's question without calling any tools.`
+                } else {
+                  toolResult = `Error: AI stopped due to a malformed Tool Call.
 Detailed Error: ${validation.errorMessage}
 
 Your generated segment was:
@@ -2410,6 +2491,7 @@ ${toolContent.trim()}
 </tool_call>
 
 Every tool call MUST strictly conform to the expected format. Please review the error above, correct the tool call format, and try again.`
+                }
                 // Slight delay to feel like execution time
                 await new Promise((resolve) => setTimeout(resolve, 500))
               } else {

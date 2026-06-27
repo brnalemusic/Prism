@@ -47,8 +47,9 @@ import { ScreenshotModal } from './components/ScreenshotModal'
 import { SubagentDelegationModal } from './components/SubagentDelegationModal'
 import { YoutubeAppModal } from './components/YoutubeAppModal'
 import { AppConfig, SlashWorkflow } from '../../main/config'
-import type { DownloadProgress } from '../../shared/types'
+import type { DownloadProgress, SessionMode } from '../../shared/types'
 import { IS_DEMO } from '../../shared/demo'
+import { SessionModeSelector } from './components/SessionModeSelector'
 
 interface HastNode {
   type: string
@@ -643,6 +644,8 @@ function RealApp(): React.JSX.Element {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [inputText, setInputText] = useState('')
   const [activeWorkflow, setActiveWorkflow] = useState<SlashWorkflow | null>(null)
+  const [sessionMode, setSessionMode] = useState<SessionMode>('execution')
+  const [disciplinePath, setDisciplinePath] = useState('')
 
   useEffect(() => {
     setActiveWorkflow(null)
@@ -664,6 +667,16 @@ function RealApp(): React.JSX.Element {
   useEffect(() => {
     quotedTextRef.current = quotedText
   }, [quotedText])
+
+  const sessionModeRef = useRef<SessionMode>('execution')
+  useEffect(() => {
+    sessionModeRef.current = sessionMode
+  }, [sessionMode])
+
+  const disciplinePathRef = useRef('')
+  useEffect(() => {
+    disciplinePathRef.current = disciplinePath
+  }, [disciplinePath])
 
   const [floatingMenu, setFloatingMenu] = useState<{
     x: number
@@ -835,6 +848,14 @@ function RealApp(): React.JSX.Element {
         if (cfg.defaultModel) {
           setSelectedModel(cfg.defaultModel)
         }
+        if (cfg.sessionMode) {
+          setSessionMode(cfg.sessionMode)
+        }
+        if (cfg.disciplinePath) {
+          setDisciplinePath(cfg.disciplinePath)
+        }
+        // Sync to backend in-memory CWD/mode on startup
+        window.api.setSessionMode(cfg.sessionMode || 'execution', cfg.disciplinePath)
       }
     }
     init()
@@ -899,6 +920,31 @@ function RealApp(): React.JSX.Element {
 
   const handleSearchEnabledToggle = useCallback((val: boolean) => {
     window.api.setSearchEnabled(val)
+  }, [])
+
+  const handleModeChangeClick = useCallback(async (newMode: SessionMode) => {
+    setSessionMode(newMode)
+    let path = disciplinePath
+    if (newMode === 'discipline' && !disciplinePath) {
+      const selected = await window.api.selectFolder()
+      if (selected) {
+        setDisciplinePath(selected)
+        path = selected
+      } else {
+        setSessionMode('execution')
+        window.api.setSessionMode('execution', '')
+        return
+      }
+    }
+    window.api.setSessionMode(newMode, path)
+  }, [disciplinePath])
+
+  const handleSelectFolderClick = useCallback(async () => {
+    const selected = await window.api.selectFolder()
+    if (selected) {
+      setDisciplinePath(selected)
+      window.api.setSessionMode('discipline', selected)
+    }
   }, [])
 
   const handleSend = useCallback(
@@ -982,7 +1028,9 @@ function RealApp(): React.JSX.Element {
         screenshot: activeScreenshot || undefined,
         attachedFile: activeFile || undefined,
         quote: quotedTextRef.current || undefined,
-        appMode: targetYoutubeMode ? 'youtube' : undefined
+        appMode: targetYoutubeMode ? 'youtube' : undefined,
+        sessionMode: sessionModeRef.current,
+        disciplinePath: disciplinePathRef.current
       })
 
       setAttachedFile(null)
@@ -1312,13 +1360,25 @@ function RealApp(): React.JSX.Element {
           .getChats()
           .then((chatsList) => {
             const foundChat = chatsList.find((c) => c.id === id)
-            if (
-              foundChat &&
-              foundChat.title &&
-              foundChat.title !== 'New Conversation' &&
-              foundChat.title !== 'Nova Conversa'
-            ) {
-              setCurrentChatTitle(foundChat.title)
+            if (foundChat) {
+              if (
+                foundChat.title &&
+                foundChat.title !== 'New Conversation' &&
+                foundChat.title !== 'Nova Conversa'
+              ) {
+                setCurrentChatTitle(foundChat.title)
+              } else {
+                setCurrentChatTitle(null)
+              }
+              if (foundChat.sessionMode) {
+                setSessionMode(foundChat.sessionMode)
+                window.api.setSessionMode(foundChat.sessionMode, foundChat.disciplinePath)
+              }
+              if (foundChat.disciplinePath) {
+                setDisciplinePath(foundChat.disciplinePath)
+              } else {
+                setDisciplinePath('')
+              }
             } else {
               setCurrentChatTitle(null)
             }
@@ -1402,6 +1462,12 @@ function RealApp(): React.JSX.Element {
       setConfig(cfg)
       if (cfg.defaultModel) {
         setSelectedModel(cfg.defaultModel)
+      }
+      if (cfg.sessionMode) {
+        setSessionMode(cfg.sessionMode)
+      }
+      if (cfg.disciplinePath) {
+        setDisciplinePath(cfg.disciplinePath)
       }
     })
 
@@ -2367,6 +2433,8 @@ function RealApp(): React.JSX.Element {
               onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
               activeWorkflow={activeWorkflow}
               setActiveWorkflow={setActiveWorkflow}
+              sessionMode={sessionMode}
+              disciplinePath={disciplinePath}
             />
           </div>
         ) : (
@@ -2406,6 +2474,13 @@ function RealApp(): React.JSX.Element {
                         {getGreeting()}
                       </h1>
 
+                      <SessionModeSelector
+                        mode={sessionMode}
+                        disciplinePath={disciplinePath}
+                        onModeChange={handleModeChangeClick}
+                        onSelectFolder={handleSelectFolderClick}
+                      />
+
                       <div className="w-full relative z-20">
                         {/* White glow behind input box for Terno theme */}
                         {(config?.theme || 'marine') === 'terno' && (
@@ -2438,6 +2513,8 @@ function RealApp(): React.JSX.Element {
                           onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
                           activeWorkflow={activeWorkflow}
                           setActiveWorkflow={setActiveWorkflow}
+                          sessionMode={sessionMode}
+                          disciplinePath={disciplinePath}
                         />
                       </div>
                     </div>
@@ -2522,6 +2599,8 @@ function RealApp(): React.JSX.Element {
                   onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
                   activeWorkflow={activeWorkflow}
                   setActiveWorkflow={setActiveWorkflow}
+                  sessionMode={sessionMode}
+                  disciplinePath={disciplinePath}
                 />
               </div>
             )}

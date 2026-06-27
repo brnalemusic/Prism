@@ -5,7 +5,7 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as os from 'os'
 import { toolsManifest } from './toolsManifest'
-import { ApplicationInfo, DownloadProgress } from '../shared/types'
+import { ApplicationInfo, DownloadProgress, SessionMode } from '../shared/types'
 import { loadConfig } from './config'
 import {
   chromium,
@@ -628,8 +628,19 @@ export async function runTerminalCommand(
   return runGuardedTerminalCommand(command, {
     shell: shellToUse,
     apiKey: activeApiKey,
-    signal
+    signal,
+    cwd: activeCwd
   })
+}
+
+let activeCwd: string = process.cwd()
+
+export function setActiveCwd(dir: string): void {
+  activeCwd = dir
+}
+
+export function getActiveCwd(): string {
+  return activeCwd
 }
 
 function resolveRequiredPath(input: string, label: string): string {
@@ -642,7 +653,7 @@ function resolveRequiredPath(input: string, label: string): string {
     throw new Error(`Invalid ${label}: "${input}". Replace placeholders with a real path.`)
   }
 
-  return path.resolve(cleaned)
+  return path.resolve(activeCwd, cleaned)
 }
 
 function createAbortError(): Error {
@@ -2405,7 +2416,9 @@ export async function webSearchContinuous(
 export function getSystemToolsPrompt(
   modelKey: string,
   target: 'main' | 'subagent' | 'both' | 'launcher' = 'main',
-  allowedTools?: string[]
+  allowedTools?: string[],
+  sessionMode: SessionMode = 'execution',
+  disciplinePath?: string
 ): string {
   let shellName = process.platform === 'win32' ? 'powershell.exe' : '/bin/sh'
   try {
@@ -2460,7 +2473,14 @@ export function getSystemToolsPrompt(
   const username = os.userInfo().username
   const platform = process.platform
   const homeDir = os.homedir()
-  const cwd = process.cwd()
+  
+  let cwd = process.cwd()
+  if (sessionMode === 'discipline' && disciplinePath) {
+    cwd = disciplinePath
+  } else if (sessionMode === 'execution') {
+    cwd = os.homedir()
+  }
+
   const date = new Date().toLocaleString('en-US', {
     timeZoneName: 'short',
     hour12: false,
@@ -2487,6 +2507,17 @@ Tools:
 ${toolsPrompt}`
   }
 
+  if (sessionMode === 'conversation' && target === 'main') {
+    return `# Identity & Context
+Role: ${name} (${modelName}), running in Conversation Mode.
+Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd}
+
+# Rules
+- **Conversation Mode**: You are running in Conversation Mode. You do NOT have access to any tools (like files, terminal, or browser). You must NOT attempt to output any <tool_call> tags. Simply reply to the user using text/Markdown.
+- Match user's language. Be direct, factual, and concise.
+- Simple Markdown: Use standard Markdown for all replies.`
+  }
+
   const parallelRule =
     target === 'main'
       ? '- Parallelism: Run multiple <tool_call> blocks concurrently to speed up tasks. Use <run_subagents> for complex tasks.'
@@ -2495,6 +2526,10 @@ ${toolsPrompt}`
     target === 'subagent'
       ? '- Human user messages: Any group message from Master Coordinator is from the Prism user. Respond via send_group_message.'
       : ''
+
+  const disciplineRule = sessionMode === 'discipline' && disciplinePath
+    ? `\n- **Discipline Mode**: You are operating in Discipline Mode. All operations and commands run directly in: ${disciplinePath}. Perform modifications relative to this path.`
+    : ''
 
   return `# Identity & Context
 Role: ${name} (${modelName}), a concise, tool-capable desktop assistant.
@@ -2519,7 +2554,7 @@ Define clear boundaries to maximize UX and performance:
 - Interactive widget/form/game -> **Mini App (<mini_app>)**
 
 # Operating Rules
-- Match user's language. Be direct, factual, and concise; prefer action over commentary.
+- Match user's language. Be direct, factual, and concise; prefer action over commentary.${disciplineRule}
 - **Auto-Open:** If an app, link, or file path is sent in isolation, IMMEDIATELY open it via open_browser_link, open_application, or relevant tool.
 - Preserve file indentation (spaces/tabs) exactly when editing.
 - Do not expose thoughts/reasoning; provide conclusions and evidence.
