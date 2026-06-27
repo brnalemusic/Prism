@@ -35,7 +35,6 @@ import { triggerErrorPopup, isShortcutPressed } from '../utils'
 interface InputBarProps {
   onSend: (
     message: string,
-    thinkMode?: boolean,
     searchEnabled?: boolean,
     screenshot?: string,
     attachedFile?: AttachedFile
@@ -44,8 +43,6 @@ interface InputBarProps {
   disabled?: boolean
   isProcessing?: boolean
   isKeyMissing?: boolean
-  isThinkMode?: boolean
-  onThinkModeToggle?: (val: boolean) => void
   selectedModel?: string
   onModelChange?: (modelId: string) => void
   text: string
@@ -66,6 +63,11 @@ interface InputBarProps {
   disciplinePath: string
   onModeChange?: (mode: SessionMode) => void
   onSelectFolder?: () => void
+  hasGeminiKey?: boolean
+  hasNvidiaNimKey?: boolean
+  hasOpenaiKey?: boolean
+  openaiModelId?: string
+  openaiModelName?: string
 }
 
 export interface InputBarHandle {
@@ -80,8 +82,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       disabled,
       isProcessing,
       isKeyMissing,
-      isThinkMode = false,
-      onThinkModeToggle,
       selectedModel = 'prism-6-super-fast',
       onModelChange,
       text,
@@ -132,8 +132,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       }
     )
 
-    const isSearchAndThinkMode = isSearchEnabled && isThinkMode
-    const activeMode = isSearchEnabled ? 'search' : isThinkMode ? 'think' : 'default'
+    const activeMode = isSearchEnabled ? 'search' : 'default'
 
     const [config, setConfig] = useState<AppConfig | null>(null)
     const [workflows, setWorkflows] = useState<any[]>([])
@@ -374,7 +373,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       const handleGlobalKeyDown = (e: KeyboardEvent): void => {
         const dictationKey = config?.dictationShortcut || 'CommandOrControl+D'
         const webSearchKey = config?.webSearchShortcut || 'CommandOrControl+S'
-        const thinkModeKey = config?.thinkModeShortcut || 'CommandOrControl+T'
         const youtubeModeKey = config?.youtubeModeShortcut || 'CommandOrControl+Y'
 
         if (isShortcutPressed(e, dictationKey)) {
@@ -386,10 +384,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           const nextVal = !isSearchEnabled
           setIsSearchEnabled(nextVal)
         }
-        if (isShortcutPressed(e, thinkModeKey)) {
-          e.preventDefault()
-          onThinkModeToggle?.(!isThinkMode)
-        }
         if (isShortcutPressed(e, youtubeModeKey)) {
           e.preventDefault()
           setIsSearchEnabled(false)
@@ -400,8 +394,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       return () => window.removeEventListener('keydown', handleGlobalKeyDown)
     }, [
       config,
-      isThinkMode,
-      onThinkModeToggle,
       selectedModel,
       isSearchEnabled,
       setIsSearchEnabled,
@@ -452,7 +444,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
 
         onSend(
           finalMessage,
-          isThinkMode,
           isSearchEnabled,
           attachedFile?.mimeType.startsWith('image/') ? attachedFile.data : undefined,
           attachedFile || undefined
@@ -523,18 +514,13 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       if (isKeyMissing) return 'API key required'
       if (isProcessing) return 'Prism is responding'
       if (activeWorkflow) return `Ask with ${activeWorkflow.name}`
-      if (isSearchAndThinkMode) return 'Search, and then Think Deeply with Prism'
       if (isSearchEnabled) return 'Search the web with Prism'
-      if (isThinkMode) return 'Ask Prism to think deeply'
       return 'Ask Prism'
     }
 
     const modeStyles = {
       youtube: 'border-accent-primary/30 bg-accent-primary/[0.04] text-accent-primary',
-      search: isSearchAndThinkMode
-        ? 'border-[#8ee8b0]/25 bg-[linear-gradient(110deg,rgba(45,212,191,0.045),rgba(245,158,11,0.05))] text-[#d9c77a]'
-        : 'border-accent-secondary/30 bg-accent-secondary/[0.04] text-accent-secondary',
-      think: 'border-status-warning/30 bg-status-warning/[0.04] text-status-warning',
+      search: 'border-accent-secondary/30 bg-accent-secondary/[0.04] text-accent-secondary',
       default: 'border-white/[0.085] bg-white/[0.028] text-text-primary'
     }[activeMode]
 
@@ -919,8 +905,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           <ModelSelector
             selectedModel={selectedModel}
             onModelChange={onModelChange || (() => {})}
-            isThinkMode={isThinkMode}
-            onThinkModeToggle={onThinkModeToggle}
             disabled={disabled}
           />
 
@@ -939,11 +923,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               className={clsx(
                 'ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-200',
                 text.trim() && !disabled
-                  ? activeMode === 'search'
-                    ? 'bg-accent-secondary text-black hover:bg-accent-secondary/90 active:scale-95'
-                    : activeMode === 'think'
-                      ? 'bg-status-warning text-black hover:bg-status-warning/90 active:scale-95'
-                      : 'bg-text-primary text-black hover:bg-white active:scale-95'
+                  ? 'bg-text-primary text-black hover:bg-white active:scale-95'
                   : 'bg-white/[0.055] text-text-muted'
               )}
             >
@@ -1035,15 +1015,8 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 <div
                   className={clsx(
                     'h-px w-full opacity-80',
-                    isSearchAndThinkMode
-                      ? 'animate-[line-sweep_1800ms_cubic-bezier(0.2,0.82,0.2,1)_infinite] bg-[linear-gradient(to_right,transparent,var(--accent-secondary),var(--status-warning),transparent)]'
-                      : [
-                          'bg-gradient-to-r from-transparent via-current to-transparent',
-                          activeMode === 'think' &&
-                            'animate-[line-sweep_2100ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]',
-                          activeMode === 'search' &&
-                            'animate-[line-sweep_1500ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]'
-                        ]
+                    'bg-gradient-to-r from-transparent via-current to-transparent',
+                    'animate-[line-sweep_1500ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]'
                   )}
                 />
               </div>
@@ -1073,13 +1046,9 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 disabled={disabled}
                 className={clsx(
                   'w-full flex-1 resize-none bg-transparent py-2 text-lg font-medium outline-none border-0 border-transparent m-0 shadow-none leading-relaxed placeholder:text-text-muted disabled:cursor-not-allowed cursor-text text-text-primary selection:bg-accent-primary/30 whitespace-pre-wrap break-words',
-                  isSearchAndThinkMode
-                    ? 'caret-[#d9c77a]'
-                    : activeMode === 'search'
-                      ? 'caret-accent-secondary'
-                      : activeMode === 'think'
-                        ? 'caret-status-warning'
-                        : 'caret-white'
+                  activeMode === 'search'
+                    ? 'caret-accent-secondary'
+                    : 'caret-white'
                 )}
               />
             </div>
@@ -1177,15 +1146,8 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 <div
                   className={clsx(
                     'h-px w-full opacity-80',
-                    isSearchAndThinkMode
-                      ? 'animate-[line-sweep_1800ms_cubic-bezier(0.2,0.82,0.2,1)_infinite] bg-[linear-gradient(to_right,transparent,var(--accent-secondary),var(--status-warning),transparent)]'
-                      : [
-                          'bg-gradient-to-r from-transparent via-current to-transparent',
-                          activeMode === 'think' &&
-                            'animate-[line-sweep_2100ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]',
-                          activeMode === 'search' &&
-                            'animate-[line-sweep_1500ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]'
-                        ]
+                    'bg-gradient-to-r from-transparent via-current to-transparent',
+                    'animate-[line-sweep_1500ms_cubic-bezier(0.2,0.82,0.2,1)_infinite]'
                   )}
                 />
               </div>
@@ -1204,15 +1166,9 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 disabled={disabled}
                 className={clsx(
                   'relative z-10 w-full resize-none bg-transparent text-base font-medium outline-none border-0 border-transparent m-0 shadow-none leading-relaxed placeholder:text-text-muted disabled:cursor-not-allowed cursor-text block min-h-[48px] max-h-[300px] text-text-primary selection:bg-accent-primary/30 whitespace-pre-wrap break-words',
-                  isSearchAndThinkMode
-                    ? 'caret-[#d9c77a]'
-                    : activeMode === 'search'
-                      ? 'caret-accent-secondary'
-                      : activeMode === 'think'
-                        ? 'caret-status-warning'
-                        : activeMode !== 'default'
-                          ? 'caret-accent-primary'
-                          : 'caret-white'
+                  activeMode === 'search'
+                    ? 'caret-accent-secondary'
+                    : 'caret-white'
                 )}
                 rows={1}
               />

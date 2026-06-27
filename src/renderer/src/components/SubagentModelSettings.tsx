@@ -4,31 +4,13 @@ import { MODELS } from '../constants'
 import type { AppConfig } from '../../../main/config'
 import clsx from 'clsx'
 
-const FALLBACK_CONFIG: AppConfig = {
-  launcherShortcut: 'CommandOrControl+Space',
-  modelSelectionShortcut: 'CommandOrControl+M',
-  screenshotShortcut: 'Ctrl+Alt+Space',
-  newChatShortcut: 'CommandOrControl+N',
-  dictationShortcut: 'CommandOrControl+D',
-  webSearchShortcut: 'CommandOrControl+S',
-  thinkModeShortcut: 'CommandOrControl+T',
-  youtubeModeShortcut: 'CommandOrControl+Y',
-  defaultModel: 'prism-6-super-fast',
-  subagentModel: 'prism-6-dragon',
-  minimizeToTray: false,
-  autoLaunch: false,
-  userGeminiKey: '',
-  ttsVoice: 'Aoede',
-  theme: 'marine',
-  zoomFactor: 1.0,
-  terminalShell: 'powershell.exe',
-  sessionMode: 'execution',
-  disciplinePath: ''
+const FALLBACK_CONFIG: Partial<AppConfig> = {
+  subagentModel: 'gemma-4-26b-a4b-it'
 }
 
 export function SubagentModelSettings(): React.JSX.Element {
-  const [config, setConfig] = useState<AppConfig>(FALLBACK_CONFIG)
-  const [selectedModel, setSelectedModel] = useState('prism-6-dragon')
+  const [_config, _setConfig] = useState<AppConfig | null>(null)
+  const [selectedModel, setSelectedModel] = useState('gemma-4-26b-a4b-it')
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState('')
 
@@ -38,14 +20,14 @@ export function SubagentModelSettings(): React.JSX.Element {
     window.api.getConfig().then((savedConfig) => {
       if (!mounted || !savedConfig) return
       const nextConfig = { ...FALLBACK_CONFIG, ...savedConfig }
-      setConfig(nextConfig)
-      setSelectedModel(nextConfig.subagentModel || FALLBACK_CONFIG.subagentModel)
+      _setConfig(nextConfig as AppConfig)
+      setSelectedModel(nextConfig.subagentModel || FALLBACK_CONFIG.subagentModel || 'gemma-4-26b-a4b-it')
     })
 
     const removeConfigListener = window.api.onConfigChanged((nextConfig) => {
       const normalizedConfig = { ...FALLBACK_CONFIG, ...nextConfig }
-      setConfig(normalizedConfig)
-      setSelectedModel(normalizedConfig.subagentModel || FALLBACK_CONFIG.subagentModel)
+      _setConfig(normalizedConfig as AppConfig)
+      setSelectedModel(normalizedConfig.subagentModel || FALLBACK_CONFIG.subagentModel || 'gemma-4-26b-a4b-it')
     })
 
     return () => {
@@ -56,12 +38,10 @@ export function SubagentModelSettings(): React.JSX.Element {
 
   const handleSave = async (): Promise<void> => {
     setIsSaving(true)
-    const nextConfig = { ...config, subagentModel: selectedModel }
-    const success = await window.api.saveConfig(nextConfig)
+    const success = await window.api.saveConfig({ subagentModel: selectedModel } as AppConfig)
     setIsSaving(false)
 
     if (success) {
-      setConfig(nextConfig)
       setMessage('Saved')
       setTimeout(() => window.api.closeSubagentSettingsWindow(), 450)
     } else {
@@ -104,37 +84,22 @@ export function SubagentModelSettings(): React.JSX.Element {
                 onClick={() => setSelectedModel(model.id)}
                 className={clsx(
                   'flex w-full items-start gap-3 rounded-[20px] border p-4 text-left transition-all duration-200 active:scale-[0.98]',
-                  model.id === 'prism-5'
-                    ? [
-                        'prism-5-model-option prism-5-settings-option',
-                        isSelected && 'prism-5-model-option-active'
-                      ]
-                    : isSelected
-                      ? 'border-accent-primary/30 bg-accent-primary/[0.09]'
-                      : 'border-white/[0.08] bg-white/[0.035] hover:bg-white/[0.055]'
+                  isSelected
+                    ? 'border-accent-primary/30 bg-accent-primary/[0.09]'
+                    : 'border-white/[0.08] bg-white/[0.035] hover:bg-white/[0.055]'
                 )}
               >
                 <span
                   className={clsx(
                     'mt-1 h-2.5 w-2.5 shrink-0 rounded-full',
-                    model.id === 'prism-5'
-                      ? ['prism-5-dot', isSelected ? 'opacity-100' : 'opacity-70']
-                      : isSelected
-                        ? 'bg-accent-primary'
-                        : 'bg-white/[0.18]'
+                    isSelected
+                      ? 'bg-accent-primary'
+                      : 'bg-white/[0.18]'
                   )}
                 />
                 <span className="min-w-0 flex-1">
-                  <span
-                    className={clsx(
-                      'block text-sm font-semibold',
-                      model.id === 'prism-5' ? 'prism-5-title-gradient' : 'text-text-primary'
-                    )}
-                  >
+                  <span className="block text-sm font-semibold text-text-primary">
                     {model.name}
-                  </span>
-                  <span className="mt-1 block text-xs leading-snug text-text-secondary/70">
-                    {model.description}
                   </span>
                 </span>
                 {isSelected && <Check size={16} className="mt-0.5 shrink-0 text-accent-primary" />}

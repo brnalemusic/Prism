@@ -972,6 +972,8 @@ if (!gotTheLock) {
       return {
         ...currentConfig,
         envGeminiKey: process.env.GEMINI_API_KEY ? 'present' : 'none',
+        envNvidiaNimKey: process.env.NVIDIA_API_KEY ? 'present' : 'none',
+        envOpenaiKey: process.env.OPENAI_API_KEY ? 'present' : 'none',
         username: os.userInfo().username,
         appVersion: app.getVersion()
       }
@@ -981,6 +983,8 @@ if (!gotTheLock) {
       event.returnValue = {
         ...currentConfig,
         envGeminiKey: process.env.GEMINI_API_KEY ? 'present' : 'none',
+        envNvidiaNimKey: process.env.NVIDIA_API_KEY ? 'present' : 'none',
+        envOpenaiKey: process.env.OPENAI_API_KEY ? 'present' : 'none',
         username: os.userInfo().username,
         appVersion: app.getVersion()
       }

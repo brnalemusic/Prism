@@ -333,7 +333,6 @@ export const toolsManifest: ToolDefinition[] = [
     parameters: {
       instructions: 'Target instructions.',
       model: 'Model key (super-fast|fast|dragon|dense).',
-      thinkMode: 'Optional: "true"|"false".',
       searchEnabled: 'Optional: "true"|"false".'
     },
     target: 'launcher'
@@ -357,7 +356,6 @@ export const toolsManifest: ToolDefinition[] = [
       newChatShortcut: 'Optional: Start new chat hotkey.',
       dictationShortcut: 'Optional: Voice dictation toggle hotkey.',
       webSearchShortcut: 'Optional: Toggle search mode hotkey.',
-      thinkModeShortcut: 'Optional: Toggle think mode hotkey.',
       youtubeModeShortcut: 'Optional: Toggle YouTube mode hotkey.',
       defaultModel: 'Optional: Main model key.',
       subagentModel: 'Optional: Subagent model key.',

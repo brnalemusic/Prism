@@ -843,7 +843,6 @@ export function QuickLauncher(): React.JSX.Element {
 
       const dictationKey = config?.dictationShortcut || 'CommandOrControl+D'
       const webSearchKey = config?.webSearchShortcut || 'CommandOrControl+S'
-      const thinkModeKey = config?.thinkModeShortcut || 'CommandOrControl+T'
       const youtubeModeKey = config?.youtubeModeShortcut || 'CommandOrControl+Y'
 
       // Dictation shortcut
@@ -856,12 +855,6 @@ export function QuickLauncher(): React.JSX.Element {
       if (isShortcutPressed(e, webSearchKey)) {
         e.preventDefault()
         window.api.setSearchEnabled(!isSearchEnabled)
-        return
-      }
-
-      if (isShortcutPressed(e, thinkModeKey)) {
-        e.preventDefault()
-        window.api.setThinkMode(!isThinkMode)
         return
       }
 
@@ -1155,9 +1148,7 @@ export function QuickLauncher(): React.JSX.Element {
                   >
                     {model.name}
                   </span>
-                  <span className="mt-0.5 block text-xs leading-snug text-text-secondary/70">
-                    {model.shortDescription || model.description}
-                  </span>
+
                 </span>
                 {activeModelId === model.id && (
                   <Check size={15} className="mt-0.5 text-accent-secondary" />

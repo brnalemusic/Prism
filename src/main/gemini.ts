@@ -1,4 +1,5 @@
 import { GoogleGenAI, Content, ThinkingLevel } from '@google/genai'
+import { OpenAI } from 'openai'
 import * as dotenv from 'dotenv'
 import { IpcMainEvent, ipcMain, BrowserWindow } from 'electron'
 import { SessionMode } from '../shared/types'
@@ -64,8 +65,312 @@ const networkAgent = new Agent({
 setGlobalDispatcher(networkAgent)
 globalThis.fetch = undiciFetch as unknown as typeof globalThis.fetch
 
+// Dynamic model provider detection helper
+export function getModelProvider(modelKey: string): 'gemini' | 'nvidia-nim' | 'openai-compatible' {
+  const config = loadConfig()
+  if (config.openaiModelId && modelKey === config.openaiModelId) {
+    return 'openai-compatible'
+  }
+
+  const geminiModels = ['gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemma-4-26b-a4b-it', 'gemma-4-31b-it']
+  if (geminiModels.includes(modelKey)) {
+    return 'gemini'
+  }
+
+  const nimModels = [
+    'openai/gpt-oss-120b',
+    'mistralai/mistral-large-3-675b-instruct-2512',
+    'nvidia/nemotron-3-ultra-550b-a55b',
+    'stepfun-ai/step-3.5-flash',
+    'stepfun-ai/step-3.7-flash',
+    'deepseek-ai/deepseek-v4-flash',
+    'deepseek-ai/deepseek-v4-pro',
+    'zai-org/glm-5.1',
+    'minimaxai/minimax-m2.7',
+    'minimaxai/minimax-m3'
+  ]
+  if (nimModels.includes(modelKey)) {
+    return 'nvidia-nim'
+  }
+
+  return 'gemini'
+}
+
+export function getProviderApiKey(provider: 'gemini' | 'nvidia-nim' | 'openai-compatible'): string {
+  const config = loadConfig()
+  if (provider === 'gemini') {
+    return config.userGeminiKey || process.env.GEMINI_API_KEY || ''
+  } else if (provider === 'nvidia-nim') {
+    return config.userNvidiaNimKey || process.env.NVIDIA_API_KEY || ''
+  } else {
+    return config.userOpenaiKey || process.env.OPENAI_API_KEY || ''
+  }
+}
+
+// Convert history to OpenAI format
+function convertHistoryToOpenAiFormat(history: Content[]) {
+  const messages: any[] = []
+  for (const msg of history) {
+    const role = msg.role === 'model' ? 'assistant' : msg.role
+
+    const parts = msg.parts || []
+    const textParts = parts.filter((p) => p.text)
+    const mediaParts = parts.filter((p) => p.inlineData)
+
+    if (mediaParts.length > 0) {
+      const contentArray: any[] = []
+      if (textParts.length > 0) {
+        contentArray.push({
+          type: 'text',
+          text: textParts.map((p) => p.text).join('\n\n')
+        })
+      }
+      for (const media of mediaParts) {
+        if (media.inlineData) {
+          contentArray.push({
+            type: 'image_url',
+            image_url: {
+              url: `data:${media.inlineData.mimeType};base64,${media.inlineData.data}`
+            }
+          })
+        }
+      }
+      messages.push({ role, content: contentArray })
+    } else {
+      const text = textParts.map((p) => p.text).join('\n\n')
+      messages.push({ role, content: text })
+    }
+  }
+  return messages
+}
+
+// First message JSON stream parser for inline titles
+class FirstMessageJsonStreamParser {
+  private buffer = ''
+  private titleSent = false
+  private messageStarted = false
+  private lastStreamedLength = 0
+  private onTitle: (title: string) => void
+  private onMessageChunk: (chunk: string) => void
+
+  constructor(onTitle: (title: string) => void, onMessageChunk: (chunk: string) => void) {
+    this.onTitle = onTitle
+    this.onMessageChunk = onMessageChunk
+  }
+
+  append(chunk: string) {
+    this.buffer += chunk
+    this.process()
+  }
+
+  private process() {
+    if (!this.titleSent) {
+      const titleKeyIdx = this.buffer.indexOf('"title"')
+      if (titleKeyIdx !== -1) {
+        const colonIdx = this.buffer.indexOf(':', titleKeyIdx)
+        if (colonIdx !== -1) {
+          const firstQuoteIdx = this.buffer.indexOf('"', colonIdx)
+          if (firstQuoteIdx !== -1) {
+            let endQuoteIdx = -1
+            for (let i = firstQuoteIdx + 1; i < this.buffer.length; i++) {
+              if (this.buffer[i] === '"' && this.buffer[i - 1] !== '\\') {
+                endQuoteIdx = i
+                break
+              }
+            }
+            if (endQuoteIdx !== -1) {
+              const titleValue = this.buffer.substring(firstQuoteIdx + 1, endQuoteIdx)
+              const cleanTitle = titleValue.replace(/\\"/g, '"').trim()
+              this.onTitle(cleanTitle || 'New Conversation')
+              this.titleSent = true
+            }
+          }
+        }
+      }
+    }
+
+    if (!this.messageStarted) {
+      const messageKeyIdx = this.buffer.indexOf('"message"')
+      if (messageKeyIdx !== -1) {
+        const colonIdx = this.buffer.indexOf(':', messageKeyIdx)
+        if (colonIdx !== -1) {
+          const firstQuoteIdx = this.buffer.indexOf('"', colonIdx)
+          if (firstQuoteIdx !== -1) {
+            this.messageStarted = true
+            const remaining = this.buffer.substring(firstQuoteIdx + 1)
+            this.streamRemainingMessage(remaining)
+          }
+        }
+      }
+    } else {
+      const messageKeyIdx = this.buffer.indexOf('"message"')
+      if (messageKeyIdx !== -1) {
+        const colonIdx = this.buffer.indexOf(':', messageKeyIdx)
+        if (colonIdx !== -1) {
+          const firstQuoteIdx = this.buffer.indexOf('"', colonIdx)
+          const messageStartIdx = firstQuoteIdx + 1
+          const currentMessageContent = this.buffer.substring(messageStartIdx)
+          this.streamRemainingMessage(currentMessageContent)
+        }
+      }
+    }
+  }
+
+  private streamRemainingMessage(content: string) {
+    let cleanContent = content
+    const trailingPattern = /"\s*}?\s*$/
+    if (trailingPattern.test(cleanContent)) {
+      cleanContent = cleanContent.replace(trailingPattern, '')
+    }
+
+    if (cleanContent.length > this.lastStreamedLength) {
+      const newSegment = cleanContent.substring(this.lastStreamedLength)
+      const cleanSegment = newSegment.replace(/\\"/g, '"').replace(/\\n/g, '\n')
+      this.onMessageChunk(cleanSegment)
+      this.lastStreamedLength = cleanContent.length
+    }
+  }
+}
+
+interface StreamChunk {
+  thought: string
+  text: string
+}
+
+async function* generateAiStream(
+  provider: 'gemini' | 'nvidia-nim' | 'openai-compatible',
+  apiKey: string,
+  modelName: string,
+  history: Content[],
+  signal?: AbortSignal,
+  temperature = 0.7
+): AsyncGenerator<StreamChunk> {
+  if (provider === 'gemini') {
+    const ai = new GoogleGenAI({ apiKey })
+    const responseStream = await ai.models.generateContentStream({
+      model: modelName,
+      contents: normalizeContentsForGemini(history),
+      config: {
+        temperature,
+        abortSignal: signal
+      }
+    })
+
+    for await (const chunk of responseStream) {
+      let thought = ''
+      let text = ''
+      const parts = chunk.candidates?.[0]?.content?.parts || []
+      for (const part of parts) {
+        if (part && typeof part === 'object' && 'thought' in part && part.thought) {
+          thought += part.text || ''
+        } else if (part.text) {
+          text += part.text
+        }
+      }
+      yield { thought, text }
+    }
+  } else {
+    const baseURL =
+      provider === 'nvidia-nim' ? 'https://integrate.api.nvidia.com/v1' : loadConfig().openaiBaseUrl
+    const openai = new OpenAI({ apiKey, baseURL, dangerAllowBrowser: true })
+    const messages = convertHistoryToOpenAiFormat(history)
+
+    const responseStream = await openai.chat.completions.create(
+      {
+        model: modelName,
+        messages,
+        temperature,
+        stream: true
+      },
+      { signal }
+    )
+
+    for await (const chunk of responseStream) {
+      const choice = chunk.choices[0]
+      if (!choice) continue
+
+      const thought = (choice.delta as any).reasoning_content || ''
+      const text = choice.delta.content || ''
+      yield { thought, text }
+    }
+  }
+}
+
+async function generateAiContent(
+  provider: 'gemini' | 'nvidia-nim' | 'openai-compatible',
+  apiKey: string,
+  modelName: string,
+  history: Content[],
+  signal?: AbortSignal,
+  temperature = 0.7
+): Promise<string> {
+  if (provider === 'gemini') {
+    const ai = new GoogleGenAI({ apiKey })
+    const result = await ai.models.generateContent({
+      model: modelName,
+      contents: normalizeContentsForGemini(history),
+      config: {
+        temperature,
+        abortSignal: signal
+      }
+    })
+    return getFinalResponseText(result)
+  } else {
+    const baseURL =
+      provider === 'nvidia-nim' ? 'https://integrate.api.nvidia.com/v1' : loadConfig().openaiBaseUrl
+    const openai = new OpenAI({ apiKey, baseURL, dangerAllowBrowser: true })
+    const messages = convertHistoryToOpenAiFormat(history)
+
+    const result = await openai.chat.completions.create(
+      {
+        model: modelName,
+        messages,
+        temperature
+      },
+      { signal }
+    )
+
+    return result.choices[0]?.message?.content || ''
+  }
+}
+
+async function getOpenaiCompatibleSearchModel(config: AppConfig): Promise<string> {
+  const openaiKey = config.userOpenaiKey || process.env.OPENAI_API_KEY
+  if (!openaiKey || !config.openaiBaseUrl) {
+    return config.openaiModelId || ''
+  }
+  try {
+    const openai = new OpenAI({
+      apiKey: openaiKey,
+      baseURL: config.openaiBaseUrl,
+      dangerAllowBrowser: true
+    })
+    const response = await openai.models.list()
+    const models = response.data || []
+
+    const lightKeywords = ['flash', 'fast', 'lite', 'mini', 'quick', 'speed', 'rapid']
+    const lightModels = models.filter((m) => {
+      const idLower = (m.id || '').toLowerCase()
+      return lightKeywords.some((keyword) => idLower.includes(keyword))
+    })
+
+    if (lightModels.length > 0) {
+      const randomIdx = Math.floor(Math.random() * lightModels.length)
+      return lightModels[randomIdx].id
+    }
+
+    if (models.length > 0) {
+      const randomIdx = Math.floor(Math.random() * models.length)
+      return models[randomIdx].id
+    }
+  } catch (error) {
+    console.error('Failed to route OpenAI Compatible models, falling back to configured model:', error)
+  }
+  return config.openaiModelId || ''
+}
+
 // Modelo selecionado atualmente
-let currentModelKey = 'prism-6-super-fast'
+let currentModelKey = 'gemini-3.1-flash-lite'
 
 interface ModelConfig {
   apiModel: string
@@ -77,91 +382,63 @@ interface ModelConfig {
 }
 
 const MODEL_CONFIGS: Record<string, ModelConfig> = {
-  'prism-4': {
-    apiModel: 'gemini-3.1-flash-lite',
-    thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true }
-  },
-  'prism-4.1': {
-    apiModel: 'gemini-3-flash-preview',
-    thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true }
-  },
-  'prism-4.2': {
-    apiModel: 'gemma-4-26b-a4b-it',
-    thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true }
-  },
-  'prism-4.3': {
-    apiModel: 'gemma-4-31b-it',
-    thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: true }
-  },
-  'prism-5': {
-    apiModel: 'gemini-3.5-flash',
-    thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true }
-  },
-  'prism-6-super-fast': {
-    apiModel: 'gemini-3.1-flash-lite',
-    thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true }
-  },
-  'prism-6-fast-old': {
-    apiModel: 'gemini-3-flash-preview',
-    thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true }
-  },
-  'prism-6-fast': {
-    apiModel: 'gemini-3.5-flash',
-    thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true }
-  },
-  'prism-6-dragon': {
-    apiModel: 'gemma-4-26b-a4b-it',
-    thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true }
-  },
-  'prism-6-dense': {
-    apiModel: 'gemma-4-31b-it',
-    thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: true }
-  }
+  'gemini-3.1-flash-lite': { apiModel: 'gemini-3.1-flash-lite' },
+  'gemini-3.5-flash': { apiModel: 'gemini-3.5-flash' },
+  'gemma-4-26b-a4b-it': { apiModel: 'gemma-4-26b-a4b-it' },
+  'gemma-4-31b-it': { apiModel: 'gemma-4-31b-it' },
+  'openai/gpt-oss-120b': { apiModel: 'openai/gpt-oss-120b' },
+  'mistralai/mistral-large-3-675b-instruct-2512': { apiModel: 'mistralai/mistral-large-3-675b-instruct-2512' },
+  'nvidia/nemotron-3-ultra-550b-a55b': { apiModel: 'nvidia/nemotron-3-ultra-550b-a55b' },
+  'stepfun-ai/step-3.5-flash': { apiModel: 'stepfun-ai/step-3.5-flash' },
+  'stepfun-ai/step-3.7-flash': { apiModel: 'stepfun-ai/step-3.7-flash' },
+  'deepseek-ai/deepseek-v4-flash': { apiModel: 'deepseek-ai/deepseek-v4-flash' },
+  'deepseek-ai/deepseek-v4-pro': { apiModel: 'deepseek-ai/deepseek-v4-pro' },
+  'zai-org/glm-5.1': { apiModel: 'zai-org/glm-5.1' },
+  'minimaxai/minimax-m2.7': { apiModel: 'minimaxai/minimax-m2.7' },
+  'minimaxai/minimax-m3': { apiModel: 'minimaxai/minimax-m3' }
 }
 
-// Fallback order of models (from highest to lowest)
 const MODEL_FALLBACK_ORDER = [
-  'prism-6-dense',
-  'prism-6-dragon',
-  'prism-6-fast',
-  'prism-6-fast-old',
-  'prism-6-super-fast'
+  'gemini-3.5-flash',
+  'gemma-4-26b-a4b-it',
+  'gemma-4-31b-it',
+  'gemini-3.1-flash-lite'
 ]
 
 const AGENT_TEMPERATURE = 0.7
 const TITLE_GENERATION_TEMPERATURE = 1.4
-const DEFAULT_SUBAGENT_MODEL_KEY = 'prism-6-dragon'
+const DEFAULT_SUBAGENT_MODEL_KEY = 'gemma-4-26b-a4b-it'
 let currentSubagentModelKey = DEFAULT_SUBAGENT_MODEL_KEY
 
 function getSubagentModelConfig(modelKey = currentSubagentModelKey): ModelConfig {
   const config = MODEL_CONFIGS[modelKey] || MODEL_CONFIGS[DEFAULT_SUBAGENT_MODEL_KEY]
   return {
-    apiModel: config.apiModel,
-    thinkingConfig: {
-      ...config.thinkingConfig,
-      thinkingLevel: ThinkingLevel.HIGH,
-      includeThoughts: false
-    }
+    apiModel: config.apiModel
   }
 }
 
-/**
- * Returns the friendly name of the model based on the key.
- */
 function getModelFriendlyName(modelKey: string): string {
   const names: Record<string, string> = {
-    'prism-4': 'Prism 4',
-    'prism-4.1': 'Prism 4.1',
-    'prism-4.2': 'Prism 4.2',
-    'prism-4.3': 'Prism 4.3',
-    'prism-5': 'Prism 5',
-    'prism-6-super-fast': 'Prism 6 Super-Fast',
-    'prism-6-fast-old': 'Prism 6 Fast-Old',
-    'prism-6-fast': 'Prism 6 Fast',
-    'prism-6-dragon': 'Prism 6 Dragon',
-    'prism-6-dense': 'Prism 6 Dense'
+    'gemini-3.1-flash-lite': 'Gemini 3.1 Flash-Lite',
+    'gemini-3.5-flash': 'Gemini 3.5 Flash',
+    'gemma-4-26b-a4b-it': 'Gemma 4 26B A4B IT',
+    'gemma-4-31b-it': 'Gemma 4 31B IT',
+    'openai/gpt-oss-120b': 'GPT OSS 120B',
+    'mistralai/mistral-large-3-675b-instruct-2512': 'Mistral Large 3',
+    'nvidia/nemotron-3-ultra-550b-a55b': 'Neumotron 3 Ultra',
+    'stepfun-ai/step-3.5-flash': 'Step 3.5 Flash',
+    'stepfun-ai/step-3.7-flash': 'Step 3.7 Flash',
+    'deepseek-ai/deepseek-v4-flash': 'Deepseek V4 Flash',
+    'deepseek-ai/deepseek-v4-pro': 'Deepseek V4 Pro',
+    'zai-org/glm-5.1': 'GLM-5.1',
+    'minimaxai/minimax-m2.7': 'MiniMax M2.7',
+    'minimaxai/minimax-m3': 'MiniMax M3'
   }
-  return names[modelKey] || 'Prism AI'
+  const config = loadConfig()
+  if (config.openaiModelId && modelKey === config.openaiModelId) {
+    return config.openaiModelName || modelKey
+  }
+  return names[modelKey] || modelKey
 }
 
 // Persistent history in memory for the current session
@@ -872,53 +1149,17 @@ async function collectFinalTextFromStream(
 }
 
 async function generateSubagentResponse(
-  ai: GoogleGenAI,
-  modelConfig: ModelConfig,
   history: Content[],
   signal?: AbortSignal
 ): Promise<string> {
-  const contents = normalizeContentsForGemini(history)
-
-  if (modelConfig.apiModel === 'gemma-4-31b-it') {
-    try {
-      const stream = await ai.models.generateContentStream({
-        model: modelConfig.apiModel,
-        contents,
-        config: {
-          temperature: AGENT_TEMPERATURE,
-          thinkingConfig: modelConfig.thinkingConfig,
-          abortSignal: signal
-        }
-      })
-      return collectFinalTextFromStream(stream, signal)
-    } catch (error) {
-      if (!modelConfig.thinkingConfig?.includeThoughts || !isRetryableGemmaStreamError(error)) {
-        throw error
-      }
-
-      const stream = await ai.models.generateContentStream({
-        model: modelConfig.apiModel,
-        contents,
-        config: {
-          temperature: AGENT_TEMPERATURE,
-          thinkingConfig: { ...modelConfig.thinkingConfig, includeThoughts: false },
-          abortSignal: signal
-        }
-      })
-      return collectFinalTextFromStream(stream, signal)
-    }
+  const config = loadConfig()
+  const subModel = config.subagentModel || 'gemma-4-26b-a4b-it'
+  const provider = getModelProvider(subModel)
+  const apiKey = getProviderApiKey(provider)
+  if (!apiKey) {
+    throw new Error(`API key for subagent model provider "${provider}" is missing.`)
   }
-
-  const result = await ai.models.generateContent({
-    model: modelConfig.apiModel,
-    contents,
-    config: {
-      temperature: AGENT_TEMPERATURE,
-      thinkingConfig: modelConfig.thinkingConfig,
-      abortSignal: signal
-    }
-  })
-  return getFinalResponseText(result)
+  return generateAiContent(provider, apiKey, subModel, history, signal, AGENT_TEMPERATURE)
 }
 
 const activeQuestionnaireResolvers = new Map<string, (result: string) => void>()
@@ -1123,10 +1364,6 @@ const toolFunctions: Record<
       if (args.webSearchShortcut !== undefined && args.webSearchShortcut !== '') {
         config.webSearchShortcut = args.webSearchShortcut
         changed.push(`webSearchShortcut: "${args.webSearchShortcut}"`)
-      }
-      if (args.thinkModeShortcut !== undefined && args.thinkModeShortcut !== '') {
-        config.thinkModeShortcut = args.thinkModeShortcut
-        changed.push(`thinkModeShortcut: "${args.thinkModeShortcut}"`)
       }
       if (args.youtubeModeShortcut !== undefined && args.youtubeModeShortcut !== '') {
         config.youtubeModeShortcut = args.youtubeModeShortcut
@@ -1613,8 +1850,6 @@ async function runSubagents(
         })
 
         const responseText = await generateSubagentResponse(
-          ai,
-          subagentModelConfig,
           history,
           parentSignal
         )
@@ -1915,7 +2150,6 @@ export function setGeminiModel(modelKey: string): boolean {
 }
 
 export function setSubagentModel(modelKey: string): boolean {
-  if (!MODEL_CONFIGS[modelKey]) return false
   currentSubagentModelKey = modelKey
   return true
 }
@@ -1971,13 +2205,9 @@ export function cancelChatMessage(chatId?: string): void {
   }
 }
 
-/**
- * Generates a short title for the chat session based on the first message.
- * ALWAYS matches the language of the user's first message and uses gemma-4-26b-a4b-it.
- */
-async function generateChatTitle(apiKey: string, firstMessage: string): Promise<string> {
+async function generateChatTitle(provider: 'gemini' | 'nvidia-nim' | 'openai-compatible', apiKey: string, firstMessage: string): Promise<string> {
   try {
-    const ai = new GoogleGenAI({ apiKey })
+    const searchModel = provider === 'nvidia-nim' ? 'openai/gpt-oss-120b' : provider === 'openai-compatible' ? (loadConfig().openaiModelId || '') : 'gemini-3.1-flash-lite'
 
     const prompt = `You are a conversation titler. Analyze the user's first message below and generate an extremely short (maximum 5 words) title for this conversation.
 IMPORTANT: The title MUST be written in the EXACT same language as the user's message. DEFINITELY match the user's language (e.g., if the user writes in Portuguese, the title must be in Portuguese; if in Spanish, in Spanish; if in English, in English, etc.).
@@ -1985,19 +2215,16 @@ Respond ONLY with the title. Do not include any quotes, markdown headers, punctu
 
 User message: "${firstMessage}"`
 
-    const result = await ai.models.generateContent({
-      model: 'gemma-4-26b-a4b-it',
-      contents: prompt,
-      config: {
-        temperature: TITLE_GENERATION_TEMPERATURE,
-        thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: false }
-      }
-    })
-    const fullTitle = (result.text || '').trim()
+    const history: Content[] = [
+      { role: 'user', parts: [{ text: prompt }] }
+    ]
+
+    const result = await generateAiContent(provider, apiKey, searchModel, history, undefined, TITLE_GENERATION_TEMPERATURE)
+    const fullTitle = (result || '').trim()
     return fullTitle || 'New Conversation'
   } catch (error) {
     console.error('Failed to generate chat title:', error)
-    return 'Nova Conversa'
+    return 'New Conversation'
   }
 }
 
@@ -2038,8 +2265,8 @@ export async function handleChatMessage(
   let sessionMode = typeof data === 'object' ? data.sessionMode : undefined
   let disciplinePath = typeof data === 'object' ? data.disciplinePath : undefined
 
-  // Priority: User key > Environment key
-  const apiKey = userApiKey || process.env.GEMINI_API_KEY
+  const provider = getModelProvider(currentModelKey)
+  const apiKey = getProviderApiKey(provider)
 
   if (!apiKey || apiKey.trim() === '' || apiKey === 'your_api_key_here') {
     // If there is no key, we send a specific error message so that the front-end
@@ -2292,11 +2519,10 @@ export async function handleChatMessage(
 
   // If it's the first message, prepare the UI and start title generation
   if (isFirstUserMessage && apiKey) {
-    // Save session with EMPTY title to trigger loading state in sidebar if refreshed from disk
     saveChatSession(chatId, runHistory, '')
     event.sender.send('chat-session-created', { id: chatId })
 
-    generateChatTitle(apiKey, message).then((finalTitle) => {
+    generateChatTitle(provider, apiKey, message).then((finalTitle) => {
       event.sender.send('chat-title-received', { id: chatId, title: finalTitle })
       saveChatSession(chatId, runHistory, finalTitle)
     })
@@ -2337,25 +2563,9 @@ export async function handleChatMessage(
       triedModelKeys.add(currentModelKey)
 
       try {
-        const config = {
-          ...(MODEL_CONFIGS[currentModelKey] ||
-            MODEL_CONFIGS['prism-5'] ||
-            MODEL_CONFIGS['prism-4'])
-        }
-
-        // Dynamic Thinking Config
-        if (thinkMode) {
-          config.thinkingConfig = { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: true }
-        } else {
-          const defaultInclude =
-            MODEL_CONFIGS[currentModelKey]?.thinkingConfig?.includeThoughts ?? true
-          config.thinkingConfig = {
-            thinkingLevel: ThinkingLevel.MINIMAL,
-            includeThoughts: defaultInclude
-          }
-        }
-
-        const ai = new GoogleGenAI({ apiKey })
+        const modelConfig = MODEL_CONFIGS[currentModelKey] || { apiModel: currentModelKey }
+        const currentProvider = getModelProvider(currentModelKey)
+        const currentApiKey = getProviderApiKey(currentProvider)
 
         let accumulatedThoughts = ''
         let accumulatedFinalResponse = ''
@@ -2365,43 +2575,34 @@ export async function handleChatMessage(
         while (iterationCount < MAX_ITERATIONS) {
           iterationCount++
 
-          // Check if aborted before each AI call
           if (runAbortController.signal.aborted) throw new Error('AbortError')
 
           console.log(
-            `[Main Chat] Starting generateContentStream for model: ${config.apiModel}, thinkMode: ${thinkMode}`
+            `[Main Chat] Starting generateAiStream for model: ${modelConfig.apiModel}, provider: ${currentProvider}`
           )
-          // Call generateContentStream (actual streaming)
-          const responseStream = await ai.models.generateContentStream({
-            model: config.apiModel,
-            contents: normalizeContentsForGemini(runHistory),
-            config: {
-              temperature: AGENT_TEMPERATURE,
-              thinkingConfig: getStreamingThinkingConfig(config),
-              abortSignal: runAbortController.signal
-            }
-          })
 
           let currentThoughts = ''
           let currentFinalResponse = ''
           let chunkCount = 0
 
-          for await (const chunk of responseStream) {
+          const stream = generateAiStream(
+            currentProvider,
+            currentApiKey,
+            modelConfig.apiModel,
+            runHistory,
+            runAbortController.signal,
+            AGENT_TEMPERATURE
+          )
+
+          for await (const chunk of stream) {
             if (runAbortController.signal.aborted) throw new Error('AbortError')
             chunkCount++
 
-            const parts = chunk.candidates?.[0]?.content?.parts || []
-            console.log(
-              `[Main Chat] Chunk #${chunkCount} received. Candidate parts length: ${parts.length}`
-            )
-            for (const part of parts) {
-              if (part && typeof part === 'object' && 'thought' in part && part.thought) {
-                currentThoughts += part.text || ''
-                console.log(`[Main Chat] Thought part: "${part.text || ''}"`)
-              } else if (part.text) {
-                currentFinalResponse += part.text
-                console.log(`[Main Chat] Text part: "${part.text}"`)
-              }
+            if (chunk.thought) {
+              currentThoughts += chunk.thought
+            }
+            if (chunk.text) {
+              currentFinalResponse += chunk.text
             }
 
             const countOccurrences = (str: string, subStr: string): number =>
@@ -2707,7 +2908,8 @@ export async function handleLauncherChatMessage(
   const screenshot = typeof data === 'object' ? data.screenshot : undefined
   const appMode = typeof data === 'object' ? data.appMode : undefined
 
-  const apiKey = userApiKey || process.env.GEMINI_API_KEY
+  const launcherProvider = getModelProvider(currentModelKey)
+  const apiKey = getProviderApiKey(launcherProvider)
   if (!apiKey || apiKey.trim() === '' || apiKey === 'your_api_key_here') {
     event.sender.send('launcher-reply-error', { error: 'API_KEY_MISSING' })
     return
@@ -2721,7 +2923,18 @@ export async function handleLauncherChatMessage(
   const runAbortController = new AbortController()
   launcherAbortController = runAbortController
 
-  const launcherModelKey = 'prism-6-super-fast' // Always uses Prism 6 Super-Fast by default for launcher chat
+  let launcherModelKey = 'gemini-3.1-flash-lite'
+  let launcherProvider: 'gemini' | 'nvidia-nim' | 'openai-compatible' = 'gemini'
+  let launcherApiKey = apiKey
+
+  const launcherConfig = loadConfig()
+  if (launcherProvider === 'nvidia-nim' || (launcherConfig.userNvidiaNimKey || process.env.NVIDIA_API_KEY)) {
+    if (getModelProvider(currentModelKey) === 'nvidia-nim' || (!launcherConfig.userGeminiKey && !process.env.GEMINI_API_KEY)) {
+      launcherModelKey = 'stepfun-ai/step-3.5-flash'
+      launcherProvider = 'nvidia-nim'
+      launcherApiKey = launcherConfig.userNvidiaNimKey || process.env.NVIDIA_API_KEY || ''
+    }
+  }
 
   if (launcherChatHistory.length === 0) {
     launcherChatHistory = [
@@ -3166,8 +3379,33 @@ export async function handleAiSearchChatMessage(
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
 
-  const apiKey = userApiKey || process.env.GEMINI_API_KEY
-  if (!apiKey || apiKey.trim() === '' || apiKey === 'your_api_key_here') {
+  const config = loadConfig()
+  let provider = getModelProvider(currentModelKey)
+  let searchModel = 'gemini-3.1-flash-lite'
+  let searchApiKey = getProviderApiKey(provider)
+
+  if (!searchApiKey) {
+    if (config.userGeminiKey || process.env.GEMINI_API_KEY) {
+      provider = 'gemini'
+      searchModel = 'gemini-3.1-flash-lite'
+      searchApiKey = config.userGeminiKey || process.env.GEMINI_API_KEY || ''
+    } else if (config.userNvidiaNimKey || process.env.NVIDIA_API_KEY) {
+      provider = 'nvidia-nim'
+      searchModel = 'openai/gpt-oss-120b'
+      searchApiKey = config.userNvidiaNimKey || process.env.NVIDIA_API_KEY || ''
+    } else if (config.userOpenaiKey || process.env.OPENAI_API_KEY) {
+      provider = 'openai-compatible'
+      searchApiKey = config.userOpenaiKey || process.env.OPENAI_API_KEY || ''
+    }
+  }
+
+  if (provider === 'openai-compatible' && searchApiKey) {
+    searchModel = await getOpenaiCompatibleSearchModel(config)
+  } else if (provider === 'nvidia-nim') {
+    searchModel = 'openai/gpt-oss-120b'
+  }
+
+  if (!searchApiKey || searchApiKey.trim() === '' || searchApiKey === 'your_api_key_here') {
     event.sender.send('ai-search-reply-error', { error: 'API_KEY_MISSING' })
     return
   }
@@ -3180,9 +3418,8 @@ export async function handleAiSearchChatMessage(
   const runAbortController = new AbortController()
   aiSearchAbortController = runAbortController
 
-  const modelKey = 'prism-6-super-fast' // gemini-3.1-flash-lite
   console.log(
-    `[AI SEARCH DEBUG MAIN] Starting AI Search. modelKey: ${modelKey}, message: "${message}"`
+    `[AI SEARCH DEBUG MAIN] Starting AI Search. provider: ${provider}, model: ${searchModel}, message: "${message}"`
   )
 
   const systemPrompt = `You are the Chat Search AI for the Prism application.
@@ -3262,17 +3499,6 @@ Available tools:
       }
 
       try {
-        let currentModel = modelKey
-        let isFallback = false
-
-        const config = {
-          ...MODEL_CONFIGS[currentModel]
-        }
-
-        config.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true }
-
-        const ai = new GoogleGenAI({ apiKey })
-
         let accumulatedThoughts = ''
         let accumulatedFinalResponse = ''
         let iterationCount = 0
@@ -3281,52 +3507,27 @@ Available tools:
         while (iterationCount < MAX_ITERATIONS) {
           iterationCount++
           console.log(
-            `[AI SEARCH DEBUG MAIN] Iteration ${iterationCount} starting... (Model: ${currentModel})`
+            `[AI SEARCH DEBUG MAIN] Iteration ${iterationCount} starting... (Model: ${searchModel})`
           )
 
           if (runAbortController.signal.aborted) throw new Error('AbortError')
 
-          let result
+          let responseText = ''
           try {
-            result = await ai.models.generateContent({
-              model: MODEL_CONFIGS[currentModel].apiModel,
-              contents: normalizeContentsForGemini(searchHistory),
-              config: {
-                temperature: 0.3,
-                thinkingConfig: config.thinkingConfig,
-                abortSignal: runAbortController.signal
-              }
-            })
+            responseText = await generateAiContent(
+              provider,
+              searchApiKey,
+              searchModel,
+              searchHistory,
+              runAbortController.signal,
+              0.3
+            )
           } catch (error: any) {
-            const errorMsg = error?.message || String(error)
-            const isRateLimit =
-              errorMsg.includes('429') ||
-              errorMsg.includes('Quota') ||
-              errorMsg.includes('Rate limit') ||
-              errorMsg.includes('high traffic') ||
-              errorMsg.includes('503')
-
-            if (isRateLimit && !isFallback) {
-              console.log('[AI SEARCH] Rate limit hit. Falling back to Prism 6 Dragon.')
-              currentModel = 'prism-6-dragon' // gemma-4-26b-a4b-it
-              isFallback = true
-              iterationCount-- // Retry this iteration
-              continue
-            }
             throw error
           }
 
           let currentThoughts = ''
-          let currentFinalResponse = ''
-
-          const parts = result.candidates?.[0]?.content?.parts || []
-          for (const part of parts) {
-            if (part && typeof part === 'object' && 'thought' in part && part.thought) {
-              currentThoughts += part.text || ''
-            } else if (part.text) {
-              currentFinalResponse += part.text
-            }
-          }
+          let currentFinalResponse = responseText
 
           // Send final response directly without self-made streaming (Search AI does not need streaming)
           event.sender.send('ai-search-reply-chunk', {
@@ -3489,14 +3690,11 @@ export function cancelAiSearch(): void {
 export async function transcribeAudio(audioBase64: string): Promise<string> {
   console.log('[MAIN TRANSCRIPTION] Received audio data length:', audioBase64.length)
   const config = await loadConfig()
-  const apiKey = config.userGeminiKey || process.env.GOOGLE_API_KEY
-  if (!apiKey) {
-    throw new Error('API Key missing. Please set your Gemini API key in settings.')
-  }
+  const provider = getModelProvider(currentModelKey)
 
-  const ai = new GoogleGenAI({ apiKey })
-  // Fallback order: Gemini 3.1 Flash-Lite -> Gemini 3 Flash Preview -> Gemini 3.5 Flash
-  const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-3.5-flash']
+  if (provider === 'openai-compatible') {
+    throw new Error('Voice dictation is not supported with OpenAI Compatible provider.')
+  }
 
   const systemPrompt = `You are an audio transcription specialist assistant in "brainstorming mode." Your task is to transcribe and clean up the user's audio.
   Remove filler words ('uh', 'hm', 'like'), stutters, and correct errors (e.g., "This is... no, that is" becomes "That is").
@@ -3510,38 +3708,45 @@ export async function transcribeAudio(audioBase64: string): Promise<string> {
   Ensure the output is clean, professional, and perfectly captures the user's intent.
   Produce ONLY the transcribed and formatted text, without introductions or explanations.`
 
-  let lastError: any = null
-
-  for (const modelName of modelsToTry) {
-    try {
-      console.log(`[TRANSCRIPTION] Attempting with model: ${modelName}`)
-      const result = await ai.models.generateContent({
-        model: modelName,
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { inlineData: { data: audioBase64, mimeType: 'audio/webm' } },
-              { text: systemPrompt }
-            ]
-          }
-        ],
-        config: {
-          temperature: 0.4
-        }
-      })
-
-      const text = (result.text || '').trim()
-      if (text) {
-        console.log(`[TRANSCRIPTION] Success with model: ${modelName}`)
-        return text
-      }
-    } catch (err) {
-      console.error(`[TRANSCRIPTION] Failed with model ${modelName}:`, err)
-      lastError = err
-      continue
+  if (provider === 'gemini') {
+    const apiKey = config.userGeminiKey || process.env.GEMINI_API_KEY
+    if (!apiKey) {
+      throw new Error('API Key missing. Please set your Gemini API key in settings.')
     }
+    const ai = new GoogleGenAI({ apiKey })
+    const result = await ai.models.generateContent({
+      model: 'gemini-3.1-flash-lite',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { inlineData: { data: audioBase64, mimeType: 'audio/webm' } },
+            { text: systemPrompt }
+          ]
+        }
+      ],
+      config: {
+        temperature: 0.4
+      }
+    })
+    return (result.text || '').trim()
+  } else {
+    // NVIDIA NIM - Whisper Large v3
+    const apiKey = config.userNvidiaNimKey || process.env.NVIDIA_API_KEY
+    if (!apiKey) {
+      throw new Error('API Key missing. Please set your NVIDIA NIM API key in settings.')
+    }
+    const openai = new OpenAI({
+      apiKey,
+      baseURL: 'https://integrate.api.nvidia.com/v1',
+      dangerAllowBrowser: true
+    })
+    const buffer = Buffer.from(audioBase64, 'base64')
+    const file = await OpenAI.toFile(buffer, 'audio.webm', { type: 'audio/webm' })
+    const transcription = await openai.audio.transcriptions.create({
+      file,
+      model: 'openai/whisper-large-v3'
+    })
+    return transcription.text
   }
-
-  throw lastError || new Error('All transcription models failed.')
 }

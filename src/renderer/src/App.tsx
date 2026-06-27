@@ -639,7 +639,6 @@ function RealApp(): React.JSX.Element {
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false)
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false)
   const [isYoutubeMode, setIsYoutubeMode] = useState(false)
-  const [isThinkMode, setIsThinkMode] = useState(false)
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [inputText, setInputText] = useState('')
   const [activeWorkflow, setActiveWorkflow] = useState<SlashWorkflow | null>(null)
@@ -781,11 +780,6 @@ function RealApp(): React.JSX.Element {
     }
   }, [])
 
-  const isThinkModeRef = useRef(isThinkMode)
-  useEffect(() => {
-    isThinkModeRef.current = isThinkMode
-  }, [isThinkMode])
-
   const isSearchEnabledRef = useRef(isSearchEnabled)
   useEffect(() => {
     isSearchEnabledRef.current = isSearchEnabled
@@ -916,10 +910,6 @@ function RealApp(): React.JSX.Element {
     return greetings[greetingIndex] || greetings[0]
   }
 
-  const handleThinkModeToggle = useCallback((val: boolean) => {
-    window.api.setThinkMode(val)
-  }, [])
-
   const handleSearchEnabledToggle = useCallback((val: boolean) => {
     window.api.setSearchEnabled(val)
   }, [])
@@ -952,7 +942,6 @@ function RealApp(): React.JSX.Element {
   const handleSend = useCallback(
     (
       text: string,
-      thinkMode?: boolean,
       searchEnabled?: boolean,
       screenshot?: string,
       file?: AttachedFile,
@@ -968,12 +957,6 @@ function RealApp(): React.JSX.Element {
       const targetYoutubeMode = youtubeMode ?? isYoutubeModeRef.current
       setIsYoutubeMode(targetYoutubeMode)
 
-      // If thinkMode is provided (e.g. from Launcher), update App state
-      if (thinkMode !== undefined) {
-        window.api.setThinkMode(thinkMode)
-        setIsThinkMode(thinkMode)
-        isThinkModeRef.current = thinkMode
-      }
       if (searchEnabled !== undefined) {
         window.api.setSearchEnabled(searchEnabled)
         setIsSearchEnabled(searchEnabled)
@@ -1024,7 +1007,6 @@ function RealApp(): React.JSX.Element {
 
       window.api.sendChatMessage({
         message: apiMessage,
-        thinkMode: thinkMode ?? isThinkModeRef.current,
         chatId,
         screenshot: activeScreenshot || undefined,
         attachedFile: activeFile || undefined,
@@ -1443,7 +1425,6 @@ function RealApp(): React.JSX.Element {
       // If launcher message arrives with the tag, handleSend will take care of hiding it in the UI
       handleSend(
         data.message,
-        data.thinkMode,
         undefined,
         data.screenshot,
         undefined,
@@ -1472,10 +1453,6 @@ function RealApp(): React.JSX.Element {
       }
     })
 
-    const removeThinkModeListener = window.api.onThinkModeChanged((val) => {
-      setIsThinkMode(val)
-    })
-
     const removeSearchEnabledListener = window.api.onSearchEnabledChanged((val) => {
       setIsSearchEnabled(val)
     })
@@ -1485,17 +1462,13 @@ function RealApp(): React.JSX.Element {
       handleModelChange(data.model)
       handleNewChat(true)
 
-      if (data.thinkMode !== undefined) {
-        window.api.setThinkMode(data.thinkMode)
-        setIsThinkMode(data.thinkMode)
-      }
       if (data.searchEnabled !== undefined) {
         window.api.setSearchEnabled(data.searchEnabled)
         setIsSearchEnabled(data.searchEnabled)
       }
 
       setTimeout(() => {
-        handleSend(data.instructions, data.thinkMode, data.searchEnabled)
+        handleSend(data.instructions, data.searchEnabled)
         setTimeout(() => {
           inputBarRef.current?.focus()
         }, 100)
@@ -1506,7 +1479,6 @@ function RealApp(): React.JSX.Element {
       removeLauncherListener()
       removeModelListener()
       removeConfigListener()
-      removeThinkModeListener()
       removeSearchEnabledListener()
       removeOpenMainAppListener()
     }
@@ -2415,8 +2387,6 @@ function RealApp(): React.JSX.Element {
               onCancel={handleCancel}
               isProcessing={isProcessing}
               isKeyMissing={isKeyMissing}
-              isThinkMode={isThinkMode}
-              onThinkModeToggle={handleThinkModeToggle}
               disabled={isProcessing || isKeyMissing || !isOnline}
               selectedModel={selectedModel}
               onModelChange={handleModelChange}
@@ -2488,8 +2458,6 @@ function RealApp(): React.JSX.Element {
                           onCancel={handleCancel}
                           isProcessing={isProcessing}
                           isKeyMissing={isKeyMissing}
-                          isThinkMode={isThinkMode}
-                          onThinkModeToggle={handleThinkModeToggle}
                           disabled={isProcessing || isKeyMissing || !isOnline}
                           selectedModel={selectedModel}
                           onModelChange={handleModelChange}
@@ -2576,8 +2544,6 @@ function RealApp(): React.JSX.Element {
                   onCancel={handleCancel}
                   isProcessing={isProcessing}
                   isKeyMissing={isKeyMissing}
-                  isThinkMode={isThinkMode}
-                  onThinkModeToggle={handleThinkModeToggle}
                   disabled={isProcessing || isKeyMissing || !isOnline}
                   selectedModel={selectedModel}
                   onModelChange={handleModelChange}
@@ -2632,7 +2598,7 @@ function RealApp(): React.JSX.Element {
           if (data.customInstructions) {
             msg += `\n- Instructions: ${data.customInstructions}`
           }
-          handleSend(msg, undefined, undefined, undefined, undefined, true)
+          handleSend(msg, undefined, undefined, undefined, true)
         }}
       />
       {floatingMenu && (

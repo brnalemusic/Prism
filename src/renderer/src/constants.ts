@@ -1,39 +1,28 @@
 export interface Model {
   id: string
   name: string
-  description: string
-  shortDescription: string
+  category: string
+}
+
+export const MODEL_CATEGORIES: Record<string, string> = {
+  gemini: 'Gemini',
+  'nvidia-nim': 'NVIDIA NIM',
+  'openai-compatible': 'OpenAI Compatible'
 }
 
 export const MODELS: Model[] = [
-  {
-    id: 'prism-6-super-fast',
-    name: 'Prism 6 Super-Fast',
-    description: 'Ultra-fast model for everyday tasks with low latency.',
-    shortDescription: 'Ultra-fast for simple tasks.'
-  },
-  {
-    id: 'prism-6-fast-old',
-    name: 'Prism 6 Fast-Old',
-    description: 'Older speed-focused model for simple automation tasks.',
-    shortDescription: 'Older model for simple automation.'
-  },
-  {
-    id: 'prism-6-fast',
-    name: 'Prism 6 Fast',
-    description: 'Decent model for complex automation and raw coding.',
-    shortDescription: 'Decent for complex coding tasks.'
-  },
-  {
-    id: 'prism-6-dragon',
-    name: 'Prism 6 Dragon',
-    description: 'Capable model for research and complex agent orchestration.',
-    shortDescription: 'Best for research and orchestration.'
-  },
-  {
-    id: 'prism-6-dense',
-    name: 'Prism 6 Dense',
-    description: 'Advanced model for deep debugging and complex mathematics.',
-    shortDescription: 'Best for debugging and math.'
-  }
+  { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash-Lite', category: 'gemini' },
+  { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', category: 'gemini' },
+  { id: 'gemma-4-26b-a4b-it', name: 'Gemma 4 26B A4B IT', category: 'gemini' },
+  { id: 'gemma-4-31b-it', name: 'Gemma 4 31B IT', category: 'gemini' },
+  { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', category: 'nvidia-nim' },
+  { id: 'mistralai/mistral-large-3-675b-instruct-2512', name: 'Mistral Large 3', category: 'nvidia-nim' },
+  { id: 'nvidia/nemotron-3-ultra-550b-a55b', name: 'Neumotron 3 Ultra', category: 'nvidia-nim' },
+  { id: 'stepfun-ai/step-3.5-flash', name: 'Step 3.5 Flash', category: 'nvidia-nim' },
+  { id: 'stepfun-ai/step-3.7-flash', name: 'Step 3.7 Flash', category: 'nvidia-nim' },
+  { id: 'deepseek-ai/deepseek-v4-flash', name: 'Deepseek V4 Flash', category: 'nvidia-nim' },
+  { id: 'deepseek-ai/deepseek-v4-pro', name: 'Deepseek V4 Pro', category: 'nvidia-nim' },
+  { id: 'zai-org/glm-5.1', name: 'GLM-5.1', category: 'nvidia-nim' },
+  { id: 'minimaxai/minimax-m2.7', name: 'MiniMax M2.7', category: 'nvidia-nim' },
+  { id: 'minimaxai/minimax-m3', name: 'MiniMax M3', category: 'nvidia-nim' }
 ]

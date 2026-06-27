@@ -19,7 +19,6 @@ export interface AppConfig {
   newChatShortcut: string
   dictationShortcut: string
   webSearchShortcut: string
-  thinkModeShortcut: string
   youtubeModeShortcut: string
   defaultModel: string
   subagentModel: string
@@ -28,6 +27,13 @@ export interface AppConfig {
   quickLauncherMode?: 'simple' | 'advanced'
   userGeminiKey?: string
   envGeminiKey?: string
+  userNvidiaNimKey?: string
+  envNvidiaNimKey?: string
+  userOpenaiKey?: string
+  envOpenaiKey?: string
+  openaiBaseUrl?: string
+  openaiModelId?: string
+  openaiModelName?: string
   username?: string
   appVersion?: string
   ttsVoice: string
@@ -48,14 +54,18 @@ const DEFAULT_CONFIG: AppConfig = {
   newChatShortcut: 'CommandOrControl+N',
   dictationShortcut: 'CommandOrControl+D',
   webSearchShortcut: 'CommandOrControl+S',
-  thinkModeShortcut: 'CommandOrControl+T',
   youtubeModeShortcut: 'CommandOrControl+Y',
-  defaultModel: 'prism-6-super-fast',
-  subagentModel: 'prism-6-dragon',
+  defaultModel: 'gemini-3.1-flash-lite',
+  subagentModel: 'gemma-4-26b-a4b-it',
   minimizeToTray: false,
   autoLaunch: false,
   quickLauncherMode: 'simple',
   userGeminiKey: '',
+  userNvidiaNimKey: '',
+  userOpenaiKey: '',
+  openaiBaseUrl: '',
+  openaiModelId: '',
+  openaiModelName: '',
   ttsVoice: 'Aoede',
   theme: 'marine',
   zoomFactor: 1.0,
@@ -94,17 +104,49 @@ const DEFAULT_CONFIG: AppConfig = {
 }
 
 const VALID_MODEL_KEYS = new Set([
-  'prism-6-super-fast',
-  'prism-6-fast-old',
-  'prism-6-fast',
-  'prism-6-dragon',
-  'prism-6-dense'
+  // Gemini
+  'gemini-3.1-flash-lite',
+  'gemini-3.5-flash',
+  'gemma-4-26b-a4b-it',
+  'gemma-4-31b-it',
+  // NVIDIA NIM
+  'openai/gpt-oss-120b',
+  'mistralai/mistral-large-3-675b-instruct-2512',
+  'nvidia/nemotron-3-ultra-550b-a55b',
+  'stepfun-ai/step-3.5-flash',
+  'stepfun-ai/step-3.7-flash',
+  'deepseek-ai/deepseek-v4-flash',
+  'deepseek-ai/deepseek-v4-pro',
+  'zai-org/glm-5.1',
+  'minimaxai/minimax-m2.7',
+  'minimaxai/minimax-m3'
 ])
 const VALID_VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'])
 const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno', 'ursula', 'rgb'])
 const VALID_SESSION_MODES = new Set(['conversation', 'execution', 'discipline'])
 
+function mapLegacyModelKey(key: string): string {
+  const mapping: Record<string, string> = {
+    'prism-4': 'gemini-3.1-flash-lite',
+    'prism-4.1': 'gemini-3.1-flash-lite',
+    'prism-4.2': 'gemma-4-26b-a4b-it',
+    'prism-4.3': 'gemma-4-31b-it',
+    'prism-5': 'gemini-3.5-flash',
+    'prism-6-super-fast': 'gemini-3.1-flash-lite',
+    'prism-6-fast-old': 'gemini-3.1-flash-lite',
+    'prism-6-fast': 'gemini-3.5-flash',
+    'prism-6-dragon': 'gemma-4-26b-a4b-it',
+    'prism-6-dense': 'gemma-4-31b-it'
+  }
+  return mapping[key] || key
+}
+
 function normalizeConfig(config: AppConfig): AppConfig {
+  const defaultModel = mapLegacyModelKey(config.defaultModel)
+  const subagentModel = mapLegacyModelKey(config.subagentModel)
+  const isDefaultValid = VALID_MODEL_KEYS.has(defaultModel) || (config.openaiModelId && defaultModel === config.openaiModelId)
+  const isSubagentValid = VALID_MODEL_KEYS.has(subagentModel) || (config.openaiModelId && subagentModel === config.openaiModelId)
+
   return {
     ...config,
     launcherShortcut: config.launcherShortcut || DEFAULT_CONFIG.launcherShortcut,
@@ -113,14 +155,14 @@ function normalizeConfig(config: AppConfig): AppConfig {
     newChatShortcut: config.newChatShortcut || DEFAULT_CONFIG.newChatShortcut,
     dictationShortcut: config.dictationShortcut || DEFAULT_CONFIG.dictationShortcut,
     webSearchShortcut: config.webSearchShortcut || DEFAULT_CONFIG.webSearchShortcut,
-    thinkModeShortcut: config.thinkModeShortcut || DEFAULT_CONFIG.thinkModeShortcut,
     youtubeModeShortcut: config.youtubeModeShortcut || DEFAULT_CONFIG.youtubeModeShortcut,
-    defaultModel: VALID_MODEL_KEYS.has(config.defaultModel)
-      ? config.defaultModel
-      : DEFAULT_CONFIG.defaultModel,
-    subagentModel: VALID_MODEL_KEYS.has(config.subagentModel)
-      ? config.subagentModel
-      : DEFAULT_CONFIG.subagentModel,
+    defaultModel: isDefaultValid ? defaultModel : DEFAULT_CONFIG.defaultModel,
+    subagentModel: isSubagentValid ? subagentModel : DEFAULT_CONFIG.subagentModel,
+    userNvidiaNimKey: typeof config.userNvidiaNimKey === 'string' ? config.userNvidiaNimKey : '',
+    userOpenaiKey: typeof config.userOpenaiKey === 'string' ? config.userOpenaiKey : '',
+    openaiBaseUrl: typeof config.openaiBaseUrl === 'string' ? config.openaiBaseUrl : '',
+    openaiModelId: typeof config.openaiModelId === 'string' ? config.openaiModelId : '',
+    openaiModelName: typeof config.openaiModelName === 'string' ? config.openaiModelName : '',
     ttsVoice: VALID_VOICES.has(config.ttsVoice) ? config.ttsVoice : DEFAULT_CONFIG.ttsVoice,
     theme: VALID_THEMES.has(config.theme)
       ? (config.theme as 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb')
@@ -163,27 +205,30 @@ export function loadConfig(): AppConfig {
 
     if (
       !parsedConfig.defaultModel ||
-      !VALID_MODEL_KEYS.has(parsedConfig.defaultModel) ||
+      !VALID_MODEL_KEYS.has(mapLegacyModelKey(parsedConfig.defaultModel)) ||
       !parsedConfig.subagentModel ||
-      !VALID_MODEL_KEYS.has(parsedConfig.subagentModel)
+      !VALID_MODEL_KEYS.has(mapLegacyModelKey(parsedConfig.subagentModel))
     ) {
       fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2))
     }
 
-    // Decrypt API key if it exists
-    if (config.userGeminiKey) {
-      const isHex = /^[0-9a-fA-F]+$/.test(config.userGeminiKey)
-      if (safeStorage.isEncryptionAvailable() && isHex) {
-        try {
-          const buffer = Buffer.from(config.userGeminiKey, 'hex')
-          config.userGeminiKey = safeStorage.decryptString(buffer)
-        } catch (e) {
-          console.error('Failed to decrypt userGeminiKey:', e)
-          config.userGeminiKey = ''
+    // Decrypt API keys if they exist
+    const keysToDecrypt = ['userGeminiKey', 'userNvidiaNimKey', 'userOpenaiKey'] as const
+    for (const key of keysToDecrypt) {
+      const val = config[key]
+      if (val) {
+        const isHex = /^[0-9a-fA-F]+$/.test(val)
+        if (safeStorage.isEncryptionAvailable() && isHex) {
+          try {
+            const buffer = Buffer.from(val, 'hex')
+            config[key] = safeStorage.decryptString(buffer)
+          } catch (e) {
+            console.error(`Failed to decrypt ${key}:`, e)
+            config[key] = ''
+          }
+        } else if (isHex && !safeStorage.isEncryptionAvailable()) {
+          config[key] = ''
         }
-      } else if (isHex && !safeStorage.isEncryptionAvailable()) {
-        // Prevent using raw encrypted hex string as API key if encryption is not available
-        config.userGeminiKey = ''
       }
     }
 
@@ -202,13 +247,17 @@ export function saveConfig(config: AppConfig): boolean {
 
     const configToSave = normalizeConfig({ ...config })
 
-    // Encrypt API key if it exists and safeStorage is available
-    if (configToSave.userGeminiKey && safeStorage.isEncryptionAvailable()) {
-      try {
-        const encrypted = safeStorage.encryptString(configToSave.userGeminiKey)
-        configToSave.userGeminiKey = encrypted.toString('hex')
-      } catch (e) {
-        console.error('Failed to encrypt userGeminiKey:', e)
+    // Encrypt API keys if they exist and safeStorage is available
+    const keysToEncrypt = ['userGeminiKey', 'userNvidiaNimKey', 'userOpenaiKey'] as const
+    for (const key of keysToEncrypt) {
+      const val = configToSave[key]
+      if (val && safeStorage.isEncryptionAvailable()) {
+        try {
+          const encrypted = safeStorage.encryptString(val)
+          configToSave[key] = encrypted.toString('hex')
+        } catch (e) {
+          console.error(`Failed to encrypt ${key}:`, e)
+        }
       }
     }
 
