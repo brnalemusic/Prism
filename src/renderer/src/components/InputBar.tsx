@@ -814,7 +814,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                   type="button"
                   onClick={() => {
                     onModeChange?.('conversation')
-                    setShowModeMenu(false)
                   }}
                   className={clsx(
                     'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-0.5 cursor-pointer',
@@ -828,7 +827,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                       <ChatTeardropText size={14} className={sessionMode === 'conversation' ? 'text-text-primary' : 'text-text-muted'} />
                       <span>Conversation</span>
                     </div>
-                    {sessionMode === 'conversation' && <Check size={12} />}
+                    {sessionMode === 'conversation' && <Check size={12} className="animate-fade-in" />}
                   </div>
                   <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
                     Chat only. Safe environment, no tool or CLI command execution.
@@ -840,7 +839,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                   type="button"
                   onClick={() => {
                     onModeChange?.('execution')
-                    setShowModeMenu(false)
                   }}
                   className={clsx(
                     'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-0.5 cursor-pointer',
@@ -854,7 +852,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                       <Lightning size={14} weight="fill" className={sessionMode === 'execution' ? 'text-accent-primary' : 'text-text-muted'} />
                       <span>Execution</span>
                     </div>
-                    {sessionMode === 'execution' && <Check size={12} />}
+                    {sessionMode === 'execution' && <Check size={12} className="animate-fade-in" />}
                   </div>
                   <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
                     Terminal & Tools. Run commands/tools in your user profile folder.
@@ -879,7 +877,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                       <Folder size={14} weight="fill" className={sessionMode === 'discipline' ? 'text-accent-primary' : 'text-text-muted'} />
                       <span>Discipline</span>
                     </div>
-                    {sessionMode === 'discipline' && <Check size={12} />}
+                    {sessionMode === 'discipline' && <Check size={12} className="animate-fade-in" />}
                   </div>
                   <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
                     Project Focus. Run commands & modify files directly inside a project folder.
@@ -888,7 +886,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
 
                 {/* Folder Selector Section when Discipline Mode is selected */}
                 {sessionMode === 'discipline' && (
-                  <div className="mt-2 border-t border-white/[0.04] pt-2 px-1">
+                  <div className="mt-2 border-t border-white/[0.04] pt-2 px-1 animate-session-mode-expand">
                     <div className="flex flex-col gap-1.5 bg-white/[0.02] border border-white/[0.04] rounded-xl p-2">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] text-text-secondary/60 font-semibold uppercase tracking-wider">Project Folder</span>

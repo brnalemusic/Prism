@@ -894,3 +894,21 @@
     0 16px 36px rgba(0, 0, 0, 0.3) !important;
 }
 
+@keyframes session-mode-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    max-height: 150px;
+  }
+}
+
+.animate-session-mode-expand {
+  animation: session-mode-slide-down 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  overflow: hidden;
+}
+
