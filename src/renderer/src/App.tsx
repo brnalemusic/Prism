@@ -2272,8 +2272,10 @@ function RealApp(): React.JSX.Element {
     config
   ])
 
-  const isKeyMissing =
-    !config?.userGeminiKey && (config?.envGeminiKey === 'none' || !config?.envGeminiKey)
+  const hasGeminiKey = !!(config?.userGeminiKey || config?.envGeminiKey === 'present')
+  const hasNvidiaNimKey = !!(config?.userNvidiaNimKey || config?.envNvidiaNimKey === 'present')
+  const hasOpenaiKey = !!(config?.userOpenaiKey || config?.envOpenaiKey === 'present')
+  const isKeyMissing = !hasGeminiKey && !hasNvidiaNimKey && !hasOpenaiKey
 
   if (window.location.hash === '#mini-app') {
     return (
@@ -2387,6 +2389,11 @@ function RealApp(): React.JSX.Element {
               onCancel={handleCancel}
               isProcessing={isProcessing}
               isKeyMissing={isKeyMissing}
+              hasGeminiKey={hasGeminiKey}
+              hasNvidiaNimKey={hasNvidiaNimKey}
+              hasOpenaiKey={hasOpenaiKey}
+              openaiModelId={config?.openaiModelId}
+              openaiModelName={config?.openaiModelName}
               disabled={isProcessing || isKeyMissing || !isOnline}
               selectedModel={selectedModel}
               onModelChange={handleModelChange}
@@ -2458,6 +2465,11 @@ function RealApp(): React.JSX.Element {
                           onCancel={handleCancel}
                           isProcessing={isProcessing}
                           isKeyMissing={isKeyMissing}
+                          hasGeminiKey={hasGeminiKey}
+                          hasNvidiaNimKey={hasNvidiaNimKey}
+                          hasOpenaiKey={hasOpenaiKey}
+                          openaiModelId={config?.openaiModelId}
+                          openaiModelName={config?.openaiModelName}
                           disabled={isProcessing || isKeyMissing || !isOnline}
                           selectedModel={selectedModel}
                           onModelChange={handleModelChange}
@@ -2544,6 +2556,11 @@ function RealApp(): React.JSX.Element {
                   onCancel={handleCancel}
                   isProcessing={isProcessing}
                   isKeyMissing={isKeyMissing}
+                  hasGeminiKey={hasGeminiKey}
+                  hasNvidiaNimKey={hasNvidiaNimKey}
+                  hasOpenaiKey={hasOpenaiKey}
+                  openaiModelId={config?.openaiModelId}
+                  openaiModelName={config?.openaiModelName}
                   disabled={isProcessing || isKeyMissing || !isOnline}
                   selectedModel={selectedModel}
                   onModelChange={handleModelChange}

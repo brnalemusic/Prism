@@ -32,7 +32,6 @@ export interface PrismAPI {
   getMimeType: (fileName: string) => string | false
   sendChatMessage: (data: {
     message: string
-    thinkMode?: boolean
     chatId?: string
     screenshot?: string
     attachedFile?: AttachedFile
@@ -80,7 +79,6 @@ export interface PrismAPI {
   onLauncherMessage: (
     callback: (data: {
       message: string
-      thinkMode?: boolean
       screenshot?: string
       appMode?: string
     }) => void
@@ -96,7 +94,6 @@ export interface PrismAPI {
   onSubagentMessage: (callback: (data: SubagentMessage) => void) => () => void
   submitLauncher: (data: {
     message: string
-    thinkMode?: boolean
     screenshot?: string
     appMode?: string
   }) => void
@@ -152,7 +149,6 @@ export interface PrismAPI {
   launcherOpenFile: (filePath: string) => Promise<string>
   sendLauncherChatMessage: (data: {
     message: string
-    thinkMode?: boolean
     screenshot?: string
     appMode?: string
   }) => void
@@ -179,7 +175,6 @@ export interface PrismAPI {
     callback: (data: {
       instructions: string
       model: string
-      thinkMode?: boolean
       searchEnabled?: boolean
     }) => void
   ) => () => void

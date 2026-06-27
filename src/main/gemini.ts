@@ -2900,11 +2900,10 @@ Every tool call MUST strictly conform to the expected format. Please review the 
  */
 export async function handleLauncherChatMessage(
   event: IpcMainEvent,
-  data: string | { message: string; thinkMode?: boolean; screenshot?: string; appMode?: string }
+  data: string | { message: string; screenshot?: string; appMode?: string }
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
-  const thinkMode =
-    typeof data === 'object' ? (data.thinkMode !== undefined ? !!data.thinkMode : true) : true
+  const thinkMode = false
   const screenshot = typeof data === 'object' ? data.screenshot : undefined
   const appMode = typeof data === 'object' ? data.appMode : undefined
 

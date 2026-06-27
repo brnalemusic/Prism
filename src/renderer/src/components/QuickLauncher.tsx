@@ -396,7 +396,6 @@ export function QuickLauncher(): React.JSX.Element {
   const markdownComponents = useMemo(() => StaticMarkdownComponents, [])
   const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false)
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
-  const [isThinkMode, setIsThinkMode] = useState(false) // Think mode default disabled for launcher
   const [isYoutubeMode, setIsYoutubeMode] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [activeModelId, setActiveModelId] = useState('prism-6-super-fast')
@@ -443,15 +442,11 @@ export function QuickLauncher(): React.JSX.Element {
     ? 'youtube'
     : isSearchEnabled
       ? 'search'
-      : isThinkMode
-        ? 'think'
-        : 'default'
+      : 'default'
   const activeBadges: LauncherBadge[] = [
     ...(isYoutubeMode ? (['youtube'] as const) : []),
-    ...(isSearchEnabled ? (['search'] as const) : []),
-    ...(isThinkMode ? (['think'] as const) : [])
+    ...(isSearchEnabled ? (['search'] as const) : [])
   ]
-  const isSearchAndThinkMode = isSearchEnabled && isThinkMode
   const activeModel = MODELS.find((m) => m.id === activeModelId) || MODELS[0]
 
   // Local Application Search Matches
@@ -578,10 +573,6 @@ export function QuickLauncher(): React.JSX.Element {
       setActiveModelId(modelId)
     })
 
-    const removeThinkModeListener = window.api.onThinkModeChanged((val) => {
-      setIsThinkMode(val)
-    })
-
     const removeSearchEnabledListener = window.api.onSearchEnabledChanged((val) => {
       setIsSearchEnabled(val)
     })
@@ -589,7 +580,6 @@ export function QuickLauncher(): React.JSX.Element {
     return () => {
       removeConfigListener()
       removeModelListener()
-      removeThinkModeListener()
       removeSearchEnabledListener()
       removeAppsUpdatedListener()
     }
@@ -928,7 +918,6 @@ export function QuickLauncher(): React.JSX.Element {
     isYoutubeMode,
     unifiedSuggestions,
     isSearchEnabled,
-    isThinkMode,
     quickLauncherMode,
     isMiniChatOpen,
     handleSuggestionAction,
@@ -948,7 +937,6 @@ export function QuickLauncher(): React.JSX.Element {
       // Focus in-app directly
       window.api.submitLauncher({
         message: buildMessage(targetQuery),
-        thinkMode: isThinkMode,
         screenshot: attachedScreenshot || undefined,
         appMode: isYoutubeMode ? 'youtube' : undefined
       })
@@ -966,7 +954,6 @@ export function QuickLauncher(): React.JSX.Element {
       setQuery('')
       window.api.sendLauncherChatMessage({
         message: userMsg,
-        thinkMode: isThinkMode,
         screenshot: attachedScreenshot || undefined,
         appMode: isYoutubeMode ? 'youtube' : undefined
       })
@@ -982,10 +969,7 @@ export function QuickLauncher(): React.JSX.Element {
 
   const modeClasses = {
     youtube: 'border-accent-primary/30 bg-accent-primary/[0.055] text-accent-primary',
-    search: isSearchAndThinkMode
-      ? 'border-[#8ee8b0]/25 bg-[linear-gradient(110deg,rgba(45,212,191,0.06),rgba(245,158,11,0.065))] text-[#d9c77a]'
-      : 'border-accent-secondary/30 bg-accent-secondary/[0.055] text-accent-secondary',
-    think: 'border-status-warning/30 bg-status-warning/[0.055] text-status-warning',
+    search: 'border-accent-secondary/30 bg-accent-secondary/[0.055] text-accent-secondary',
     default: 'border-white/[0.09] bg-white/[0.045] text-text-primary'
   }[activeMode]
 
@@ -1069,13 +1053,9 @@ export function QuickLauncher(): React.JSX.Element {
               key={badge}
               className={clsx(
                 'flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold whitespace-nowrap',
-                isSearchAndThinkMode && badge !== 'youtube'
-                  ? 'border-transparent bg-gradient-to-r from-[#172e27] via-[#212918] to-[#2c2317] text-[#d9c77a] shadow-[0_0_22px_rgba(245,158,11,0.09)]'
-                  : badge === 'youtube'
-                    ? 'border-accent-primary/30 bg-[#251414] text-accent-primary'
-                    : badge === 'search'
-                      ? 'border-accent-secondary/30 bg-[#10221c] text-accent-secondary'
-                      : 'border-status-warning/30 bg-[#221d10] text-status-warning'
+                badge === 'youtube'
+                  ? 'border-accent-primary/30 bg-[#251414] text-accent-primary'
+                  : 'border-accent-secondary/30 bg-[#10221c] text-accent-secondary'
               )}
             >
               {badge === 'youtube' ? (
@@ -1196,9 +1176,7 @@ export function QuickLauncher(): React.JSX.Element {
                   <div
                     className={clsx(
                       'h-px w-full animate-[line-sweep_1600ms_cubic-bezier(0.2,0.82,0.2,1)_infinite] opacity-80',
-                      isSearchAndThinkMode
-                        ? 'bg-[linear-gradient(to_right,transparent,var(--accent-secondary),var(--status-warning),transparent)]'
-                        : 'bg-gradient-to-r from-transparent via-current to-transparent'
+                      'bg-gradient-to-r from-transparent via-current to-transparent'
                     )}
                   />
                 </div>
@@ -1264,13 +1242,9 @@ export function QuickLauncher(): React.JSX.Element {
                       ? 'Select a Prism model'
                       : isYoutubeMode
                         ? 'Search and play videos'
-                        : isSearchAndThinkMode
-                          ? 'Search, and then Think Deeply with Prism'
-                          : isSearchEnabled
-                            ? 'Search the web'
-                            : isThinkMode
-                              ? 'Think with Prism'
-                              : quickLauncherMode === 'simple'
+                        : isSearchEnabled
+                          ? 'Search the web'
+                          : quickLauncherMode === 'simple'
                                 ? 'Ask quick AI or search files/apps...'
                                 : 'What should Prism do?'
                   }
@@ -1278,9 +1252,7 @@ export function QuickLauncher(): React.JSX.Element {
                     'w-full border-none bg-transparent text-[22px] font-medium outline-none transition-colors duration-200 placeholder:text-text-muted',
                     activeMode === 'youtube'
                       ? 'text-accent-primary placeholder:text-accent-primary/40'
-                      : isSearchAndThinkMode
-                        ? 'text-[#d9c77a] placeholder:text-[#d9c77a]/45'
-                        : activeMode === 'search'
+                      : activeMode === 'search'
                           ? 'text-accent-secondary placeholder:text-accent-secondary/40'
                           : activeMode === 'think'
                             ? 'text-status-warning placeholder:text-status-warning/40'
@@ -1341,9 +1313,7 @@ export function QuickLauncher(): React.JSX.Element {
                 <div
                   className={clsx(
                     'relative z-10 flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[16px] border px-2',
-                    isSearchAndThinkMode
-                      ? 'border-transparent bg-gradient-to-r from-[#10221c] to-[#221d10] text-[#d9c77a]'
-                      : 'border-white/[0.15] bg-[#22242d]'
+                    'border-white/[0.15] bg-[#22242d]'
                   )}
                 >
                   {activeBadges.map((badge) =>

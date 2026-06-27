@@ -133,7 +133,6 @@ const api = {
   },
   sendChatMessage: (data: {
     message: string
-    thinkMode?: boolean
     chatId?: string
     screenshot?: string
     attachedFile?: AttachedFile
@@ -240,14 +239,13 @@ const api = {
   onLauncherMessage: (
     callback: (data: {
       message: string
-      thinkMode?: boolean
       screenshot?: string
       appMode?: string
     }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { message: string; thinkMode?: boolean; screenshot?: string; appMode?: string }
+      data: { message: string; screenshot?: string; appMode?: string }
     ): void => callback(data)
     ipcRenderer.on('launcher-message', listener)
     return () => ipcRenderer.removeListener('launcher-message', listener)
@@ -295,7 +293,6 @@ const api = {
   },
   submitLauncher: (data: {
     message: string
-    thinkMode?: boolean
     screenshot?: string
     appMode?: string
   }): void => ipcRenderer.send('launcher-submit', data),
@@ -414,7 +411,6 @@ const api = {
     ipcRenderer.invoke('launcher-open-file', filePath),
   sendLauncherChatMessage: (data: {
     message: string
-    thinkMode?: boolean
     screenshot?: string
     appMode?: string
   }): void => ipcRenderer.send('launcher-chat-message', data),
@@ -481,7 +477,6 @@ const api = {
     callback: (data: {
       instructions: string
       model: string
-      thinkMode?: boolean
       searchEnabled?: boolean
     }) => void
   ): (() => void) => {
@@ -490,7 +485,6 @@ const api = {
       data: {
         instructions: string
         model: string
-        thinkMode?: boolean
         searchEnabled?: boolean
       }
     ): void => callback(data)

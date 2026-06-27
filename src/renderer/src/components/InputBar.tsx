@@ -906,6 +906,11 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             selectedModel={selectedModel}
             onModelChange={onModelChange || (() => {})}
             disabled={disabled}
+            hasGeminiKey={hasGeminiKey}
+            hasNvidiaNimKey={hasNvidiaNimKey}
+            hasOpenaiKey={hasOpenaiKey}
+            openaiModelId={openaiModelId}
+            openaiModelName={openaiModelName}
           />
 
           {isProcessing ? (
