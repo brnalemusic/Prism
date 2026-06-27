@@ -51,7 +51,7 @@ Think on how to implement       Try another Plan until user accepts
             |
     Run security checks
             |
-    Run npm run typecheck
+Run npm run typecheck && npm run build
             |
     Get errors corrected (if)
             |
