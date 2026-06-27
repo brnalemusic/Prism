@@ -20,7 +20,9 @@ import {
   Lightning,
   Globe,
   ChatTeardropText,
-  Folder
+  Folder,
+  CaretDown,
+  Check
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
 import { useSpeechToText } from '../hooks/useSpeechToText'
@@ -62,6 +64,8 @@ interface InputBarProps {
   setActiveWorkflow?: (val: SlashWorkflow | null) => void
   sessionMode: SessionMode
   disciplinePath: string
+  onModeChange?: (mode: SessionMode) => void
+  onSelectFolder?: () => void
 }
 
 export interface InputBarHandle {
@@ -95,7 +99,9 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       activeWorkflow,
       setActiveWorkflow,
       sessionMode,
-      disciplinePath
+      disciplinePath,
+      onModeChange,
+      onSelectFolder
     },
     ref
   ) => {
@@ -103,11 +109,13 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     const [showFullscreenBtn, setShowFullscreenBtn] = useState(false)
     const [showAttachMenu, setShowAttachMenu] = useState(false)
     const [showAppsMenu, setShowAppsMenu] = useState(false)
+    const [showModeMenu, setShowModeMenu] = useState(false)
 
     const inputRef = useRef<HTMLTextAreaElement>(null)
     const attachMenuRef = useRef<HTMLDivElement>(null)
     const attachButtonRef = useRef<HTMLButtonElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
+    const modeMenuRef = useRef<HTMLDivElement>(null)
 
     const { isRecording, isTranscribing, toggleRecording, stopRecording } = useSpeechToText(
       (transcription, action) => {
@@ -334,6 +342,28 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       return () => window.removeEventListener('keydown', handleEsc)
     }, [isFullscreen, onFullscreenToggle])
 
+    // Escape key listener for menus
+    useEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent): void => {
+        if (e.key === 'Escape') {
+          if (showModeMenu) {
+            e.preventDefault()
+            setShowModeMenu(false)
+          }
+          if (showAttachMenu) {
+            e.preventDefault()
+            setShowAttachMenu(false)
+          }
+          if (showAppsMenu) {
+            e.preventDefault()
+            setShowAppsMenu(false)
+          }
+        }
+      }
+      window.addEventListener('keydown', handleKeyDown)
+      return () => window.removeEventListener('keydown', handleKeyDown)
+    }, [showModeMenu, showAttachMenu, showAppsMenu])
+
     const textRef = useRef(text)
     useEffect(() => {
       textRef.current = text
@@ -385,10 +415,15 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
           attachMenuRef.current && attachMenuRef.current.contains(event.target as Node)
         const isClickOnAttachBtn =
           attachButtonRef.current && attachButtonRef.current.contains(event.target as Node)
+        const isClickInsideModeMenu =
+          modeMenuRef.current && modeMenuRef.current.contains(event.target as Node)
 
         if (!isClickInsideAttach && !isClickOnAttachBtn) {
           setShowAttachMenu(false)
           setShowAppsMenu(false)
+        }
+        if (!isClickInsideModeMenu) {
+          setShowModeMenu(false)
         }
       }
       document.addEventListener('mousedown', handleClickOutside)
@@ -693,27 +728,195 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               <SendHorizontal size={14} weight="fill" />
             </button>
           )}
+
+          {isSearchEnabled && (
+            <div className="flex items-center gap-1.5 rounded-xl bg-accent-secondary/15 border border-accent-secondary/25 px-2.5 py-1 text-xs font-semibold text-accent-secondary shrink-0 select-none animate-soft-pop">
+              <Globe size={12} weight="fill" />
+              <span>Web Search</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSearchEnabled(false)
+                  inputRef.current?.focus()
+                }}
+                className="ml-1 text-accent-secondary/60 hover:text-accent-secondary font-bold cursor-pointer focus:outline-none"
+                title="Remove Web Search"
+              >
+                &times;
+              </button>
+            </div>
+          )}
+
+          {activeWorkflow && (
+            <div className="flex items-center gap-1.5 rounded-xl bg-accent-primary/15 border border-accent-primary/25 px-2.5 py-1 text-xs font-semibold text-accent-primary shrink-0 select-none animate-soft-pop">
+              <Lightning size={12} weight="fill" />
+              <span>{activeWorkflow.command}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveWorkflow?.(null)
+                  inputRef.current?.focus()
+                }}
+                className="ml-1 text-accent-primary/60 hover:text-accent-primary font-bold cursor-pointer focus:outline-none"
+                title="Remove Workflow"
+              >
+                &times;
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex shrink-0 items-center gap-2 relative">
-          {sessionMode === 'conversation' && (
-            <div className="flex items-center gap-1.5 rounded-xl border border-white/[0.04] bg-white/[0.02] px-2.5 py-1.5 text-xs text-text-secondary select-none animate-soft-pop" title="Conversation Mode: Chat only">
-              <ChatTeardropText size={14} className="text-text-muted" />
-              <span className="text-[11px] text-text-muted">Chat Only</span>
-            </div>
-          )}
-          {sessionMode === 'execution' && (
-            <div className="flex items-center gap-1.5 rounded-xl border border-accent-primary/10 bg-accent-primary/5 px-2.5 py-1.5 text-xs text-accent-primary select-none animate-soft-pop" title="Execution Mode: Terminal & Tools enabled in user profile">
-              <Lightning size={14} weight="fill" className="text-accent-primary" />
-              <span className="text-[11px] font-medium">Execution</span>
-            </div>
-          )}
-          {sessionMode === 'discipline' && (
-            <div className="flex items-center gap-1.5 rounded-xl border border-accent-primary/15 bg-accent-primary/5 px-2.5 py-1.5 text-xs text-accent-primary select-none max-w-[160px] truncate animate-soft-pop" title={`Discipline Mode: Operating in ${disciplinePath || 'selected project folder'}`}>
-              <Folder size={14} weight="fill" className="text-accent-primary" />
-              <span className="text-[11px] font-medium truncate">{disciplinePath ? (disciplinePath.split(/[\\/]/).pop() || disciplinePath) : 'Discipline'}</span>
-            </div>
-          )}
+          <div className="relative" ref={modeMenuRef}>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => setShowModeMenu(!showModeMenu)}
+              className={clsx(
+                'flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs select-none transition-all duration-200 cursor-pointer outline-none hover:scale-[1.02] active:scale-[0.98]',
+                sessionMode === 'conversation' && 'border-white/[0.04] bg-white/[0.02] text-text-secondary hover:bg-white/[0.05]',
+                sessionMode === 'execution' && 'border-accent-primary/10 bg-accent-primary/5 text-accent-primary hover:bg-accent-primary/10',
+                sessionMode === 'discipline' && 'border-accent-primary/15 bg-accent-primary/5 text-accent-primary max-w-[160px] hover:bg-accent-primary/10'
+              )}
+              title="Click to change Session Mode"
+            >
+              {sessionMode === 'conversation' && (
+                <>
+                  <ChatTeardropText size={14} className="text-text-muted" />
+                  <span className="text-[11px] text-text-muted">Chat Only</span>
+                </>
+              )}
+              {sessionMode === 'execution' && (
+                <>
+                  <Lightning size={14} weight="fill" className="text-accent-primary" />
+                  <span className="text-[11px] font-medium">Execution</span>
+                </>
+              )}
+              {sessionMode === 'discipline' && (
+                <>
+                  <Folder size={14} weight="fill" className="text-accent-primary" />
+                  <span className="text-[11px] font-medium truncate">
+                    {disciplinePath ? (disciplinePath.split(/[\\/]/).pop() || disciplinePath) : 'Discipline'}
+                  </span>
+                </>
+              )}
+              <CaretDown size={10} className="text-text-muted/70 opacity-60 ml-0.5" />
+            </button>
+
+            {showModeMenu && (
+              <div className="session-mode-dropdown-panel absolute bottom-full right-0 mb-4 z-50 w-72 p-2 animate-soft-pop text-left premium-panel">
+                <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.04] mb-1">
+                  Select Session Mode
+                </div>
+                
+                {/* Conversation Mode Option */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onModeChange?.('conversation')
+                    setShowModeMenu(false)
+                  }}
+                  className={clsx(
+                    'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-0.5 cursor-pointer',
+                    sessionMode === 'conversation'
+                      ? 'bg-white/[0.06] text-text-primary border border-white/10'
+                      : 'border border-transparent hover:bg-white/[0.04] text-text-secondary hover:text-text-primary'
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-semibold text-xs">
+                      <ChatTeardropText size={14} className={sessionMode === 'conversation' ? 'text-text-primary' : 'text-text-muted'} />
+                      <span>Conversation</span>
+                    </div>
+                    {sessionMode === 'conversation' && <Check size={12} />}
+                  </div>
+                  <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
+                    Chat only. Safe environment, no tool or CLI command execution.
+                  </div>
+                </button>
+
+                {/* Execution Mode Option */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onModeChange?.('execution')
+                    setShowModeMenu(false)
+                  }}
+                  className={clsx(
+                    'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-0.5 cursor-pointer',
+                    sessionMode === 'execution'
+                      ? 'bg-accent-primary/[0.12] text-accent-primary border border-accent-primary/20'
+                      : 'border border-transparent hover:bg-white/[0.04] text-text-secondary hover:text-text-primary'
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-semibold text-xs">
+                      <Lightning size={14} weight="fill" className={sessionMode === 'execution' ? 'text-accent-primary' : 'text-text-muted'} />
+                      <span>Execution</span>
+                    </div>
+                    {sessionMode === 'execution' && <Check size={12} />}
+                  </div>
+                  <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
+                    Terminal & Tools. Run commands/tools in your user profile folder.
+                  </div>
+                </button>
+
+                {/* Discipline Mode Option */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onModeChange?.('discipline')
+                  }}
+                  className={clsx(
+                    'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-0.5 cursor-pointer',
+                    sessionMode === 'discipline'
+                      ? 'bg-accent-primary/[0.12] text-accent-primary border border-accent-primary/20'
+                      : 'border border-transparent hover:bg-white/[0.04] text-text-secondary hover:text-text-primary'
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-semibold text-xs">
+                      <Folder size={14} weight="fill" className={sessionMode === 'discipline' ? 'text-accent-primary' : 'text-text-muted'} />
+                      <span>Discipline</span>
+                    </div>
+                    {sessionMode === 'discipline' && <Check size={12} />}
+                  </div>
+                  <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
+                    Project Focus. Run commands & modify files directly inside a project folder.
+                  </div>
+                </button>
+
+                {/* Folder Selector Section when Discipline Mode is selected */}
+                {sessionMode === 'discipline' && (
+                  <div className="mt-2 border-t border-white/[0.04] pt-2 px-1">
+                    <div className="flex flex-col gap-1.5 bg-white/[0.02] border border-white/[0.04] rounded-xl p-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-text-secondary/60 font-semibold uppercase tracking-wider">Project Folder</span>
+                        <button
+                          type="button"
+                          onClick={onSelectFolder}
+                          className="text-[10px] font-semibold text-accent-primary hover:text-accent-primary-light transition-colors cursor-pointer"
+                        >
+                          {disciplinePath ? 'Change' : 'Browse'}
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[11px] text-text-secondary truncate" title={disciplinePath || 'No folder selected'}>
+                        <Folder size={12} className="text-accent-primary shrink-0" />
+                        <span className="truncate font-medium">
+                          {disciplinePath ? (disciplinePath.split(/[\\/]/).pop() || disciplinePath) : 'Select a folder to operate in'}
+                        </span>
+                      </div>
+                      {disciplinePath && (
+                        <div className="text-[9px] text-text-secondary/40 truncate select-all select-none">
+                          {disciplinePath}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           <ModelSelector
             selectedModel={selectedModel}
@@ -779,74 +982,53 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               disabled && 'opacity-60'
             )}
           >
-            {(attachedFile || isSearchEnabled) && (
+            {attachedFile && (
               <div className="w-full pb-3 flex flex-wrap items-center justify-start gap-3 relative animate-soft-pop select-none">
-                {attachedFile && (
-                  <div className="relative group/thumb flex items-center gap-2">
-                    {attachedFile.mimeType.startsWith('image/') ? (
-                      <div className="relative">
-                        <img
-                          src={`data:${attachedFile.mimeType};base64,${attachedFile.data}`}
-                          alt={attachedFile.name}
-                          className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
-                        />
-                        <button
-                          type="button"
-                          onClick={onRemoveFile}
-                          className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/85 text-text-secondary hover:text-white border border-white/10 transition-colors text-xs font-bold leading-none cursor-pointer"
-                        >
-                          &times;
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
-                          {attachedFile.mimeType === 'application/pdf' ? (
-                            <FilePdf size={20} className="text-status-error" />
-                          ) : (
-                            <FilePpt size={20} className="text-accent-primary" />
-                          )}
-                        </div>
-                        <div className="flex flex-col min-w-0">
-                          <span className="text-xs font-semibold text-text-primary truncate max-w-[150px]">
-                            {attachedFile.name}
-                          </span>
-                          <span className="text-[10px] text-text-secondary/60">
-                            {attachedFile.mimeType === 'application/pdf'
-                              ? 'PDF Document'
-                              : 'Presentation'}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={onRemoveFile}
-                          className="absolute top-1/2 -translate-y-1/2 right-3 text-text-secondary/50 hover:text-status-error transition-colors cursor-pointer"
-                        >
-                          <Trash size={14} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {isSearchEnabled && (
-                  <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative animate-soft-pop">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
-                      <Globe size={20} className="text-accent-secondary" />
+                <div className="relative group/thumb flex items-center gap-2">
+                  {attachedFile.mimeType.startsWith('image/') ? (
+                    <div className="relative">
+                      <img
+                        src={`data:${attachedFile.mimeType};base64,${attachedFile.data}`}
+                        alt={attachedFile.name}
+                        className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
+                      />
+                      <button
+                        type="button"
+                        onClick={onRemoveFile}
+                        className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/85 text-text-secondary hover:text-white border border-white/10 transition-colors text-xs font-bold leading-none cursor-pointer"
+                      >
+                        &times;
+                      </button>
                     </div>
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-xs font-semibold text-text-primary">Web Search</span>
-                      <span className="text-[10px] text-text-secondary/60">Active</span>
+                  ) : (
+                    <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
+                        {attachedFile.mimeType === 'application/pdf' ? (
+                          <FilePdf size={20} className="text-status-error" />
+                        ) : (
+                          <FilePpt size={20} className="text-accent-primary" />
+                        )}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-xs font-semibold text-text-primary truncate max-w-[150px]">
+                          {attachedFile.name}
+                        </span>
+                        <span className="text-[10px] text-text-secondary/60">
+                          {attachedFile.mimeType === 'application/pdf'
+                            ? 'PDF Document'
+                            : 'Presentation'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={onRemoveFile}
+                        className="absolute top-1/2 -translate-y-1/2 right-3 text-text-secondary/50 hover:text-status-error transition-colors cursor-pointer"
+                      >
+                        <Trash size={14} />
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsSearchEnabled(false)}
-                      className="absolute top-1/2 -translate-y-1/2 right-3 text-text-secondary/50 hover:text-status-error transition-colors cursor-pointer"
-                    >
-                      <Trash size={14} />
-                    </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             )}
 
@@ -881,25 +1063,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             {renderSlashMenu()}
 
             <div className="flex-1 relative flex flex-col min-h-[100px]">
-              {activeWorkflow && (
-                <div className="flex pb-2 select-none">
-                  <div className="flex items-center gap-1.5 rounded-xl bg-accent-primary/15 border border-accent-primary/25 px-2.5 py-1 text-xs font-semibold text-accent-primary shrink-0 select-none animate-soft-pop">
-                    <Lightning size={12} weight="fill" />
-                    <span>{activeWorkflow.command}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveWorkflow?.(null)
-                        inputRef.current?.focus()
-                      }}
-                      className="ml-1 text-accent-primary/60 hover:text-accent-primary font-bold cursor-pointer focus:outline-none"
-                      title="Remove Workflow"
-                    >
-                      &times;
-                    </button>
-                  </div>
-                </div>
-              )}
               <textarea
                 ref={inputRef}
                 value={text}
@@ -952,74 +1115,53 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               disabled && 'opacity-60'
             )}
           >
-            {(attachedFile || isSearchEnabled) && (
+            {attachedFile && (
               <div className="w-full pb-3 flex flex-wrap items-center justify-start gap-3 relative animate-soft-pop select-none">
-                {attachedFile && (
-                  <div className="relative group/thumb flex items-center gap-2">
-                    {attachedFile.mimeType.startsWith('image/') ? (
-                      <div className="relative">
-                        <img
-                          src={`data:${attachedFile.mimeType};base64,${attachedFile.data}`}
-                          alt={attachedFile.name}
-                          className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
-                        />
-                        <button
-                          type="button"
-                          onClick={onRemoveFile}
-                          className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/85 text-text-secondary hover:text-white border border-white/10 transition-colors text-xs font-bold leading-none cursor-pointer"
-                        >
-                          &times;
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
-                          {attachedFile.mimeType === 'application/pdf' ? (
-                            <FilePdf size={20} className="text-status-error" />
-                          ) : (
-                            <FilePpt size={20} className="text-accent-primary" />
-                          )}
-                        </div>
-                        <div className="flex flex-col min-w-0">
-                          <span className="text-xs font-semibold text-text-primary truncate max-w-[150px]">
-                            {attachedFile.name}
-                          </span>
-                          <span className="text-[10px] text-text-secondary/60">
-                            {attachedFile.mimeType === 'application/pdf'
-                              ? 'PDF Document'
-                              : 'Presentation'}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={onRemoveFile}
-                          className="absolute top-1/2 -translate-y-1/2 right-3 text-text-secondary/50 hover:text-status-error transition-colors cursor-pointer"
-                        >
-                          <Trash size={14} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {isSearchEnabled && (
-                  <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative animate-soft-pop">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
-                      <Globe size={20} className="text-accent-secondary" />
+                <div className="relative group/thumb flex items-center gap-2">
+                  {attachedFile.mimeType.startsWith('image/') ? (
+                    <div className="relative">
+                      <img
+                        src={`data:${attachedFile.mimeType};base64,${attachedFile.data}`}
+                        alt={attachedFile.name}
+                        className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
+                      />
+                      <button
+                        type="button"
+                        onClick={onRemoveFile}
+                        className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/85 text-text-secondary hover:text-white border border-white/10 transition-colors text-xs font-bold leading-none cursor-pointer"
+                      >
+                        &times;
+                      </button>
                     </div>
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-xs font-semibold text-text-primary">Web Search</span>
-                      <span className="text-[10px] text-text-secondary/60">Active</span>
+                  ) : (
+                    <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
+                        {attachedFile.mimeType === 'application/pdf' ? (
+                          <FilePdf size={20} className="text-status-error" />
+                        ) : (
+                          <FilePpt size={20} className="text-accent-primary" />
+                        )}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-xs font-semibold text-text-primary truncate max-w-[150px]">
+                          {attachedFile.name}
+                        </span>
+                        <span className="text-[10px] text-text-secondary/60">
+                          {attachedFile.mimeType === 'application/pdf'
+                            ? 'PDF Document'
+                            : 'Presentation'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={onRemoveFile}
+                        className="absolute top-1/2 -translate-y-1/2 right-3 text-text-secondary/50 hover:text-status-error transition-colors cursor-pointer"
+                      >
+                        <Trash size={14} />
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsSearchEnabled(false)}
-                      className="absolute top-1/2 -translate-y-1/2 right-3 text-text-secondary/50 hover:text-status-error transition-colors cursor-pointer"
-                    >
-                      <Trash size={14} />
-                    </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             )}
 
@@ -1052,23 +1194,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             )}
 
             <div className="w-full relative flex items-center min-w-[280px] gap-2">
-              {activeWorkflow && (
-                <div className="flex items-center gap-1.5 rounded-xl bg-accent-primary/15 border border-accent-primary/25 px-2.5 py-1 text-xs font-semibold text-accent-primary shrink-0 select-none animate-soft-pop">
-                  <Lightning size={12} weight="fill" />
-                  <span>{activeWorkflow.command}</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveWorkflow?.(null)
-                      inputRef.current?.focus()
-                    }}
-                    className="ml-1 text-accent-primary/60 hover:text-accent-primary font-bold cursor-pointer focus:outline-none"
-                    title="Remove Workflow"
-                  >
-                    &times;
-                  </button>
-                </div>
-              )}
               <textarea
                 ref={inputRef}
                 value={text}

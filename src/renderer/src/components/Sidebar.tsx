@@ -19,6 +19,7 @@ import { Spinner } from './Spinner'
 import { AnimatedStreamingText, StreamContext, useStreamStats } from './AnimatedStreamingText'
 import type { AppConfig } from '../../../main/config'
 import type { SessionMode } from '../../../shared/types'
+import { FolderChatsPanel } from './FolderChatsPanel'
 
 interface ChatSession {
   id: string
@@ -82,6 +83,7 @@ export function Sidebar({
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
   const streamingIntervals = useRef<Record<string, NodeJS.Timeout>>({})
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
+  const [viewMoreGroupId, setViewMoreGroupId] = useState<string | null>(null)
 
   const toggleGroup = (groupId: string): void => {
     setCollapsedGroups((prev) => ({
@@ -195,14 +197,62 @@ export function Sidebar({
     setIsDeleting(null)
   }
 
+  interface ChatGroup {
+    id: string
+    name: string
+    isGeneral: boolean
+    chats: ChatSession[]
+    lastUpdated: number
+  }
+
+  // Group chats and memoize to optimize rendering performance
+  const groups = React.useMemo(() => {
+    const groupsMap = new Map<string, ChatSession[]>()
+    chats.forEach((chat) => {
+      const pathKey = chat.disciplinePath ? chat.disciplinePath.trim() : ''
+      if (pathKey) {
+        if (!groupsMap.has(pathKey)) {
+          groupsMap.set(pathKey, [])
+        }
+        groupsMap.get(pathKey)!.push(chat)
+      } else {
+        if (!groupsMap.has('__general__')) {
+          groupsMap.set('__general__', [])
+        }
+        groupsMap.get('__general__')!.push(chat)
+      }
+    })
+
+    const computedGroups: ChatGroup[] = []
+    groupsMap.forEach((groupChats, pathKey) => {
+      groupChats.sort((a, b) => b.lastUpdated - a.lastUpdated)
+      const isGeneral = pathKey === '__general__'
+      const mostRecentChat = groupChats[0]
+      const lastUpdated = mostRecentChat ? mostRecentChat.lastUpdated : 0
+      computedGroups.push({
+        id: pathKey,
+        name: isGeneral ? 'General' : getFolderBasename(pathKey),
+        isGeneral,
+        chats: groupChats,
+        lastUpdated
+      })
+    })
+
+    computedGroups.sort((a, b) => b.lastUpdated - a.lastUpdated)
+    return computedGroups
+  }, [chats])
+
   return (
     <aside
       className={clsx(
-        'fixed inset-y-0 left-0 z-40 w-[272px] flex flex-col border-r border-white/[0.055] bg-background-main/95 shadow-[18px_0_46px_rgba(0,0,0,0.22)] backdrop-blur-md transition-transform duration-300 ease-in-out',
+        'fixed inset-y-0 left-0 z-40 flex flex-row border-r border-white/[0.055] bg-background-main/95 shadow-[18px_0_46px_rgba(0,0,0,0.22)] backdrop-blur-md transition-all duration-300 ease-in-out',
+        viewMoreGroupId ? 'w-[600px]' : 'w-[272px]',
         isOpen ? 'translate-x-0' : '-translate-x-full',
         className
       )}
     >
+      {/* Left Column - Main Sidebar Navigation */}
+      <div className="w-[272px] shrink-0 h-full flex flex-col">
       <div className="flex h-16 shrink-0 items-center justify-between px-5 mt-10">
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-white/[0.08] to-white/[0.02] border border-white/[0.08] shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)]">
@@ -266,132 +316,98 @@ export function Sidebar({
               No recent chats
             </div>
           ) : (
-            (() => {
-              const groupsMap = new Map<string, ChatSession[]>()
-              chats.forEach((chat) => {
-                const pathKey = chat.disciplinePath ? chat.disciplinePath.trim() : ''
-                if (pathKey) {
-                  if (!groupsMap.has(pathKey)) {
-                    groupsMap.set(pathKey, [])
-                  }
-                  groupsMap.get(pathKey)!.push(chat)
-                } else {
-                  if (!groupsMap.has('__general__')) {
-                    groupsMap.set('__general__', [])
-                  }
-                  groupsMap.get('__general__')!.push(chat)
-                }
-              })
+            groups.map((group) => {
+              const isCollapsed = collapsedGroups[group.id] || false
+              const Icon = group.isGeneral ? Lightning : Folder
+              const CaretIcon = isCollapsed ? CaretRight : CaretDown
+              const visibleChats = group.chats.slice(0, 5)
 
-              interface ChatGroup {
-                id: string
-                name: string
-                isGeneral: boolean
-                chats: ChatSession[]
-                lastUpdated: number
-              }
-
-              const groups: ChatGroup[] = []
-              groupsMap.forEach((groupChats, pathKey) => {
-                groupChats.sort((a, b) => b.lastUpdated - a.lastUpdated)
-                const isGeneral = pathKey === '__general__'
-                const mostRecentChat = groupChats[0]
-                const lastUpdated = mostRecentChat ? mostRecentChat.lastUpdated : 0
-                groups.push({
-                  id: pathKey,
-                  name: isGeneral ? 'General' : getFolderBasename(pathKey),
-                  isGeneral,
-                  chats: groupChats,
-                  lastUpdated
-                })
-              })
-
-              groups.sort((a, b) => b.lastUpdated - a.lastUpdated)
-
-              return groups.map((group) => {
-                const isCollapsed = collapsedGroups[group.id] || false
-                const Icon = group.isGeneral ? Lightning : Folder
-                const CaretIcon = isCollapsed ? CaretRight : CaretDown
-
-                return (
-                  <div key={group.id} className="flex flex-col mb-2">
-                    <button
-                      onClick={() => toggleGroup(group.id)}
-                      className="group/btn flex items-center gap-2 px-2 py-1.5 rounded-xl text-xs font-semibold text-text-secondary hover:text-text-primary hover:bg-white/[0.03] transition-all duration-200 text-left w-full select-none"
-                      title={group.isGeneral ? undefined : group.id}
-                    >
-                      <CaretIcon size={12} className="text-text-muted transition-transform duration-200" />
-                      <Icon
-                        size={14}
-                        className={clsx(
-                          group.isGeneral
-                            ? 'text-accent-primary'
-                            : 'text-text-muted group-hover/btn:text-text-secondary'
-                        )}
-                        weight={group.isGeneral ? 'fill' : 'regular'}
-                      />
-                      <span className="truncate flex-1 font-medium">{group.name}</span>
-                      <span className="text-[10px] text-text-muted bg-white/[0.04] px-1.5 py-0.5 rounded-md font-mono">
-                        {group.chats.length}
-                      </span>
-                    </button>
-
-                    <div
+              return (
+                <div key={group.id} className="flex flex-col mb-2">
+                  <button
+                    onClick={() => toggleGroup(group.id)}
+                    className="group/btn flex items-center gap-2 px-2 py-1.5 rounded-xl text-xs font-semibold text-text-secondary hover:text-text-primary hover:bg-white/[0.03] transition-all duration-200 text-left w-full select-none"
+                    title={group.isGeneral ? undefined : group.id}
+                  >
+                    <CaretIcon size={12} className="text-text-muted transition-transform duration-200" />
+                    <Icon
+                      size={14}
                       className={clsx(
-                        'flex flex-col gap-1 pl-4 overflow-hidden transition-all duration-300 ease-in-out',
-                        isCollapsed
-                          ? 'max-h-0 opacity-0 pointer-events-none'
-                          : 'max-h-[1000px] opacity-100 mt-1'
+                        group.isGeneral
+                          ? 'text-accent-primary'
+                          : 'text-text-muted group-hover/btn:text-text-secondary'
                       )}
-                    >
-                      {group.chats.map((chat) => (
-                        <div key={chat.id} className="group relative">
-                          <button
-                            onClick={() => {
-                              onViewChange('chat')
-                              onLoadChat(chat.id)
-                            }}
-                            className={clsx(
-                              'min-h-[38px] w-full truncate rounded-xl border px-3 py-2 pr-8 text-left text-sm transition-all duration-200 active:scale-[0.98]',
-                              currentChatId === chat.id
-                                ? 'border-white/[0.06] bg-white/[0.045] text-text-primary font-medium shadow-[inset_0_1px_0_rgba(255,255,255,0.01)]'
-                                : 'border-transparent text-text-secondary hover:bg-white/[0.025] hover:text-text-primary'
-                            )}
-                            title={chat.title}
-                          >
-                            {chat.title ? (
-                              streamingIntervals.current[chat.id] ? (
-                                <StreamTitleWrapper title={chat.title} />
-                              ) : (
-                                chat.title
-                              )
-                            ) : (
-                              <LoadingDots className="h-full py-1" size="xs" />
-                            )}
-                          </button>
-                          {runningChats[chat.id] && (
-                            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none transition-opacity duration-300 group-hover:opacity-0">
-                              <Spinner size="xxs" />
-                            </div>
+                      weight={group.isGeneral ? 'fill' : 'regular'}
+                    />
+                    <span className="truncate flex-1 font-medium">{group.name}</span>
+                    <span className="text-[10px] text-text-muted bg-white/[0.04] px-1.5 py-0.5 rounded-md font-mono">
+                      {group.chats.length}
+                    </span>
+                  </button>
+
+                  <div
+                    className={clsx(
+                      'flex flex-col gap-1 pl-4 overflow-hidden transition-all duration-300 ease-in-out',
+                      isCollapsed
+                        ? 'max-h-0 opacity-0 pointer-events-none'
+                        : 'max-h-[1000px] opacity-100 mt-1'
+                    )}
+                  >
+                    {visibleChats.map((chat) => (
+                      <div key={chat.id} className="group relative">
+                        <button
+                          onClick={() => {
+                            onViewChange('chat')
+                            onLoadChat(chat.id)
+                          }}
+                          className={clsx(
+                            'min-h-[38px] w-full truncate rounded-xl border px-3 py-2 pr-8 text-left text-sm transition-all duration-200 active:scale-[0.98]',
+                            currentChatId === chat.id
+                              ? 'border-white/[0.06] bg-white/[0.045] text-text-primary font-medium shadow-[inset_0_1px_0_rgba(255,255,255,0.01)]'
+                              : 'border-transparent text-text-secondary hover:bg-white/[0.025] hover:text-text-primary'
                           )}
-                          <button
-                            onClick={(e) => handleDelete(e, chat.id)}
-                            disabled={isDeleting === chat.id}
-                            className={clsx(
-                              'absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-text-muted opacity-0 scale-95 transition-all duration-200 hover:bg-white/[0.05] hover:text-status-error hover:scale-105 group-hover:opacity-100 group-hover:scale-100 active:scale-90',
-                              isDeleting === chat.id && 'opacity-100 animate-pulse'
-                            )}
-                            title="Delete chat"
-                          >
-                            <Trash size={14} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
+                          title={chat.title}
+                        >
+                          {chat.title ? (
+                            streamingIntervals.current[chat.id] ? (
+                              <StreamTitleWrapper title={chat.title} />
+                            ) : (
+                              chat.title
+                            )
+                          ) : (
+                            <LoadingDots className="h-full py-1" size="xs" />
+                          )}
+                        </button>
+                        {runningChats[chat.id] && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none transition-opacity duration-300 group-hover:opacity-0">
+                            <Spinner size="xxs" />
+                          </div>
+                        )}
+                        <button
+                          onClick={(e) => handleDelete(e, chat.id)}
+                          disabled={isDeleting === chat.id}
+                          className={clsx(
+                            'absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-text-muted opacity-0 scale-95 transition-all duration-200 hover:bg-white/[0.05] hover:text-status-error hover:scale-105 group-hover:opacity-100 group-hover:scale-100 active:scale-90',
+                            isDeleting === chat.id && 'opacity-100 animate-pulse'
+                          )}
+                          title="Delete chat"
+                        >
+                          <Trash size={14} />
+                        </button>
+                      </div>
+                    ))}
+                    {group.chats.length > 5 && (
+                      <button
+                        onClick={() => setViewMoreGroupId(group.id)}
+                        className="w-full text-center py-2 px-3 text-xs font-semibold text-accent-primary hover:text-white bg-white/[0.02] hover:bg-accent-primary/[0.1] rounded-xl border border-dashed border-accent-primary/20 hover:border-accent-primary/40 transition-all duration-200 mt-1 cursor-pointer"
+                      >
+                        View more... ({group.chats.length - 5}+)
+                      </button>
+                    )}
                   </div>
-                )
-              })
-            })()
+                </div>
+              )
+            })
           )}
         </div>
       </div>
@@ -404,6 +420,34 @@ export function Sidebar({
           onClick={(): void => onViewChange('settings')}
           badge={isRgbActive ? countdownText : undefined}
           pulse={isRgbActive}
+        />
+      </div>
+      </div>
+
+      {/* Right Column - Folder Chats Panel */}
+      <div
+        className={clsx(
+          'h-full flex flex-col border-l border-white/[0.05] transition-all duration-300 ease-in-out overflow-hidden',
+          viewMoreGroupId ? 'w-[328px] opacity-100' : 'w-0 opacity-0 pointer-events-none'
+        )}
+      >
+        <FolderChatsPanel
+          folderPath={viewMoreGroupId || ''}
+          folderName={
+            viewMoreGroupId
+              ? viewMoreGroupId === '__general__'
+                ? 'General'
+                : getFolderBasename(viewMoreGroupId)
+              : ''
+          }
+          chats={viewMoreGroupId ? (groups.find((g) => g.id === viewMoreGroupId)?.chats || []) : []}
+          currentChatId={currentChatId}
+          runningChats={runningChats}
+          deletingChatId={isDeleting}
+          onLoadChat={onLoadChat}
+          onViewChange={onViewChange}
+          onDeleteChat={handleDelete}
+          onClose={() => setViewMoreGroupId(null)}
         />
       </div>
     </aside>

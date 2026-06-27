@@ -49,7 +49,6 @@ import { YoutubeAppModal } from './components/YoutubeAppModal'
 import { AppConfig, SlashWorkflow } from '../../main/config'
 import type { DownloadProgress, SessionMode } from '../../shared/types'
 import { IS_DEMO } from '../../shared/demo'
-import { SessionModeSelector } from './components/SessionModeSelector'
 
 interface HastNode {
   type: string
@@ -2476,13 +2475,6 @@ function RealApp(): React.JSX.Element {
                         {getGreeting()}
                       </h1>
 
-                      <SessionModeSelector
-                        mode={sessionMode}
-                        disciplinePath={disciplinePath}
-                        onModeChange={handleModeChangeClick}
-                        onSelectFolder={handleSelectFolderClick}
-                      />
-
                       <div className="w-full relative z-20">
                         {/* White glow behind input box for Terno theme */}
                         {(config?.theme || 'marine') === 'terno' && (
@@ -2517,6 +2509,8 @@ function RealApp(): React.JSX.Element {
                           setActiveWorkflow={setActiveWorkflow}
                           sessionMode={sessionMode}
                           disciplinePath={disciplinePath}
+                          onModeChange={handleModeChangeClick}
+                          onSelectFolder={handleSelectFolderClick}
                         />
                       </div>
                     </div>
