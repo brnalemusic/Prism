@@ -1925,8 +1925,12 @@ let currentDisciplinePath: string = ''
 
 export function setSessionMode(mode: SessionMode, disciplinePath?: string): void {
   currentSessionMode = mode
-  if (disciplinePath !== undefined) {
-    currentDisciplinePath = disciplinePath
+  if (mode === 'discipline') {
+    if (disciplinePath !== undefined) {
+      currentDisciplinePath = disciplinePath
+    }
+  } else {
+    currentDisciplinePath = ''
   }
 }
 
@@ -2059,8 +2063,12 @@ export async function handleChatMessage(
     if (sessionMode) {
       currentSessionMode = sessionMode
     }
-    if (disciplinePath !== undefined) {
-      currentDisciplinePath = disciplinePath
+    if (currentSessionMode === 'discipline') {
+      if (disciplinePath !== undefined) {
+        currentDisciplinePath = disciplinePath
+      }
+    } else {
+      currentDisciplinePath = ''
     }
 
     // Set CWD for the system tools

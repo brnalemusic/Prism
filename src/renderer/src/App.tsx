@@ -855,7 +855,10 @@ function RealApp(): React.JSX.Element {
           setDisciplinePath(cfg.disciplinePath)
         }
         // Sync to backend in-memory CWD/mode on startup
-        window.api.setSessionMode(cfg.sessionMode || 'execution', cfg.disciplinePath)
+        window.api.setSessionMode(
+          cfg.sessionMode || 'execution',
+          (cfg.sessionMode || 'execution') === 'discipline' ? cfg.disciplinePath : ''
+        )
       }
     }
     init()
@@ -936,7 +939,7 @@ function RealApp(): React.JSX.Element {
         return
       }
     }
-    window.api.setSessionMode(newMode, path)
+    window.api.setSessionMode(newMode, newMode === 'discipline' ? path : '')
   }, [disciplinePath])
 
   const handleSelectFolderClick = useCallback(async () => {
@@ -1020,7 +1023,6 @@ function RealApp(): React.JSX.Element {
         apiMessage = `[FORCE_SEARCH] ${apiMessage}`
       }
 
-      // Para a API, enviamos o texto original e o thinkMode
       window.api.sendChatMessage({
         message: apiMessage,
         thinkMode: thinkMode ?? isThinkModeRef.current,
@@ -1030,7 +1032,7 @@ function RealApp(): React.JSX.Element {
         quote: quotedTextRef.current || undefined,
         appMode: targetYoutubeMode ? 'youtube' : undefined,
         sessionMode: sessionModeRef.current,
-        disciplinePath: disciplinePathRef.current
+        disciplinePath: sessionModeRef.current === 'discipline' ? disciplinePathRef.current : ''
       })
 
       setAttachedFile(null)
