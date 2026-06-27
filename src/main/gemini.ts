@@ -386,41 +386,10 @@ const MODEL_CONFIGS: Record<string, ModelConfig> = {
   'minimaxai/minimax-m3': { apiModel: 'minimaxai/minimax-m3' }
 }
 
-const MODEL_FALLBACK_ORDER = [
-  'gemini-3.5-flash',
-  'gemma-4-26b-a4b-it',
-  'gemma-4-31b-it',
-  'gemini-3.1-flash-lite'
-]
-
 const AGENT_TEMPERATURE = 0.7
 const TITLE_GENERATION_TEMPERATURE = 1.4
 const DEFAULT_SUBAGENT_MODEL_KEY = 'gemma-4-26b-a4b-it'
 let currentSubagentModelKey = DEFAULT_SUBAGENT_MODEL_KEY
-
-function getModelFriendlyName(modelKey: string): string {
-  const names: Record<string, string> = {
-    'gemini-3.1-flash-lite': 'Gemini 3.1 Flash-Lite',
-    'gemini-3.5-flash': 'Gemini 3.5 Flash',
-    'gemma-4-26b-a4b-it': 'Gemma 4 26B A4B IT',
-    'gemma-4-31b-it': 'Gemma 4 31B IT',
-    'openai/gpt-oss-120b': 'GPT OSS 120B',
-    'mistralai/mistral-large-3-675b-instruct-2512': 'Mistral Large 3',
-    'nvidia/nemotron-3-ultra-550b-a55b': 'Neumotron 3 Ultra',
-    'stepfun-ai/step-3.5-flash': 'Step 3.5 Flash',
-    'stepfun-ai/step-3.7-flash': 'Step 3.7 Flash',
-    'deepseek-ai/deepseek-v4-flash': 'Deepseek V4 Flash',
-    'deepseek-ai/deepseek-v4-pro': 'Deepseek V4 Pro',
-    'zai-org/glm-5.1': 'GLM-5.1',
-    'minimaxai/minimax-m2.7': 'MiniMax M2.7',
-    'minimaxai/minimax-m3': 'MiniMax M3'
-  }
-  const config = loadConfig()
-  if (config.openaiModelId && modelKey === config.openaiModelId) {
-    return config.openaiModelName || modelKey
-  }
-  return names[modelKey] || modelKey
-}
 
 // Persistent history in memory for the current session
 let chatHistory: Content[] = []
@@ -442,7 +411,6 @@ export interface StructuredChatResponse {
   thoughts: string
   finalResponse: string
   rawText: string
-  usedFallback: boolean
   isThinking?: boolean
   isWritingToolCall?: boolean
   toolType?: 'task' | 'search'
@@ -2178,7 +2146,7 @@ export async function handleChatMessage(
   if (!apiKey || apiKey.trim() === '' || apiKey === 'your_api_key_here') {
     // If there is no key, we send a specific error message so that the front-end
     // can trigger the API Key modal if necessary.
-    event.sender.send('chat-reply-error', { error: 'API_KEY_MISSING', chatId })
+    event.sender.send('chat-reply-error', { error: 'API_KEY_ERROR:401:API Key Missing', chatId })
     return
   }
 
@@ -2339,7 +2307,6 @@ export async function handleChatMessage(
         thoughts: '',
         finalResponse: cleanResponse,
         rawText: report,
-        usedFallback: false,
         isThinking: false,
         chatId
       })
@@ -2352,7 +2319,13 @@ export async function handleChatMessage(
         event.sender.send('chat-reply-error', { error: CANCEL_MESSAGE, chatId })
       } else {
         const errorMessage = error instanceof Error ? error.message : String(error)
-        event.sender.send('chat-reply-error', { error: errorMessage, chatId })
+        const httpMatch = errorMessage.match(/(\d{3})\s+(.*)/)
+        const code = httpMatch ? httpMatch[1] : '500'
+        const title = httpMatch ? httpMatch[2].trim() : 'Internal Server Error'
+        event.sender.send('chat-reply-error', {
+          error: `API_KEY_ERROR:${code}:${title}`,
+          chatId
+        })
       }
     } finally {
       activeRuns.delete(chatId)
@@ -2438,9 +2411,7 @@ export async function handleChatMessage(
     saveChatSession(chatId, runHistory)
   }
 
-  let usedFallback = false
   let success = false
-  const triedModelKeys = new Set<string>()
 
   // Notify the start of the response ONLY ONCE
   event.sender.send('chat-reply-start', { chatId })
@@ -2466,8 +2437,6 @@ export async function handleChatMessage(
         success = true
         return
       }
-
-      triedModelKeys.add(currentModelKey)
 
       try {
         const modelConfig = MODEL_CONFIGS[currentModelKey] || { apiModel: currentModelKey }
@@ -2565,7 +2534,6 @@ export async function handleChatMessage(
                 thoughts: fullThoughts.trim(),
                 finalResponse: fullResponse.trim(),
                 rawText: fullThoughts + fullResponse,
-                usedFallback: usedFallback,
                 isThinking,
                 isWritingToolCall,
                 toolType,
@@ -2619,7 +2587,6 @@ export async function handleChatMessage(
             thoughts: finalThoughtsString.trim(),
             finalResponse: finalResponseString.trim(),
             rawText: finalThoughtsString + finalResponseString,
-            usedFallback: usedFallback,
             isThinking: isThinkingFinal,
             isWritingToolCall: isWritingToolCallFinal,
             toolType: toolTypeFinal,
@@ -2765,7 +2732,6 @@ Every tool call MUST strictly conform to the expected format. Please review the 
             thoughts: accumulatedThoughts.trim(),
             finalResponse: accumulatedFinalResponse.trim(),
             rawText: accumulatedThoughts + accumulatedFinalResponse,
-            usedFallback: usedFallback,
             isThinking: false,
             chatId: chatId
           })
@@ -2800,64 +2766,15 @@ Every tool call MUST strictly conform to the expected format. Please review the 
 
         console.error('Gemini API Error:', error)
 
-        // Fallback Logic
-        const currentIndex = MODEL_FALLBACK_ORDER.indexOf(currentModelKey)
-        let nextModelKey: string | null = null
-
-        if (currentIndex !== -1) {
-          // Look for the next model in a circular fashion that hasn't been tried yet
-          for (let i = 1; i <= MODEL_FALLBACK_ORDER.length; i++) {
-            const nextIdx = (currentIndex + i) % MODEL_FALLBACK_ORDER.length
-            const candidate = MODEL_FALLBACK_ORDER[nextIdx]
-            if (!triedModelKeys.has(candidate)) {
-              nextModelKey = candidate
-              break
-            }
-          }
-        } else {
-          // If the current model is not in MODEL_FALLBACK_ORDER (e.g. prism-5 or prism-4),
-          // we can fallback to the first model of MODEL_FALLBACK_ORDER that hasn't been tried yet.
-          for (const candidate of MODEL_FALLBACK_ORDER) {
-            if (!triedModelKeys.has(candidate)) {
-              nextModelKey = candidate
-              break
-            }
-          }
-        }
-
-        if (nextModelKey) {
-          const oldModelKey = currentModelKey
-          currentModelKey = nextModelKey
-          usedFallback = true
-
-          const run = activeRuns.get(chatId)
-          if (run) {
-            run.modelKey = currentModelKey
-          }
-
-          const friendlyName = getModelFriendlyName(currentModelKey)
-          const fallbackInstruction = `[SYSTEM: FALLBACK] An API error occurred with the previous model. You have been activated as ${friendlyName} to continue. Please analyze the history above and proceed with the task from where it left off. Do NOT mention or inform the user about this technical model switch in your response; simply continue the work from where the previous model left off.`
-
-          runHistory.push({ role: 'system', parts: [{ text: fallbackInstruction }] })
-          saveChatSession(chatId, runHistory)
-
-          // Notify the UI about the model change (optional, but good to keep in sync)
-          event.sender.send('model-changed', currentModelKey)
-
-          // Send fallback activation event to renderer
-          event.sender.send('chat-fallback-activated', {
-            chatId,
-            previousModel: getModelFriendlyName(oldModelKey),
-            newModel: friendlyName
-          })
-
-          console.log(`Fallback activated: New model ${currentModelKey}`)
-          continue // Try again with the new model (success remains false)
-        } else {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-          event.sender.send('chat-reply-error', { error: errorMessage, chatId })
-          success = true // End the loop anyway
-        }
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        const httpMatch = errorMessage.match(/(\d{3})\s+(.*)/)
+        const code = httpMatch ? httpMatch[1] : '500'
+        const title = httpMatch ? httpMatch[2].trim() : 'Internal Server Error'
+        event.sender.send('chat-reply-error', {
+          error: `API_KEY_ERROR:${code}:${title}`,
+          chatId
+        })
+        success = true
       }
     }
   } finally {

@@ -25,3 +25,5 @@ resources/prism-setup.exe
 text.md
 scripts/*ace*
 .playwright-mcp/
+raw_stream_debug.txt
+.mimocode/

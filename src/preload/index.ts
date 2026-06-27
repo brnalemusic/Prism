@@ -260,16 +260,6 @@ const api = {
     ipcRenderer.on('model-changed', listener)
     return () => ipcRenderer.removeListener('model-changed', listener)
   },
-  onChatFallbackActivated: (
-    callback: (data: { chatId: string; previousModel: string; newModel: string }) => void
-  ): (() => void) => {
-    const listener = (
-      _event: IpcRendererEvent,
-      data: { chatId: string; previousModel: string; newModel: string }
-    ): void => callback(data)
-    ipcRenderer.on('chat-fallback-activated', listener)
-    return () => ipcRenderer.removeListener('chat-fallback-activated', listener)
-  },
   onConfigChanged: (callback: (config: AppConfig) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, config: AppConfig): void => callback(config)
     ipcRenderer.on('config-changed', listener)
@@ -378,7 +368,6 @@ const api = {
     ipcRenderer.removeAllListeners('launcher-message')
     ipcRenderer.removeAllListeners('launcher-focus')
     ipcRenderer.removeAllListeners('model-changed')
-    ipcRenderer.removeAllListeners('chat-fallback-activated')
     ipcRenderer.removeAllListeners('config-changed')
     ipcRenderer.removeAllListeners('demo-install-progress')
     ipcRenderer.removeAllListeners('think-mode-changed')

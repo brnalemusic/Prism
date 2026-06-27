@@ -19,7 +19,6 @@ import { ModelSelectorHandle } from './components/ModelSelector'
 import { Tasks } from './components/Tasks'
 import { QuickLauncher } from './components/QuickLauncher'
 import { TitleBar } from './components/TitleBar'
-import { ErrorMessage } from './components/ErrorMessage'
 import { SettingsView } from './components/SettingsView'
 import { ApiKeyModal } from './components/ApiKeyModal'
 import { MissingKeyBanner } from './components/MissingKeyBanner'
@@ -34,7 +33,7 @@ import { ErrorPopup } from './components/ErrorPopup'
 import { DownloadProgressOverlay } from './components/DownloadProgressOverlay'
 import { DemoApp } from './components/demo/DemoApp'
 import { UpdaterView } from './components/UpdaterView'
-import { triggerErrorPopup, isShortcutPressed } from './utils'
+import { isShortcutPressed } from './utils'
 import {
   StreamContext,
   StaticMarkdownComponents,
@@ -174,14 +173,13 @@ interface Message {
   isStreaming?: boolean
   isThinking?: boolean
   isError?: boolean
-  usedFallback?: boolean
   toolCalls?: ToolCall[]
   isWritingToolCall?: boolean
   toolType?: 'task' | 'search' | 'mini-app'
   isConnecting?: boolean
   screenshot?: string
   file?: AttachedFile
-  separatorType?: 'fallback' | 'error' | 'cancel'
+  separatorType?: 'error' | 'cancel'
 }
 
 interface Task extends ToolCall {
@@ -194,33 +192,15 @@ interface AiMessageProps {
   currentChatId: string | undefined
   handleLoadChat: (id: string) => void
   markdownComponents: Components
-  modelSelectorRef: React.RefObject<any>
-  setIsApiKeyModalOpen: (open: boolean) => void
 }
 
 const AiMessage = React.memo(function AiMessage({
   msg,
   currentChatId,
   handleLoadChat,
-  markdownComponents,
-  modelSelectorRef,
-  setIsApiKeyModalOpen
+  markdownComponents
 }: AiMessageProps) {
   const streamStats = useStreamStats(msg.content, !!msg.isStreaming)
-
-  if (msg.isError) {
-    const isRateLimit = msg.content.includes('429')
-
-    const handleFix = (): void => {
-      if (isRateLimit) {
-        modelSelectorRef.current?.open()
-      } else {
-        setIsApiKeyModalOpen(true)
-      }
-    }
-
-    return <ErrorMessage error={msg.content} onFixClick={handleFix} />
-  }
 
   if (msg.isConnecting) {
     return (
@@ -1090,8 +1070,6 @@ function RealApp(): React.JSX.Element {
         isAtBottomRef.current = true
         setShowScrollButton(false)
         const mappedMessages: Message[] = []
-        let lastWasFallbackSystem = false
-        let fallbackModelName = ''
 
         for (const m of history) {
           let text = ''
@@ -1159,13 +1137,6 @@ function RealApp(): React.JSX.Element {
           }
 
           if (m.role === 'system') {
-            if (text.includes('[SYSTEM: FALLBACK]')) {
-              lastWasFallbackSystem = true
-              const match = text.match(
-                /(?:activated as|ativado como) (.*?) (?:to continue|para dar continuidade)/i
-              )
-              fallbackModelName = match ? match[1] : 'Prism AI'
-            }
             continue
           }
 
@@ -1185,15 +1156,6 @@ function RealApp(): React.JSX.Element {
               isStreaming: false
             })
           } else if (m.role === 'model') {
-            if (lastWasFallbackSystem) {
-              mappedMessages.push({
-                role: 'separator',
-                separatorType: 'fallback',
-                content: `Fallback to ${fallbackModelName}`
-              })
-              lastWasFallbackSystem = false
-            }
-
             let aiMsg: Message | undefined = mappedMessages[mappedMessages.length - 1]
 
             if (!aiMsg || aiMsg.role !== 'ai') {
@@ -1564,7 +1526,6 @@ function RealApp(): React.JSX.Element {
         chatId,
         thoughts,
         finalResponse,
-        usedFallback,
         isThinking,
         isWritingToolCall,
         toolType
@@ -1585,7 +1546,6 @@ function RealApp(): React.JSX.Element {
               ...lastMsg,
               thoughts,
               content: finalResponse,
-              usedFallback,
               isThinking,
               isWritingToolCall,
               toolType,
@@ -1602,7 +1562,7 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeChatEndListener = window.api.onChatEnd((data) => {
-      const { chatId, thoughts, finalResponse, usedFallback } = data
+      const { chatId, thoughts, finalResponse } = data
       console.log(
         `[UI Chat] onChatEnd received: chatId=${chatId}, currentChatId=${currentChatIdRef.current}`
       )
@@ -1623,7 +1583,6 @@ function RealApp(): React.JSX.Element {
               ...lastMsg,
               thoughts,
               content: finalResponse,
-              usedFallback,
               isStreaming: false,
               isThinking: false,
               isWritingToolCall: false,
@@ -1642,15 +1601,7 @@ function RealApp(): React.JSX.Element {
         setIsProcessing(false)
         setIsYoutubeMode(false)
 
-        if (error === 'API_KEY_MISSING') {
-          setIsApiKeyModalOpen(true)
-          triggerErrorPopup(error)
-        }
-
         const isCancel = error.includes('cancelled')
-        if (!isCancel && error !== 'API_KEY_MISSING') {
-          triggerErrorPopup(error)
-        }
 
         if (isCancel) {
           setTasks((prev) =>
@@ -1663,10 +1614,8 @@ function RealApp(): React.JSX.Element {
           const lastMsgIndex = newMessages.length - 1
           const lastMsg = newMessages[lastMsgIndex]
 
-          // Clean up streaming/connecting/thinking flags on the last message if it's AI
           if (lastMsg && lastMsg.role === 'ai') {
             let updatedToolCalls = lastMsg.toolCalls
-            // Cleanup running tool calls in last message
             if (isCancel && lastMsg.toolCalls) {
               updatedToolCalls = lastMsg.toolCalls.map((tc) =>
                 tc.status === 'running'
@@ -1683,91 +1632,34 @@ function RealApp(): React.JSX.Element {
             }
           }
 
-          const hasContentOrTools =
-            lastMsg && lastMsg.role === 'ai' && (lastMsg.content || lastMsg.toolCalls?.length)
-
           if (isCancel) {
-            // Push cancel separator
             newMessages.push({
               role: 'separator',
               separatorType: 'cancel',
               content: 'Cancelled by user'
             })
           } else {
-            // Push error separator
+            const apiErrorMatch = error.match(/^API_KEY_ERROR:(\d{3}):(.+)$/)
+            let separatorContent: string
+
+            if (apiErrorMatch) {
+              separatorContent = `API key error: ${apiErrorMatch[1]} ${apiErrorMatch[2]}`
+            } else {
+              const httpMatch = error.match(/(\d{3})\s+(.*)/)
+              if (httpMatch) {
+                separatorContent = `API key error: ${httpMatch[1]} ${httpMatch[2].trim()}`
+              } else {
+                separatorContent = `API key error: 500 Internal Server Error`
+              }
+            }
+
             newMessages.push({
               role: 'separator',
               separatorType: 'error',
-              content: 'Operation error'
+              content: separatorContent
             })
-
-            // Push error message box
-            if (hasContentOrTools) {
-              // If previous message had content, keep it clean and push a new AI message for the error box
-              newMessages.push({
-                role: 'ai',
-                content: error,
-                isError: true,
-                isStreaming: false,
-                isThinking: false,
-                isConnecting: false,
-                toolCalls: []
-              })
-            } else if (lastMsg && lastMsg.role === 'ai') {
-              // If the connecting message was empty, just convert it to show the error
-              newMessages[lastMsgIndex] = {
-                ...newMessages[lastMsgIndex],
-                isError: true,
-                content: error
-              }
-            } else {
-              // Fallback: push a new AI message for the error box
-              newMessages.push({
-                role: 'ai',
-                content: error,
-                isError: true,
-                isStreaming: false,
-                isThinking: false,
-                isConnecting: false,
-                toolCalls: []
-              })
-            }
           }
 
-          return newMessages
-        })
-      }
-    })
-
-    const removeFallbackListener = window.api.onChatFallbackActivated((data) => {
-      const { chatId, newModel } = data
-      if (chatId === currentChatIdRef.current) {
-        setMessages((prev) => {
-          const newMessages = [...prev]
-          const lastMsgIndex = newMessages.length - 1
-          const lastMsg = newMessages[lastMsgIndex]
-          if (lastMsg && lastMsg.role === 'ai') {
-            newMessages[lastMsgIndex] = {
-              ...lastMsg,
-              isStreaming: false,
-              isThinking: false,
-              isConnecting: false
-            }
-          }
-          newMessages.push({
-            role: 'separator',
-            separatorType: 'fallback',
-            content: `Fallback to ${newModel}`
-          })
-          newMessages.push({
-            role: 'ai',
-            content: '',
-            thoughts: '',
-            isStreaming: true,
-            isThinking: false,
-            isConnecting: true,
-            toolCalls: []
-          })
           return newMessages
         })
       }
@@ -2018,7 +1910,6 @@ function RealApp(): React.JSX.Element {
       removeToolEndListener()
       removeToolUpdateListener()
       removeSubagentMessageListener()
-      removeFallbackListener()
       removeTitleReceivedListener()
       if (titleIntervalRef.current) {
         clearInterval(titleIntervalRef.current)
@@ -2118,8 +2009,6 @@ function RealApp(): React.JSX.Element {
                       currentChatId={currentChatId}
                       handleLoadChat={handleLoadChat}
                       markdownComponents={markdownComponents}
-                      modelSelectorRef={modelSelectorRef}
-                      setIsApiKeyModalOpen={setIsApiKeyModalOpen}
                     />
                   ) : (
                     <div className="flex flex-col items-end gap-2.5 max-w-[92%] sm:max-w-[78%] lg:max-w-[68%]">
