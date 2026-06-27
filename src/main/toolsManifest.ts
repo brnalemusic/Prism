@@ -163,9 +163,13 @@ export const toolsManifest: ToolDefinition[] = [
   {
     name: 'computer_use_read_file',
     description: 'Read file content.',
-    usage: '<tool_call>{"type":"computer_use_read_file","path":"PATH"}</tool_call>',
+    usage:
+      '<tool_call>{"type":"computer_use_read_file","path":"PATH","startLine":130,"offset":50}</tool_call>',
     parameters: {
-      path: 'Absolute file path.'
+      path: 'Absolute file path.',
+      startLine: 'Starting line number (1-based index) to read from.',
+      offset:
+        'Optional: Number of lines to read starting from startLine (defaults to 200, maximum 200).'
     }
   },
   {

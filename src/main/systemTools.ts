@@ -953,26 +953,42 @@ export async function computerListDirectory(
   }
 }
 
-/**
- * COMPUTER USE: Read file content.
- */
-export async function computerReadFile(filePath: string, signal?: AbortSignal): Promise<string> {
+export async function computerReadFile(
+  filePath: string,
+  startLine: number,
+  offset?: number,
+  signal?: AbortSignal
+): Promise<string> {
   try {
     const fullPath = resolveRequiredPath(filePath, 'path')
     const content = await fs.readFile(fullPath, { encoding: 'utf8', signal })
 
     const lines = content.split('\n')
-    const numberedLines = lines.map((line, index) => `${index + 1} | ${line}`)
-    const fullOutput = numberedLines.join('\n')
+    const totalLines = lines.length
 
-    const MAX_READ_OUTPUT = 10000
-    if (fullOutput.length > MAX_READ_OUTPUT) {
-      return (
-        fullOutput.substring(0, MAX_READ_OUTPUT) +
-        '\n\n... (File content truncated for performance. Use computer_use_edit_file or read smaller chunks if needed)'
-      )
+    if (startLine > totalLines) {
+      return `Error reading file: startLine (${startLine}) exceeds the total number of lines in the file (${totalLines}).`
     }
-    return fullOutput
+
+    const actualOffset = offset !== undefined ? offset : 200
+    const startIdx = startLine - 1
+    const endIdx = Math.min(startLine + actualOffset - 1, totalLines - 1)
+
+    const sliceOfLines = lines.slice(startIdx, endIdx + 1)
+    const selectedContent = sliceOfLines.join('\n')
+
+    if (selectedContent.length > 8000) {
+      return `Content Locked: The requested range contains ${selectedContent.length} characters, which exceeds the limit of 8,000 characters. Please request a smaller offset to read less content.`
+    }
+
+    const numberedLines = sliceOfLines.map((line, index) => `${startLine + index} | ${line}`)
+    const body = numberedLines.join('\n')
+
+    const showingStart = startLine
+    const showingEnd = endIdx + 1
+
+    const header = `File: ${fullPath}\nTotal lines: ${totalLines}\nShowing lines: ${showingStart} to ${showingEnd}\n\n`
+    return header + body
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
     return `Error reading file: ${error instanceof Error ? error.message : String(error)}`

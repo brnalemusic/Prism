@@ -394,6 +394,32 @@ function validateSchemaArgs(
     }
   }
 
+  // Custom validation for computer_use_read_file
+  if (toolName === 'computer_use_read_file') {
+    const startLineNum = Number(args.startLine)
+    if (isNaN(startLineNum) || !Number.isInteger(startLineNum) || startLineNum <= 0) {
+      return {
+        type: 'invalid_args',
+        message: `Argument "startLine" for "computer_use_read_file" must be a positive integer. Passed: "${args.startLine}".`
+      }
+    }
+    if (args.offset !== undefined && args.offset !== null && args.offset !== '') {
+      const offsetNum = Number(args.offset)
+      if (isNaN(offsetNum) || !Number.isInteger(offsetNum) || offsetNum <= 0) {
+        return {
+          type: 'invalid_args',
+          message: `Argument "offset" for "computer_use_read_file" must be a positive integer. Passed: "${args.offset}".`
+        }
+      }
+      if (offsetNum > 200) {
+        return {
+          type: 'invalid_args',
+          message: `Argument "offset" for "computer_use_read_file" cannot exceed 200. Passed: "${args.offset}".`
+        }
+      }
+    }
+  }
+
   // 2. Check for unknown arguments
   const unknownArgs: string[] = []
   for (const passedKey of passedParams) {
@@ -992,7 +1018,12 @@ const toolFunctions: Record<
   computer_use_list_directory: (args, _event, _apiKey, signal) =>
     computerListDirectory(args.path || '', signal),
   computer_use_read_file: (args, _event, _apiKey, signal) =>
-    computerReadFile(args.path || '', signal),
+    computerReadFile(
+      args.path || '',
+      args.startLine ? parseInt(args.startLine, 10) : 1,
+      args.offset ? parseInt(args.offset, 10) : undefined,
+      signal
+    ),
   computer_use_see_screen: async (args, _event, _apiKey, _signal, chatId) => {
     const appName = args.appName || 'Entire Screen'
     const capture = await captureAppScreenshot(appName)
