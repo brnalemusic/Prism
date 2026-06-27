@@ -75,7 +75,7 @@ const AiSearchOutput = React.memo(function AiSearchOutput({
     return null
   }
 
-  const parts = aiResponse.split(/(<tool_call>[\s\S]*?(?:<\/tool_call>|$))/gi)
+  const parts = aiResponse.split(/(\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$))/gi)
   let partStartOffset = 0
 
   return (
@@ -85,12 +85,12 @@ const AiSearchOutput = React.memo(function AiSearchOutput({
           const currentPartStartOffset = partStartOffset
           partStartOffset += part.length
 
-          if (part.startsWith('<tool_call>')) {
-            if (part.includes('</tool_call>')) {
+          if (part.startsWith('[PRISM_EXECUTE_TOOL]')) {
+            if (part.includes('[/PRISM_EXECUTE_TOOL]')) {
               try {
                 const jsonText = part
-                  .replace(/<tool_call>/gi, '')
-                  .replace(/<\/tool_call>/gi, '')
+                  .replace(/\[PRISM_EXECUTE_TOOL\]/gi, '')
+                  .replace(/\[\/PRISM_EXECUTE_TOOL\]/gi, '')
                   .trim()
                 const tc = JSON.parse(jsonText)
                 const isRenderChatHistory =

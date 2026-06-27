@@ -236,9 +236,8 @@ const AiMessage = React.memo(function AiMessage({
     return null
   }
 
-  // Split content by tool calls and mini apps
   const parts = msg.content.split(
-    /(<tool_call>[\s\S]*?(?:<\/tool_call>|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
+    /(\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
   )
 
   interface PartItem {
@@ -258,8 +257,8 @@ const AiMessage = React.memo(function AiMessage({
     const currentPartStartOffset = partStartOffset
     partStartOffset += part.length
 
-    if (part.startsWith('<tool_call>')) {
-      if (part.includes('</tool_call>')) {
+    if (part.startsWith('[PRISM_EXECUTE_TOOL]')) {
+      if (part.includes('[/PRISM_EXECUTE_TOOL]')) {
         const tc = msg.toolCalls?.[tempToolCallIndex]
         tempToolCallIndex++
         return {
@@ -554,9 +553,8 @@ const AiMessage = React.memo(function AiMessage({
             }
             return null
           })}
-
           {msg.isWritingToolCall &&
-            !msg.content.includes('<tool_call>') &&
+            !msg.content.includes('[PRISM_EXECUTE_TOOL]') &&
             !msg.content.includes('<mini_app>') && (
               <ActionLoader
                 key="writing-tc"
@@ -1222,7 +1220,7 @@ function RealApp(): React.JSX.Element {
             const textWithoutThoughts = text.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim()
 
             // Parse Tool Calls (DO NOT remove from content, as renderAiMessage needs them as markers)
-            const toolCallRegex = /<tool_call>([\s\S]*?)<\/tool_call>/gi
+            const toolCallRegex = /\[PRISM_EXECUTE_TOOL\]([\s\S]*?)\[\/PRISM_EXECUTE_TOOL\]/gi
             let toolMatch
             while ((toolMatch = toolCallRegex.exec(textWithoutThoughts)) !== null) {
               const tcContent = toolMatch[1].trim()

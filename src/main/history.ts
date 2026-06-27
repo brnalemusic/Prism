@@ -50,7 +50,7 @@ export function getMessageText(content?: Content, clean = false): string {
 
   if (clean && text) {
     // Remove tool calls
-    text = text.replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
+    text = text.replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/gi, '')
     // Remove mini apps
     text = text.replace(/<mini_app>[\s\S]*?<\/mini_app>/gi, '')
     // Remove system results / tool results

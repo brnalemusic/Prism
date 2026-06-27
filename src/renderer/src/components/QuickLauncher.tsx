@@ -133,7 +133,7 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
         {/* Content rendering: split by tool call and mini-app tags to render inline */}
         {(() => {
           const parts = msg.content.split(
-            /(<tool_call>[\s\S]*?(?:<\/tool_call>|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
+            /(\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
           )
 
           interface PartItem {
@@ -153,8 +153,8 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
             const currentPartStartOffset = partStartOffset
             partStartOffset += part.length
 
-            if (part.startsWith('<tool_call>')) {
-              if (part.includes('</tool_call>')) {
+            if (part.startsWith('[PRISM_EXECUTE_TOOL]')) {
+              if (part.includes('[/PRISM_EXECUTE_TOOL]')) {
                 const tc = msg.toolCalls?.[tempToolCallIndex]
                 tempToolCallIndex++
                 return {
@@ -374,7 +374,7 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
         })()}
 
         {msg.isWritingToolCall &&
-          !msg.content.includes('<tool_call>') &&
+          !msg.content.includes('[PRISM_EXECUTE_TOOL]') &&
           !msg.content.includes('<mini_app>') && (
             <ActionLoader
               key="writing-tc"

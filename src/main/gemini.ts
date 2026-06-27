@@ -107,6 +107,10 @@ export function getProviderApiKey(provider: 'gemini' | 'nvidia-nim' | 'openai-co
   }
 }
 
+function obfuscateTags(text: string): string {
+  return text
+}
+
 // Convert history to OpenAI format
 function convertHistoryToOpenAiFormat(history: Content[]) {
   const messages: any[] = []
@@ -122,7 +126,7 @@ function convertHistoryToOpenAiFormat(history: Content[]) {
       if (textParts.length > 0) {
         contentArray.push({
           type: 'text',
-          text: textParts.map((p) => p.text).join('\n\n')
+          text: obfuscateTags(textParts.map((p) => p.text).join('\n\n'))
         })
       }
       for (const media of mediaParts) {
@@ -138,12 +142,44 @@ function convertHistoryToOpenAiFormat(history: Content[]) {
       messages.push({ role, content: contentArray })
     } else {
       const text = textParts.map((p) => p.text).join('\n\n')
-      messages.push({ role, content: text })
+      messages.push({ role, content: obfuscateTags(text) })
     }
   }
   return messages
 }
 
+function convertHistoryToGeminiFormat(history: Content[]) {
+  let systemInstruction = ''
+  const contents: Content[] = []
+
+  for (const msg of history) {
+    if (msg.role === 'system') {
+      const txt = msg.parts?.map((p) => p.text || '').join('\n') || ''
+      if (systemInstruction) {
+        systemInstruction += '\n' + txt
+      } else {
+        systemInstruction = txt
+      }
+    } else {
+      const role = msg.role === 'model' || msg.role === 'assistant' ? 'model' : 'user'
+      const parts = msg.parts || []
+      contents.push({
+        role,
+        parts: parts.map((p) => {
+          if (p.text) {
+            return { text: p.text }
+          }
+          if (p.inlineData) {
+            return { inlineData: p.inlineData }
+          }
+          return p
+        })
+      })
+    }
+  }
+
+  return { contents, systemInstruction }
+}
 
 interface StreamChunk {
   thought: string
@@ -158,53 +194,88 @@ async function* generateAiStream(
   signal?: AbortSignal,
   temperature = 0.7
 ): AsyncGenerator<StreamChunk> {
+  const fs = require('fs')
+  const debugFilePath = 'c:/Users/Breno/Documents/Code/Prism/raw_stream_debug.txt'
+  try {
+    fs.writeFileSync(debugFilePath, `--- START STREAM (model: ${modelName}, provider: ${provider}) ---\n`)
+  } catch (err) {
+    console.error('Failed to init stream debug file:', err)
+  }
+
   if (provider === 'gemini') {
     const ai = new GoogleGenAI({ apiKey })
+    const { contents, systemInstruction } = convertHistoryToGeminiFormat(ensureHistoryFitsLimit(history))
+    
     const responseStream = await ai.models.generateContentStream({
       model: modelName,
-      contents: normalizeContentsForGemini(history),
+      contents,
       config: {
+        systemInstruction,
         temperature,
-        abortSignal: signal
       }
     })
 
     for await (const chunk of responseStream) {
+      if (signal?.aborted) throw new Error('AbortError')
+
       let thought = ''
       let text = ''
-      const parts = chunk.candidates?.[0]?.content?.parts || []
-      for (const part of parts) {
-        if (part && typeof part === 'object' && 'thought' in part && part.thought) {
-          thought += part.text || ''
-        } else if (part.text) {
-          text += part.text
+
+      const candidate = chunk.candidates?.[0]
+      if (candidate?.content?.parts) {
+        for (const part of candidate.content.parts) {
+          if (part.thought) {
+            thought += part.text || ''
+          } else if (part.text) {
+            text += part.text
+          }
         }
       }
-      yield { thought, text }
+
+      if (thought || text) {
+        try {
+          fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text }) + '\n')
+        } catch (err) { /* ignore */ }
+        
+        yield { thought, text }
+      }
     }
   } else {
-    const baseURL =
-      provider === 'nvidia-nim' ? 'https://integrate.api.nvidia.com/v1' : loadConfig().openaiBaseUrl
-    const openai = new OpenAI({ apiKey, baseURL, dangerouslyAllowBrowser: true })
-    const messages = convertHistoryToOpenAiFormat(history)
+    let baseURL: string
+    if (provider === 'nvidia-nim') {
+      baseURL = 'https://integrate.api.nvidia.com/v1'
+    } else {
+      const configBaseUrl = (loadConfig().openaiBaseUrl || '').replace(/\/+$/, '')
+      baseURL = configBaseUrl
+    }
 
-    const responseStream = await openai.chat.completions.create(
-      {
-        model: modelName,
-        messages,
-        temperature,
-        stream: true
-      },
-      { signal }
-    )
+    const openai = new OpenAI({ apiKey, baseURL })
+    const messages = convertHistoryToOpenAiFormat(ensureHistoryFitsLimit(history))
+
+    const responseStream = await openai.chat.completions.create({
+      model: modelName,
+      messages,
+      temperature,
+      stream: true
+    }, { signal })
 
     for await (const chunk of responseStream) {
-      const choice = chunk.choices[0]
+      if (signal?.aborted) throw new Error('AbortError')
+
+      const choice = chunk.choices?.[0]
       if (!choice) continue
 
-      const thought = (choice.delta as any).reasoning_content || ''
-      const text = choice.delta.content || ''
-      yield { thought, text }
+      const delta = choice.delta || {}
+      const thought = (delta as any).reasoning_content || ''
+      const text = delta.content || ''
+
+      if (thought || text) {
+        try {
+          fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text }) + '\n')
+        } catch (err) { /* ignore */ }
+
+        yield { thought, text }
+      }
     }
   }
 }
@@ -219,50 +290,54 @@ async function generateAiContent(
 ): Promise<string> {
   if (provider === 'gemini') {
     const ai = new GoogleGenAI({ apiKey })
-    const result = await ai.models.generateContent({
+    const { contents, systemInstruction } = convertHistoryToGeminiFormat(ensureHistoryFitsLimit(history))
+    const response = await ai.models.generateContent({
       model: modelName,
-      contents: normalizeContentsForGemini(history),
+      contents,
       config: {
+        systemInstruction,
         temperature,
-        abortSignal: signal
       }
     })
-    return getFinalResponseText(result)
+    return response.text || ''
   } else {
-    const baseURL =
-      provider === 'nvidia-nim' ? 'https://integrate.api.nvidia.com/v1' : loadConfig().openaiBaseUrl
-    const openai = new OpenAI({ apiKey, baseURL, dangerouslyAllowBrowser: true })
-    const messages = convertHistoryToOpenAiFormat(history)
+    let baseURL: string
+    if (provider === 'nvidia-nim') {
+      baseURL = 'https://integrate.api.nvidia.com/v1'
+    } else {
+      const configBaseUrl = (loadConfig().openaiBaseUrl || '').replace(/\/+$/, '')
+      baseURL = configBaseUrl
+    }
 
-    const result = await openai.chat.completions.create(
-      {
-        model: modelName,
-        messages,
-        temperature
-      },
-      { signal }
-    )
+    const openai = new OpenAI({ apiKey, baseURL })
+    const messages = convertHistoryToOpenAiFormat(ensureHistoryFitsLimit(history))
 
-    return result.choices[0]?.message?.content || ''
+    const response = await openai.chat.completions.create({
+      model: modelName,
+      messages,
+      temperature,
+      stream: false
+    }, { signal })
+
+    return response.choices?.[0]?.message?.content || ''
   }
 }
-
 async function getOpenaiCompatibleSearchModel(config: AppConfig): Promise<string> {
   const openaiKey = config.userOpenaiKey || process.env.OPENAI_API_KEY
   if (!openaiKey || !config.openaiBaseUrl) {
     return config.openaiModelId || ''
   }
   try {
-    const openai = new OpenAI({
-      apiKey: openaiKey,
-      baseURL: config.openaiBaseUrl,
-      dangerouslyAllowBrowser: true
+    const baseURL = config.openaiBaseUrl.replace(/\/+$/, '')
+    const response = await fetch(`${baseURL}/models`, {
+      headers: { 'Authorization': `Bearer ${openaiKey}` }
     })
-    const response = await openai.models.list()
-    const models = response.data || []
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const data = await response.json()
+    const models = data.data || []
 
     const lightKeywords = ['flash', 'fast', 'lite', 'mini', 'quick', 'speed', 'rapid']
-    const lightModels = models.filter((m) => {
+    const lightModels = models.filter((m: any) => {
       const idLower = (m.id || '').toLowerCase()
       return lightKeywords.some((keyword) => idLower.includes(keyword))
     })
@@ -712,15 +787,14 @@ function validateToolCall(toolContent: string): ValidationResult {
       .trim()
   }
 
-  // Check if they tried to use XML or a non-JSON format
   if (!trimmed.startsWith('{')) {
     let errorMsg =
       'Every tool call MUST be a valid JSON object. XML and other non-JSON formats are not supported. ' +
-      'Please rewrite your tool call as a valid JSON object inside the <tool_call>...</tool_call> tags.'
+      'Please rewrite your tool call as a valid JSON object inside the [PRISM_EXECUTE_TOOL]...[/PRISM_EXECUTE_TOOL] tags.'
 
     if (trimmed.startsWith('<') && (trimmed.includes('</') || trimmed.includes('>'))) {
       errorMsg =
-        'XML tool call format is deprecated and not supported. All tool calls MUST strictly be valid JSON objects inside the <tool_call>...</tool_call> tags (e.g., {"type": "web_search", "query": "..."}). Please rewrite it.'
+        'XML tool call format is deprecated and not supported. All tool calls MUST strictly be valid JSON objects inside the [PRISM_EXECUTE_TOOL]...[/PRISM_EXECUTE_TOOL] tags (e.g., {"type": "web_search", "query": "..."}). Please rewrite it.'
     }
 
     return {
@@ -841,16 +915,16 @@ function extractToolCalls(text: string): string[] {
   let currentIndex = 0
 
   while (true) {
-    const startIdx = text.indexOf('<tool_call>', currentIndex)
+    const startIdx = text.indexOf('[PRISM_EXECUTE_TOOL]', currentIndex)
     if (startIdx === -1) break
 
-    const contentStart = startIdx + 11 // '<tool_call>'.length
+    const contentStart = startIdx + 20 // '[PRISM_EXECUTE_TOOL]'.length
     let endIdx = -1
     let searchIndex = contentStart
 
     while (true) {
       const nextCdata = text.indexOf('<![CDATA[', searchIndex)
-      const nextEnd = text.indexOf('</tool_call>', searchIndex)
+      const nextEnd = text.indexOf('[/PRISM_EXECUTE_TOOL]', searchIndex)
 
       if (nextEnd === -1) break
 
@@ -865,9 +939,9 @@ function extractToolCalls(text: string): string[] {
 
     if (endIdx !== -1) {
       toolCalls.push(text.substring(contentStart, endIdx))
-      currentIndex = endIdx + 12 // '</tool_call>'.length
+      currentIndex = endIdx + 21 // '[/PRISM_EXECUTE_TOOL]'.length
     } else {
-      currentIndex = startIdx + 11
+      currentIndex = startIdx + 20
     }
   }
 
@@ -878,14 +952,14 @@ function removeToolCalls(text: string): string {
   let result = text
   let currentIndex = 0
   while (true) {
-    const startIdx = result.indexOf('<tool_call>', currentIndex)
+    const startIdx = result.indexOf('[PRISM_EXECUTE_TOOL]', currentIndex)
     if (startIdx === -1) break
 
-    let searchIndex = startIdx + 11
+    let searchIndex = startIdx + 20
     let endIdx = -1
     while (true) {
       const nextCdata = result.indexOf('<![CDATA[', searchIndex)
-      const nextEnd = result.indexOf('</tool_call>', searchIndex)
+      const nextEnd = result.indexOf('[/PRISM_EXECUTE_TOOL]', searchIndex)
 
       if (nextEnd === -1) break
 
@@ -899,9 +973,9 @@ function removeToolCalls(text: string): string {
     }
 
     if (endIdx !== -1) {
-      result = result.substring(0, startIdx) + result.substring(endIdx + 12)
+      result = result.substring(0, startIdx) + result.substring(endIdx + 21)
     } else {
-      currentIndex = startIdx + 11
+      currentIndex = startIdx + 20
     }
   }
   return result
@@ -983,42 +1057,7 @@ function ensureHistoryFitsLimit(history: Content[]): Content[] {
   return [...systemMessages, ...keptMessages]
 }
 
-function normalizeContentsForGemini(contents: Content[]): Content[] {
-  const truncatedContents = ensureHistoryFitsLimit(contents)
-  const normalized: Content[] = []
 
-  for (const content of truncatedContents) {
-    // Map 'system' role to 'user' for Gemini API compatibility if necessary,
-    // or just keep it if the SDK handles it (Gemini SDK usually expects 'user'/'model')
-    const apiRole = content.role === 'system' ? 'user' : content.role
-    const parts = (content.parts || []).map((part) => ({ ...part }))
-    const last = normalized[normalized.length - 1]
-
-    if (last && last.role === apiRole) {
-      if ((last.parts?.length || 0) > 0 && parts.length > 0) {
-        last.parts = [...(last.parts || []), { text: '\n\n' }, ...parts]
-      } else {
-        last.parts = [...(last.parts || []), ...parts]
-      }
-    } else {
-      normalized.push({ ...content, role: apiRole, parts })
-    }
-  }
-
-  return normalized
-}
-
-function getFinalResponseText(response: {
-  text?: string
-  candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>
-}): string {
-  const allParts = response.candidates?.flatMap((candidate) => candidate.content?.parts || []) || []
-  const finalParts = allParts
-    .filter((part) => part.text && !part.thought)
-    .map((part) => part.text || '')
-
-  return allParts.length > 0 ? finalParts.join('') : response.text || ''
-}
 
 async function generateSubagentResponse(
   history: Content[],
@@ -1950,7 +1989,7 @@ export function initGemini(): boolean {
       role: 'system',
       parts: [
         {
-          text: 'Understood. I am Prism, your automation AI. I will use <tool_call> to interact with the system when necessary, staying focused on your initial goal.'
+          text: 'Understood. I am Prism, your automation AI. I will use [PRISM_EXECUTE_TOOL] to interact with the system when necessary, staying focused on your initial goal.'
         }
       ]
     }
@@ -1997,7 +2036,7 @@ export function loadChatIntoHistory(id: string): Content[] {
         role: 'system',
         parts: [
           {
-            text: 'Understood. I am Prism, your automation AI. I will use <tool_call> to interact with the system when necessary, staying focused on your initial goal.'
+            text: 'Understood. I am Prism, your automation AI. I will use [PRISM_EXECUTE_TOOL] to interact with the system when necessary, staying focused on your initial goal.'
           }
         ]
       },
@@ -2193,7 +2232,7 @@ export async function handleChatMessage(
           role: 'system',
           parts: [
             {
-              text: 'Understood. I am Prism, your automation AI. I will use <tool_call> to interact with the system when necessary, staying focused on your initial goal.'
+              text: 'Understood. I am Prism, your automation AI. I will use [PRISM_EXECUTE_TOOL] to interact with the system when necessary, staying focused on your initial goal.'
             }
           ]
         },
@@ -2209,7 +2248,7 @@ export async function handleChatMessage(
           role: 'system',
           parts: [
             {
-              text: 'Understood. I am Prism, your automation AI. I will use <tool_call> to interact with the system when necessary, staying focused on your initial goal.'
+              text: 'Understood. I am Prism, your automation AI. I will use [PRISM_EXECUTE_TOOL] to interact with the system when necessary, staying focused on your initial goal.'
             }
           ]
         }
@@ -2462,6 +2501,9 @@ export async function handleChatMessage(
             AGENT_TEMPERATURE
           )
 
+          let lastIpcTime = 0
+          const IPC_THROTTLE_MS = 50
+
           for await (const chunk of stream) {
             if (runAbortController.signal.aborted) throw new Error('AbortError')
             chunkCount++
@@ -2473,57 +2515,116 @@ export async function handleChatMessage(
               currentFinalResponse += chunk.text
             }
 
-            const countOccurrences = (str: string, subStr: string): number =>
-              str.split(subStr).length - 1
+            const now = Date.now()
+            const shouldSendIpc = now - lastIpcTime >= IPC_THROTTLE_MS || chunkCount === 1
 
-            const isWritingToolCall =
-              countOccurrences(currentFinalResponse, '<tool_call>') >
-                countOccurrences(currentFinalResponse, '</tool_call>') ||
-              countOccurrences(currentFinalResponse, '<mini_app>') >
-                countOccurrences(currentFinalResponse, '</mini_app>')
+            if (shouldSendIpc) {
+              lastIpcTime = now
 
-            let toolType: 'task' | 'search' | 'mini-app' | undefined = undefined
-            if (isWritingToolCall) {
-              const openMiniApp =
+              const countOccurrences = (str: string, subStr: string): number =>
+                str.split(subStr).length - 1
+
+              const isWritingToolCall =
+                countOccurrences(currentFinalResponse, '[PRISM_EXECUTE_TOOL]') >
+                  countOccurrences(currentFinalResponse, '[/PRISM_EXECUTE_TOOL]') ||
                 countOccurrences(currentFinalResponse, '<mini_app>') >
-                countOccurrences(currentFinalResponse, '</mini_app>')
-              if (openMiniApp) {
-                toolType = 'mini-app'
-              } else {
-                const lastOpenIdx = currentFinalResponse.lastIndexOf('<tool_call>')
-                const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)
-                const isSearch =
-                  currentToolSegment.includes('<name>web_search</name>') ||
-                  currentToolSegment.includes('<name>search_chat_history</name>') ||
-                  currentToolSegment.includes('<name>saw_link_from_url</name>') ||
-                  currentToolSegment.includes('"type": "web_search"') ||
-                  currentToolSegment.includes('"type": "saw_link_from_url"') ||
-                  currentToolSegment.includes("'type': 'web_search'") ||
-                  currentToolSegment.includes("'type': 'saw_link_from_url'") ||
-                  currentToolSegment.includes('"search_chat_memory"') ||
-                  currentToolSegment.includes("'search_chat_memory'")
-                toolType = isSearch ? 'search' : 'task'
+                  countOccurrences(currentFinalResponse, '</mini_app>')
+
+              let toolType: 'task' | 'search' | 'mini-app' | undefined = undefined
+              if (isWritingToolCall) {
+                const openMiniApp =
+                  countOccurrences(currentFinalResponse, '<mini_app>') >
+                  countOccurrences(currentFinalResponse, '</mini_app>')
+                if (openMiniApp) {
+                  toolType = 'mini-app'
+                } else {
+                  const lastOpenIdx = currentFinalResponse.lastIndexOf('[PRISM_EXECUTE_TOOL]')
+                  const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)
+                  const isSearch =
+                    currentToolSegment.includes('<name>web_search</name>') ||
+                    currentToolSegment.includes('<name>search_chat_history</name>') ||
+                    currentToolSegment.includes('<name>saw_link_from_url</name>') ||
+                    currentToolSegment.includes('"type": "web_search"') ||
+                    currentToolSegment.includes('"type": "saw_link_from_url"') ||
+                    currentToolSegment.includes("'type': 'web_search'") ||
+                    currentToolSegment.includes("'type': 'saw_link_from_url'") ||
+                    currentToolSegment.includes('"search_chat_memory"') ||
+                    currentToolSegment.includes("'search_chat_memory'")
+                  toolType = isSearch ? 'search' : 'task'
+                }
               }
+
+              const fullResponse = accumulatedFinalResponse + currentFinalResponse
+              const fullThoughts = accumulatedThoughts + currentThoughts
+              const isThinking = currentThoughts.length > 0 && currentFinalResponse.length === 0
+
+              console.log(
+                `[Main Chat] Sending chat-reply-chunk: thoughts length: ${fullThoughts.trim().length}, response length: ${fullResponse.trim().length}, isThinking: ${isThinking}`
+              )
+              event.sender.send('chat-reply-chunk', {
+                thoughts: fullThoughts.trim(),
+                finalResponse: fullResponse.trim(),
+                rawText: fullThoughts + fullResponse,
+                usedFallback: usedFallback,
+                isThinking,
+                isWritingToolCall,
+                toolType,
+                chatId: chatId
+              })
             }
-
-            const fullResponse = accumulatedFinalResponse + currentFinalResponse
-            const fullThoughts = accumulatedThoughts + currentThoughts
-            const isThinking = currentThoughts.length > 0 && currentFinalResponse.length === 0
-
-            console.log(
-              `[Main Chat] Sending chat-reply-chunk: thoughts length: ${fullThoughts.trim().length}, response length: ${fullResponse.trim().length}, isThinking: ${isThinking}`
-            )
-            event.sender.send('chat-reply-chunk', {
-              thoughts: fullThoughts.trim(),
-              finalResponse: fullResponse.trim(),
-              rawText: fullThoughts + fullResponse,
-              usedFallback: usedFallback,
-              isThinking,
-              isWritingToolCall,
-              toolType,
-              chatId: chatId
-            })
           }
+
+          // Send final chunk to ensure the last generated tokens are fully delivered
+          const finalCountOccurrences = (str: string, subStr: string): number =>
+            str.split(subStr).length - 1
+
+          const isWritingToolCallFinal =
+            finalCountOccurrences(currentFinalResponse, '[PRISM_EXECUTE_TOOL]') >
+              finalCountOccurrences(currentFinalResponse, '[/PRISM_EXECUTE_TOOL]') ||
+            finalCountOccurrences(currentFinalResponse, '<mini_app>') >
+              finalCountOccurrences(currentFinalResponse, '</mini_app>')
+
+          let toolTypeFinal: 'task' | 'search' | 'mini-app' | undefined = undefined
+          if (isWritingToolCallFinal) {
+            const openMiniApp =
+              finalCountOccurrences(currentFinalResponse, '<mini_app>') >
+              finalCountOccurrences(currentFinalResponse, '</mini_app>')
+            if (openMiniApp) {
+              toolTypeFinal = 'mini-app'
+            } else {
+              const lastOpenIdx = currentFinalResponse.lastIndexOf('[PRISM_EXECUTE_TOOL]')
+              const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)
+              const isSearch =
+                currentToolSegment.includes('<name>web_search</name>') ||
+                currentToolSegment.includes('<name>search_chat_history</name>') ||
+                currentToolSegment.includes('<name>saw_link_from_url</name>') ||
+                currentToolSegment.includes('"type": "web_search"') ||
+                currentToolSegment.includes('"type": "saw_link_from_url"') ||
+                currentToolSegment.includes("'type': 'web_search'") ||
+                currentToolSegment.includes("'type': 'saw_link_from_url'") ||
+                currentToolSegment.includes('"search_chat_memory"') ||
+                currentToolSegment.includes("'search_chat_memory'")
+              toolTypeFinal = isSearch ? 'search' : 'task'
+            }
+          }
+
+          const finalResponseString = accumulatedFinalResponse + currentFinalResponse
+          const finalThoughtsString = accumulatedThoughts + currentThoughts
+          const isThinkingFinal = currentThoughts.length > 0 && currentFinalResponse.length === 0
+
+          console.log(
+            `[Main Chat] Sending final chat-reply-chunk: thoughts length: ${finalThoughtsString.trim().length}, response length: ${finalResponseString.trim().length}`
+          )
+          event.sender.send('chat-reply-chunk', {
+            thoughts: finalThoughtsString.trim(),
+            finalResponse: finalResponseString.trim(),
+            rawText: finalThoughtsString + finalResponseString,
+            usedFallback: usedFallback,
+            isThinking: isThinkingFinal,
+            isWritingToolCall: isWritingToolCallFinal,
+            toolType: toolTypeFinal,
+            chatId: chatId
+          })
 
           console.log(`[Main Chat] Stream generation completed. Total chunks: ${chunkCount}`)
           // Add the AI response (whether text or Tool Call) to history
@@ -2595,9 +2696,9 @@ export async function handleChatMessage(
 Detailed Error: ${validation.errorMessage}
 
 Your generated segment was:
-<tool_call>
+[PRISM_EXECUTE_TOOL]
 ${toolContent.trim()}
-</tool_call>
+[/PRISM_EXECUTE_TOOL]
 
 Every tool call MUST strictly conform to the expected format. Please review the error above, correct the tool call format, and try again.`
                 }
@@ -2850,18 +2951,8 @@ export async function handleLauncherChatMessage(
       }
 
       try {
-        const config = {
-          ...(MODEL_CONFIGS[launcherModelKey] || MODEL_CONFIGS['prism-4'])
-        }
-
-        // Set Think Mode with ThinkingLevel.HIGH by default
-        if (thinkMode) {
-          config.thinkingConfig = { thinkingLevel: ThinkingLevel.HIGH, includeThoughts: true }
-        } else {
-          config.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: false }
-        }
-
-      const ai = new GoogleGenAI({ apiKey })
+        const launcherProvider = getModelProvider(launcherModelKey)
+        const launcherApiKey = getProviderApiKey(launcherProvider)
 
         let accumulatedThoughts = ''
         let accumulatedFinalResponse = ''
@@ -2873,77 +2964,128 @@ export async function handleLauncherChatMessage(
 
           if (runAbortController.signal.aborted) throw new Error('AbortError')
 
-          // Call generateContentStream (actual streaming)
-          const responseStream = await ai.models.generateContentStream({
-            model: config.apiModel,
-            contents: normalizeContentsForGemini(launcherChatHistory),
-            config: {
-              temperature: 0.7,
-              thinkingConfig: config.thinkingConfig,
-              abortSignal: runAbortController.signal
-            }
-          })
+          const responseStream = generateAiStream(
+            launcherProvider,
+            launcherApiKey,
+            launcherModelKey,
+            launcherChatHistory,
+            runAbortController.signal,
+            0.7
+          )
 
           let currentThoughts = ''
           let currentFinalResponse = ''
+          let lastIpcTime = 0
+          const IPC_THROTTLE_MS = 50
 
           for await (const chunk of responseStream) {
             if (runAbortController.signal.aborted) throw new Error('AbortError')
 
-            const parts = chunk.candidates?.[0]?.content?.parts || []
-            for (const part of parts) {
-              if (part && typeof part === 'object' && 'thought' in part && part.thought) {
-                currentThoughts += part.text || ''
-              } else if (part.text) {
-                currentFinalResponse += part.text
-              }
+            if (chunk.thought) {
+              currentThoughts += chunk.thought
+            }
+            if (chunk.text) {
+              currentFinalResponse += chunk.text
             }
 
-            const countOccurrences = (str: string, subStr: string): number =>
-              str.split(subStr).length - 1
+            const now = Date.now()
+            const shouldSendIpc = now - lastIpcTime >= IPC_THROTTLE_MS
 
-            const isWritingToolCall =
-              countOccurrences(currentFinalResponse, '<tool_call>') >
-                countOccurrences(currentFinalResponse, '</tool_call>') ||
-              countOccurrences(currentFinalResponse, '<mini_app>') >
-                countOccurrences(currentFinalResponse, '</mini_app>')
+            if (shouldSendIpc) {
+              lastIpcTime = now
 
-            let toolType: 'task' | 'search' | 'mini-app' | undefined = undefined
-            if (isWritingToolCall) {
-              const openMiniApp =
+              const countOccurrences = (str: string, subStr: string): number =>
+                str.split(subStr).length - 1
+
+              const isWritingToolCall =
+                countOccurrences(currentFinalResponse, '[PRISM_EXECUTE_TOOL]') >
+                  countOccurrences(currentFinalResponse, '[/PRISM_EXECUTE_TOOL]') ||
                 countOccurrences(currentFinalResponse, '<mini_app>') >
-                countOccurrences(currentFinalResponse, '</mini_app>')
-              if (openMiniApp) {
-                toolType = 'mini-app'
-              } else {
-                const lastOpenIdx = currentFinalResponse.lastIndexOf('<tool_call>')
-                const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)
-                const isSearch =
-                  currentToolSegment.includes('<name>web_search</name>') ||
-                  currentToolSegment.includes('<name>search_chat_history</name>') ||
-                  currentToolSegment.includes('<name>saw_link_from_url</name>') ||
-                  currentToolSegment.includes('"type": "web_search"') ||
-                  currentToolSegment.includes('"type": "saw_link_from_url"') ||
-                  currentToolSegment.includes("'type': 'web_search'") ||
-                  currentToolSegment.includes("'type': 'saw_link_from_url'") ||
-                  currentToolSegment.includes('"search_chat_memory"') ||
-                  currentToolSegment.includes("'search_chat_memory'")
-                toolType = isSearch ? 'search' : 'task'
+                  countOccurrences(currentFinalResponse, '</mini_app>')
+
+              let toolType: 'task' | 'search' | 'mini-app' | undefined = undefined
+              if (isWritingToolCall) {
+                const openMiniApp =
+                  countOccurrences(currentFinalResponse, '<mini_app>') >
+                  countOccurrences(currentFinalResponse, '</mini_app>')
+                if (openMiniApp) {
+                  toolType = 'mini-app'
+                } else {
+                  const lastOpenIdx = currentFinalResponse.lastIndexOf('[PRISM_EXECUTE_TOOL]')
+                  const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)
+                  const isSearch =
+                    currentToolSegment.includes('<name>web_search</name>') ||
+                    currentToolSegment.includes('<name>search_chat_history</name>') ||
+                    currentToolSegment.includes('<name>saw_link_from_url</name>') ||
+                    currentToolSegment.includes('"type": "web_search"') ||
+                    currentToolSegment.includes('"type": "saw_link_from_url"') ||
+                    currentToolSegment.includes("'type': 'web_search'") ||
+                    currentToolSegment.includes("'type': 'saw_link_from_url'") ||
+                    currentToolSegment.includes('"search_chat_memory"') ||
+                    currentToolSegment.includes("'search_chat_memory'")
+                  toolType = isSearch ? 'search' : 'task'
+                }
               }
+
+              const fullResponse = accumulatedFinalResponse + currentFinalResponse
+              const fullThoughts = accumulatedThoughts + currentThoughts
+              const isThinking = currentThoughts.length > 0 && currentFinalResponse.length === 0
+
+              event.sender.send('launcher-reply-chunk', {
+                thoughts: fullThoughts.trim(),
+                finalResponse: fullResponse.trim(),
+                isThinking,
+                isWritingToolCall,
+                toolType
+              })
             }
-
-            const fullResponse = accumulatedFinalResponse + currentFinalResponse
-            const fullThoughts = accumulatedThoughts + currentThoughts
-            const isThinking = currentThoughts.length > 0 && currentFinalResponse.length === 0
-
-            event.sender.send('launcher-reply-chunk', {
-              thoughts: fullThoughts.trim(),
-              finalResponse: fullResponse.trim(),
-              isThinking,
-              isWritingToolCall,
-              toolType
-            })
           }
+
+          // Send final chunk to ensure the last generated tokens are fully delivered
+          const finalCountOccurrences = (str: string, subStr: string): number =>
+            str.split(subStr).length - 1
+
+          const isWritingToolCallFinal =
+            finalCountOccurrences(currentFinalResponse, '[PRISM_EXECUTE_TOOL]') >
+              finalCountOccurrences(currentFinalResponse, '[/PRISM_EXECUTE_TOOL]') ||
+            finalCountOccurrences(currentFinalResponse, '<mini_app>') >
+              finalCountOccurrences(currentFinalResponse, '</mini_app>')
+
+          let toolTypeFinal: 'task' | 'search' | 'mini-app' | undefined = undefined
+          if (isWritingToolCallFinal) {
+            const openMiniApp =
+              finalCountOccurrences(currentFinalResponse, '<mini_app>') >
+              finalCountOccurrences(currentFinalResponse, '</mini_app>')
+            if (openMiniApp) {
+              toolTypeFinal = 'mini-app'
+            } else {
+              const lastOpenIdx = currentFinalResponse.lastIndexOf('[PRISM_EXECUTE_TOOL]')
+              const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)
+              const isSearch =
+                currentToolSegment.includes('<name>web_search</name>') ||
+                currentToolSegment.includes('<name>search_chat_history</name>') ||
+                currentToolSegment.includes('<name>saw_link_from_url</name>') ||
+                currentToolSegment.includes('"type": "web_search"') ||
+                currentToolSegment.includes('"type": "saw_link_from_url"') ||
+                currentToolSegment.includes("'type': 'web_search'") ||
+                currentToolSegment.includes("'type': 'saw_link_from_url'") ||
+                currentToolSegment.includes('"search_chat_memory"') ||
+                currentToolSegment.includes("'search_chat_memory'")
+              toolTypeFinal = isSearch ? 'search' : 'task'
+            }
+          }
+
+          const finalResponseString = accumulatedFinalResponse + currentFinalResponse
+          const finalThoughtsString = accumulatedThoughts + currentThoughts
+          const isThinkingFinal = currentThoughts.length > 0 && currentFinalResponse.length === 0
+
+          event.sender.send('launcher-reply-chunk', {
+            thoughts: finalThoughtsString.trim(),
+            finalResponse: finalResponseString.trim(),
+            isThinking: isThinkingFinal,
+            isWritingToolCall: isWritingToolCallFinal,
+            toolType: toolTypeFinal
+          })
 
           const fullAiResponse = currentFinalResponse
           if (fullAiResponse.trim()) {
@@ -3286,59 +3428,30 @@ export async function handleAiSearchChatMessage(
   console.log(
     `[AI SEARCH DEBUG MAIN] Starting AI Search. provider: ${provider}, model: ${searchModel}, message: "${message}"`
   )
+  const systemPrompt = `You are the Chat Search AI for Prism. Find chats matching the user's description.
+Use the tool "search_chat_memory" to search past conversations.
 
-  const systemPrompt = `You are the Chat Search AI for the Prism application.
-Your goal is to find chats from the user's history matching their description.
-You are equipped with the tool "search_chat_memory" which searches all past conversations for matching context or keywords, returning structured metadata (IDs, filenames, titles, snippets).
+CRITICAL RULES:
+- You must call tools ONLY by outputting [PRISM_EXECUTE_TOOL]JSON[/PRISM_EXECUTE_TOOL] in your response. No native function calling.
+- Do NOT output any JSON block outside of the [PRISM_EXECUTE_TOOL]...[/PRISM_EXECUTE_TOOL] tags.
+- Output ONLY the tool call block (no conversational text) when searching or if nothing is found.
+- If you find matching chats, call "render_chat_history" (query must be the filename e.g. "chat_123.json" or session ID). You can then output friendly text along with it.
+- If no chats match, output "not_found_chat_history" as your ONLY response.
 
-CRITICAL INTERACTION PROTOCOL:
-- You do NOT have native function calling enabled in this session.
-- You must call tools ONLY by outputting the XML block <tool_call>JSON</tool_call> in your text response. 
-- Do NOT attempt to use native function/tool calling.
-- Do NOT output any JSON block outside of the <tool_call>...</tool_call> XML tags.
+Example search:
+[PRISM_EXECUTE_TOOL]{"type": "search_chat_memory", "query": "keywords"}[/PRISM_EXECUTE_TOOL]
 
-CRITICAL OUTPUT RULES:
-- You do NOT inhabit conventional chats. You inhabit an isolated environment.
-- You MUST NEVER send conversational text outputs (before, after, or during) when sending tool calls like \`search_chat_memory\` or \`not_found_chat_history\`.
-- Your response must consist ONLY of the tool call XML block, until you finally find the matching chats.
-- You may perform more than one search if the first search doesn't return the requested chats.
-- ONLY when you find the matching chats, you should send friendly messages describing what you found and presenting the chats using \`render_chat_history\`.
-- If you do not find any chat matching the user's request after searching, you MUST send the \`not_found_chat_history\` tool call as your ONLY output. Do NOT include any preceding or trailing conversational text.
+Example render:
+I found the conversation:
+[PRISM_EXECUTE_TOOL]{"type": "render_chat_history", "query": "chat_123.json"}[/PRISM_EXECUTE_TOOL]
 
-Guidelines:
-1. First, call \`search_chat_memory\` with relevant keywords to retrieve matching content.
-Example of calling search_chat_memory:
-<tool_call>
-{
-  "type": "search_chat_memory",
-  "query": "words to search"
-}
-</tool_call>
-
-2. Based on the returned context, locate the chat sessions that match.
-3. Present your findings to the user. For each matching chat session, you MUST output a \`render_chat_history\` tool call so the UI can render it.
-The query for \`render_chat_history\` MUST be the filename (e.g. "chat_23956810394.json") or the chat session ID (e.g. "23956810394").
-Example of rendering chat history:
-I found two conversations that match your request. Here is the first:
-<tool_call>
-{
-  "type": "render_chat_history",
-  "query": "chat_23956810394.json"
-}
-</tool_call>
-
-4. If no conversations match, call \`not_found_chat_history\` as your ONLY output:
-<tool_call>
-{
-  "type": "not_found_chat_history"
-}
-</tool_call>
+Example not found:
+[PRISM_EXECUTE_TOOL]{"type": "not_found_chat_history"}[/PRISM_EXECUTE_TOOL]
 
 Available tools:
-- search_chat_memory (args: { query: string })
-- render_chat_history (args: { query: string })
-- not_found_chat_history (no args)
-`
+- search_chat_memory (query: string)
+- render_chat_history (query: string)
+- not_found_chat_history (no args)`
 
   const searchHistory: Content[] = [
     {

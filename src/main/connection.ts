@@ -1,4 +1,3 @@
-import { GoogleGenAI } from '@google/genai'
 import * as dotenv from 'dotenv'
 import * as path from 'path'
 
@@ -49,8 +48,7 @@ export function setConnectionApiKey(key: string): void {
 
 /**
  * Lightweight ping to the Gemini API used both as the pre-launch connection
- * test and as the keep-alive heartbeat. Prefer countTokens (cheap); fall back
- * to a 1-token generateContent if the SDK/model rejects countTokens.
+ * test and as the keep-alive heartbeat.
  */
 export async function testGeminiConnection(overrideKey?: string): Promise<ConnectionTestResult> {
   const apiKey = overrideKey || userApiKey || process.env.GEMINI_API_KEY
@@ -63,24 +61,28 @@ export async function testGeminiConnection(overrideKey?: string): Promise<Connec
     }
   }
 
-  const ai = new GoogleGenAI({ apiKey })
-
   try {
-    // countTokens is the cheapest call that still exercises auth + transport.
-    await ai.models.countTokens({ model: 'gemini-3.1-flash-lite', contents: 'hi' })
-    return { ok: true }
-  } catch (countError) {
-    // Some models/endpoints don't support countTokens; retry with a minimal
-    // generateContent before declaring failure.
-    try {
-      await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite',
-        contents: 'hi'
-      })
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
+      { method: 'GET' }
+    )
+    if (response.ok) {
       return { ok: true }
-    } catch (genError) {
-      return classifyError(genError, countError)
     }
+    if (response.status === 401 || response.status === 403) {
+      return {
+        ok: false,
+        errorType: 'invalid-key',
+        message: 'Your Gemini API key is invalid or expired.'
+      }
+    }
+    return {
+      ok: false,
+      errorType: 'server',
+      message: `Gemini servers returned status ${response.status}.`
+    }
+  } catch (error) {
+    return classifyError(error, null)
   }
 }
 
