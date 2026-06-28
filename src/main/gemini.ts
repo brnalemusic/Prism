@@ -1066,7 +1066,7 @@ const toolFunctions: Record<
 > = {
   execute_terminal_command: (args, _event, apiKey, signal) =>
     runTerminalCommand(args.command || '', apiKey, signal),
-  list_installed_applications: () => Promise.resolve(JSON.stringify(searchApps(''), null, 2)),
+  search_installed_applications: (args) => Promise.resolve(JSON.stringify(searchApps(args.query || ''), null, 2)),
   open_application: (args) => openApplication(args.appPath || ''),
   open_browser_link: (args) => openBrowserLink(args.url || ''),
   open_browser: (args) => openBrowser(args.url),

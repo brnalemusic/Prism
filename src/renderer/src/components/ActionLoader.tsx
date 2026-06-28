@@ -144,9 +144,9 @@ function useToolCallMeta(toolCall: ToolCall): {
     displayTitle = isYoutube ? 'Opening Video' : 'Opening Link'
     displayDetail = url || 'Opening in browser.'
     tone = isYoutube ? 'youtube' : 'default'
-  } else if (toolCall.name === 'list_installed_applications') {
-    displayTitle = 'Listing Apps'
-    displayDetail = 'Scanning installed applications.'
+  } else if (toolCall.name === 'search_installed_applications') {
+    displayTitle = 'Searching Apps'
+    displayDetail = getStringArg(toolCall.args, 'query') ? `Searching for "${getStringArg(toolCall.args, 'query')}"` : 'Searching installed applications.'
   } else if (toolCall.name === 'internal_docs_list') {
     displayTitle = 'Checking Knowledge Base'
     displayDetail = 'Looking up internal documentation.'
@@ -252,7 +252,7 @@ function useToolCallMeta(toolCall: ToolCall): {
       return <Terminal size={size} weight="regular" />
     if (toolCall.name === 'open_browser_link' || toolCall.name === 'open_application')
       return <ArrowUpRight size={size} weight="regular" />
-    if (toolCall.name === 'list_installed_applications')
+    if (toolCall.name === 'search_installed_applications')
       return <List size={size} weight="regular" />
     if (toolCall.name.startsWith('computer_use_')) return <HardDrive size={size} weight="regular" />
     if (toolCall.name === 'saw_link_from_url' || toolCall.name.startsWith('internal_docs_')) return <FileText size={size} weight="regular" />

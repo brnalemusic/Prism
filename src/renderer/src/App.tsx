@@ -2382,39 +2382,41 @@ function RealApp(): React.JSX.Element {
                             <div className="w-[520px] h-[150px] rounded-full bg-white opacity-[0.4] blur-[75px]" />
                           </div>
                         )}
-                        <InputBar
-                          ref={inputBarRef}
-                          onSend={handleSend}
-                          onCancel={handleCancel}
-                          isProcessing={isProcessing}
-                          isKeyMissing={isKeyMissing}
-                          hasGeminiKey={hasGeminiKey}
-                          hasNvidiaNimKey={hasNvidiaNimKey}
-                          hasOpenaiKey={hasOpenaiKey}
-                          openaiModelId={config?.openaiModelId}
-                          openaiModelName={config?.openaiModelName}
-                          disabled={isProcessing || isKeyMissing || !isOnline}
-                          selectedModel={selectedModel}
-                          onModelChange={handleModelChange}
-                          text={inputText}
-                          setText={setInputText}
-                          isSearchEnabled={isSearchEnabled}
-                          setIsSearchEnabled={handleSearchEnabledToggle}
-                          isFullscreen={false}
-                          onFullscreenToggle={() => setIsFullscreenInput(true)}
-                          attachedFile={attachedFile}
-                          onRemoveFile={() => setAttachedFile(null)}
-                          onAttachFile={(file) => setAttachedFile(file)}
-                          onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
-                          onOpenSubagentModal={() => setIsSubagentModalOpen(true)}
-                          onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
-                          activeWorkflow={activeWorkflow}
-                          setActiveWorkflow={setActiveWorkflow}
-                          sessionMode={sessionMode}
-                          disciplinePath={disciplinePath}
-                          onModeChange={handleModeChangeClick}
-                          onSelectFolder={handleSelectFolderClick}
-                        />
+                        {messages.length === 0 && (
+                          <InputBar
+                            ref={inputBarRef}
+                            onSend={handleSend}
+                            onCancel={handleCancel}
+                            isProcessing={isProcessing}
+                            isKeyMissing={isKeyMissing}
+                            hasGeminiKey={hasGeminiKey}
+                            hasNvidiaNimKey={hasNvidiaNimKey}
+                            hasOpenaiKey={hasOpenaiKey}
+                            openaiModelId={config?.openaiModelId}
+                            openaiModelName={config?.openaiModelName}
+                            disabled={isProcessing || isKeyMissing || !isOnline}
+                            selectedModel={selectedModel}
+                            onModelChange={handleModelChange}
+                            text={inputText}
+                            setText={setInputText}
+                            isSearchEnabled={isSearchEnabled}
+                            setIsSearchEnabled={handleSearchEnabledToggle}
+                            isFullscreen={false}
+                            onFullscreenToggle={() => setIsFullscreenInput(true)}
+                            attachedFile={attachedFile}
+                            onRemoveFile={() => setAttachedFile(null)}
+                            onAttachFile={(file) => setAttachedFile(file)}
+                            onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
+                            onOpenSubagentModal={() => setIsSubagentModalOpen(true)}
+                            onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
+                            activeWorkflow={activeWorkflow}
+                            setActiveWorkflow={setActiveWorkflow}
+                            sessionMode={sessionMode}
+                            disciplinePath={disciplinePath}
+                            onModeChange={handleModeChangeClick}
+                            onSelectFolder={handleSelectFolderClick}
+                          />
+                        )}
                       </div>
                     </div>
                   </div>

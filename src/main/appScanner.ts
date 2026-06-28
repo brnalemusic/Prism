@@ -1,4 +1,4 @@
-import { exec } from 'child_process'
+import { execFile } from 'child_process'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import { app } from 'electron'
@@ -7,7 +7,6 @@ import { ApplicationInfo } from '../shared/types'
 interface CacheFile {
   version: number
   lastScan: number
-  scanDuration: number
   totalExes: number
   apps: ApplicationInfo[]
 }
@@ -15,16 +14,20 @@ interface CacheFile {
 interface RawExeEntry {
   FullName: string
   Length?: number
-  LastWriteTime?: string
 }
 
 const CACHE_VERSION = 1
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000
 const MAX_CONCURRENT_SCANS = 4
 const MIN_EXE_SIZE_BYTES = 100 * 1024
-const SCAN_TIMEOUT_MS = 30_000
+const SCAN_TIMEOUT_MS = 60_000
 
-const EXCLUDED_DIRS = new Set([
+const EXCLUDED_ROOT_DIRS = new Set([
+  'windows', 'winxsx', '$recycle.bin', 'programdata', 'recovery',
+  '$windows.~bt', '$windows.~ws', 'perflogs'
+])
+
+const EXCLUDED_SUBDIRS = new Set([
   'appdata\\local\\packages',
   'appdata\\local\\temp',
   'appdata\\local\\crashdumps',
@@ -57,9 +60,12 @@ function getCachePath(): string {
 function isExcludedPath(fullPath: string): boolean {
   const lower = fullPath.toLowerCase()
   const parts = lower.split(/[\\/]/)
+
   for (const part of parts) {
-    if (EXCLUDED_DIRS.has(part)) return true
+    if (EXCLUDED_ROOT_DIRS.has(part)) return true
+    if (EXCLUDED_SUBDIRS.has(part)) return true
   }
+
   const baseName = path.basename(lower)
   if (baseName.endsWith('.exe')) {
     const nameNoExt = baseName.slice(0, -4)
@@ -80,7 +86,6 @@ function getMainAppName(exePath: string): string {
 let allApps: ApplicationInfo[] = []
 let scanning = false
 let lastScanTime = 0
-let scanProgress = { current: 0, total: 0, phase: 'idle' as string }
 let appsUpdatedCallback: ((apps: ApplicationInfo[]) => void) | null = null
 
 export function registerAppsUpdatedCallback(cb: (apps: ApplicationInfo[]) => void): void {
@@ -89,10 +94,6 @@ export function registerAppsUpdatedCallback(cb: (apps: ApplicationInfo[]) => voi
 
 export function isScanning(): boolean {
   return scanning
-}
-
-export function getScanProgress(): typeof scanProgress {
-  return scanProgress
 }
 
 async function loadCache(): Promise<boolean> {
@@ -118,7 +119,6 @@ async function saveCache(apps: ApplicationInfo[]): Promise<void> {
     const cache: CacheFile = {
       version: CACHE_VERSION,
       lastScan: Date.now(),
-      scanDuration: 0,
       totalExes: apps.length,
       apps
     }
@@ -128,45 +128,30 @@ async function saveCache(apps: ApplicationInfo[]): Promise<void> {
   }
 }
 
-async function getUserProfileDirs(): Promise<string[]> {
-  const usersRoot = 'C:\\Users'
-  try {
-    const entries = await fs.readdir(usersRoot, { withFileTypes: true })
-    const dirs: string[] = []
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue
-      if (entry.name === 'Public' || entry.name === 'Default' || entry.name === 'Default User') continue
-      if (entry.name.startsWith('.')) continue
-      const fullPath = path.join(usersRoot, entry.name)
-      try {
-        await fs.access(path.join(fullPath, 'AppData'))
-        dirs.push(fullPath)
-      } catch {
-        // skip profiles without AppData
+async function getDriveRoots(): Promise<string[]> {
+  return new Promise((resolve) => {
+    const psCommand = 'Get-PSDrive -PSProvider FileSystem | Select-Object -ExpandProperty Root'
+    execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', psCommand], { timeout: 10_000 }, (err, stdout) => {
+      if (err) {
+        resolve(['C:\\'])
+        return
       }
-    }
-    return dirs
-  } catch {
-    return []
-  }
-}
-
-function getUserScanPaths(userDir: string): string[] {
-  return [
-    path.join(userDir, 'AppData', 'Local', 'Programs'),
-    path.join(userDir, 'AppData', 'Roaming'),
-    path.join(userDir, 'Desktop'),
-    path.join(userDir, 'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
-    path.join(userDir, 'AppData', 'Local', 'Microsoft', 'Windows', 'Start Menu', 'Programs')
-  ]
+      const roots = stdout
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => /^[A-Z]:\\$/i.test(l))
+        .map((l) => l.toUpperCase() + '\\')
+      resolve(roots.length > 0 ? roots : ['C:\\'])
+    })
+  })
 }
 
 async function scanDirectory(dirPath: string): Promise<ApplicationInfo[]> {
-  const cmd = `powershell -NoProfile -NonInteractive -Command "Get-ChildItem -Path '${dirPath}' -Recurse -Filter *.exe -File -ErrorAction SilentlyContinue -Depth 6 | Select-Object FullName, Length | ConvertTo-Json -Compress"`
+  const psCommand = `Get-ChildItem -Path '${dirPath}' -Recurse -Filter *.exe -File -ErrorAction SilentlyContinue -Depth 6 | Select-Object FullName, Length | ConvertTo-Json -Compress`
 
   return new Promise((resolve) => {
-    exec(cmd, { maxBuffer: 50 * 1024 * 1024, timeout: SCAN_TIMEOUT_MS }, (err, stdout) => {
-      if (err || !stdout.trim()) {
+    execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', psCommand], { maxBuffer: 50 * 1024 * 1024, timeout: SCAN_TIMEOUT_MS }, (_err, stdout) => {
+      if (!stdout?.trim()) {
         resolve([])
         return
       }
@@ -210,20 +195,29 @@ function deduplicateApps(apps: ApplicationInfo[]): ApplicationInfo[] {
 async function performScan(): Promise<ApplicationInfo[]> {
   const startTime = Date.now()
   scanning = true
-  scanProgress = { current: 0, total: 0, phase: 'discovering user profiles' }
 
-  const userProfiles = await getUserProfileDirs()
-  const allScanPaths: string[] = []
-  for (const profile of userProfiles) {
-    allScanPaths.push(...getUserScanPaths(profile))
+  const roots = await getDriveRoots()
+  const scanPaths: string[] = []
+  for (const root of roots) {
+    scanPaths.push(root)
+    try {
+      const entries = await fs.readdir(root, { withFileTypes: true })
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        if (EXCLUDED_ROOT_DIRS.has(entry.name.toLowerCase())) continue
+        scanPaths.push(path.join(root, entry.name))
+      }
+    } catch {
+      // skip unreadable roots
+    }
   }
 
-  scanProgress = { current: 0, total: allScanPaths.length, phase: 'scanning user directories' }
+  console.log(`appScanner: Scanning ${scanPaths.length} directories from ${roots.length} drive(s)...`)
 
   const allRaw: ApplicationInfo[] = []
   const chunks: string[][] = []
-  for (let i = 0; i < allScanPaths.length; i += MAX_CONCURRENT_SCANS) {
-    chunks.push(allScanPaths.slice(i, i + MAX_CONCURRENT_SCANS))
+  for (let i = 0; i < scanPaths.length; i += MAX_CONCURRENT_SCANS) {
+    chunks.push(scanPaths.slice(i, i + MAX_CONCURRENT_SCANS))
   }
 
   for (const chunk of chunks) {
@@ -231,18 +225,14 @@ async function performScan(): Promise<ApplicationInfo[]> {
     for (const apps of results) {
       allRaw.push(...apps)
     }
-    scanProgress.current = Math.min(scanProgress.current + chunk.length, allScanPaths.length)
   }
 
-  scanProgress = { current: allScanPaths.length, total: allScanPaths.length, phase: 'deduplicating' }
   const deduped = deduplicateApps(allRaw)
 
   const duration = Date.now() - startTime
   console.log(`appScanner: Scan complete in ${duration}ms, found ${deduped.length} executables from ${allRaw.length} raw entries`)
 
   scanning = false
-  scanProgress = { current: 0, total: 0, phase: 'idle' }
-
   return deduped
 }
 
@@ -296,7 +286,7 @@ export function getAppsList(): ApplicationInfo[] {
   return allApps
 }
 
-export function searchApps(query: string, limit: number = 200): ApplicationInfo[] {
+export function searchApps(query: string, limit: number = 20): ApplicationInfo[] {
   if (!query.trim()) return allApps.slice(0, limit)
   const lower = query.toLowerCase()
   return allApps

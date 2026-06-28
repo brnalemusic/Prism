@@ -27,3 +27,4 @@ scripts/*ace*
 .playwright-mcp/
 raw_stream_debug.txt
 .mimocode/
+scratch/

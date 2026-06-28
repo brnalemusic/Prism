@@ -30,7 +30,7 @@ export const focusWorkspaceScript: DemoScript = {
     { kind: 'user_message', text: 'Set up my writing workspace', at: 0 },
     {
       kind: 'tool_start',
-      tool: 'list_installed_applications',
+      tool: 'search_installed_applications',
       toolType: 'task',
       label: 'Finding workspace apps',
       at: 420

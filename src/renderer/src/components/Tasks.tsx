@@ -36,7 +36,7 @@ function renderTaskIcon(name: string): React.JSX.Element {
   if (name === 'open_application' || name === 'open_browser_link') {
     return <ExternalLink size={18} />
   }
-  if (name === 'list_installed_applications') {
+  if (name === 'search_installed_applications') {
     return <List size={18} />
   }
   if (name === 'web_search') {

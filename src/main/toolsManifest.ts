@@ -173,10 +173,12 @@ export const toolsManifest: ToolDefinition[] = [
     }
   },
   {
-    name: 'list_installed_applications',
-    description: 'List installed Windows apps and executables. Faster than shell commands.',
-    usage: '<tool_call>{"type":"list_installed_applications"}</tool_call>',
-    parameters: {}
+    name: 'search_installed_applications',
+    description: 'Search installed apps by name. Returns matching executables. Use query like "fl", "steam", "chrome", etc.',
+    usage: '<tool_call>{"type":"search_installed_applications","query":"fl"}</tool_call>',
+    parameters: {
+      query: 'Search term to match app names (e.g. "fl", "steam", "chrome")'
+    }
   },
   {
     name: 'open_application',

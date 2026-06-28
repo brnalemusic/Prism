@@ -92,9 +92,9 @@ const STATIC_TOOLS = [
   },
   { name: 'open_application', label: 'Open App', desc: 'Start a program using its path' },
   {
-    name: 'list_installed_applications',
-    label: 'List Apps',
-    desc: 'View all installed desktop applications'
+    name: 'search_installed_applications',
+    label: 'Search Apps',
+    desc: 'Search installed desktop applications by name'
   },
   {
     name: 'search_chat_history',
