@@ -4,11 +4,16 @@ import * as path from 'path'
 import { app } from 'electron'
 import { ApplicationInfo } from '../shared/types'
 
+interface CacheDirectory {
+  path: string
+  mtimeMs: number
+  apps: ApplicationInfo[]
+}
+
 interface CacheFile {
   version: number
   lastScan: number
-  totalExes: number
-  apps: ApplicationInfo[]
+  directories: CacheDirectory[]
 }
 
 interface RawExeEntry {
@@ -16,8 +21,7 @@ interface RawExeEntry {
   Length?: number
 }
 
-const CACHE_VERSION = 1
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000
+const CACHE_VERSION = 2
 const MAX_CONCURRENT_SCANS = 4
 const MIN_EXE_SIZE_BYTES = 100 * 1024
 const SCAN_TIMEOUT_MS = 60_000
@@ -96,31 +100,37 @@ export function isScanning(): boolean {
   return scanning
 }
 
-async function loadCache(): Promise<boolean> {
+async function loadCache(): Promise<CacheDirectory[]> {
   try {
     const cachePath = getCachePath()
     const raw = await fs.readFile(cachePath, 'utf-8')
-    const cache: CacheFile = JSON.parse(raw)
-    if (cache.version !== CACHE_VERSION || !Array.isArray(cache.apps) || cache.apps.length === 0) {
-      return false
+    const parsed = JSON.parse(raw)
+
+    if (parsed.version === 2 && Array.isArray(parsed.directories)) {
+      lastScanTime = parsed.lastScan || 0
+      return parsed.directories as CacheDirectory[]
     }
-    allApps = cache.apps
-    lastScanTime = cache.lastScan
-    return true
+
+    if (parsed.version === 1 && Array.isArray(parsed.apps) && parsed.apps.length > 0) {
+      lastScanTime = parsed.lastScan || 0
+      console.log('appScanner: Migrating v1 cache to v2 format')
+      return []
+    }
+
+    return []
   } catch {
-    return false
+    return []
   }
 }
 
-async function saveCache(apps: ApplicationInfo[]): Promise<void> {
+async function saveCache(directories: CacheDirectory[]): Promise<void> {
   try {
     const dir = getAppDataPath()
     await fs.mkdir(dir, { recursive: true })
     const cache: CacheFile = {
       version: CACHE_VERSION,
       lastScan: Date.now(),
-      totalExes: apps.length,
-      apps
+      directories
     }
     await fs.writeFile(getCachePath(), JSON.stringify(cache), 'utf-8')
   } catch (err) {
@@ -144,6 +154,15 @@ async function getDriveRoots(): Promise<string[]> {
       resolve(roots.length > 0 ? roots : ['C:\\'])
     })
   })
+}
+
+async function getDirectoryMtime(dirPath: string): Promise<number> {
+  try {
+    const stat = await fs.stat(dirPath)
+    return stat.mtimeMs
+  } catch {
+    return 0
+  }
 }
 
 async function scanDirectory(dirPath: string): Promise<ApplicationInfo[]> {
@@ -192,14 +211,10 @@ function deduplicateApps(apps: ApplicationInfo[]): ApplicationInfo[] {
   return Array.from(seen.values())
 }
 
-async function performScan(): Promise<ApplicationInfo[]> {
-  const startTime = Date.now()
-  scanning = true
-
+async function discoverScanPaths(): Promise<string[]> {
   const roots = await getDriveRoots()
   const scanPaths: string[] = []
   for (const root of roots) {
-    scanPaths.push(root)
     try {
       const entries = await fs.readdir(root, { withFileTypes: true })
       for (const entry of entries) {
@@ -211,8 +226,16 @@ async function performScan(): Promise<ApplicationInfo[]> {
       // skip unreadable roots
     }
   }
+  return scanPaths
+}
 
-  console.log(`appScanner: Scanning ${scanPaths.length} directories from ${roots.length} drive(s)...`)
+async function performScan(): Promise<ApplicationInfo[]> {
+  const startTime = Date.now()
+  scanning = true
+
+  const scanPaths = await discoverScanPaths()
+
+  console.log(`appScanner: Full scan of ${scanPaths.length} directories...`)
 
   const allRaw: ApplicationInfo[] = []
   const chunks: string[][] = []
@@ -236,38 +259,101 @@ async function performScan(): Promise<ApplicationInfo[]> {
   return deduped
 }
 
-export async function initAppScanner(): Promise<void> {
-  const cacheLoaded = await loadCache()
-  if (cacheLoaded) {
-    console.log(`appScanner: Loaded ${allApps.length} apps from cache (age: ${Math.round((Date.now() - lastScanTime) / 60000)}min)`)
-    if (appsUpdatedCallback) {
-      try { appsUpdatedCallback(allApps) } catch (e) { console.error(e) }
+async function backgroundSmartScan(): Promise<void> {
+  if (scanning) return
+  scanning = true
+  const startTime = Date.now()
+
+  const cachedDirs = await loadCache()
+  const cachedDirMap = new Map<string, CacheDirectory>()
+  for (const cd of cachedDirs) {
+    cachedDirMap.set(cd.path.toLowerCase(), cd)
+  }
+
+  const currentPaths = await discoverScanPaths()
+  const currentPathSet = new Set(currentPaths.map((p) => p.toLowerCase()))
+
+  const keptDirs: CacheDirectory[] = []
+  const toScan: string[] = []
+
+  for (const cachedDir of cachedDirs) {
+    const lower = cachedDir.path.toLowerCase()
+    if (!currentPathSet.has(lower)) {
+      console.log(`appScanner: Directory removed, skipping: ${cachedDir.path}`)
+      continue
     }
-    if (Date.now() - lastScanTime > CACHE_TTL_MS) {
-      console.log('appScanner: Cache expired, triggering background rescan')
-      backgroundRescan()
-    }
-  } else {
-    console.log('appScanner: No cache found, performing initial scan...')
-    const apps = await performScan()
-    allApps = apps
-    lastScanTime = Date.now()
-    await saveCache(apps)
-    if (appsUpdatedCallback) {
-      try { appsUpdatedCallback(allApps) } catch (e) { console.error(e) }
+
+    const currentMtime = await getDirectoryMtime(cachedDir.path)
+    if (currentMtime === cachedDir.mtimeMs) {
+      keptDirs.push(cachedDir)
+    } else {
+      toScan.push(cachedDir.path)
     }
   }
-}
 
-async function backgroundRescan(): Promise<void> {
-  if (scanning) return
-  const apps = await performScan()
-  allApps = apps
+  for (const currentPath of currentPaths) {
+    if (!cachedDirMap.has(currentPath.toLowerCase())) {
+      toScan.push(currentPath)
+    }
+  }
+
+  const changedCount = toScan.length
+  const keptCount = keptDirs.length
+  console.log(`appScanner: Smart scan — ${keptCount} dirs unchanged, ${changedCount} dirs to scan`)
+
+  if (toScan.length > 0) {
+    const chunks: string[][] = []
+    for (let i = 0; i < toScan.length; i += MAX_CONCURRENT_SCANS) {
+      chunks.push(toScan.slice(i, i + MAX_CONCURRENT_SCANS))
+    }
+
+    for (const chunk of chunks) {
+      const results = await Promise.all(
+        chunk.map(async (dir) => {
+          const apps = await scanDirectory(dir)
+          const mtime = await getDirectoryMtime(dir)
+          return { path: dir, mtimeMs: mtime, apps }
+        })
+      )
+      keptDirs.push(...results)
+    }
+  }
+
+  const allRaw: ApplicationInfo[] = []
+  for (const cd of keptDirs) {
+    allRaw.push(...cd.apps)
+  }
+  const deduped = deduplicateApps(allRaw)
+
+  allApps = deduped
   lastScanTime = Date.now()
-  await saveCache(apps)
+  await saveCache(keptDirs)
+
+  const duration = Date.now() - startTime
+  console.log(`appScanner: Smart scan complete in ${duration}ms, ${deduped.length} apps total`)
+
+  scanning = false
+
   if (appsUpdatedCallback) {
     try { appsUpdatedCallback(allApps) } catch (e) { console.error(e) }
   }
+}
+
+export async function initAppScanner(): Promise<void> {
+  const cachedDirs = await loadCache()
+
+  if (cachedDirs.length > 0) {
+    allApps = deduplicateApps(cachedDirs.flatMap((cd) => cd.apps))
+    console.log(`appScanner: Loaded ${allApps.length} apps from cache (age: ${Math.round((Date.now() - lastScanTime) / 60000)}min)`)
+  } else {
+    console.log('appScanner: No cache found, performing initial scan...')
+  }
+
+  if (appsUpdatedCallback) {
+    try { appsUpdatedCallback(allApps) } catch (e) { console.error(e) }
+  }
+
+  backgroundSmartScan()
 }
 
 export async function forceRescan(): Promise<ApplicationInfo[]> {
@@ -275,7 +361,25 @@ export async function forceRescan(): Promise<ApplicationInfo[]> {
   const apps = await performScan()
   allApps = apps
   lastScanTime = Date.now()
-  await saveCache(apps)
+
+  const scanPaths = await discoverScanPaths()
+  const dirs: CacheDirectory[] = []
+  const chunks: string[][] = []
+  for (let i = 0; i < scanPaths.length; i += MAX_CONCURRENT_SCANS) {
+    chunks.push(scanPaths.slice(i, i + MAX_CONCURRENT_SCANS))
+  }
+  for (const chunk of chunks) {
+    const results = await Promise.all(
+      chunk.map(async (dir) => {
+        const dirApps = await scanDirectory(dir)
+        const mtime = await getDirectoryMtime(dir)
+        return { path: dir, mtimeMs: mtime, apps: dirApps }
+      })
+    )
+    dirs.push(...results)
+  }
+  await saveCache(dirs)
+
   if (appsUpdatedCallback) {
     try { appsUpdatedCallback(allApps) } catch (e) { console.error(e) }
   }

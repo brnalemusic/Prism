@@ -117,7 +117,7 @@ const VALID_MODEL_KEYS = new Set([
   'stepfun-ai/step-3.7-flash',
   'deepseek-ai/deepseek-v4-flash',
   'deepseek-ai/deepseek-v4-pro',
-  'zai-org/glm-5.1',
+  'z-ai/glm-5.1',
   'minimaxai/minimax-m2.7',
   'minimaxai/minimax-m3'
 ])

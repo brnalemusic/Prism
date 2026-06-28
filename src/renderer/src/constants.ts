@@ -22,7 +22,7 @@ export const MODELS: Model[] = [
   { id: 'stepfun-ai/step-3.7-flash', name: 'Step 3.7 Flash', category: 'nvidia-nim' },
   { id: 'deepseek-ai/deepseek-v4-flash', name: 'Deepseek V4 Flash', category: 'nvidia-nim' },
   { id: 'deepseek-ai/deepseek-v4-pro', name: 'Deepseek V4 Pro', category: 'nvidia-nim' },
-  { id: 'zai-org/glm-5.1', name: 'GLM-5.1', category: 'nvidia-nim' },
+  { id: 'z-ai/glm-5.1', name: 'GLM-5.1', category: 'nvidia-nim' },
   { id: 'minimaxai/minimax-m2.7', name: 'MiniMax M2.7', category: 'nvidia-nim' },
   { id: 'minimaxai/minimax-m3', name: 'MiniMax M3', category: 'nvidia-nim' }
 ]

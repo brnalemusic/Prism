@@ -85,7 +85,7 @@ export function getModelProvider(modelKey: string): 'gemini' | 'nvidia-nim' | 'o
     'stepfun-ai/step-3.7-flash',
     'deepseek-ai/deepseek-v4-flash',
     'deepseek-ai/deepseek-v4-pro',
-    'zai-org/glm-5.1',
+    'z-ai/glm-5.1',
     'minimaxai/minimax-m2.7',
     'minimaxai/minimax-m3'
   ]
@@ -381,7 +381,7 @@ const MODEL_CONFIGS: Record<string, ModelConfig> = {
   'stepfun-ai/step-3.7-flash': { apiModel: 'stepfun-ai/step-3.7-flash' },
   'deepseek-ai/deepseek-v4-flash': { apiModel: 'deepseek-ai/deepseek-v4-flash' },
   'deepseek-ai/deepseek-v4-pro': { apiModel: 'deepseek-ai/deepseek-v4-pro' },
-  'zai-org/glm-5.1': { apiModel: 'zai-org/glm-5.1' },
+  'z-ai/glm-5.1': { apiModel: 'z-ai/glm-5.1' },
   'minimaxai/minimax-m2.7': { apiModel: 'minimaxai/minimax-m2.7' },
   'minimaxai/minimax-m3': { apiModel: 'minimaxai/minimax-m3' }
 }
