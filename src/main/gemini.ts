@@ -57,6 +57,52 @@ import { markConnectionActive } from './connection'
 // Load environment variables from .env
 dotenv.config({ path: path.join(__dirname, '../../.env') })
 
+function normalizeToolCalls(text: string): string {
+  if (!text) return ''
+  
+  // First, replace any raw <tool_call> / </tool_call> tags with [PRISM_EXECUTE_TOOL] / [/PRISM_EXECUTE_TOOL]
+  let normalized = text
+    .replace(/<tool_call>/gi, '[PRISM_EXECUTE_TOOL]')
+    .replace(/<\/tool_call>/gi, '[/PRISM_EXECUTE_TOOL]');
+
+  // Then, find any complete [PRISM_EXECUTE_TOOL]...[/PRISM_EXECUTE_TOOL] blocks
+  normalized = normalized.replace(/\[PRISM_EXECUTE_TOOL\]([\s\S]*?)\[\/PRISM_EXECUTE_TOOL\]/gi, (match, inner) => {
+    const trimmedInner = inner.trim()
+    
+    // If it's already a valid JSON object, keep it
+    if (trimmedInner.startsWith('{')) {
+      return `[PRISM_EXECUTE_TOOL]${trimmedInner}[/PRISM_EXECUTE_TOOL]`
+    }
+    
+    // If it contains XML function/parameter structure, convert it to JSON
+    const funcMatch = trimmedInner.match(/<function=([^>]+)>/i)
+    if (funcMatch) {
+      const functionName = funcMatch[1].trim().replace(/['"]/g, '')
+      const toolObj: Record<string, any> = { type: functionName }
+      
+      const paramRegex = /<parameter=([^>]+)>([\s\S]*?)<\/parameter>/gi
+      let paramMatch
+      while ((paramMatch = paramRegex.exec(trimmedInner)) !== null) {
+        const paramName = paramMatch[1].trim().replace(/['"]/g, '')
+        const rawValue = paramMatch[2].trim()
+        
+        try {
+          toolObj[paramName] = JSON.parse(rawValue)
+        } catch (e) {
+          toolObj[paramName] = rawValue
+        }
+      }
+      
+      return `[PRISM_EXECUTE_TOOL]${JSON.stringify(toolObj)}[/PRISM_EXECUTE_TOOL]`
+    }
+    
+    return `[PRISM_EXECUTE_TOOL]${trimmedInner}[/PRISM_EXECUTE_TOOL]`
+  })
+
+  return normalized
+}
+
+
 // Keep-Alive configuration for better latency (3.5 minutes)
 const networkAgent = new Agent({
   keepAliveTimeout: 210000,
@@ -215,6 +261,9 @@ async function* generateAiStream(
       }
     })
 
+    let accumulatedText = ''
+    let yieldedLength = 0
+
     for await (const chunk of responseStream) {
       if (signal?.aborted) throw new Error('AbortError')
 
@@ -233,11 +282,16 @@ async function* generateAiStream(
       }
 
       if (thought || text) {
+        accumulatedText += text
+        const normalized = normalizeToolCalls(accumulatedText)
+        const textDelta = normalized.slice(yieldedLength)
+        yieldedLength = normalized.length
+
         try {
-          fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text }) + '\n')
+          fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text: textDelta }) + '\n')
         } catch (err) { /* ignore */ }
         
-        yield { thought, text }
+        yield { thought, text: textDelta }
       }
     }
   } else {
@@ -265,6 +319,9 @@ async function* generateAiStream(
       arguments: string
       emittedPrefix: boolean
     }>()
+
+    let accumulatedText = ''
+    let yieldedLength = 0
 
     for await (const chunk of responseStream) {
       if (signal?.aborted) throw new Error('AbortError')
@@ -317,11 +374,16 @@ async function* generateAiStream(
       }
 
       if (thought || text) {
+        accumulatedText += text
+        const normalized = normalizeToolCalls(accumulatedText)
+        const textDelta = normalized.slice(yieldedLength)
+        yieldedLength = normalized.length
+
         try {
-          fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text }) + '\n')
+          fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text: textDelta }) + '\n')
         } catch (err) { /* ignore */ }
 
-        yield { thought, text }
+        yield { thought, text: textDelta }
       }
     }
 
@@ -362,7 +424,7 @@ async function generateAiContent(
         temperature,
       }
     })
-    return response.text || ''
+    return normalizeToolCalls(response.text || '')
   } else {
     let baseURL: string
     if (provider === 'nvidia-nim') {
@@ -382,7 +444,7 @@ async function generateAiContent(
       stream: false
     }, { signal })
 
-    return response.choices?.[0]?.message?.content || ''
+    return normalizeToolCalls(response.choices?.[0]?.message?.content || '')
   }
 }
 async function getOpenaiCompatibleSearchModel(config: AppConfig): Promise<string> {
@@ -942,11 +1004,12 @@ function validateToolCall(toolContent: string): ValidationResult {
 }
 
 function extractToolCalls(text: string): string[] {
+  const normalizedText = normalizeToolCalls(text)
   const toolCalls: string[] = []
   let currentIndex = 0
 
   while (true) {
-    const startIdx = text.indexOf('[PRISM_EXECUTE_TOOL]', currentIndex)
+    const startIdx = normalizedText.indexOf('[PRISM_EXECUTE_TOOL]', currentIndex)
     if (startIdx === -1) break
 
     const contentStart = startIdx + 20 // '[PRISM_EXECUTE_TOOL]'.length
@@ -954,13 +1017,13 @@ function extractToolCalls(text: string): string[] {
     let searchIndex = contentStart
 
     while (true) {
-      const nextCdata = text.indexOf('<![CDATA[', searchIndex)
-      const nextEnd = text.indexOf('[/PRISM_EXECUTE_TOOL]', searchIndex)
+      const nextCdata = normalizedText.indexOf('<![CDATA[', searchIndex)
+      const nextEnd = normalizedText.indexOf('[/PRISM_EXECUTE_TOOL]', searchIndex)
 
       if (nextEnd === -1) break
 
       if (nextCdata !== -1 && nextCdata < nextEnd) {
-        const cdataEnd = text.indexOf(']]>', nextCdata + 9)
+        const cdataEnd = normalizedText.indexOf(']]>', nextCdata + 9)
         searchIndex = cdataEnd !== -1 ? cdataEnd + 3 : nextCdata + 9
       } else {
         endIdx = nextEnd
@@ -969,7 +1032,7 @@ function extractToolCalls(text: string): string[] {
     }
 
     if (endIdx !== -1) {
-      toolCalls.push(text.substring(contentStart, endIdx))
+      toolCalls.push(normalizedText.substring(contentStart, endIdx))
       currentIndex = endIdx + 21 // '[/PRISM_EXECUTE_TOOL]'.length
     } else {
       currentIndex = startIdx + 20
@@ -980,7 +1043,7 @@ function extractToolCalls(text: string): string[] {
 }
 
 function removeToolCalls(text: string): string {
-  let result = text
+  let result = normalizeToolCalls(text)
   let currentIndex = 0
   while (true) {
     const startIdx = result.indexOf('[PRISM_EXECUTE_TOOL]', currentIndex)
