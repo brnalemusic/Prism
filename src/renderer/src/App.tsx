@@ -1298,6 +1298,12 @@ function RealApp(): React.JSX.Element {
         setCurrentChatId(id)
         currentChatIdRef.current = id
 
+        const chatModel = await window.api.getChatModel(id)
+        if (chatModel) {
+          setSelectedModel(chatModel)
+          window.api.setModel(chatModel)
+        }
+
         // Retrieve and set the chat title statically
         window.api
           .getChats()
@@ -1355,13 +1361,17 @@ function RealApp(): React.JSX.Element {
     setInputText('')
     setIsFullscreenInput(false)
     window.api.clearChat()
+    if (config?.defaultModel) {
+      setSelectedModel(config.defaultModel)
+      window.api.setModel(config.defaultModel)
+    }
     setCurrentChatTitle(null)
     setIsTitleStreaming(false)
     if (titleIntervalRef.current) {
       clearInterval(titleIntervalRef.current)
       titleIntervalRef.current = null
     }
-  }, [])
+  }, [config?.defaultModel])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
@@ -1402,7 +1412,7 @@ function RealApp(): React.JSX.Element {
 
     const removeConfigListener = window.api.onConfigChanged((cfg) => {
       setConfig(cfg)
-      if (cfg.defaultModel) {
+      if (!currentChatIdRef.current && cfg.defaultModel) {
         setSelectedModel(cfg.defaultModel)
       }
       if (cfg.sessionMode) {

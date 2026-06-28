@@ -34,7 +34,8 @@ import {
   generateTts,
   handleAiSearchChatMessage,
   cancelAiSearch,
-  transcribeAudio
+  transcribeAudio,
+  getChatModel
 } from './gemini'
 import {
   searchWorkspaceFiles,
@@ -785,6 +786,10 @@ if (!gotTheLock) {
       return loadChatIntoHistory(id)
     })
 
+    ipcMain.handle('get-chat-model', (_event, id: string) => {
+      return getChatModel(id)
+    })
+
     ipcMain.handle('delete-chat', (_event, id: string) => {
       cancelChatMessage(id)
       return deleteChatSession(id)
@@ -998,6 +1003,7 @@ if (!gotTheLock) {
         setUserApiKey(config.userGeminiKey)
         setConnectionApiKey(config.userGeminiKey)
       }
+      setGeminiModel(config.defaultModel)
       setSubagentModel(config.subagentModel)
 
       const success = saveConfig(config)

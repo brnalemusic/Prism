@@ -2030,6 +2030,11 @@ export function setSubagentModel(modelKey: string): boolean {
   return true
 }
 
+export function getChatModel(id: string): string | undefined {
+  const session = loadChatSession(id)
+  return session?.model
+}
+
 let currentSessionMode: SessionMode = 'execution'
 let currentDisciplinePath: string = ''
 
@@ -2105,7 +2110,7 @@ User message: "${firstMessage}"`
 }
 
 function saveChatSession(id: string, messages: Content[], title?: string): boolean {
-  return saveChatSessionRaw(id, messages, title, currentSessionMode, currentDisciplinePath)
+  return saveChatSessionRaw(id, messages, title, currentSessionMode, currentDisciplinePath, currentModelKey)
 }
 
 interface AttachedFile {
@@ -2809,12 +2814,12 @@ export async function handleLauncherChatMessage(
   const runAbortController = new AbortController()
   launcherAbortController = runAbortController
 
-  let launcherModelKey = 'gemini-3.1-flash-lite'
+  let launcherModelKey = 'stepfun-ai/step-3.5-flash'
 
   const launcherConfig = loadConfig()
-  if (modelProvider === 'nvidia-nim' || (launcherConfig.userNvidiaNimKey || process.env.NVIDIA_API_KEY)) {
-    if (getModelProvider(currentModelKey) === 'nvidia-nim' || (!launcherConfig.userGeminiKey && !process.env.GEMINI_API_KEY)) {
-      launcherModelKey = 'stepfun-ai/step-3.5-flash'
+  if (modelProvider === 'gemini' || (!launcherConfig.userNvidiaNimKey && !process.env.NVIDIA_API_KEY)) {
+    if (getModelProvider(currentModelKey) === 'gemini' || (!launcherConfig.userNvidiaNimKey && !process.env.NVIDIA_API_KEY && (launcherConfig.userGeminiKey || process.env.GEMINI_API_KEY))) {
+      launcherModelKey = 'gemini-3.1-flash-lite'
     }
   }
 
@@ -3309,14 +3314,14 @@ export async function handleAiSearchChatMessage(
   let searchApiKey = getProviderApiKey(provider)
 
   if (!searchApiKey) {
-    if (config.userGeminiKey || process.env.GEMINI_API_KEY) {
-      provider = 'gemini'
-      searchModel = 'gemini-3.1-flash-lite'
-      searchApiKey = config.userGeminiKey || process.env.GEMINI_API_KEY || ''
-    } else if (config.userNvidiaNimKey || process.env.NVIDIA_API_KEY) {
+    if (config.userNvidiaNimKey || process.env.NVIDIA_API_KEY) {
       provider = 'nvidia-nim'
       searchModel = 'openai/gpt-oss-120b'
       searchApiKey = config.userNvidiaNimKey || process.env.NVIDIA_API_KEY || ''
+    } else if (config.userGeminiKey || process.env.GEMINI_API_KEY) {
+      provider = 'gemini'
+      searchModel = 'gemini-3.1-flash-lite'
+      searchApiKey = config.userGeminiKey || process.env.GEMINI_API_KEY || ''
     } else if (config.userOpenaiKey || process.env.OPENAI_API_KEY) {
       provider = 'openai-compatible'
       searchApiKey = config.userOpenaiKey || process.env.OPENAI_API_KEY || ''
@@ -3603,7 +3608,24 @@ export async function transcribeAudio(audioBase64: string): Promise<string> {
   Ensure the output is clean, professional, and perfectly captures the user's intent.
   Produce ONLY the transcribed and formatted text, without introductions or explanations.`
 
-  if (provider === 'gemini') {
+  if (provider === 'nvidia-nim') {
+    const apiKey = config.userNvidiaNimKey || process.env.NVIDIA_API_KEY
+    if (!apiKey) {
+      throw new Error('API Key missing. Please set your NVIDIA NIM API key in settings.')
+    }
+    const openai = new OpenAI({
+      apiKey,
+      baseURL: 'https://integrate.api.nvidia.com/v1',
+      dangerouslyAllowBrowser: true
+    })
+    const buffer = Buffer.from(audioBase64, 'base64')
+    const file = await OpenAI.toFile(buffer, 'audio.webm', { type: 'audio/webm' })
+    const transcription = await openai.audio.transcriptions.create({
+      file,
+      model: 'openai/whisper-large-v3'
+    })
+    return transcription.text
+  } else {
     const apiKey = config.userGeminiKey || process.env.GEMINI_API_KEY
     if (!apiKey) {
       throw new Error('API Key missing. Please set your Gemini API key in settings.')
@@ -3625,23 +3647,5 @@ export async function transcribeAudio(audioBase64: string): Promise<string> {
       }
     })
     return (result.text || '').trim()
-  } else {
-    // NVIDIA NIM - Whisper Large v3
-    const apiKey = config.userNvidiaNimKey || process.env.NVIDIA_API_KEY
-    if (!apiKey) {
-      throw new Error('API Key missing. Please set your NVIDIA NIM API key in settings.')
-    }
-    const openai = new OpenAI({
-      apiKey,
-      baseURL: 'https://integrate.api.nvidia.com/v1',
-      dangerouslyAllowBrowser: true
-    })
-    const buffer = Buffer.from(audioBase64, 'base64')
-    const file = await OpenAI.toFile(buffer, 'audio.webm', { type: 'audio/webm' })
-    const transcription = await openai.audio.transcriptions.create({
-      file,
-      model: 'openai/whisper-large-v3'
-    })
-    return transcription.text
   }
 }

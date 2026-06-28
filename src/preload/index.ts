@@ -339,6 +339,7 @@ const api = {
   getToolDefinitions: (): Promise<any[]> => ipcRenderer.invoke('get-tool-definitions'),
   getChats: (): Promise<Omit<ChatSession, 'messages'>[]> => ipcRenderer.invoke('get-chats'),
   loadChat: (id: string): Promise<Content[]> => ipcRenderer.invoke('load-chat', id),
+  getChatModel: (id: string): Promise<string | undefined> => ipcRenderer.invoke('get-chat-model', id),
   deleteChat: (id: string): Promise<boolean> => ipcRenderer.invoke('delete-chat', id),
   getRunningChats: (): Promise<string[]> => ipcRenderer.invoke('get-running-chats'),
   setThinkMode: (val: boolean): void => ipcRenderer.send('set-think-mode', val),

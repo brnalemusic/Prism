@@ -11,6 +11,7 @@ export interface ChatSession {
   messages: Content[]
   sessionMode?: SessionMode
   disciplinePath?: string
+  model?: string
 }
 
 const CHATS_DIR = path.join(
@@ -82,7 +83,8 @@ export function listChatSessions(): Omit<ChatSession, 'messages'>[] {
           title: session.title,
           lastUpdated: session.lastUpdated,
           sessionMode: session.sessionMode,
-          disciplinePath: session.disciplinePath
+          disciplinePath: session.disciplinePath,
+          model: session.model
         }
       })
       .sort((a, b) => b.lastUpdated - a.lastUpdated)
@@ -142,7 +144,8 @@ export function saveChatSession(
   messages: Content[],
   title?: string,
   sessionMode?: SessionMode,
-  disciplinePath?: string
+  disciplinePath?: string,
+  model?: string
 ): boolean {
   ensureChatsDir()
   const cleanId = sanitizeId(id)
@@ -153,9 +156,10 @@ export function saveChatSession(
     let sessionTitle = title
     let existingMode = sessionMode
     let existingPath = disciplinePath
+    let existingModel = model
 
     // If title or modes not provided, try to keep the existing ones from the file
-    if (sessionTitle === undefined || existingMode === undefined || existingPath === undefined) {
+    if (sessionTitle === undefined || existingMode === undefined || existingPath === undefined || existingModel === undefined) {
       if (fs.existsSync(filePath)) {
         try {
           const existingData = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
@@ -175,6 +179,9 @@ export function saveChatSession(
           }
           if (existingPath === undefined) {
             existingPath = existingData.disciplinePath
+          }
+          if (existingModel === undefined) {
+            existingModel = existingData.model
           }
         } catch {
           /* ignore parse errors */
@@ -209,7 +216,8 @@ export function saveChatSession(
       lastUpdated: Date.now(),
       messages: messagesToSave,
       sessionMode: existingMode,
-      disciplinePath: existingPath
+      disciplinePath: existingPath,
+      model: existingModel
     }
 
     fs.writeFileSync(filePath, JSON.stringify(session, null, 2))
