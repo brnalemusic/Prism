@@ -2140,6 +2140,10 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | 
 - **Transitions:** For complex tasks (terminal/files/subagents/Rich Markdown), immediately call open_main_app with instructions.
 - Models: prism-6-super-fast (default/latency), prism-6-fast-old (simple automation), prism-6-fast (code/swarm), prism-6-dragon (research), prism-6-dense (math/debugging).
 
+# Tool Protocol & Execution
+- **Format:** Tool calls must be valid JSON in a [PRISM_EXECUTE_TOOL] block: [PRISM_EXECUTE_TOOL]{"type": "tool_name", "param": "val"}[/PRISM_EXECUTE_TOOL].
+- **Requirements:** JSON must contain "type". Escape newlines (\\n) and quotes in JSON. Absolute paths are required.
+
 Tools:
 ${toolsPrompt}`
   }
