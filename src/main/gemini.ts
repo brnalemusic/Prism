@@ -66,7 +66,7 @@ function normalizeToolCalls(text: string): string {
     .replace(/<\/tool_call>/gi, '[/PRISM_EXECUTE_TOOL]');
 
   // Then, find any complete [PRISM_EXECUTE_TOOL]...[/PRISM_EXECUTE_TOOL] blocks
-  normalized = normalized.replace(/\[PRISM_EXECUTE_TOOL\]([\s\S]*?)\[\/PRISM_EXECUTE_TOOL\]/gi, (match, inner) => {
+  normalized = normalized.replace(/\[PRISM_EXECUTE_TOOL\]([\s\S]*?)\[\/PRISM_EXECUTE_TOOL\]/gi, (_, inner) => {
     const trimmedInner = inner.trim()
     
     // If it's already a valid JSON object, keep it
