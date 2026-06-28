@@ -39,12 +39,16 @@ import {
 } from './gemini'
 import {
   searchWorkspaceFiles,
-  listApplications,
   openApplication,
-  registerAppsUpdatedCallback,
   captureAppScreenshot,
   detectAvailableTerminals
 } from './systemTools'
+import {
+  initAppScanner,
+  registerAppsUpdatedCallback,
+  forceRescan,
+  getAppsList
+} from './appScanner'
 import { loadConfig, saveConfig, AppConfig } from './config'
 import { toolsManifest } from './toolsManifest'
 import { listChatSessions, deleteChatSession, searchChatsOffline } from './history'
@@ -809,7 +813,11 @@ if (!gotTheLock) {
     })
 
     ipcMain.handle('launcher-get-apps', () => {
-      return cachedApps
+      return getAppsList()
+    })
+
+    ipcMain.handle('force-rescan-apps', async () => {
+      return await forceRescan()
     })
 
     ipcMain.handle('launcher-get-app-icon', async (_event, appPath) => {
@@ -1097,17 +1105,9 @@ if (!gotTheLock) {
         launcherWindow?.webContents.send('launcher-apps-updated', cachedApps)
       })
 
-      listApplications()
-        .then((res) => {
-          try {
-            cachedApps = JSON.parse(res)
-          } catch (e) {
-            console.error('Failed to parse applications list:', e)
-          }
-        })
-        .catch((e) => {
-          console.error('Failed to cache applications:', e)
-        })
+      initAppScanner().catch((e) => {
+        console.error('Failed to initialize app scanner:', e)
+      })
 
       initGemini()
     }

@@ -376,6 +376,7 @@ const api = {
     ipcRenderer.removeAllListeners('window-maximized-change')
   },
   launcherGetApps: (): Promise<ApplicationInfo[]> => ipcRenderer.invoke('launcher-get-apps'),
+  forceRescanApps: (): Promise<ApplicationInfo[]> => ipcRenderer.invoke('force-rescan-apps'),
   onAppsUpdated: (callback: (apps: ApplicationInfo[]) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, apps: ApplicationInfo[]): void => callback(apps)
     ipcRenderer.on('launcher-apps-updated', listener)

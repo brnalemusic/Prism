@@ -847,6 +847,7 @@ function RealApp(): React.JSX.Element {
   const isAtBottomRef = useRef(true)
   const isProgrammaticScrollRef = useRef(false)
   const lastScrollTopRef = useRef(0)
+  const isStreamingRef = useRef(false)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const inputBarRef = useRef<InputBarHandle>(null)
   const modelSelectorRef = useRef<ModelSelectorHandle>(null)
@@ -1025,12 +1026,12 @@ function RealApp(): React.JSX.Element {
     if (!container) return
 
     const { scrollTop, scrollHeight, clientHeight } = container
+    const threshold = isStreamingRef.current ? 150 : 100
 
     if (scrollTop !== lastScrollTopRef.current) {
-      const atBottom = scrollHeight - scrollTop - clientHeight < 50
+      const atBottom = scrollHeight - scrollTop - clientHeight < threshold
 
       if (scrollTop < lastScrollTopRef.current) {
-        // If scrolling up, unstick immediately
         isProgrammaticScrollRef.current = false
         isAtBottomRef.current = false
       } else if (isProgrammaticScrollRef.current) {
@@ -1045,8 +1046,8 @@ function RealApp(): React.JSX.Element {
       lastScrollTopRef.current = scrollTop
     }
 
-    const atBottom = scrollHeight - scrollTop - clientHeight < 50
-    setShowScrollButton(!atBottom && scrollHeight > clientHeight)
+    const atBottomFinal = scrollHeight - scrollTop - clientHeight < threshold
+    setShowScrollButton(!atBottomFinal && scrollHeight > clientHeight)
   }
 
   const handleModelChange = useCallback((newModel: string): void => {
@@ -1464,25 +1465,39 @@ function RealApp(): React.JSX.Element {
     }
   }
 
+  // Track whether AI is actively streaming
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1]
+    isStreamingRef.current = !!lastMsg?.isStreaming
+  }, [messages])
+
   // Keep scroll at the bottom when content dimensions change (e.g. streaming, loading)
   useEffect(() => {
     const container = scrollContainerRef.current
     const content = contentRef.current
     if (!container || !content) return
 
+    let rafId: number | null = null
+
+    const scrollLoop = (): void => {
+      if (!isAtBottomRef.current) {
+        rafId = null
+        return
+      }
+      container.scrollTo({ top: container.scrollHeight, behavior: 'auto' })
+      rafId = requestAnimationFrame(scrollLoop)
+    }
+
     const observer = new ResizeObserver(() => {
-      if (isAtBottomRef.current) {
-        isProgrammaticScrollRef.current = true
-        container.scrollTo({
-          top: container.scrollHeight,
-          behavior: 'auto'
-        })
+      if (isAtBottomRef.current && rafId === null) {
+        rafId = requestAnimationFrame(scrollLoop)
       }
     })
 
     observer.observe(content)
     return () => {
       observer.disconnect()
+      if (rafId !== null) cancelAnimationFrame(rafId)
     }
   }, [])
 
@@ -1600,6 +1615,17 @@ function RealApp(): React.JSX.Element {
             }
           }
           return newMessages
+        })
+
+        // Double-rAF to ensure scroll after React commit
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const container = scrollContainerRef.current
+            if (container && isAtBottomRef.current) {
+              isProgrammaticScrollRef.current = true
+              container.scrollTo({ top: container.scrollHeight, behavior: 'auto' })
+            }
+          })
         })
       }
     })

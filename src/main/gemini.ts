@@ -9,7 +9,6 @@ import {
   getSystemToolsPrompt,
   getSubagentSystemPrompt,
   runTerminalCommand,
-  listApplications,
   openApplication,
   setActiveCwd,
   openBrowserLink,
@@ -42,6 +41,7 @@ import {
   webScript,
   detailedDomPage
 } from './systemTools'
+import { searchApps } from './appScanner'
 import type { WebSearchEntry } from './systemTools'
 import {
   saveChatSession as saveChatSessionRaw,
@@ -1066,7 +1066,7 @@ const toolFunctions: Record<
 > = {
   execute_terminal_command: (args, _event, apiKey, signal) =>
     runTerminalCommand(args.command || '', apiKey, signal),
-  list_installed_applications: () => listApplications(),
+  list_installed_applications: () => Promise.resolve(JSON.stringify(searchApps(''), null, 2)),
   open_application: (args) => openApplication(args.appPath || ''),
   open_browser_link: (args) => openBrowserLink(args.url || ''),
   open_browser: (args) => openBrowser(args.url),

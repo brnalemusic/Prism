@@ -138,6 +138,7 @@ export interface PrismAPI {
   removeLauncherListeners: () => void
   removeAllChatListeners: () => void
   launcherGetApps: () => Promise<ApplicationInfo[]>
+  forceRescanApps: () => Promise<ApplicationInfo[]>
   onAppsUpdated: (callback: (apps: ApplicationInfo[]) => void) => () => void
   onScreenshotCaptured: (callback: (base64Image: string) => void) => () => void
   onScreenshotShortcutTriggered: (callback: () => void) => () => void
