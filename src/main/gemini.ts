@@ -259,6 +259,13 @@ async function* generateAiStream(
       stream: true
     }, { signal })
 
+    const accumulatedToolCalls = new Map<number, {
+      id?: string
+      name?: string
+      arguments: string
+      emittedPrefix: boolean
+    }>()
+
     for await (const chunk of responseStream) {
       if (signal?.aborted) throw new Error('AbortError')
 
@@ -268,6 +275,46 @@ async function* generateAiStream(
       const delta = choice.delta || {}
       const thought = (delta as any).reasoning_content || ''
       const text = delta.content || ''
+      const toolCalls = delta.tool_calls || []
+
+      for (const tc of toolCalls) {
+        const idx = tc.index
+        if (idx !== undefined) {
+          if (!accumulatedToolCalls.has(idx)) {
+            accumulatedToolCalls.set(idx, { arguments: '', emittedPrefix: false })
+          }
+          const acc = accumulatedToolCalls.get(idx)!
+          if (tc.id) acc.id = tc.id
+          if (tc.function?.name) acc.name = tc.function.name
+          
+          let textToYield = ''
+          if (acc.name && !acc.emittedPrefix) {
+            acc.emittedPrefix = true
+            textToYield += `[PRISM_EXECUTE_TOOL]{"type":${JSON.stringify(acc.name)}`
+          }
+          
+          if (tc.function?.arguments) {
+            const incomingArgs = tc.function.arguments
+            acc.arguments += incomingArgs
+            
+            if (acc.emittedPrefix) {
+              let chunkToEmit = incomingArgs
+              const cleanedIncoming = incomingArgs.trimStart()
+              if (acc.arguments.length === incomingArgs.length && cleanedIncoming.startsWith('{')) {
+                chunkToEmit = ',' + cleanedIncoming.slice(1)
+              }
+              textToYield += chunkToEmit
+            }
+          }
+          
+          if (textToYield) {
+            try {
+              fs.appendFileSync(debugFilePath, JSON.stringify({ thought: '', text: textToYield }) + '\n')
+            } catch (err) { /* ignore */ }
+            yield { thought: '', text: textToYield }
+          }
+        }
+      }
 
       if (thought || text) {
         try {
@@ -275,6 +322,22 @@ async function* generateAiStream(
         } catch (err) { /* ignore */ }
 
         yield { thought, text }
+      }
+    }
+
+    // Close any open tool call XML tags at the end of the stream
+    for (const [, acc] of accumulatedToolCalls.entries()) {
+      if (acc.emittedPrefix) {
+        let closing = ''
+        const trimmedArgs = acc.arguments.trim()
+        if (!trimmedArgs.endsWith('}')) {
+          closing += '}'
+        }
+        closing += '[/PRISM_EXECUTE_TOOL]\n'
+        try {
+          fs.appendFileSync(debugFilePath, JSON.stringify({ thought: '', text: closing }) + '\n')
+        } catch (err) { /* ignore */ }
+        yield { thought: '', text: closing }
       }
     }
   }

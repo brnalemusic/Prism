@@ -1566,7 +1566,7 @@ function RealApp(): React.JSX.Element {
           console.log(
             `[UI Chat] onChatChunk state update: lastMsg index=${lastMsgIndex}, lastMsg role=${lastMsg?.role}, isStreaming=${lastMsg?.isStreaming}`
           )
-          if (lastMsg && lastMsg.role === 'ai' && lastMsg.isStreaming) {
+          if (lastMsg && lastMsg.role === 'ai') {
             newMessages[lastMsgIndex] = {
               ...lastMsg,
               thoughts,
@@ -1578,7 +1578,7 @@ function RealApp(): React.JSX.Element {
             }
           } else {
             console.warn(
-              `[UI Chat] onChatChunk did NOT update message state because: lastMsg=${!!lastMsg}, lastMsg.role=${lastMsg?.role}, isStreaming=${lastMsg?.isStreaming}`
+              `[UI Chat] onChatChunk did NOT update message state because: lastMsg=${!!lastMsg}, lastMsg.role=${lastMsg?.role}`
             )
           }
           return newMessages
