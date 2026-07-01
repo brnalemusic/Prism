@@ -110,16 +110,19 @@ const VALID_MODEL_KEYS = new Set([
   'gemma-4-26b-a4b-it',
   'gemma-4-31b-it',
   // NVIDIA NIM
-  'openai/gpt-oss-120b',
-  'mistralai/mistral-large-3-675b-instruct-2512',
-  'nvidia/nemotron-3-ultra-550b-a55b',
-  'stepfun-ai/step-3.5-flash',
-  'stepfun-ai/step-3.7-flash',
   'deepseek-ai/deepseek-v4-flash',
   'deepseek-ai/deepseek-v4-pro',
-  'z-ai/glm-5.1',
+  'moonshotai/kimi-k2.6',
+  'meta/llama-3.2-90b-vision-instruct',
   'minimaxai/minimax-m2.7',
-  'minimaxai/minimax-m3'
+  'minimaxai/minimax-m3',
+  'mistralai/mistral-large-3-675b-instruct-2512',
+  'nvidia/nemotron-3-ultra-550b-a55b',
+  'openai/gpt-oss-120b',
+  'microsoft/phi-4-multimodal-instruct',
+  'stepfun-ai/step-3.5-flash',
+  'stepfun-ai/step-3.7-flash',
+  'z-ai/glm-5.1'
 ])
 const VALID_VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'])
 const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno', 'ursula', 'rgb'])

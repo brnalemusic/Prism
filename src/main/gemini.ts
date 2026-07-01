@@ -123,7 +123,7 @@ function completeIncompleteToolCalls(text: string): string {
   // There are unclosed tool calls — try to close the last one properly
   const lastOpenIdx = result.lastIndexOf('[PRISM_EXECUTE_TOOL]')
   const contentStart = lastOpenIdx + '[PRISM_EXECUTE_TOOL]'.length
-  let toolContent = result.substring(contentStart).trimEnd()
+  let toolContent = result.substring(contentStart)
 
   // Try to close incomplete JSON: count open braces vs close braces
   const openBraces = (toolContent.match(/\{/g) || []).length
@@ -163,16 +163,19 @@ export function getModelProvider(modelKey: string): 'gemini' | 'nvidia-nim' | 'o
   }
 
   const nimModels = [
-    'openai/gpt-oss-120b',
-    'mistralai/mistral-large-3-675b-instruct-2512',
-    'nvidia/nemotron-3-ultra-550b-a55b',
-    'stepfun-ai/step-3.5-flash',
-    'stepfun-ai/step-3.7-flash',
     'deepseek-ai/deepseek-v4-flash',
     'deepseek-ai/deepseek-v4-pro',
-    'z-ai/glm-5.1',
+    'moonshotai/kimi-k2.6',
+    'meta/llama-3.2-90b-vision-instruct',
     'minimaxai/minimax-m2.7',
-    'minimaxai/minimax-m3'
+    'minimaxai/minimax-m3',
+    'mistralai/mistral-large-3-675b-instruct-2512',
+    'nvidia/nemotron-3-ultra-550b-a55b',
+    'openai/gpt-oss-120b',
+    'microsoft/phi-4-multimodal-instruct',
+    'stepfun-ai/step-3.5-flash',
+    'stepfun-ai/step-3.7-flash',
+    'z-ai/glm-5.1'
   ]
   if (nimModels.includes(modelKey)) {
     return 'nvidia-nim'
@@ -580,20 +583,23 @@ interface ModelConfig {
 }
 
 const MODEL_CONFIGS: Record<string, ModelConfig> = {
-  'gemini-3.1-flash-lite': { apiModel: 'gemini-3.1-flash-lite' },
-  'gemini-3.5-flash': { apiModel: 'gemini-3.5-flash' },
-  'gemma-4-26b-a4b-it': { apiModel: 'gemma-4-26b-a4b-it' },
-  'gemma-4-31b-it': { apiModel: 'gemma-4-31b-it' },
-  'openai/gpt-oss-120b': { apiModel: 'openai/gpt-oss-120b' },
-  'mistralai/mistral-large-3-675b-instruct-2512': { apiModel: 'mistralai/mistral-large-3-675b-instruct-2512' },
-  'nvidia/nemotron-3-ultra-550b-a55b': { apiModel: 'nvidia/nemotron-3-ultra-550b-a55b' },
-  'stepfun-ai/step-3.5-flash': { apiModel: 'stepfun-ai/step-3.5-flash' },
-  'stepfun-ai/step-3.7-flash': { apiModel: 'stepfun-ai/step-3.7-flash' },
   'deepseek-ai/deepseek-v4-flash': { apiModel: 'deepseek-ai/deepseek-v4-flash' },
   'deepseek-ai/deepseek-v4-pro': { apiModel: 'deepseek-ai/deepseek-v4-pro' },
+  'gemma-4-26b-a4b-it': { apiModel: 'gemma-4-26b-a4b-it' },
+  'gemma-4-31b-it': { apiModel: 'gemma-4-31b-it' },
+  'gemini-3.1-flash-lite': { apiModel: 'gemini-3.1-flash-lite' },
+  'gemini-3.5-flash': { apiModel: 'gemini-3.5-flash' },
   'z-ai/glm-5.1': { apiModel: 'z-ai/glm-5.1' },
+  'openai/gpt-oss-120b': { apiModel: 'openai/gpt-oss-120b' },
+  'moonshotai/kimi-k2.6': { apiModel: 'moonshotai/kimi-k2.6' },
+  'meta/llama-3.2-90b-vision-instruct': { apiModel: 'meta/llama-3.2-90b-vision-instruct' },
   'minimaxai/minimax-m2.7': { apiModel: 'minimaxai/minimax-m2.7' },
-  'minimaxai/minimax-m3': { apiModel: 'minimaxai/minimax-m3' }
+  'minimaxai/minimax-m3': { apiModel: 'minimaxai/minimax-m3' },
+  'mistralai/mistral-large-3-675b-instruct-2512': { apiModel: 'mistralai/mistral-large-3-675b-instruct-2512' },
+  'nvidia/nemotron-3-ultra-550b-a55b': { apiModel: 'nvidia/nemotron-3-ultra-550b-a55b' },
+  'microsoft/phi-4-multimodal-instruct': { apiModel: 'microsoft/phi-4-multimodal-instruct' },
+  'stepfun-ai/step-3.5-flash': { apiModel: 'stepfun-ai/step-3.5-flash' },
+  'stepfun-ai/step-3.7-flash': { apiModel: 'stepfun-ai/step-3.7-flash' }
 }
 
 const AGENT_TEMPERATURE = 0.7
