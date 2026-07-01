@@ -28,3 +28,4 @@ scripts/*ace*
 raw_stream_debug.txt
 .mimocode/
 scratch/
+.vscode/

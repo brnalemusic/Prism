@@ -4,7 +4,7 @@ import * as dotenv from 'dotenv'
 import { IpcMainEvent, ipcMain, BrowserWindow } from 'electron'
 import { SessionMode } from '../shared/types'
 import * as path from 'path'
-import { Agent, setGlobalDispatcher, fetch as undiciFetch } from 'undici'
+import { Agent, setGlobalDispatcher, fetch as undiciFetch, FormData as undiciFormData } from 'undici'
 import {
   getSystemToolsPrompt,
   getSubagentSystemPrompt,
@@ -102,6 +102,44 @@ function normalizeToolCalls(text: string): string {
   return normalized
 }
 
+function completeIncompleteToolCalls(text: string): string {
+  if (!text) return ''
+
+  let result = text
+
+  // Strip any partial closing tag at the end of the text
+  // e.g. "[", "[/", "[/PR", "[/PRISM_TOOL_E", etc.
+  const partialCloseMatch = result.match(/\[(?:\/PRISM_EXECUTE_TOOL)?$/)
+  if (partialCloseMatch) {
+    result = result.slice(0, -partialCloseMatch[0].length)
+  }
+
+  // Count opens vs closes to detect unclosed tool calls
+  const opens = (result.match(/\[PRISM_EXECUTE_TOOL\]/g) || []).length
+  const closes = (result.match(/\[\/PRISM_EXECUTE_TOOL\]/g) || []).length
+
+  if (opens <= closes) return result
+
+  // There are unclosed tool calls — try to close the last one properly
+  const lastOpenIdx = result.lastIndexOf('[PRISM_EXECUTE_TOOL]')
+  const contentStart = lastOpenIdx + '[PRISM_EXECUTE_TOOL]'.length
+  let toolContent = result.substring(contentStart).trimEnd()
+
+  // Try to close incomplete JSON: count open braces vs close braces
+  const openBraces = (toolContent.match(/\{/g) || []).length
+  const closeBraces = (toolContent.match(/\}/g) || []).length
+
+  if (openBraces > closeBraces) {
+    // Missing closing braces — close them
+    toolContent += '}'.repeat(openBraces - closeBraces)
+  }
+
+  // Rebuild: prefix + content + closing tag
+  result = result.substring(0, contentStart) + toolContent + '[/PRISM_EXECUTE_TOOL]'
+
+  return result
+}
+
 
 // Keep-Alive configuration for better latency (3.5 minutes)
 const networkAgent = new Agent({
@@ -110,6 +148,7 @@ const networkAgent = new Agent({
 })
 setGlobalDispatcher(networkAgent)
 globalThis.fetch = undiciFetch as unknown as typeof globalThis.fetch
+globalThis.FormData = undiciFormData as unknown as typeof globalThis.FormData
 
 // Dynamic model provider detection helper
 export function getModelProvider(modelKey: string): 'gemini' | 'nvidia-nim' | 'openai-compatible' {
@@ -158,10 +197,19 @@ function obfuscateTags(text: string): string {
 }
 
 // Convert history to OpenAI format
-function convertHistoryToOpenAiFormat(history: Content[]) {
+function convertHistoryToOpenAiFormat(history: Content[], provider?: 'gemini' | 'nvidia-nim' | 'openai-compatible') {
   const messages: any[] = []
+  let seenNonSystem = false
   for (const msg of history) {
-    const role = msg.role === 'model' ? 'assistant' : msg.role
+    let role = msg.role === 'model' ? 'assistant' : msg.role
+
+    if (role === 'system') {
+      if (seenNonSystem && provider === 'nvidia-nim') {
+        role = 'user'
+      }
+    } else {
+      seenNonSystem = true
+    }
 
     const parts = msg.parts || []
     const textParts = parts.filter((p) => p.text)
@@ -258,6 +306,7 @@ async function* generateAiStream(
       config: {
         systemInstruction,
         temperature,
+        abortSignal: signal,
       }
     })
 
@@ -294,6 +343,20 @@ async function* generateAiStream(
         yield { thought, text: textDelta }
       }
     }
+
+    // Auto-close incomplete tool calls if stream ended prematurely
+    const gOpen = (accumulatedText.match(/\[PRISM_EXECUTE_TOOL\]/g) || []).length
+    const gClose = (accumulatedText.match(/\[\/PRISM_EXECUTE_TOOL\]/g) || []).length
+    if (gOpen > gClose) {
+      const completed = completeIncompleteToolCalls(accumulatedText)
+      const completion = completed.slice(yieldedLength)
+      if (completion) {
+        try {
+          fs.appendFileSync(debugFilePath, JSON.stringify({ thought: '', text: completion }) + '\n')
+        } catch (err) { /* ignore */ }
+        yield { thought: '', text: completion }
+      }
+    }
   } else {
     let baseURL: string
     if (provider === 'nvidia-nim') {
@@ -303,8 +366,13 @@ async function* generateAiStream(
       baseURL = configBaseUrl
     }
 
-    const openai = new OpenAI({ apiKey, baseURL })
-    const messages = convertHistoryToOpenAiFormat(ensureHistoryFitsLimit(history))
+    const openai = new OpenAI({
+      apiKey,
+      baseURL,
+      timeout: 120000,
+      maxRetries: 2
+    })
+    const messages = convertHistoryToOpenAiFormat(ensureHistoryFitsLimit(history), provider)
 
     const responseStream = await openai.chat.completions.create({
       model: modelName,
@@ -387,7 +455,7 @@ async function* generateAiStream(
       }
     }
 
-    // Close any open tool call XML tags at the end of the stream
+    // Auto-close any incomplete tool calls received via delta.tool_calls
     for (const [, acc] of accumulatedToolCalls.entries()) {
       if (acc.emittedPrefix) {
         let closing = ''
@@ -400,6 +468,22 @@ async function* generateAiStream(
           fs.appendFileSync(debugFilePath, JSON.stringify({ thought: '', text: closing }) + '\n')
         } catch (err) { /* ignore */ }
         yield { thought: '', text: closing }
+      }
+    }
+
+    // Auto-close incomplete tool calls received via delta.content (text-based)
+    // This handles providers like NVIDIA NIM that stream tool calls as plain text
+    // and may terminate the stream before the closing tag is fully sent.
+    const uncloseOpen = (accumulatedText.match(/\[PRISM_EXECUTE_TOOL\]/g) || []).length
+    const uncloseClose = (accumulatedText.match(/\[\/PRISM_EXECUTE_TOOL\]/g) || []).length
+    if (uncloseOpen > uncloseClose) {
+      const completed = completeIncompleteToolCalls(accumulatedText)
+      const completion = completed.slice(yieldedLength)
+      if (completion) {
+        try {
+          fs.appendFileSync(debugFilePath, JSON.stringify({ thought: '', text: completion }) + '\n')
+        } catch (err) { /* ignore */ }
+        yield { thought: '', text: completion }
       }
     }
   }
@@ -422,6 +506,7 @@ async function generateAiContent(
       config: {
         systemInstruction,
         temperature,
+        abortSignal: signal,
       }
     })
     return normalizeToolCalls(response.text || '')
@@ -435,7 +520,7 @@ async function generateAiContent(
     }
 
     const openai = new OpenAI({ apiKey, baseURL })
-    const messages = convertHistoryToOpenAiFormat(ensureHistoryFitsLimit(history))
+    const messages = convertHistoryToOpenAiFormat(ensureHistoryFitsLimit(history), provider)
 
     const response = await openai.chat.completions.create({
       model: modelName,

@@ -467,24 +467,14 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
 
     isForceClosing = true
 
-    const appPath = process.execPath
-    const escapedInstallerPath = downloadedFile.replace(/"/g, '`"')
-    const escapedAppPath = appPath.replace(/"/g, '`"')
+    const escapedInstallerPath = downloadedFile.replace(/'/g, "''")
 
     console.log(`[Auto-Updater] Preparing post-install command for installer: ${downloadedFile}`)
 
     // Detached PowerShell script that:
     // 1. Waits for Prism to exit (so files aren't locked).
-    // 2. Runs the silent installer and waits for it to finish.
-    // 3. Relaunches Prism.
-    const cmd = `Start-Job -ScriptBlock {
-      $pidToWait = ${process.pid}
-      while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {
-        Start-Sleep -Milliseconds 100
-      }
-      Start-Process -FilePath "${escapedInstallerPath}" -Wait
-      Start-Process -FilePath "${escapedAppPath}"
-    }`
+    // 2. Runs the installer with --force-run to auto-launch the application on completion.
+    const cmd = `$pidToWait = ${process.pid}; while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 100 }; Start-Process -FilePath '${escapedInstallerPath}' -ArgumentList '--force-run'`
 
     const child = spawn(
       'powershell.exe',
