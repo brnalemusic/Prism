@@ -3825,44 +3825,25 @@ export async function transcribeAudio(audioBase64: string): Promise<string> {
   Ensure the output is clean, professional, and perfectly captures the user's intent.
   Produce ONLY the transcribed and formatted text, without introductions or explanations.`
 
-  if (provider === 'nvidia-nim') {
-    const apiKey = config.userNvidiaNimKey || process.env.NVIDIA_API_KEY
-    if (!apiKey) {
-      throw new Error('API Key missing. Please set your NVIDIA NIM API key in settings.')
-    }
-    const openai = new OpenAI({
-      apiKey,
-      baseURL: 'https://integrate.api.nvidia.com/v1',
-      dangerouslyAllowBrowser: true
-    })
-    const buffer = Buffer.from(audioBase64, 'base64')
-    const file = await OpenAI.toFile(buffer, 'audio.webm', { type: 'audio/webm' })
-    const transcription = await openai.audio.transcriptions.create({
-      file,
-      model: 'openai/whisper-large-v3'
-    })
-    return transcription.text
-  } else {
-    const apiKey = config.userGeminiKey || process.env.GEMINI_API_KEY
-    if (!apiKey) {
-      throw new Error('API Key missing. Please set your Gemini API key in settings.')
-    }
-    const ai = new GoogleGenAI({ apiKey })
-    const result = await ai.models.generateContent({
-      model: 'gemini-3.1-flash-lite',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { inlineData: { data: audioBase64, mimeType: 'audio/webm' } },
-            { text: systemPrompt }
-          ]
-        }
-      ],
-      config: {
-        temperature: 0.4
-      }
-    })
-    return (result.text || '').trim()
+  const apiKey = config.userGeminiKey || process.env.GEMINI_API_KEY
+  if (!apiKey) {
+    throw new Error('API Key missing. Please set your Gemini API key in settings.')
   }
+  const ai = new GoogleGenAI({ apiKey })
+  const result = await ai.models.generateContent({
+    model: 'gemini-3.1-flash-lite',
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { inlineData: { data: audioBase64, mimeType: 'audio/webm' } },
+          { text: systemPrompt }
+        ]
+      }
+    ],
+    config: {
+      temperature: 0.4
+    }
+  })
+  return (result.text || '').trim()
 }
