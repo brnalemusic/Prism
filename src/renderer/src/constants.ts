@@ -24,7 +24,7 @@ export const MODELS: Model[] = [
   { id: 'minimaxai/minimax-m2.7', name: 'MiniMax M2.7', category: 'nvidia-nim' },
   { id: 'minimaxai/minimax-m3', name: 'MiniMax M3', category: 'nvidia-nim' },
   { id: 'mistralai/mistral-large-3-675b-instruct-2512', name: 'Mistral Large 3', category: 'nvidia-nim' },
-  { id: 'nvidia/nemotron-3-ultra-550b-a55b', name: 'Neumotron 3 Ultra', category: 'nvidia-nim' },
+  { id: 'nvidia/nemotron-3-ultra-550b-a55b', name: 'Nemotron 3 Ultra', category: 'nvidia-nim' },
   { id: 'microsoft/phi-4-multimodal-instruct', name: 'Phi 4', category: 'nvidia-nim' },
   { id: 'stepfun-ai/step-3.5-flash', name: 'Step 3.5 Flash', category: 'nvidia-nim' },
   { id: 'stepfun-ai/step-3.7-flash', name: 'Step 3.7 Flash', category: 'nvidia-nim' }
