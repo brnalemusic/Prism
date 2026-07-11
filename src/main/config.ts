@@ -122,7 +122,7 @@ const VALID_MODEL_KEYS = new Set([
   'microsoft/phi-4-multimodal-instruct',
   'stepfun-ai/step-3.5-flash',
   'stepfun-ai/step-3.7-flash',
-  'z-ai/glm-5.1'
+  'z-ai/glm-5.2'
 ])
 const VALID_VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'])
 const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno', 'ursula', 'rgb'])

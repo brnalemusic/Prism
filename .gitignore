@@ -29,3 +29,6 @@ raw_stream_debug.txt
 .mimocode/
 scratch/
 .vscode/
+.dream*.py
+.dream*.txt
+.dream*.json

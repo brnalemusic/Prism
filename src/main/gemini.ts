@@ -175,7 +175,7 @@ export function getModelProvider(modelKey: string): 'gemini' | 'nvidia-nim' | 'o
     'microsoft/phi-4-multimodal-instruct',
     'stepfun-ai/step-3.5-flash',
     'stepfun-ai/step-3.7-flash',
-    'z-ai/glm-5.1'
+    'z-ai/glm-5.2'
   ]
   if (nimModels.includes(modelKey)) {
     return 'nvidia-nim'
@@ -589,7 +589,7 @@ const MODEL_CONFIGS: Record<string, ModelConfig> = {
   'gemma-4-31b-it': { apiModel: 'gemma-4-31b-it' },
   'gemini-3.1-flash-lite': { apiModel: 'gemini-3.1-flash-lite' },
   'gemini-3.5-flash': { apiModel: 'gemini-3.5-flash' },
-  'z-ai/glm-5.1': { apiModel: 'z-ai/glm-5.1' },
+  'z-ai/glm-5.2': { apiModel: 'z-ai/glm-5.2' },
   'openai/gpt-oss-120b': { apiModel: 'openai/gpt-oss-120b' },
   'moonshotai/kimi-k2.6': { apiModel: 'moonshotai/kimi-k2.6' },
   'meta/llama-3.2-90b-vision-instruct': { apiModel: 'meta/llama-3.2-90b-vision-instruct' },
