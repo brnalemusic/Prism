@@ -1,6 +1,6 @@
 {
     "name":  "prism",
-    "version":  "5.0.1",
+    "version":  "5.0.2",
     "description":  "An Electron application with React and TypeScript",
     "main":  "./out/main/index.js",
     "author":  "Breno",
@@ -21,7 +21,7 @@
                     "build:win":  "npm run build \u0026\u0026 electron-builder --win",
                     "build:mac":  "electron-vite build \u0026\u0026 electron-builder --mac",
                     "build:linux":  "electron-vite build \u0026\u0026 electron-builder --linux",
-                    "sync":  "powershell -Command \"$v = Get-Content version.txt -Raw; $json = Get-Content package.json | ConvertFrom-Json; $json.version = $v.Trim(); $json | ConvertTo-Json -Depth 10 | Set-Content package.json\""
+                    "sync": "powershell -ExecutionPolicy Bypass -File scripts/sync-version.ps1"
                 },
     "dependencies":  {
                          "@electron-toolkit/preload":  "^3.0.2",
