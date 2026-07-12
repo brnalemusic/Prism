@@ -1,7 +1,7 @@
 import { BrowserWindow, ipcMain, app } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { join } from 'path'
-import { spawn } from 'child_process'
+import { spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as https from 'https'
 
@@ -469,24 +469,31 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
 
     const escapedInstallerPath = downloadedFile.replace(/'/g, "''")
     const escapedExecPath = process.execPath.replace(/'/g, "''")
+    const fileName = downloadedFile.split(/[\\/]/).pop() || ''
+    const processName = fileName.replace(/\.exe$/i, '')
 
     console.log(`[Auto-Updater] Preparing post-install command for installer: ${downloadedFile}`)
 
     // Detached PowerShell script that:
     // 1. Waits for Prism to exit (so files aren't locked).
-    // 2. Runs the installer and waits for it to complete.
-    // 3. Automatically launches the newly installed Prism executable.
-    const cmd = `$pidToWait = ${process.pid}; while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 100 }; Start-Process -FilePath '${escapedInstallerPath}' -Wait; Start-Process -FilePath '${escapedExecPath}'`
+    // 2. Runs the installer in interactive/visible mode using COM ShellExecute.
+    // 3. Waits for the installer to finish.
+    // 4. Automatically launches the newly installed Prism executable.
+    const innerCmd = `$pidToWait = ${process.pid}; while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 100 }; $shell = New-Object -ComObject Shell.Application; $shell.ShellExecute('${escapedInstallerPath}'); Start-Sleep -Seconds 3; while (Get-Process -Name '${processName}' -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 500 }; Start-Process -FilePath '${escapedExecPath}'`
 
-    const child = spawn(
+    // Wrap it in powershell execution, escaping double quotes
+    const powershellCmd = `powershell.exe -NoProfile -WindowStyle Hidden -Command "${innerCmd.replace(/"/g, '\\"')}"`
+
+    // Use Invoke-CimMethod to spawn it via WMI so it breaks away from Electron's job object/process tree
+    const wmiCmd = `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = '${powershellCmd.replace(/'/g, "''")}' }`
+
+    spawnSync(
       'powershell.exe',
-      ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', cmd],
+      ['-NoProfile', '-Command', wmiCmd],
       {
-        detached: true,
         stdio: 'ignore'
       }
     )
-    child.unref()
 
     if (updaterWindow && !updaterWindow.isDestroyed()) {
       updaterWindow.close()
