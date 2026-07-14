@@ -981,7 +981,7 @@ export async function computerReadFile(
       return `Content Locked: The requested range contains ${selectedContent.length} characters, which exceeds the limit of 8,000 characters. Please request a smaller offset to read less content.`
     }
 
-    const numberedLines = sliceOfLines.map((line, index) => `${startLine + index} | ${line}`)
+    const numberedLines = sliceOfLines.map((line, index) => `${startLine + index}: ${line}`)
     const body = numberedLines.join('\n')
 
     const showingStart = startLine
