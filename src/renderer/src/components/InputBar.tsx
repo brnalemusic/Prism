@@ -27,6 +27,7 @@ import {
 import clsx from 'clsx'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 import { ModelSelector } from './ModelSelector'
+import { ReasoningSelector } from './ReasoningSelector'
 import { AttachedFile } from '../App'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
 import type { SessionMode } from '../../../shared/types'
@@ -68,6 +69,8 @@ interface InputBarProps {
   hasOpenaiKey?: boolean
   openaiModelId?: string
   openaiModelName?: string
+  reasoningLevel?: string
+  onReasoningLevelChange?: (level: string) => void
 }
 
 export interface InputBarHandle {
@@ -106,7 +109,9 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       hasNvidiaNimKey,
       hasOpenaiKey,
       openaiModelId,
-      openaiModelName
+      openaiModelName,
+      reasoningLevel = 'off',
+      onReasoningLevelChange
     },
     ref
   ) => {
@@ -916,6 +921,13 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             hasOpenaiKey={hasOpenaiKey}
             openaiModelId={openaiModelId}
             openaiModelName={openaiModelName}
+          />
+
+          <ReasoningSelector
+            selectedModel={selectedModel}
+            value={reasoningLevel}
+            onChange={onReasoningLevelChange || (() => {})}
+            disabled={disabled}
           />
 
           {isProcessing ? (

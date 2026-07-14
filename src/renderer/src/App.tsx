@@ -1055,6 +1055,20 @@ function RealApp(): React.JSX.Element {
     window.api.setModel(newModel)
   }, [])
 
+  const handleReasoningLevelChange = useCallback(async (modelId: string, level: string): Promise<void> => {
+    if (!config) return
+    const updatedLevels = {
+      ...(config.modelReasoningLevels || {}),
+      [modelId]: level
+    }
+    const updatedConfig = {
+      ...config,
+      modelReasoningLevels: updatedLevels
+    }
+    setConfig(updatedConfig)
+    await window.api.saveConfig(updatedConfig)
+  }, [config])
+
   const handleCancel = useCallback((): void => {
     if (currentChatIdRef.current) {
       window.api.cancelChat(currentChatIdRef.current)
@@ -2320,6 +2334,8 @@ function RealApp(): React.JSX.Element {
               disabled={isProcessing || isKeyMissing || !isOnline}
               selectedModel={selectedModel}
               onModelChange={handleModelChange}
+              reasoningLevel={config?.modelReasoningLevels?.[selectedModel] || 'off'}
+              onReasoningLevelChange={(level) => handleReasoningLevelChange(selectedModel, level)}
               text={inputText}
               setText={setInputText}
               isSearchEnabled={isSearchEnabled}
@@ -2397,6 +2413,8 @@ function RealApp(): React.JSX.Element {
                             disabled={isProcessing || isKeyMissing || !isOnline}
                             selectedModel={selectedModel}
                             onModelChange={handleModelChange}
+                            reasoningLevel={config?.modelReasoningLevels?.[selectedModel] || 'off'}
+                            onReasoningLevelChange={(level) => handleReasoningLevelChange(selectedModel, level)}
                             text={inputText}
                             setText={setInputText}
                             isSearchEnabled={isSearchEnabled}
@@ -2489,6 +2507,8 @@ function RealApp(): React.JSX.Element {
                   disabled={isProcessing || isKeyMissing || !isOnline}
                   selectedModel={selectedModel}
                   onModelChange={handleModelChange}
+                  reasoningLevel={config?.modelReasoningLevels?.[selectedModel] || 'off'}
+                  onReasoningLevelChange={(level) => handleReasoningLevelChange(selectedModel, level)}
                   text={inputText}
                   setText={setInputText}
                   isSearchEnabled={isSearchEnabled}

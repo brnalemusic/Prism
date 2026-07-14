@@ -13,19 +13,75 @@ export const MODEL_CATEGORIES: Record<string, string> = {
 export const MODELS: Model[] = [
   { id: 'deepseek-ai/deepseek-v4-flash', name: 'Deepseek V4 Flash', category: 'nvidia-nim' },
   { id: 'deepseek-ai/deepseek-v4-pro', name: 'Deepseek V4 Pro', category: 'nvidia-nim' },
-  { id: 'gemma-4-26b-a4b-it', name: 'Gemma 4 26B A4B IT', category: 'gemini' },
-  { id: 'gemma-4-31b-it', name: 'Gemma 4 31B IT', category: 'gemini' },
   { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash-Lite', category: 'gemini' },
+  { id: 'gemini-3-flash', name: 'Gemini 3 Flash', category: 'gemini' },
+  { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', category: 'gemini' },
   { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', category: 'gemini' },
   { id: 'z-ai/glm-5.2', name: 'GLM-5.2', category: 'nvidia-nim' },
   { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', category: 'nvidia-nim' },
   { id: 'moonshotai/kimi-k2.6', name: 'Kimi K2.6', category: 'nvidia-nim' },
-  { id: 'meta/llama-3.2-90b-vision-instruct', name: 'Llama 3.2 Vision', category: 'nvidia-nim' },
-  { id: 'minimaxai/minimax-m2.7', name: 'MiniMax M2.7', category: 'nvidia-nim' },
   { id: 'minimaxai/minimax-m3', name: 'MiniMax M3', category: 'nvidia-nim' },
-  { id: 'mistralai/mistral-large-3-675b-instruct-2512', name: 'Mistral Large 3', category: 'nvidia-nim' },
-  { id: 'nvidia/nemotron-3-ultra-550b-a55b', name: 'Nemotron 3 Ultra', category: 'nvidia-nim' },
-  { id: 'microsoft/phi-4-multimodal-instruct', name: 'Phi 4', category: 'nvidia-nim' },
-  { id: 'stepfun-ai/step-3.5-flash', name: 'Step 3.5 Flash', category: 'nvidia-nim' },
   { id: 'stepfun-ai/step-3.7-flash', name: 'Step 3.7 Flash', category: 'nvidia-nim' }
 ]
+
+export interface ThinkingLevelOption {
+  id: string
+  name: string
+}
+
+/**
+ * Returns available thinking levels for a given model.
+ * Based on official NVIDIA NIM API documentation.
+ */
+export function getThinkingLevelsForModel(modelId: string): ThinkingLevelOption[] {
+  // Gemini models use thinkingBudget (mapped from levels)
+  const geminiModels = ['gemini-3-flash', 'gemini-3.1-pro', 'gemini-3.5-flash']
+  if (geminiModels.includes(modelId)) {
+    return [
+      { id: 'off', name: 'Off' },
+      { id: 'low', name: 'Low' },
+      { id: 'medium', name: 'Medium' },
+      { id: 'high', name: 'High' },
+      { id: 'max', name: 'Max' }
+    ]
+  }
+
+  // DeepSeek V4 models: reasoning_effort accepts none, high, max
+  if (modelId === 'deepseek-ai/deepseek-v4-flash' || modelId === 'deepseek-ai/deepseek-v4-pro') {
+    return [
+      { id: 'off', name: 'Off' },
+      { id: 'high', name: 'High' },
+      { id: 'max', name: 'Max' }
+    ]
+  }
+
+  // GPT-OSS models: reasoning_effort accepts low, medium, high
+  if (modelId === 'openai/gpt-oss-120b') {
+    return [
+      { id: 'off', name: 'Off' },
+      { id: 'low', name: 'Low' },
+      { id: 'medium', name: 'Medium' },
+      { id: 'high', name: 'High' }
+    ]
+  }
+
+  // Kimi K2.6: uses chat_template_kwargs {"thinking": true/false}
+  if (modelId === 'moonshotai/kimi-k2.6') {
+    return [
+      { id: 'off', name: 'Off' },
+      { id: 'on', name: 'On' }
+    ]
+  }
+
+  // MiniMax M3: uses chat_template_kwargs {"thinking_mode": "enabled"/"disabled"/"adaptive"}
+  if (modelId === 'minimaxai/minimax-m3') {
+    return [
+      { id: 'off', name: 'Off' },
+      { id: 'enabled', name: 'Enabled' },
+      { id: 'adaptive', name: 'Adaptive' }
+    ]
+  }
+
+  // GLM-5.2, Step 3.7 Flash: no reasoning support
+  return []
+}

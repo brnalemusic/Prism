@@ -5,12 +5,12 @@ import type { AppConfig } from '../../../main/config'
 import clsx from 'clsx'
 
 const FALLBACK_CONFIG: Partial<AppConfig> = {
-  subagentModel: 'gemma-4-26b-a4b-it'
+  subagentModel: 'gemini-3.1-flash-lite'
 }
 
 export function SubagentModelSettings(): React.JSX.Element {
   const [_config, _setConfig] = useState<AppConfig | null>(null)
-  const [selectedModel, setSelectedModel] = useState('gemma-4-26b-a4b-it')
+  const [selectedModel, setSelectedModel] = useState('gemini-3.1-flash-lite')
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState('')
 
@@ -21,13 +21,13 @@ export function SubagentModelSettings(): React.JSX.Element {
       if (!mounted || !savedConfig) return
       const nextConfig = { ...FALLBACK_CONFIG, ...savedConfig }
       _setConfig(nextConfig as AppConfig)
-      setSelectedModel(nextConfig.subagentModel || FALLBACK_CONFIG.subagentModel || 'gemma-4-26b-a4b-it')
+      setSelectedModel(nextConfig.subagentModel || FALLBACK_CONFIG.subagentModel || 'gemini-3.1-flash-lite')
     })
 
     const removeConfigListener = window.api.onConfigChanged((nextConfig) => {
       const normalizedConfig = { ...FALLBACK_CONFIG, ...nextConfig }
       _setConfig(normalizedConfig as AppConfig)
-      setSelectedModel(normalizedConfig.subagentModel || FALLBACK_CONFIG.subagentModel || 'gemma-4-26b-a4b-it')
+      setSelectedModel(normalizedConfig.subagentModel || FALLBACK_CONFIG.subagentModel || 'gemini-3.1-flash-lite')
     })
 
     return () => {

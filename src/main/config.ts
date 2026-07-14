@@ -44,6 +44,7 @@ export interface AppConfig {
   rgbThemeExpiry?: number
   sessionMode: SessionMode
   disciplinePath?: string
+  modelReasoningLevels?: Record<string, string>
 }
 
 
@@ -56,8 +57,9 @@ const DEFAULT_CONFIG: AppConfig = {
   webSearchShortcut: 'CommandOrControl+S',
   youtubeModeShortcut: 'CommandOrControl+Y',
   defaultModel: 'gemini-3.1-flash-lite',
-  subagentModel: 'gemma-4-26b-a4b-it',
+  subagentModel: 'gemini-3.1-flash-lite',
   minimizeToTray: false,
+  modelReasoningLevels: {},
   autoLaunch: false,
   quickLauncherMode: 'simple',
   userGeminiKey: '',
@@ -106,21 +108,15 @@ const DEFAULT_CONFIG: AppConfig = {
 const VALID_MODEL_KEYS = new Set([
   // Gemini
   'gemini-3.1-flash-lite',
+  'gemini-3-flash',
+  'gemini-3.1-pro',
   'gemini-3.5-flash',
-  'gemma-4-26b-a4b-it',
-  'gemma-4-31b-it',
   // NVIDIA NIM
   'deepseek-ai/deepseek-v4-flash',
   'deepseek-ai/deepseek-v4-pro',
   'moonshotai/kimi-k2.6',
-  'meta/llama-3.2-90b-vision-instruct',
-  'minimaxai/minimax-m2.7',
   'minimaxai/minimax-m3',
-  'mistralai/mistral-large-3-675b-instruct-2512',
-  'nvidia/nemotron-3-ultra-550b-a55b',
   'openai/gpt-oss-120b',
-  'microsoft/phi-4-multimodal-instruct',
-  'stepfun-ai/step-3.5-flash',
   'stepfun-ai/step-3.7-flash',
   'z-ai/glm-5.2'
 ])
@@ -181,7 +177,8 @@ function normalizeConfig(config: AppConfig): AppConfig {
     workflows: Array.isArray(config.workflows) ? config.workflows : DEFAULT_CONFIG.workflows,
     rgbThemeExpiry: config.rgbThemeExpiry,
     sessionMode: VALID_SESSION_MODES.has(config.sessionMode) ? config.sessionMode : DEFAULT_CONFIG.sessionMode,
-    disciplinePath: typeof config.disciplinePath === 'string' ? config.disciplinePath : DEFAULT_CONFIG.disciplinePath
+    disciplinePath: typeof config.disciplinePath === 'string' ? config.disciplinePath : DEFAULT_CONFIG.disciplinePath,
+    modelReasoningLevels: config.modelReasoningLevels || {}
   }
 }
 

@@ -141,6 +141,10 @@ function completeIncompleteToolCalls(text: string): string {
 }
 
 
+// Capture the original fetch (native Electron fetch) before overriding it,
+// so that clients like OpenAI can use it to respect system proxy and avoid keep-alive issues.
+const originalFetch = globalThis.fetch
+
 // Keep-Alive configuration for better latency (3.5 minutes)
 const networkAgent = new Agent({
   keepAliveTimeout: 210000,
@@ -157,7 +161,7 @@ export function getModelProvider(modelKey: string): 'gemini' | 'nvidia-nim' | 'o
     return 'openai-compatible'
   }
 
-  const geminiModels = ['gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemma-4-26b-a4b-it', 'gemma-4-31b-it']
+  const geminiModels = ['gemini-3.1-flash-lite', 'gemini-3-flash', 'gemini-3.1-pro', 'gemini-3.5-flash']
   if (geminiModels.includes(modelKey)) {
     return 'gemini'
   }
@@ -166,13 +170,8 @@ export function getModelProvider(modelKey: string): 'gemini' | 'nvidia-nim' | 'o
     'deepseek-ai/deepseek-v4-flash',
     'deepseek-ai/deepseek-v4-pro',
     'moonshotai/kimi-k2.6',
-    'meta/llama-3.2-90b-vision-instruct',
-    'minimaxai/minimax-m2.7',
     'minimaxai/minimax-m3',
-    'mistralai/mistral-large-3-675b-instruct-2512',
-    'nvidia/nemotron-3-ultra-550b-a55b',
     'openai/gpt-oss-120b',
-    'microsoft/phi-4-multimodal-instruct',
     'stepfun-ai/step-3.5-flash',
     'stepfun-ai/step-3.7-flash',
     'z-ai/glm-5.2'
@@ -199,24 +198,290 @@ function obfuscateTags(text: string): string {
   return text
 }
 
+function parseToolCallsFromText(text: string): any[] {
+  const toolCalls: any[] = []
+  if (!text) return toolCalls
+  const toolCallRegex = /\[PRISM_EXECUTE_TOOL\]([\s\S]*?)\[\/PRISM_EXECUTE_TOOL\]/gi
+  let match
+  while ((match = toolCallRegex.exec(text)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1].trim())
+      if (parsed && typeof parsed === 'object') {
+        toolCalls.push(parsed)
+      }
+    } catch (e) {
+      console.warn('Failed to parse tool call from history text:', match[1], e)
+    }
+  }
+  return toolCalls
+}
+
+function parseToolResultsFromText(text: string): { name: string; result: string }[] {
+  const results: { name: string; result: string }[] = []
+  if (!text) return results
+  const resultRegex = /\[RESULT FOR ([a-zA-Z0-9_]+)\]:\s*([\s\S]*?)(?=(?:\n*\[RESULT FOR|\n*\[SYSTEM|\n*Proceed|$))/gi
+  let match
+  while ((match = resultRegex.exec(text)) !== null) {
+    results.push({
+      name: match[1],
+      result: match[2].trim()
+    })
+  }
+  return results
+}
+
+function getGeminiTools(
+  target: 'main' | 'subagent' | 'both' | 'launcher',
+  allowedTools?: string[]
+) {
+  const filtered = toolsManifest.filter((t) => {
+    if (allowedTools && allowedTools.length > 0) {
+      if (!allowedTools.includes(t.name)) return false
+    }
+    if (target === 'launcher') {
+      return (
+        t.name === 'web_search' ||
+        t.name === 'saw_link_from_url' ||
+        t.name === 'open_main_app' ||
+        t.name === 'open_browser_link' ||
+        t.name === 'open_application'
+      )
+    }
+    return !t.target || t.target === 'both' || t.target === target
+  })
+
+  if (filtered.length === 0) return undefined
+
+  const functionDeclarations = filtered.map((t) => {
+    const properties: Record<string, any> = {}
+    const required: string[] = []
+
+    if (t.name === 'web_search') {
+      properties['searches'] = {
+        type: 'ARRAY',
+        description: t.parameters['searches'] || 'Array of search objects.',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            title: { type: 'STRING', description: 'Concise action phrase shown to user.' },
+            query: { type: 'STRING', description: 'Actual search keywords.' }
+          },
+          required: ['title', 'query']
+        }
+      }
+      required.push('searches')
+    } else if (t.name === 'to_ask') {
+      properties['session_id'] = { type: 'STRING', description: 'Unique UUID.' }
+      properties['questions'] = {
+        type: 'ARRAY',
+        description: 'JSON array of question objects.',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            id: { type: 'STRING' },
+            type: { type: 'STRING' },
+            title: { type: 'STRING' },
+            prompt: { type: 'STRING' }
+          },
+          required: ['id', 'type', 'title']
+        }
+      }
+      required.push('session_id', 'questions')
+    } else if (t.name === 'run_subagents') {
+      properties['quantity'] = { type: 'STRING', description: 'Number of agents.' }
+      required.push('quantity')
+      for (let i = 1; i <= 20; i++) {
+        properties[`prompt:${i}`] = { type: 'STRING', description: `Prompt for agent ${i}.` }
+      }
+    } else {
+      for (const [paramName, paramDesc] of Object.entries(t.parameters)) {
+        if (paramName.includes(':')) continue
+        const isOptional = paramDesc.toLowerCase().includes('optional')
+        properties[paramName] = {
+          type: 'STRING',
+          description: paramDesc
+        }
+        if (!isOptional) {
+          required.push(paramName)
+        }
+      }
+    }
+
+    return {
+      name: t.name,
+      description: t.description,
+      parameters: {
+        type: 'OBJECT',
+        properties,
+        ...(required.length > 0 ? { required } : {})
+      }
+    }
+  })
+
+  return [{ functionDeclarations }] as any
+}
+
+function getOpenAiTools(
+  target: 'main' | 'subagent' | 'both' | 'launcher',
+  allowedTools?: string[]
+) {
+  const filtered = toolsManifest.filter((t) => {
+    if (allowedTools && allowedTools.length > 0) {
+      if (!allowedTools.includes(t.name)) return false
+    }
+    if (target === 'launcher') {
+      return (
+        t.name === 'web_search' ||
+        t.name === 'saw_link_from_url' ||
+        t.name === 'open_main_app' ||
+        t.name === 'open_browser_link' ||
+        t.name === 'open_application'
+      )
+    }
+    return !t.target || t.target === 'both' || t.target === target
+  })
+
+  if (filtered.length === 0) return undefined
+
+  return filtered.map((t) => {
+    const properties: Record<string, any> = {}
+    const required: string[] = []
+
+    if (t.name === 'web_search') {
+      properties['searches'] = {
+        type: 'array',
+        description: t.parameters['searches'] || 'Array of search objects.',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: 'Concise action phrase shown to user.' },
+            query: { type: 'string', description: 'Actual search keywords.' }
+          },
+          required: ['title', 'query']
+        }
+      }
+      required.push('searches')
+    } else if (t.name === 'to_ask') {
+      properties['session_id'] = { type: 'string', description: 'Unique UUID.' }
+      properties['questions'] = {
+        type: 'array',
+        description: 'JSON array of question objects.',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            type: { type: 'string' },
+            title: { type: 'string' },
+            prompt: { type: 'string' }
+          },
+          required: ['id', 'type', 'title']
+        }
+      }
+      required.push('session_id', 'questions')
+    } else if (t.name === 'run_subagents') {
+      properties['quantity'] = { type: 'string', description: 'Number of agents.' }
+      required.push('quantity')
+      for (let i = 1; i <= 20; i++) {
+        properties[`prompt:${i}`] = { type: 'string', description: `Prompt for agent ${i}.` }
+      }
+    } else {
+      for (const [paramName, paramDesc] of Object.entries(t.parameters)) {
+        if (paramName.includes(':')) continue
+        const isOptional = paramDesc.toLowerCase().includes('optional')
+        properties[paramName] = {
+          type: 'string',
+          description: paramDesc
+        }
+        if (!isOptional) {
+          required.push(paramName)
+        }
+      }
+    }
+
+    return {
+      type: 'function' as const,
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: {
+          type: 'object',
+          properties,
+          ...(required.length > 0 ? { required } : {})
+        }
+      }
+    }
+  }) as any
+}
+
 // Convert history to OpenAI format
 function convertHistoryToOpenAiFormat(history: Content[], provider?: 'gemini' | 'nvidia-nim' | 'openai-compatible') {
   const messages: any[] = []
   let seenNonSystem = false
+  const outstandingCalls = new Map<string, string[]>()
+
   for (const msg of history) {
-    let role = msg.role === 'model' ? 'assistant' : msg.role
+    let role = msg.role === 'model' || msg.role === 'assistant' ? 'assistant' : msg.role
 
     if (role === 'system') {
+      const txt = msg.parts?.map((p) => p.text || '').join('\n') || ''
+      if (txt.includes('[RESULT FOR ')) {
+        const results = parseToolResultsFromText(txt)
+        if (results.length > 0) {
+          for (const r of results) {
+            const list = outstandingCalls.get(r.name) || []
+            const callId = list.shift() || `call_${r.name}_${Date.now()}`
+            messages.push({
+              role: 'tool',
+              tool_call_id: callId,
+              content: r.result
+            })
+          }
+          continue
+        }
+      }
       if (seenNonSystem && provider === 'nvidia-nim') {
         role = 'user'
       }
-    } else {
+    } else if (role !== 'tool') {
       seenNonSystem = true
     }
 
     const parts = msg.parts || []
     const textParts = parts.filter((p) => p.text)
     const mediaParts = parts.filter((p) => p.inlineData)
+
+    if (role === 'assistant') {
+      const fullText = textParts.map((p) => p.text).join('\n\n')
+      const toolCalls = parseToolCallsFromText(fullText)
+      
+      if (toolCalls.length > 0) {
+        const cleanText = removeToolCalls(fullText).trim()
+        const formattedToolCalls = toolCalls.map((tc, index) => {
+          const callId = `call_${tc.type}_${Date.now()}_${index}`
+          if (!outstandingCalls.has(tc.type)) {
+            outstandingCalls.set(tc.type, [])
+          }
+          outstandingCalls.get(tc.type)!.push(callId)
+
+          const { type, ...args } = tc
+          return {
+            id: callId,
+            type: 'function',
+            function: {
+              name: type,
+              arguments: JSON.stringify(args)
+            }
+          }
+        })
+
+        messages.push({
+          role: 'assistant',
+          content: cleanText || null,
+          tool_calls: formattedToolCalls
+        })
+        continue
+      }
+    }
 
     if (mediaParts.length > 0) {
       const contentArray: any[] = []
@@ -252,6 +517,21 @@ function convertHistoryToGeminiFormat(history: Content[]) {
   for (const msg of history) {
     if (msg.role === 'system') {
       const txt = msg.parts?.map((p) => p.text || '').join('\n') || ''
+      if (txt.includes('[RESULT FOR ')) {
+        const results = parseToolResultsFromText(txt)
+        if (results.length > 0) {
+          contents.push({
+            role: 'user',
+            parts: results.map((r) => ({
+              functionResponse: {
+                name: r.name,
+                response: { result: r.result }
+              }
+            }))
+          })
+          continue
+        }
+      }
       if (systemInstruction) {
         systemInstruction += '\n' + txt
       } else {
@@ -260,17 +540,38 @@ function convertHistoryToGeminiFormat(history: Content[]) {
     } else {
       const role = msg.role === 'model' || msg.role === 'assistant' ? 'model' : 'user'
       const parts = msg.parts || []
+      
+      const newParts: any[] = []
+      for (const p of parts) {
+        if (p.text) {
+          const toolCalls = parseToolCallsFromText(p.text)
+          if (toolCalls.length > 0) {
+            const cleanText = removeToolCalls(p.text).trim()
+            if (cleanText) {
+              newParts.push({ text: cleanText })
+            }
+            for (const tc of toolCalls) {
+              const { type, ...args } = tc
+              newParts.push({
+                functionCall: {
+                  name: type,
+                  args
+                }
+              })
+            }
+          } else {
+            newParts.push({ text: p.text })
+          }
+        } else if (p.inlineData) {
+          newParts.push({ inlineData: p.inlineData })
+        } else {
+          newParts.push(p)
+        }
+      }
+
       contents.push({
         role,
-        parts: parts.map((p) => {
-          if (p.text) {
-            return { text: p.text }
-          }
-          if (p.inlineData) {
-            return { inlineData: p.inlineData }
-          }
-          return p
-        })
+        parts: newParts
       })
     }
   }
@@ -289,32 +590,60 @@ async function* generateAiStream(
   modelName: string,
   history: Content[],
   signal?: AbortSignal,
-  temperature = 0.7
+  temperature = 0.7,
+  target: 'main' | 'subagent' | 'both' | 'launcher' = 'main',
+  allowedTools?: string[]
 ): AsyncGenerator<StreamChunk> {
   const fs = require('fs')
   const debugFilePath = 'c:/Users/Breno/Documents/Code/Prism/raw_stream_debug.txt'
+  if (modelName === 'stepfun-ai/step-3.5-flash') {
+    modelName = 'stepfun-ai/step-3.7-flash'
+  }
+
   try {
     fs.writeFileSync(debugFilePath, `--- START STREAM (model: ${modelName}, provider: ${provider}) ---\n`)
   } catch (err) {
     console.error('Failed to init stream debug file:', err)
   }
 
+  const appConfig = loadConfig()
+  const reasoningLevels = appConfig.modelReasoningLevels || {}
+  const reasoningLevel = reasoningLevels[modelName] || 'off'
+
   if (provider === 'gemini') {
     const ai = new GoogleGenAI({ apiKey })
     const { contents, systemInstruction } = convertHistoryToGeminiFormat(ensureHistoryFitsLimit(history))
     
+    const configObj: any = {
+      systemInstruction,
+      temperature,
+      abortSignal: signal,
+      tools: getGeminiTools(target, allowedTools)
+    }
+
+    const supportsReasoning = modelName !== 'gemini-3.1-flash-lite' && modelName.startsWith('gemini-')
+    if (supportsReasoning) {
+      let budget = 0
+      if (reasoningLevel === 'low') budget = 1024
+      else if (reasoningLevel === 'medium') budget = 2048
+      else if (reasoningLevel === 'high') budget = 4096
+      else if (reasoningLevel === 'max') budget = -1
+
+      configObj.thinkingConfig = {
+        thinkingBudget: budget
+      }
+      if (budget !== 0) {
+        delete configObj.temperature
+      }
+    }
+
     const responseStream = await ai.models.generateContentStream({
       model: modelName,
       contents,
-      config: {
-        systemInstruction,
-        temperature,
-        abortSignal: signal,
-      }
+      config: configObj
     })
 
     let accumulatedText = ''
-    let yieldedLength = 0
 
     for await (const chunk of responseStream) {
       if (signal?.aborted) throw new Error('AbortError')
@@ -329,35 +658,20 @@ async function* generateAiStream(
             thought += part.text || ''
           } else if (part.text) {
             text += part.text
+          } else if (part.functionCall) {
+            const name = part.functionCall.name
+            const args = part.functionCall.args || {}
+            text += `[PRISM_EXECUTE_TOOL]${JSON.stringify({ type: name, ...args })}[/PRISM_EXECUTE_TOOL]\n`
           }
         }
       }
 
       if (thought || text) {
         accumulatedText += text
-        const normalized = normalizeToolCalls(accumulatedText)
-        const textDelta = normalized.slice(yieldedLength)
-        yieldedLength = normalized.length
-
         try {
-          fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text: textDelta }) + '\n')
+          fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text }) + '\n')
         } catch (err) { /* ignore */ }
-        
-        yield { thought, text: textDelta }
-      }
-    }
-
-    // Auto-close incomplete tool calls if stream ended prematurely
-    const gOpen = (accumulatedText.match(/\[PRISM_EXECUTE_TOOL\]/g) || []).length
-    const gClose = (accumulatedText.match(/\[\/PRISM_EXECUTE_TOOL\]/g) || []).length
-    if (gOpen > gClose) {
-      const completed = completeIncompleteToolCalls(accumulatedText)
-      const completion = completed.slice(yieldedLength)
-      if (completion) {
-        try {
-          fs.appendFileSync(debugFilePath, JSON.stringify({ thought: '', text: completion }) + '\n')
-        } catch (err) { /* ignore */ }
-        yield { thought: '', text: completion }
+        yield { thought, text }
       }
     }
   } else {
@@ -373,26 +687,68 @@ async function* generateAiStream(
       apiKey,
       baseURL,
       timeout: 120000,
-      maxRetries: 2
+      maxRetries: 2,
+      fetch: originalFetch
     })
     const messages = convertHistoryToOpenAiFormat(ensureHistoryFitsLimit(history), provider)
-
-    const responseStream = await openai.chat.completions.create({
+    const nimTools = getOpenAiTools(target, allowedTools)
+    const requestConfig: any = {
       model: modelName,
       messages,
       temperature,
-      stream: true
-    }, { signal })
+      stream: true,
+      tools: nimTools || undefined
+    }
+
+    // Apply reasoning/thinking configuration based on model capabilities
+    // NVIDIA NIM API does NOT support extra_body parameter
+    const isDeepSeek = modelName.includes('deepseek')
+    const isGptOss = modelName.includes('gpt-oss')
+    const isKimi = modelName.includes('kimi')
+    const isMiniMax = modelName.includes('minimax')
+
+    if (isDeepSeek) {
+      // DeepSeek: reasoning_effort accepts none, high, max
+      if (reasoningLevel !== 'off') {
+        const effort = reasoningLevel === 'max' ? 'max' : reasoningLevel === 'high' ? 'high' : 'high'
+        requestConfig.reasoning_effort = effort
+        delete requestConfig.temperature
+      } else {
+        requestConfig.reasoning_effort = 'none'
+      }
+    } else if (isGptOss) {
+      // GPT-OSS: reasoning_effort accepts low, medium, high
+      if (reasoningLevel !== 'off') {
+        const effort = reasoningLevel === 'low' ? 'low' : reasoningLevel === 'high' ? 'high' : 'medium'
+        requestConfig.reasoning_effort = effort
+        delete requestConfig.temperature
+      }
+    } else if (isKimi) {
+      // Kimi K2.6: uses chat_template_kwargs for thinking
+      if (reasoningLevel !== 'off') {
+        requestConfig.chat_template_kwargs = { thinking: true }
+        delete requestConfig.temperature
+      } else {
+        requestConfig.chat_template_kwargs = { thinking: false }
+      }
+    } else if (isMiniMax) {
+      // MiniMax M3: uses chat_template_kwargs for thinking_mode
+      if (reasoningLevel !== 'off') {
+        const mode = reasoningLevel === 'adaptive' ? 'adaptive' : 'enabled'
+        requestConfig.chat_template_kwargs = { thinking_mode: mode }
+        delete requestConfig.temperature
+      } else {
+        requestConfig.chat_template_kwargs = { thinking_mode: 'disabled' }
+      }
+    }
+
+    const responseStream = (await openai.chat.completions.create(requestConfig, { signal })) as any
 
     const accumulatedToolCalls = new Map<number, {
       id?: string
       name?: string
       arguments: string
-      emittedPrefix: boolean
     }>()
-
-    let accumulatedText = ''
-    let yieldedLength = 0
 
     for await (const chunk of responseStream) {
       if (signal?.aborted) throw new Error('AbortError')
@@ -409,84 +765,44 @@ async function* generateAiStream(
         const idx = tc.index
         if (idx !== undefined) {
           if (!accumulatedToolCalls.has(idx)) {
-            accumulatedToolCalls.set(idx, { arguments: '', emittedPrefix: false })
+            accumulatedToolCalls.set(idx, { arguments: '' })
           }
           const acc = accumulatedToolCalls.get(idx)!
           if (tc.id) acc.id = tc.id
           if (tc.function?.name) acc.name = tc.function.name
-          
-          let textToYield = ''
-          if (acc.name && !acc.emittedPrefix) {
-            acc.emittedPrefix = true
-            textToYield += `[PRISM_EXECUTE_TOOL]{"type":${JSON.stringify(acc.name)}`
-          }
-          
           if (tc.function?.arguments) {
-            const incomingArgs = tc.function.arguments
-            acc.arguments += incomingArgs
-            
-            if (acc.emittedPrefix) {
-              let chunkToEmit = incomingArgs
-              const cleanedIncoming = incomingArgs.trimStart()
-              if (acc.arguments.length === incomingArgs.length && cleanedIncoming.startsWith('{')) {
-                chunkToEmit = ',' + cleanedIncoming.slice(1)
-              }
-              textToYield += chunkToEmit
-            }
-          }
-          
-          if (textToYield) {
-            try {
-              fs.appendFileSync(debugFilePath, JSON.stringify({ thought: '', text: textToYield }) + '\n')
-            } catch (err) { /* ignore */ }
-            yield { thought: '', text: textToYield }
+            acc.arguments += tc.function.arguments
           }
         }
       }
 
       if (thought || text) {
-        accumulatedText += text
-        const normalized = normalizeToolCalls(accumulatedText)
-        const textDelta = normalized.slice(yieldedLength)
-        yieldedLength = normalized.length
-
         try {
-          fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text: textDelta }) + '\n')
+          fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text }) + '\n')
         } catch (err) { /* ignore */ }
-
-        yield { thought, text: textDelta }
+        yield { thought, text }
       }
     }
 
-    // Auto-close any incomplete tool calls received via delta.tool_calls
+    // Yield accumulated tool calls as atomic chunks at the end
     for (const [, acc] of accumulatedToolCalls.entries()) {
-      if (acc.emittedPrefix) {
-        let closing = ''
-        const trimmedArgs = acc.arguments.trim()
-        if (!trimmedArgs.endsWith('}')) {
-          closing += '}'
+      if (acc.name) {
+        let parsedArgs = {}
+        try {
+          parsedArgs = JSON.parse(acc.arguments || '{}')
+        } catch (e) {
+          try {
+            const repaired = completeIncompleteToolCalls(`[PRISM_EXECUTE_TOOL]${acc.arguments}[/PRISM_EXECUTE_TOOL]`)
+            const jsonText = repaired.replace('[PRISM_EXECUTE_TOOL]', '').replace('[/PRISM_EXECUTE_TOOL]', '')
+            parsedArgs = JSON.parse(jsonText)
+          } catch (e2) { /* ignore */ }
         }
-        closing += '[/PRISM_EXECUTE_TOOL]\n'
+        const type = acc.name
+        const synthesizedText = `[PRISM_EXECUTE_TOOL]${JSON.stringify({ type, ...parsedArgs })}[/PRISM_EXECUTE_TOOL]\n`
         try {
-          fs.appendFileSync(debugFilePath, JSON.stringify({ thought: '', text: closing }) + '\n')
+          fs.appendFileSync(debugFilePath, JSON.stringify({ thought: '', text: synthesizedText }) + '\n')
         } catch (err) { /* ignore */ }
-        yield { thought: '', text: closing }
-      }
-    }
-
-    // Auto-close incomplete tool calls received via delta.content (text-based)
-    // This handles providers like NVIDIA NIM that stream tool calls as plain text
-    // and may terminate the stream before the closing tag is fully sent.
-    const uncloseOpen = (accumulatedText.match(/\[PRISM_EXECUTE_TOOL\]/g) || []).length
-    const uncloseClose = (accumulatedText.match(/\[\/PRISM_EXECUTE_TOOL\]/g) || []).length
-    if (uncloseOpen > uncloseClose) {
-      const completed = completeIncompleteToolCalls(accumulatedText)
-      const completion = completed.slice(yieldedLength)
-      if (completion) {
-        try {
-          fs.appendFileSync(debugFilePath, JSON.stringify({ thought: '', text: completion }) + '\n')
-        } catch (err) { /* ignore */ }
-        yield { thought: '', text: completion }
+        yield { thought: '', text: synthesizedText }
       }
     }
   }
@@ -498,21 +814,63 @@ async function generateAiContent(
   modelName: string,
   history: Content[],
   signal?: AbortSignal,
-  temperature = 0.7
+  temperature = 0.7,
+  target: 'main' | 'subagent' | 'both' | 'launcher' = 'main',
+  allowedTools?: string[]
 ): Promise<string> {
+  if (modelName === 'stepfun-ai/step-3.5-flash') {
+    modelName = 'stepfun-ai/step-3.7-flash'
+  }
+
+  const appConfig = loadConfig()
+  const reasoningLevels = appConfig.modelReasoningLevels || {}
+  const reasoningLevel = reasoningLevels[modelName] || 'off'
+
   if (provider === 'gemini') {
     const ai = new GoogleGenAI({ apiKey })
     const { contents, systemInstruction } = convertHistoryToGeminiFormat(ensureHistoryFitsLimit(history))
+    
+    const configObj: any = {
+      systemInstruction,
+      temperature,
+      abortSignal: signal,
+      tools: getGeminiTools(target, allowedTools)
+    }
+
+    const supportsReasoning = modelName !== 'gemini-3.1-flash-lite' && modelName.startsWith('gemini-')
+    if (supportsReasoning) {
+      let budget = 0
+      if (reasoningLevel === 'low') budget = 1024
+      else if (reasoningLevel === 'medium') budget = 2048
+      else if (reasoningLevel === 'high') budget = 4096
+      else if (reasoningLevel === 'max') budget = -1
+
+      configObj.thinkingConfig = {
+        thinkingBudget: budget
+      }
+      if (budget !== 0) {
+        delete configObj.temperature
+      }
+    }
+
     const response = await ai.models.generateContent({
       model: modelName,
       contents,
-      config: {
-        systemInstruction,
-        temperature,
-        abortSignal: signal,
-      }
+      config: configObj
     })
-    return normalizeToolCalls(response.text || '')
+    
+    let resultText = response.text || ''
+    const candidate = response.candidates?.[0]
+    if (candidate?.content?.parts) {
+      for (const part of candidate.content.parts) {
+        if (part.functionCall) {
+          const name = part.functionCall.name
+          const args = part.functionCall.args || {}
+          resultText += `[PRISM_EXECUTE_TOOL]${JSON.stringify({ type: name, ...args })}[/PRISM_EXECUTE_TOOL]\n`
+        }
+      }
+    }
+    return normalizeToolCalls(resultText)
   } else {
     let baseURL: string
     if (provider === 'nvidia-nim') {
@@ -522,17 +880,74 @@ async function generateAiContent(
       baseURL = configBaseUrl
     }
 
-    const openai = new OpenAI({ apiKey, baseURL })
+    const openai = new OpenAI({ apiKey, baseURL, fetch: originalFetch })
     const messages = convertHistoryToOpenAiFormat(ensureHistoryFitsLimit(history), provider)
-
-    const response = await openai.chat.completions.create({
+    const nimTools = getOpenAiTools(target, allowedTools)
+    const requestConfig: any = {
       model: modelName,
       messages,
       temperature,
-      stream: false
-    }, { signal })
+      stream: false,
+      tools: nimTools || undefined
+    }
 
-    return normalizeToolCalls(response.choices?.[0]?.message?.content || '')
+    // Apply reasoning/thinking configuration based on model capabilities
+    // NVIDIA NIM API does NOT support extra_body parameter
+    const isDeepSeek = modelName.includes('deepseek')
+    const isGptOss = modelName.includes('gpt-oss')
+    const isKimi = modelName.includes('kimi')
+    const isMiniMax = modelName.includes('minimax')
+
+    if (isDeepSeek) {
+      // DeepSeek: reasoning_effort accepts none, high, max
+      if (reasoningLevel !== 'off') {
+        const effort = reasoningLevel === 'max' ? 'max' : reasoningLevel === 'high' ? 'high' : 'high'
+        requestConfig.reasoning_effort = effort
+        delete requestConfig.temperature
+      } else {
+        requestConfig.reasoning_effort = 'none'
+      }
+    } else if (isGptOss) {
+      // GPT-OSS: reasoning_effort accepts low, medium, high
+      if (reasoningLevel !== 'off') {
+        const effort = reasoningLevel === 'low' ? 'low' : reasoningLevel === 'high' ? 'high' : 'medium'
+        requestConfig.reasoning_effort = effort
+        delete requestConfig.temperature
+      }
+    } else if (isKimi) {
+      // Kimi K2.6: uses chat_template_kwargs for thinking
+      if (reasoningLevel !== 'off') {
+        requestConfig.chat_template_kwargs = { thinking: true }
+        delete requestConfig.temperature
+      } else {
+        requestConfig.chat_template_kwargs = { thinking: false }
+      }
+    } else if (isMiniMax) {
+      // MiniMax M3: uses chat_template_kwargs for thinking_mode
+      if (reasoningLevel !== 'off') {
+        const mode = reasoningLevel === 'adaptive' ? 'adaptive' : 'enabled'
+        requestConfig.chat_template_kwargs = { thinking_mode: mode }
+        delete requestConfig.temperature
+      } else {
+        requestConfig.chat_template_kwargs = { thinking_mode: 'disabled' }
+      }
+    }
+
+    const response = await openai.chat.completions.create(requestConfig, { signal })
+
+    let resultText = response.choices?.[0]?.message?.content || ''
+    const toolCalls = response.choices?.[0]?.message?.tool_calls
+    if (toolCalls && toolCalls.length > 0) {
+      for (const tc of toolCalls as any[]) {
+        const name = tc.function.name
+        let args = {}
+        try {
+          args = JSON.parse(tc.function.arguments || '{}')
+        } catch (e) { /* ignore */ }
+        resultText += `[PRISM_EXECUTE_TOOL]${JSON.stringify({ type: name, ...args })}[/PRISM_EXECUTE_TOOL]\n`
+      }
+    }
+    return normalizeToolCalls(resultText)
   }
 }
 async function getOpenaiCompatibleSearchModel(config: AppConfig): Promise<string> {
@@ -585,26 +1000,20 @@ interface ModelConfig {
 const MODEL_CONFIGS: Record<string, ModelConfig> = {
   'deepseek-ai/deepseek-v4-flash': { apiModel: 'deepseek-ai/deepseek-v4-flash' },
   'deepseek-ai/deepseek-v4-pro': { apiModel: 'deepseek-ai/deepseek-v4-pro' },
-  'gemma-4-26b-a4b-it': { apiModel: 'gemma-4-26b-a4b-it' },
-  'gemma-4-31b-it': { apiModel: 'gemma-4-31b-it' },
   'gemini-3.1-flash-lite': { apiModel: 'gemini-3.1-flash-lite' },
+  'gemini-3-flash': { apiModel: 'gemini-3-flash' },
+  'gemini-3.1-pro': { apiModel: 'gemini-3.1-pro' },
   'gemini-3.5-flash': { apiModel: 'gemini-3.5-flash' },
   'z-ai/glm-5.2': { apiModel: 'z-ai/glm-5.2' },
   'openai/gpt-oss-120b': { apiModel: 'openai/gpt-oss-120b' },
   'moonshotai/kimi-k2.6': { apiModel: 'moonshotai/kimi-k2.6' },
-  'meta/llama-3.2-90b-vision-instruct': { apiModel: 'meta/llama-3.2-90b-vision-instruct' },
-  'minimaxai/minimax-m2.7': { apiModel: 'minimaxai/minimax-m2.7' },
   'minimaxai/minimax-m3': { apiModel: 'minimaxai/minimax-m3' },
-  'mistralai/mistral-large-3-675b-instruct-2512': { apiModel: 'mistralai/mistral-large-3-675b-instruct-2512' },
-  'nvidia/nemotron-3-ultra-550b-a55b': { apiModel: 'nvidia/nemotron-3-ultra-550b-a55b' },
-  'microsoft/phi-4-multimodal-instruct': { apiModel: 'microsoft/phi-4-multimodal-instruct' },
-  'stepfun-ai/step-3.5-flash': { apiModel: 'stepfun-ai/step-3.5-flash' },
   'stepfun-ai/step-3.7-flash': { apiModel: 'stepfun-ai/step-3.7-flash' }
 }
 
 const AGENT_TEMPERATURE = 0.7
 const TITLE_GENERATION_TEMPERATURE = 1.4
-const DEFAULT_SUBAGENT_MODEL_KEY = 'gemma-4-26b-a4b-it'
+const DEFAULT_SUBAGENT_MODEL_KEY = 'gemini-3.1-flash-lite'
 let currentSubagentModelKey = DEFAULT_SUBAGENT_MODEL_KEY
 
 // Persistent history in memory for the current session
@@ -1255,7 +1664,7 @@ async function generateSubagentResponse(
   if (!apiKey) {
     throw new Error(`API key for subagent model provider "${provider}" is missing.`)
   }
-  return generateAiContent(provider, apiKey, subModel, history, signal, AGENT_TEMPERATURE)
+  return generateAiContent(provider, apiKey, subModel, history, signal, AGENT_TEMPERATURE, 'subagent')
 }
 
 const activeQuestionnaireResolvers = new Map<string, (result: string) => void>()
@@ -2317,7 +2726,16 @@ User message: "${firstMessage}"`
       { role: 'user', parts: [{ text: prompt }] }
     ]
 
-    const result = await generateAiContent(provider, apiKey, searchModel, history, undefined, TITLE_GENERATION_TEMPERATURE)
+    const result = await generateAiContent(
+      provider,
+      apiKey,
+      searchModel,
+      history,
+      undefined,
+      TITLE_GENERATION_TEMPERATURE,
+      'main',
+      []
+    )
     const fullTitle = (result || '').trim()
     return fullTitle || 'New Conversation'
   } catch (error) {
@@ -2689,7 +3107,9 @@ export async function handleChatMessage(
             modelConfig.apiModel,
             runHistory,
             runAbortController.signal,
-            AGENT_TEMPERATURE
+            AGENT_TEMPERATURE,
+            'main',
+            matchedWorkflow?.toolConstraints
           )
 
           let lastIpcTime = 0
@@ -3031,7 +3451,7 @@ export async function handleLauncherChatMessage(
   const runAbortController = new AbortController()
   launcherAbortController = runAbortController
 
-  let launcherModelKey = 'stepfun-ai/step-3.5-flash'
+  let launcherModelKey = 'stepfun-ai/step-3.7-flash'
 
   const launcherConfig = loadConfig()
   if (modelProvider === 'gemini' || (!launcherConfig.userNvidiaNimKey && !process.env.NVIDIA_API_KEY)) {
@@ -3109,7 +3529,8 @@ export async function handleLauncherChatMessage(
             launcherModelKey,
             launcherChatHistory,
             runAbortController.signal,
-            0.7
+            0.7,
+            'launcher'
           )
 
           let currentThoughts = ''
@@ -3637,7 +4058,9 @@ Available tools:
               searchModel,
               searchHistory,
               runAbortController.signal,
-              0.3
+              0.3,
+              'main',
+              ['search_chat_memory', 'render_chat_history', 'not_found_chat_history']
             )
           } catch (error: any) {
             throw error
