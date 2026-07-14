@@ -579,9 +579,21 @@ function convertHistoryToGeminiFormat(history: Content[]) {
   return { contents, systemInstruction }
 }
 
+/** Delta emitted during streaming for a single native tool call. */
+export interface StreamToolCallDelta {
+  index: number
+  id?: string
+  name?: string
+  argumentsDelta?: string
+  /** Set to true when the tool call is fully received from the API. */
+  isComplete?: boolean
+}
+
 interface StreamChunk {
   thought: string
   text: string
+  /** Structured native tool call deltas (replaces text-based [PRISM_EXECUTE_TOOL] for new chats). */
+  toolCalls?: StreamToolCallDelta[]
 }
 
 async function* generateAiStream(
@@ -645,6 +657,7 @@ async function* generateAiStream(
     })
 
     let accumulatedText = ''
+    let geminiToolCallCounter = 0
 
     try {
       for await (const chunk of responseStream) {
@@ -652,6 +665,7 @@ async function* generateAiStream(
 
         let thought = ''
         let text = ''
+        const chunkToolCalls: StreamToolCallDelta[] = []
 
         const candidate = chunk.candidates?.[0]
         if (candidate?.content?.parts) {
@@ -661,19 +675,25 @@ async function* generateAiStream(
             } else if (part.text) {
               text += part.text
             } else if (part.functionCall) {
-              const name = part.functionCall.name
-              const args = part.functionCall.args || {}
-              text += `[PRISM_EXECUTE_TOOL]${JSON.stringify({ type: name, ...args })}[/PRISM_EXECUTE_TOOL]\n`
+              // Emit as structured tool call (Gemini sends complete function calls)
+              const fcName = part.functionCall.name || ''
+              const fcArgs = part.functionCall.args || {}
+              chunkToolCalls.push({
+                index: geminiToolCallCounter++,
+                name: fcName,
+                argumentsDelta: JSON.stringify(fcArgs),
+                isComplete: true
+              })
             }
           }
         }
 
-        if (thought || text) {
+        if (thought || text || chunkToolCalls.length > 0) {
           accumulatedText += text
           try {
-            fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text }) + '\n')
+            fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text, toolCalls: chunkToolCalls }) + '\n')
           } catch (err) { /* ignore */ }
-          yield { thought, text }
+          yield { thought, text, toolCalls: chunkToolCalls.length > 0 ? chunkToolCalls : undefined }
         }
       }
     } finally {
@@ -768,6 +788,9 @@ async function* generateAiStream(
         const text = delta.content || ''
         const toolCalls = delta.tool_calls || []
 
+        // Build streaming tool call deltas for real-time UI updates
+        const chunkToolCalls: StreamToolCallDelta[] = []
+
         for (const tc of toolCalls) {
           const idx = tc.index
           if (idx !== undefined) {
@@ -780,14 +803,22 @@ async function* generateAiStream(
             if (tc.function?.arguments) {
               acc.arguments += tc.function.arguments
             }
+
+            // Emit real-time delta for this tool call
+            chunkToolCalls.push({
+              index: idx,
+              id: tc.id,
+              name: tc.function?.name,
+              argumentsDelta: tc.function?.arguments
+            })
           }
         }
 
-        if (thought || text) {
+        if (thought || text || chunkToolCalls.length > 0) {
           try {
-            fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text }) + '\n')
+            fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text, toolCalls: chunkToolCalls }) + '\n')
           } catch (err) { /* ignore */ }
-          yield { thought, text }
+          yield { thought, text, toolCalls: chunkToolCalls.length > 0 ? chunkToolCalls : undefined }
         }
       }
     } finally {
@@ -797,8 +828,8 @@ async function* generateAiStream(
       }
     }
 
-    // Yield accumulated tool calls as atomic chunks at the end
-    for (const [, acc] of accumulatedToolCalls.entries()) {
+    // Yield accumulated tool calls as complete structured chunks at the end
+    for (const [idx, acc] of accumulatedToolCalls.entries()) {
       if (acc.name) {
         let parsedArgs = {}
         try {
@@ -810,12 +841,20 @@ async function* generateAiStream(
             parsedArgs = JSON.parse(jsonText)
           } catch (e2) { /* ignore */ }
         }
-        const type = acc.name
-        const synthesizedText = `[PRISM_EXECUTE_TOOL]${JSON.stringify({ type, ...parsedArgs })}[/PRISM_EXECUTE_TOOL]\n`
         try {
-          fs.appendFileSync(debugFilePath, JSON.stringify({ thought: '', text: synthesizedText }) + '\n')
+          fs.appendFileSync(debugFilePath, JSON.stringify({ toolCallComplete: { index: idx, name: acc.name, args: parsedArgs } }) + '\n')
         } catch (err) { /* ignore */ }
-        yield { thought: '', text: synthesizedText }
+        yield {
+          thought: '',
+          text: '',
+          toolCalls: [{
+            index: idx,
+            id: acc.id,
+            name: acc.name,
+            argumentsDelta: JSON.stringify(parsedArgs),
+            isComplete: true
+          }]
+        }
       }
     }
   }
@@ -1058,6 +1097,15 @@ export interface ActiveRun {
 export const activeRuns = new Map<string, ActiveRun>()
 export const lastScreenshots = new Map<string, string>()
 
+/** Accumulated state for a streaming tool call, derived from deltas. */
+export interface StreamingToolCall {
+  index: number
+  id?: string
+  name: string
+  arguments: string
+  isComplete: boolean
+}
+
 export interface StructuredChatResponse {
   thoughts: string
   finalResponse: string
@@ -1065,6 +1113,8 @@ export interface StructuredChatResponse {
   isThinking?: boolean
   isWritingToolCall?: boolean
   toolType?: 'task' | 'search'
+  /** Real-time structured tool calls being composed by the AI. */
+  streamingToolCalls?: StreamingToolCall[]
 }
 
 interface ToolArgs extends Record<string, any> {
@@ -3138,6 +3188,9 @@ export async function handleChatMessage(
           let currentFinalResponse = ''
           let chunkCount = 0
 
+          // Accumulator for structured native tool calls
+          const currentStreamingToolCalls: StreamingToolCall[] = []
+
           const stream = generateAiStream(
             currentProvider,
             currentApiKey,
@@ -3163,28 +3216,58 @@ export async function handleChatMessage(
               currentFinalResponse += chunk.text
             }
 
+            // Accumulate structured tool call deltas
+            if (chunk.toolCalls) {
+              for (const tcDelta of chunk.toolCalls) {
+                let existing = currentStreamingToolCalls.find(tc => tc.index === tcDelta.index)
+                if (!existing) {
+                  existing = { index: tcDelta.index, name: '', arguments: '', isComplete: false }
+                  currentStreamingToolCalls.push(existing)
+                }
+                if (tcDelta.id) existing.id = tcDelta.id
+                if (tcDelta.name) existing.name = tcDelta.name
+                if (tcDelta.isComplete) {
+                  if (tcDelta.argumentsDelta !== undefined) {
+                    existing.arguments = tcDelta.argumentsDelta
+                  }
+                  existing.isComplete = true
+                } else if (tcDelta.argumentsDelta) {
+                  existing.arguments += tcDelta.argumentsDelta
+                }
+              }
+            }
+
             const now = Date.now()
             const shouldSendIpc = now - lastIpcTime >= IPC_THROTTLE_MS || chunkCount === 1
 
             if (shouldSendIpc) {
               lastIpcTime = now
 
+              // Detect tool call writing from BOTH structured tool calls and legacy text markers
+              const hasStructuredToolCalls = currentStreamingToolCalls.length > 0
+
               const countOccurrences = (str: string, subStr: string): number =>
                 str.split(subStr).length - 1
 
-              const isWritingToolCall =
+              const hasLegacyToolCall =
                 countOccurrences(currentFinalResponse, '[PRISM_EXECUTE_TOOL]') >
-                  countOccurrences(currentFinalResponse, '[/PRISM_EXECUTE_TOOL]') ||
+                  countOccurrences(currentFinalResponse, '[/PRISM_EXECUTE_TOOL]')
+
+              const hasMiniApp =
                 countOccurrences(currentFinalResponse, '<mini_app>') >
                   countOccurrences(currentFinalResponse, '</mini_app>')
 
+              const isWritingToolCall = hasStructuredToolCalls || hasLegacyToolCall || hasMiniApp
+
               let toolType: 'task' | 'search' | 'mini-app' | undefined = undefined
               if (isWritingToolCall) {
-                const openMiniApp =
-                  countOccurrences(currentFinalResponse, '<mini_app>') >
-                  countOccurrences(currentFinalResponse, '</mini_app>')
-                if (openMiniApp) {
+                if (hasMiniApp) {
                   toolType = 'mini-app'
+                } else if (hasStructuredToolCalls) {
+                  // Determine tool type from structured data
+                  const lastTc = currentStreamingToolCalls[currentStreamingToolCalls.length - 1]
+                  const searchTools = ['web_search', 'search_chat_history', 'saw_link_from_url', 'search_chat_memory']
+                  toolType = searchTools.includes(lastTc?.name) ? 'search' : 'task'
                 } else {
                   const lastOpenIdx = currentFinalResponse.lastIndexOf('[PRISM_EXECUTE_TOOL]')
                   const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)
@@ -3216,28 +3299,36 @@ export async function handleChatMessage(
                 isThinking,
                 isWritingToolCall,
                 toolType,
+                streamingToolCalls: currentStreamingToolCalls.length > 0 ? currentStreamingToolCalls : undefined,
                 chatId: chatId
               })
             }
           }
 
           // Send final chunk to ensure the last generated tokens are fully delivered
+          const hasStructuredToolCallsFinal = currentStreamingToolCalls.length > 0
+
           const finalCountOccurrences = (str: string, subStr: string): number =>
             str.split(subStr).length - 1
 
-          const isWritingToolCallFinal =
+          const hasLegacyToolCallFinal =
             finalCountOccurrences(currentFinalResponse, '[PRISM_EXECUTE_TOOL]') >
-              finalCountOccurrences(currentFinalResponse, '[/PRISM_EXECUTE_TOOL]') ||
+              finalCountOccurrences(currentFinalResponse, '[/PRISM_EXECUTE_TOOL]')
+
+          const hasMiniAppFinal =
             finalCountOccurrences(currentFinalResponse, '<mini_app>') >
               finalCountOccurrences(currentFinalResponse, '</mini_app>')
 
+          const isWritingToolCallFinal = hasStructuredToolCallsFinal || hasLegacyToolCallFinal || hasMiniAppFinal
+
           let toolTypeFinal: 'task' | 'search' | 'mini-app' | undefined = undefined
           if (isWritingToolCallFinal) {
-            const openMiniApp =
-              finalCountOccurrences(currentFinalResponse, '<mini_app>') >
-              finalCountOccurrences(currentFinalResponse, '</mini_app>')
-            if (openMiniApp) {
+            if (hasMiniAppFinal) {
               toolTypeFinal = 'mini-app'
+            } else if (hasStructuredToolCallsFinal) {
+              const lastTc = currentStreamingToolCalls[currentStreamingToolCalls.length - 1]
+              const searchTools = ['web_search', 'search_chat_history', 'saw_link_from_url', 'search_chat_memory']
+              toolTypeFinal = searchTools.includes(lastTc?.name) ? 'search' : 'task'
             } else {
               const lastOpenIdx = currentFinalResponse.lastIndexOf('[PRISM_EXECUTE_TOOL]')
               const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)
@@ -3269,15 +3360,31 @@ export async function handleChatMessage(
             isThinking: isThinkingFinal,
             isWritingToolCall: isWritingToolCallFinal,
             toolType: toolTypeFinal,
+            streamingToolCalls: currentStreamingToolCalls.length > 0 ? currentStreamingToolCalls : undefined,
             chatId: chatId
           })
 
           console.log(`[Main Chat] Stream generation completed. Total chunks: ${chunkCount}`)
-          // Add the AI response (whether text or Tool Call) to history
+
+          // Save the AI response to history.
+          // Use structured functionCall parts for native tool calls, legacy text for old-style.
           const fullAiResponse = currentFinalResponse
-          if (fullAiResponse.trim()) {
-            runHistory.push({ role: 'model', parts: [{ text: fullAiResponse }] })
-            saveChatSession(chatId, runHistory)
+          const completedStructuredToolCalls = currentStreamingToolCalls.filter(tc => tc.isComplete && tc.name)
+
+          if (fullAiResponse.trim() || completedStructuredToolCalls.length > 0) {
+            const historyParts: NonNullable<Content['parts']> = []
+            if (fullAiResponse.trim()) {
+              historyParts.push({ text: fullAiResponse })
+            }
+            for (const tc of completedStructuredToolCalls) {
+              let args: Record<string, any> = {}
+              try { args = JSON.parse(tc.arguments) } catch { /* ignore */ }
+              historyParts.push({ functionCall: { name: tc.name, args } } as any)
+            }
+            if (historyParts.length > 0) {
+              runHistory.push({ role: 'model', parts: historyParts })
+              saveChatSession(chatId, runHistory)
+            }
           }
 
           const needsThoughtSeparator = accumulatedThoughts.length > 0 && currentThoughts.length > 0
@@ -3293,14 +3400,37 @@ export async function handleChatMessage(
           }
           currentThoughts = currentThoughts.replace(thoughtToolPattern, '').trim()
 
-          const toolMatches = extractToolCalls(fullAiResponse)
+          // Determine which tool calls to execute:
+          // 1. Structured native tool calls (from API function calling) — preferred
+          // 2. Legacy text-based [PRISM_EXECUTE_TOOL] parsing — fallback for old-style models
 
-          if (toolMatches.length > 0) {
-            const toolPromises = toolMatches.map(async (toolContent) => {
-              const validation = validateToolCall(toolContent)
-              let isMalformed = validation.isMalformed
-              let actualName = isMalformed ? 'malformed_tool_call' : validation.name!
+          let hasToolCallsToExecute = false
 
+          if (completedStructuredToolCalls.length > 0) {
+            // Execute structured tool calls
+            hasToolCallsToExecute = true
+            const toolPromises = completedStructuredToolCalls.map(async (tc) => {
+              let parsedArgs: Record<string, any> = {}
+              try { parsedArgs = JSON.parse(tc.arguments) } catch { /* ignore */ }
+
+              // Validate using the structured data
+              const name = parsedArgs.type || tc.name
+              delete parsedArgs.type
+
+              let isMalformed = false
+              let actualName = name
+              let errorMessage = ''
+              let errorType = ''
+
+              if (!toolFunctions[name]) {
+                isMalformed = true
+                const suggestion = findClosestTool(name)
+                actualName = 'malformed_tool_call'
+                errorType = 'invalid_tool'
+                errorMessage = `The tool name "${name}" is not recognized. Did you mean "${suggestion}"? Available tools are: ${Object.keys(toolFunctions).join(', ')}.`
+              }
+
+              // Check workflow constraints
               if (
                 !isMalformed &&
                 matchedWorkflow?.toolConstraints &&
@@ -3308,29 +3438,50 @@ export async function handleChatMessage(
               ) {
                 if (!matchedWorkflow.toolConstraints.includes(actualName)) {
                   isMalformed = true
-                  validation.isMalformed = true
-                  validation.errorType = 'invalid_tool'
-                  validation.errorMessage = `Error: The tool "${actualName}" is not allowed under the active workflow constraints. Allowed tools for this workflow are: ${matchedWorkflow.toolConstraints.join(', ')}.`
+                  errorType = 'invalid_tool'
+                  errorMessage = `Error: The tool "${actualName}" is not allowed under the active workflow constraints. Allowed tools for this workflow are: ${matchedWorkflow.toolConstraints.join(', ')}.`
                   actualName = 'malformed_tool_call'
                 }
               }
 
               if (currentSessionMode === 'conversation') {
                 isMalformed = true
-                validation.isMalformed = true
-                validation.errorType = 'invalid_tool'
-                validation.errorMessage = 'Tools are disabled in Conversation Mode.'
+                errorType = 'invalid_tool'
+                errorMessage = 'Tools are disabled in Conversation Mode.'
                 actualName = 'malformed_tool_call'
               }
 
-              let toolArgs = validation.args
+              // Build validated tool args
+              let toolArgs: ToolArgs = {}
+              if (!isMalformed) {
+                for (const [key, value] of Object.entries(parsedArgs)) {
+                  if (OBJECT_TOOL_ARG_TAGS.has(key) && typeof value === 'object' && value !== null) {
+                    toolArgs[key] = value as unknown as string
+                    continue
+                  }
+                  let val = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+                  if (!RAW_TOOL_ARG_TAGS.has(key)) {
+                    val = val.trim()
+                  }
+                  toolArgs[key] = val
+                }
+
+                // Validate schema args
+                const schemaError = validateSchemaArgs(actualName, toolArgs)
+                if (schemaError) {
+                  isMalformed = true
+                  errorType = schemaError.type
+                  errorMessage = schemaError.message
+                  actualName = 'malformed_tool_call'
+                }
+              }
 
               if (isMalformed) {
                 toolArgs = {
-                  rawContent: toolContent,
-                  originalName: validation.name || 'None',
-                  errorType: validation.errorType,
-                  errorMessage: validation.errorMessage
+                  rawContent: tc.arguments,
+                  originalName: name || 'None',
+                  errorType,
+                  errorMessage
                 }
               }
 
@@ -3344,23 +3495,13 @@ export async function handleChatMessage(
               let toolResult = ''
               if (isMalformed) {
                 if (currentSessionMode === 'conversation') {
-                  toolResult = `Error: Tool execution is disabled in Conversation Mode. You cannot run tools (attempted: "${validation.name || 'unknown'}"). Please answer the user's question without calling any tools.`
+                  toolResult = `Error: Tool execution is disabled in Conversation Mode. You cannot run tools (attempted: "${name || 'unknown'}"). Please answer the user's question without calling any tools.`
                 } else {
-                  toolResult = `Error: AI stopped due to a malformed Tool Call.
-Detailed Error: ${validation.errorMessage}
-
-Your generated segment was:
-[PRISM_EXECUTE_TOOL]
-${toolContent.trim()}
-[/PRISM_EXECUTE_TOOL]
-
-Every tool call MUST strictly conform to the expected format. Please review the error above, correct the tool call format, and try again.`
+                  toolResult = `Error: AI stopped due to a malformed Tool Call.\nDetailed Error: ${errorMessage}\n\nYour generated tool call was: ${tc.name}(${tc.arguments})\n\nPlease review the error above, correct the tool call, and try again.`
                 }
-                // Slight delay to feel like execution time
                 await new Promise((resolve) => setTimeout(resolve, 500))
               } else {
                 try {
-                  // Check if aborted before running tool
                   const signal = runAbortController.signal
                   if (signal?.aborted) throw new Error('AbortError')
                   toolResult = await toolFunctions[actualName](
@@ -3411,6 +3552,121 @@ Every tool call MUST strictly conform to the expected format. Please review the 
               runHistory.push({ role: 'system', parts })
               saveChatSession(chatId, runHistory)
               continue
+            }
+          }
+
+          // Legacy fallback: extract tool calls from text-based [PRISM_EXECUTE_TOOL] markers
+          if (!hasToolCallsToExecute) {
+            const toolMatches = extractToolCalls(fullAiResponse)
+
+            if (toolMatches.length > 0) {
+              hasToolCallsToExecute = true
+              const toolPromises = toolMatches.map(async (toolContent) => {
+                const validation = validateToolCall(toolContent)
+                let isMalformed = validation.isMalformed
+                let actualName = isMalformed ? 'malformed_tool_call' : validation.name!
+
+                if (
+                  !isMalformed &&
+                  matchedWorkflow?.toolConstraints &&
+                  matchedWorkflow.toolConstraints.length > 0
+                ) {
+                  if (!matchedWorkflow.toolConstraints.includes(actualName)) {
+                    isMalformed = true
+                    validation.isMalformed = true
+                    validation.errorType = 'invalid_tool'
+                    validation.errorMessage = `Error: The tool "${actualName}" is not allowed under the active workflow constraints. Allowed tools for this workflow are: ${matchedWorkflow.toolConstraints.join(', ')}.`
+                    actualName = 'malformed_tool_call'
+                  }
+                }
+
+                if (currentSessionMode === 'conversation') {
+                  isMalformed = true
+                  validation.isMalformed = true
+                  validation.errorType = 'invalid_tool'
+                  validation.errorMessage = 'Tools are disabled in Conversation Mode.'
+                  actualName = 'malformed_tool_call'
+                }
+
+                let toolArgs = validation.args
+
+                if (isMalformed) {
+                  toolArgs = {
+                    rawContent: toolContent,
+                    originalName: validation.name || 'None',
+                    errorType: validation.errorType,
+                    errorMessage: validation.errorMessage
+                  }
+                }
+
+                event.sender.send('chat-tool-start', {
+                  name: actualName,
+                  args: toolArgs,
+                  timestamp: Date.now(),
+                  chatId
+                })
+
+                let toolResult = ''
+                if (isMalformed) {
+                  if (currentSessionMode === 'conversation') {
+                    toolResult = `Error: Tool execution is disabled in Conversation Mode. You cannot run tools (attempted: "${validation.name || 'unknown'}"). Please answer the user's question without calling any tools.`
+                  } else {
+                    toolResult = `Error: AI stopped due to a malformed Tool Call.\nDetailed Error: ${validation.errorMessage}\n\nYour generated segment was:\n[PRISM_EXECUTE_TOOL]\n${toolContent.trim()}\n[/PRISM_EXECUTE_TOOL]\n\nEvery tool call MUST strictly conform to the expected format. Please review the error above, correct the tool call format, and try again.`
+                  }
+                  await new Promise((resolve) => setTimeout(resolve, 500))
+                } else {
+                  try {
+                    const signal = runAbortController.signal
+                    if (signal?.aborted) throw new Error('AbortError')
+                    toolResult = await toolFunctions[actualName](
+                      toolArgs,
+                      event,
+                      apiKey,
+                      signal,
+                      chatId
+                    )
+                  } catch (err) {
+                    if (
+                      runAbortController.signal.aborted ||
+                      (err instanceof Error &&
+                        (err.name === 'AbortError' || err.name === 'GoogleGenerativeAIAbortError'))
+                    ) {
+                      toolResult = 'Cancelled by user.'
+                      event.sender.send('chat-tool-end', {
+                        name: actualName,
+                        result: toolResult,
+                        chatId
+                      })
+                      throw new Error('AbortError')
+                    }
+                    toolResult = `Error: ${err instanceof Error ? err.message : String(err)}`
+                  }
+                }
+
+                event.sender.send('chat-tool-end', { name: actualName, result: toolResult, chatId })
+                return `\n[RESULT FOR ${actualName}]:\n${toolResult}\n`
+              })
+
+              const results = await Promise.all(toolPromises)
+              const allToolResults = results.join('')
+
+              if (allToolResults) {
+                const systemFeedback = `[SYSTEM: TOOL RESULTS]${allToolResults}\nAnalyze these results and proceed. If the goal is achieved, finalize. If more steps are needed, use another tool.`
+                const parts: NonNullable<Content['parts']> = [{ text: systemFeedback }]
+                const screenshotBase64 = chatId ? lastScreenshots.get(chatId) : undefined
+                if (screenshotBase64) {
+                  lastScreenshots.delete(chatId)
+                  parts.push({
+                    inlineData: {
+                      mimeType: 'image/png',
+                      data: screenshotBase64
+                    }
+                  })
+                }
+                runHistory.push({ role: 'system', parts })
+                saveChatSession(chatId, runHistory)
+                continue
+              }
             }
           }
 
@@ -3583,6 +3839,9 @@ export async function handleLauncherChatMessage(
           let lastIpcTime = 0
           const IPC_THROTTLE_MS = 50
 
+          // Accumulator for structured native tool calls
+          const currentStreamingToolCalls: StreamingToolCall[] = []
+
           for await (const chunk of responseStream) {
             if (runAbortController.signal.aborted) throw new Error('AbortError')
 
@@ -3593,28 +3852,56 @@ export async function handleLauncherChatMessage(
               currentFinalResponse += chunk.text
             }
 
+            // Accumulate structured tool call deltas
+            if (chunk.toolCalls) {
+              for (const tcDelta of chunk.toolCalls) {
+                let existing = currentStreamingToolCalls.find(tc => tc.index === tcDelta.index)
+                if (!existing) {
+                  existing = { index: tcDelta.index, name: '', arguments: '', isComplete: false }
+                  currentStreamingToolCalls.push(existing)
+                }
+                if (tcDelta.id) existing.id = tcDelta.id
+                if (tcDelta.name) existing.name = tcDelta.name
+                if (tcDelta.isComplete) {
+                  if (tcDelta.argumentsDelta !== undefined) {
+                    existing.arguments = tcDelta.argumentsDelta
+                  }
+                  existing.isComplete = true
+                } else if (tcDelta.argumentsDelta) {
+                  existing.arguments += tcDelta.argumentsDelta
+                }
+              }
+            }
+
             const now = Date.now()
             const shouldSendIpc = now - lastIpcTime >= IPC_THROTTLE_MS
 
             if (shouldSendIpc) {
               lastIpcTime = now
 
+              const hasStructuredToolCalls = currentStreamingToolCalls.length > 0
+
               const countOccurrences = (str: string, subStr: string): number =>
                 str.split(subStr).length - 1
 
-              const isWritingToolCall =
+              const hasLegacyToolCall =
                 countOccurrences(currentFinalResponse, '[PRISM_EXECUTE_TOOL]') >
-                  countOccurrences(currentFinalResponse, '[/PRISM_EXECUTE_TOOL]') ||
+                  countOccurrences(currentFinalResponse, '[/PRISM_EXECUTE_TOOL]')
+
+              const hasMiniApp =
                 countOccurrences(currentFinalResponse, '<mini_app>') >
                   countOccurrences(currentFinalResponse, '</mini_app>')
 
+              const isWritingToolCall = hasStructuredToolCalls || hasLegacyToolCall || hasMiniApp
+
               let toolType: 'task' | 'search' | 'mini-app' | undefined = undefined
               if (isWritingToolCall) {
-                const openMiniApp =
-                  countOccurrences(currentFinalResponse, '<mini_app>') >
-                  countOccurrences(currentFinalResponse, '</mini_app>')
-                if (openMiniApp) {
+                if (hasMiniApp) {
                   toolType = 'mini-app'
+                } else if (hasStructuredToolCalls) {
+                  const lastTc = currentStreamingToolCalls[currentStreamingToolCalls.length - 1]
+                  const searchTools = ['web_search', 'search_chat_history', 'saw_link_from_url', 'search_chat_memory']
+                  toolType = searchTools.includes(lastTc?.name) ? 'search' : 'task'
                 } else {
                   const lastOpenIdx = currentFinalResponse.lastIndexOf('[PRISM_EXECUTE_TOOL]')
                   const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)
@@ -3641,28 +3928,35 @@ export async function handleLauncherChatMessage(
                 finalResponse: fullResponse.trim(),
                 isThinking,
                 isWritingToolCall,
-                toolType
+                toolType,
+                streamingToolCalls: currentStreamingToolCalls.length > 0 ? currentStreamingToolCalls : undefined
               })
             }
           }
 
-          // Send final chunk to ensure the last generated tokens are fully delivered
+          // Send final chunk
+          const hasStructuredToolCallsFinal = currentStreamingToolCalls.length > 0
           const finalCountOccurrences = (str: string, subStr: string): number =>
             str.split(subStr).length - 1
 
-          const isWritingToolCallFinal =
+          const hasLegacyToolCallFinal =
             finalCountOccurrences(currentFinalResponse, '[PRISM_EXECUTE_TOOL]') >
-              finalCountOccurrences(currentFinalResponse, '[/PRISM_EXECUTE_TOOL]') ||
+              finalCountOccurrences(currentFinalResponse, '[/PRISM_EXECUTE_TOOL]')
+
+          const hasMiniAppFinal =
             finalCountOccurrences(currentFinalResponse, '<mini_app>') >
               finalCountOccurrences(currentFinalResponse, '</mini_app>')
 
+          const isWritingToolCallFinal = hasStructuredToolCallsFinal || hasLegacyToolCallFinal || hasMiniAppFinal
+
           let toolTypeFinal: 'task' | 'search' | 'mini-app' | undefined = undefined
           if (isWritingToolCallFinal) {
-            const openMiniApp =
-              finalCountOccurrences(currentFinalResponse, '<mini_app>') >
-              finalCountOccurrences(currentFinalResponse, '</mini_app>')
-            if (openMiniApp) {
+            if (hasMiniAppFinal) {
               toolTypeFinal = 'mini-app'
+            } else if (hasStructuredToolCallsFinal) {
+              const lastTc = currentStreamingToolCalls[currentStreamingToolCalls.length - 1]
+              const searchTools = ['web_search', 'search_chat_history', 'saw_link_from_url', 'search_chat_memory']
+              toolTypeFinal = searchTools.includes(lastTc?.name) ? 'search' : 'task'
             } else {
               const lastOpenIdx = currentFinalResponse.lastIndexOf('[PRISM_EXECUTE_TOOL]')
               const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)
@@ -3689,12 +3983,26 @@ export async function handleLauncherChatMessage(
             finalResponse: finalResponseString.trim(),
             isThinking: isThinkingFinal,
             isWritingToolCall: isWritingToolCallFinal,
-            toolType: toolTypeFinal
+            toolType: toolTypeFinal,
+            streamingToolCalls: currentStreamingToolCalls.length > 0 ? currentStreamingToolCalls : undefined
           })
 
           const fullAiResponse = currentFinalResponse
-          if (fullAiResponse.trim()) {
-            launcherChatHistory.push({ role: 'model', parts: [{ text: fullAiResponse }] })
+          const completedStructuredToolCalls = currentStreamingToolCalls.filter(tc => tc.isComplete && tc.name)
+
+          if (fullAiResponse.trim() || completedStructuredToolCalls.length > 0) {
+            const historyParts: NonNullable<Content['parts']> = []
+            if (fullAiResponse.trim()) {
+              historyParts.push({ text: fullAiResponse })
+            }
+            for (const tc of completedStructuredToolCalls) {
+              let args: Record<string, any> = {}
+              try { args = JSON.parse(tc.arguments) } catch { /* ignore */ }
+              historyParts.push({ functionCall: { name: tc.name, args } } as any)
+            }
+            if (historyParts.length > 0) {
+              launcherChatHistory.push({ role: 'model', parts: historyParts })
+            }
           }
 
           const needsThoughtSeparator = accumulatedThoughts.length > 0 && currentThoughts.length > 0
@@ -3709,15 +4017,26 @@ export async function handleLauncherChatMessage(
           }
           currentThoughts = currentThoughts.replace(thoughtToolPatternLauncher, '').trim()
 
-          const toolMatches = extractToolCalls(fullAiResponse)
+          // Determine which tool calls to execute
+          let hasLauncherToolCalls = false
 
-          if (toolMatches.length > 0) {
+          if (completedStructuredToolCalls.length > 0) {
+            hasLauncherToolCalls = true
             let openMainAppCalled = false
 
-            const toolPromises = toolMatches.map(async (toolContent) => {
-              const { name, args: toolArgs } = parseToolCall(toolContent)
+            const toolPromises = completedStructuredToolCalls.map(async (tc) => {
+              let parsedArgs: Record<string, any> = {}
+              try { parsedArgs = JSON.parse(tc.arguments) } catch { /* ignore */ }
+
+              const name = parsedArgs.type || tc.name
+              delete parsedArgs.type
 
               if (name && toolFunctions[name]) {
+                const toolArgs: ToolArgs = {}
+                for (const [key, value] of Object.entries(parsedArgs)) {
+                  toolArgs[key] = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+                }
+
                 event.sender.send('launcher-tool-start', {
                   name,
                   args: toolArgs,
@@ -3756,13 +4075,14 @@ export async function handleLauncherChatMessage(
                 }
 
                 event.sender.send('launcher-tool-end', { name, result: toolResult })
-                return `\n[RESULT FOR ${name}]:\n${toolResult}\n`
+                return { result: `\n[RESULT FOR ${name}]:\n${toolResult}\n`, openMainAppCalled }
               }
-              return ''
+              return { result: '', openMainAppCalled: false }
             })
 
-            const results = await Promise.all(toolPromises)
-            const allToolResults = results.join('')
+            const resultsWithFlags = await Promise.all(toolPromises)
+            openMainAppCalled = resultsWithFlags.some(r => r.openMainAppCalled)
+            const allToolResults = resultsWithFlags.map(r => r.result).join('')
 
             if (openMainAppCalled) {
               success = true
@@ -3789,6 +4109,92 @@ export async function handleLauncherChatMessage(
               }
               launcherChatHistory.push({ role: 'system', parts })
               continue
+            }
+          }
+
+          // Legacy fallback for text-based tool calls
+          if (!hasLauncherToolCalls) {
+            const toolMatches = extractToolCalls(fullAiResponse)
+
+            if (toolMatches.length > 0) {
+              let openMainAppCalled = false
+
+              const toolPromises = toolMatches.map(async (toolContent) => {
+                const { name, args: toolArgs } = parseToolCall(toolContent)
+
+                if (name && toolFunctions[name]) {
+                  event.sender.send('launcher-tool-start', {
+                    name,
+                    args: toolArgs,
+                    timestamp: Date.now()
+                  })
+
+                  let toolResult = ''
+                  try {
+                    const signal = runAbortController.signal
+                    if (signal?.aborted) throw new Error('AbortError')
+
+                    if (name === 'open_main_app') {
+                      if (toolArgs.thinkMode === undefined) {
+                        toolArgs.thinkMode = thinkMode ? 'true' : 'false'
+                      }
+                      if (toolArgs.searchEnabled === undefined) {
+                        toolArgs.searchEnabled = message.startsWith('[FORCE_SEARCH]')
+                          ? 'true'
+                          : 'false'
+                      }
+                      openMainAppCalled = true
+                    }
+
+                    toolResult = await toolFunctions[name](toolArgs, event, apiKey, signal)
+                  } catch (err) {
+                    if (
+                      runAbortController.signal.aborted ||
+                      (err instanceof Error &&
+                        (err.name === 'AbortError' || err.name === 'GoogleGenerativeAIAbortError'))
+                    ) {
+                      toolResult = 'Cancelled by user.'
+                      event.sender.send('launcher-tool-end', { name, result: toolResult })
+                      throw new Error('AbortError')
+                    }
+                    toolResult = `Error: ${err instanceof Error ? err.message : String(err)}`
+                  }
+
+                  event.sender.send('launcher-tool-end', { name, result: toolResult })
+                  return `\n[RESULT FOR ${name}]:\n${toolResult}\n`
+                }
+                return ''
+              })
+
+              const results = await Promise.all(toolPromises)
+              const allToolResults = results.join('')
+
+              if (openMainAppCalled) {
+                success = true
+                launcherChatHistory = []
+                event.sender.send('launcher-reply-end', {
+                  thoughts: accumulatedThoughts.trim(),
+                  finalResponse: accumulatedFinalResponse.trim() || 'Opening the main application with instructions...'
+                })
+                return
+              }
+
+              if (allToolResults) {
+                const systemFeedback = `[SYSTEM: TOOL RESULTS]${allToolResults}\nAnalyze these results and proceed. If the goal is achieved, finalize. If more steps are needed, use another tool.`
+                const parts: NonNullable<Content['parts']> = [{ text: systemFeedback }]
+                const screenshotBase64 = lastScreenshots.get('launcher')
+                if (screenshotBase64) {
+                  lastScreenshots.delete('launcher')
+                  parts.push({
+                    inlineData: {
+                      mimeType: 'image/png',
+                      data: screenshotBase64
+                    }
+                  })
+                }
+                launcherChatHistory.push({ role: 'system', parts })
+                continue
+              }
             }
           }
 

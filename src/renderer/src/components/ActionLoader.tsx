@@ -35,6 +35,16 @@ export interface ToolCall {
     }
   >
   searchUpdates?: string[]
+
+  // Consolidated file operation fields
+  isConsolidated?: boolean
+  consolidatedType?: 'write' | 'edit' | 'read'
+  filePath?: string
+  fileName?: string
+  addedLines?: number
+  removedLines?: number
+  readLines?: { start: number; end: number }[]
+  originalCalls?: ToolCall[]
 }
 
 interface ActionLoaderProps {
@@ -87,6 +97,18 @@ function getStringArg(args: Record<string, unknown>, key: string): string {
 
 function renderToolDetails(toolCall: ToolCall): React.ReactNode {
   const { name, args, result } = toolCall
+
+  if (toolCall.isConsolidated) {
+    return (
+      <div className="text-text-secondary/60 space-y-0.5 mt-1">
+        <div className="flex items-center gap-1.5">
+          <FileCode size={12} className="text-accent-primary/70" />
+          <span className="truncate max-w-[340px]" title={toolCall.filePath}>{toolCall.filePath}</span>
+        </div>
+      </div>
+    )
+  }
+
   const filePath = (args.filePath || args.path || args.TargetFile || args.absolutePath || args.AbsolutePath || args.sourcePath) as string | undefined
   const command = (args.command || args.CommandLine) as string | undefined
 
@@ -156,6 +178,92 @@ function useToolCallMeta(toolCall: ToolCall): {
   renderIcon: (size?: number) => React.JSX.Element
   isYoutube: boolean
 } {
+  if (toolCall.isConsolidated) {
+    const isDone =
+      toolCall.status === 'done' || toolCall.status === 'error' || toolCall.status === 'cancelled'
+    const isWriting = toolCall.status === 'writing'
+    const isRunning = !isDone
+
+    let displayTitle = 'File Action'
+    let displayDetail = toolCall.filePath || ''
+    let tone: 'default' | 'search' | 'think' | 'success' | 'error' | 'youtube' = 'default'
+
+    const fileName = toolCall.fileName || 'file'
+
+    if (toolCall.consolidatedType === 'edit') {
+      const diffLabel = `(+${toolCall.addedLines || 0} -${toolCall.removedLines || 0})`
+      if (isWriting || isRunning) {
+        displayTitle = `Editing ${fileName}`
+      } else {
+        displayTitle = `Edited ${fileName}`
+      }
+      displayDetail = diffLabel
+      tone = isWriting ? 'think' : isRunning ? 'think' : 'success'
+    } else if (toolCall.consolidatedType === 'write') {
+      const diffLabel = `(+${toolCall.addedLines || 0} -0)`
+      if (isWriting || isRunning) {
+        displayTitle = `Writing ${fileName}`
+      } else {
+        displayTitle = `Created ${fileName}`
+      }
+      displayDetail = diffLabel
+      tone = isWriting ? 'think' : isRunning ? 'think' : 'success'
+    } else if (toolCall.consolidatedType === 'read') {
+      if (isWriting || isRunning) {
+        displayTitle = `Reading ${fileName}`
+      } else {
+        displayTitle = `Read ${fileName}`
+      }
+      
+      const lines = toolCall.readLines || []
+      if (lines.length > 0) {
+        displayDetail = `Lines ` + lines.map(l => `${l.start}-${l.end}`).join(', ')
+      } else {
+        displayDetail = 'Loading file content.'
+      }
+      tone = 'search'
+    }
+
+    if (toolCall.status === 'done') tone = 'success'
+    if (toolCall.status === 'error' || toolCall.status === 'cancelled') tone = 'error'
+
+    const statusLabel =
+      toolCall.status === 'done'
+        ? 'Completed'
+        : toolCall.status === 'error'
+          ? 'Error'
+          : toolCall.status === 'cancelled'
+            ? 'Cancelled'
+            : toolCall.status === 'cooldown'
+              ? 'Cooling'
+              : toolCall.status === 'writing'
+                ? 'Composing'
+                : 'Running'
+
+    const renderIcon = (size = 16): React.JSX.Element => {
+      if (isDone) {
+        if (toolCall.status === 'done') return <CheckCircle size={size} weight="fill" />
+        return <XCircle size={size} weight="fill" />
+      }
+      if (isWriting) {
+        return <FileCode size={size} weight="regular" className="animate-pulse" />
+      }
+      return <FileCode size={size} weight="regular" />
+    }
+
+    return {
+      displayTitle,
+      displayDetail,
+      tone,
+      isDone,
+      isWriting,
+      isRunning,
+      statusLabel,
+      renderIcon,
+      isYoutube: false
+    }
+  }
+
   const url = getStringArg(toolCall.args, 'url')
   const query = getStringArg(toolCall.args, 'query')
   const isYoutube = /youtube\.com|youtu\.be|^\/youtube|\byoutube\b/i.test(`${url} ${query}`)
@@ -423,7 +531,7 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
   const [isExpanded, setIsExpanded] = useState(false)
   const [selectedAgentKey, setSelectedAgentKey] = useState<string>('master')
 
-  const { displayTitle, tone, isDone, isRunning, statusLabel, renderIcon } =
+  const { displayTitle, displayDetail, tone, isDone, isRunning, statusLabel, renderIcon } =
     useToolCallMeta(toolCall)
 
   const toneColors = {
@@ -504,24 +612,37 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
           {renderIcon(13)}
         </div>
 
-        <span className="font-semibold text-text-primary leading-none">{displayTitle}</span>
-        <span className={clsx('text-[11px] font-medium leading-none opacity-80', toneColors.text)}>
-          ({statusLabel})
-        </span>
-        {toolCall.status === 'writing' && typeof writingArgs?.filePath === 'string' && (
-          <span className="text-[11px] text-text-muted/60 truncate max-w-[200px]" title={writingArgs.filePath}>
-            · {writingArgs.filePath}
-          </span>
-        )}
-        {toolCall.status === 'writing' && typeof writingArgs?.command === 'string' && typeof writingArgs?.filePath !== 'string' && (
-          <span className="text-[11px] text-text-muted/60 font-mono truncate max-w-[200px]" title={writingArgs.command}>
-            · {writingArgs.command.substring(0, 40)}{writingArgs.command.length > 40 ? '...' : ''}
-          </span>
-        )}
-        {toolCall.status === 'writing' && typeof writingArgs?.query === 'string' && typeof writingArgs?.filePath !== 'string' && typeof writingArgs?.command !== 'string' && (
-          <span className="text-[11px] text-text-muted/60 truncate max-w-[200px]" title={writingArgs.query}>
-            · {writingArgs.query}
-          </span>
+        {toolCall.isConsolidated ? (
+          <>
+            <span className="font-semibold text-text-primary leading-none">
+              {displayTitle} <span className="font-normal opacity-85">{displayDetail}</span>
+            </span>
+            <span className={clsx('text-[11px] font-medium leading-none opacity-80', toneColors.text)}>
+              ({statusLabel})
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="font-semibold text-text-primary leading-none">{displayTitle}</span>
+            <span className={clsx('text-[11px] font-medium leading-none opacity-80', toneColors.text)}>
+              ({statusLabel})
+            </span>
+            {toolCall.status === 'writing' && typeof writingArgs?.filePath === 'string' && (
+              <span className="text-[11px] text-text-muted/60 truncate max-w-[200px]" title={writingArgs.filePath}>
+                · {writingArgs.filePath}
+              </span>
+            )}
+            {toolCall.status === 'writing' && typeof writingArgs?.command === 'string' && typeof writingArgs?.filePath !== 'string' && (
+              <span className="text-[11px] text-text-muted/60 font-mono truncate max-w-[200px]" title={writingArgs.command}>
+                · {writingArgs.command.substring(0, 40)}{writingArgs.command.length > 40 ? '...' : ''}
+              </span>
+            )}
+            {toolCall.status === 'writing' && typeof writingArgs?.query === 'string' && typeof writingArgs?.filePath !== 'string' && typeof writingArgs?.command !== 'string' && (
+              <span className="text-[11px] text-text-muted/60 truncate max-w-[200px]" title={writingArgs.query}>
+                · {writingArgs.query}
+              </span>
+            )}
+          </>
         )}
 
         <div className="flex items-center gap-1.5 ml-1">

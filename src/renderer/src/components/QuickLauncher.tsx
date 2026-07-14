@@ -55,6 +55,14 @@ function evaluateMathExpression(expr: string): string | null {
   return null
 }
 
+interface StreamingToolCall {
+  index: number
+  id?: string
+  name: string
+  arguments: string
+  isComplete: boolean
+}
+
 interface Message {
   role: 'user' | 'ai'
   content: string
@@ -65,7 +73,170 @@ interface Message {
   isWritingToolCall?: boolean
   toolType?: 'task' | 'search' | 'mini-app'
   toolCalls?: ToolCall[]
+  streamingToolCalls?: StreamingToolCall[]
   screenshot?: string
+}
+
+function consolidateToolCalls(
+  toolCalls?: ToolCall[],
+  streamingToolCalls?: StreamingToolCall[]
+): ToolCall[] {
+  const allCalls: ToolCall[] = []
+
+  if (toolCalls) {
+    allCalls.push(...toolCalls)
+  }
+
+  if (streamingToolCalls) {
+    for (const stc of streamingToolCalls) {
+      const isAlreadyExecuted = toolCalls?.some(
+        (tc) => tc.status !== 'writing' && tc.name === stc.name
+      )
+      if (!isAlreadyExecuted) {
+        let parsedArgs: Record<string, unknown> = {}
+        try {
+          parsedArgs = JSON.parse(stc.arguments)
+        } catch {
+          try {
+            const filePathMatch = stc.arguments.match(/"(?:filePath|path|TargetFile|absolutePath|AbsolutePath|sourcePath)"\s*:\s*"([^"]*)/i)
+            const commandMatch = stc.arguments.match(/"(?:command|CommandLine)"\s*:\s*"([^"]*)/i)
+            const queryMatch = stc.arguments.match(/"query"\s*:\s*"([^"]*)/i)
+            if (filePathMatch) parsedArgs.filePath = filePathMatch[1]
+            if (commandMatch) parsedArgs.command = commandMatch[1]
+            if (queryMatch) parsedArgs.query = queryMatch[1]
+          } catch { /* ignore */ }
+        }
+        allCalls.push({
+          name: stc.name || 'task',
+          args: parsedArgs,
+          status: 'writing'
+        })
+      }
+    }
+  }
+
+  const consolidatedList: ToolCall[] = []
+  const fileGroups = new Map<string, ToolCall[]>()
+  const groupFirstIndices = new Map<string, number>()
+
+  allCalls.forEach((call) => {
+    const name = call.name
+    const args = call.args
+    const filePath = (args?.filePath || args?.path || args?.TargetFile || args?.absolutePath || args?.AbsolutePath || args?.sourcePath) as string | undefined
+
+    const isWrite = name === 'computer_use_create_file' || name === 'computer_use_save_file' || name === 'write_to_file' || name === 'computer_use_append_file'
+    const isEdit = name === 'computer_use_edit_file' || name === 'replace_file_content' || name === 'multi_replace_file_content'
+    const isRead = name === 'computer_use_read_file' || name === 'view_file'
+
+    if (filePath && (isWrite || isEdit || isRead)) {
+      const normPath = filePath.replace(/\\/g, '/').toLowerCase()
+      const opType = isWrite ? 'write' : isEdit ? 'edit' : 'read'
+      const key = `${opType}:${normPath}`
+
+      if (!fileGroups.has(key)) {
+        fileGroups.set(key, [])
+        groupFirstIndices.set(key, consolidatedList.length)
+        consolidatedList.push({
+          name: name,
+          args: args,
+          status: 'done',
+          isConsolidated: true,
+          consolidatedType: opType,
+          filePath,
+          fileName: filePath.split('/').pop()?.split('\\').pop() || filePath,
+          addedLines: 0,
+          removedLines: 0,
+          readLines: [],
+          originalCalls: []
+        })
+      }
+
+      fileGroups.get(key)!.push(call)
+    } else {
+      consolidatedList.push(call)
+    }
+  })
+
+  fileGroups.forEach((groupCalls, key) => {
+    const placeholderIdx = groupFirstIndices.get(key)!
+    const placeholder = consolidatedList[placeholderIdx]
+
+    placeholder.originalCalls = groupCalls
+
+    if (groupCalls.some((c) => c.status === 'writing')) {
+      placeholder.status = 'writing'
+    } else if (groupCalls.some((c) => c.status === 'running')) {
+      placeholder.status = 'running'
+    } else if (groupCalls.some((c) => c.status === 'error')) {
+      placeholder.status = 'error'
+    } else if (groupCalls.some((c) => c.status === 'cancelled')) {
+      placeholder.status = 'cancelled'
+    } else if (groupCalls.some((c) => c.status === 'cooldown')) {
+      placeholder.status = 'cooldown'
+    } else {
+      placeholder.status = 'done'
+    }
+
+    groupCalls.forEach((call) => {
+      const cName = call.name
+      const cArgs = call.args
+
+      const countLines = (str: unknown): number => {
+        if (typeof str !== 'string') return 0
+        if (!str) return 0
+        return str.split('\n').length
+      }
+
+      if (cName === 'computer_use_create_file' || cName === 'computer_use_save_file') {
+        placeholder.addedLines = (placeholder.addedLines || 0) + countLines(cArgs.content)
+      } else if (cName === 'write_to_file') {
+        placeholder.addedLines = (placeholder.addedLines || 0) + countLines(cArgs.CodeContent)
+      } else if (cName === 'computer_use_append_file') {
+        placeholder.addedLines = (placeholder.addedLines || 0) + countLines(cArgs.content)
+      } else if (cName === 'computer_use_edit_file') {
+        const start = parseInt(cArgs.startLine as string, 10)
+        const end = parseInt(cArgs.endLine as string, 10)
+        if (!isNaN(start) && !isNaN(end)) {
+          placeholder.removedLines = (placeholder.removedLines || 0) + (end - start + 1)
+        }
+        placeholder.addedLines = (placeholder.addedLines || 0) + countLines(cArgs.newContent)
+      } else if (cName === 'replace_file_content') {
+        placeholder.removedLines = (placeholder.removedLines || 0) + countLines(cArgs.TargetContent)
+        placeholder.addedLines = (placeholder.addedLines || 0) + countLines(cArgs.ReplacementContent)
+      } else if (cName === 'multi_replace_file_content') {
+        let chunks: any[] = []
+        if (Array.isArray(cArgs.ReplacementChunks)) {
+          chunks = cArgs.ReplacementChunks
+        } else if (typeof cArgs.ReplacementChunks === 'string') {
+          try {
+            chunks = JSON.parse(cArgs.ReplacementChunks)
+          } catch { /* ignore */ }
+        }
+        chunks.forEach((chunk) => {
+          placeholder.removedLines = (placeholder.removedLines || 0) + countLines(chunk.TargetContent)
+          placeholder.addedLines = (placeholder.addedLines || 0) + countLines(chunk.ReplacementContent)
+        })
+      } else if (cName === 'computer_use_read_file') {
+        const start = parseInt(cArgs.startLine as string, 10) || 1
+        const offset = parseInt(cArgs.offset as string, 10)
+        if (!isNaN(offset)) {
+          placeholder.readLines!.push({ start, end: start + offset - 1 })
+        } else {
+          placeholder.readLines!.push({ start, end: start })
+        }
+      } else if (cName === 'view_file') {
+        const start = parseInt(cArgs.StartLine as string, 10) || 1
+        const end = parseInt(cArgs.EndLine as string, 10)
+        if (!isNaN(end)) {
+          placeholder.readLines!.push({ start, end })
+        } else {
+          placeholder.readLines!.push({ start, end: start + 800 })
+        }
+      }
+    })
+  })
+
+  return consolidatedList
 }
 
 interface LauncherAiMessageProps {
@@ -78,6 +249,7 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
   markdownComponents
 }: LauncherAiMessageProps) {
   const streamStats = useStreamStats(msg.content, !!msg.isStreaming)
+  const nativeToolCalls = useMemo(() => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls), [msg.toolCalls, msg.streamingToolCalls])
 
   return (
     <StreamContext.Provider value={streamStats}>
@@ -404,18 +576,27 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
           })
         })()}
 
-        {msg.isWritingToolCall &&
-          !msg.content.includes('[PRISM_EXECUTE_TOOL]') &&
-          !msg.content.includes('<mini_app>') && (
-            <ActionLoader
-              key="writing-tc"
-              toolCall={{
-                name: msg.toolType || 'task',
-                status: 'writing',
-                args: {}
-              }}
-            />
+          {!msg.content.includes('[PRISM_EXECUTE_TOOL]') && nativeToolCalls.length > 0 && (
+            <div className="flex flex-col gap-2 mt-1 w-full">
+              {nativeToolCalls.map((tc, idx) => (
+                <ActionLoader key={`native-tc-${idx}`} toolCall={tc} />
+              ))}
+            </div>
           )}
+
+          {msg.isWritingToolCall &&
+            !msg.content.includes('[PRISM_EXECUTE_TOOL]') &&
+            !msg.content.includes('<mini_app>') &&
+            nativeToolCalls.length === 0 && (
+              <ActionLoader
+                key="writing-tc"
+                toolCall={{
+                  name: msg.toolType || 'task',
+                  status: 'writing',
+                  args: {}
+                }}
+              />
+            )}
       </div>
     </StreamContext.Provider>
   )
@@ -729,6 +910,7 @@ export function QuickLauncher(): React.JSX.Element {
           lastMsg.isThinking = data.isThinking
           lastMsg.isWritingToolCall = data.isWritingToolCall
           lastMsg.toolType = data.toolType
+          lastMsg.streamingToolCalls = data.streamingToolCalls
         }
         newMsgs[newMsgs.length - 1] = lastMsg
         return newMsgs
@@ -746,6 +928,7 @@ export function QuickLauncher(): React.JSX.Element {
           lastMsg.isStreaming = false
           lastMsg.isThinking = false
           lastMsg.isWritingToolCall = false
+          lastMsg.streamingToolCalls = undefined
         }
         newMsgs[newMsgs.length - 1] = lastMsg
         return newMsgs

@@ -1,5 +1,5 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
-import type { StructuredChatResponse } from '../main/gemini'
+import type { StructuredChatResponse, StreamingToolCall } from '../main/gemini'
 import type { AppConfig } from '../main/config'
 import type { ChatSession } from '../main/history'
 import type { Content } from '@google/genai'
@@ -160,6 +160,7 @@ export interface PrismAPI {
       isThinking: boolean
       isWritingToolCall?: boolean
       toolType?: 'task' | 'search' | 'mini-app'
+      streamingToolCalls?: StreamingToolCall[]
     }) => void
   ) => () => void
   onLauncherReplyEnd: (

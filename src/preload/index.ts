@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent, webFrame } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { StructuredChatResponse } from '../main/gemini'
+import type { StructuredChatResponse, StreamingToolCall } from '../main/gemini'
 import type { AppConfig } from '../main/config'
 import type {
   ToolUpdate,
@@ -418,6 +418,7 @@ const api = {
       isThinking: boolean
       isWritingToolCall?: boolean
       toolType?: 'task' | 'search' | 'mini-app'
+      streamingToolCalls?: StreamingToolCall[]
     }) => void
   ): (() => void) => {
     const listener = (
@@ -428,6 +429,7 @@ const api = {
         isThinking: boolean
         isWritingToolCall?: boolean
         toolType?: 'task' | 'search' | 'mini-app'
+        streamingToolCalls?: StreamingToolCall[]
       }
     ): void => callback(data)
     ipcRenderer.on('launcher-reply-chunk', listener)
