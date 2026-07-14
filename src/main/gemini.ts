@@ -645,34 +645,38 @@ async function* generateAiStream(
 
     let accumulatedText = ''
 
-    for await (const chunk of responseStream) {
-      if (signal?.aborted) throw new Error('AbortError')
+    try {
+      for await (const chunk of responseStream) {
+        if (signal?.aborted) throw new Error('AbortError')
 
-      let thought = ''
-      let text = ''
+        let thought = ''
+        let text = ''
 
-      const candidate = chunk.candidates?.[0]
-      if (candidate?.content?.parts) {
-        for (const part of candidate.content.parts) {
-          if (part.thought) {
-            thought += part.text || ''
-          } else if (part.text) {
-            text += part.text
-          } else if (part.functionCall) {
-            const name = part.functionCall.name
-            const args = part.functionCall.args || {}
-            text += `[PRISM_EXECUTE_TOOL]${JSON.stringify({ type: name, ...args })}[/PRISM_EXECUTE_TOOL]\n`
+        const candidate = chunk.candidates?.[0]
+        if (candidate?.content?.parts) {
+          for (const part of candidate.content.parts) {
+            if (part.thought) {
+              thought += part.text || ''
+            } else if (part.text) {
+              text += part.text
+            } else if (part.functionCall) {
+              const name = part.functionCall.name
+              const args = part.functionCall.args || {}
+              text += `[PRISM_EXECUTE_TOOL]${JSON.stringify({ type: name, ...args })}[/PRISM_EXECUTE_TOOL]\n`
+            }
           }
         }
-      }
 
-      if (thought || text) {
-        accumulatedText += text
-        try {
-          fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text }) + '\n')
-        } catch (err) { /* ignore */ }
-        yield { thought, text }
+        if (thought || text) {
+          accumulatedText += text
+          try {
+            fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text }) + '\n')
+          } catch (err) { /* ignore */ }
+          yield { thought, text }
+        }
       }
+    } finally {
+      // Ensure the stream is properly closed to free server-side connections
     }
   } else {
     let baseURL: string
@@ -751,37 +755,44 @@ async function* generateAiStream(
       arguments: string
     }>()
 
-    for await (const chunk of responseStream) {
-      if (signal?.aborted) throw new Error('AbortError')
+    try {
+      for await (const chunk of responseStream) {
+        if (signal?.aborted) throw new Error('AbortError')
 
-      const choice = chunk.choices?.[0]
-      if (!choice) continue
+        const choice = chunk.choices?.[0]
+        if (!choice) continue
 
-      const delta = choice.delta || {}
-      const thought = (delta as any).reasoning_content || ''
-      const text = delta.content || ''
-      const toolCalls = delta.tool_calls || []
+        const delta = choice.delta || {}
+        const thought = (delta as any).reasoning_content || ''
+        const text = delta.content || ''
+        const toolCalls = delta.tool_calls || []
 
-      for (const tc of toolCalls) {
-        const idx = tc.index
-        if (idx !== undefined) {
-          if (!accumulatedToolCalls.has(idx)) {
-            accumulatedToolCalls.set(idx, { arguments: '' })
-          }
-          const acc = accumulatedToolCalls.get(idx)!
-          if (tc.id) acc.id = tc.id
-          if (tc.function?.name) acc.name = tc.function.name
-          if (tc.function?.arguments) {
-            acc.arguments += tc.function.arguments
+        for (const tc of toolCalls) {
+          const idx = tc.index
+          if (idx !== undefined) {
+            if (!accumulatedToolCalls.has(idx)) {
+              accumulatedToolCalls.set(idx, { arguments: '' })
+            }
+            const acc = accumulatedToolCalls.get(idx)!
+            if (tc.id) acc.id = tc.id
+            if (tc.function?.name) acc.name = tc.function.name
+            if (tc.function?.arguments) {
+              acc.arguments += tc.function.arguments
+            }
           }
         }
-      }
 
-      if (thought || text) {
-        try {
-          fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text }) + '\n')
-        } catch (err) { /* ignore */ }
-        yield { thought, text }
+        if (thought || text) {
+          try {
+            fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text }) + '\n')
+          } catch (err) { /* ignore */ }
+          yield { thought, text }
+        }
+      }
+    } finally {
+      // Ensure the stream is properly closed to free server-side connections
+      if (responseStream && typeof responseStream.controller?.abort === 'function') {
+        responseStream.controller.abort()
       }
     }
 
@@ -2716,7 +2727,8 @@ export function cancelChatMessage(chatId?: string): void {
 
 async function generateChatTitle(provider: 'gemini' | 'nvidia-nim' | 'openai-compatible', apiKey: string, firstMessage: string): Promise<string> {
   try {
-    const searchModel = provider === 'nvidia-nim' ? 'openai/gpt-oss-120b' : provider === 'openai-compatible' ? (loadConfig().openaiModelId || '') : 'gemini-3.1-flash-lite'
+    // Use lightweight/unused models for title generation to avoid congestion
+    const searchModel = provider === 'nvidia-nim' ? 'meta/llama-4-maverick-17b-128e-instruct' : provider === 'openai-compatible' ? (loadConfig().openaiModelId || '') : 'gemini-3.1-flash-lite'
 
     const prompt = `You are a conversation titler. Analyze the user's first message below and generate an extremely short (maximum 5 words) title for this conversation.
 IMPORTANT: The title MUST be written in the EXACT same language as the user's message. DEFINITELY match the user's language (e.g., if the user writes in Portuguese, the title must be in Portuguese; if in Spanish, in Spanish; if in English, in English, etc.).
@@ -2728,21 +2740,31 @@ User message: "${firstMessage}"`
       { role: 'user', parts: [{ text: prompt }] }
     ]
 
-    const result = await generateAiContent(
-      provider,
-      apiKey,
-      searchModel,
-      history,
-      undefined,
-      TITLE_GENERATION_TEMPERATURE,
-      'main',
-      []
-    )
-    const fullTitle = (result || '').trim()
-    return fullTitle || 'New Conversation'
+    // 10 second timeout for title generation to avoid hanging connections
+    const titleAbortController = new AbortController()
+    const titleTimeout = setTimeout(() => titleAbortController.abort(), 10000)
+
+    try {
+      const result = await generateAiContent(
+        provider,
+        apiKey,
+        searchModel,
+        history,
+        titleAbortController.signal,
+        TITLE_GENERATION_TEMPERATURE,
+        'main',
+        []
+      )
+      const fullTitle = (result || '').trim()
+      return fullTitle || 'New Conversation'
+    } finally {
+      clearTimeout(titleTimeout)
+    }
   } catch (error) {
     console.error('Failed to generate chat title:', error)
-    return 'New Conversation'
+    // Fallback: use first message (truncated) as title
+    const fallback = firstMessage.trim().slice(0, 50)
+    return fallback || 'New Conversation'
   }
 }
 
