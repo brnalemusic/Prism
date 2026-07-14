@@ -630,7 +630,8 @@ async function* generateAiStream(
       else if (reasoningLevel === 'max') budget = -1
 
       configObj.thinkingConfig = {
-        thinkingBudget: budget
+        thinkingBudget: budget,
+        includeThoughts: true
       }
       if (budget !== 0) {
         delete configObj.temperature
@@ -858,7 +859,8 @@ async function generateAiContent(
       else if (reasoningLevel === 'max') budget = -1
 
       configObj.thinkingConfig = {
-        thinkingBudget: budget
+        thinkingBudget: budget,
+        includeThoughts: true
       }
       if (budget !== 0) {
         delete configObj.temperature
@@ -870,17 +872,23 @@ async function generateAiContent(
       contents,
       config: configObj
     })
-    
+
     let resultText = response.text || ''
+    let thoughts = ''
     const candidate = response.candidates?.[0]
     if (candidate?.content?.parts) {
       for (const part of candidate.content.parts) {
-        if (part.functionCall) {
+        if (part.thought) {
+          thoughts += part.text || ''
+        } else if (part.functionCall) {
           const name = part.functionCall.name
           const args = part.functionCall.args || {}
           resultText += `[PRISM_EXECUTE_TOOL]${JSON.stringify({ type: name, ...args })}[/PRISM_EXECUTE_TOOL]\n`
         }
       }
+    }
+    if (thoughts) {
+      return `<thought>${thoughts}</thought>\n${normalizeToolCalls(resultText)}`
     }
     return normalizeToolCalls(resultText)
   } else {
@@ -948,8 +956,13 @@ async function generateAiContent(
 
     const response = await openai.chat.completions.create(requestConfig, { signal })
 
-    let resultText = response.choices?.[0]?.message?.content || ''
-    const toolCalls = response.choices?.[0]?.message?.tool_calls
+    const message = response.choices?.[0]?.message
+    let resultText = message?.content || ''
+    const reasoningContent = (message as any)?.reasoning_content
+    if (reasoningContent) {
+      resultText = `<thought>${reasoningContent}</thought>\n${resultText}`
+    }
+    const toolCalls = message?.tool_calls
     if (toolCalls && toolCalls.length > 0) {
       for (const tc of toolCalls as any[]) {
         const name = tc.function.name
@@ -3191,7 +3204,7 @@ export async function handleChatMessage(
 
               const fullResponse = accumulatedFinalResponse + currentFinalResponse
               const fullThoughts = accumulatedThoughts + currentThoughts
-              const isThinking = currentThoughts.length > 0 && currentFinalResponse.length === 0
+              const isThinking = currentThoughts.length > 0 && !isWritingToolCall
 
               console.log(
                 `[Main Chat] Sending chat-reply-chunk: thoughts length: ${fullThoughts.trim().length}, response length: ${fullResponse.trim().length}, isThinking: ${isThinking}`
@@ -3271,6 +3284,14 @@ export async function handleChatMessage(
           accumulatedThoughts += needsThoughtSeparator ? '\n\n' + currentThoughts : currentThoughts
           const needsSeparator = accumulatedFinalResponse.length > 0 && currentFinalResponse.trim().length > 0
           accumulatedFinalResponse += needsSeparator ? '\n\n' + currentFinalResponse : currentFinalResponse
+
+          // Move tool calls from thoughts to response (some models like GPT-OSS do CoT tool calls)
+          const thoughtToolPattern = /\[PRISM_EXECUTE_TOOL\]([\s\S]*?)\[\/PRISM_EXECUTE_TOOL\]/g
+          let thoughtMatch
+          while ((thoughtMatch = thoughtToolPattern.exec(currentThoughts)) !== null) {
+            currentFinalResponse += thoughtMatch[0] + '\n'
+          }
+          currentThoughts = currentThoughts.replace(thoughtToolPattern, '').trim()
 
           const toolMatches = extractToolCalls(fullAiResponse)
 
@@ -3613,7 +3634,7 @@ export async function handleLauncherChatMessage(
 
               const fullResponse = accumulatedFinalResponse + currentFinalResponse
               const fullThoughts = accumulatedThoughts + currentThoughts
-              const isThinking = currentThoughts.length > 0 && currentFinalResponse.length === 0
+              const isThinking = currentThoughts.length > 0 && !isWritingToolCall
 
               event.sender.send('launcher-reply-chunk', {
                 thoughts: fullThoughts.trim(),
@@ -3679,6 +3700,14 @@ export async function handleLauncherChatMessage(
           const needsThoughtSeparator = accumulatedThoughts.length > 0 && currentThoughts.length > 0
           accumulatedThoughts += needsThoughtSeparator ? '\n\n' + currentThoughts : currentThoughts
           accumulatedFinalResponse += currentFinalResponse
+
+          // Move tool calls from thoughts to response (some models like GPT-OSS do CoT tool calls)
+          const thoughtToolPatternLauncher = /\[PRISM_EXECUTE_TOOL\]([\s\S]*?)\[\/PRISM_EXECUTE_TOOL\]/g
+          let thoughtMatchLauncher
+          while ((thoughtMatchLauncher = thoughtToolPatternLauncher.exec(currentThoughts)) !== null) {
+            currentFinalResponse += thoughtMatchLauncher[0] + '\n'
+          }
+          currentThoughts = currentThoughts.replace(thoughtToolPatternLauncher, '').trim()
 
           const toolMatches = extractToolCalls(fullAiResponse)
 
@@ -4112,6 +4141,14 @@ Available tools:
 
           accumulatedThoughts += currentThoughts
           accumulatedFinalResponse += currentFinalResponse
+
+          // Move tool calls from thoughts to response (some models like GPT-OSS do CoT tool calls)
+          const thoughtToolPatternSearch = /\[PRISM_EXECUTE_TOOL\]([\s\S]*?)\[\/PRISM_EXECUTE_TOOL\]/g
+          let thoughtMatchSearch
+          while ((thoughtMatchSearch = thoughtToolPatternSearch.exec(currentThoughts)) !== null) {
+            currentFinalResponse += thoughtMatchSearch[0] + '\n'
+          }
+          currentThoughts = currentThoughts.replace(thoughtToolPatternSearch, '').trim()
 
           const toolMatches = extractToolCalls(fullAiResponse)
 

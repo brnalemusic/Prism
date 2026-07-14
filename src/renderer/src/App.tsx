@@ -16,7 +16,7 @@ import { ActionLoader, ToolCall } from './components/ActionLoader'
 import { QuestionnaireRenderer } from './components/QuestionnaireRenderer'
 import { MalformedToolCallWarning } from './components/MalformedToolCallWarning'
 import { ModelSelectorHandle } from './components/ModelSelector'
-import { Tasks } from './components/Tasks'
+
 import { QuickLauncher } from './components/QuickLauncher'
 import { TitleBar } from './components/TitleBar'
 import { SettingsView } from './components/SettingsView'
@@ -182,11 +182,6 @@ interface Message {
   separatorType?: 'error' | 'cancel'
 }
 
-interface Task extends ToolCall {
-  id: string
-  timestamp: Date
-}
-
 interface AiMessageProps {
   msg: Message
   currentChatId: string | undefined
@@ -227,6 +222,7 @@ const AiMessage = React.memo(function AiMessage({
     isClosed: boolean
     toolCall?: ToolCall
     writingToolName?: string
+    writingToolArgs?: Record<string, unknown>
     startOffset: number
   }
 
@@ -253,17 +249,46 @@ const AiMessage = React.memo(function AiMessage({
         const nameMatch = part.match(/<name>([\s\S]*?)(?:<\/name>|$)/i)
         let toolName = nameMatch ? nameMatch[1].trim() : ''
         if (!toolName) {
-          const typeMatch = part.match(/"type"\s*:\s*"([^"]+)"/i)
+          const typeMatch = part.match(/"type"\s*:\s*"([^"]*)/i)
           if (typeMatch) {
             toolName = typeMatch[1]
           }
         }
+        // Extract partial args from writing tool call
+        let writingToolArgs: Record<string, unknown> | undefined
+        try {
+          const jsonMatch = part.match(/\[PRISM_EXECUTE_TOOL\]([\s\S]*?)$/i)
+          if (jsonMatch) {
+            const partialJson = jsonMatch[1]
+            try {
+              const parsed = JSON.parse(partialJson)
+              if (parsed && typeof parsed === 'object') {
+                writingToolArgs = parsed as Record<string, unknown>
+                const pathVal = parsed.filePath || parsed.path || parsed.TargetFile || parsed.absolutePath || parsed.AbsolutePath || parsed.sourcePath
+                if (pathVal) writingToolArgs.filePath = pathVal
+                const cmdVal = parsed.command || parsed.CommandLine
+                if (cmdVal) writingToolArgs.command = cmdVal
+                const queryVal = parsed.query
+                if (queryVal) writingToolArgs.query = queryVal
+              }
+            } catch {
+              const filePathMatch = partialJson.match(/"(?:filePath|path|TargetFile|absolutePath|AbsolutePath|sourcePath)"\s*:\s*"([^"]*)/i)
+              const commandMatch = partialJson.match(/"(?:command|CommandLine)"\s*:\s*"([^"]*)/i)
+              const queryMatch = partialJson.match(/"query"\s*:\s*"([^"]*)/i)
+              writingToolArgs = {}
+              if (filePathMatch) writingToolArgs.filePath = filePathMatch[1]
+              if (commandMatch) writingToolArgs.command = commandMatch[1]
+              if (queryMatch) writingToolArgs.query = queryMatch[1]
+            }
+          }
+        } catch { /* ignore */ }
         return {
           partIndex: index,
           part,
           type: 'tool_call',
           isClosed: false,
           writingToolName: toolName,
+          writingToolArgs,
           startOffset: currentPartStartOffset
         }
       }
@@ -464,10 +489,11 @@ const AiMessage = React.memo(function AiMessage({
                   <ActionLoader
                     key={`writing-tc-${item.partIndex}`}
                     toolCall={{
-                      name: toolType,
+                      name: item.writingToolName || toolType,
                       status: 'writing',
                       args: {}
                     }}
+                    writingArgs={item.writingToolArgs}
                   />
                 )
               }
@@ -562,7 +588,6 @@ function RealApp(): React.JSX.Element {
   const [bootComplete, setBootComplete] = useState(false)
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine)
   const [messages, setMessages] = useState<Message[]>([])
-  const [tasks, setTasks] = useState<Task[]>([])
   const [downloads, setDownloads] = useState<Record<string, DownloadProgress>>({})
 
   // Dedicated Mini-app Window Logic
@@ -1293,23 +1318,12 @@ function RealApp(): React.JSX.Element {
           }
         }
 
-        // Cleanup trailing whitespace in thoughts and populate tasks
-        const allTasks: Task[] = []
+        // Cleanup trailing whitespace in thoughts
         mappedMessages.forEach((m) => {
           if (m.thoughts) m.thoughts = m.thoughts.trim()
-          if (m.role === 'ai' && m.toolCalls) {
-            m.toolCalls.forEach((tc) => {
-              allTasks.push({
-                ...tc,
-                id: crypto.randomUUID(),
-                timestamp: new Date() // Actual history entry timestamp isn't per-tool
-              })
-            })
-          }
         })
 
         setMessages(mappedMessages)
-        setTasks(allTasks)
         setCurrentChatId(id)
         currentChatIdRef.current = id
 
@@ -1368,7 +1382,6 @@ function RealApp(): React.JSX.Element {
     isAtBottomRef.current = true
     setShowScrollButton(false)
     setMessages([])
-    setTasks([])
     setCurrentChatId(undefined)
     currentChatIdRef.current = undefined
     setIsProcessing(false)
@@ -1650,12 +1663,6 @@ function RealApp(): React.JSX.Element {
 
         const isCancel = error.includes('cancelled')
 
-        if (isCancel) {
-          setTasks((prev) =>
-            prev.map((t) => (t.status === 'running' ? { ...t, status: 'cancelled' } : t))
-          )
-        }
-
         setMessages((prev) => {
           const newMessages = [...prev]
           const lastMsgIndex = newMessages.length - 1
@@ -1715,15 +1722,6 @@ function RealApp(): React.JSX.Element {
     const removeToolStartListener = window.api.onToolStart((data) => {
       const { chatId } = data
       if (chatId === currentChatIdRef.current) {
-        const taskId = crypto.randomUUID()
-        const newTask: Task = {
-          ...data,
-          id: taskId,
-          status: 'running',
-          timestamp: data.timestamp ? new Date(data.timestamp) : new Date()
-        }
-        setTasks((prev) => [...prev, newTask])
-
         setMessages((prev) => {
           const newMessages = [...prev]
           const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
@@ -1752,21 +1750,6 @@ function RealApp(): React.JSX.Element {
     const removeToolEndListener = window.api.onToolEnd((data) => {
       const { chatId } = data
       if (chatId === currentChatIdRef.current) {
-        setTasks((prev) => {
-          const newTasks = [...prev]
-          const lastTaskIndex = newTasks.findLastIndex(
-            (t) => t.name === data.name && t.status === 'running'
-          )
-          if (lastTaskIndex !== -1) {
-            newTasks[lastTaskIndex] = {
-              ...newTasks[lastTaskIndex],
-              status: data.result.startsWith('Error') ? 'error' : 'done',
-              result: data.result
-            }
-          }
-          return newTasks
-        })
-
         setMessages((prev) => {
           const newMessages = [...prev]
           const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
@@ -1796,34 +1779,6 @@ function RealApp(): React.JSX.Element {
     const removeToolUpdateListener = window.api.onToolUpdate((data) => {
       const { chatId } = data
       if (chatId === currentChatIdRef.current) {
-        setTasks((prev) => {
-          const newTasks = [...prev]
-          const taskIndex = newTasks.findLastIndex(
-            (t) =>
-              t.name === data.toolCallName &&
-              (t.status === 'running' || t.status === 'writing' || t.status === 'done')
-          )
-          if (taskIndex !== -1) {
-            const task = { ...newTasks[taskIndex] }
-            if (data.toolCallName === 'web_search' && data.update.searchTitle) {
-              task.searchUpdates = [...(task.searchUpdates || []), data.update.searchTitle]
-            } else if (data.update.agentIndex !== undefined) {
-              const prevUpdate = task.agentUpdates?.[data.update.agentIndex]
-              const newPhase = data.update.phase || prevUpdate?.phase || 'thinking'
-              task.agentUpdates = {
-                ...(task.agentUpdates || {}),
-                [data.update.agentIndex]: {
-                  phase: newPhase,
-                  command: data.update.command ?? prevUpdate?.command,
-                  output: data.update.output ?? prevUpdate?.output
-                }
-              }
-            }
-            newTasks[taskIndex] = task
-          }
-          return newTasks
-        })
-
         setMessages((prev) => {
           const newMessages = [...prev]
           // Search all AI messages since updates might belong to historical tool calls
@@ -1871,19 +1826,6 @@ function RealApp(): React.JSX.Element {
     const removeSubagentMessageListener = window.api.onSubagentMessage((data) => {
       const { chatId } = data
       if (chatId === currentChatIdRef.current) {
-        setTasks((prev) => {
-          const newTasks = [...prev]
-          const taskIndex = newTasks.findLastIndex(
-            (t) => t.name === 'run_subagents' && (t.status === 'running' || t.status === 'done')
-          )
-          if (taskIndex !== -1) {
-            const task = { ...newTasks[taskIndex] }
-            task.subagentMessages = [...(task.subagentMessages || []), data]
-            newTasks[taskIndex] = task
-          }
-          return newTasks
-        })
-
         setMessages((prev) => {
           const newMessages = [...prev]
           for (let i = newMessages.length - 1; i >= 0; i--) {
@@ -1993,7 +1935,24 @@ function RealApp(): React.JSX.Element {
                   msg.role === 'user' ? 'items-end' : 'items-start'
                 )}
               >
-                {msg.role === 'ai' && (msg.isThinking || msg.thoughts) && (
+                {msg.role === 'ai' && (msg.isThinking || msg.thoughts) && (() => {
+                  // Filter out passive tool calls from thinking display
+                  const passiveTools = ['computer_use_read_file', 'computer_use_list_installed_applications', 'list_installed_applications', 'search_installed_applications']
+                  const filteredThoughts = (msg.thoughts || '').replace(
+                    /\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g,
+                    (match) => {
+                      try {
+                        const json = match.replace('[PRISM_EXECUTE_TOOL]', '').replace('[/PRISM_EXECUTE_TOOL]', '')
+                        const parsed = JSON.parse(json)
+                        if (passiveTools.includes(parsed.type)) return ''
+                      } catch {}
+                      return match
+                    }
+                  ).trim()
+
+                  if (!filteredThoughts && !msg.isThinking) return null
+
+                  return (
                   <div className="w-full mb-2">
                     <details className="group w-full select-none">
                       <summary
@@ -2013,7 +1972,7 @@ function RealApp(): React.JSX.Element {
                           {(() => {
                             // Extract bold outlines like "**Initiating Black Hole Analysis**"
                             const outlineMatches = Array.from(
-                              (msg.thoughts || '').matchAll(/\*\*(.*?)\*\*/g)
+                              filteredThoughts.matchAll(/\*\*(.*?)\*\*/g)
                             )
                             if (outlineMatches.length > 0) {
                               // Take the last match to show current thinking step
@@ -2037,12 +1996,13 @@ function RealApp(): React.JSX.Element {
                           ]}
                           rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
                         >
-                          {msg.thoughts || ''}
+                          {filteredThoughts}
                         </ReactMarkdown>
                       </div>
                     </details>
                   </div>
-                )}
+                  )
+                })()}
 
                 <div
                   className={clsx(
@@ -2185,7 +2145,6 @@ function RealApp(): React.JSX.Element {
             setIsSidebarOpen(false)
           }}
           currentChatId={currentChatId}
-          runningTasksCount={tasks.filter((t) => t.status === 'running').length}
           runningChats={runningChats}
           config={config}
           onOpenSearch={() => {
@@ -2201,7 +2160,6 @@ function RealApp(): React.JSX.Element {
     handleLoadChat,
     handleNewChat,
     currentChatId,
-    tasks,
     runningChats,
     config
   ])
@@ -2451,21 +2409,11 @@ function RealApp(): React.JSX.Element {
               </div>
             </div>
 
-            {/* Monitoring (Tasks) View */}
-            <div
-              className={clsx(
-                'flex-1 overflow-y-auto flex flex-col',
-                activeView !== 'tasks' && 'hidden'
-              )}
-            >
-              <Tasks tasks={tasks} />
-            </div>
-
             {/* Settings View */}
             {activeView === 'settings' && <SettingsView />}
 
             {/* View Coming Soon (Fallback) */}
-            {activeView !== 'chat' && activeView !== 'tasks' && activeView !== 'settings' && (
+            {activeView !== 'chat' && activeView !== 'settings' && (
               <div className="flex-1 flex items-center justify-center text-text-secondary">
                 View coming soon...
               </div>

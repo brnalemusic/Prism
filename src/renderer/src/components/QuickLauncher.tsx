@@ -143,6 +143,7 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
             isClosed: boolean
             toolCall?: ToolCall
             writingToolName?: string
+            writingToolArgs?: Record<string, unknown>
             startOffset: number
           }
 
@@ -169,17 +170,46 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
                 const nameMatch = part.match(/<name>([\s\S]*?)(?:<\/name>|$)/i)
                 let toolName = nameMatch ? nameMatch[1].trim() : ''
                 if (!toolName) {
-                  const typeMatch = part.match(/"type"\s*:\s*"([^"]+)"/i)
+                  const typeMatch = part.match(/"type"\s*:\s*"([^"]*)/i)
                   if (typeMatch) {
                     toolName = typeMatch[1]
                   }
                 }
+                // Extract partial args from writing tool call
+                let writingToolArgs: Record<string, unknown> | undefined
+                try {
+                  const jsonMatch = part.match(/\[PRISM_EXECUTE_TOOL\]([\s\S]*?)$/i)
+                  if (jsonMatch) {
+                    const partialJson = jsonMatch[1]
+                    try {
+                      const parsed = JSON.parse(partialJson)
+                      if (parsed && typeof parsed === 'object') {
+                        writingToolArgs = parsed as Record<string, unknown>
+                        const pathVal = parsed.filePath || parsed.path || parsed.TargetFile || parsed.absolutePath || parsed.AbsolutePath || parsed.sourcePath
+                        if (pathVal) writingToolArgs.filePath = pathVal
+                        const cmdVal = parsed.command || parsed.CommandLine
+                        if (cmdVal) writingToolArgs.command = cmdVal
+                        const queryVal = parsed.query
+                        if (queryVal) writingToolArgs.query = queryVal
+                      }
+                    } catch {
+                      const filePathMatch = partialJson.match(/"(?:filePath|path|TargetFile|absolutePath|AbsolutePath|sourcePath)"\s*:\s*"([^"]*)/i)
+                      const commandMatch = partialJson.match(/"(?:command|CommandLine)"\s*:\s*"([^"]*)/i)
+                      const queryMatch = partialJson.match(/"query"\s*:\s*"([^"]*)/i)
+                      writingToolArgs = {}
+                      if (filePathMatch) writingToolArgs.filePath = filePathMatch[1]
+                      if (commandMatch) writingToolArgs.command = commandMatch[1]
+                      if (queryMatch) writingToolArgs.query = queryMatch[1]
+                    }
+                  }
+                } catch { /* ignore */ }
                 return {
                   partIndex: index,
                   part,
                   type: 'tool_call',
                   isClosed: false,
                   writingToolName: toolName,
+                  writingToolArgs,
                   startOffset: currentPartStartOffset
                 }
               }
@@ -346,10 +376,11 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
                   <ActionLoader
                     key={`writing-tc-${item.partIndex}`}
                     toolCall={{
-                      name: toolType,
+                      name: item.writingToolName || toolType,
                       status: 'writing',
                       args: {}
                     }}
+                    writingArgs={item.writingToolArgs}
                   />
                 )
               }

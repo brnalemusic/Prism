@@ -16,7 +16,8 @@ import {
   PlayCircle,
   FileText,
   AppWindow,
-  Gear
+  Gear,
+  FileCode
 } from '@phosphor-icons/react'
 
 export interface ToolCall {
@@ -39,6 +40,7 @@ export interface ToolCall {
 interface ActionLoaderProps {
   toolCall: ToolCall
   mode?: 'compact' | 'full'
+  writingArgs?: Record<string, unknown>
 }
 
 const phaseColorCodes = {
@@ -83,6 +85,66 @@ function getStringArg(args: Record<string, unknown>, key: string): string {
   return typeof value === 'string' ? value : ''
 }
 
+function renderToolDetails(toolCall: ToolCall): React.ReactNode {
+  const { name, args, result } = toolCall
+  const filePath = (args.filePath || args.path || args.TargetFile || args.absolutePath || args.AbsolutePath || args.sourcePath) as string | undefined
+  const command = (args.command || args.CommandLine) as string | undefined
+
+  const isCreate = name === 'computer_use_create_file' || name === 'computer_use_save_file' || name === 'write_to_file'
+  const isEdit = name === 'computer_use_edit_file' || name === 'replace_file_content' || name === 'multi_replace_file_content'
+  const isRead = name === 'computer_use_read_file'
+  const isTerminal = name === 'execute_terminal_command' || name === 'run_command'
+
+  if (isEdit && filePath) {
+    const linesChanged = result?.match(/Lines (\d+) to (\d+)/)
+    return (
+      <div className="text-text-secondary/60 space-y-0.5 mt-1">
+        <div className="flex items-center gap-1.5">
+          <FileCode size={12} className="text-accent-primary/70" />
+          <span className="truncate max-w-[280px]" title={filePath}>{filePath}</span>
+        </div>
+        {linesChanged && (
+          <div className="text-text-muted text-[11px] pl-5">
+            Lines {linesChanged[1]}-{linesChanged[2]} modified
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (isCreate && filePath) {
+    return (
+      <div className="text-text-secondary/60 mt-1">
+        <div className="flex items-center gap-1.5">
+          <FileCode size={12} className="text-accent-primary/70" />
+          <span className="truncate max-w-[280px]" title={filePath}>{filePath}</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (isRead && filePath) {
+    return (
+      <div className="text-text-secondary/60 mt-1">
+        <div className="flex items-center gap-1.5">
+          <FileCode size={12} className="text-text-secondary/50" />
+          <span className="truncate max-w-[280px]" title={filePath}>{filePath}</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (isTerminal && command) {
+    return (
+      <div className="text-text-secondary/60 font-mono text-[11px] bg-white/[0.03] rounded px-2 py-1 mt-1 border border-white/[0.04]">
+        {command}
+      </div>
+    )
+  }
+
+  return null
+}
+
 function useToolCallMeta(toolCall: ToolCall): {
   displayTitle: string
   displayDetail: string
@@ -103,19 +165,49 @@ function useToolCallMeta(toolCall: ToolCall): {
   let tone: 'default' | 'search' | 'think' | 'success' | 'error' | 'youtube' = 'default'
 
   if (toolCall.status === 'writing') {
-    displayTitle =
-      toolCall.name === 'search'
-        ? 'Preparing Search'
-        : toolCall.name === 'mini-app'
-          ? 'Designing Mini App'
-          : 'Preparing Action'
-    displayDetail =
-      toolCall.name === 'search'
-        ? 'Composing a web search.'
-        : toolCall.name === 'mini-app'
-          ? 'Building interactive interface.'
-          : 'Composing a tool call.'
-    tone = toolCall.name === 'search' ? 'search' : 'think'
+    const isSearch =
+      toolCall.name === 'search' ||
+      toolCall.name === 'web_search' ||
+      toolCall.name === 'search_chat_history' ||
+      toolCall.name === 'saw_link_from_url'
+    const isFileWrite =
+      toolCall.name === 'computer_use_create_file' ||
+      toolCall.name === 'computer_use_save_file' ||
+      toolCall.name === 'computer_use_append_file' ||
+      toolCall.name === 'write_to_file'
+    const isFileEdit =
+      toolCall.name === 'computer_use_edit_file' ||
+      toolCall.name === 'replace_file_content' ||
+      toolCall.name === 'multi_replace_file_content'
+    const isTerminal =
+      toolCall.name === 'execute_terminal_command' ||
+      toolCall.name === 'run_command'
+
+    displayTitle = isSearch
+      ? 'Preparing Search'
+      : toolCall.name === 'mini-app'
+        ? 'Designing Mini App'
+        : isFileWrite
+          ? 'Creating File'
+          : isFileEdit
+            ? 'Editing File'
+            : isTerminal
+              ? 'Preparing Command'
+              : 'Preparing Action'
+
+    displayDetail = isSearch
+      ? 'Composing a web search.'
+      : toolCall.name === 'mini-app'
+        ? 'Building interactive interface.'
+        : isFileWrite
+          ? 'Writing content to file.'
+          : isFileEdit
+            ? 'Modifying file content.'
+            : isTerminal
+              ? 'Composing a terminal command.'
+              : 'Composing a tool call.'
+
+    tone = isSearch ? 'search' : 'think'
   } else if (toolCall.name === 'web_search') {
     displayTitle = isYoutube ? 'Searching Video' : 'Searching Web'
     displayDetail =
@@ -131,12 +223,21 @@ function useToolCallMeta(toolCall: ToolCall): {
     displayTitle = toolCall.status === 'cooldown' ? 'Cooling Down' : 'Reading Page'
     displayDetail = url || 'Inspecting web content.'
     tone = 'search'
+  } else if (toolCall.name === 'execute_terminal_command' || toolCall.name === 'run_command') {
+    displayTitle = 'Terminal'
+    displayDetail = getStringArg(toolCall.args, 'command') || getStringArg(toolCall.args, 'CommandLine') || 'Running command.'
+  } else if (toolCall.name === 'computer_use_create_file' || toolCall.name === 'computer_use_save_file' || toolCall.name === 'write_to_file') {
+    displayTitle = 'Creating File'
+    displayDetail = getStringArg(toolCall.args, 'path') || getStringArg(toolCall.args, 'filePath') || getStringArg(toolCall.args, 'TargetFile') || 'Writing file.'
+  } else if (toolCall.name === 'computer_use_edit_file' || toolCall.name === 'replace_file_content' || toolCall.name === 'multi_replace_file_content') {
+    displayTitle = 'Editing File'
+    displayDetail = getStringArg(toolCall.args, 'path') || getStringArg(toolCall.args, 'filePath') || getStringArg(toolCall.args, 'TargetFile') || 'Modifying file.'
+  } else if (toolCall.name === 'computer_use_read_file') {
+    displayTitle = 'Reading File'
+    displayDetail = getStringArg(toolCall.args, 'path') || getStringArg(toolCall.args, 'filePath') || 'Loading file content.'
   } else if (toolCall.name.startsWith('computer_use_')) {
     displayTitle = 'Computer Use'
     displayDetail = toolCall.name.replace('computer_use_', '').replace(/_/g, ' ')
-  } else if (toolCall.name === 'execute_terminal_command') {
-    displayTitle = 'Terminal'
-    displayDetail = getStringArg(toolCall.args, 'command') || 'Running command.'
   } else if (toolCall.name === 'open_application') {
     displayTitle = 'Opening App'
     displayDetail = getStringArg(toolCall.args, 'appPath') || 'Launching application.'
@@ -243,17 +344,53 @@ function useToolCallMeta(toolCall: ToolCall): {
     if (isWriting) {
       if (toolCall.name === 'mini-app')
         return <AppWindow size={size} weight="regular" className="animate-pulse" />
+      const isSearch =
+        toolCall.name === 'search' ||
+        toolCall.name === 'web_search' ||
+        toolCall.name === 'search_chat_history' ||
+        toolCall.name === 'saw_link_from_url'
+      const isFile =
+        toolCall.name === 'computer_use_create_file' ||
+        toolCall.name === 'computer_use_save_file' ||
+        toolCall.name === 'computer_use_append_file' ||
+        toolCall.name === 'write_to_file' ||
+        toolCall.name === 'computer_use_edit_file' ||
+        toolCall.name === 'replace_file_content' ||
+        toolCall.name === 'multi_replace_file_content' ||
+        toolCall.name === 'computer_use_read_file'
+      const isTerminal =
+        toolCall.name === 'execute_terminal_command' ||
+        toolCall.name === 'run_command'
+
+      if (isSearch)
+        return <MagnifyingGlass size={size} weight="regular" className="animate-pulse" />
+      if (isFile)
+        return <FileCode size={size} weight="regular" className="animate-pulse" />
+      if (isTerminal)
+        return <Terminal size={size} weight="regular" className="animate-pulse" />
       return <Brain size={size} weight="regular" className="animate-pulse" />
     }
     if (toolCall.name === 'web_search' || toolCall.name === 'search_chat_history')
       return <MagnifyingGlass size={size} weight="regular" className="animate-pulse" />
     if (isYoutube) return <PlayCircle size={size} weight="regular" className="animate-pulse" />
-    if (toolCall.name === 'execute_terminal_command')
+    if (toolCall.name === 'execute_terminal_command' || toolCall.name === 'run_command')
       return <Terminal size={size} weight="regular" />
     if (toolCall.name === 'open_browser_link' || toolCall.name === 'open_application')
       return <ArrowUpRight size={size} weight="regular" />
     if (toolCall.name === 'search_installed_applications')
       return <List size={size} weight="regular" />
+    if (
+      toolCall.name === 'computer_use_create_file' ||
+      toolCall.name === 'computer_use_save_file' ||
+      toolCall.name === 'computer_use_append_file' ||
+      toolCall.name === 'write_to_file' ||
+      toolCall.name === 'computer_use_edit_file' ||
+      toolCall.name === 'replace_file_content' ||
+      toolCall.name === 'multi_replace_file_content' ||
+      toolCall.name === 'computer_use_read_file'
+    ) {
+      return <FileCode size={size} weight="regular" />
+    }
     if (toolCall.name.startsWith('computer_use_')) return <HardDrive size={size} weight="regular" />
     if (toolCall.name === 'saw_link_from_url' || toolCall.name.startsWith('internal_docs_')) return <FileText size={size} weight="regular" />
     if (toolCall.name === 'configure_prism')
@@ -282,7 +419,7 @@ function useToolCallMeta(toolCall: ToolCall): {
   }
 }
 
-function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Element {
+function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writingArgs?: Record<string, unknown> }): React.JSX.Element {
   const [isExpanded, setIsExpanded] = useState(false)
   const [selectedAgentKey, setSelectedAgentKey] = useState<string>('master')
 
@@ -371,6 +508,21 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
         <span className={clsx('text-[11px] font-medium leading-none opacity-80', toneColors.text)}>
           ({statusLabel})
         </span>
+        {toolCall.status === 'writing' && typeof writingArgs?.filePath === 'string' && (
+          <span className="text-[11px] text-text-muted/60 truncate max-w-[200px]" title={writingArgs.filePath}>
+            · {writingArgs.filePath}
+          </span>
+        )}
+        {toolCall.status === 'writing' && typeof writingArgs?.command === 'string' && typeof writingArgs?.filePath !== 'string' && (
+          <span className="text-[11px] text-text-muted/60 font-mono truncate max-w-[200px]" title={writingArgs.command}>
+            · {writingArgs.command.substring(0, 40)}{writingArgs.command.length > 40 ? '...' : ''}
+          </span>
+        )}
+        {toolCall.status === 'writing' && typeof writingArgs?.query === 'string' && typeof writingArgs?.filePath !== 'string' && typeof writingArgs?.command !== 'string' && (
+          <span className="text-[11px] text-text-muted/60 truncate max-w-[200px]" title={writingArgs.query}>
+            · {writingArgs.query}
+          </span>
+        )}
 
         <div className="flex items-center gap-1.5 ml-1">
           {toolCall.name === 'run_subagents' && showSubagentPanel && (
@@ -437,9 +589,12 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
       {isExpanded && (
         <div className="pl-5 text-xs text-text-secondary/80 animate-fade-in py-0.5 select-text">
           {toolCall.status === 'done' ? (
-            <span className="flex items-center gap-1.5 text-status-success font-medium">
-              Executed successfully.
-            </span>
+            <div className="flex flex-col">
+              <span className="flex items-center gap-1.5 text-status-success font-medium">
+                Executed successfully.
+              </span>
+              {renderToolDetails(toolCall)}
+            </div>
           ) : toolCall.status === 'error' ? (
             <span className="flex items-center gap-1.5 text-status-error font-medium">
               Execution failed.
@@ -767,7 +922,7 @@ function CompactActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.El
   )
 }
 
-function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Element {
+function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writingArgs?: Record<string, unknown> }): React.JSX.Element {
   const [isExpanded, setIsExpanded] = useState(false)
   const [selectedAgentKey, setSelectedAgentKey] = useState<string>('master')
 
@@ -857,6 +1012,21 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
         <span className={clsx('text-[11px] font-medium leading-none opacity-80', toneColors.text)}>
           ({statusLabel})
         </span>
+        {toolCall.status === 'writing' && typeof writingArgs?.filePath === 'string' && (
+          <span className="text-[11px] text-text-muted/60 truncate max-w-[200px]" title={writingArgs.filePath}>
+            · {writingArgs.filePath}
+          </span>
+        )}
+        {toolCall.status === 'writing' && typeof writingArgs?.command === 'string' && typeof writingArgs?.filePath !== 'string' && (
+          <span className="text-[11px] text-text-muted/60 font-mono truncate max-w-[200px]" title={writingArgs.command}>
+            · {writingArgs.command.substring(0, 40)}{writingArgs.command.length > 40 ? '...' : ''}
+          </span>
+        )}
+        {toolCall.status === 'writing' && typeof writingArgs?.query === 'string' && typeof writingArgs?.filePath !== 'string' && typeof writingArgs?.command !== 'string' && (
+          <span className="text-[11px] text-text-muted/60 truncate max-w-[200px]" title={writingArgs.query}>
+            · {writingArgs.query}
+          </span>
+        )}
 
         <div className="flex items-center gap-1.5 ml-1">
           {toolCall.name === 'run_subagents' &&
@@ -926,9 +1096,12 @@ function FullActionLoader({ toolCall }: { toolCall: ToolCall }): React.JSX.Eleme
       {isExpanded && (
         <div className="pl-5 text-xs text-text-secondary/80 animate-fade-in py-0.5 select-text">
           {toolCall.status === 'done' ? (
-            <span className="flex items-center gap-1.5 text-status-success font-medium">
-              Executed successfully.
-            </span>
+            <div className="flex flex-col">
+              <span className="flex items-center gap-1.5 text-status-success font-medium">
+                Executed successfully.
+              </span>
+              {renderToolDetails(toolCall)}
+            </div>
           ) : toolCall.status === 'error' ? (
             <span className="flex items-center gap-1.5 text-status-error font-medium">
               Execution failed.
@@ -1313,7 +1486,7 @@ function BrowserSessionSeparator({
   )
 }
 
-export function ActionLoader({ toolCall, mode = 'compact' }: ActionLoaderProps): React.JSX.Element {
+export function ActionLoader({ toolCall, mode = 'compact', writingArgs }: ActionLoaderProps): React.JSX.Element {
   const isRunning = toolCall.status === 'running' || toolCall.status === 'writing'
 
   if (toolCall.name === 'open_browser') {
@@ -1328,7 +1501,7 @@ export function ActionLoader({ toolCall, mode = 'compact' }: ActionLoaderProps):
   }
 
   if (mode === 'full') {
-    return <FullActionLoader toolCall={toolCall} />
+    return <FullActionLoader toolCall={toolCall} writingArgs={writingArgs} />
   }
-  return <CompactActionLoader toolCall={toolCall} />
+  return <CompactActionLoader toolCall={toolCall} writingArgs={writingArgs} />
 }

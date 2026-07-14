@@ -1,7 +1,6 @@
 import {
   ChatTeardropText,
   Gear,
-  CheckSquare,
   Plus,
   Trash,
   Clock,
@@ -34,7 +33,6 @@ interface SidebarProps {
   onViewChange: (view: string) => void
   onLoadChat: (id: string) => void
   onNewChat: (force?: boolean) => void
-  runningTasksCount?: number
   currentChatId?: string
   runningChats?: Record<string, boolean>
   className?: string
@@ -70,7 +68,6 @@ export function Sidebar({
   onViewChange,
   onLoadChat,
   onNewChat,
-  runningTasksCount = 0,
   currentChatId,
   runningChats = {},
   className,
@@ -287,14 +284,6 @@ export function Sidebar({
           label="Chat"
           active={activeView === 'chat'}
           onClick={(): void => onViewChange('chat')}
-        />
-        <NavItem
-          icon={<CheckSquare size={18} weight={activeView === 'tasks' ? 'fill' : 'regular'} />}
-          label="Monitoring"
-          active={activeView === 'tasks'}
-          onClick={(): void => onViewChange('tasks')}
-          badge={runningTasksCount > 0 ? runningTasksCount : undefined}
-          pulse={runningTasksCount > 0}
         />
         <NavItem
           icon={<MagnifyingGlass size={18} weight="regular" />}
