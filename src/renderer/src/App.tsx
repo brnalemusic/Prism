@@ -1427,9 +1427,6 @@ function RealApp(): React.JSX.Element {
 
     const removeConfigListener = window.api.onConfigChanged((cfg) => {
       setConfig(cfg)
-      if (!currentChatIdRef.current && cfg.defaultModel) {
-        setSelectedModel(cfg.defaultModel)
-      }
       if (cfg.sessionMode) {
         setSessionMode(cfg.sessionMode)
       }
