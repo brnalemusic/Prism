@@ -717,8 +717,9 @@ async function* generateAiStream(
         requestConfig.reasoning_effort = 'none'
       }
     } else if (isGptOss) {
-      // GPT-OSS: reasoning_effort accepts low, medium, high
-      if (reasoningLevel !== 'off') {
+      // GPT-OSS: reasoning_effort accepts low, medium, high (no "off"/"none")
+      // The API always has reasoning enabled; user picks the intensity
+      if (reasoningLevel && reasoningLevel !== 'off') {
         const effort = reasoningLevel === 'low' ? 'low' : reasoningLevel === 'high' ? 'high' : 'medium'
         requestConfig.reasoning_effort = effort
         delete requestConfig.temperature
@@ -908,8 +909,9 @@ async function generateAiContent(
         requestConfig.reasoning_effort = 'none'
       }
     } else if (isGptOss) {
-      // GPT-OSS: reasoning_effort accepts low, medium, high
-      if (reasoningLevel !== 'off') {
+      // GPT-OSS: reasoning_effort accepts low, medium, high (no "off"/"none")
+      // The API always has reasoning enabled; user picks the intensity
+      if (reasoningLevel && reasoningLevel !== 'off') {
         const effort = reasoningLevel === 'low' ? 'low' : reasoningLevel === 'high' ? 'high' : 'medium'
         requestConfig.reasoning_effort = effort
         delete requestConfig.temperature

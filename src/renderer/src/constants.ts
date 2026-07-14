@@ -32,6 +32,12 @@ export interface ThinkingLevelOption {
 /**
  * Returns available thinking levels for a given model.
  * Based on official NVIDIA NIM API documentation.
+ *
+ * DeepSeek V4: reasoning_effort accepts none, high, max
+ * GPT-OSS: reasoning_effort accepts low, medium, high (no off/none)
+ * Kimi K2.6: chat_template_kwargs {"thinking": true/false}
+ * MiniMax M3: chat_template_kwargs {"thinking_mode": "enabled"/"disabled"/"adaptive"}
+ * GLM-5.2, Step 3.7: no reasoning parameters exposed via NIM API
  */
 export function getThinkingLevelsForModel(modelId: string): ThinkingLevelOption[] {
   // Gemini models use thinkingBudget (mapped from levels)
@@ -46,7 +52,7 @@ export function getThinkingLevelsForModel(modelId: string): ThinkingLevelOption[
     ]
   }
 
-  // DeepSeek V4 models: reasoning_effort accepts none, high, max
+  // DeepSeek V4 Flash/Pro: reasoning_effort accepts none, high, max
   if (modelId === 'deepseek-ai/deepseek-v4-flash' || modelId === 'deepseek-ai/deepseek-v4-pro') {
     return [
       { id: 'off', name: 'Off' },
@@ -55,17 +61,17 @@ export function getThinkingLevelsForModel(modelId: string): ThinkingLevelOption[
     ]
   }
 
-  // GPT-OSS models: reasoning_effort accepts low, medium, high
+  // GPT-OSS 120B: reasoning_effort accepts low, medium, high (NO "off"/"none")
+  // The API does not support disabling reasoning, so no Off option
   if (modelId === 'openai/gpt-oss-120b') {
     return [
-      { id: 'off', name: 'Off' },
       { id: 'low', name: 'Low' },
       { id: 'medium', name: 'Medium' },
       { id: 'high', name: 'High' }
     ]
   }
 
-  // Kimi K2.6: uses chat_template_kwargs {"thinking": true/false}
+  // Kimi K2.6: chat_template_kwargs {"thinking": true/false}
   if (modelId === 'moonshotai/kimi-k2.6') {
     return [
       { id: 'off', name: 'Off' },
@@ -73,7 +79,7 @@ export function getThinkingLevelsForModel(modelId: string): ThinkingLevelOption[
     ]
   }
 
-  // MiniMax M3: uses chat_template_kwargs {"thinking_mode": "enabled"/"disabled"/"adaptive"}
+  // MiniMax M3: chat_template_kwargs {"thinking_mode": "enabled"/"disabled"/"adaptive"}
   if (modelId === 'minimaxai/minimax-m3') {
     return [
       { id: 'off', name: 'Off' },
@@ -82,6 +88,6 @@ export function getThinkingLevelsForModel(modelId: string): ThinkingLevelOption[
     ]
   }
 
-  // GLM-5.2, Step 3.7 Flash: no reasoning support
+  // GLM-5.2, Step 3.7 Flash: no reasoning parameters in NIM API
   return []
 }
