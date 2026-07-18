@@ -188,6 +188,35 @@ function getGeminiTools(
       for (let i = 1; i <= 20; i++) {
         properties[`prompt:${i}`] = { type: 'STRING', description: `Prompt for agent ${i}.` }
       }
+    } else if (t.name === 'computer_use_read_file') {
+      properties['path'] = {
+        type: 'STRING',
+        description: 'Absolute file path.'
+      }
+      properties['startLine'] = {
+        type: 'INTEGER',
+        description: 'Starting line number (1-based index) to read from.'
+      }
+      properties['offset'] = {
+        type: 'INTEGER',
+        description:
+          'Number of lines to read starting from startLine. Defaults to 200. Max 200.'
+      }
+      required.push('path', 'startLine')
+    } else if (t.name === 'computer_edit_file') {
+      for (const [paramName, paramDesc] of Object.entries(t.parameters)) {
+        if (paramName.includes(':')) continue
+        const isOptional = paramDesc.toLowerCase().includes('optional')
+        const isNumeric =
+          paramName === 'startLine' || paramName === 'endLine'
+        properties[paramName] = {
+          type: isNumeric ? 'INTEGER' : 'STRING',
+          description: paramDesc
+        }
+        if (!isOptional) {
+          required.push(paramName)
+        }
+      }
     } else {
       for (const [paramName, paramDesc] of Object.entries(t.parameters)) {
         if (paramName.includes(':')) continue
