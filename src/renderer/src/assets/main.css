@@ -951,3 +951,22 @@
   animation: breathe-pulse 1.8s ease-in-out infinite;
 }
 
+@keyframes shimmer {
+  0% { background-position: -200% center }
+  100% { background-position: 200% center }
+}
+
+.tool-shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--color-text-secondary) 0%,
+    var(--color-text-secondary) 40%,
+    rgba(255,255,255,0.8) 50%,
+    var(--color-text-secondary) 60%,
+    var(--color-text-secondary) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 1.2s linear infinite;
+}

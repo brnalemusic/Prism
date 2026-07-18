@@ -12,7 +12,7 @@ import { OfflineBanner } from './components/OfflineBanner'
 import { Sidebar } from './components/Sidebar'
 import { InputBar, InputBarHandle } from './components/InputBar'
 import { Spinner } from './components/Spinner'
-import { ActionLoader, ToolCall } from './components/ActionLoader'
+import { ActionLoader, ToolCall, ToolCallIndicator } from './components/ActionLoader'
 import { QuestionnaireRenderer } from './components/QuestionnaireRenderer'
 import { MalformedToolCallWarning } from './components/MalformedToolCallWarning'
 import { ModelSelector, ModelSelectorHandle } from './components/ModelSelector'
@@ -738,7 +738,13 @@ const AiMessage = React.memo(function AiMessage({
                   if (tc.name === 'malformed_tool_call') {
                     return <MalformedToolCallWarning key={`tc-${item.partIndex}`} toolCall={tc} />
                   }
-                  return <ActionLoader key={`tc-${item.partIndex}`} toolCall={tc} />
+                  return (
+                    <div key={`tc-${item.partIndex}`} className="flex items-center gap-1.5">
+                      <ToolCallIndicator
+                        tools={[{ name: tc.name, status: tc.status }]}
+                      />
+                    </div>
+                  )
                 }
               } else {
                 const isSearch =

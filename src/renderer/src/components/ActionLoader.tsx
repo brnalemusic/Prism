@@ -20,6 +20,43 @@ import {
   FileCode
 } from '@phosphor-icons/react'
 
+
+// Tool labels mapping for simplified display
+const TOOL_LABELS: Record<string, string> = {
+  web_search: 'Searching web',
+  saw_link_from_url: 'Reading web page',
+  execute_terminal_command: 'Running terminal command',
+  run_command: 'Running terminal command',
+}
+
+function getToolLabel(name: string): string {
+  return TOOL_LABELS[name] || 'Working'
+}
+
+interface ToolCallIndicatorProps {
+  tools: Array<{ name: string; status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown' }>
+}
+
+export function ToolCallIndicator({ tools }: ToolCallIndicatorProps): React.JSX.Element | null {
+  if (!tools || tools.length === 0) return null
+
+  // Filter to only active tools (writing or running)
+  const activeTools = tools.filter(t => t.status === 'writing' || t.status === 'running')
+  if (activeTools.length === 0) return null
+
+  // Get labels for each active tool
+  const labels = activeTools.map(t => getToolLabel(t.name))
+  
+  // Join multiple labels with •
+  const displayText = labels.join(' \u2022 ')
+
+  return (
+    <span className="tool-shimmer-text text-[13px] font-medium">
+      {displayText}
+    </span>
+  )
+}
+
 export interface ToolCall {
   name: string
   args: Record<string, unknown>
