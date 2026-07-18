@@ -662,7 +662,7 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
   const [isExpanded, setIsExpanded] = useState(false)
   const [selectedAgentKey, setSelectedAgentKey] = useState<string>('master')
 
-  const { displayTitle, displayDetail, tone, isDone, isRunning, statusLabel, renderIcon } =
+  const { displayTitle, displayDetail, tone, isDone, isWriting, isRunning, statusLabel, renderIcon } =
     useToolCallMeta(toolCall)
 
   const isTerminal = toolCall.name === 'execute_terminal_command' || toolCall.name === 'run_command'
@@ -758,14 +758,20 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
         ) : toolCall.isConsolidated && (toolCall.consolidatedType === 'edit' || toolCall.consolidatedType === 'write') ? (
           <>
             <span className="font-semibold text-text-primary leading-none">
-              {toolCall.consolidatedType === 'edit' ? 'Edited' : 'Created'}{' '}
+              {isWriting
+                ? (toolCall.consolidatedType === 'edit' ? 'Editing' : 'Writing')
+                : isRunning
+                  ? (toolCall.consolidatedType === 'edit' ? 'Editing' : 'Writing')
+                  : (toolCall.consolidatedType === 'edit' ? 'Edited' : 'Created')}{' '}
               <span className="text-accent-secondary font-mono">{toolCall.fileName?.split('.').pop()}</span>{' '}
               {toolCall.fileName}
             </span>
-            <span className="text-xs font-semibold text-status-success ml-1">+{toolCall.addedLines || 0}</span>
-            {toolCall.removedLines ? (
+            {(toolCall.addedLines || 0) > 0 && (
+              <span className="text-xs font-semibold text-status-success ml-1">+{toolCall.addedLines}</span>
+            )}
+            {(toolCall.removedLines || 0) > 0 && (
               <span className="text-xs font-semibold text-status-error ml-1">-{toolCall.removedLines}</span>
-            ) : null}
+            )}
           </>
         ) : toolCall.isConsolidated ? (
           <>
@@ -782,6 +788,12 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
             <span className={clsx('text-[11px] font-medium leading-none opacity-80', toneColors.text)}>
               ({statusLabel})
             </span>
+            {toolCall.status === 'writing' && (toolCall.addedLines || 0) > 0 && (
+              <span className="text-xs font-semibold text-status-success ml-1">+{toolCall.addedLines}</span>
+            )}
+            {toolCall.status === 'writing' && (toolCall.removedLines || 0) > 0 && (
+              <span className="text-xs font-semibold text-status-error ml-1">-{toolCall.removedLines}</span>
+            )}
             {toolCall.status === 'writing' && typeof writingArgs?.filePath === 'string' && (
               <span className="text-[11px] text-text-muted/60 truncate max-w-[200px]" title={writingArgs.filePath}>
                 · {writingArgs.filePath}

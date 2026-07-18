@@ -477,7 +477,51 @@ function convertHistoryToGeminiFormat(history: Content[]) {
     }
   }
 
-  return { contents, systemInstruction }
+  // ── Validate turn ordering for Gemini API ──────────────────────────────────
+  // Gemini requires:
+  //   1. First content turn must be 'user'
+  //   2. A model turn with functionCall must be preceded by a user turn (text or functionResponse)
+  //   3. A user turn with functionResponse must follow a model turn with functionCall
+  //   4. No consecutive same-role turns (merge them if they occur)
+  //
+  // ensureHistoryFitsLimit can drop messages from the front, potentially leaving
+  // a model(functionCall) turn without a preceding user turn.
+
+  // Step 1: Remove leading model turns (orphaned — no preceding user turn)
+  while (contents.length > 0 && (contents[0] as any).role === 'model') {
+    contents.shift()
+    // Also remove the following user(functionResponse) if it exists — it's orphaned too
+    if (contents.length > 0 && (contents[0] as any).role === 'user') {
+      const onlyFunctionResponse = (contents[0].parts || []).every(
+        (p: any) => p.functionResponse
+      )
+      if (onlyFunctionResponse) {
+        contents.shift()
+      }
+    }
+  }
+
+  // Step 2: Remove leading user(functionResponse) turns that have no preceding functionCall
+  while (contents.length > 0 && (contents[0] as any).role === 'user') {
+    const onlyFunctionResponse = (contents[0].parts || []).every(
+      (p: any) => p.functionResponse
+    )
+    if (!onlyFunctionResponse) break
+    contents.shift()
+  }
+
+  // Step 3: Merge consecutive same-role turns into one turn
+  const merged: Content[] = []
+  for (const content of contents) {
+    if (merged.length > 0 && (merged[merged.length - 1] as any).role === (content as any).role) {
+      const prev = merged[merged.length - 1]
+      prev.parts = [...(prev.parts || []), ...(content.parts || [])]
+    } else {
+      merged.push({ role: (content as any).role, parts: [...(content.parts || [])] })
+    }
+  }
+
+  return { contents: merged, systemInstruction }
 }
 
 /** Delta emitted during streaming for a single native tool call. */

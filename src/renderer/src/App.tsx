@@ -261,10 +261,59 @@ function consolidateToolCalls(
             if (queryMatch) parsedArgs.query = queryMatch[1]
           } catch { /* ignore */ }
         }
+
+        // Count lines from partial JSON arguments in real-time for file operations
+        const countStreamingLines = (raw: string): number => {
+          if (!raw) return 0
+          // Count escaped newlines in the partial JSON string value
+          return (raw.match(/\\n/g) || []).length + (raw.match(/\n/g) || []).length
+        }
+
+        let streamingAddedLines = 0
+        let streamingRemovedLines = 0
+        const tcName = stc.name || ''
+
+        const isFileWrite = tcName === 'computer_use_create_file' || tcName === 'computer_use_save_file' || tcName === 'computer_use_append_file' || tcName === 'write_to_file'
+        const isFileEdit = tcName === 'computer_use_edit_file' || tcName === 'replace_file_content' || tcName === 'multi_replace_file_content'
+
+        if (isFileWrite || isFileEdit) {
+          const raw = stc.arguments
+          if (isFileWrite) {
+            // Extract content/CodeContent value from partial JSON
+            const contentMatch = raw.match(/"(?:content|CodeContent)"\s*:\s*"((?:[^"\\]|\\.)*)"?/s)
+            if (contentMatch) {
+              streamingAddedLines = countStreamingLines(contentMatch[1])
+            }
+          } else if (tcName === 'replace_file_content') {
+            const targetMatch = raw.match(/"TargetContent"\s*:\s*"((?:[^"\\]|\\.)*)"?/s)
+            const replaceMatch = raw.match(/"ReplacementContent"\s*:\s*"((?:[^"\\]|\\.)*)"?/s)
+            if (targetMatch) streamingRemovedLines = countStreamingLines(targetMatch[1])
+            if (replaceMatch) streamingAddedLines = countStreamingLines(replaceMatch[1])
+          } else if (tcName === 'computer_use_edit_file') {
+            const newContentMatch = raw.match(/"newContent"\s*:\s*"((?:[^"\\]|\\.)*)"?/s)
+            const startMatch = raw.match(/"startLine"\s*:\s*"?(\d+)/)
+            const endMatch = raw.match(/"endLine"\s*:\s*"?(\d+)/)
+            if (newContentMatch) streamingAddedLines = countStreamingLines(newContentMatch[1])
+            if (startMatch && endMatch) {
+              const s = parseInt(startMatch[1], 10)
+              const e = parseInt(endMatch[1], 10)
+              if (!isNaN(s) && !isNaN(e)) streamingRemovedLines = e - s + 1
+            }
+          } else if (tcName === 'multi_replace_file_content') {
+            // Count from all TargetContent/ReplacementContent pairs found so far
+            const targetMatches = raw.matchAll(/"TargetContent"\s*:\s*"((?:[^"\\]|\\.)*)"?/gs)
+            const replaceMatches = raw.matchAll(/"ReplacementContent"\s*:\s*"((?:[^"\\]|\\.)*)"?/gs)
+            for (const m of targetMatches) streamingRemovedLines += countStreamingLines(m[1])
+            for (const m of replaceMatches) streamingAddedLines += countStreamingLines(m[1])
+          }
+        }
+
         allCalls.push({
           name: stc.name || 'task',
           args: parsedArgs,
-          status: 'writing'
+          status: 'writing',
+          addedLines: streamingAddedLines > 0 ? streamingAddedLines : undefined,
+          removedLines: streamingRemovedLines > 0 ? streamingRemovedLines : undefined
         })
       }
     }
@@ -1873,6 +1922,26 @@ function RealApp(): React.JSX.Element {
             `[UI Chat] onChatEnd state update: lastMsg index=${lastMsgIndex}, lastMsg role=${lastMsg?.role}`
           )
           if (lastMsg && lastMsg.role === 'ai') {
+            // Promote completed streaming tool calls to regular toolCalls with 'running'
+            // status to bridge the gap before chat-tool-start arrives
+            let promotedToolCalls = lastMsg.toolCalls || []
+            if (lastMsg.streamingToolCalls && lastMsg.streamingToolCalls.length > 0) {
+              const completedStreaming = lastMsg.streamingToolCalls.filter(stc => stc.isComplete && stc.name)
+              for (const stc of completedStreaming) {
+                const alreadyExists = promotedToolCalls.some(
+                  tc => tc.name === stc.name && (tc.status === 'running' || tc.status === 'done')
+                )
+                if (!alreadyExists) {
+                  let parsedArgs: Record<string, unknown> = {}
+                  try { parsedArgs = JSON.parse(stc.arguments) } catch { /* ignore */ }
+                  promotedToolCalls = [...promotedToolCalls, {
+                    name: stc.name,
+                    args: parsedArgs,
+                    status: 'running' as const
+                  }]
+                }
+              }
+            }
             newMessages[lastMsgIndex] = {
               ...lastMsg,
               thoughts,
@@ -1880,7 +1949,9 @@ function RealApp(): React.JSX.Element {
               isStreaming: false,
               isThinking: false,
               isWritingToolCall: false,
-              isConnecting: false
+              isConnecting: false,
+              toolCalls: promotedToolCalls,
+              streamingToolCalls: undefined
             }
           }
           return newMessages
@@ -1987,16 +2058,33 @@ function RealApp(): React.JSX.Element {
             const lastMsg = { ...newMessages[lastMsgIndex] }
             const toolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
 
-            const isDuplicate = toolCalls.some(
-              (t) =>
-                t.name === data.name &&
-                JSON.stringify(t.args) === JSON.stringify(data.args) &&
-                t.status === 'running'
+            // Check if there's an existing entry promoted from streaming (status 'running'
+            // without args yet, or a 'writing' leftover) that we should update in-place
+            const promotedIndex = toolCalls.findLastIndex(
+              (t) => t.name === data.name && t.status === 'running'
             )
 
-            if (!isDuplicate) {
-              lastMsg.toolCalls = [...toolCalls, { ...data, status: 'running' }]
+            if (promotedIndex !== -1) {
+              // Update the promoted entry with the real args from the tool-start event
+              toolCalls[promotedIndex] = {
+                ...toolCalls[promotedIndex],
+                args: data.args,
+                status: 'running'
+              }
+              lastMsg.toolCalls = toolCalls
               newMessages[lastMsgIndex] = lastMsg
+            } else {
+              const isDuplicate = toolCalls.some(
+                (t) =>
+                  t.name === data.name &&
+                  JSON.stringify(t.args) === JSON.stringify(data.args) &&
+                  t.status === 'running'
+              )
+
+              if (!isDuplicate) {
+                lastMsg.toolCalls = [...toolCalls, { ...data, status: 'running' }]
+                newMessages[lastMsgIndex] = lastMsg
+              }
             }
           }
           return newMessages
