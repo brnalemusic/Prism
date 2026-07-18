@@ -209,6 +209,8 @@ interface StreamingToolCall {
   name: string
   arguments: string
   isComplete: boolean
+  thoughtSignature?: string
+  thought_signature?: string
 }
 
 interface Message {

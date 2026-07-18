@@ -438,12 +438,14 @@ function convertHistoryToGeminiFormat(history: Content[]) {
       
       const newParts: any[] = []
       for (const p of parts) {
+        const thoughtSig = (p as any).thoughtSignature || (p as any).thought_signature
+        const sigObj = thoughtSig ? { thoughtSignature: thoughtSig, thought_signature: thoughtSig } : {}
         if (p.text) {
           const toolCalls = parseToolCallsFromText(p.text)
           if (toolCalls.length > 0) {
             const cleanText = removeToolCalls(p.text).trim()
             if (cleanText) {
-              newParts.push({ text: cleanText })
+              newParts.push({ text: cleanText, ...sigObj })
             }
             for (const tc of toolCalls) {
               const { type, ...args } = tc
@@ -451,16 +453,20 @@ function convertHistoryToGeminiFormat(history: Content[]) {
                 functionCall: {
                   name: type,
                   args
-                }
+                },
+                ...sigObj
               })
             }
           } else {
-            newParts.push({ text: p.text })
+            newParts.push({ text: p.text, ...sigObj })
           }
         } else if (p.inlineData) {
-          newParts.push({ inlineData: p.inlineData })
+          newParts.push({ inlineData: p.inlineData, ...sigObj })
         } else {
-          newParts.push(p)
+          newParts.push({
+            ...p,
+            ...sigObj
+          })
         }
       }
 
@@ -482,6 +488,8 @@ export interface StreamToolCallDelta {
   argumentsDelta?: string
   /** Set to true when the tool call is fully received from the API. */
   isComplete?: boolean
+  thoughtSignature?: string
+  thought_signature?: string
 }
 
 function hasModelResponseText(history: Content[]): boolean {
@@ -585,6 +593,8 @@ interface StreamChunk {
   /** Structured native tool call deltas (replaces text-based [PRISM_EXECUTE_TOOL] for new chats). */
   toolCalls?: StreamToolCallDelta[]
   title?: string
+  thoughtSignature?: string
+  thought_signature?: string
 }
 
 async function* generateAiStream(
@@ -716,13 +726,21 @@ async function* generateAiStream(
           let text = ''
           const chunkToolCalls: StreamToolCallDelta[] = []
 
+          let textThoughtSignature: string | undefined = undefined
           const candidate = chunk.candidates?.[0]
           if (candidate?.content?.parts) {
             for (const part of candidate.content.parts) {
+              const sig = part.thoughtSignature || (part as any).thought_signature
               if (part.thought) {
                 thought += part.text || ''
+                if (sig && !textThoughtSignature) {
+                  textThoughtSignature = sig
+                }
               } else if (part.text) {
                 text += part.text
+                if (sig) {
+                  textThoughtSignature = sig
+                }
               } else if (part.functionCall) {
                 const fcName = part.functionCall.name || ''
                 const fcArgs = part.functionCall.args || {}
@@ -730,7 +748,9 @@ async function* generateAiStream(
                   index: geminiToolCallCounter++,
                   name: fcName,
                   argumentsDelta: JSON.stringify(fcArgs),
-                  isComplete: true
+                  isComplete: true,
+                  thoughtSignature: sig,
+                  thought_signature: sig
                 })
               }
             }
@@ -767,7 +787,9 @@ async function* generateAiStream(
               thought,
               text: textToYield,
               toolCalls: chunkToolCalls.length > 0 ? chunkToolCalls : undefined,
-              title: titleToYield
+              title: titleToYield,
+              thoughtSignature: textThoughtSignature,
+              thought_signature: textThoughtSignature
             }
           }
         }
@@ -1185,6 +1207,8 @@ export interface StreamingToolCall {
   name: string
   arguments: string
   isComplete: boolean
+  thoughtSignature?: string
+  thought_signature?: string
 }
 
 export interface StructuredChatResponse {
@@ -2758,6 +2782,8 @@ export async function handleChatMessage(
           let lastIpcTime = 0
           const IPC_THROTTLE_MS = 50
 
+          let accumulatedTextThoughtSignature: string | undefined = undefined
+
           for await (const chunk of stream) {
             if (runAbortController.signal.aborted) throw new Error('AbortError')
             chunkCount++
@@ -2771,6 +2797,9 @@ export async function handleChatMessage(
             if (chunk.title) {
               finalTitle = chunk.title
               event.sender.send('chat-title-received', { id: chatId, title: finalTitle })
+            }
+            if (chunk.thoughtSignature || chunk.thought_signature) {
+              accumulatedTextThoughtSignature = chunk.thoughtSignature || chunk.thought_signature
             }
 
             // Accumulate structured tool call deltas
@@ -2790,6 +2819,10 @@ export async function handleChatMessage(
                   existing.isComplete = true
                 } else if (tcDelta.argumentsDelta) {
                   existing.arguments += tcDelta.argumentsDelta
+                }
+                if (tcDelta.thoughtSignature || tcDelta.thought_signature) {
+                  existing.thoughtSignature = tcDelta.thoughtSignature || tcDelta.thought_signature
+                  existing.thought_signature = tcDelta.thoughtSignature || tcDelta.thought_signature
                 }
               }
             }
@@ -2931,12 +2964,20 @@ export async function handleChatMessage(
           if (fullAiResponse.trim() || completedStructuredToolCalls.length > 0) {
             const historyParts: NonNullable<Content['parts']> = []
             if (fullAiResponse.trim()) {
-              historyParts.push({ text: fullAiResponse })
+              historyParts.push({
+                text: fullAiResponse,
+                thoughtSignature: accumulatedTextThoughtSignature,
+                thought_signature: accumulatedTextThoughtSignature
+              } as any)
             }
             for (const tc of completedStructuredToolCalls) {
               let args: Record<string, any> = {}
               try { args = JSON.parse(tc.arguments) } catch { /* ignore */ }
-              historyParts.push({ functionCall: { name: tc.name, args } } as any)
+              historyParts.push({
+                functionCall: { name: tc.name, args },
+                thoughtSignature: tc.thoughtSignature,
+                thought_signature: tc.thought_signature || tc.thoughtSignature
+              } as any)
             }
             if (historyParts.length > 0) {
               runHistory.push({ role: 'model', parts: historyParts })
@@ -3412,6 +3453,8 @@ export async function handleLauncherChatMessage(
           // Accumulator for structured native tool calls
           const currentStreamingToolCalls: StreamingToolCall[] = []
 
+          let accumulatedTextThoughtSignature: string | undefined = undefined
+
           for await (const chunk of responseStream) {
             if (runAbortController.signal.aborted) throw new Error('AbortError')
 
@@ -3420,6 +3463,9 @@ export async function handleLauncherChatMessage(
             }
             if (chunk.text) {
               currentFinalResponse += chunk.text
+            }
+            if (chunk.thoughtSignature || chunk.thought_signature) {
+              accumulatedTextThoughtSignature = chunk.thoughtSignature || chunk.thought_signature
             }
 
             // Accumulate structured tool call deltas
@@ -3439,6 +3485,10 @@ export async function handleLauncherChatMessage(
                   existing.isComplete = true
                 } else if (tcDelta.argumentsDelta) {
                   existing.arguments += tcDelta.argumentsDelta
+                }
+                if (tcDelta.thoughtSignature || tcDelta.thought_signature) {
+                  existing.thoughtSignature = tcDelta.thoughtSignature || tcDelta.thought_signature
+                  existing.thought_signature = tcDelta.thoughtSignature || tcDelta.thought_signature
                 }
               }
             }
@@ -3563,12 +3613,20 @@ export async function handleLauncherChatMessage(
           if (fullAiResponse.trim() || completedStructuredToolCalls.length > 0) {
             const historyParts: NonNullable<Content['parts']> = []
             if (fullAiResponse.trim()) {
-              historyParts.push({ text: fullAiResponse })
+              historyParts.push({
+                text: fullAiResponse,
+                thoughtSignature: accumulatedTextThoughtSignature,
+                thought_signature: accumulatedTextThoughtSignature
+              } as any)
             }
             for (const tc of completedStructuredToolCalls) {
               let args: Record<string, any> = {}
               try { args = JSON.parse(tc.arguments) } catch { /* ignore */ }
-              historyParts.push({ functionCall: { name: tc.name, args } } as any)
+              historyParts.push({
+                functionCall: { name: tc.name, args },
+                thoughtSignature: tc.thoughtSignature,
+                thought_signature: tc.thought_signature || tc.thoughtSignature
+              } as any)
             }
             if (historyParts.length > 0) {
               launcherChatHistory.push({ role: 'model', parts: historyParts })
