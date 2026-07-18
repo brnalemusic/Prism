@@ -45,6 +45,7 @@ export interface ToolCall {
   removedLines?: number
   readLines?: { start: number; end: number }[]
   originalCalls?: ToolCall[]
+  terminalOutput?: string
 }
 
 interface ActionLoaderProps {
@@ -527,12 +528,145 @@ function useToolCallMeta(toolCall: ToolCall): {
   }
 }
 
+const ansiColorMap: Record<string, string> = {
+  // foregrounds
+  '30': 'ansi-fg-black',
+  '31': 'ansi-fg-red',
+  '32': 'ansi-fg-green',
+  '33': 'ansi-fg-yellow',
+  '34': 'ansi-fg-blue',
+  '35': 'ansi-fg-magenta',
+  '36': 'ansi-fg-cyan',
+  '37': 'ansi-fg-white',
+  '90': 'ansi-fg-bright-black',
+  '91': 'ansi-fg-bright-red',
+  '92': 'ansi-fg-bright-green',
+  '93': 'ansi-fg-bright-yellow',
+  '94': 'ansi-fg-bright-blue',
+  '95': 'ansi-fg-bright-magenta',
+  '96': 'ansi-fg-bright-cyan',
+  '97': 'ansi-fg-bright-white',
+  // backgrounds
+  '40': 'ansi-bg-black',
+  '41': 'ansi-bg-red',
+  '42': 'ansi-bg-green',
+  '43': 'ansi-bg-yellow',
+  '44': 'ansi-bg-blue',
+  '45': 'ansi-bg-magenta',
+  '46': 'ansi-bg-cyan',
+  '47': 'ansi-bg-white',
+  '100': 'ansi-bg-bright-black',
+  '101': 'ansi-bg-bright-red',
+  '102': 'ansi-bg-bright-green',
+  '103': 'ansi-bg-bright-yellow',
+  '104': 'ansi-bg-bright-blue',
+  '105': 'ansi-bg-bright-magenta',
+  '106': 'ansi-bg-bright-cyan',
+  '107': 'ansi-bg-bright-white'
+}
+
+function parseAnsi(text: string): React.ReactNode[] {
+  const ansiRegex = /(\u001b\[[0-9;]*m)/g
+  const parts = text.split(ansiRegex)
+  
+  let currentFg = ''
+  let currentBg = ''
+  let isBold = false
+  
+  const elements: React.ReactNode[] = []
+  
+  parts.forEach((part, index) => {
+    if (part.startsWith('\u001b[')) {
+      const match = part.match(/\u001b\[([0-9;]*)m/)
+      if (match) {
+        const codes = match[1].split(';')
+        codes.forEach(code => {
+          if (code === '0' || code === '') {
+            currentFg = ''
+            currentBg = ''
+            isBold = false
+          } else if (code === '1') {
+            isBold = true
+          } else if (code === '22') {
+            isBold = false
+          } else if (parseInt(code) >= 30 && parseInt(code) <= 37) {
+            currentFg = ansiColorMap[code] || ''
+          } else if (parseInt(code) >= 90 && parseInt(code) <= 97) {
+            currentFg = ansiColorMap[code] || ''
+          } else if (parseInt(code) >= 40 && parseInt(code) <= 47) {
+            currentBg = ansiColorMap[code] || ''
+          } else if (parseInt(code) >= 100 && parseInt(code) <= 107) {
+            currentBg = ansiColorMap[code] || ''
+          }
+        })
+      }
+    } else {
+      if (part) {
+        const classNames: string[] = []
+        if (currentFg) classNames.push(currentFg)
+        if (currentBg) classNames.push(currentBg)
+        if (isBold) classNames.push('font-bold')
+        
+        elements.push(
+          <span key={index} className={classNames.join(' ')}>
+            {part}
+          </span>
+        )
+      }
+    }
+  })
+
+  return elements
+}
+
+export function AnsiRenderer({ text }: { text: string }): React.JSX.Element {
+  return (
+    <span className="ansi-renderer-root">
+      <style dangerouslySetInnerHTML={{ __html: `
+        .ansi-renderer-root {
+          white-space: pre-wrap;
+          word-break: break-all;
+        }
+        .ansi-renderer-root .ansi-fg-black { color: #000000; }
+        .ansi-renderer-root .ansi-fg-red { color: #ef4444; }
+        .ansi-renderer-root .ansi-fg-green { color: #22c55e; }
+        .ansi-renderer-root .ansi-fg-yellow { color: #eab308; }
+        .ansi-renderer-root .ansi-fg-blue { color: #3b82f6; }
+        .ansi-renderer-root .ansi-fg-magenta { color: #d946ef; }
+        .ansi-renderer-root .ansi-fg-cyan { color: #06b6d4; }
+        .ansi-renderer-root .ansi-fg-white { color: #f3f4f6; }
+        .ansi-renderer-root .ansi-fg-bright-black { color: #6b7280; }
+        .ansi-renderer-root .ansi-fg-bright-red { color: #fca5a5; }
+        .ansi-renderer-root .ansi-fg-bright-green { color: #86efac; }
+        .ansi-renderer-root .ansi-fg-bright-yellow { color: #fef08a; }
+        .ansi-renderer-root .ansi-fg-bright-blue { color: #93c5fd; }
+        .ansi-renderer-root .ansi-fg-bright-magenta { color: #f5d0fe; }
+        .ansi-renderer-root .ansi-fg-bright-cyan { color: #67e8f9; }
+        .ansi-renderer-root .ansi-fg-bright-white { color: #ffffff; }
+
+        .ansi-renderer-root .ansi-bg-black { background-color: #000000; }
+        .ansi-renderer-root .ansi-bg-red { background-color: #991b1b; }
+        .ansi-renderer-root .ansi-bg-green { background-color: #166534; }
+        .ansi-renderer-root .ansi-bg-yellow { background-color: #854d0e; }
+        .ansi-renderer-root .ansi-bg-blue { background-color: #1e3a8a; }
+        .ansi-renderer-root .ansi-bg-magenta { background-color: #86198f; }
+        .ansi-renderer-root .ansi-bg-cyan { background-color: #155e75; }
+        .ansi-renderer-root .ansi-bg-white { background-color: #e5e7eb; }
+      `}} />
+      {parseAnsi(text)}
+    </span>
+  )
+}
+
 function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writingArgs?: Record<string, unknown> }): React.JSX.Element {
   const [isExpanded, setIsExpanded] = useState(false)
   const [selectedAgentKey, setSelectedAgentKey] = useState<string>('master')
 
   const { displayTitle, displayDetail, tone, isDone, isRunning, statusLabel, renderIcon } =
     useToolCallMeta(toolCall)
+
+  const isTerminal = toolCall.name === 'execute_terminal_command' || toolCall.name === 'run_command'
+  const canExpand = isDone || isTerminal
 
   const toneColors = {
     default: {
@@ -588,7 +722,7 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
     (toolCall.status === 'running' || toolCall.status === 'done' || toolCall.status === 'cancelled')
 
   return (
-    <div className="my-2 flex flex-col gap-2 max-w-full select-none">
+    <div className="my-2 flex flex-col gap-2 max-w-full select-none animate-fade-in">
       <style>{`
         @keyframes swarmDash {
           to {
@@ -602,17 +736,38 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
 
       {/* ── Text-Only Expansible Trigger ── */}
       <div
-        onClick={() => isDone && setIsExpanded(!isExpanded)}
+        onClick={() => canExpand && setIsExpanded(!isExpanded)}
         className={clsx(
           'inline-flex items-center gap-2 text-[13px] py-1 select-none transition-all duration-200',
-          isDone ? 'cursor-pointer hover:opacity-80 active:scale-[0.99]' : 'cursor-default'
+          canExpand ? 'cursor-pointer hover:opacity-80 active:scale-[0.99]' : 'cursor-default'
         )}
       >
         <div className={clsx('flex shrink-0 items-center justify-center', toneColors.icon)}>
           {renderIcon(13)}
         </div>
 
-        {toolCall.isConsolidated ? (
+        {isTerminal ? (
+          <>
+            <span className="font-semibold text-text-primary leading-none">
+              {(toolCall.status === 'running' || toolCall.status === 'writing') ? 'Running' : 'Ran'}{' '}
+              <span className="font-mono text-text-secondary">
+                {(toolCall.args.command || toolCall.args.CommandLine || writingArgs?.command) as string}
+              </span>
+            </span>
+          </>
+        ) : toolCall.isConsolidated && (toolCall.consolidatedType === 'edit' || toolCall.consolidatedType === 'write') ? (
+          <>
+            <span className="font-semibold text-text-primary leading-none">
+              {toolCall.consolidatedType === 'edit' ? 'Edited' : 'Created'}{' '}
+              <span className="text-accent-secondary font-mono">{toolCall.fileName?.split('.').pop()}</span>{' '}
+              {toolCall.fileName}
+            </span>
+            <span className="text-xs font-semibold text-status-success ml-1">+{toolCall.addedLines || 0}</span>
+            {toolCall.removedLines ? (
+              <span className="text-xs font-semibold text-status-error ml-1">-{toolCall.removedLines}</span>
+            ) : null}
+          </>
+        ) : toolCall.isConsolidated ? (
           <>
             <span className="font-semibold text-text-primary leading-none">
               {displayTitle} <span className="font-normal opacity-85">{displayDetail}</span>
@@ -659,7 +814,7 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
             </button>
           )}
 
-          {isDone && (
+          {canExpand && (
             <CaretDown
               size={12}
               className={clsx(
@@ -709,7 +864,20 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
       {/* ── Expanded View (Success/Fail Status Only) ── */}
       {isExpanded && (
         <div className="pl-5 text-xs text-text-secondary/80 animate-fade-in py-0.5 select-text">
-          {toolCall.status === 'done' ? (
+          {isTerminal ? (
+            <div className="flex flex-col max-w-full my-2">
+              <div className="font-mono text-[12px] bg-[#012456] text-[#eeedf0] border border-white/10 rounded-xl p-4 flex flex-col gap-1 shadow-inner max-h-[320px] overflow-y-auto whitespace-pre-wrap select-text leading-relaxed">
+                <div className="text-[#00ffff] font-semibold select-none mb-1">
+                  PS C:\\Users\\Breno\\Documents\\Code\\Prism&gt; {(toolCall.args.command || toolCall.args.CommandLine || writingArgs?.command) as string}
+                </div>
+                {(toolCall.terminalOutput || toolCall.result) ? (
+                  <AnsiRenderer text={toolCall.terminalOutput || toolCall.result || ''} />
+                ) : (
+                  <span className="text-text-muted italic animate-pulse">Running command and waiting for output...</span>
+                )}
+              </div>
+            </div>
+          ) : toolCall.status === 'done' ? (
             <div className="flex flex-col">
               <span className="flex items-center gap-1.5 text-status-success font-medium">
                 Executed successfully.
@@ -1050,6 +1218,9 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
   const { displayTitle, displayDetail, tone, isDone, statusLabel, renderIcon } =
     useToolCallMeta(toolCall)
 
+  const isTerminal = toolCall.name === 'execute_terminal_command' || toolCall.name === 'run_command'
+  const canExpand = isDone || isTerminal
+
   const toneColors = {
     default: {
       text: 'text-text-secondary',
@@ -1100,7 +1271,7 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
   }
 
   return (
-    <div className="my-2.5 flex w-full flex-col gap-2 select-none">
+    <div className="my-2.5 flex w-full flex-col gap-2 select-none animate-fade-in">
       <style>{`
         @keyframes swarmDash {
           to {
@@ -1114,39 +1285,73 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
 
       {/* ── Text-Only Expansible Trigger ── */}
       <div
-        onClick={() => isDone && setIsExpanded(!isExpanded)}
+        onClick={() => canExpand && setIsExpanded(!isExpanded)}
         className={clsx(
           'inline-flex items-center gap-2 text-[13px] py-1 select-none transition-all duration-200',
-          isDone ? 'cursor-pointer hover:opacity-80 active:scale-[0.99]' : 'cursor-default'
+          canExpand ? 'cursor-pointer hover:opacity-80 active:scale-[0.99]' : 'cursor-default'
         )}
       >
         <div className={clsx('flex shrink-0 items-center justify-center', toneColors.icon)}>
           {renderIcon(13)}
         </div>
 
-        <span className="font-semibold text-text-primary leading-none">{displayTitle}</span>
-        {displayDetail && (
-          <span className="text-text-muted font-normal text-xs leading-none truncate max-w-[280px]">
-            · {displayDetail}
-          </span>
-        )}
-        <span className={clsx('text-[11px] font-medium leading-none opacity-80', toneColors.text)}>
-          ({statusLabel})
-        </span>
-        {toolCall.status === 'writing' && typeof writingArgs?.filePath === 'string' && (
-          <span className="text-[11px] text-text-muted/60 truncate max-w-[200px]" title={writingArgs.filePath}>
-            · {writingArgs.filePath}
-          </span>
-        )}
-        {toolCall.status === 'writing' && typeof writingArgs?.command === 'string' && typeof writingArgs?.filePath !== 'string' && (
-          <span className="text-[11px] text-text-muted/60 font-mono truncate max-w-[200px]" title={writingArgs.command}>
-            · {writingArgs.command.substring(0, 40)}{writingArgs.command.length > 40 ? '...' : ''}
-          </span>
-        )}
-        {toolCall.status === 'writing' && typeof writingArgs?.query === 'string' && typeof writingArgs?.filePath !== 'string' && typeof writingArgs?.command !== 'string' && (
-          <span className="text-[11px] text-text-muted/60 truncate max-w-[200px]" title={writingArgs.query}>
-            · {writingArgs.query}
-          </span>
+        {isTerminal ? (
+          <>
+            <span className="font-semibold text-text-primary leading-none">
+              {(toolCall.status === 'running' || toolCall.status === 'writing') ? 'Running' : 'Ran'}{' '}
+              <span className="font-mono text-text-secondary">
+                {(toolCall.args.command || toolCall.args.CommandLine || writingArgs?.command) as string}
+              </span>
+            </span>
+          </>
+        ) : toolCall.isConsolidated && (toolCall.consolidatedType === 'edit' || toolCall.consolidatedType === 'write') ? (
+          <>
+            <span className="font-semibold text-text-primary leading-none">
+              {toolCall.consolidatedType === 'edit' ? 'Edited' : 'Created'}{' '}
+              <span className="text-accent-secondary font-mono">{toolCall.fileName?.split('.').pop()}</span>{' '}
+              {toolCall.fileName}
+            </span>
+            <span className="text-xs font-semibold text-status-success ml-1">+{toolCall.addedLines || 0}</span>
+            {toolCall.removedLines ? (
+              <span className="text-xs font-semibold text-status-error ml-1">-{toolCall.removedLines}</span>
+            ) : null}
+          </>
+        ) : toolCall.isConsolidated ? (
+          <>
+            <span className="font-semibold text-text-primary leading-none">
+              {displayTitle} <span className="font-normal opacity-85">{displayDetail}</span>
+            </span>
+            <span className={clsx('text-[11px] font-medium leading-none opacity-80', toneColors.text)}>
+              ({statusLabel})
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="font-semibold text-text-primary leading-none">{displayTitle}</span>
+            {displayDetail && (
+              <span className="text-text-muted font-normal text-xs leading-none truncate max-w-[280px]">
+                · {displayDetail}
+              </span>
+            )}
+            <span className={clsx('text-[11px] font-medium leading-none opacity-80', toneColors.text)}>
+              ({statusLabel})
+            </span>
+            {toolCall.status === 'writing' && typeof writingArgs?.filePath === 'string' && (
+              <span className="text-[11px] text-text-muted/60 truncate max-w-[200px]" title={writingArgs.filePath}>
+                · {writingArgs.filePath}
+              </span>
+            )}
+            {toolCall.status === 'writing' && typeof writingArgs?.command === 'string' && typeof writingArgs?.filePath !== 'string' && (
+              <span className="text-[11px] text-text-muted/60 font-mono truncate max-w-[200px]" title={writingArgs.command}>
+                · {writingArgs.command.substring(0, 40)}{writingArgs.command.length > 40 ? '...' : ''}
+              </span>
+            )}
+            {toolCall.status === 'writing' && typeof writingArgs?.query === 'string' && typeof writingArgs?.filePath !== 'string' && typeof writingArgs?.command !== 'string' && (
+              <span className="text-[11px] text-text-muted/60 truncate max-w-[200px]" title={writingArgs.query}>
+                · {writingArgs.query}
+              </span>
+            )}
+          </>
         )}
 
         <div className="flex items-center gap-1.5 ml-1">
@@ -1166,7 +1371,7 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
               </button>
             )}
 
-          {isDone && (
+          {canExpand && (
             <CaretDown
               size={12}
               className={clsx(
@@ -1216,7 +1421,20 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
       {/* ── Expanded View (Success/Fail Status Only) ── */}
       {isExpanded && (
         <div className="pl-5 text-xs text-text-secondary/80 animate-fade-in py-0.5 select-text">
-          {toolCall.status === 'done' ? (
+          {isTerminal ? (
+            <div className="flex flex-col max-w-full my-2">
+              <div className="font-mono text-[12px] bg-[#012456] text-[#eeedf0] border border-white/10 rounded-xl p-4 flex flex-col gap-1 shadow-inner max-h-[320px] overflow-y-auto whitespace-pre-wrap select-text leading-relaxed">
+                <div className="text-[#00ffff] font-semibold select-none mb-1">
+                  PS C:\\Users\\Breno\\Documents\\Code\\Prism&gt; {(toolCall.args.command || toolCall.args.CommandLine || writingArgs?.command) as string}
+                </div>
+                {(toolCall.terminalOutput || toolCall.result) ? (
+                  <AnsiRenderer text={toolCall.terminalOutput || toolCall.result || ''} />
+                ) : (
+                  <span className="text-text-muted italic animate-pulse">Running command and waiting for output...</span>
+                )}
+              </div>
+            </div>
+          ) : toolCall.status === 'done' ? (
             <div className="flex flex-col">
               <span className="flex items-center gap-1.5 text-status-success font-medium">
                 Executed successfully.

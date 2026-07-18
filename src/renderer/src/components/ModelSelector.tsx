@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useCallback, useLayoutEffect } from 'react'
+import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useLayoutEffect } from 'react'
 import { CaretDown as ChevronDown, Check } from '@phosphor-icons/react'
 import { clsx } from 'clsx'
 import { MODELS, MODEL_CATEGORIES } from '../constants'
@@ -35,7 +35,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
   ) => {
     const [isOpen, setIsOpen] = useState(false)
     const [shortcut, setShortcut] = useState('CommandOrControl+M')
-    const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set())
+    const [searchQuery, setSearchQuery] = useState('')
     const containerRef = useRef<HTMLDivElement>(null)
 
     useImperativeHandle(ref, () => ({
@@ -59,6 +59,12 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         }
       })
     }, [])
+
+    useEffect(() => {
+      if (!isOpen) {
+        setSearchQuery('')
+      }
+    }, [isOpen])
 
     useEffect(() => {
       function handleClickOutside(event: MouseEvent): void {
@@ -128,34 +134,21 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
     const categoryOrder = ['gemini', 'nvidia-nim', 'openai-compatible']
 
-    const toggleCategory = useCallback((catKey: string) => {
-      setExpandedCategories((prev) => {
-        const next = new Set(prev)
-        if (next.has(catKey)) {
-          next.delete(catKey)
-        } else {
-          next.add(catKey)
-        }
-        return next
-      })
-    }, [])
-
-    useEffect(() => {
-      if (isOpen) {
-        setExpandedCategories(new Set(availableCategories))
-      }
-    }, [isOpen, availableCategories.join(',')])
-
     const totalModels = availableModels.length
-    const itemHeight = 36
-    const headerHeight = 30
+    const itemHeight = 44
+    const headerHeight = 24
     const padding = 8
+    const searchBoxHeight = 46
+
     const contentHeight = categoryOrder.reduce((acc, catKey) => {
-      const models = groupedModels[catKey]
-      if (!models || models.length === 0) return acc
-      const isExpanded = expandedCategories.has(catKey)
-      return acc + headerHeight + (isExpanded ? models.length * itemHeight : 0)
-    }, padding * 2)
+      const models = groupedModels[catKey] || []
+      const matchingModels = models.filter((m) =>
+        m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        m.id.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+      if (matchingModels.length === 0) return acc
+      return acc + headerHeight + matchingModels.length * itemHeight
+    }, padding * 2 + searchBoxHeight)
 
     const [dropdownMaxHeight, setDropdownMaxHeight] = useState(300)
     const dropdownRef = useRef<HTMLDivElement>(null)
@@ -167,12 +160,12 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         const containerRect = containerRef.current?.getBoundingClientRect()
         if (!containerRect) return
 
-        const spaceAbove = containerRect.top
-        const topBuffer = 48
+        const spaceBelow = window.innerHeight - containerRect.bottom
+        const bottomBuffer = 48
         const computed = Math.min(
           Math.max(contentHeight, 80),
-          Math.floor(spaceAbove - topBuffer),
-          Math.floor(window.innerHeight * 0.38)
+          Math.floor(spaceBelow - bottomBuffer),
+          Math.floor(window.innerHeight * 0.5)
         )
         setDropdownMaxHeight(Math.max(computed, 120))
       }
@@ -187,18 +180,18 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
           disabled={disabled}
           onClick={() => setIsOpen(!isOpen)}
           className={clsx(
-            'flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold outline-none transition-all duration-200 border border-transparent hover:bg-white/[0.05] hover:border-white/[0.09]',
+            'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold outline-none transition-all duration-200 border border-transparent hover:bg-white/[0.05] hover:border-white/[0.09]',
             isOpen
               ? 'bg-white/[0.08] text-text-primary border-white/10'
-              : 'bg-transparent text-text-secondary',
+              : 'bg-transparent text-text-primary/95',
             disabled && 'cursor-not-allowed opacity-50'
           )}
         >
-          <span>{getDisplayName()}</span>
+          <span className="text-[13.5px] font-bold tracking-wide">{getDisplayName()}</span>
           <ChevronDown
-            size={12}
+            size={13}
             className={clsx(
-              'text-text-secondary/70 transition-transform duration-200',
+              'text-text-secondary/75 transition-transform duration-200',
               isOpen && 'rotate-180'
             )}
           />
@@ -207,60 +200,67 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         {isOpen && (
           <div
             ref={dropdownRef}
-            className="model-menu-panel absolute bottom-full right-0 mb-2 z-50 p-2 animate-soft-pop text-left opacity-100 overflow-y-auto custom-scrollbar model-selector-dropdown"
+            className="model-menu-panel absolute top-full left-0 mt-2 z-50 p-2.5 animate-soft-pop text-left opacity-100 overflow-y-auto custom-scrollbar model-selector-dropdown flex flex-col"
             style={{ maxHeight: `${dropdownMaxHeight}px`, width: '18rem' }}
           >
-            {totalModels === 0 && (
-              <div className="px-3 py-4 text-xs text-text-secondary/60 text-center">
-                No models available. Configure an API key in Settings.
-              </div>
-            )}
-            {categoryOrder.map((catKey) => {
-              const models = groupedModels[catKey]
-              if (!models || models.length === 0) return null
-              const catLabel = MODEL_CATEGORIES[catKey] || catKey
-              const isExpanded = expandedCategories.has(catKey)
+            {/* Search input */}
+            <div className="px-1 pb-2.5 mb-2 border-b border-white/[0.04] shrink-0">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search models..."
+                className="w-full bg-white/[0.03] border border-white/[0.07] rounded-lg px-2.5 py-1.5 text-[11px] text-text-primary placeholder:text-text-secondary/40 focus:outline-none focus:border-accent-primary/45 focus:bg-white/[0.05] transition-all duration-200 select-text"
+                onClick={(e) => e.stopPropagation()} // Prevent dropdown closing on click
+              />
+            </div>
 
-              return (
-                <div key={catKey}>
-                  <button
-                    type="button"
-                    onClick={() => toggleCategory(catKey)}
-                    className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.04] mb-1 hover:text-text-secondary transition-colors"
-                  >
-                    <span>{catLabel}</span>
-                    <ChevronDown
-                      size={10}
-                      className={clsx(
-                        'transition-transform duration-200',
-                        isExpanded && 'rotate-180'
-                      )}
-                    />
-                  </button>
-                  {isExpanded &&
-                    models.map((model) => (
+            <div className="flex-grow overflow-y-auto custom-scrollbar pr-0.5">
+              {totalModels === 0 && (
+                <div className="px-3 py-4 text-xs text-text-secondary/60 text-center select-none">
+                  No models available. Configure an API key in Settings.
+                </div>
+              )}
+              {categoryOrder.map((catKey) => {
+                const models = groupedModels[catKey] || []
+                const matchingModels = models.filter((m) =>
+                  m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                  m.id.toLowerCase().includes(searchQuery.toLowerCase())
+                )
+                if (matchingModels.length === 0) return null
+                const catLabel = MODEL_CATEGORIES[catKey] || catKey
+
+                return (
+                  <div key={catKey} className="mb-2.5 last:mb-0">
+                    <div className="px-3 py-1 text-[9px] font-bold text-text-secondary/40 uppercase tracking-widest select-none">
+                      {catLabel}
+                    </div>
+                    {matchingModels.map((model) => (
                       <button
                         key={model.id}
+                        type="button"
                         onClick={() => {
                           onModelChange(model.id)
                           setIsOpen(false)
                         }}
                         className={clsx(
-                          'w-full flex items-center rounded-xl px-3 py-2 transition-all text-left mt-0.5',
+                          'w-full flex items-center justify-between rounded-xl px-3 py-1.5 transition-all text-left mt-0.5 select-none cursor-pointer',
                           selectedModel === model.id
                             ? 'bg-accent-primary/[0.12] text-accent-primary border border-accent-primary/20'
                             : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
                         )}
                       >
-                        <div className="flex items-center justify-between w-full">
-                          <div className="font-semibold text-xs">{model.name}</div>
-                          {selectedModel === model.id && <Check size={12} />}
+                        <div className="flex flex-col min-w-0 pr-2">
+                          <div className="font-semibold text-xs text-text-primary/90">{model.name}</div>
+                          <div className="text-[9px] text-text-secondary/40 font-mono mt-0.5 truncate">{model.id}</div>
                         </div>
+                        {selectedModel === model.id && <Check size={12} className="shrink-0 text-accent-primary" />}
                       </button>
                     ))}
-                </div>
-              )
-            })}
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
       </div>

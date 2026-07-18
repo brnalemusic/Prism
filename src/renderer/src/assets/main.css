@@ -936,3 +936,18 @@
   background: rgba(255, 255, 255, 0.22);
 }
 
+@keyframes breathe-pulse {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+.animate-breathe {
+  animation: breathe-pulse 1.8s ease-in-out infinite;
+}
+

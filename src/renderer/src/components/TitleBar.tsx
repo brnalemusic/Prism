@@ -76,12 +76,7 @@ export function TitleBar({
 
   return (
     <div className="fixed left-0 top-0 z-[100] flex h-10 w-full select-none items-center justify-between border-b border-white/[0.055] bg-background-main/80 px-4 shadow-[0_1px_0_rgba(255,255,255,0.018)] backdrop-blur-md drag-region">
-      <div className={`flex items-center gap-2.5 no-drag-region ${isMac ? 'pl-[72px]' : ''}`}>
-        <div className="flex h-6 w-6 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.035]">
-          <span className="text-[11px] font-bold prism-top-gradient">P</span>
-        </div>
-        <span className="text-[12px] font-medium text-text-secondary/75">Prism</span>
-      </div>
+      {isMac ? <div className="pl-[72px] no-drag-region" /> : <div className="no-drag-region" />}
 
       {title && (
         <div className="absolute left-1/2 top-1/2 flex max-w-[46vw] -translate-x-1/2 -translate-y-1/2 items-center justify-center truncate whitespace-nowrap text-[12.5px] font-medium text-text-primary/90 pointer-events-none select-none">

@@ -484,11 +484,107 @@ export interface StreamToolCallDelta {
   isComplete?: boolean
 }
 
+function hasModelResponseText(history: Content[]): boolean {
+  return history.some(
+    (msg) =>
+      msg.role === 'model' &&
+      msg.parts?.some((part) => typeof part.text === 'string' && part.text.trim() !== '')
+  )
+}
+
+function parsePartialJson(str: string): { title?: string; response?: string } {
+  let title = ''
+  let response = ''
+  let inString = false
+  let escape = false
+  let currentKey = ''
+  let currentValue = ''
+  let inKey = false
+  let lastKey = ''
+
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i]
+    if (escape) {
+      if (inString) {
+        let escapedChar = char
+        if (char === 'n') escapedChar = '\n'
+        else if (char === 'r') escapedChar = '\r'
+        else if (char === 't') escapedChar = '\t'
+        else if (char === 'b') escapedChar = '\b'
+        else if (char === 'f') escapedChar = '\f'
+
+        if (inKey) {
+          currentKey += escapedChar
+        } else {
+          currentValue += escapedChar
+        }
+      }
+      escape = false
+      continue
+    }
+    if (char === '\\') {
+      escape = true
+      continue
+    }
+    if (char === '"') {
+      if (inString) {
+        inString = false
+        if (inKey) {
+          lastKey = currentKey
+          currentKey = ''
+          inKey = false
+        } else {
+          if (lastKey === 'title') {
+            title = currentValue
+          } else if (lastKey === 'response') {
+            response = currentValue
+          }
+          currentValue = ''
+          lastKey = ''
+        }
+      } else {
+        inString = true
+        if (lastKey) {
+          inKey = false
+        } else {
+          inKey = true
+        }
+      }
+      continue
+    }
+
+    if (inString) {
+      if (inKey) {
+        currentKey += char
+      } else {
+        currentValue += char
+      }
+    } else {
+      if (char === ',') {
+        lastKey = ''
+      }
+    }
+  }
+
+  if (inString && !inKey && lastKey === 'response') {
+    response = currentValue
+  }
+  if (inString && !inKey && lastKey === 'title') {
+    title = currentValue
+  }
+
+  return {
+    title: title || undefined,
+    response: response || undefined
+  }
+}
+
 interface StreamChunk {
   thought: string
   text: string
   /** Structured native tool call deltas (replaces text-based [PRISM_EXECUTE_TOOL] for new chats). */
   toolCalls?: StreamToolCallDelta[]
+  title?: string
 }
 
 async function* generateAiStream(
@@ -507,217 +603,358 @@ async function* generateAiStream(
     modelName = 'stepfun-ai/step-3.7-flash'
   }
 
-  try {
-    fs.writeFileSync(debugFilePath, `--- START STREAM (model: ${modelName}, provider: ${provider}) ---\n`)
-  } catch (err) {
-    console.error('Failed to init stream debug file:', err)
+  const localController = new AbortController()
+  if (signal) {
+    if (signal.aborted) {
+      localController.abort()
+    } else {
+      signal.addEventListener('abort', () => localController.abort())
+    }
   }
 
-  const appConfig = loadConfig()
-  const reasoningLevels = appConfig.modelReasoningLevels || {}
-  const reasoningLevel = reasoningLevels[modelName] || 'off'
+  let timeoutTimer: NodeJS.Timeout | undefined = undefined
+  let hasTimedOut: 'first' | 'chunk' | null = null
 
-  if (provider === 'gemini') {
-    const ai = new GoogleGenAI({ apiKey })
-    const { contents, systemInstruction } = convertHistoryToGeminiFormat(ensureHistoryFitsLimit(history))
-    
-    const configObj: any = {
-      systemInstruction,
-      temperature,
-      abortSignal: signal,
-      tools: getGeminiTools(target, allowedTools)
-    }
+  const startFirstTimeout = () => {
+    clearTimeout(timeoutTimer)
+    timeoutTimer = setTimeout(() => {
+      hasTimedOut = 'first'
+      localController.abort()
+    }, 15000)
+  }
 
-    const supportsReasoning = modelName !== 'gemini-3.1-flash-lite' && modelName.startsWith('gemini-')
-    if (supportsReasoning) {
-      let budget = 0
-      if (reasoningLevel === 'low') budget = 1024
-      else if (reasoningLevel === 'medium') budget = 2048
-      else if (reasoningLevel === 'high') budget = 4096
-      else if (reasoningLevel === 'max') budget = -1
+  const startChunkTimeout = () => {
+    clearTimeout(timeoutTimer)
+    timeoutTimer = setTimeout(() => {
+      hasTimedOut = 'chunk'
+      localController.abort()
+    }, 30000)
+  }
 
-      configObj.thinkingConfig = {
-        thinkingBudget: budget,
-        includeThoughts: true
-      }
-      if (budget !== 0) {
-        delete configObj.temperature
-      }
-    }
+  const clearTimer = () => {
+    clearTimeout(timeoutTimer)
+  }
 
-    const responseStream = await ai.models.generateContentStream({
-      model: modelName,
-      contents,
-      config: configObj
-    })
-
-    let accumulatedText = ''
-    let geminiToolCallCounter = 0
-
+  try {
     try {
-      for await (const chunk of responseStream) {
-        if (signal?.aborted) throw new Error('AbortError')
+      fs.writeFileSync(debugFilePath, `--- START STREAM (model: ${modelName}, provider: ${provider}) ---\n`)
+    } catch (err) {
+      console.error('Failed to init stream debug file:', err)
+    }
 
-        let thought = ''
-        let text = ''
-        const chunkToolCalls: StreamToolCallDelta[] = []
+    const appConfig = loadConfig()
+    const reasoningLevels = appConfig.modelReasoningLevels || {}
+    const reasoningLevel = reasoningLevels[modelName] || 'off'
 
-        const candidate = chunk.candidates?.[0]
-        if (candidate?.content?.parts) {
-          for (const part of candidate.content.parts) {
-            if (part.thought) {
-              thought += part.text || ''
-            } else if (part.text) {
-              text += part.text
-            } else if (part.functionCall) {
-              // Emit as structured tool call (Gemini sends complete function calls)
-              const fcName = part.functionCall.name || ''
-              const fcArgs = part.functionCall.args || {}
+    const isFirstMainResponse = target === 'main' && !hasModelResponseText(history)
+
+    startFirstTimeout()
+
+    if (provider === 'gemini') {
+      const ai = new GoogleGenAI({ apiKey })
+      const { contents, systemInstruction } = convertHistoryToGeminiFormat(ensureHistoryFitsLimit(history))
+      
+      const configObj: any = {
+        systemInstruction,
+        temperature,
+        abortSignal: localController.signal,
+        tools: getGeminiTools(target, allowedTools)
+      }
+
+      if (isFirstMainResponse) {
+        configObj.responseMimeType = 'application/json'
+        configObj.responseSchema = {
+          type: 'OBJECT',
+          properties: {
+            title: {
+              type: 'STRING',
+              description: "An extremely short (maximum 5 words) title for this conversation, matching the language of the user's message."
+            },
+            response: {
+              type: 'STRING',
+              description: "The detailed response to the user's message."
+            }
+          },
+          required: ['title', 'response']
+        }
+      }
+
+      const supportsReasoning = modelName !== 'gemini-3.1-flash-lite' && modelName.startsWith('gemini-')
+      if (supportsReasoning) {
+        let budget = 0
+        if (reasoningLevel === 'low') budget = 1024
+        else if (reasoningLevel === 'medium') budget = 2048
+        else if (reasoningLevel === 'high') budget = 4096
+        else if (reasoningLevel === 'max') budget = -1
+
+        configObj.thinkingConfig = {
+          thinkingBudget: budget,
+          includeThoughts: true
+        }
+        if (budget !== 0) {
+          delete configObj.temperature
+        }
+      }
+
+      const responseStream = await ai.models.generateContentStream({
+        model: modelName,
+        contents,
+        config: configObj
+      })
+
+      let accumulatedText = ''
+      let geminiToolCallCounter = 0
+      let accumulatedRawText = ''
+      let lastSentResponseLength = 0
+
+      try {
+        for await (const chunk of responseStream) {
+          if (localController.signal.aborted) throw new Error('AbortError')
+          startChunkTimeout()
+
+          let thought = ''
+          let text = ''
+          const chunkToolCalls: StreamToolCallDelta[] = []
+
+          const candidate = chunk.candidates?.[0]
+          if (candidate?.content?.parts) {
+            for (const part of candidate.content.parts) {
+              if (part.thought) {
+                thought += part.text || ''
+              } else if (part.text) {
+                text += part.text
+              } else if (part.functionCall) {
+                const fcName = part.functionCall.name || ''
+                const fcArgs = part.functionCall.args || {}
+                chunkToolCalls.push({
+                  index: geminiToolCallCounter++,
+                  name: fcName,
+                  argumentsDelta: JSON.stringify(fcArgs),
+                  isComplete: true
+                })
+              }
+            }
+          }
+
+          if (thought || text || chunkToolCalls.length > 0) {
+            let textToYield = text
+            let titleToYield: string | undefined = undefined
+
+            if (isFirstMainResponse && text) {
+              accumulatedRawText += text
+              const trimmedRaw = accumulatedRawText.trim()
+              if (trimmedRaw.length > 0 && !trimmedRaw.startsWith('{')) {
+                textToYield = text
+              } else {
+                const parsed = parsePartialJson(accumulatedRawText)
+                if (parsed.response !== undefined) {
+                  textToYield = parsed.response.slice(lastSentResponseLength)
+                  lastSentResponseLength = parsed.response.length
+                } else {
+                  textToYield = ''
+                }
+                if (parsed.title) {
+                  titleToYield = parsed.title
+                }
+              }
+            }
+
+            accumulatedText += textToYield
+            try {
+              fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text: textToYield, title: titleToYield, toolCalls: chunkToolCalls }) + '\n')
+            } catch (err) { /* ignore */ }
+            yield {
+              thought,
+              text: textToYield,
+              toolCalls: chunkToolCalls.length > 0 ? chunkToolCalls : undefined,
+              title: titleToYield
+            }
+          }
+        }
+      } finally {
+        // Ensure the stream is properly closed to free server-side connections
+      }
+    } else {
+      let baseURL: string
+      if (provider === 'nvidia-nim') {
+        baseURL = 'https://integrate.api.nvidia.com/v1'
+      } else {
+        const configBaseUrl = (loadConfig().openaiBaseUrl || '').replace(/\/+$/, '')
+        baseURL = configBaseUrl
+      }
+
+      const openai = new OpenAI({
+        apiKey,
+        baseURL,
+        timeout: 120000,
+        maxRetries: 2,
+        fetch: originalFetch
+      })
+      const messages = convertHistoryToOpenAiFormat(ensureHistoryFitsLimit(history), provider)
+      const nimTools = getOpenAiTools(target, allowedTools)
+      const requestConfig: any = {
+        model: modelName,
+        messages,
+        temperature,
+        stream: true,
+        tools: nimTools || undefined
+      }
+
+      if (isFirstMainResponse) {
+        requestConfig.response_format = {
+          type: 'json_schema',
+          json_schema: {
+            name: 'chat_response',
+            strict: true,
+            schema: {
+              type: 'object',
+              properties: {
+                title: {
+                  type: 'string',
+                  description: "An extremely short (maximum 5 words) title for this conversation, matching the language of the user's message."
+                },
+                response: {
+                  type: 'string',
+                  description: "The detailed response to the user's message."
+                }
+              },
+              required: ['title', 'response'],
+              additionalProperties: false
+            }
+          }
+        }
+      }
+
+      applyReasoningConfig(requestConfig, modelName, reasoningLevel)
+      if (reasoningLevel !== 'off' && modelName.includes('deepseek')) {
+        requestConfig.stream_options = { include_reasoning: true }
+      }
+
+      const responseStream = (await openai.chat.completions.create(requestConfig, { signal: localController.signal })) as any
+
+      const accumulatedToolCalls = new Map<number, {
+        id?: string
+        name?: string
+        arguments: string
+      }>()
+
+      let accumulatedRawText = ''
+      let lastSentResponseLength = 0
+
+      try {
+        for await (const chunk of responseStream) {
+          if (localController.signal.aborted) throw new Error('AbortError')
+          startChunkTimeout()
+
+          const choice = chunk.choices?.[0]
+          if (!choice) continue
+
+          const delta = choice.delta || {}
+          const thought = (delta as any).reasoning_content || ''
+          const text = delta.content || ''
+          const toolCalls = delta.tool_calls || []
+
+          const chunkToolCalls: StreamToolCallDelta[] = []
+
+          for (const tc of toolCalls) {
+            const idx = tc.index
+            if (idx !== undefined) {
+              if (!accumulatedToolCalls.has(idx)) {
+                accumulatedToolCalls.set(idx, { arguments: '' })
+              }
+              const acc = accumulatedToolCalls.get(idx)!
+              if (tc.id) acc.id = tc.id
+              if (tc.function?.name) acc.name = tc.function.name
+              if (tc.function?.arguments) {
+                acc.arguments += tc.function.arguments
+              }
+
               chunkToolCalls.push({
-                index: geminiToolCallCounter++,
-                name: fcName,
-                argumentsDelta: JSON.stringify(fcArgs),
-                isComplete: true
+                index: idx,
+                id: tc.id,
+                name: tc.function?.name,
+                argumentsDelta: tc.function?.arguments
               })
             }
           }
-        }
 
-        if (thought || text || chunkToolCalls.length > 0) {
-          accumulatedText += text
-          try {
-            fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text, toolCalls: chunkToolCalls }) + '\n')
-          } catch (err) { /* ignore */ }
-          yield { thought, text, toolCalls: chunkToolCalls.length > 0 ? chunkToolCalls : undefined }
-        }
-      }
-    } finally {
-      // Ensure the stream is properly closed to free server-side connections
-    }
-  } else {
-    let baseURL: string
-    if (provider === 'nvidia-nim') {
-      baseURL = 'https://integrate.api.nvidia.com/v1'
-    } else {
-      const configBaseUrl = (loadConfig().openaiBaseUrl || '').replace(/\/+$/, '')
-      baseURL = configBaseUrl
-    }
+          if (thought || text || chunkToolCalls.length > 0) {
+            let textToYield = text
+            let titleToYield: string | undefined = undefined
 
-    const openai = new OpenAI({
-      apiKey,
-      baseURL,
-      timeout: 120000,
-      maxRetries: 2,
-      fetch: originalFetch
-    })
-    const messages = convertHistoryToOpenAiFormat(ensureHistoryFitsLimit(history), provider)
-    const nimTools = getOpenAiTools(target, allowedTools)
-    const requestConfig: any = {
-      model: modelName,
-      messages,
-      temperature,
-      stream: true,
-      tools: nimTools || undefined
-    }
-
-    // Apply reasoning/thinking configuration based on model capabilities
-    // NVIDIA NIM API does NOT support extra_body parameter
-    applyReasoningConfig(requestConfig, modelName, reasoningLevel)
-    // NIM only returns reasoning tokens in the stream when
-    // stream_options.include_reasoning is explicitly enabled.
-    if (reasoningLevel !== 'off' && modelName.includes('deepseek')) {
-      requestConfig.stream_options = { include_reasoning: true }
-    }
-
-    const responseStream = (await openai.chat.completions.create(requestConfig, { signal })) as any
-
-    const accumulatedToolCalls = new Map<number, {
-      id?: string
-      name?: string
-      arguments: string
-    }>()
-
-    try {
-      for await (const chunk of responseStream) {
-        if (signal?.aborted) throw new Error('AbortError')
-
-        const choice = chunk.choices?.[0]
-        if (!choice) continue
-
-        const delta = choice.delta || {}
-        const thought = (delta as any).reasoning_content || ''
-        const text = delta.content || ''
-        const toolCalls = delta.tool_calls || []
-
-        // Build streaming tool call deltas for real-time UI updates
-        const chunkToolCalls: StreamToolCallDelta[] = []
-
-        for (const tc of toolCalls) {
-          const idx = tc.index
-          if (idx !== undefined) {
-            if (!accumulatedToolCalls.has(idx)) {
-              accumulatedToolCalls.set(idx, { arguments: '' })
-            }
-            const acc = accumulatedToolCalls.get(idx)!
-            if (tc.id) acc.id = tc.id
-            if (tc.function?.name) acc.name = tc.function.name
-            if (tc.function?.arguments) {
-              acc.arguments += tc.function.arguments
+            if (isFirstMainResponse && text) {
+              accumulatedRawText += text
+              const trimmedRaw = accumulatedRawText.trim()
+              if (trimmedRaw.length > 0 && !trimmedRaw.startsWith('{')) {
+                textToYield = text
+              } else {
+                const parsed = parsePartialJson(accumulatedRawText)
+                if (parsed.response !== undefined) {
+                  textToYield = parsed.response.slice(lastSentResponseLength)
+                  lastSentResponseLength = parsed.response.length
+                } else {
+                  textToYield = ''
+                }
+                if (parsed.title) {
+                  titleToYield = parsed.title
+                }
+              }
             }
 
-            // Emit real-time delta for this tool call
-            chunkToolCalls.push({
-              index: idx,
-              id: tc.id,
-              name: tc.function?.name,
-              argumentsDelta: tc.function?.arguments
-            })
+            try {
+              fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text: textToYield, title: titleToYield, toolCalls: chunkToolCalls }) + '\n')
+            } catch (err) { /* ignore */ }
+            yield {
+              thought,
+              text: textToYield,
+              toolCalls: chunkToolCalls.length > 0 ? chunkToolCalls : undefined,
+              title: titleToYield
+            }
           }
         }
+      } finally {
+        // Ensure the stream is properly closed to free server-side connections
+      }
 
-        if (thought || text || chunkToolCalls.length > 0) {
+      for (const [idx, acc] of accumulatedToolCalls.entries()) {
+        if (acc.name) {
+          let parsedArgs = {}
           try {
-            fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text, toolCalls: chunkToolCalls }) + '\n')
+            parsedArgs = JSON.parse(acc.arguments || '{}')
+          } catch (e) {
+            try {
+              const repaired = completeIncompleteToolCalls(`[PRISM_EXECUTE_TOOL]${acc.arguments}[/PRISM_EXECUTE_TOOL]`)
+              const jsonText = repaired.replace('[PRISM_EXECUTE_TOOL]', '').replace('[/PRISM_EXECUTE_TOOL]', '')
+              parsedArgs = JSON.parse(jsonText)
+            } catch (e2) { /* ignore */ }
+          }
+          try {
+            fs.appendFileSync(debugFilePath, JSON.stringify({ toolCallComplete: { index: idx, name: acc.name, args: parsedArgs } }) + '\n')
           } catch (err) { /* ignore */ }
-          yield { thought, text, toolCalls: chunkToolCalls.length > 0 ? chunkToolCalls : undefined }
-        }
-      }
-    } finally {
-      // Ensure the stream is properly closed to free server-side connections
-      if (responseStream && typeof responseStream.controller?.abort === 'function') {
-        responseStream.controller.abort()
-      }
-    }
-
-    // Yield accumulated tool calls as complete structured chunks at the end
-    for (const [idx, acc] of accumulatedToolCalls.entries()) {
-      if (acc.name) {
-        let parsedArgs = {}
-        try {
-          parsedArgs = JSON.parse(acc.arguments || '{}')
-        } catch (e) {
-          try {
-            const repaired = completeIncompleteToolCalls(`[PRISM_EXECUTE_TOOL]${acc.arguments}[/PRISM_EXECUTE_TOOL]`)
-            const jsonText = repaired.replace('[PRISM_EXECUTE_TOOL]', '').replace('[/PRISM_EXECUTE_TOOL]', '')
-            parsedArgs = JSON.parse(jsonText)
-          } catch (e2) { /* ignore */ }
-        }
-        try {
-          fs.appendFileSync(debugFilePath, JSON.stringify({ toolCallComplete: { index: idx, name: acc.name, args: parsedArgs } }) + '\n')
-        } catch (err) { /* ignore */ }
-        yield {
-          thought: '',
-          text: '',
-          toolCalls: [{
-            index: idx,
-            id: acc.id,
-            name: acc.name,
-            argumentsDelta: JSON.stringify(parsedArgs),
-            isComplete: true
-          }]
+          yield {
+            thought: '',
+            text: '',
+            toolCalls: [{
+              index: idx,
+              id: acc.id,
+              name: acc.name,
+              argumentsDelta: JSON.stringify(parsedArgs),
+              isComplete: true
+            }]
+          }
         }
       }
     }
+  } catch (err) {
+    clearTimer()
+    if (hasTimedOut === 'first') {
+      throw new Error('TIMEOUT_ERROR_FIRST')
+    } else if (hasTimedOut === 'chunk') {
+      throw new Error('TIMEOUT_ERROR_CHUNK')
+    }
+    throw err
+  } finally {
+    clearTimer()
   }
 }
 
@@ -735,106 +972,129 @@ async function generateAiContent(
     modelName = 'stepfun-ai/step-3.7-flash'
   }
 
-  const appConfig = loadConfig()
-  const reasoningLevels = appConfig.modelReasoningLevels || {}
-  const reasoningLevel = reasoningLevels[modelName] || 'off'
-
-  if (provider === 'gemini') {
-    const ai = new GoogleGenAI({ apiKey })
-    const { contents, systemInstruction } = convertHistoryToGeminiFormat(ensureHistoryFitsLimit(history))
-    
-    const configObj: any = {
-      systemInstruction,
-      temperature,
-      abortSignal: signal,
-      tools: getGeminiTools(target, allowedTools)
+  const localController = new AbortController()
+  if (signal) {
+    if (signal.aborted) {
+      localController.abort()
+    } else {
+      signal.addEventListener('abort', () => localController.abort())
     }
+  }
 
-    const supportsReasoning = modelName !== 'gemini-3.1-flash-lite' && modelName.startsWith('gemini-')
-    if (supportsReasoning) {
-      let budget = 0
-      if (reasoningLevel === 'low') budget = 1024
-      else if (reasoningLevel === 'medium') budget = 2048
-      else if (reasoningLevel === 'high') budget = 4096
-      else if (reasoningLevel === 'max') budget = -1
+  let hasTimedOut = false
+  const timeoutTimer = setTimeout(() => {
+    hasTimedOut = true
+    localController.abort()
+  }, 15000)
 
-      configObj.thinkingConfig = {
-        thinkingBudget: budget,
-        includeThoughts: true
+  try {
+    const appConfig = loadConfig()
+    const reasoningLevels = appConfig.modelReasoningLevels || {}
+    const reasoningLevel = reasoningLevels[modelName] || 'off'
+
+    if (provider === 'gemini') {
+      const ai = new GoogleGenAI({ apiKey })
+      const { contents, systemInstruction } = convertHistoryToGeminiFormat(ensureHistoryFitsLimit(history))
+      
+      const configObj: any = {
+        systemInstruction,
+        temperature,
+        abortSignal: localController.signal,
+        tools: getGeminiTools(target, allowedTools)
       }
-      if (budget !== 0) {
-        delete configObj.temperature
+
+      const supportsReasoning = modelName !== 'gemini-3.1-flash-lite' && modelName.startsWith('gemini-')
+      if (supportsReasoning) {
+        let budget = 0
+        if (reasoningLevel === 'low') budget = 1024
+        else if (reasoningLevel === 'medium') budget = 2048
+        else if (reasoningLevel === 'high') budget = 4096
+        else if (reasoningLevel === 'max') budget = -1
+
+        configObj.thinkingConfig = {
+          thinkingBudget: budget,
+          includeThoughts: true
+        }
+        if (budget !== 0) {
+          delete configObj.temperature
+        }
       }
-    }
 
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents,
-      config: configObj
-    })
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents,
+        config: configObj
+      })
 
-    let resultText = response.text || ''
-    let thoughts = ''
-    const candidate = response.candidates?.[0]
-    if (candidate?.content?.parts) {
-      for (const part of candidate.content.parts) {
-        if (part.thought) {
-          thoughts += part.text || ''
-        } else if (part.functionCall) {
-          const name = part.functionCall.name
-          const args = part.functionCall.args || {}
+      let resultText = response.text || ''
+      let thoughts = ''
+      const candidate = response.candidates?.[0]
+      if (candidate?.content?.parts) {
+        for (const part of candidate.content.parts) {
+          if (part.thought) {
+            thoughts += part.text || ''
+          } else if (part.functionCall) {
+            const name = part.functionCall.name
+            const args = part.functionCall.args || {}
+            resultText += `[PRISM_EXECUTE_TOOL]${JSON.stringify({ type: name, ...args })}[/PRISM_EXECUTE_TOOL]\n`
+          }
+        }
+      }
+      if (thoughts) {
+        return `<thought>${thoughts}</thought>\n${normalizeToolCalls(resultText)}`
+      }
+      return normalizeToolCalls(resultText)
+    } else {
+      let baseURL: string
+      if (provider === 'nvidia-nim') {
+        baseURL = 'https://integrate.api.nvidia.com/v1'
+      } else {
+        const configBaseUrl = (loadConfig().openaiBaseUrl || '').replace(/\/+$/, '')
+        baseURL = configBaseUrl
+      }
+
+      const openai = new OpenAI({ apiKey, baseURL, fetch: originalFetch })
+      const messages = convertHistoryToOpenAiFormat(ensureHistoryFitsLimit(history), provider)
+      const nimTools = getOpenAiTools(target, allowedTools)
+      const requestConfig: any = {
+        model: modelName,
+        messages,
+        temperature,
+        stream: false,
+        tools: nimTools || undefined
+      }
+
+      applyReasoningConfig(requestConfig, modelName, reasoningLevel)
+
+      const response = await openai.chat.completions.create(requestConfig, { signal: localController.signal })
+
+      const message = response.choices?.[0]?.message
+      let resultText = message?.content || ''
+      const reasoningContent = (message as any)?.reasoning_content
+      if (reasoningContent) {
+        resultText = `<thought>${reasoningContent}</thought>\n${resultText}`
+      }
+      const toolCalls = message?.tool_calls
+      if (toolCalls && toolCalls.length > 0) {
+        for (const tc of toolCalls as any[]) {
+          const name = tc.function.name
+          let args = {}
+          try {
+            args = JSON.parse(tc.function.arguments || '{}')
+          } catch (e) { /* ignore */ }
           resultText += `[PRISM_EXECUTE_TOOL]${JSON.stringify({ type: name, ...args })}[/PRISM_EXECUTE_TOOL]\n`
         }
       }
+      return normalizeToolCalls(resultText)
     }
-    if (thoughts) {
-      return `<thought>${thoughts}</thought>\n${normalizeToolCalls(resultText)}`
+  } catch (err) {
+    clearTimeout(timeoutTimer)
+    if (hasTimedOut) {
+      throw new Error('TIMEOUT_ERROR_FIRST')
     }
-    return normalizeToolCalls(resultText)
-  } else {
-    let baseURL: string
-    if (provider === 'nvidia-nim') {
-      baseURL = 'https://integrate.api.nvidia.com/v1'
-    } else {
-      const configBaseUrl = (loadConfig().openaiBaseUrl || '').replace(/\/+$/, '')
-      baseURL = configBaseUrl
-    }
-
-    const openai = new OpenAI({ apiKey, baseURL, fetch: originalFetch })
-    const messages = convertHistoryToOpenAiFormat(ensureHistoryFitsLimit(history), provider)
-    const nimTools = getOpenAiTools(target, allowedTools)
-    const requestConfig: any = {
-      model: modelName,
-      messages,
-      temperature,
-      stream: false,
-      tools: nimTools || undefined
-    }
-
-    // Apply reasoning/thinking configuration based on model capabilities
-    // NVIDIA NIM API does NOT support extra_body parameter
-    applyReasoningConfig(requestConfig, modelName, reasoningLevel)
-
-    const response = await openai.chat.completions.create(requestConfig, { signal })
-
-    const message = response.choices?.[0]?.message
-    let resultText = message?.content || ''
-    const reasoningContent = (message as any)?.reasoning_content
-    if (reasoningContent) {
-      resultText = `<thought>${reasoningContent}</thought>\n${resultText}`
-    }
-    const toolCalls = message?.tool_calls
-    if (toolCalls && toolCalls.length > 0) {
-      for (const tc of toolCalls as any[]) {
-        const name = tc.function.name
-        let args = {}
-        try {
-          args = JSON.parse(tc.function.arguments || '{}')
-        } catch (e) { /* ignore */ }
-        resultText += `[PRISM_EXECUTE_TOOL]${JSON.stringify({ type: name, ...args })}[/PRISM_EXECUTE_TOOL]\n`
-      }
-    }
-    return normalizeToolCalls(resultText)
+    throw err
+  } finally {
+    clearTimeout(timeoutTimer)
   }
 }
 async function getOpenaiCompatibleSearchModel(config: AppConfig): Promise<string> {
@@ -899,7 +1159,6 @@ const MODEL_CONFIGS: Record<string, ModelConfig> = {
 }
 
 const AGENT_TEMPERATURE = 0.7
-const TITLE_GENERATION_TEMPERATURE = 1.4
 const DEFAULT_SUBAGENT_MODEL_KEY = 'gemini-3.1-flash-lite'
 let currentSubagentModelKey = DEFAULT_SUBAGENT_MODEL_KEY
 
@@ -1106,8 +1365,8 @@ const toolFunctions: Record<
     chatId?: string
   ) => Promise<string>
 > = {
-  execute_terminal_command: (args, _event, apiKey, signal) =>
-    runTerminalCommand(args.command || '', apiKey, signal),
+  execute_terminal_command: (args, event, apiKey, signal, chatId) =>
+    runTerminalCommand(args.command || '', apiKey, signal, event, chatId),
   search_installed_applications: (args) => Promise.resolve(JSON.stringify(searchApps(args.query || ''), null, 2)),
   open_application: (args) => openApplication(args.appPath || ''),
   open_browser_link: (args) => openBrowserLink(args.url || ''),
@@ -2128,48 +2387,6 @@ export function cancelChatMessage(chatId?: string): void {
   }
 }
 
-async function generateChatTitle(provider: 'gemini' | 'nvidia-nim' | 'openai-compatible', apiKey: string, firstMessage: string): Promise<string> {
-  try {
-    // Use lightweight/unused models for title generation to avoid congestion
-    const searchModel = provider === 'nvidia-nim' ? 'meta/llama-4-maverick-17b-128e-instruct' : provider === 'openai-compatible' ? (loadConfig().openaiModelId || '') : 'gemini-3.1-flash-lite'
-
-    const prompt = `You are a conversation titler. Analyze the user's first message below and generate an extremely short (maximum 5 words) title for this conversation.
-IMPORTANT: The title MUST be written in the EXACT same language as the user's message. DEFINITELY match the user's language (e.g., if the user writes in Portuguese, the title must be in Portuguese; if in Spanish, in Spanish; if in English, in English, etc.).
-Respond ONLY with the title. Do not include any quotes, markdown headers, punctuation, or preamble.
-
-User message: "${firstMessage}"`
-
-    const history: Content[] = [
-      { role: 'user', parts: [{ text: prompt }] }
-    ]
-
-    // 10 second timeout for title generation to avoid hanging connections
-    const titleAbortController = new AbortController()
-    const titleTimeout = setTimeout(() => titleAbortController.abort(), 10000)
-
-    try {
-      const result = await generateAiContent(
-        provider,
-        apiKey,
-        searchModel,
-        history,
-        titleAbortController.signal,
-        TITLE_GENERATION_TEMPERATURE,
-        'main',
-        []
-      )
-      const fullTitle = (result || '').trim()
-      return fullTitle || 'New Conversation'
-    } finally {
-      clearTimeout(titleTimeout)
-    }
-  } catch (error) {
-    console.error('Failed to generate chat title:', error)
-    // Fallback: use first message (truncated) as title
-    const fallback = firstMessage.trim().slice(0, 50)
-    return fallback || 'New Conversation'
-  }
-}
 
 function saveChatSession(id: string, messages: Content[], title?: string): boolean {
   return saveChatSessionRaw(id, messages, title, currentSessionMode, currentDisciplinePath, currentModelKey)
@@ -2468,16 +2685,12 @@ export async function handleChatMessage(
   if (isFirstUserMessage && apiKey) {
     saveChatSession(chatId, runHistory, '')
     event.sender.send('chat-session-created', { id: chatId })
-
-    generateChatTitle(provider, apiKey, message).then((finalTitle) => {
-      event.sender.send('chat-title-received', { id: chatId, title: finalTitle })
-      saveChatSession(chatId, runHistory, finalTitle)
-    })
   } else {
     // Regular save for existing sessions
     saveChatSession(chatId, runHistory)
   }
 
+  let finalTitle = ''
   let success = false
 
   // Notify the start of the response ONLY ONCE
@@ -2554,6 +2767,10 @@ export async function handleChatMessage(
             }
             if (chunk.text) {
               currentFinalResponse += chunk.text
+            }
+            if (chunk.title) {
+              finalTitle = chunk.title
+              event.sender.send('chat-title-received', { id: chatId, title: finalTitle })
             }
 
             // Accumulate structured tool call deltas
@@ -2723,7 +2940,7 @@ export async function handleChatMessage(
             }
             if (historyParts.length > 0) {
               runHistory.push({ role: 'model', parts: historyParts })
-              saveChatSession(chatId, runHistory)
+              saveChatSession(chatId, runHistory, finalTitle || undefined)
             }
           }
 
@@ -2890,7 +3107,7 @@ export async function handleChatMessage(
                 })
               }
               runHistory.push({ role: 'system', parts })
-              saveChatSession(chatId, runHistory)
+              saveChatSession(chatId, runHistory, finalTitle || undefined)
               continue
             }
           }
@@ -3004,7 +3221,7 @@ export async function handleChatMessage(
                   })
                 }
                 runHistory.push({ role: 'system', parts })
-                saveChatSession(chatId, runHistory)
+                saveChatSession(chatId, runHistory, finalTitle || undefined)
                 continue
               }
             }
@@ -3020,7 +3237,7 @@ export async function handleChatMessage(
           })
 
           // Save session after AI response
-          saveChatSession(chatId, runHistory)
+          saveChatSession(chatId, runHistory, finalTitle || undefined)
 
           // Auto-minimize logic: if simple task (<= 100 chars excluding tools)
           const cleanResponse = removeToolCalls(accumulatedFinalResponse).trim()
@@ -3035,6 +3252,19 @@ export async function handleChatMessage(
         // If exiting the iteration loop without success (e.g. reached MAX_ITERATIONS)
         success = true
       } catch (error) {
+        if (error instanceof Error && error.message === 'TIMEOUT_ERROR_FIRST') {
+          console.log('Chat request timed out waiting for first response')
+          event.sender.send('chat-reply-error', { error: 'TIMEOUT_ERROR_FIRST', chatId })
+          success = true
+          return
+        }
+        if (error instanceof Error && error.message === 'TIMEOUT_ERROR_CHUNK') {
+          console.log('Chat request timed out waiting for next chunk')
+          event.sender.send('chat-reply-error', { error: 'TIMEOUT_ERROR_CHUNK', chatId })
+          success = true
+          return
+        }
+
         // Robust check for user-initiated abort
         if (
           runAbortController.signal.aborted ||

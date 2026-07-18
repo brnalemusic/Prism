@@ -22,7 +22,8 @@ import {
   Microphone,
   ChatTeardropText,
   Camera,
-  YoutubeLogo
+  YoutubeLogo,
+  X
 } from '@phosphor-icons/react'
 import { MODELS } from '../constants'
 import { ShortcutRecorder } from './ShortcutRecorder'
@@ -138,7 +139,7 @@ function formatToolName(name: string): string {
     .join(' ')
 }
 
-export function SettingsView(): React.JSX.Element {
+export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.Element {
   const [config, setConfig] = useState<Config>({
     launcherShortcut: 'CommandOrControl+Space',
     modelSelectionShortcut: 'CommandOrControl+M',
@@ -347,14 +348,14 @@ export function SettingsView(): React.JSX.Element {
   }
 
   const sections: NavSection[] = [
-    { id: 'shortcuts', label: 'Shortcuts', icon: <Keyboard size={18} /> },
-    { id: 'intelligence', label: 'Intelligence', icon: <Bot size={18} /> },
-    { id: 'runtime', label: 'AI Runtime', icon: <Shield size={18} /> },
-    { id: 'appearance', label: 'Appearance', icon: <Palette size={18} /> },
-    { id: 'voice', label: 'Voice', icon: <Volume2 size={18} /> },
-    { id: 'workflows', label: 'Workflows', icon: <Lightning size={18} /> },
-    { id: 'system', label: 'System', icon: <Monitor size={18} /> },
-    { id: 'about', label: 'About', icon: <Info size={18} /> }
+    { id: 'shortcuts', label: 'Shortcuts', icon: <Keyboard size={18} weight="bold" /> },
+    { id: 'intelligence', label: 'Intelligence', icon: <Bot size={18} weight="bold" /> },
+    { id: 'runtime', label: 'AI Runtime', icon: <Shield size={18} weight="bold" /> },
+    { id: 'appearance', label: 'Appearance', icon: <Palette size={18} weight="bold" /> },
+    { id: 'voice', label: 'Voice', icon: <Volume2 size={18} weight="bold" /> },
+    { id: 'workflows', label: 'Workflows', icon: <Lightning size={18} weight="bold" /> },
+    { id: 'system', label: 'System', icon: <Monitor size={18} weight="bold" /> },
+    { id: 'about', label: 'About', icon: <Info size={18} weight="bold" /> }
   ]
 
   // ─── Section renderers ──────────────────────────────────
@@ -1486,6 +1487,16 @@ export function SettingsView(): React.JSX.Element {
             <Save size={16} />
             {isSaving ? 'Saving...' : 'Save'}
           </button>
+
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-text-secondary hover:bg-white/[0.05] hover:text-text-primary transition-all duration-200 active:scale-95 cursor-pointer"
+              title="Close settings"
+            >
+              <X size={18} weight="bold" />
+            </button>
+          )}
         </div>
       </div>
 

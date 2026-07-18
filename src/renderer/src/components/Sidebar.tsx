@@ -1,15 +1,15 @@
 import {
   ChatTeardropText,
   Gear,
-  Plus,
   Trash,
   Clock,
   MagnifyingGlass,
-  CaretLeft,
   Folder,
   Lightning,
   CaretDown,
-  CaretRight
+  CaretRight,
+  NotePencil,
+  SidebarSimple
 } from '@phosphor-icons/react'
 import React, { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
@@ -39,6 +39,7 @@ interface SidebarProps {
   isOpen?: boolean
   config?: AppConfig | null
   onOpenSearch?: () => void
+  onOpenSettings?: () => void
   onClose?: () => void
 }
 
@@ -74,6 +75,7 @@ export function Sidebar({
   isOpen = false,
   config,
   onOpenSearch,
+  onOpenSettings,
   onClose
 }: SidebarProps): React.JSX.Element {
   const [chats, setChats] = useState<ChatSession[]>([])
@@ -242,9 +244,10 @@ export function Sidebar({
   return (
     <aside
       className={clsx(
-        'fixed inset-y-0 left-0 z-40 flex flex-row border-r border-white/[0.055] bg-background-main/95 shadow-[18px_0_46px_rgba(0,0,0,0.22)] backdrop-blur-md transition-all duration-300 ease-in-out',
-        viewMoreGroupId ? 'w-[600px]' : 'w-[272px]',
-        isOpen ? 'translate-x-0' : '-translate-x-full',
+        'relative h-full flex flex-row border-r border-white/[0.055] bg-background-main/95 shadow-[18px_0_46px_rgba(0,0,0,0.12)] backdrop-blur-md transition-all duration-300 ease-in-out overflow-hidden',
+        isOpen
+          ? (viewMoreGroupId ? 'w-[600px] opacity-100' : 'w-[272px] opacity-100')
+          : 'w-0 opacity-0 pointer-events-none border-r-0',
         className
       )}
     >
@@ -252,7 +255,7 @@ export function Sidebar({
       <div className="w-[272px] shrink-0 h-full flex flex-col">
       <div className="flex h-16 shrink-0 items-center justify-between px-5 mt-10">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-white/[0.08] to-white/[0.02] border border-white/[0.08] shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)]">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-white/[0.08] to-white/[0.02] border border-white/[0.08] shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] select-none">
             <span className="text-[12px] font-extrabold text-accent-primary">P</span>
           </div>
           <h1 className="text-base font-semibold text-text-primary tracking-wide">Prism</h1>
@@ -260,10 +263,10 @@ export function Sidebar({
         {isOpen && onClose && (
           <button
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-xl text-text-muted hover:bg-white/[0.05] hover:text-text-primary transition-all duration-200 active:scale-95"
-            title="Close sidebar"
+            className="flex h-8 w-8 items-center justify-center rounded-xl text-text-secondary hover:bg-white/[0.05] hover:text-text-primary transition-all duration-200 active:scale-95 cursor-pointer"
+            title="Collapse sidebar"
           >
-            <CaretLeft size={18} weight="bold" />
+            <SidebarSimple size={18} weight="bold" />
           </button>
         )}
       </div>
@@ -271,22 +274,22 @@ export function Sidebar({
       <div className="px-4 pb-2 pt-1 shrink-0">
         <button
           onClick={() => onNewChat()}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent-primary/[0.08] to-accent-primary/[0.02] border border-accent-primary/[0.15] px-4 py-2.5 text-sm font-medium text-accent-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] transition-all duration-200 hover:from-accent-primary/[0.12] hover:to-accent-primary/[0.06] hover:border-accent-primary/[0.25] active:scale-[0.98] rgb-new-chat-btn"
+          className="flex w-full items-center gap-3 rounded-2xl bg-white/[0.03] border border-white/[0.08] px-4 py-2.5 text-sm font-medium text-text-primary hover:bg-white/[0.06] hover:text-white transition-all duration-200 active:scale-[0.98] cursor-pointer"
         >
-          <Plus size={16} weight="bold" />
+          <NotePencil size={18} weight="bold" className="text-text-secondary" />
           New Chat
         </button>
       </div>
 
       <nav className="flex shrink-0 flex-col gap-1 px-4 py-3">
         <NavItem
-          icon={<ChatTeardropText size={18} weight={activeView === 'chat' ? 'fill' : 'regular'} />}
+          icon={<ChatTeardropText size={18} weight={activeView === 'chat' ? 'fill' : 'bold'} />}
           label="Chat"
           active={activeView === 'chat'}
           onClick={(): void => onViewChange('chat')}
         />
         <NavItem
-          icon={<MagnifyingGlass size={18} weight="regular" />}
+          icon={<MagnifyingGlass size={18} weight="bold" />}
           label="Search"
           onClick={onOpenSearch}
         />
@@ -296,7 +299,7 @@ export function Sidebar({
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4">
         <div className="mb-2 flex shrink-0 items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-text-secondary/60">
-          <Clock size={12} />
+          <Clock size={12} weight="bold" />
           History
         </div>
         <div className="flex-1 overflow-y-auto flex flex-col gap-1 pr-1">
@@ -318,15 +321,15 @@ export function Sidebar({
                     className="group/btn flex items-center gap-2 px-2 py-1.5 rounded-xl text-xs font-semibold text-text-secondary hover:text-text-primary hover:bg-white/[0.03] transition-all duration-200 text-left w-full select-none"
                     title={group.isGeneral ? undefined : group.id}
                   >
-                    <CaretIcon size={12} className="text-text-muted transition-transform duration-200" />
+                    <CaretIcon size={12} weight="bold" className="text-text-muted transition-transform duration-200" />
                     <Icon
                       size={14}
+                      weight="bold"
                       className={clsx(
                         group.isGeneral
                           ? 'text-accent-primary'
                           : 'text-text-muted group-hover/btn:text-text-secondary'
                       )}
-                      weight={group.isGeneral ? 'fill' : 'regular'}
                     />
                     <span className="truncate flex-1 font-medium">{group.name}</span>
                     <span className="text-[10px] text-text-muted bg-white/[0.04] px-1.5 py-0.5 rounded-md font-mono">
@@ -381,7 +384,7 @@ export function Sidebar({
                           )}
                           title="Delete chat"
                         >
-                          <Trash size={14} />
+                          <Trash size={14} weight="bold" />
                         </button>
                       </div>
                     ))}
@@ -403,10 +406,10 @@ export function Sidebar({
 
       <div className="mt-auto p-4 shrink-0 border-t border-white/[0.04] bg-background-main/30 backdrop-blur-md">
         <NavItem
-          icon={<Gear size={18} weight={activeView === 'settings' ? 'fill' : 'regular'} />}
+          icon={<Gear size={18} weight="bold" />}
           label="Settings"
-          active={activeView === 'settings'}
-          onClick={(): void => onViewChange('settings')}
+          active={false}
+          onClick={onOpenSettings}
           badge={isRgbActive ? countdownText : undefined}
           pulse={isRgbActive}
         />

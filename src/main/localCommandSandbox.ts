@@ -20,6 +20,8 @@ interface RunOptions {
   apiKey?: string
   signal?: AbortSignal
   cwd?: string
+  event?: any
+  chatId?: string
 }
 
 class CommandBlockedError extends Error {
@@ -412,7 +414,7 @@ export async function runGuardedTerminalCommand(
   }
 
   return new Promise((resolve, reject) => {
-    exec(normalizedCommand, execOptions, (error, stdout, stderr) => {
+    const child = exec(normalizedCommand, execOptions, (error, stdout, stderr) => {
       const stdoutStr = stdout.toString()
       const stderrStr = stderr.toString()
 
@@ -436,6 +438,23 @@ export async function runGuardedTerminalCommand(
       const output = cleanStdout || cleanStderr || 'Command executed successfully (no output).'
       resolve(truncateOutput(output))
     })
+
+    if (options.event && options.chatId) {
+      child.stdout?.on('data', (chunk) => {
+        options.event.sender.send('chat-tool-update', {
+          toolCallName: 'execute_terminal_command',
+          update: { outputChunk: chunk.toString() },
+          chatId: options.chatId
+        })
+      })
+      child.stderr?.on('data', (chunk) => {
+        options.event.sender.send('chat-tool-update', {
+          toolCallName: 'execute_terminal_command',
+          update: { outputChunk: chunk.toString() },
+          chatId: options.chatId
+        })
+      })
+    }
   })
 }
 

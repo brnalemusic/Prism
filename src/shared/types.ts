@@ -64,6 +64,7 @@ export interface ToolCall {
       output?: string
     }
   >
+  terminalOutput?: string
 }
 
 export interface ApplicationInfo {

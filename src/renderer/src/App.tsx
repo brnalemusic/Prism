@@ -15,7 +15,7 @@ import { Spinner } from './components/Spinner'
 import { ActionLoader, ToolCall } from './components/ActionLoader'
 import { QuestionnaireRenderer } from './components/QuestionnaireRenderer'
 import { MalformedToolCallWarning } from './components/MalformedToolCallWarning'
-import { ModelSelectorHandle } from './components/ModelSelector'
+import { ModelSelector, ModelSelectorHandle } from './components/ModelSelector'
 
 import { QuickLauncher } from './components/QuickLauncher'
 import { TitleBar } from './components/TitleBar'
@@ -157,7 +157,44 @@ const MarkdownComponents: Components = {
       className="max-w-full h-auto rounded-xl my-4 border border-surface/50 shadow-lg"
       {...props}
     />
-  )
+  ),
+  code: ({ className, children, ...props }: React.ComponentPropsWithoutRef<'code'>) => {
+    const match = /language-(\w+)/.exec(className || '')
+    const isInline = !match
+    const codeContent = String(children).replace(/\n$/, '')
+
+    if (isInline) {
+      return (
+        <code className="bg-white/[0.06] border border-white/[0.08] text-accent-secondary px-1.5 py-0.5 rounded-md font-mono text-[13px] font-semibold" {...props}>
+          {children}
+        </code>
+      )
+    }
+
+    const lang = match ? match[1] : 'text'
+
+    return (
+      <div className="not-prose my-4 overflow-hidden rounded-xl border border-white/[0.08] bg-[#07080a] shadow-lg font-mono text-xs w-full text-text-primary">
+        <div className="flex items-center justify-between bg-white/[0.02] border-b border-white/[0.05] px-4 py-2 select-none">
+          <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">{lang}</span>
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard.writeText(codeContent)
+            }}
+            className="flex items-center gap-1.5 rounded-lg bg-white/[0.02] border border-white/[0.06] px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-white/[0.06] hover:text-text-primary transition-all duration-200 active:scale-95 cursor-pointer"
+          >
+            <span>Copy Code</span>
+          </button>
+        </div>
+        <div className="p-4 overflow-x-auto">
+          <code className={className} {...props}>
+            {children}
+          </code>
+        </div>
+      </div>
+    )
+  }
 }
 
 export interface AttachedFile {
@@ -859,6 +896,7 @@ function RealApp(): React.JSX.Element {
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
   const [isFullscreenInput, setIsFullscreenInput] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
 
   const [quotedText, setQuotedText] = useState<string | null>(null)
   const markdownComponents = useMemo(
@@ -1611,7 +1649,6 @@ function RealApp(): React.JSX.Element {
       if (isShortcutPressed(e, shortcut)) {
         e.preventDefault()
         handleNewChat()
-        setIsSidebarOpen(false)
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -1898,6 +1935,18 @@ function RealApp(): React.JSX.Element {
               separatorType: 'cancel',
               content: 'Cancelled by user'
             })
+          } else if (error === 'TIMEOUT_ERROR_FIRST') {
+            newMessages.push({
+              role: 'separator',
+              separatorType: 'error',
+              content: 'Request timed out: No response from the IA within 15 seconds.'
+            })
+          } else if (error === 'TIMEOUT_ERROR_CHUNK') {
+            newMessages.push({
+              role: 'separator',
+              separatorType: 'error',
+              content: 'Request timed out: IA stopped responding for over 30 seconds.'
+            })
           } else {
             const apiErrorMatch = error.match(/^API_KEY_ERROR:(\d{3}):(.+)$/)
             let separatorContent: string
@@ -2116,13 +2165,13 @@ function RealApp(): React.JSX.Element {
   const renderedMessages = useMemo(() => {
     if (messages.length === 0) return null
     return (
-      <div className="w-full flex flex-col max-w-[860px] mx-auto">
+      <div className="w-full flex flex-col max-w-[800px] mx-auto px-4">
         {messages.map((msg, i) => {
           if (msg.role === 'separator') {
             return (
               <div
                 key={i}
-                className="w-full flex items-center gap-4 px-4 sm:px-8 py-3 select-none animate-message"
+                className="w-full flex items-center gap-4 py-3 select-none animate-message"
               >
                 <div className="flex-grow border-t border-dashed border-white/[0.08]" />
                 <span className="shrink-0 px-4 text-[10px] font-mono tracking-widest text-text-secondary/60 uppercase">
@@ -2133,39 +2182,68 @@ function RealApp(): React.JSX.Element {
             )
           }
 
-          return (
-            <div key={i} className="flex flex-col w-full transition-all duration-700">
-              <div
-                className={clsx(
-                  'w-full px-4 sm:px-8 py-5 flex flex-col transition-all duration-700 animate-message relative hover:z-50',
-                  msg.role === 'user' ? 'items-end' : 'items-start'
-                )}
-              >
-                {msg.role === 'ai' && (msg.isThinking || msg.thoughts) && (() => {
-                  // Filter out passive tool calls from thinking display
-                  const passiveTools = ['computer_use_read_file', 'computer_use_list_installed_applications', 'list_installed_applications', 'search_installed_applications']
-                  const filteredThoughts = (msg.thoughts || '').replace(
-                    /\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g,
-                    (match) => {
-                      try {
-                        const json = match.replace('[PRISM_EXECUTE_TOOL]', '').replace('[/PRISM_EXECUTE_TOOL]', '')
-                        const parsed = JSON.parse(json)
-                        if (passiveTools.includes(parsed.type)) return ''
-                      } catch {}
-                      return match
-                    }
-                  ).trim()
-
-                  if (!filteredThoughts && !msg.isThinking) return null
-
-                  return (
-                  <div className="w-full mb-2">
-                    <details className="group w-full select-none">
-                      <summary
-                        className={clsx(
-                          'inline-flex items-center gap-2 text-[12.5px] py-1 select-none transition-all duration-200 cursor-pointer text-text-secondary/60 hover:text-text-secondary/90 list-none [&::-webkit-details-marker]:hidden'
+          if (msg.role === 'user') {
+            return (
+              <div key={i} className="w-full flex flex-col items-end px-4 py-2.5 transition-all duration-700 animate-message">
+                <div className="rounded-[18px] bg-white/[0.026] border border-white/[0.065] px-4.5 py-3 text-[14.5px] leading-relaxed text-text-primary max-w-[75%] shadow-md select-text">
+                  {msg.file && !msg.file.mimeType.startsWith('image/') && (
+                    <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.05] mb-2 select-none">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/[0.03] text-text-secondary">
+                        {msg.file.mimeType === 'application/pdf' ? (
+                          <FilePdf size={18} className="text-status-error" />
+                        ) : (
+                          <FilePpt size={18} className="text-accent-primary" />
                         )}
-                      >
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-[11.5px] font-semibold text-text-primary truncate max-w-[150px]">{msg.file.name}</span>
+                      </div>
+                    </div>
+                  )}
+                  {(msg.screenshot || (msg.file && msg.file.mimeType.startsWith('image/'))) && (
+                    <div className="relative rounded-xl overflow-hidden border border-white/[0.07] mb-2 max-w-[240px]">
+                      <img
+                        src={
+                          msg.file && msg.file.mimeType.startsWith('image/')
+                            ? `data:${msg.file.mimeType};base64,${msg.file.data}`
+                            : `data:image/png;base64,${msg.screenshot}`
+                        }
+                        alt="Upload"
+                        className="w-full h-auto cursor-zoom-in block"
+                      />
+                    </div>
+                  )}
+                  <div className="whitespace-pre-wrap select-text">{msg.content.trim()}</div>
+                </div>
+              </div>
+            )
+          }
+
+          const hasContent = msg.content && msg.content.trim() !== ''
+
+          return (
+            <div key={i} className="w-full flex flex-col items-start px-4 py-5 transition-all duration-700 animate-message">
+              {/* Thinking / Thoughts if any */}
+              {(msg.isThinking || msg.thoughts) && (() => {
+                const passiveTools = ['computer_use_read_file', 'computer_use_list_installed_applications', 'list_installed_applications', 'search_installed_applications']
+                const filteredThoughts = (msg.thoughts || '').replace(
+                  /\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g,
+                  (match) => {
+                    try {
+                      const json = match.replace('[PRISM_EXECUTE_TOOL]', '').replace('[/PRISM_EXECUTE_TOOL]', '')
+                      const parsed = JSON.parse(json)
+                      if (passiveTools.includes(parsed.type)) return ''
+                    } catch {}
+                    return match
+                  }
+                ).trim()
+
+                if (!filteredThoughts && !msg.isThinking) return null
+
+                return (
+                  <div className="w-full mb-3 select-none">
+                    <details className="group w-full select-none">
+                      <summary className="inline-flex items-center gap-2 text-[12.5px] py-1 select-none transition-all duration-200 cursor-pointer text-text-secondary/60 hover:text-text-secondary/90 list-none [&::-webkit-details-marker]:hidden">
                         <Brain
                           size={13}
                           className={clsx(
@@ -2173,21 +2251,17 @@ function RealApp(): React.JSX.Element {
                             msg.isThinking && 'animate-pulse text-accent-secondary/70'
                           )}
                         />
-
                         <span className="font-medium leading-none">
                           {(() => {
-                            // Extract bold outlines like "**Initiating Black Hole Analysis**"
                             const outlineMatches = Array.from(
                               filteredThoughts.matchAll(/\*\*(.*?)\*\*/g)
                             )
                             if (outlineMatches.length > 0) {
-                              // Take the last match to show current thinking step
                               return outlineMatches[outlineMatches.length - 1][1]
                             }
                             return msg.isThinking ? 'Thinking...' : 'Thinking'
                           })()}
                         </span>
-
                         <CaretDown
                           size={11}
                           className="text-text-muted/50 transition-transform duration-200 group-open:rotate-180"
@@ -2207,100 +2281,23 @@ function RealApp(): React.JSX.Element {
                       </div>
                     </details>
                   </div>
-                  )
-                })()}
+                )
+              })()}
 
-                <div
-                  className={clsx(
-                    'w-full',
-                    msg.role === 'user' ? 'flex flex-col items-end' : 'text-text-primary'
-                  )}
-                >
-                  {msg.role === 'ai' ? (
-                    <AiMessage
-                      msg={msg}
-                      currentChatId={currentChatId}
-                      handleLoadChat={handleLoadChat}
-                      markdownComponents={markdownComponents}
-                    />
-                  ) : (
-                    <div className="flex flex-col items-end gap-2.5 max-w-[92%] sm:max-w-[78%] lg:max-w-[68%]">
-                      {(msg.screenshot || (msg.file && msg.file.mimeType.startsWith('image/'))) && (
-                        <div className="relative rounded-[16px] overflow-hidden border border-white/[0.085] bg-black/10 shadow-xl max-w-full sm:max-w-[320px] hover:border-white/[0.16] transition-all duration-300">
-                          <img
-                            src={
-                              msg.file && msg.file.mimeType.startsWith('image/')
-                                ? `data:${msg.file.mimeType};base64,${msg.file.data}`
-                                : `data:image/png;base64,${msg.screenshot}`
-                            }
-                            alt={msg.file ? msg.file.name : 'Image'}
-                            className="w-full h-auto cursor-zoom-in block"
-                            onClick={() => {
-                              const imgSrc =
-                                msg.file && msg.file.mimeType.startsWith('image/')
-                                  ? `data:${msg.file.mimeType};base64,${msg.file.data}`
-                                  : `data:image/png;base64,${msg.screenshot}`
-                              const newWin = window.open()
-                              newWin?.document.write(`
-                                <body style="margin: 0; background: #0b0c0f; display: flex; align-items: center; justify-content: center; min-height: 100vh;">
-                                  <img src="${imgSrc}" style="max-width: 100%; max-height: 100vh; object-fit: contain; box-shadow: 0 20px 50px rgba(0,0,0,0.5);" />
-                                </body>
-                              `)
-                            }}
-                          />
-                        </div>
-                      )}
-                      {msg.file && !msg.file.mimeType.startsWith('image/') && (
-                        <div className="premium-panel-soft flex items-center gap-3 px-4 py-2.5 rounded-[16px] border border-white/[0.07] bg-white/[0.02] shadow-md select-none max-w-full sm:max-w-[280px]">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
-                            {msg.file.mimeType === 'application/pdf' ? (
-                              <FilePdf size={20} className="text-status-error" />
-                            ) : (
-                              <FilePpt size={20} className="text-accent-primary" />
-                            )}
-                          </div>
-                          <div className="flex flex-col min-w-0">
-                            <span
-                              className="text-xs font-semibold text-text-primary truncate max-w-[170px]"
-                              title={msg.file.name}
-                            >
-                              {msg.file.name}
-                            </span>
-                            <span className="text-[10px] text-text-secondary/60">
-                              {msg.file.mimeType === 'application/pdf'
-                                ? 'PDF Document'
-                                : 'Presentation'}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                      {msg.content && (
-                        <div className="premium-panel-soft w-full rounded-[18px] rounded-tr-md px-4 py-3 text-sm md:text-base text-text-primary prose prose-invert prose-p:my-0 prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base max-w-none relative group">
-                          <ReactMarkdown
-                            remarkPlugins={[
-                              remarkGfm,
-                              remarkMath,
-                              disableIndentedCode as unknown as import('unified').Pluggable
-                            ]}
-                            rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
-                            components={MarkdownComponents}
-                          >
-                            {msg.content.trim()}
-                          </ReactMarkdown>
-                          <div className="absolute top-full -right-4 pt-1 pb-4 pl-4 pr-4 pointer-events-none group-hover:pointer-events-auto z-10">
-                            <div className="opacity-0 scale-90 translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 transition-all duration-300 ease-out">
-                              <CopyMessageButton
-                                text={msg.content}
-                                title="Copy raw message (Markdown)"
-                                className="bg-background-secondary/95 hover:bg-background-secondary border border-white/[0.12] hover:border-white/30 shadow-lg backdrop-blur-md"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+              {/* IA Response Body */}
+              <div className="w-full text-text-primary">
+                {!hasContent && (msg.isConnecting || msg.isThinking || msg.isWritingToolCall) ? (
+                  <div className="flex items-center gap-1.5 py-1.5 select-none">
+                    <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe" />
+                  </div>
+                ) : (
+                  <AiMessage
+                    msg={msg}
+                    currentChatId={currentChatId}
+                    handleLoadChat={handleLoadChat}
+                    markdownComponents={markdownComponents}
+                  />
+                )}
               </div>
             </div>
           )
@@ -2314,7 +2311,8 @@ function RealApp(): React.JSX.Element {
     handleLoadChat,
     markdownComponents,
     modelSelectorRef,
-    setIsApiKeyModalOpen
+    setIsApiKeyModalOpen,
+    selectedModel
   ])
 
   const visibleDownloads = useMemo(
@@ -2327,38 +2325,30 @@ function RealApp(): React.JSX.Element {
 
   const renderedSidebar = useMemo(() => {
     return (
-      <>
-        {isSidebarOpen && (
-          <div
-            className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm transition-opacity duration-300"
-            onClick={() => setIsSidebarOpen(false)}
-          />
-        )}
-        <Sidebar
-          isOpen={isSidebarOpen}
-          onClose={() => setIsSidebarOpen(false)}
-          activeView={activeView}
-          onViewChange={(view) => {
-            setActiveView(view)
-            setIsSidebarOpen(false)
-          }}
-          onLoadChat={(id) => {
-            handleLoadChat(id)
-            setIsSidebarOpen(false)
-          }}
-          onNewChat={(force) => {
-            handleNewChat(force)
-            setIsSidebarOpen(false)
-          }}
-          currentChatId={currentChatId}
-          runningChats={runningChats}
-          config={config}
-          onOpenSearch={() => {
-            setIsSearchModalOpen(true)
-            setIsSidebarOpen(false)
-          }}
-        />
-      </>
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        onOpenSettings={() => setIsSettingsModalOpen(true)}
+        activeView={activeView}
+        onViewChange={(view) => {
+          setActiveView(view)
+          setIsSidebarOpen(false)
+        }}
+        onLoadChat={(id) => {
+          handleLoadChat(id)
+          setIsSidebarOpen(false)
+        }}
+        onNewChat={(force) => {
+          handleNewChat(force)
+        }}
+        currentChatId={currentChatId}
+        runningChats={runningChats}
+        config={config}
+        onOpenSearch={() => {
+          setIsSearchModalOpen(true)
+          setIsSidebarOpen(false)
+        }}
+      />
     )
   }, [
     activeView,
@@ -2448,6 +2438,17 @@ function RealApp(): React.JSX.Element {
         onClose={() => setIsSearchModalOpen(false)}
         onOpenChat={handleLoadChat}
       />
+      {isSettingsModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8 animate-fade-in">
+          <div
+            className="absolute inset-0 bg-black/[0.55] backdrop-blur-xl"
+            onClick={() => setIsSettingsModalOpen(false)}
+          />
+          <div className="premium-panel relative w-full max-w-5xl h-[85vh] overflow-hidden rounded-[30px] border border-white/[0.08] shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex flex-col transform transition-all duration-300 scale-100 translate-y-0">
+            <SettingsView onClose={() => setIsSettingsModalOpen(false)} />
+          </div>
+        </div>
+      )}
       <PrismBackground />
 
       {/* Floating Toggle Button */}
@@ -2466,18 +2467,32 @@ function RealApp(): React.JSX.Element {
 
       <main className="flex-1 flex flex-col relative z-10 min-w-0 h-full">
         {!isOnline && <OfflineBanner />}
-        {activeView === 'chat' && messages.length > 0 && !isFullscreenInput && (
-          <button
-            onClick={() => {
-              handleNewChat()
-              setIsSidebarOpen(false)
-            }}
-            className="absolute right-5 top-4 z-30 flex h-9 items-center gap-2 rounded-xl border border-white/[0.065] bg-white/[0.026] px-3.5 text-xs font-medium text-text-secondary shadow-[0_8px_28px_rgba(0,0,0,0.28)] backdrop-blur-md transition-all duration-300 hover:bg-white/[0.065] hover:text-text-primary hover:border-white/[0.1] active:scale-[0.97] animate-fade-in rgb-new-chat-btn"
-            title="New Chat (Ctrl+N)"
-          >
-            <Plus size={14} weight="bold" className="text-accent-primary" />
-            <span>New Chat</span>
-          </button>
+        {activeView === 'chat' && !isFullscreenInput && (
+          <>
+            <div className="absolute left-14 top-4 z-30 animate-fade-in">
+              <ModelSelector
+                ref={modelSelectorRef}
+                selectedModel={selectedModel}
+                onModelChange={handleModelChange}
+                disabled={isProcessing}
+                hasGeminiKey={hasGeminiKey}
+                hasNvidiaNimKey={hasNvidiaNimKey}
+                hasOpenaiKey={hasOpenaiKey}
+                openaiModelId={config?.openaiModelId}
+                openaiModelName={config?.openaiModelName}
+              />
+            </div>
+            {messages.length > 0 && (
+              <button
+                onClick={() => handleNewChat()}
+                className="absolute right-5 top-4 z-30 flex h-9 items-center gap-2 rounded-xl border border-white/[0.065] bg-white/[0.026] px-3.5 text-xs font-medium text-text-secondary shadow-[0_8px_28px_rgba(0,0,0,0.28)] backdrop-blur-md transition-all duration-300 hover:bg-white/[0.065] hover:text-text-primary hover:border-white/[0.1] active:scale-[0.97] cursor-pointer rgb-new-chat-btn animate-fade-in"
+                title="New Chat (Ctrl+N)"
+              >
+                <Plus size={14} weight="bold" className="text-accent-primary" />
+                <span>New Chat</span>
+              </button>
+            )}
+          </>
         )}
         {activeView === 'chat' && isFullscreenInput ? (
           <div className="flex-1 flex flex-col h-full bg-background-main">
@@ -2615,11 +2630,8 @@ function RealApp(): React.JSX.Element {
               </div>
             </div>
 
-            {/* Settings View */}
-            {activeView === 'settings' && <SettingsView />}
-
             {/* View Coming Soon (Fallback) */}
-            {activeView !== 'chat' && activeView !== 'settings' && (
+            {activeView !== 'chat' && (
               <div className="flex-1 flex items-center justify-center text-text-secondary">
                 View coming soon...
               </div>

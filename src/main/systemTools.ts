@@ -617,7 +617,9 @@ export async function detectAvailableTerminals(): Promise<TerminalOption[]> {
 export async function runTerminalCommand(
   command: string,
   apiKey?: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  event?: any,
+  chatId?: string
 ): Promise<string> {
   const config = loadConfig()
   const isWindows = process.platform === 'win32'
@@ -629,7 +631,9 @@ export async function runTerminalCommand(
     shell: shellToUse,
     apiKey: activeApiKey,
     signal,
-    cwd: activeCwd
+    cwd: activeCwd,
+    event,
+    chatId
   })
 }
 

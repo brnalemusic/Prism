@@ -1361,7 +1361,7 @@ export function QuickLauncher(): React.JSX.Element {
           )}
           <div
             className={clsx(
-              'premium-panel relative flex flex-col w-full gap-3 overflow-hidden rounded-[22px] border px-4 py-4 transition-all duration-300 input-border-glow quick-launcher-input-bar',
+              'relative flex flex-col w-full gap-3 overflow-hidden rounded-[28px] border border-white/[0.08] bg-[#0c0d12]/80 backdrop-blur-xl px-5 py-3 transition-all duration-300 input-border-glow quick-launcher-input-bar shadow-[0_16px_48px_rgba(0,0,0,0.4)]',
               modeClasses,
               ((isModelSelectorOpen && quickLauncherMode === 'advanced') || isFocused) &&
                 'prism-glow active'
@@ -1409,13 +1409,11 @@ export function QuickLauncher(): React.JSX.Element {
                     )
                   }}
                   className={clsx(
-                    'flex h-10 shrink-0 items-center gap-2 rounded-[16px] border px-3 text-sm font-semibold transition-all duration-200',
-                    isModelSelectorOpen
-                      ? 'border-accent-primary/35 bg-[#251b2d] text-accent-primary'
-                      : 'border-white/[0.08] bg-[#1e2026] text-text-secondary hover:bg-[#25272e] hover:text-text-primary'
+                    'flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-transparent bg-white/[0.04] px-3 text-xs font-semibold text-text-secondary transition-all duration-200 hover:bg-white/[0.08] hover:text-text-primary cursor-pointer',
+                    isModelSelectorOpen && 'bg-accent-primary/10 text-accent-primary border-accent-primary/20'
                   )}
                 >
-                  <Command size={15} />
+                  <Command size={14} weight="bold" />
                   <span
                     className={
                       activeModel.id === 'prism-5' ? 'prism-top-gradient' : 'text-text-primary'
@@ -1424,7 +1422,8 @@ export function QuickLauncher(): React.JSX.Element {
                     {activeModel.name.replace('Prism ', '')}
                   </span>
                   <ChevronRight
-                    size={15}
+                    size={14}
+                    weight="bold"
                     className={clsx(
                       'transition-transform duration-200',
                       isModelSelectorOpen && 'rotate-90'
@@ -1432,8 +1431,8 @@ export function QuickLauncher(): React.JSX.Element {
                   />
                 </button>
               ) : (
-                <div className="flex h-10 shrink-0 items-center gap-2 rounded-[16px] border border-white/[0.08] bg-[#1e2026] px-3 text-sm font-semibold text-text-secondary select-none">
-                  <Sparkles size={15} className="text-accent-secondary animate-pulse" />
+                <div className="flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-transparent bg-white/[0.04] px-3 text-xs font-semibold text-text-secondary select-none">
+                  <Sparkles size={14} weight="bold" className="text-accent-secondary animate-pulse" />
                   <span>Prism 6</span>
                 </div>
               )}
@@ -1463,7 +1462,7 @@ export function QuickLauncher(): React.JSX.Element {
                                 : 'What should Prism do?'
                   }
                   className={clsx(
-                    'w-full border-none bg-transparent text-[22px] font-medium outline-none transition-colors duration-200 placeholder:text-text-muted',
+                    'w-full border-none bg-transparent text-[19px] font-medium outline-none transition-colors duration-200 placeholder:text-text-muted',
                     activeMode === 'youtube'
                       ? 'text-accent-primary placeholder:text-accent-primary/40'
                       : activeMode === 'search'
@@ -1579,11 +1578,11 @@ export function QuickLauncher(): React.JSX.Element {
                         )}
                       >
                         {item.type === 'math' ? (
-                          <Calculator size={16} />
+                          <Calculator size={16} weight="bold" />
                         ) : item.type === 'app' ? (
-                          <AppWindow size={16} />
+                          <AppWindow size={16} weight="bold" />
                         ) : (
-                          <FileCode size={16} />
+                          <FileCode size={16} weight="bold" />
                         )}
                       </span>
                     )}
@@ -1597,7 +1596,7 @@ export function QuickLauncher(): React.JSX.Element {
                     </div>
                   </div>
                   {selectedIndex === i && (
-                    <ArrowRight size={15} className="text-text-muted shrink-0" />
+                    <ArrowRight size={15} weight="bold" className="text-text-muted shrink-0" />
                   )}
                 </button>
               ))}

@@ -26,7 +26,6 @@ import {
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
 import { useSpeechToText } from '../hooks/useSpeechToText'
-import { ModelSelector } from './ModelSelector'
 import { ReasoningSelector } from './ReasoningSelector'
 import { AttachedFile } from '../App'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
@@ -86,7 +85,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       isProcessing,
       isKeyMissing,
       selectedModel = 'prism-6-super-fast',
-      onModelChange,
       text,
       setText,
       isSearchEnabled,
@@ -105,11 +103,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       disciplinePath,
       onModeChange,
       onSelectFolder,
-      hasGeminiKey,
-      hasNvidiaNimKey,
-      hasOpenaiKey,
-      openaiModelId,
-      openaiModelName,
       reasoningLevel = 'off',
       onReasoningLevelChange
     },
@@ -912,17 +905,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             )}
           </div>
 
-          <ModelSelector
-            selectedModel={selectedModel}
-            onModelChange={onModelChange || (() => {})}
-            disabled={disabled}
-            hasGeminiKey={hasGeminiKey}
-            hasNvidiaNimKey={hasNvidiaNimKey}
-            hasOpenaiKey={hasOpenaiKey}
-            openaiModelId={openaiModelId}
-            openaiModelName={openaiModelName}
-          />
-
           <ReasoningSelector
             selectedModel={selectedModel}
             value={reasoningLevel}
@@ -1098,7 +1080,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
         <div className="relative">
           <div
             className={clsx(
-              'premium-panel relative rounded-[22px] border transition-all duration-300 input-border-glow flex flex-col overflow-visible px-3.5 pt-3.5 pb-2.5',
+              'relative rounded-[28px] border border-white/[0.08] bg-[#0c0d12]/80 backdrop-blur-xl transition-all duration-300 input-border-glow flex flex-col overflow-visible px-4 pt-3.5 pb-2.5 shadow-[0_16px_48px_rgba(0,0,0,0.45)]',
               modeStyles,
               isFocused && !disabled && 'prism-glow active',
               disabled && 'opacity-60'
