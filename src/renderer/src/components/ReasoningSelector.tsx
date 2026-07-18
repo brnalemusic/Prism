@@ -36,18 +36,7 @@ export function ReasoningSelector({
   const currentLevel = levels.find((l) => l.id === value) || { id: 'off', name: 'Off' }
 
   if (!supportsReasoning) {
-    return (
-      <div className="relative" title="Reasoning not supported by this model">
-        <button
-          type="button"
-          disabled
-          className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold bg-transparent text-text-secondary/30 border border-transparent cursor-not-allowed opacity-50 select-none"
-        >
-          <Brain size={12} className="opacity-40 shrink-0" />
-          <span>Off</span>
-        </button>
-      </div>
-    )
+    return null
   }
 
   return (

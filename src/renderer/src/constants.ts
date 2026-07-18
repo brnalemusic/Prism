@@ -31,8 +31,10 @@ export interface ThinkingLevelOption {
 
 /**
  * Returns available thinking levels for a given model.
- * Based on official NVIDIA NIM API documentation.
+ * Based on official NVIDIA NIM and Gemini API documentation.
  *
+ * Gemini 3/3.1/3.5: ThinkingLevel enum minimal/low/medium/high (no "max");
+ *   "minimal" is exposed as "Off" (budget 0 disables thinking).
  * DeepSeek V4: reasoning_effort accepts none, high, max
  * GPT-OSS: reasoning_effort accepts low, medium, high (no off/none)
  * Kimi K2.6: chat_template_kwargs {"thinking": true/false}
@@ -40,15 +42,16 @@ export interface ThinkingLevelOption {
  * GLM-5.2, Step 3.7: no reasoning parameters exposed via NIM API
  */
 export function getThinkingLevelsForModel(modelId: string): ThinkingLevelOption[] {
-  // Gemini models use thinkingBudget (mapped from levels)
+  // Gemini models use thinkingBudget (mapped from levels).
+  // Valid ThinkingLevel enum: minimal, low, medium, high (no "max").
+  // "Minimal" is exposed to the user as "Off" (budget 0 disables thinking).
   const geminiModels = ['gemini-3-flash', 'gemini-3.1-pro', 'gemini-3.5-flash']
   if (geminiModels.includes(modelId)) {
     return [
       { id: 'off', name: 'Off' },
       { id: 'low', name: 'Low' },
       { id: 'medium', name: 'Medium' },
-      { id: 'high', name: 'High' },
-      { id: 'max', name: 'Max' }
+      { id: 'high', name: 'High' }
     ]
   }
 
