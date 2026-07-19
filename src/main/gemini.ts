@@ -1867,7 +1867,7 @@ const toolFunctions: Record<
       return `Error deleting workflow: ${err instanceof Error ? err.message : String(err)}`
     }
   },
-  create_todo: async (args, _event) => {
+  create_todo: async (args, _event, _apiKey, _signal, chatId) => {
     const tasksInput = args.tasks
     let taskTitles: string[] = []
     if (typeof tasksInput === 'string') {
@@ -1888,6 +1888,7 @@ const toolFunctions: Record<
       taskTitles = taskTitles.slice(0, 30)
     }
 
+    const todoChatId = chatId || currentSessionId
     const todo: TodoState = {
       tasks: taskTitles.map((title, i) => ({
         id: `task-${i}`,
@@ -1896,9 +1897,9 @@ const toolFunctions: Record<
       })),
       createdAt: Date.now(),
       active: true,
-      chatId: currentSessionId
+      chatId: todoChatId
     }
-    sessionTodos.set(currentSessionId, todo)
+    sessionTodos.set(todoChatId, todo)
 
     try {
       const wins = BrowserWindow.getAllWindows()
@@ -1911,8 +1912,9 @@ const toolFunctions: Record<
 
     return `Todo list created with ${taskTitles.length} tasks. Use edit_todo to update each task's status as you work through them: set to "working" when starting a task and "done" when completing it. All tasks must be completed before finishing.`
   },
-  edit_todo: async (args, _event) => {
-    const todo = sessionTodos.get(currentSessionId)
+  edit_todo: async (args, _event, _apiKey, _signal, chatId) => {
+    const todoChatId = chatId || currentSessionId
+    const todo = sessionTodos.get(todoChatId)
     if (!todo || !todo.active) {
       return 'Error: No active todo list. Create one first with create_todo.'
     }
@@ -1954,14 +1956,14 @@ const toolFunctions: Record<
       if (allDone) {
         for (const win of wins) {
           if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
-            win.webContents.send('chat-todo-complete', { chatId: currentSessionId })
+            win.webContents.send('chat-todo-complete', { chatId: todoChatId })
           }
         }
       }
     } catch {}
 
     if (allDone) {
-      sessionTodos.delete(currentSessionId)
+      sessionTodos.delete(todoChatId)
       return `All tasks completed! The todo list has been concluded.`
     }
 
@@ -2840,7 +2842,7 @@ export async function handleChatMessage(
   }
 
   if (runHistory.length > 0 && runHistory[0].role === 'system') {
-    const todoReminder = buildTodoReminder()
+    const todoReminder = buildTodoReminder(chatId)
     runHistory[0].parts = [{ text: fullPrompt + todoReminder }]
   }
 
@@ -2934,7 +2936,7 @@ export async function handleChatMessage(
           // Update system prompt with current todo status each iteration
           if (runHistory.length > 0 && runHistory[0].role === 'system') {
             const baseText = String((runHistory[0].parts?.[0] as any)?.text || fullPrompt)
-            const todoReminder = buildTodoReminder()
+            const todoReminder = buildTodoReminder(chatId)
             const cleanBase = baseText.replace(/\n\n# Active Todo List[\s\S]*?(?=\n\n#|$)/, '')
             runHistory[0].parts = [{ text: cleanBase.trim() + todoReminder }]
           }
@@ -3901,6 +3903,10 @@ export async function handleLauncherChatMessage(
               if (name && toolFunctions[name]) {
                 const toolArgs: ToolArgs = {}
                 for (const [key, value] of Object.entries(parsedArgs)) {
+                  if (OBJECT_TOOL_ARG_TAGS.has(key) && typeof value === 'object' && value !== null) {
+                    toolArgs[key] = value as unknown as string
+                    continue
+                  }
                   toolArgs[key] = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
                 }
 
