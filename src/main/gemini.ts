@@ -2542,6 +2542,7 @@ export async function handleChatMessage(
         appMode?: string
         sessionMode?: SessionMode
         disciplinePath?: string
+        modelKey?: string
       }
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
@@ -2553,6 +2554,10 @@ export async function handleChatMessage(
 
   let sessionMode = typeof data === 'object' ? data.sessionMode : undefined
   let disciplinePath = typeof data === 'object' ? data.disciplinePath : undefined
+
+  if (typeof data === 'object' && data.modelKey) {
+    currentModelKey = data.modelKey
+  }
 
   const provider = getModelProvider(currentModelKey)
   const apiKey = getProviderApiKey(provider)

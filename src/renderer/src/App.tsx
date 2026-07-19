@@ -428,6 +428,24 @@ const AiMessage = React.memo(function AiMessage({
   const streamStats = useStreamStats(msg.content, !!msg.isStreaming)
   const nativeToolCalls = useMemo(() => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls), [msg.toolCalls, msg.streamingToolCalls])
 
+  const hasContent = msg.content && msg.content.trim() !== ''
+
+  const hasThoughtBlock = useMemo(() => {
+    const passiveTools = ['computer_use_read_file', 'computer_use_list_installed_applications', 'list_installed_applications', 'search_installed_applications']
+    const filteredThoughts = (msg.thoughts || '').replace(
+      /\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g,
+      (match) => {
+        try {
+          const json = match.replace('[PRISM_EXECUTE_TOOL]', '').replace('[/PRISM_EXECUTE_TOOL]', '')
+          const parsed = JSON.parse(json)
+          if (passiveTools.includes(parsed.type)) return ''
+        } catch {}
+        return match
+      }
+    ).trim()
+    return !!(filteredThoughts || msg.isThinking)
+  }, [msg.thoughts, msg.isThinking])
+
   if (msg.isConnecting) {
     return (
       <div className="flex flex-col gap-2.5 w-full max-w-[320px] py-3 animate-pulse">
@@ -846,18 +864,20 @@ const AiMessage = React.memo(function AiMessage({
                 }
                 return null
               })}
-              <ToolCallIndicator
-                tools={nativeToolCalls
-                  .filter(tc => tc.name !== 'to_ask' && tc.name !== 'render_chat_history' && tc.name !== 'malformed_tool_call' && tc.name !== 'create_mini_app')
-                  .map(tc => ({
-                    name: tc.name,
-                    status: tc.status
-                  }))}
-              />
+              {!hasThoughtBlock && !hasContent && (
+                <ToolCallIndicator
+                  tools={nativeToolCalls
+                    .filter(tc => tc.name !== 'to_ask' && tc.name !== 'render_chat_history' && tc.name !== 'malformed_tool_call' && tc.name !== 'create_mini_app')
+                    .map(tc => ({
+                      name: tc.name,
+                      status: tc.status
+                    }))}
+                />
+              )}
             </div>
           )}
 
-          {msg.isWritingToolCall &&
+          {!hasThoughtBlock && !hasContent && msg.isWritingToolCall &&
             !msg.content.includes('[PRISM_EXECUTE_TOOL]') &&
             !msg.content.includes('<mini_app>') &&
             nativeToolCalls.length === 0 && (
@@ -1142,6 +1162,7 @@ function RealApp(): React.JSX.Element {
         setConfig(cfg)
         if (cfg.defaultModel) {
           setSelectedModel(cfg.defaultModel)
+          window.api.setModel(cfg.defaultModel)
         }
         if (cfg.sessionMode) {
           setSessionMode(cfg.sessionMode)
@@ -1316,7 +1337,8 @@ function RealApp(): React.JSX.Element {
         quote: quotedTextRef.current || undefined,
         appMode: targetYoutubeMode ? 'youtube' : undefined,
         sessionMode: sessionModeRef.current,
-        disciplinePath: sessionModeRef.current === 'discipline' ? disciplinePathRef.current : ''
+        disciplinePath: sessionModeRef.current === 'discipline' ? disciplinePathRef.current : '',
+        modelKey: selectedModel
       })
 
       setAttachedFile(null)
@@ -1325,7 +1347,7 @@ function RealApp(): React.JSX.Element {
       isYoutubeModeRef.current = false
       setActiveWorkflow(null)
     },
-    []
+    [selectedModel]
   )
 
   const scrollToBottom = useCallback(
@@ -2445,16 +2467,14 @@ function RealApp(): React.JSX.Element {
                       />
                       <span className="font-medium leading-normal">
                         {(() => {
-                          const activeTools = (msg.toolCalls || []).filter(
-                            tc => tc.status === 'running' || tc.status === 'writing'
-                          )
+                          const toolsList = msg.toolCalls || []
                           const streamingTools = (msg.streamingToolCalls || []).map(stc => ({
                             name: stc.name,
-                            status: 'writing'
+                            status: 'writing' as const
                           }))
-                          const allActiveTools = [...activeTools, ...streamingTools] as { name: string; status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown' }[]
-                          if (allActiveTools.length > 0) {
-                            const lastTool = allActiveTools[allActiveTools.length - 1]
+                          const allTools = [...toolsList, ...streamingTools] as { name: string; status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown' }[]
+                          if (allTools.length > 0) {
+                            const lastTool = allTools[allTools.length - 1]
                             return <ToolCallIndicator tools={[lastTool]} />
                           }
                           const outlineMatches = Array.from(

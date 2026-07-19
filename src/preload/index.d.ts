@@ -40,6 +40,7 @@ export interface PrismAPI {
     appMode?: string
     sessionMode?: SessionMode
     disciplinePath?: string
+    modelKey?: string
   }) => void
 
   setModel: (modelKey: string) => void

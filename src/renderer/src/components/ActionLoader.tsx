@@ -42,12 +42,8 @@ interface ToolCallIndicatorProps {
 export function ToolCallIndicator({ tools }: ToolCallIndicatorProps): React.JSX.Element | null {
   if (!tools || tools.length === 0) return null
 
-  // Filter to only active tools (writing or running)
-  const activeTools = tools.filter(t => t.status === 'writing' || t.status === 'running')
-  if (activeTools.length === 0) return null
-
-  // Show only the LAST active tool
-  const lastTool = activeTools[activeTools.length - 1]
+  // Show only the LAST tool (even if done/error/etc to keep text visible)
+  const lastTool = tools[tools.length - 1]
   const displayText = getToolLabel(lastTool.name)
 
   return (
