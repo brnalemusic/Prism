@@ -481,8 +481,12 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
     // 4. Automatically launches the newly installed Prism executable.
     const innerCmd = `$pidToWait = ${process.pid}; while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 100 }; $shell = New-Object -ComObject Shell.Application; $shell.ShellExecute('${escapedInstallerPath}'); Start-Sleep -Seconds 3; while (Get-Process -Name '${processName}' -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 500 }; Start-Process -FilePath '${escapedExecPath}'`
 
-    // Wrap it in powershell execution, escaping double quotes
-    const powershellCmd = `powershell.exe -NoProfile -WindowStyle Hidden -Command "${innerCmd.replace(/"/g, '\\"')}"`
+    // Pass the script to powershell.exe as a base64-encoded -EncodedCommand so we
+    // never need to escape quotes/backslashes across nested shell layers. This
+    // avoids the error-prone manual sanitization that CodeQL flags.
+    // PowerShell expects UTF-16LE encoded base64.
+    const encodedCmd = Buffer.from(innerCmd, 'utf16le').toString('base64')
+    const powershellCmd = `powershell.exe -NoProfile -WindowStyle Hidden -EncodedCommand ${encodedCmd}`
 
     // Use Invoke-CimMethod to spawn it via WMI so it breaks away from Electron's job object/process tree
     const wmiCmd = `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = '${powershellCmd.replace(/'/g, "''")}' }`
