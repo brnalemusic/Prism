@@ -2425,6 +2425,12 @@ export async function handleChatMessage(
     apiKey: string,
     event: IpcMainEvent
   ) {
+    const titleAbortController = new AbortController()
+    const timeoutId = setTimeout(() => {
+      titleAbortController.abort()
+      console.warn(`[Title Generator] Generation timed out after 20 seconds for chat ${chatId}`)
+    }, 20000)
+
     try {
       const provider = getModelProvider(modelKey)
       const modelConfig = MODEL_CONFIGS[modelKey] || { apiModel: modelKey }
@@ -2446,10 +2452,12 @@ export async function handleChatMessage(
         apiKey,
         titleModel,
         titleHistory,
-        undefined,
+        titleAbortController.signal,
         0.7,
         'title'
       )
+
+      clearTimeout(timeoutId)
 
       let finalTitle = (result || '').trim()
       finalTitle = finalTitle.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim()
@@ -2464,6 +2472,7 @@ export async function handleChatMessage(
       updateChatSessionTitle(chatId, finalTitle)
       event.sender.send('chat-title-received', { id: chatId, title: finalTitle })
     } catch (error) {
+      clearTimeout(timeoutId)
       console.error('Failed to generate chat title in background:', error)
     }
   }
