@@ -2473,8 +2473,9 @@ function RealApp(): React.JSX.Element {
                             status: 'writing' as const
                           }))
                           const allTools = [...toolsList, ...streamingTools] as { name: string; status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown' }[]
-                          if (allTools.length > 0) {
-                            const lastTool = allTools[allTools.length - 1]
+                          const activeTools = allTools.filter(t => t.status !== 'done' && t.status !== 'error' && t.status !== 'cancelled')
+                          if (activeTools.length > 0) {
+                            const lastTool = activeTools[activeTools.length - 1]
                             return <ToolCallIndicator tools={[lastTool]} />
                           }
                           const outlineMatches = Array.from(
