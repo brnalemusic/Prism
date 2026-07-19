@@ -1,5 +1,24 @@
-import React, { useContext, useLayoutEffect, useRef } from 'react'
+import React, { useContext, useLayoutEffect, useRef, useState } from 'react'
 import { Components } from 'react-markdown'
+import Prism from 'prismjs'
+import 'prismjs/components/prism-javascript'
+import 'prismjs/components/prism-typescript'
+import 'prismjs/components/prism-jsx'
+import 'prismjs/components/prism-tsx'
+import 'prismjs/components/prism-css'
+import 'prismjs/components/prism-json'
+import 'prismjs/components/prism-bash'
+import 'prismjs/components/prism-python'
+import 'prismjs/components/prism-rust'
+import 'prismjs/components/prism-go'
+import 'prismjs/components/prism-yaml'
+import 'prismjs/components/prism-markdown'
+import 'prismjs/components/prism-sql'
+import 'prismjs/components/prism-c'
+import 'prismjs/components/prism-cpp'
+import 'prismjs/components/prism-java'
+import 'prismjs/components/prism-csharp'
+
 
 export interface StreamContextType {
   isStreaming: boolean
@@ -326,6 +345,105 @@ function StreamingSpan({
   )
 }
 
+function renderToken(token: string | Prism.Token, key: string | number): React.ReactNode {
+  if (typeof token === 'string') {
+    return token
+  }
+
+  const className = `token ${token.type} ${
+    Array.isArray(token.alias) ? token.alias.join(' ') : token.alias || ''
+  }`
+
+  if (typeof token.content === 'string') {
+    return (
+      <span key={key} className={className}>
+        {token.content}
+      </span>
+    )
+  }
+
+  if (Array.isArray(token.content)) {
+    return (
+      <span key={key} className={className}>
+        {token.content.map((child, i) => renderToken(child, `${key}-${i}`))}
+      </span>
+    )
+  }
+
+  return renderToken(token.content, key)
+}
+
+const getGrammar = (lang: string) => {
+  const normalized = lang.toLowerCase()
+  const aliases: Record<string, string> = {
+    js: 'javascript',
+    ts: 'typescript',
+    sh: 'bash',
+    shell: 'bash',
+    py: 'python',
+    rs: 'rust',
+    yml: 'yaml',
+    md: 'markdown',
+    html: 'markup',
+    xml: 'markup',
+    cs: 'csharp'
+  }
+  const target = aliases[normalized] || normalized
+  return Prism.languages[target]
+}
+
+export const CodeBlock = ({ className, children, ...props }: React.ComponentPropsWithoutRef<'code'>) => {
+  const [copied, setCopied] = useState(false)
+  const match = /language-(\w+)/.exec(className || '')
+  const isInline = !match
+  const codeContent = String(children).replace(/\n$/, '')
+
+  if (isInline) {
+    return (
+      <code className="bg-white/[0.06] border border-white/[0.08] text-accent-secondary px-1.5 py-0.5 rounded-md font-mono text-[13px] font-semibold" {...props}>
+        {children}
+      </code>
+    )
+  }
+
+  const lang = match ? match[1] : 'text'
+  const grammar = getGrammar(lang)
+
+  let renderedCode: React.ReactNode
+  if (grammar) {
+    const tokens = Prism.tokenize(codeContent, grammar)
+    renderedCode = tokens.map((token, i) => renderToken(token, i))
+  } else {
+    renderedCode = codeContent
+  }
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(codeContent)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="not-prose my-4 overflow-hidden rounded-xl border border-white/[0.08] bg-[#07080a] shadow-lg font-mono text-xs w-full text-text-primary">
+      <div className="flex items-center justify-between bg-white/[0.02] border-b border-white/[0.05] px-4 py-2 select-none">
+        <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">{lang}</span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="flex items-center gap-1.5 rounded-lg bg-white/[0.02] border border-white/[0.06] px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-white/[0.06] hover:text-text-primary transition-all duration-200 active:scale-95 cursor-pointer min-w-[75px] justify-center"
+        >
+          <span>{copied ? 'Copied!' : 'Copy Code'}</span>
+        </button>
+      </div>
+      <div className="p-4 overflow-x-auto">
+        <code className={`${className || ''} block whitespace-pre`} {...props}>
+          {renderedCode}
+        </code>
+      </div>
+    </div>
+  )
+}
+
 // Static component definitions for ReactMarkdown. Re-rendered elements will reconcile stably.
 export const StaticMarkdownComponents: Partial<Components> = {
   p: ({ children, ...props }) => {
@@ -363,5 +481,7 @@ export const StaticMarkdownComponents: Partial<Components> = {
   h4: ({ children, ...props }) => {
     const { isStreaming } = useContext(StreamContext)
     return <h4 {...props}>{wrapTextWithAnimation(children, isStreaming)}</h4>
-  }
+  },
+  pre: ({ children }) => <>{children}</>,
+  code: (props) => <CodeBlock {...props} />
 }

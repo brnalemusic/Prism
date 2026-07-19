@@ -1004,3 +1004,69 @@
   border-radius: 99px;
   opacity: 0.3;
 }
+
+/* ── Syntax Highlighting (Prism) ── */
+
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.token.punctuation {
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+.token.property,
+.token.tag,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol,
+.token.deleted {
+  color: #bd93f9; /* beautiful pastel purple/pink */
+}
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted {
+  color: var(--accent-secondary); /* dynamic based on theme, usually green/cyan/orange/yellow */
+}
+
+.token.operator,
+.token.entity,
+.token.url,
+.token.variable {
+  color: var(--text-primary);
+}
+
+.token.atrule,
+.token.attr-value,
+.token.keyword {
+  color: var(--accent-primary); /* dynamic based on theme, usually blue/red/purple/white */
+  font-weight: 600;
+}
+
+.token.function,
+.token.class-name {
+  color: #ff9f43; /* warm orange/yellow functional highlight */
+}
+
+.token.regex,
+.token.important {
+  color: #ef7f78;
+}
+
+.token.important,
+.token.bold {
+  font-weight: bold;
+}
+.token.italic {
+  font-style: italic;
+}

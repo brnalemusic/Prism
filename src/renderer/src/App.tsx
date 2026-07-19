@@ -38,10 +38,11 @@ import {
   StreamContext,
   StaticMarkdownComponents,
   createStreamingFadeRehypePlugin,
-  useStreamStats
+  useStreamStats,
+  CodeBlock
 } from './components/AnimatedStreamingText'
 import clsx from 'clsx'
-import { CaretDown, Quotes, Brain, FilePdf, FilePpt } from '@phosphor-icons/react'
+import { CaretDown, Quotes, Brain, FilePdf, FilePpt, CircleNotch, CheckCircle, XCircle } from '@phosphor-icons/react'
 import { ScreenshotModal } from './components/ScreenshotModal'
 import { SubagentDelegationModal } from './components/SubagentDelegationModal'
 import { YoutubeAppModal } from './components/YoutubeAppModal'
@@ -159,43 +160,8 @@ const MarkdownComponents: Components = {
       {...props}
     />
   ),
-  code: ({ className, children, ...props }: React.ComponentPropsWithoutRef<'code'>) => {
-    const match = /language-(\w+)/.exec(className || '')
-    const isInline = !match
-    const codeContent = String(children).replace(/\n$/, '')
-
-    if (isInline) {
-      return (
-        <code className="bg-white/[0.06] border border-white/[0.08] text-accent-secondary px-1.5 py-0.5 rounded-md font-mono text-[13px] font-semibold" {...props}>
-          {children}
-        </code>
-      )
-    }
-
-    const lang = match ? match[1] : 'text'
-
-    return (
-      <div className="not-prose my-4 overflow-hidden rounded-xl border border-white/[0.08] bg-[#07080a] shadow-lg font-mono text-xs w-full text-text-primary">
-        <div className="flex items-center justify-between bg-white/[0.02] border-b border-white/[0.05] px-4 py-2 select-none">
-          <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">{lang}</span>
-          <button
-            type="button"
-            onClick={() => {
-              navigator.clipboard.writeText(codeContent)
-            }}
-            className="flex items-center gap-1.5 rounded-lg bg-white/[0.02] border border-white/[0.06] px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-white/[0.06] hover:text-text-primary transition-all duration-200 active:scale-95 cursor-pointer"
-          >
-            <span>Copy Code</span>
-          </button>
-        </div>
-        <div className="p-4 overflow-x-auto">
-          <code className={className} {...props}>
-            {children}
-          </code>
-        </div>
-      </div>
-    )
-  }
+  pre: ({ children }) => <>{children}</>,
+  code: (props) => <CodeBlock {...props} />
 }
 
 export interface AttachedFile {
@@ -257,9 +223,11 @@ function consolidateToolCalls(
             const filePathMatch = stc.arguments.match(/"(?:filePath|path|TargetFile|absolutePath|AbsolutePath|sourcePath)"\s*:\s*"([^"]*)/i)
             const commandMatch = stc.arguments.match(/"(?:command|CommandLine)"\s*:\s*"([^"]*)/i)
             const queryMatch = stc.arguments.match(/"query"\s*:\s*"([^"]*)/i)
+            const titleMatch = stc.arguments.match(/"title"\s*:\s*"([^"]*)/i)
             if (filePathMatch) parsedArgs.filePath = filePathMatch[1]
             if (commandMatch) parsedArgs.command = commandMatch[1]
             if (queryMatch) parsedArgs.query = queryMatch[1]
+            if (titleMatch) parsedArgs.title = titleMatch[1]
           } catch { /* ignore */ }
         }
 
@@ -810,7 +778,7 @@ const AiMessage = React.memo(function AiMessage({
             return null
           })}
           {!msg.content.includes('[PRISM_EXECUTE_TOOL]') && nativeToolCalls.length > 0 && (
-            <div className="flex items-center gap-1.5 mt-1 w-full">
+            <div className="flex flex-col items-start gap-1.5 mt-1 w-full">
               {nativeToolCalls.map((tc, idx) => {
                 if (tc.name === 'to_ask') {
                   return (
@@ -833,11 +801,54 @@ const AiMessage = React.memo(function AiMessage({
                 if (tc.name === 'malformed_tool_call') {
                   return <MalformedToolCallWarning key={`native-tc-${idx}`} toolCall={tc} />
                 }
+                if (tc.name === 'create_mini_app') {
+                  const title = (tc.args.title || 'Mini App') as string
+                  const html = (tc.args.html || '') as string
+                  const css = (tc.args.css || '') as string
+                  const js = (tc.args.js || '') as string
+                  const status = tc.status
+
+                  const miniAppId = `mini-app-native-${idx}-${title.replace(/\s+/g, '-').toLowerCase()}`
+
+                  return (
+                    <div key={miniAppId} className="w-full flex flex-col gap-2 my-2 select-none animate-fade-in">
+                      <div className="flex items-center gap-2 text-[13px] text-text-secondary font-medium">
+                        {status === 'writing' || status === 'running' ? (
+                          <>
+                            <CircleNotch size={14} className="animate-spin text-status-warning shrink-0" />
+                            <span className="tool-shimmer-text">Creating mini app: <span className="font-semibold text-text-primary">{title}</span>...</span>
+                          </>
+                        ) : status === 'error' || status === 'cancelled' ? (
+                          <>
+                            <XCircle size={14} className="text-status-error shrink-0" />
+                            <span>Failed to create mini app: <span className="font-semibold text-text-primary">{title}</span></span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle size={14} className="text-status-success shrink-0" />
+                            <span>Created mini app: <span className="font-semibold text-text-primary">{title}</span></span>
+                          </>
+                        )}
+                      </div>
+                      {status === 'done' && (
+                        <div className="w-full px-0">
+                          <MiniAppRenderer
+                            id={miniAppId}
+                            title={title}
+                            html={html}
+                            css={css}
+                            js={js}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )
+                }
                 return null
               })}
               <ToolCallIndicator
                 tools={nativeToolCalls
-                  .filter(tc => tc.name !== 'to_ask' && tc.name !== 'render_chat_history' && tc.name !== 'malformed_tool_call')
+                  .filter(tc => tc.name !== 'to_ask' && tc.name !== 'render_chat_history' && tc.name !== 'malformed_tool_call' && tc.name !== 'create_mini_app')
                   .map(tc => ({
                     name: tc.name,
                     status: tc.status
@@ -1428,6 +1439,39 @@ function RealApp(): React.JSX.Element {
             }
           }
 
+          const hasFunctionResponse = m.parts?.some(p => (p as any).functionResponse)
+          if (m.role === 'user' && hasFunctionResponse && m.parts) {
+            const lastAiMsg = [...mappedMessages].reverse().find((msg) => msg.role === 'ai')
+            if (lastAiMsg && lastAiMsg.toolCalls) {
+              for (const part of m.parts) {
+                const fRes = (part as any).functionResponse
+                if (fRes) {
+                  const { name, response } = fRes
+                  const resultStr = typeof response?.result === 'string' ? response.result : JSON.stringify(response || '')
+                  const toolCall = lastAiMsg.toolCalls.find(
+                    (tc) => tc.name === name && !tc.result
+                  )
+                  if (toolCall) {
+                    toolCall.result = resultStr
+                    toolCall.status = 'done'
+
+                    // Parse subagent messages if present
+                    const chatLogRegex = /<subagent_chat>([\s\S]*?)<\/subagent_chat>/gi
+                    const chatLogMatch = chatLogRegex.exec(resultStr)
+                    if (chatLogMatch) {
+                      try {
+                        toolCall.subagentMessages = JSON.parse(chatLogMatch[1])
+                      } catch (e) {
+                        console.error('Failed to parse subagent chat log', e)
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            continue
+          }
+
           const isSystemResults = text.startsWith('[SYSTEM: TOOL RESULTS]')
 
           if (isSystemResults) {
@@ -1497,6 +1541,30 @@ function RealApp(): React.JSX.Element {
                 isConnecting: false
               }
               mappedMessages.push(aiMsg)
+            }
+
+            // Reconstruct native tool calls from functionCall parts
+            for (const part of m.parts || []) {
+              const fCall = (part as any).functionCall
+              if (fCall) {
+                const name = fCall.name
+                const args = fCall.args || {}
+                if (!aiMsg.toolCalls) aiMsg.toolCalls = []
+                const alreadyExists = aiMsg.toolCalls.some(tc => tc.name === name && JSON.stringify(tc.args) === JSON.stringify(args))
+                if (!alreadyExists) {
+                  const newToolCall: ToolCall = {
+                    name,
+                    args,
+                    status: 'done'
+                  }
+                  if (name === 'web_search' && args.searches && Array.isArray(args.searches)) {
+                    newToolCall.searchUpdates = args.searches
+                      .map((s: any) => s.title)
+                      .filter(Boolean)
+                  }
+                  aiMsg.toolCalls.push(newToolCall)
+                }
+              }
             }
 
             // Parse Thoughts and extract them from content

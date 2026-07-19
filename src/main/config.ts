@@ -114,7 +114,6 @@ const VALID_MODEL_KEYS = new Set([
   // NVIDIA NIM
   'deepseek-ai/deepseek-v4-flash',
   'deepseek-ai/deepseek-v4-pro',
-  'moonshotai/kimi-k2.6',
   'minimaxai/minimax-m3',
   'openai/gpt-oss-120b',
   'stepfun-ai/step-3.7-flash',

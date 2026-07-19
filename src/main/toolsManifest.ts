@@ -461,6 +461,18 @@ export const toolsManifest: ToolDefinition[] = [
       status: 'New status: "working" (started the task) or "done" (completed the task).'
     },
     target: 'main'
+  },
+  {
+    name: 'create_mini_app',
+    description: 'Create an interactive, stateful web-based widget/game/application (Mini-App). This tool MUST be called natively when the user asks for a mini-app, interactive widget, dashboard, calculator, game, or custom visual application.',
+    usage: '[PRISM_EXECUTE_TOOL]{"type":"create_mini_app","title":"Name","html":"HTML","css":"CSS","js":"JS"}[/PRISM_EXECUTE_TOOL]',
+    parameters: {
+      title: 'Title of the mini-app.',
+      html: 'HTML structure. Clean HTML only (no script/style tags, as they are separate parameters). Use semantic HTML, inputs, buttons, and custom IDs for interactive elements.',
+      css: 'CSS styling for the mini-app. Use modern, premium, and beautiful CSS. Avoid basic layouts. Include transitions, responsive structure, and custom variables matching the design.',
+      js: 'JavaScript logic for interactivity. Must query DOM elements by their IDs or classes, handle events, and maintain state. No external CDN imports unless required.'
+    },
+    target: 'main'
   }
 ]
 

@@ -121,7 +121,6 @@ export function getModelProvider(modelKey: string): 'gemini' | 'nvidia-nim' | 'o
   const nimModels = [
     'deepseek-ai/deepseek-v4-flash',
     'deepseek-ai/deepseek-v4-pro',
-    'moonshotai/kimi-k2.6',
     'minimaxai/minimax-m3',
     'openai/gpt-oss-120b',
     'stepfun-ai/step-3.5-flash',
@@ -1135,7 +1134,6 @@ const MODEL_CONFIGS: Record<string, ModelConfig> = {
   'gemini-3.5-flash': { apiModel: 'gemini-3.5-flash' },
   'z-ai/glm-5.2': { apiModel: 'z-ai/glm-5.2' },
   'openai/gpt-oss-120b': { apiModel: 'openai/gpt-oss-120b' },
-  'moonshotai/kimi-k2.6': { apiModel: 'moonshotai/kimi-k2.6' },
   'minimaxai/minimax-m3': { apiModel: 'minimaxai/minimax-m3' },
   'stepfun-ai/step-3.7-flash': { apiModel: 'stepfun-ai/step-3.7-flash' }
 }
@@ -1193,7 +1191,6 @@ function applyReasoningConfig(
 ): void {
   const isDeepSeek = modelName.includes('deepseek')
   const isGptOss = modelName.includes('gpt-oss')
-  const isKimi = modelName.includes('kimi')
   const isMiniMax = modelName.includes('minimax')
 
   if (isDeepSeek) {
@@ -1211,14 +1208,6 @@ function applyReasoningConfig(
       const effort = reasoningLevel === 'low' ? 'low' : reasoningLevel === 'high' ? 'high' : 'medium'
       requestConfig.reasoning_effort = effort
       delete requestConfig.temperature
-    }
-  } else if (isKimi) {
-    // Kimi K2.6: uses chat_template_kwargs for thinking
-    if (reasoningLevel !== 'off') {
-      requestConfig.chat_template_kwargs = { thinking: true }
-      delete requestConfig.temperature
-    } else {
-      requestConfig.chat_template_kwargs = { thinking: false }
     }
   } else if (isMiniMax) {
     // MiniMax M3: uses chat_template_kwargs for thinking_mode
@@ -1977,6 +1966,9 @@ const toolFunctions: Record<
     }
 
     return `Task "${todo.tasks[taskIndex].title}" updated to "${newStatus}". ${todo.tasks.filter((t) => t.status === 'done').length}/${todo.tasks.length} tasks completed. Continue with the remaining tasks.`
+  },
+  create_mini_app: async () => {
+    return Promise.resolve('Mini App created successfully.')
   }
 }
 
@@ -3042,7 +3034,11 @@ export async function handleChatMessage(
                   // Determine tool type from structured data
                   const lastTc = currentStreamingToolCalls[currentStreamingToolCalls.length - 1]
                   const searchTools = ['web_search', 'search_chat_history', 'saw_link_from_url', 'search_chat_memory']
-                  toolType = searchTools.includes(lastTc?.name) ? 'search' : 'task'
+                  if (lastTc?.name === 'create_mini_app') {
+                    toolType = 'mini-app'
+                  } else {
+                    toolType = searchTools.includes(lastTc?.name) ? 'search' : 'task'
+                  }
                 } else {
                   const lastOpenIdx = currentFinalResponse.lastIndexOf('[PRISM_EXECUTE_TOOL]')
                   const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)
@@ -3103,7 +3099,11 @@ export async function handleChatMessage(
             } else if (hasStructuredToolCallsFinal) {
               const lastTc = currentStreamingToolCalls[currentStreamingToolCalls.length - 1]
               const searchTools = ['web_search', 'search_chat_history', 'saw_link_from_url', 'search_chat_memory']
-              toolTypeFinal = searchTools.includes(lastTc?.name) ? 'search' : 'task'
+              if (lastTc?.name === 'create_mini_app') {
+                toolTypeFinal = 'mini-app'
+              } else {
+                toolTypeFinal = searchTools.includes(lastTc?.name) ? 'search' : 'task'
+              }
             } else {
               const lastOpenIdx = currentFinalResponse.lastIndexOf('[PRISM_EXECUTE_TOOL]')
               const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)
@@ -3747,7 +3747,11 @@ export async function handleLauncherChatMessage(
                 } else if (hasStructuredToolCalls) {
                   const lastTc = currentStreamingToolCalls[currentStreamingToolCalls.length - 1]
                   const searchTools = ['web_search', 'search_chat_history', 'saw_link_from_url', 'search_chat_memory']
-                  toolType = searchTools.includes(lastTc?.name) ? 'search' : 'task'
+                  if (lastTc?.name === 'create_mini_app') {
+                    toolType = 'mini-app'
+                  } else {
+                    toolType = searchTools.includes(lastTc?.name) ? 'search' : 'task'
+                  }
                 } else {
                   const lastOpenIdx = currentFinalResponse.lastIndexOf('[PRISM_EXECUTE_TOOL]')
                   const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)
@@ -3802,7 +3806,11 @@ export async function handleLauncherChatMessage(
             } else if (hasStructuredToolCallsFinal) {
               const lastTc = currentStreamingToolCalls[currentStreamingToolCalls.length - 1]
               const searchTools = ['web_search', 'search_chat_history', 'saw_link_from_url', 'search_chat_memory']
-              toolTypeFinal = searchTools.includes(lastTc?.name) ? 'search' : 'task'
+              if (lastTc?.name === 'create_mini_app') {
+                toolTypeFinal = 'mini-app'
+              } else {
+                toolTypeFinal = searchTools.includes(lastTc?.name) ? 'search' : 'task'
+              }
             } else {
               const lastOpenIdx = currentFinalResponse.lastIndexOf('[PRISM_EXECUTE_TOOL]')
               const currentToolSegment = currentFinalResponse.substring(lastOpenIdx)

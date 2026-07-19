@@ -56,7 +56,7 @@ export interface ToolArgs extends Record<string, any> {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-export const RAW_TOOL_ARG_TAGS = new Set(['command', 'content', 'oldText', 'newText'])
+export const RAW_TOOL_ARG_TAGS = new Set(['command', 'content', 'oldText', 'newText', 'html', 'css', 'js'])
 
 // Argument keys whose values must be preserved as structured JS objects/arrays
 // rather than stringified. Currently used by the continuous web_search tool to

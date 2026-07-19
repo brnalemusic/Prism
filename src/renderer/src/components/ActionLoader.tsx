@@ -19,6 +19,7 @@ import {
   Gear,
   FileCode
 } from '@phosphor-icons/react'
+import { MiniAppRenderer } from './MiniAppRenderer'
 
 
 // Tool labels mapping for simplified display
@@ -27,6 +28,7 @@ const TOOL_LABELS: Record<string, string> = {
   saw_link_from_url: 'Reading web page',
   execute_terminal_command: 'Running terminal command',
   run_command: 'Running terminal command',
+  create_mini_app: 'Creating mini app',
 }
 
 function getToolLabel(name: string): string {
@@ -203,7 +205,7 @@ function renderToolDetails(toolCall: ToolCall): React.ReactNode {
   return null
 }
 
-function useToolCallMeta(toolCall: ToolCall): {
+function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknown>): {
   displayTitle: string
   displayDetail: string
   tone: 'default' | 'search' | 'think' | 'success' | 'error' | 'youtube'
@@ -304,6 +306,11 @@ function useToolCallMeta(toolCall: ToolCall): {
   const query = getStringArg(toolCall.args, 'query')
   const isYoutube = /youtube\.com|youtu\.be|^\/youtube|\byoutube\b/i.test(`${url} ${query}`)
 
+  const isDone =
+    toolCall.status === 'done' || toolCall.status === 'error' || toolCall.status === 'cancelled'
+  const isWriting = toolCall.status === 'writing'
+  const isRunning = !isDone
+
   let displayTitle = 'Processing'
   let displayDetail = 'Prism is working on the next step.'
   let tone: 'default' | 'search' | 'think' | 'success' | 'error' | 'youtube' = 'default'
@@ -327,9 +334,11 @@ function useToolCallMeta(toolCall: ToolCall): {
       toolCall.name === 'execute_terminal_command' ||
       toolCall.name === 'run_command'
 
+    const isMiniApp = toolCall.name === 'mini-app' || toolCall.name === 'create_mini_app'
+
     displayTitle = isSearch
       ? 'Preparing Search'
-      : toolCall.name === 'mini-app'
+      : isMiniApp
         ? 'Designing Mini App'
         : isFileWrite
           ? 'Creating File'
@@ -341,7 +350,7 @@ function useToolCallMeta(toolCall: ToolCall): {
 
     displayDetail = isSearch
       ? 'Composing a web search.'
-      : toolCall.name === 'mini-app'
+      : isMiniApp
         ? 'Building interactive interface.'
         : isFileWrite
           ? 'Writing content to file.'
@@ -456,12 +465,10 @@ function useToolCallMeta(toolCall: ToolCall): {
         ? `Updating: ${changedArgs.join(', ')}`
         : 'Applying application settings.'
     tone = 'think'
+  } else if (toolCall.name === 'create_mini_app') {
+    displayTitle = isDone ? 'Created Mini App' : 'Creating Mini App'
+    displayDetail = getStringArg(toolCall.args, 'title') || (writingArgs?.title as string) || 'Mini App'
   }
-
-  const isDone =
-    toolCall.status === 'done' || toolCall.status === 'error' || toolCall.status === 'cancelled'
-  const isWriting = toolCall.status === 'writing'
-  const isRunning = !isDone
 
   if (toolCall.status === 'done') tone = 'success'
   if (toolCall.status === 'error' || toolCall.status === 'cancelled') tone = 'error'
@@ -543,7 +550,8 @@ function useToolCallMeta(toolCall: ToolCall): {
       toolCall.name.startsWith('browser_') ||
       toolCall.name === 'open_browser' ||
       toolCall.name === 'web_script' ||
-      toolCall.name === 'detailed_dom_page'
+      toolCall.name === 'detailed_dom_page' ||
+      toolCall.name === 'create_mini_app'
     ) {
       return <AppWindow size={size} weight="regular" className="animate-pulse" />
     }
@@ -698,7 +706,7 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
   const [selectedAgentKey, setSelectedAgentKey] = useState<string>('master')
 
   const { displayTitle, displayDetail, tone, isDone, isWriting, isRunning, statusLabel, renderIcon } =
-    useToolCallMeta(toolCall)
+    useToolCallMeta(toolCall, writingArgs)
 
   const isTerminal = toolCall.name === 'execute_terminal_command' || toolCall.name === 'run_command'
   const canExpand = isDone || isTerminal
@@ -1263,7 +1271,7 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
   const [selectedAgentKey, setSelectedAgentKey] = useState<string>('master')
 
   const { displayTitle, displayDetail, tone, isDone, statusLabel, renderIcon } =
-    useToolCallMeta(toolCall)
+    useToolCallMeta(toolCall, writingArgs)
 
   const isTerminal = toolCall.name === 'execute_terminal_command' || toolCall.name === 'run_command'
   const canExpand = isDone || isTerminal
@@ -1883,6 +1891,37 @@ export function ActionLoader({ toolCall, mode = 'compact', writingArgs }: Action
   if (toolCall.name === 'browser_close' || toolCall.name === 'close_browser') {
     return (
       <BrowserSessionSeparator message="AI finished the browser session" isRunning={isRunning} />
+    )
+  }
+
+  if (toolCall.name === 'create_mini_app') {
+    const title = (toolCall.args.title || writingArgs?.title || 'Mini App') as string
+    const html = (toolCall.args.html || '') as string
+    const css = (toolCall.args.css || '') as string
+    const js = (toolCall.args.js || '') as string
+    const isDone = toolCall.status === 'done'
+
+    const miniAppId = `mini-app-loader-${title.replace(/\s+/g, '-').toLowerCase()}`
+
+    return (
+      <div className="w-full flex flex-col gap-2 my-2 select-none">
+        {mode === 'full' ? (
+          <FullActionLoader toolCall={toolCall} writingArgs={writingArgs} />
+        ) : (
+          <CompactActionLoader toolCall={toolCall} writingArgs={writingArgs} />
+        )}
+        {isDone && (
+          <div className="w-full px-0">
+            <MiniAppRenderer
+              id={miniAppId}
+              title={title}
+              html={html}
+              css={css}
+              js={js}
+            />
+          </div>
+        )}
+      </div>
     )
   }
 
