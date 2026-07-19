@@ -220,9 +220,9 @@ function consolidateToolCalls(
         })
       } else if (cName === 'computer_use_read_file') {
         const start = parseInt(cArgs.startLine as string, 10) || 1
-        const offset = parseInt(cArgs.offset as string, 10)
-        if (!isNaN(offset)) {
-          placeholder.readLines!.push({ start, end: start + offset - 1 })
+        const limit = parseInt(cArgs.limit as string, 10)
+        if (!isNaN(limit)) {
+          placeholder.readLines!.push({ start, end: start + limit - 1 })
         } else {
           placeholder.readLines!.push({ start, end: start })
         }

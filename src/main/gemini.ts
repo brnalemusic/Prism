@@ -47,7 +47,8 @@ import {
   loadChatSession,
   searchChatHistory,
   searchChatMemory,
-  getMessageText
+  getMessageText,
+  updateChatSessionTitle
 } from './history'
 import { loadConfig, saveConfig, SlashWorkflow, AppConfig } from './config'
 import { toolsManifest } from './toolsManifest'
@@ -126,9 +127,11 @@ export function getProviderApiKey(provider: 'gemini' | 'nvidia-nim' | 'openai-co
 }
 
 function getGeminiTools(
-  target: 'main' | 'subagent' | 'both' | 'launcher',
+  target: 'main' | 'subagent' | 'both' | 'launcher' | 'title',
   allowedTools?: string[]
 ) {
+  if (target === 'title') return undefined
+
   const filtered = toolsManifest.filter((t) => {
     if (allowedTools && allowedTools.length > 0) {
       if (!allowedTools.includes(t.name)) return false
@@ -197,7 +200,7 @@ function getGeminiTools(
         type: 'INTEGER',
         description: 'Starting line number (1-based index) to read from.'
       }
-      properties['offset'] = {
+      properties['limit'] = {
         type: 'INTEGER',
         description:
           'Number of lines to read starting from startLine. Defaults to 200. Max 200.'
@@ -246,9 +249,11 @@ function getGeminiTools(
 }
 
 function getOpenAiTools(
-  target: 'main' | 'subagent' | 'both' | 'launcher',
+  target: 'main' | 'subagent' | 'both' | 'launcher' | 'title',
   allowedTools?: string[]
 ) {
+  if (target === 'title') return undefined
+
   const filtered = toolsManifest.filter((t) => {
     if (allowedTools && allowedTools.length > 0) {
       if (!allowedTools.includes(t.name)) return false
@@ -565,100 +570,6 @@ export interface StreamToolCallDelta {
   thought_signature?: string
 }
 
-function hasModelResponseText(history: Content[]): boolean {
-  return history.some(
-    (msg) =>
-      msg.role === 'model' &&
-      msg.parts?.some((part) => typeof part.text === 'string' && part.text.trim() !== '')
-  )
-}
-
-function parsePartialJson(str: string): { title?: string; response?: string } {
-  let title = ''
-  let response = ''
-  let inString = false
-  let escape = false
-  let currentKey = ''
-  let currentValue = ''
-  let inKey = false
-  let lastKey = ''
-
-  for (let i = 0; i < str.length; i++) {
-    const char = str[i]
-    if (escape) {
-      if (inString) {
-        let escapedChar = char
-        if (char === 'n') escapedChar = '\n'
-        else if (char === 'r') escapedChar = '\r'
-        else if (char === 't') escapedChar = '\t'
-        else if (char === 'b') escapedChar = '\b'
-        else if (char === 'f') escapedChar = '\f'
-
-        if (inKey) {
-          currentKey += escapedChar
-        } else {
-          currentValue += escapedChar
-        }
-      }
-      escape = false
-      continue
-    }
-    if (char === '\\') {
-      escape = true
-      continue
-    }
-    if (char === '"') {
-      if (inString) {
-        inString = false
-        if (inKey) {
-          lastKey = currentKey
-          currentKey = ''
-          inKey = false
-        } else {
-          if (lastKey === 'title') {
-            title = currentValue
-          } else if (lastKey === 'response') {
-            response = currentValue
-          }
-          currentValue = ''
-          lastKey = ''
-        }
-      } else {
-        inString = true
-        if (lastKey) {
-          inKey = false
-        } else {
-          inKey = true
-        }
-      }
-      continue
-    }
-
-    if (inString) {
-      if (inKey) {
-        currentKey += char
-      } else {
-        currentValue += char
-      }
-    } else {
-      if (char === ',') {
-        lastKey = ''
-      }
-    }
-  }
-
-  if (inString && !inKey && lastKey === 'response') {
-    response = currentValue
-  }
-  if (inString && !inKey && lastKey === 'title') {
-    title = currentValue
-  }
-
-  return {
-    title: title || undefined,
-    response: response || undefined
-  }
-}
 
 interface StreamChunk {
   thought: string
@@ -728,9 +639,6 @@ async function* generateAiStream(
     const appConfig = loadConfig()
     const reasoningLevels = appConfig.modelReasoningLevels || {}
     const reasoningLevel = reasoningLevels[modelName] || 'off'
-
-    const isFirstMainResponse = target === 'main' && !hasModelResponseText(history)
-
     startFirstTimeout()
 
     if (provider === 'gemini') {
@@ -744,26 +652,8 @@ async function* generateAiStream(
         tools: getGeminiTools(target, allowedTools)
       }
 
-      if (isFirstMainResponse) {
-        configObj.responseMimeType = 'application/json'
-        configObj.responseSchema = {
-          type: 'OBJECT',
-          properties: {
-            title: {
-              type: 'STRING',
-              description: "An extremely short (maximum 5 words) title for this conversation, matching the language of the user's message."
-            },
-            response: {
-              type: 'STRING',
-              description: "The detailed response to the user's message."
-            }
-          },
-          required: ['title', 'response']
-        }
-      }
-
       const supportsReasoning = modelName !== 'gemini-3.1-flash-lite' && modelName.startsWith('gemini-')
-      if (supportsReasoning) {
+      if (supportsReasoning && reasoningLevel !== 'off') {
         let budget = 0
         if (reasoningLevel === 'low') budget = 1024
         else if (reasoningLevel === 'medium') budget = 2048
@@ -785,10 +675,7 @@ async function* generateAiStream(
         config: configObj
       })
 
-      let accumulatedText = ''
       let geminiToolCallCounter = 0
-      let accumulatedRawText = ''
-      let lastSentResponseLength = 0
 
       try {
         for await (const chunk of responseStream) {
@@ -830,37 +717,13 @@ async function* generateAiStream(
           }
 
           if (thought || text || chunkToolCalls.length > 0) {
-            let textToYield = text
-            let titleToYield: string | undefined = undefined
-
-            if (isFirstMainResponse && text) {
-              accumulatedRawText += text
-              const trimmedRaw = accumulatedRawText.trim()
-              if (trimmedRaw.length > 0 && !trimmedRaw.startsWith('{')) {
-                textToYield = text
-              } else {
-                const parsed = parsePartialJson(accumulatedRawText)
-                if (parsed.response !== undefined) {
-                  textToYield = parsed.response.slice(lastSentResponseLength)
-                  lastSentResponseLength = parsed.response.length
-                } else {
-                  textToYield = ''
-                }
-                if (parsed.title) {
-                  titleToYield = parsed.title
-                }
-              }
-            }
-
-            accumulatedText += textToYield
             try {
-              fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text: textToYield, title: titleToYield, toolCalls: chunkToolCalls }) + '\n')
+              fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text, toolCalls: chunkToolCalls }) + '\n')
             } catch (err) { /* ignore */ }
             yield {
               thought,
-              text: textToYield,
+              text,
               toolCalls: chunkToolCalls.length > 0 ? chunkToolCalls : undefined,
-              title: titleToYield,
               thoughtSignature: textThoughtSignature,
               thought_signature: textThoughtSignature
             }
@@ -894,32 +757,6 @@ async function* generateAiStream(
         stream: true,
         tools: nimTools || undefined
       }
-
-      if (isFirstMainResponse) {
-        requestConfig.response_format = {
-          type: 'json_schema',
-          json_schema: {
-            name: 'chat_response',
-            strict: true,
-            schema: {
-              type: 'object',
-              properties: {
-                title: {
-                  type: 'string',
-                  description: "An extremely short (maximum 5 words) title for this conversation, matching the language of the user's message."
-                },
-                response: {
-                  type: 'string',
-                  description: "The detailed response to the user's message."
-                }
-              },
-              required: ['title', 'response'],
-              additionalProperties: false
-            }
-          }
-        }
-      }
-
       applyReasoningConfig(requestConfig, modelName, reasoningLevel)
       if (reasoningLevel !== 'off' && modelName.includes('deepseek')) {
         requestConfig.stream_options = { include_reasoning: true }
@@ -932,9 +769,6 @@ async function* generateAiStream(
         name?: string
         arguments: string
       }>()
-
-      let accumulatedRawText = ''
-      let lastSentResponseLength = 0
 
       try {
         for await (const chunk of responseStream) {
@@ -974,36 +808,13 @@ async function* generateAiStream(
           }
 
           if (thought || text || chunkToolCalls.length > 0) {
-            let textToYield = text
-            let titleToYield: string | undefined = undefined
-
-            if (isFirstMainResponse && text) {
-              accumulatedRawText += text
-              const trimmedRaw = accumulatedRawText.trim()
-              if (trimmedRaw.length > 0 && !trimmedRaw.startsWith('{')) {
-                textToYield = text
-              } else {
-                const parsed = parsePartialJson(accumulatedRawText)
-                if (parsed.response !== undefined) {
-                  textToYield = parsed.response.slice(lastSentResponseLength)
-                  lastSentResponseLength = parsed.response.length
-                } else {
-                  textToYield = ''
-                }
-                if (parsed.title) {
-                  titleToYield = parsed.title
-                }
-              }
-            }
-
             try {
-              fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text: textToYield, title: titleToYield, toolCalls: chunkToolCalls }) + '\n')
+              fs.appendFileSync(debugFilePath, JSON.stringify({ thought, text, toolCalls: chunkToolCalls }) + '\n')
             } catch (err) { /* ignore */ }
             yield {
               thought,
-              text: textToYield,
-              toolCalls: chunkToolCalls.length > 0 ? chunkToolCalls : undefined,
-              title: titleToYield
+              text,
+              toolCalls: chunkToolCalls.length > 0 ? chunkToolCalls : undefined
             }
           }
         }
@@ -1060,7 +871,7 @@ async function generateAiContent(
   history: Content[],
   signal?: AbortSignal,
   temperature = 0.7,
-  target: 'main' | 'subagent' | 'both' | 'launcher' = 'main',
+  target: 'main' | 'subagent' | 'both' | 'launcher' | 'title' = 'main',
   allowedTools?: string[]
 ): Promise<string> {
   if (modelName === 'stepfun-ai/step-3.5-flash') {
@@ -1539,7 +1350,7 @@ const toolFunctions: Record<
     computerReadFile(
       args.path || '',
       args.startLine ? parseInt(args.startLine, 10) : 1,
-      args.offset ? parseInt(args.offset, 10) : undefined,
+      args.limit ? parseInt(args.limit, 10) : undefined,
       signal
     ),
   computer_use_see_screen: async (args, _event, _apiKey, _signal, chatId) => {
@@ -2606,6 +2417,57 @@ export async function handleChatMessage(
     chatHistory = runHistory
   }
 
+  // Generates a short title for the chat session asynchronously.
+  async function generateChatTitleAsync(
+    chatId: string,
+    firstMessage: string,
+    modelKey: string,
+    apiKey: string,
+    event: IpcMainEvent
+  ) {
+    try {
+      const provider = getModelProvider(modelKey)
+      const modelConfig = MODEL_CONFIGS[modelKey] || { apiModel: modelKey }
+      const titleModel = modelConfig.apiModel
+
+      const prompt = `Create an extremely short (maximum 5 words) title for this conversation based on this message: "${firstMessage}". Respond ONLY with the title text, with no quotes or punctuation. The title MUST match the language of the user's message.`
+
+      const titleHistory: Content[] = [
+        {
+          role: 'user',
+          parts: [{ text: prompt }]
+        }
+      ]
+
+      console.log(`[Title Generator] Generating title for chat ${chatId} using model ${titleModel} via provider ${provider}...`)
+
+      const result = await generateAiContent(
+        provider,
+        apiKey,
+        titleModel,
+        titleHistory,
+        undefined,
+        0.7,
+        'title'
+      )
+
+      let finalTitle = (result || '').trim()
+      finalTitle = finalTitle.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim()
+      finalTitle = finalTitle.replace(/^["']|["']$/g, '').trim()
+
+      if (!finalTitle || finalTitle.toLowerCase() === 'new conversation') {
+        finalTitle = 'New Conversation'
+      }
+
+      console.log(`[Title Generator] Generated title for chat ${chatId}: "${finalTitle}"`)
+
+      updateChatSessionTitle(chatId, finalTitle)
+      event.sender.send('chat-title-received', { id: chatId, title: finalTitle })
+    } catch (error) {
+      console.error('Failed to generate chat title in background:', error)
+    }
+  }
+
   // A session is considered "new" for title generation if it only has the initial system/model messages
   const isFirstUserMessage = runHistory.length <= 2
 
@@ -2782,6 +2644,7 @@ export async function handleChatMessage(
   if (isFirstUserMessage && apiKey) {
     saveChatSession(chatId, runHistory, '')
     event.sender.send('chat-session-created', { id: chatId })
+    generateChatTitleAsync(chatId, message, currentModelKey, apiKey, event)
   } else {
     // Regular save for existing sessions
     saveChatSession(chatId, runHistory)

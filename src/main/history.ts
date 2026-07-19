@@ -165,11 +165,7 @@ export function saveChatSession(
           const existingData = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
           
           if (sessionTitle === undefined) {
-            const firstMsgText = getMessageText(messages[0])
-            if (
-              existingData.title &&
-              !existingData.title.startsWith(firstMsgText.substring(0, 5) || '___')
-            ) {
+            if (existingData.title) {
               sessionTitle = existingData.title
             }
           }
@@ -224,6 +220,29 @@ export function saveChatSession(
     return true
   } catch (error) {
     console.error(`Failed to save chat session ${id}:`, error)
+    return false
+  }
+}
+
+/**
+ * Updates only the title of a chat session.
+ */
+export function updateChatSessionTitle(id: string, title: string): boolean {
+  ensureChatsDir()
+  const cleanId = sanitizeId(id)
+  if (!cleanId) return false
+  const filePath = path.join(CHATS_DIR, `chat_${cleanId}.json`)
+  try {
+    if (fs.existsSync(filePath)) {
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
+      data.title = title
+      data.lastUpdated = Date.now()
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2))
+      return true
+    }
+    return false
+  } catch (error) {
+    console.error(`Failed to update chat session title ${id}:`, error)
     return false
   }
 }

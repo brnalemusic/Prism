@@ -960,7 +960,7 @@ export async function computerListDirectory(
 export async function computerReadFile(
   filePath: string,
   startLine: number,
-  offset?: number,
+  limit?: number,
   signal?: AbortSignal
 ): Promise<string> {
   try {
@@ -974,15 +974,15 @@ export async function computerReadFile(
       return `Error reading file: startLine (${startLine}) exceeds the total number of lines in the file (${totalLines}).`
     }
 
-    const actualOffset = offset !== undefined ? offset : 200
+    const actualLimit = limit !== undefined ? limit : 200
     const startIdx = startLine - 1
-    const endIdx = Math.min(startLine + actualOffset - 1, totalLines - 1)
+    const endIdx = Math.min(startLine + actualLimit - 1, totalLines - 1)
 
     const sliceOfLines = lines.slice(startIdx, endIdx + 1)
     const selectedContent = sliceOfLines.join('\n')
 
     if (selectedContent.length > 8000) {
-      return `Content Locked: The requested range contains ${selectedContent.length} characters, which exceeds the limit of 8,000 characters. Please request a smaller offset to read less content.`
+      return `Content Locked: The requested range contains ${selectedContent.length} characters, which exceeds the limit of 8,000 characters. Please request a smaller limit to read less content.`
     }
 
     const numberedLines = sliceOfLines.map((line, index) => `${startLine + index}: ${line}`)

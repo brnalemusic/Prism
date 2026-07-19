@@ -164,11 +164,11 @@ export const toolsManifest: ToolDefinition[] = [
     name: 'computer_use_read_file',
     description: 'Read file content.',
     usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"computer_use_read_file","path":"PATH","startLine":130,"offset":50}[/PRISM_EXECUTE_TOOL]',
+      '[PRISM_EXECUTE_TOOL]{"type":"computer_use_read_file","path":"PATH","startLine":130,"limit":50}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       path: 'Absolute file path.',
       startLine: 'Starting line number (1-based index) to read from.',
-      offset:
+      limit:
         'Optional: Number of lines to read starting from startLine (defaults to 200, maximum 200).'
     }
   },

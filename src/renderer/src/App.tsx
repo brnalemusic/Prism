@@ -422,9 +422,9 @@ function consolidateToolCalls(
         })
       } else if (cName === 'computer_use_read_file') {
         const start = parseInt(cArgs.startLine as string, 10) || 1
-        const offset = parseInt(cArgs.offset as string, 10)
-        if (!isNaN(offset)) {
-          placeholder.readLines!.push({ start, end: start + offset - 1 })
+        const limit = parseInt(cArgs.limit as string, 10)
+        if (!isNaN(limit)) {
+          placeholder.readLines!.push({ start, end: start + limit - 1 })
         } else {
           placeholder.readLines!.push({ start, end: start })
         }
@@ -2303,84 +2303,82 @@ function RealApp(): React.JSX.Element {
 
           const hasContent = msg.content && msg.content.trim() !== ''
 
+          const passiveTools = ['computer_use_read_file', 'computer_use_list_installed_applications', 'list_installed_applications', 'search_installed_applications']
+          const filteredThoughts = (msg.thoughts || '').replace(
+            /\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g,
+            (match) => {
+              try {
+                const json = match.replace('[PRISM_EXECUTE_TOOL]', '').replace('[/PRISM_EXECUTE_TOOL]', '')
+                const parsed = JSON.parse(json)
+                if (passiveTools.includes(parsed.type)) return ''
+              } catch {}
+              return match
+            }
+          ).trim()
+
+          const hasThoughtBlock = !!(filteredThoughts || msg.isThinking)
+
           return (
             <div key={i} className="w-full flex flex-col items-start px-4 py-5 transition-all duration-700 animate-message">
               {/* Thinking / Thoughts if any */}
-              {(msg.isThinking || msg.thoughts) && (() => {
-                const passiveTools = ['computer_use_read_file', 'computer_use_list_installed_applications', 'list_installed_applications', 'search_installed_applications']
-                const filteredThoughts = (msg.thoughts || '').replace(
-                  /\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g,
-                  (match) => {
-                    try {
-                      const json = match.replace('[PRISM_EXECUTE_TOOL]', '').replace('[/PRISM_EXECUTE_TOOL]', '')
-                      const parsed = JSON.parse(json)
-                      if (passiveTools.includes(parsed.type)) return ''
-                    } catch {}
-                    return match
-                  }
-                ).trim()
-
-                if (!filteredThoughts && !msg.isThinking) return null
-
-                return (
-                  <div className="w-full mb-3 select-none">
-                    <details className="group w-full select-none">
-                      <summary className="inline-flex items-center gap-2 text-[12.5px] py-1 select-none transition-all duration-200 cursor-pointer text-text-secondary/60 hover:text-text-secondary/90 list-none [&::-webkit-details-marker]:hidden">
-                        <Brain
-                          size={13}
-                          className={clsx(
-                            'text-text-secondary/50 transition-all duration-300',
-                            msg.isThinking && 'animate-pulse text-accent-secondary/70'
-                          )}
-                        />
-                        <span className="font-medium leading-none">
-                          {(() => {
-                            const activeTools = (msg.toolCalls || []).filter(
-                              tc => tc.status === 'running' || tc.status === 'writing'
-                            )
-                            const streamingTools = (msg.streamingToolCalls || []).map(stc => ({
-                              name: stc.name,
-                              status: 'writing'
-                            }))
-                            const allActiveTools = [...activeTools, ...streamingTools] as { name: string; status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown' }[]
-                            if (allActiveTools.length > 0) {
-                              const lastTool = allActiveTools[allActiveTools.length - 1]
-                              return <ToolCallIndicator tools={[lastTool]} />
-                            }
-                            const outlineMatches = Array.from(
-                              filteredThoughts.matchAll(/\*\*(.*?)\*\*/g)
-                            )
-                            if (outlineMatches.length > 0) {
-                              return outlineMatches[outlineMatches.length - 1][1]
-                            }
-                            return msg.isThinking ? 'Thinking...' : 'Thinking'
-                          })()}
-                        </span>
-                        <CaretDown
-                          size={11}
-                          className="text-text-muted/50 transition-transform duration-200 group-open:rotate-180"
-                        />
-                      </summary>
-                      <div className="mt-1.5 border-l border-white/[0.06] ml-1.5 pl-4 py-0.5 font-mono text-[11px] leading-relaxed select-text text-text-secondary/50">
-                        <ReactMarkdown
-                          remarkPlugins={[
-                            remarkGfm,
-                            remarkMath,
-                            disableIndentedCode as unknown as import('unified').Pluggable
-                          ]}
-                          rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
-                        >
-                          {filteredThoughts}
-                        </ReactMarkdown>
-                      </div>
-                    </details>
-                  </div>
-                )
-              })()}
+              {hasThoughtBlock && (
+                <div className="w-full mb-3 select-none">
+                  <details className="group w-full select-none">
+                    <summary className="inline-flex items-center gap-2 text-[12.5px] py-1 select-none transition-all duration-200 cursor-pointer text-text-secondary/60 hover:text-text-secondary/90 list-none [&::-webkit-details-marker]:hidden">
+                      <Brain
+                        size={13}
+                        className={clsx(
+                          'text-text-secondary/50 transition-all duration-300',
+                          msg.isThinking && 'animate-pulse text-accent-secondary/70'
+                        )}
+                      />
+                      <span className="font-medium leading-none">
+                        {(() => {
+                          const activeTools = (msg.toolCalls || []).filter(
+                            tc => tc.status === 'running' || tc.status === 'writing'
+                          )
+                          const streamingTools = (msg.streamingToolCalls || []).map(stc => ({
+                            name: stc.name,
+                            status: 'writing'
+                          }))
+                          const allActiveTools = [...activeTools, ...streamingTools] as { name: string; status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown' }[]
+                          if (allActiveTools.length > 0) {
+                            const lastTool = allActiveTools[allActiveTools.length - 1]
+                            return <ToolCallIndicator tools={[lastTool]} />
+                          }
+                          const outlineMatches = Array.from(
+                            filteredThoughts.matchAll(/\*\*(.*?)\*\*/g)
+                          )
+                          if (outlineMatches.length > 0) {
+                            return outlineMatches[outlineMatches.length - 1][1]
+                          }
+                          return msg.isThinking ? 'Thinking...' : 'Thinking'
+                        })()}
+                      </span>
+                      <CaretDown
+                        size={11}
+                        className="text-text-muted/50 transition-transform duration-200 group-open:rotate-180"
+                      />
+                    </summary>
+                    <div className="mt-1.5 border-l border-white/[0.06] ml-1.5 pl-4 py-0.5 font-mono text-[11px] leading-relaxed select-text text-text-secondary/50">
+                      <ReactMarkdown
+                        remarkPlugins={[
+                          remarkGfm,
+                          remarkMath,
+                          disableIndentedCode as unknown as import('unified').Pluggable
+                        ]}
+                        rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
+                      >
+                        {filteredThoughts}
+                      </ReactMarkdown>
+                    </div>
+                  </details>
+                </div>
+              )}
 
               {/* IA Response Body */}
               <div className="w-full text-text-primary">
-                {!hasContent && (msg.isConnecting || msg.isThinking || msg.isWritingToolCall) ? (
+                {!hasContent && (msg.isConnecting || (!hasThoughtBlock && msg.isWritingToolCall)) ? (
                   <div className="flex items-center gap-1.5 py-1.5 select-none">
                     <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe" />
                     {msg.isWritingToolCall && msg.streamingToolCalls && msg.streamingToolCalls.length > 0 && (

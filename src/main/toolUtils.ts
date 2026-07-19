@@ -412,18 +412,18 @@ export function validateSchemaArgs(
         message: `Argument "startLine" for "computer_use_read_file" must be a positive integer. Passed: "${args.startLine}".`
       }
     }
-    if (args.offset !== undefined && args.offset !== null && args.offset !== '') {
-      const offsetNum = Number(args.offset)
-      if (isNaN(offsetNum) || !Number.isInteger(offsetNum) || offsetNum <= 0) {
+    if (args.limit !== undefined && args.limit !== null && args.limit !== '') {
+      const limitNum = Number(args.limit)
+      if (isNaN(limitNum) || !Number.isInteger(limitNum) || limitNum <= 0) {
         return {
           type: 'invalid_args',
-          message: `Argument "offset" for "computer_use_read_file" must be a positive integer. Passed: "${args.offset}".`
+          message: `Argument "limit" for "computer_use_read_file" must be a positive integer. Passed: "${args.limit}".`
         }
       }
-      if (offsetNum > 200) {
+      if (limitNum > 200) {
         return {
           type: 'invalid_args',
-          message: `Argument "offset" for "computer_use_read_file" cannot exceed 200. Passed: "${args.offset}".`
+          message: `Argument "limit" for "computer_use_read_file" cannot exceed 200. Passed: "${args.limit}".`
         }
       }
     }
