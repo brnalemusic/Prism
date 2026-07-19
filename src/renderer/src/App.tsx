@@ -12,7 +12,7 @@ import { OfflineBanner } from './components/OfflineBanner'
 import { Sidebar } from './components/Sidebar'
 import { InputBar, InputBarHandle } from './components/InputBar'
 import { Spinner } from './components/Spinner'
-import { ActionLoader, ToolCall, ToolCallIndicator } from './components/ActionLoader'
+import { ToolCall, ToolCallIndicator } from './components/ActionLoader'
 import { QuestionnaireRenderer } from './components/QuestionnaireRenderer'
 import { MalformedToolCallWarning } from './components/MalformedToolCallWarning'
 import { ModelSelector, ModelSelectorHandle } from './components/ModelSelector'
@@ -311,7 +311,7 @@ function consolidateToolCalls(
         allCalls.push({
           name: stc.name || 'task',
           args: parsedArgs,
-          status: 'writing',
+          status: 'writing' as const,
           addedLines: streamingAddedLines > 0 ? streamingAddedLines : undefined,
           removedLines: streamingRemovedLines > 0 ? streamingRemovedLines : undefined
         })
@@ -667,16 +667,9 @@ const AiMessage = React.memo(function AiMessage({
 
               // 2. Consolidate search updates and detect if it's youtube
               const consolidatedUpdates: string[] = []
-              let isYoutube = false
-
               toolCallItems.forEach((tcItem) => {
                 const tc = tcItem.toolCall
                 if (tc) {
-                  const url = typeof tc.args?.url === 'string' ? tc.args.url : ''
-                  const query = typeof tc.args?.query === 'string' ? tc.args.query : ''
-                  if (/youtube\.com|youtu\.be|^\/youtube|\byoutube\b/i.test(`${url} ${query}`)) {
-                    isYoutube = true
-                  }
 
                   if (tc.searchUpdates && tc.searchUpdates.length > 0) {
                     consolidatedUpdates.push(...tc.searchUpdates)
@@ -695,18 +688,13 @@ const AiMessage = React.memo(function AiMessage({
                 }
               })
 
-              const mergedToolCall: ToolCall = {
-                name: 'web_search',
-                args: {
-                  query: isYoutube ? 'youtube' : 'search'
-                },
-                status: mergedStatus,
-                searchUpdates: consolidatedUpdates
-              }
-
               const firstItem = group.items[0]
               return (
-                <ActionLoader key={`tc-group-${firstItem.partIndex}`} toolCall={mergedToolCall} />
+                <div key={`tc-group-${firstItem.partIndex}`} className="flex items-center gap-1.5">
+                  <ToolCallIndicator
+                    tools={[{ name: 'web_search', status: mergedStatus }]}
+                  />
+                </div>
               )
             }
 
@@ -754,15 +742,11 @@ const AiMessage = React.memo(function AiMessage({
                   item.writingToolName === 'search'
                 const toolType = isSearch ? 'search' : 'task'
                 return (
-                  <ActionLoader
-                    key={`writing-tc-${item.partIndex}`}
-                    toolCall={{
-                      name: item.writingToolName || toolType,
-                      status: 'writing',
-                      args: {}
-                    }}
-                    writingArgs={item.writingToolArgs}
-                  />
+                  <div key={`writing-tc-${item.partIndex}`} className="flex items-center gap-1.5">
+                    <ToolCallIndicator
+                      tools={[{ name: item.writingToolName || toolType, status: 'writing' }]}
+                    />
+                  </div>
                 )
               }
               return null
@@ -789,14 +773,11 @@ const AiMessage = React.memo(function AiMessage({
                 )
               } else {
                 return (
-                  <ActionLoader
-                    key={`writing-ma-${item.partIndex}`}
-                    toolCall={{
-                      name: 'mini-app',
-                      status: 'writing',
-                      args: {}
-                    }}
-                  />
+                  <div key={`writing-ma-${item.partIndex}`} className="flex items-center gap-1.5">
+                    <ToolCallIndicator
+                      tools={[{ name: 'mini-app', status: 'writing' }]}
+                    />
+                  </div>
                 )
               }
               return null
@@ -828,7 +809,7 @@ const AiMessage = React.memo(function AiMessage({
             return null
           })}
           {!msg.content.includes('[PRISM_EXECUTE_TOOL]') && nativeToolCalls.length > 0 && (
-            <div className="flex flex-col gap-2.5 mt-1 w-full">
+            <div className="flex items-center gap-1.5 mt-1 w-full">
               {nativeToolCalls.map((tc, idx) => {
                 if (tc.name === 'to_ask') {
                   return (
@@ -851,8 +832,16 @@ const AiMessage = React.memo(function AiMessage({
                 if (tc.name === 'malformed_tool_call') {
                   return <MalformedToolCallWarning key={`native-tc-${idx}`} toolCall={tc} />
                 }
-                return <ActionLoader key={`native-tc-${idx}`} toolCall={tc} />
+                return null
               })}
+              <ToolCallIndicator
+                tools={nativeToolCalls
+                  .filter(tc => tc.name !== 'to_ask' && tc.name !== 'render_chat_history' && tc.name !== 'malformed_tool_call')
+                  .map(tc => ({
+                    name: tc.name,
+                    status: tc.status
+                  }))}
+              />
             </div>
           )}
 
@@ -860,14 +849,11 @@ const AiMessage = React.memo(function AiMessage({
             !msg.content.includes('[PRISM_EXECUTE_TOOL]') &&
             !msg.content.includes('<mini_app>') &&
             nativeToolCalls.length === 0 && (
-              <ActionLoader
-                key="writing-tc"
-                toolCall={{
-                  name: msg.toolType || 'task',
-                  status: 'writing',
-                  args: {}
-                }}
-              />
+              <div className="flex items-center gap-1.5 mt-1">
+                <ToolCallIndicator
+                  tools={[{ name: msg.toolType || 'task', status: 'writing' }]}
+                />
+              </div>
             )}
 
           {!msg.isStreaming && msg.content && parts[parts.length - 1].trim() && (
@@ -2349,6 +2335,17 @@ function RealApp(): React.JSX.Element {
                         />
                         <span className="font-medium leading-none">
                           {(() => {
+                            const activeTools = (msg.toolCalls || []).filter(
+                              tc => tc.status === 'running' || tc.status === 'writing'
+                            )
+                            const streamingTools = (msg.streamingToolCalls || []).map(stc => ({
+                              name: stc.name,
+                              status: 'writing'
+                            }))
+                            const allActiveTools = [...activeTools, ...streamingTools] as { name: string; status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown' }[]
+                            if (allActiveTools.length > 0) {
+                              return <ToolCallIndicator tools={allActiveTools} />
+                            }
                             const outlineMatches = Array.from(
                               filteredThoughts.matchAll(/\*\*(.*?)\*\*/g)
                             )
@@ -2385,6 +2382,14 @@ function RealApp(): React.JSX.Element {
                 {!hasContent && (msg.isConnecting || msg.isThinking || msg.isWritingToolCall) ? (
                   <div className="flex items-center gap-1.5 py-1.5 select-none">
                     <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe" />
+                    {msg.isWritingToolCall && msg.streamingToolCalls && msg.streamingToolCalls.length > 0 && (
+                      <ToolCallIndicator
+                        tools={msg.streamingToolCalls.map(stc => ({
+                          name: stc.name,
+                          status: 'writing'
+                        }))}
+                      />
+                    )}
                   </div>
                 ) : (
                   <AiMessage
