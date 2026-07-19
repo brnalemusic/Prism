@@ -378,8 +378,53 @@ function convertHistoryToOpenAiFormat(history: Content[], provider?: 'gemini' | 
     const parts = msg.parts || []
     const textParts = parts.filter((p) => p.text)
     const mediaParts = parts.filter((p) => p.inlineData)
+    const functionResponseParts = parts.filter((p: any) => p.functionResponse)
+    const functionCallParts = parts.filter((p: any) => p.functionCall)
+
+    // Handle user turns with native functionResponse parts (from Gemini native tool calls)
+    if (role === 'user' && functionResponseParts.length > 0) {
+      for (const frp of functionResponseParts) {
+        const fr = (frp as any).functionResponse
+        const list = outstandingCalls.get(fr.name) || []
+        const callId = list.shift() || `call_${fr.name}_${Date.now()}`
+        messages.push({
+          role: 'tool',
+          tool_call_id: callId,
+          content: typeof fr.response?.result === 'string' ? fr.response.result : JSON.stringify(fr.response)
+        })
+      }
+      continue
+    }
 
     if (role === 'assistant') {
+      // Handle native functionCall parts (from Gemini native tool calls)
+      if (functionCallParts.length > 0) {
+        const cleanText = textParts.map((p) => p.text).join('\n\n').trim()
+        const formattedToolCalls = functionCallParts.map((fcp: any, index: number) => {
+          const fc = fcp.functionCall
+          const callId = `call_${fc.name}_${Date.now()}_${index}`
+          if (!outstandingCalls.has(fc.name)) {
+            outstandingCalls.set(fc.name, [])
+          }
+          outstandingCalls.get(fc.name)!.push(callId)
+          return {
+            id: callId,
+            type: 'function',
+            function: {
+              name: fc.name,
+              arguments: JSON.stringify(fc.args || {})
+            }
+          }
+        })
+        messages.push({
+          role: 'assistant',
+          content: cleanText || null,
+          tool_calls: formattedToolCalls
+        })
+        continue
+      }
+
+      // Legacy: handle text-based tool calls
       const fullText = textParts.map((p) => p.text).join('\n\n')
       const toolCalls = parseToolCallsFromText(fullText)
       
@@ -1195,6 +1240,22 @@ function ensureHistoryFitsLimit(history: Content[]): Content[] {
             }
           }
         }
+        // Also truncate native functionResponse results
+        const fr = (part as any).functionResponse
+        if (fr?.response?.result && typeof fr.response.result === 'string') {
+          const MAX_TOOL_RESULT = 5000
+          if (fr.response.result.length > MAX_TOOL_RESULT) {
+            return {
+              ...part,
+              functionResponse: {
+                ...fr,
+                response: {
+                  result: fr.response.result.substring(0, MAX_TOOL_RESULT) + '\n\n... [TOOL RESULTS TRUNCATED]'
+                }
+              }
+            }
+          }
+        }
         return part
       })
       return { ...msg, parts }
@@ -1219,6 +1280,11 @@ function ensureHistoryFitsLimit(history: Content[]): Content[] {
     let msgSize = 0
     for (const part of msg.parts || []) {
       if (part.text) msgSize += part.text.length
+      // Also count native functionResponse result sizes
+      const fr = (part as any).functionResponse
+      if (fr?.response?.result && typeof fr.response.result === 'string') {
+        msgSize += fr.response.result.length
+      }
     }
 
     if (currentTotal + msgSize < MAX_CHARS) {
@@ -3073,26 +3139,68 @@ export async function handleChatMessage(
               }
 
               event.sender.send('chat-tool-end', { name: actualName, result: toolResult, chatId })
-              return `\n[RESULT FOR ${actualName}]:\n${toolResult}\n`
+
+              // Return both the text result and the original function call name for native functionResponse
+              return {
+                // Use tc.name (the original functionCall name from the API) for the functionResponse
+                functionCallName: tc.name,
+                actualName,
+                result: toolResult,
+                thoughtSignature: tc.thoughtSignature || tc.thought_signature
+              }
             })
 
-            const results = await Promise.all(toolPromises)
-            const allToolResults = results.join('')
+            const toolResults = await Promise.all(toolPromises)
 
-            if (allToolResults) {
-              const systemFeedback = `[SYSTEM: TOOL RESULTS]${allToolResults}\nAnalyze these results and proceed. If the goal is achieved, finalize. If more steps are needed, use another tool.`
-              const parts: NonNullable<Content['parts']> = [{ text: systemFeedback }]
-              const screenshotBase64 = chatId ? lastScreenshots.get(chatId) : undefined
-              if (screenshotBase64) {
-                lastScreenshots.delete(chatId)
-                parts.push({
-                  inlineData: {
-                    mimeType: 'image/png',
-                    data: screenshotBase64
+            if (toolResults.length > 0) {
+              // For Gemini provider: use native functionResponse parts to properly match functionCall/functionResponse
+              // This preserves thought_signature which Gemini 3.1+ models require
+              if (currentProvider === 'gemini') {
+                const functionResponseParts: any[] = toolResults.map((tr) => {
+                  const part: any = {
+                    functionResponse: {
+                      name: tr.functionCallName,
+                      response: { result: tr.result }
+                    }
                   }
+                  // Preserve thought_signature for Gemini 3.1+ models
+                  if (tr.thoughtSignature) {
+                    part.thoughtSignature = tr.thoughtSignature
+                    part.thought_signature = tr.thoughtSignature
+                  }
+                  return part
                 })
+                // Include screenshot if available (alongside functionResponse parts)
+                const screenshotBase64 = chatId ? lastScreenshots.get(chatId) : undefined
+                if (screenshotBase64) {
+                  lastScreenshots.delete(chatId)
+                  functionResponseParts.push({
+                    inlineData: {
+                      mimeType: 'image/png',
+                      data: screenshotBase64
+                    }
+                  })
+                }
+                runHistory.push({ role: 'user', parts: functionResponseParts })
+              } else {
+                // For non-Gemini providers: use text-based format (converted by convertHistoryToOpenAiFormat)
+                const allToolResultsText = toolResults.map(
+                  (tr) => `\n[RESULT FOR ${tr.actualName}]:\n${tr.result}\n`
+                ).join('')
+                const systemFeedback = `[SYSTEM: TOOL RESULTS]${allToolResultsText}\nAnalyze these results and proceed. If the goal is achieved, finalize. If more steps are needed, use another tool.`
+                const parts: NonNullable<Content['parts']> = [{ text: systemFeedback }]
+                const screenshotBase64 = chatId ? lastScreenshots.get(chatId) : undefined
+                if (screenshotBase64) {
+                  lastScreenshots.delete(chatId)
+                  parts.push({
+                    inlineData: {
+                      mimeType: 'image/png',
+                      data: screenshotBase64
+                    }
+                  })
+                }
+                runHistory.push({ role: 'system', parts })
               }
-              runHistory.push({ role: 'system', parts })
               saveChatSession(chatId, runHistory, finalTitle || undefined)
               continue
             }
