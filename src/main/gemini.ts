@@ -2,7 +2,7 @@ import { GoogleGenAI, Content, ThinkingLevel } from '@google/genai'
 import { OpenAI } from 'openai'
 import * as dotenv from 'dotenv'
 import { IpcMainEvent, ipcMain, BrowserWindow } from 'electron'
-import { SessionMode } from '../shared/types'
+import { SessionMode, TodoState } from '../shared/types'
 import * as path from 'path'
 import { Agent, setGlobalDispatcher, fetch as undiciFetch, FormData as undiciFormData } from 'undici'
 import {
@@ -1317,6 +1317,25 @@ async function generateSubagentResponse(
 }
 
 const activeQuestionnaireResolvers = new Map<string, (result: string) => void>()
+let currentTodo: TodoState | null = null
+
+function buildTodoReminder(): string {
+  if (!currentTodo || !currentTodo.active) return ''
+  const pendingCount = currentTodo.tasks.filter((t) => t.status !== 'done').length
+  if (pendingCount === 0) return ''
+
+  const statusIcon = (s: string) => {
+    if (s === 'done') return '[DONE]'
+    if (s === 'working') return '[WORKING]'
+    return '[PENDING]'
+  }
+
+  const taskLines = currentTodo.tasks
+    .map((t) => `- ${statusIcon(t.status)} ${t.title}`)
+    .join('\n')
+
+  return `\n\n# Active Todo List\nYou have ${pendingCount} pending tasks:\n${taskLines}\n\nIMPORTANT: Use \`edit_todo\` to update task status as you work. Set to "working" when you start a task and "done" when you complete it. You MUST complete ALL tasks in the todo list before responding to the user. Do NOT proceed without finishing all tasks.`
+}
 
 ipcMain.on(
   'submit-questionnaire',
@@ -1822,6 +1841,103 @@ const toolFunctions: Record<
     } catch (err) {
       return `Error deleting workflow: ${err instanceof Error ? err.message : String(err)}`
     }
+  },
+  create_todo: async (args, _event) => {
+    const tasksInput = args.tasks
+    let taskTitles: string[] = []
+    if (typeof tasksInput === 'string') {
+      try {
+        const parsed = JSON.parse(tasksInput)
+        if (Array.isArray(parsed)) taskTitles = parsed.map(String)
+      } catch {
+        taskTitles = tasksInput.split(',').map((s: string) => s.trim()).filter(Boolean)
+      }
+    } else if (Array.isArray(tasksInput)) {
+      taskTitles = tasksInput.map(String)
+    }
+
+    if (taskTitles.length < 2) {
+      return 'Error: create_todo requires at least 2 tasks. Please define a more detailed plan with at least 2 steps.'
+    }
+    if (taskTitles.length > 30) {
+      taskTitles = taskTitles.slice(0, 30)
+    }
+
+    currentTodo = {
+      tasks: taskTitles.map((title, i) => ({
+        id: `task-${i}`,
+        title,
+        status: 'pending' as const
+      })),
+      createdAt: Date.now(),
+      active: true
+    }
+
+    try {
+      const wins = BrowserWindow.getAllWindows()
+      for (const win of wins) {
+        if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
+          win.webContents.send('chat-todo-update', currentTodo)
+        }
+      }
+    } catch {}
+
+    return `Todo list created with ${taskTitles.length} tasks. Use edit_todo to update each task's status as you work through them: set to "working" when starting a task and "done" when completing it. All tasks must be completed before finishing.`
+  },
+  edit_todo: async (args, _event) => {
+    if (!currentTodo || !currentTodo.active) {
+      return 'Error: No active todo list. Create one first with create_todo.'
+    }
+
+    const taskId = (args.id || '').toString().trim()
+    const newStatus = (args.status || '').toString().trim() as 'working' | 'done'
+
+    if (!taskId) return 'Error: Task ID is required (e.g. "task-0", "task-1").'
+    if (newStatus !== 'working' && newStatus !== 'done') {
+      return 'Error: Status must be "working" or "done".'
+    }
+
+    const taskIndex = currentTodo.tasks.findIndex((t) => t.id === taskId)
+    if (taskIndex === -1) {
+      return `Error: Task "${taskId}" not found. Available tasks: ${currentTodo.tasks.map((t) => `${t.id} (${t.title})`).join(', ')}`
+    }
+
+    if (currentTodo.tasks[taskIndex].status === 'done' && newStatus === 'done') {
+      return `Task "${taskId}" (${currentTodo.tasks[taskIndex].title}) is already marked as done.`
+    }
+
+    currentTodo.tasks[taskIndex] = {
+      ...currentTodo.tasks[taskIndex],
+      status: newStatus
+    }
+
+    const allDone = currentTodo.tasks.every((t) => t.status === 'done')
+    if (allDone) {
+      currentTodo.active = false
+    }
+
+    try {
+      const wins = BrowserWindow.getAllWindows()
+      for (const win of wins) {
+        if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
+          win.webContents.send('chat-todo-update', currentTodo)
+        }
+      }
+      if (allDone) {
+        for (const win of wins) {
+          if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
+            win.webContents.send('chat-todo-complete')
+          }
+        }
+      }
+    } catch {}
+
+    if (allDone) {
+      currentTodo = null
+      return `All tasks completed! The todo list has been concluded.`
+    }
+
+    return `Task "${currentTodo.tasks[taskIndex].title}" updated to "${newStatus}". ${currentTodo.tasks.filter((t) => t.status === 'done').length}/${currentTodo.tasks.length} tasks completed. Continue with the remaining tasks.`
   }
 }
 
@@ -2678,7 +2794,8 @@ export async function handleChatMessage(
   }
 
   if (runHistory.length > 0 && runHistory[0].role === 'system') {
-    runHistory[0].parts = [{ text: fullPrompt }]
+    const todoReminder = buildTodoReminder()
+    runHistory[0].parts = [{ text: fullPrompt + todoReminder }]
   }
 
   // Add the user's real question to the manual history
@@ -2767,6 +2884,14 @@ export async function handleChatMessage(
           iterationCount++
 
           if (runAbortController.signal.aborted) throw new Error('AbortError')
+
+          // Update system prompt with current todo status each iteration
+          if (runHistory.length > 0 && runHistory[0].role === 'system') {
+            const baseText = String((runHistory[0].parts?.[0] as any)?.text || fullPrompt)
+            const todoReminder = buildTodoReminder()
+            const cleanBase = baseText.replace(/\n\n# Active Todo List[\s\S]*?(?=\n\n#|$)/, '')
+            runHistory[0].parts = [{ text: cleanBase.trim() + todoReminder }]
+          }
 
           console.log(
             `[Main Chat] Starting generateAiStream for model: ${modelConfig.apiModel}, provider: ${currentProvider}`

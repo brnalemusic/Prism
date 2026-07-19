@@ -10,7 +10,8 @@ import type {
   DownloadProgress,
   ApplicationInfo,
   FileSearchResult,
-  SessionMode
+  SessionMode,
+  TodoState
 } from '../shared/types'
 import type {
   DemoDownloadResult,
@@ -213,6 +214,8 @@ export interface PrismAPI {
   devTriggerUpdaterUi?: (level: 'patch' | 'minor' | 'major') => void
   devSimulateUpdaterProgress?: () => void
   onConnectivityChanged: (callback: (online: boolean) => void) => () => void
+  onTodoUpdate: (callback: (data: TodoState) => void) => () => void
+  onTodoComplete: (callback: () => void) => () => void
 }
 
 declare global {

@@ -450,6 +450,30 @@ export const toolsManifest: ToolDefinition[] = [
       id: 'Optional: Alternative to command: the unique ID of the workflow to delete.'
     },
     target: 'main'
+  },
+  {
+    name: 'create_todo',
+    description:
+      'Criar uma lista de tarefas (todo list) para organizar fluxos de trabalho complexos com múltiplos passos. Use quando precisar executar 2+ ações sequenciais ou paralelas. Após criar, use edit_todo para marcar cada tarefa como "working" ao iniciá-la e "done" ao concluí-la.',
+    usage:
+      '[PRISM_EXECUTE_TOOL]{"type":"create_todo","tasks":["Pesquisar documentação da API","Implementar endpoint GET","Testar a rota"]}[/PRISM_EXECUTE_TOOL]',
+    parameters: {
+      tasks:
+        'Array de strings com 2 a 30 tarefas. Cada tarefa deve ser uma descrição concisa e acionável de um passo.'
+    },
+    target: 'main'
+  },
+  {
+    name: 'edit_todo',
+    description:
+      'Atualizar o status de uma tarefa na lista ativa. Use "working" quando começar a executar a tarefa e "done" quando finalizá-la. A lista de tarefas deve ser completamente finalizada (todas "done") antes de encerrar a solicitação.',
+    usage:
+      '[PRISM_EXECUTE_TOOL]{"type":"edit_todo","id":"task-1","status":"working"}[/PRISM_EXECUTE_TOOL]',
+    parameters: {
+      id: 'O ID da tarefa a ser atualizada (ex: "task-0", "task-1").',
+      status: 'Novo status: "working" (iniciou a tarefa) ou "done" (completou a tarefa).'
+    },
+    target: 'main'
   }
 ]
 

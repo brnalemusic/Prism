@@ -9,8 +9,9 @@ import type {
   MiniAppData,
   ApplicationInfo,
   FileSearchResult,
-  AttachedFile,
-  SessionMode
+  SessionMode,
+  TodoState,
+  AttachedFile
 } from '../shared/types'
 import type { ChatSession } from '../main/history'
 import type { Content } from '@google/genai'
@@ -374,6 +375,8 @@ const api = {
     ipcRenderer.removeAllListeners('think-mode-changed')
     ipcRenderer.removeAllListeners('search-enabled-changed')
     ipcRenderer.removeAllListeners('window-maximized-change')
+    ipcRenderer.removeAllListeners('chat-todo-update')
+    ipcRenderer.removeAllListeners('chat-todo-complete')
   },
   launcherGetApps: (): Promise<ApplicationInfo[]> => ipcRenderer.invoke('launcher-get-apps'),
   forceRescanApps: (): Promise<ApplicationInfo[]> => ipcRenderer.invoke('force-rescan-apps'),
@@ -581,6 +584,16 @@ const api = {
     const listener = (_event: IpcRendererEvent, online: boolean): void => callback(online)
     ipcRenderer.on('connectivity-changed', listener)
     return () => ipcRenderer.removeListener('connectivity-changed', listener)
+  },
+  onTodoUpdate: (callback: (data: TodoState) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: TodoState): void => callback(data)
+    ipcRenderer.on('chat-todo-update', listener)
+    return () => ipcRenderer.removeListener('chat-todo-update', listener)
+  },
+  onTodoComplete: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('chat-todo-complete', listener)
+    return () => ipcRenderer.removeListener('chat-todo-complete', listener)
   }
 }
 

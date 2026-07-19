@@ -45,8 +45,9 @@ import { CaretDown, Plus, Quotes, Brain, FilePdf, FilePpt } from '@phosphor-icon
 import { ScreenshotModal } from './components/ScreenshotModal'
 import { SubagentDelegationModal } from './components/SubagentDelegationModal'
 import { YoutubeAppModal } from './components/YoutubeAppModal'
+import TodoPanel from './components/TodoPanel'
 import { AppConfig, SlashWorkflow } from '../../main/config'
-import type { DownloadProgress, SessionMode } from '../../shared/types'
+import type { DownloadProgress, SessionMode, TodoState } from '../../shared/types'
 import { IS_DEMO } from '../../shared/demo'
 
 interface HastNode {
@@ -939,6 +940,8 @@ function RealApp(): React.JSX.Element {
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
   const [isFullscreenInput, setIsFullscreenInput] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [todoState, setTodoState] = useState<TodoState | null>(null)
+  const [isTodoPanelOpen, setIsTodoPanelOpen] = useState(false)
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
 
   const [quotedText, setQuotedText] = useState<string | null>(null)
@@ -2227,6 +2230,16 @@ function RealApp(): React.JSX.Element {
       }
     })
 
+    const removeTodoUpdateListener = window.api.onTodoUpdate((data) => {
+      setTodoState(data)
+      setIsTodoPanelOpen(true)
+    })
+
+    const removeTodoCompleteListener = window.api.onTodoComplete(() => {
+      setIsTodoPanelOpen(false)
+      setTimeout(() => setTodoState(null), 400)
+    })
+
     return () => {
       removeChatStartListener()
       removeChatChunkListener()
@@ -2237,6 +2250,8 @@ function RealApp(): React.JSX.Element {
       removeToolUpdateListener()
       removeSubagentMessageListener()
       removeTitleReceivedListener()
+      removeTodoUpdateListener()
+      removeTodoCompleteListener()
       if (titleIntervalRef.current) {
         clearInterval(titleIntervalRef.current)
         titleIntervalRef.current = null
@@ -2565,7 +2580,7 @@ function RealApp(): React.JSX.Element {
       {/* Sidebar */}
       {renderedSidebar}
 
-      <main className="flex-1 flex flex-col relative z-10 min-w-0 h-full">
+      <main className={clsx('flex-1 flex flex-col relative z-10 min-w-0 h-full transition-all duration-400 ease-[cubic-bezier(0.25,1,0.5,1)]', isTodoPanelOpen && 'pr-[280px]')}>
         {!isOnline && <OfflineBanner />}
         {activeView === 'chat' && !isFullscreenInput && (
           <>
@@ -2846,6 +2861,12 @@ function RealApp(): React.JSX.Element {
           </span>
         </div>
       )}
+      <TodoPanel
+        todo={todoState}
+        isOpen={isTodoPanelOpen}
+        onToggle={() => setIsTodoPanelOpen((p) => !p)}
+        onClose={() => setIsTodoPanelOpen(false)}
+      />
     </div>
   )
 }

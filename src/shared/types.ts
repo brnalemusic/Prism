@@ -87,3 +87,15 @@ export interface AttachedFile {
 
 export type SessionMode = 'conversation' | 'execution' | 'discipline'
 
+export interface TodoTask {
+  id: string
+  title: string
+  status: 'pending' | 'working' | 'done'
+}
+
+export interface TodoState {
+  tasks: TodoTask[]
+  createdAt: number
+  active: boolean
+}
+
