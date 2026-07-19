@@ -2182,10 +2182,7 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | 
 
 # Visual & Interaction Protocol
 1. **Simple Markdown (95% of replies):** Use for answers, code, and explanations. NEVER wrap standard text in HTML/CSS.
-2. **Rich Markdown (HTML/CSS):** Use ONLY if explicitly requested (e.g. cards, dashboards). Example:
-   \`\`\`html
-   <div style="background: linear-gradient(135deg, #1e3c72, #2a5298); padding: 15px; border-radius: 12px; color: white;"><h4>Layout</h4></div>
-   \`\`\`
+2. **Rich Markdown (HTML/CSS):** Use for cards, in-app designs, or when showing something visually within the message itself. You MUST write the HTML/CSS code directly inside the message Markdown (without wrapping it in code blocks like \`\`\`html) so that the application renders it inline directly to the user.
 3. **Mini Apps:** Use <mini_app> tags ONLY for interactive, stateful widgets (calculators, forms, games).
    Structure: <mini_app><title>Name</title><html>...</html><css>...</css><js>...</js></mini_app>
 
