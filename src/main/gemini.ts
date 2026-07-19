@@ -803,8 +803,11 @@ async function* generateAiStream(
         tools: nimTools || undefined
       }
       applyReasoningConfig(requestConfig, modelName, reasoningLevel)
+      if (provider === 'nvidia-nim') {
+        requestConfig.stream_options = { ...requestConfig.stream_options, include_usage: true }
+      }
       if (reasoningLevel !== 'off' && modelName.includes('deepseek')) {
-        requestConfig.stream_options = { include_reasoning: true }
+        requestConfig.stream_options = { ...requestConfig.stream_options, include_reasoning: true }
       }
 
       const responseStream = (await openai.chat.completions.create(requestConfig, { signal: localController.signal })) as any
