@@ -44,11 +44,9 @@ export function ToolCallIndicator({ tools }: ToolCallIndicatorProps): React.JSX.
   const activeTools = tools.filter(t => t.status === 'writing' || t.status === 'running')
   if (activeTools.length === 0) return null
 
-  // Get labels for each active tool
-  const labels = activeTools.map(t => getToolLabel(t.name))
-  
-  // Join multiple labels with •
-  const displayText = labels.join(' \u2022 ')
+  // Show only the LAST active tool
+  const lastTool = activeTools[activeTools.length - 1]
+  const displayText = getToolLabel(lastTool.name)
 
   return (
     <span className="tool-shimmer-text text-[13px] font-medium">

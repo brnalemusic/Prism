@@ -2344,7 +2344,8 @@ function RealApp(): React.JSX.Element {
                             }))
                             const allActiveTools = [...activeTools, ...streamingTools] as { name: string; status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown' }[]
                             if (allActiveTools.length > 0) {
-                              return <ToolCallIndicator tools={allActiveTools} />
+                              const lastTool = allActiveTools[allActiveTools.length - 1]
+                              return <ToolCallIndicator tools={[lastTool]} />
                             }
                             const outlineMatches = Array.from(
                               filteredThoughts.matchAll(/\*\*(.*?)\*\*/g)
