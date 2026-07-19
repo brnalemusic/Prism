@@ -2379,7 +2379,7 @@ function RealApp(): React.JSX.Element {
               {/* IA Response Body */}
               <div className="w-full text-text-primary">
                 {!hasContent && (msg.isConnecting || (!hasThoughtBlock && msg.isWritingToolCall)) ? (
-                  <div className="flex items-center gap-1.5 py-1.5 select-none">
+                  <div className="flex items-center gap-1.5 h-6 select-none">
                     <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe" />
                     {msg.isWritingToolCall && msg.streamingToolCalls && msg.streamingToolCalls.length > 0 && (
                       <ToolCallIndicator
