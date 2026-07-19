@@ -921,7 +921,7 @@ async function generateAiContent(
   temperature = 0.7,
   target: 'main' | 'subagent' | 'both' | 'launcher' | 'title' = 'main',
   allowedTools?: string[]
-): Promise<string> {
+): Promise<{ text: string; thoughtSignature?: string }> {
   if (modelName === 'stepfun-ai/step-3.5-flash') {
     modelName = 'stepfun-ai/step-3.7-flash'
   }
@@ -982,9 +982,14 @@ async function generateAiContent(
 
       let resultText = response.text || ''
       let thoughts = ''
+      let firstThoughtSignature: string | undefined = undefined
       const candidate = response.candidates?.[0]
       if (candidate?.content?.parts) {
         for (const part of candidate.content.parts) {
+          const sig = part.thoughtSignature || (part as any).thought_signature
+          if (sig && !firstThoughtSignature) {
+            firstThoughtSignature = sig
+          }
           if (part.thought) {
             thoughts += part.text || ''
           } else if (part.functionCall) {
@@ -994,10 +999,13 @@ async function generateAiContent(
           }
         }
       }
+      let finalText = ''
       if (thoughts) {
-        return `<thought>${thoughts}</thought>\n${normalizeToolCalls(resultText)}`
+        finalText = `<thought>${thoughts}</thought>\n${normalizeToolCalls(resultText)}`
+      } else {
+        finalText = normalizeToolCalls(resultText)
       }
-      return normalizeToolCalls(resultText)
+      return { text: finalText, thoughtSignature: firstThoughtSignature }
     } else {
       let baseURL: string
       if (provider === 'nvidia-nim') {
@@ -1039,7 +1047,7 @@ async function generateAiContent(
           resultText += `[PRISM_EXECUTE_TOOL]${JSON.stringify({ type: name, ...args })}[/PRISM_EXECUTE_TOOL]\n`
         }
       }
-      return normalizeToolCalls(resultText)
+      return { text: normalizeToolCalls(resultText) }
     }
   } catch (err) {
     clearTimeout(timeoutTimer)
@@ -1308,7 +1316,7 @@ function ensureHistoryFitsLimit(history: Content[]): Content[] {
 async function generateSubagentResponse(
   history: Content[],
   signal?: AbortSignal
-): Promise<string> {
+): Promise<{ text: string; thoughtSignature?: string }> {
   const config = loadConfig()
   const subModel = config.subagentModel || 'gemma-4-26b-a4b-it'
   const provider = getModelProvider(subModel)
@@ -2127,12 +2135,21 @@ async function runSubagents(
           chatId
         })
 
-        const responseText = await generateSubagentResponse(
+        const res = await generateSubagentResponse(
           history,
           parentSignal
         )
+        const responseText = res.text
+        const thoughtSignature = res.thoughtSignature
 
-        history.push({ role: 'model', parts: [{ text: responseText }] })
+        history.push({
+          role: 'model',
+          parts: [{
+            text: responseText,
+            thoughtSignature,
+            thought_signature: thoughtSignature
+          } as any]
+        })
         finalOutput = responseText
 
         const toolMatches = extractToolCalls(responseText)
@@ -2640,19 +2657,20 @@ export async function handleChatMessage(
 
       console.log(`[Title Generator] Generating title for chat ${chatId} using model ${titleModel} via provider ${provider}...`)
 
-      const result = await generateAiContent(
-        provider,
-        apiKey,
-        titleModel,
-        titleHistory,
-        titleAbortController.signal,
-        0.7,
-        'title'
-      )
+      const res = await generateAiContent(
+          provider,
+          apiKey,
+          titleModel,
+          titleHistory,
+          titleAbortController.signal,
+          0.7,
+          'title'
+        )
 
-      clearTimeout(timeoutId)
+        clearTimeout(timeoutId)
 
-      let finalTitle = (result || '').trim()
+        const result = res.text
+        let finalTitle = (result || '').trim()
       finalTitle = finalTitle.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim()
       finalTitle = finalTitle.replace(/^["']|["']$/g, '').trim()
 
@@ -4327,8 +4345,9 @@ Available tools:
           if (runAbortController.signal.aborted) throw new Error('AbortError')
 
           let responseText = ''
+          let thoughtSignature: string | undefined = undefined
           try {
-            responseText = await generateAiContent(
+            const res = await generateAiContent(
               provider,
               searchApiKey,
               searchModel,
@@ -4338,6 +4357,8 @@ Available tools:
               'main',
               ['search_chat_memory', 'render_chat_history', 'not_found_chat_history']
             )
+            responseText = res.text
+            thoughtSignature = res.thoughtSignature
           } catch (error: any) {
             throw error
           }
@@ -4359,7 +4380,14 @@ Available tools:
 
           const fullAiResponse = currentFinalResponse
           if (fullAiResponse.trim()) {
-            searchHistory.push({ role: 'model', parts: [{ text: fullAiResponse }] })
+            searchHistory.push({
+              role: 'model',
+              parts: [{
+                text: fullAiResponse,
+                thoughtSignature,
+                thought_signature: thoughtSignature
+              } as any]
+            })
           }
 
           accumulatedThoughts += currentThoughts
