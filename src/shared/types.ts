@@ -23,7 +23,7 @@ export interface ToolUpdate {
     phase?: 'thinking' | 'tool_use' | 'done' | 'error'
     command?: string
     output?: string
-    // Novo: progresso de web_search contínua
+    // New: continuous web_search progress
     searchTitle?: string
   }
 }

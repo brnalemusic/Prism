@@ -2375,7 +2375,7 @@ function RealApp(): React.JSX.Element {
                           msg.isThinking && 'animate-pulse text-accent-secondary/70'
                         )}
                       />
-                      <span className="font-medium leading-none">
+                      <span className="font-medium leading-normal">
                         {(() => {
                           const activeTools = (msg.toolCalls || []).filter(
                             tc => tc.status === 'running' || tc.status === 'writing'

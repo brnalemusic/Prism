@@ -85,6 +85,26 @@ const networkAgent = new Agent({
 setGlobalDispatcher(networkAgent)
 globalThis.fetch = undiciFetch as unknown as typeof globalThis.fetch
 globalThis.FormData = undiciFormData as unknown as typeof globalThis.FormData
+function joinResponseSegments(accumulated: string, current: string): string {
+  if (!accumulated) return current
+  if (!current) return accumulated
+
+  const endsWithOneNewline = accumulated.endsWith('\n')
+  const endsWithTwoNewlines = accumulated.endsWith('\n\n')
+  const startsWithOneNewline = current.startsWith('\n')
+  const startsWithTwoNewlines = current.startsWith('\n\n')
+
+  if (endsWithTwoNewlines || startsWithTwoNewlines) {
+    return accumulated + current
+  }
+  if (endsWithOneNewline && startsWithOneNewline) {
+    return accumulated + current
+  }
+  if (endsWithOneNewline || startsWithOneNewline) {
+    return accumulated + '\n' + current
+  }
+  return accumulated + '\n\n' + current
+}
 
 // Dynamic model provider detection helper
 export function getModelProvider(modelKey: string): 'gemini' | 'nvidia-nim' | 'openai-compatible' {
@@ -1094,7 +1114,7 @@ async function getOpenaiCompatibleSearchModel(config: AppConfig): Promise<string
   return config.openaiModelId || ''
 }
 
-// Modelo selecionado atualmente
+// Currently selected model
 let currentModelKey = 'gemini-3.1-flash-lite'
 
 interface ModelConfig {
@@ -3040,7 +3060,7 @@ export async function handleChatMessage(
                 }
               }
 
-              const fullResponse = accumulatedFinalResponse + currentFinalResponse
+              const fullResponse = joinResponseSegments(accumulatedFinalResponse, currentFinalResponse)
               const fullThoughts = accumulatedThoughts + currentThoughts
               const isThinking = currentThoughts.length > 0 && !isWritingToolCall
 
@@ -3101,7 +3121,7 @@ export async function handleChatMessage(
             }
           }
 
-          const finalResponseString = accumulatedFinalResponse + currentFinalResponse
+          const finalResponseString = joinResponseSegments(accumulatedFinalResponse, currentFinalResponse)
           const finalThoughtsString = accumulatedThoughts + currentThoughts
           const isThinkingFinal = currentThoughts.length > 0 && currentFinalResponse.length === 0
 
@@ -3152,8 +3172,7 @@ export async function handleChatMessage(
 
           const needsThoughtSeparator = accumulatedThoughts.length > 0 && currentThoughts.length > 0
           accumulatedThoughts += needsThoughtSeparator ? '\n\n' + currentThoughts : currentThoughts
-          const needsSeparator = accumulatedFinalResponse.length > 0 && currentFinalResponse.trim().length > 0
-          accumulatedFinalResponse += needsSeparator ? '\n\n' + currentFinalResponse : currentFinalResponse
+          accumulatedFinalResponse = joinResponseSegments(accumulatedFinalResponse, currentFinalResponse)
 
           // Move tool calls from thoughts to response (some models like GPT-OSS do CoT tool calls)
           const thoughtToolPattern = /\[PRISM_EXECUTE_TOOL\]([\s\S]*?)\[\/PRISM_EXECUTE_TOOL\]/g
@@ -3746,7 +3765,7 @@ export async function handleLauncherChatMessage(
                 }
               }
 
-              const fullResponse = accumulatedFinalResponse + currentFinalResponse
+              const fullResponse = joinResponseSegments(accumulatedFinalResponse, currentFinalResponse)
               const fullThoughts = accumulatedThoughts + currentThoughts
               const isThinking = currentThoughts.length > 0 && !isWritingToolCall
 
@@ -3801,7 +3820,7 @@ export async function handleLauncherChatMessage(
             }
           }
 
-          const finalResponseString = accumulatedFinalResponse + currentFinalResponse
+          const finalResponseString = joinResponseSegments(accumulatedFinalResponse, currentFinalResponse)
           const finalThoughtsString = accumulatedThoughts + currentThoughts
           const isThinkingFinal = currentThoughts.length > 0 && currentFinalResponse.length === 0
 
@@ -3842,7 +3861,7 @@ export async function handleLauncherChatMessage(
 
           const needsThoughtSeparator = accumulatedThoughts.length > 0 && currentThoughts.length > 0
           accumulatedThoughts += needsThoughtSeparator ? '\n\n' + currentThoughts : currentThoughts
-          accumulatedFinalResponse += currentFinalResponse
+          accumulatedFinalResponse = joinResponseSegments(accumulatedFinalResponse, currentFinalResponse)
 
           // Move tool calls from thoughts to response (some models like GPT-OSS do CoT tool calls)
           const thoughtToolPatternLauncher = /\[PRISM_EXECUTE_TOOL\]([\s\S]*?)\[\/PRISM_EXECUTE_TOOL\]/g

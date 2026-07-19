@@ -9,7 +9,7 @@ export interface ToolDefinition {
 export const toolsManifest: ToolDefinition[] = [
   {
     name: 'run_subagents',
-    description: 'Spawn sub-agents for parallel tasks. Ideal for complex multi-step requests.',
+    description: 'Spawn sub-agents for parallel tasks.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"run_subagents","quantity":"X","prompt:1":"P1"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       quantity: 'Number of agents.',
@@ -20,7 +20,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'send_group_message',
-    description: 'Send group chat message. Use with wait_for_updates if awaiting reply.',
+    description: 'Send group chat message.',
     usage:
       '[PRISM_EXECUTE_TOOL]{"type":"send_group_message","content":"TXT","status":"working|done|error"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
@@ -51,7 +51,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'execute_terminal_command',
-    description: 'Run a guarded shell command in the user-selected system terminal.',
+    description: 'Run shell command in user terminal.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"execute_terminal_command","command":"CMD"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       command: 'Shell command using the configured terminal syntax.'
@@ -59,7 +59,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'computer_use_create_file',
-    description: 'Create new file with content. Fails if exists.',
+    description: 'Create file with content.',
     usage:
       '[PRISM_EXECUTE_TOOL]{"type":"computer_use_create_file","path":"PATH","content":"TXT"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
@@ -69,7 +69,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'computer_use_create_directory',
-    description: 'Create directory recursively.',
+    description: 'Create directory.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"computer_use_create_directory","path":"PATH"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       path: 'Absolute directory path.'
@@ -77,7 +77,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'computer_use_remove_file',
-    description: 'Delete a file.',
+    description: 'Delete file.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"computer_use_remove_file","path":"PATH"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       path: 'Absolute file path.'
@@ -85,7 +85,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'computer_use_remove_directory',
-    description: 'Delete directory recursively.',
+    description: 'Delete directory.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"computer_use_remove_directory","path":"PATH"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       path: 'Absolute directory path.'
@@ -93,7 +93,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'computer_use_save_file',
-    description: 'Overwrite or create file with content.',
+    description: 'Save file content.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"computer_use_save_file","path":"PATH","content":"TXT"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       path: 'Absolute file path.',
@@ -102,7 +102,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'computer_use_append_file',
-    description: 'Append text to a file.',
+    description: 'Append text to file.',
     usage:
       '[PRISM_EXECUTE_TOOL]{"type":"computer_use_append_file","path":"PATH","content":"TXT"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
@@ -112,7 +112,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'computer_use_edit_file',
-    description: 'Edit line range in a file.',
+    description: 'Edit line range in file.',
     usage:
       '[PRISM_EXECUTE_TOOL]{"type":"computer_use_edit_file","path":"PATH","startLine":1,"endLine":5,"newContent":"TXT"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
@@ -135,7 +135,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'computer_use_move_file',
-    description: 'Move or rename file/directory.',
+    description: 'Move or rename file/dir.',
     usage:
       '[PRISM_EXECUTE_TOOL]{"type":"computer_use_move_file","sourcePath":"S","destinationPath":"D","overwrite":"false"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
@@ -146,7 +146,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'computer_use_get_file_info',
-    description: 'Get file/dir metadata.',
+    description: 'Get file or directory metadata.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"computer_use_get_file_info","path":"PATH"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       path: 'Absolute path.'
@@ -174,7 +174,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'search_installed_applications',
-    description: 'Search installed apps by name. Returns matching executables. Use query like "fl", "steam", "chrome", etc.',
+    description: 'Search installed applications.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"search_installed_applications","query":"fl"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       query: 'Search term to match app names (e.g. "fl", "steam", "chrome")'
@@ -182,7 +182,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'open_application',
-    description: 'Open .exe via path. Preferred over shell commands.',
+    description: 'Open application from path.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"open_application","appPath":"EXE_PATH"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       appPath: 'Path to .exe.'
@@ -190,8 +190,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'web_search',
-    description:
-      'Search Google for live information. Batch multiple distinct angles into one call using the "searches" array. Each entry runs sequentially and the user sees each friendly title appear live in the UI. Returns aggregated organic titles, links, and snippets under per-search headers.',
+    description: 'Search Google for live information.',
     usage:
       '[PRISM_EXECUTE_TOOL]{"type":"web_search","searches":[{"title":"Finding common errors with X","query":"X not working windows"},{"title":"Searching on how to update X","query":"how to update X"}]}[/PRISM_EXECUTE_TOOL]',
     parameters: {
@@ -201,8 +200,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'saw_link_from_url',
-    description:
-      'Read full text content from a URL via a headless browser. It is best practice to always visit the actual page URLs returned by web_search to read full contents (especially for Wikis, documentation, personal/business info) rather than relying only on search snippets, and to read multiple URLs before formulating the final response.',
+    description: 'Read text content from URL.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"saw_link_from_url","url":"URL"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       url: 'Target URL to read.'
@@ -218,8 +216,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'open_browser',
-    description:
-      'Open a persistent browser session for automation tasks. Accepts an optional url to load immediately.',
+    description: 'Open persistent browser session.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"open_browser","url":"URL"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       url: 'Optional: Initial URL to open.'
@@ -227,7 +224,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'browser_navigate',
-    description: 'Navigate the persistent browser session to a specified URL.',
+    description: 'Navigate browser to URL.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_navigate","url":"URL"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       url: 'Target URL to load.'
@@ -235,8 +232,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'browser_snapshot',
-    description:
-      'Retrieve a structured semantic DOM snapshot of the current page. Interactive elements are tagged with data-prism-id attributes (e.g. data-prism-id="1"). Set full to "true" for all structural containers.',
+    description: 'Get semantic DOM snapshot.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_snapshot","full":"false"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       full: 'Optional: "true"|"false" (default "false").'
@@ -244,8 +240,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'browser_click',
-    description:
-      "Click an element on the page using its reference ID (data-prism-id). If the click initiates a file download, it will automatically download and save directly to the user's Downloads folder.",
+    description: 'Click element on page by ID.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_click","elementId":"1"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       elementId: 'The reference ID from the snapshot.'
@@ -253,8 +248,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'browser_type',
-    description:
-      'Input text into a form or input element on the page using its reference ID (data-prism-id).',
+    description: 'Type text into element by ID.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_type","elementId":"2","text":"hello"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       elementId: 'The reference ID from the snapshot.',
@@ -263,7 +257,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'browser_press',
-    description: 'Press a keyboard key (e.g., Enter, Tab, Escape, Backspace) on the active page.',
+    description: 'Press key on active page.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_press","key":"Enter"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       key: 'The key name to press.'
@@ -271,7 +265,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'browser_scroll',
-    description: 'Scroll the active page view.',
+    description: 'Scroll active page view.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_scroll","direction":"down","amount":"300"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       direction: '"up"|"down".',
@@ -280,28 +274,25 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'browser_back',
-    description: 'Go back one page in history for the persistent browser session.',
+    description: 'Go back in browser history.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_back"}[/PRISM_EXECUTE_TOOL]',
     parameters: {}
   },
   {
     name: 'browser_screenshot',
-    description:
-      'Take a screenshot of the active browser view and attach it to the current message context.',
+    description: 'Take browser screenshot.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_screenshot"}[/PRISM_EXECUTE_TOOL]',
     parameters: {}
   },
   {
     name: 'browser_close',
-    description:
-      'Close the persistent browser session. Use this once you are done with the browser tasks.',
+    description: 'Close persistent browser session.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_close"}[/PRISM_EXECUTE_TOOL]',
     parameters: {}
   },
   {
     name: 'web_script',
-    description:
-      'Execute a custom JavaScript script/expression on a web page and return the result. Can optionally load a URL first.',
+    description: 'Execute JavaScript on page.',
     usage:
       '[PRISM_EXECUTE_TOOL]{"type":"web_script","url":"URL","script":"return document.title"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
@@ -311,8 +302,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'detailed_dom_page',
-    description:
-      'Extract a highly detailed HTML DOM layout tree of a web page showing classes, IDs, placeholders, roles, and text. Can optionally load a URL first.',
+    description: 'Get detailed HTML DOM tree.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"detailed_dom_page","url":"URL"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       url: 'Optional: URL to read DOM from.'
@@ -328,8 +318,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'open_main_app',
-    description:
-      'Open main window with instructions. Use for complex tasks, subagents, or Rich Markdown.',
+    description: 'Open main application window.',
     usage:
       '[PRISM_EXECUTE_TOOL]{"type":"open_main_app","instructions":"TXT","model":"prism-6-super-fast"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
@@ -341,7 +330,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'computer_use_see_screen',
-    description: 'Screenshot specific app or "Entire Screen".',
+    description: 'Take screenshot of screen/app.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"computer_use_see_screen","appName":"Name"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       appName: 'App window name or "Entire Screen".'
@@ -349,7 +338,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'configure_prism',
-    description: 'Change app settings (shortcuts, theme, etc).',
+    description: 'Change application settings.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"configure_prism","theme":"marine"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       launcherShortcut: 'Optional: Launcher hotkey.',
@@ -389,7 +378,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'to_ask',
-    description: 'Render UI questionnaire. Blocks reasoning until submitted.',
+    description: 'Render UI questionnaire.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"to_ask","session_id":"UUID","questions":[]}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       session_id: 'Unique UUID.',
@@ -398,7 +387,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'render_chat_history',
-    description: 'Show chat session item in UI.',
+    description: 'Show chat session in UI.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"render_chat_history","query":"chat_ID.json"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       query: 'Filename or session ID.'
@@ -406,7 +395,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'search_chat_memory',
-    description: 'Search history. Returns metadata (IDs, snippets).',
+    description: 'Search chat memory.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"search_chat_memory","query":"K1"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       query: 'Keywords.'
@@ -414,7 +403,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'not_found_chat_history',
-    description: 'Call this when no matching chat histories are found.',
+    description: 'Trigger when chat history not found.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"not_found_chat_history"}[/PRISM_EXECUTE_TOOL]',
     parameters: {}
   },
@@ -453,25 +442,23 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'create_todo',
-    description:
-      'Criar uma lista de tarefas (todo list) para organizar fluxos de trabalho complexos com múltiplos passos. Use quando precisar executar 2+ ações sequenciais ou paralelas. Após criar, use edit_todo para marcar cada tarefa como "working" ao iniciá-la e "done" ao concluí-la.',
+    description: 'Create todo list.',
     usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"create_todo","tasks":["Pesquisar documentação da API","Implementar endpoint GET","Testar a rota"]}[/PRISM_EXECUTE_TOOL]',
+      '[PRISM_EXECUTE_TOOL]{"type":"create_todo","tasks":["Research API documentation","Implement GET endpoint","Test the route"]}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       tasks:
-        'Array de strings com 2 a 30 tarefas. Cada tarefa deve ser uma descrição concisa e acionável de um passo.'
+        'Array of strings with 2 to 30 tasks. Each task must be a concise and actionable description of a step.'
     },
     target: 'main'
   },
   {
     name: 'edit_todo',
-    description:
-      'Atualizar o status de uma tarefa na lista ativa. Use "working" quando começar a executar a tarefa e "done" quando finalizá-la. A lista de tarefas deve ser completamente finalizada (todas "done") antes de encerrar a solicitação.',
+    description: 'Update task status.',
     usage:
       '[PRISM_EXECUTE_TOOL]{"type":"edit_todo","id":"task-1","status":"working"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
-      id: 'O ID da tarefa a ser atualizada (ex: "task-0", "task-1").',
-      status: 'Novo status: "working" (iniciou a tarefa) ou "done" (completou a tarefa).'
+      id: 'The ID of the task to be updated (e.g.: "task-0", "task-1").',
+      status: 'New status: "working" (started the task) or "done" (completed the task).'
     },
     target: 'main'
   }

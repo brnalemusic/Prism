@@ -278,7 +278,7 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
                   )}
                 />
 
-                <span className="font-medium leading-none">
+                <span className="font-medium leading-normal">
                   {(() => {
                     // Extract bold outlines like "**Initiating Black Hole Analysis**"
                     const outlineMatches = Array.from(

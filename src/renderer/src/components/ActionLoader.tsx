@@ -49,7 +49,7 @@ export function ToolCallIndicator({ tools }: ToolCallIndicatorProps): React.JSX.
   const displayText = getToolLabel(lastTool.name)
 
   return (
-    <span className="tool-shimmer-text text-[13px] font-medium leading-none">
+    <span className="tool-shimmer-text text-[13px] font-medium leading-normal inline-block pb-[1.5px]">
       {displayText}
     </span>
   )
