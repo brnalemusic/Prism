@@ -1,8 +1,11 @@
+import React from 'react'
+import clsx from 'clsx'
 import { CheckCircle, CircleNotch, DownloadSimple, XCircle } from '@phosphor-icons/react'
 import type { DownloadProgress } from '../../../shared/types'
 
 interface DownloadProgressOverlayProps {
   downloads: DownloadProgress[]
+  className?: string
 }
 
 function formatBytes(bytes?: number): string {
@@ -59,12 +62,13 @@ function getIcon(download: DownloadProgress): React.JSX.Element {
 }
 
 export function DownloadProgressOverlay({
-  downloads
+  downloads,
+  className = "fixed right-4 top-28 z-40 w-[min(360px,calc(100vw-2rem))] sm:right-5"
 }: DownloadProgressOverlayProps): React.JSX.Element | null {
   if (downloads.length === 0) return null
 
   return (
-    <div className="pointer-events-none fixed right-4 top-28 z-40 flex w-[min(360px,calc(100vw-2rem))] flex-col gap-2 sm:right-5">
+    <div className={clsx("pointer-events-none flex flex-col gap-2", className)}>
       {downloads.map((download) => {
         const isActive =
           download.status === 'starting' ||

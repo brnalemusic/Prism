@@ -215,7 +215,8 @@ export interface PrismAPI {
   devSimulateUpdaterProgress?: () => void
   onConnectivityChanged: (callback: (online: boolean) => void) => () => void
   onTodoUpdate: (callback: (data: TodoState) => void) => () => void
-  onTodoComplete: (callback: () => void) => () => void
+  onTodoComplete: (callback: (data: { chatId: string }) => void) => () => void
+  getTodoForChat: (chatId: string) => Promise<TodoState | null>
 }
 
 declare global {

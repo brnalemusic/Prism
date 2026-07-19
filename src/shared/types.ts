@@ -97,5 +97,6 @@ export interface TodoState {
   tasks: TodoTask[]
   createdAt: number
   active: boolean
+  chatId?: string
 }
 

@@ -35,7 +35,8 @@ import {
   handleAiSearchChatMessage,
   cancelAiSearch,
   transcribeAudio,
-  getChatModel
+  getChatModel,
+  getTodoForChat
 } from './gemini'
 import {
   searchWorkspaceFiles,
@@ -788,6 +789,10 @@ if (!gotTheLock) {
 
     ipcMain.handle('load-chat', (_event, id: string) => {
       return loadChatIntoHistory(id)
+    })
+
+    ipcMain.handle('get-todo-for-chat', (_event, id: string) => {
+      return getTodoForChat(id)
     })
 
     ipcMain.handle('get-chat-model', (_event, id: string) => {

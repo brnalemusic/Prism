@@ -1320,11 +1320,16 @@ async function generateSubagentResponse(
 }
 
 const activeQuestionnaireResolvers = new Map<string, (result: string) => void>()
-let currentTodo: TodoState | null = null
+export const sessionTodos = new Map<string, TodoState>()
 
-function buildTodoReminder(): string {
-  if (!currentTodo || !currentTodo.active) return ''
-  const pendingCount = currentTodo.tasks.filter((t) => t.status !== 'done').length
+export function getTodoForChat(chatId: string): TodoState | null {
+  return sessionTodos.get(chatId) || null
+}
+
+function buildTodoReminder(chatId?: string): string {
+  const todo = sessionTodos.get(chatId || currentSessionId)
+  if (!todo || !todo.active) return ''
+  const pendingCount = todo.tasks.filter((t) => t.status !== 'done').length
   if (pendingCount === 0) return ''
 
   const statusIcon = (s: string) => {
@@ -1333,7 +1338,7 @@ function buildTodoReminder(): string {
     return '[PENDING]'
   }
 
-  const taskLines = currentTodo.tasks
+  const taskLines = todo.tasks
     .map((t) => `- ${statusIcon(t.status)} ${t.title}`)
     .join('\n')
 
@@ -1866,21 +1871,23 @@ const toolFunctions: Record<
       taskTitles = taskTitles.slice(0, 30)
     }
 
-    currentTodo = {
+    const todo: TodoState = {
       tasks: taskTitles.map((title, i) => ({
         id: `task-${i}`,
         title,
         status: 'pending' as const
       })),
       createdAt: Date.now(),
-      active: true
+      active: true,
+      chatId: currentSessionId
     }
+    sessionTodos.set(currentSessionId, todo)
 
     try {
       const wins = BrowserWindow.getAllWindows()
       for (const win of wins) {
         if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
-          win.webContents.send('chat-todo-update', currentTodo)
+          win.webContents.send('chat-todo-update', todo)
         }
       }
     } catch {}
@@ -1888,7 +1895,8 @@ const toolFunctions: Record<
     return `Todo list created with ${taskTitles.length} tasks. Use edit_todo to update each task's status as you work through them: set to "working" when starting a task and "done" when completing it. All tasks must be completed before finishing.`
   },
   edit_todo: async (args, _event) => {
-    if (!currentTodo || !currentTodo.active) {
+    const todo = sessionTodos.get(currentSessionId)
+    if (!todo || !todo.active) {
       return 'Error: No active todo list. Create one first with create_todo.'
     }
 
@@ -1900,47 +1908,47 @@ const toolFunctions: Record<
       return 'Error: Status must be "working" or "done".'
     }
 
-    const taskIndex = currentTodo.tasks.findIndex((t) => t.id === taskId)
+    const taskIndex = todo.tasks.findIndex((t) => t.id === taskId)
     if (taskIndex === -1) {
-      return `Error: Task "${taskId}" not found. Available tasks: ${currentTodo.tasks.map((t) => `${t.id} (${t.title})`).join(', ')}`
+      return `Error: Task "${taskId}" not found. Available tasks: ${todo.tasks.map((t) => `${t.id} (${t.title})`).join(', ')}`
     }
 
-    if (currentTodo.tasks[taskIndex].status === 'done' && newStatus === 'done') {
-      return `Task "${taskId}" (${currentTodo.tasks[taskIndex].title}) is already marked as done.`
+    if (todo.tasks[taskIndex].status === 'done' && newStatus === 'done') {
+      return `Task "${taskId}" (${todo.tasks[taskIndex].title}) is already marked as done.`
     }
 
-    currentTodo.tasks[taskIndex] = {
-      ...currentTodo.tasks[taskIndex],
+    todo.tasks[taskIndex] = {
+      ...todo.tasks[taskIndex],
       status: newStatus
     }
 
-    const allDone = currentTodo.tasks.every((t) => t.status === 'done')
+    const allDone = todo.tasks.every((t) => t.status === 'done')
     if (allDone) {
-      currentTodo.active = false
+      todo.active = false
     }
 
     try {
       const wins = BrowserWindow.getAllWindows()
       for (const win of wins) {
         if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
-          win.webContents.send('chat-todo-update', currentTodo)
+          win.webContents.send('chat-todo-update', todo)
         }
       }
       if (allDone) {
         for (const win of wins) {
           if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
-            win.webContents.send('chat-todo-complete')
+            win.webContents.send('chat-todo-complete', { chatId: currentSessionId })
           }
         }
       }
     } catch {}
 
     if (allDone) {
-      currentTodo = null
+      sessionTodos.delete(currentSessionId)
       return `All tasks completed! The todo list has been concluded.`
     }
 
-    return `Task "${currentTodo.tasks[taskIndex].title}" updated to "${newStatus}". ${currentTodo.tasks.filter((t) => t.status === 'done').length}/${currentTodo.tasks.length} tasks completed. Continue with the remaining tasks.`
+    return `Task "${todo.tasks[taskIndex].title}" updated to "${newStatus}". ${todo.tasks.filter((t) => t.status === 'done').length}/${todo.tasks.length} tasks completed. Continue with the remaining tasks.`
   }
 }
 

@@ -590,10 +590,13 @@ const api = {
     ipcRenderer.on('chat-todo-update', listener)
     return () => ipcRenderer.removeListener('chat-todo-update', listener)
   },
-  onTodoComplete: (callback: () => void): (() => void) => {
-    const listener = (): void => callback()
+  onTodoComplete: (callback: (data: { chatId: string }) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: { chatId: string }): void => callback(data)
     ipcRenderer.on('chat-todo-complete', listener)
     return () => ipcRenderer.removeListener('chat-todo-complete', listener)
+  },
+  getTodoForChat: (chatId: string): Promise<TodoState | null> => {
+    return ipcRenderer.invoke('get-todo-for-chat', chatId)
   }
 }
 

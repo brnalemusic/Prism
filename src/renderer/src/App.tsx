@@ -41,7 +41,7 @@ import {
   useStreamStats
 } from './components/AnimatedStreamingText'
 import clsx from 'clsx'
-import { CaretDown, Plus, Quotes, Brain, FilePdf, FilePpt } from '@phosphor-icons/react'
+import { CaretDown, Quotes, Brain, FilePdf, FilePpt } from '@phosphor-icons/react'
 import { ScreenshotModal } from './components/ScreenshotModal'
 import { SubagentDelegationModal } from './components/SubagentDelegationModal'
 import { YoutubeAppModal } from './components/YoutubeAppModal'
@@ -940,7 +940,7 @@ function RealApp(): React.JSX.Element {
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
   const [isFullscreenInput, setIsFullscreenInput] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const [todoState, setTodoState] = useState<TodoState | null>(null)
+  const [chatTodos, setChatTodos] = useState<Record<string, TodoState>>({})
   const [isTodoPanelOpen, setIsTodoPanelOpen] = useState(false)
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
 
@@ -1658,6 +1658,20 @@ function RealApp(): React.JSX.Element {
           clearInterval(titleIntervalRef.current)
           titleIntervalRef.current = null
         }
+        window.api.getTodoForChat(id).then((todo) => {
+          if (todo) {
+            setChatTodos((prev) => ({
+              ...prev,
+              [id]: todo
+            }))
+            setIsTodoPanelOpen(todo.active)
+          } else {
+            setIsTodoPanelOpen(false)
+          }
+        }).catch((err) => {
+          console.error('Failed to load todo for chat:', id, err)
+          setIsTodoPanelOpen(false)
+        })
       }
     },
     [currentChatId, runningChats]
@@ -1674,6 +1688,7 @@ function RealApp(): React.JSX.Element {
     currentChatIdRef.current = undefined
     setIsProcessing(false)
     isProcessingRef.current = false
+    setIsTodoPanelOpen(false)
     setInputText('')
     setIsFullscreenInput(false)
     window.api.clearChat()
@@ -2231,13 +2246,26 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeTodoUpdateListener = window.api.onTodoUpdate((data) => {
-      setTodoState(data)
+      if (data.chatId) {
+        setChatTodos((prev) => ({
+          ...prev,
+          [data.chatId!]: data
+        }))
+      }
       setIsTodoPanelOpen(true)
     })
 
-    const removeTodoCompleteListener = window.api.onTodoComplete(() => {
-      setIsTodoPanelOpen(false)
-      setTimeout(() => setTodoState(null), 400)
+    const removeTodoCompleteListener = window.api.onTodoComplete(({ chatId }) => {
+      if (chatId) {
+        setIsTodoPanelOpen(false)
+        setTimeout(() => {
+          setChatTodos((prev) => {
+            const next = { ...prev }
+            delete next[chatId]
+            return next
+          })
+        }, 400)
+      }
     })
 
     return () => {
@@ -2447,11 +2475,9 @@ function RealApp(): React.JSX.Element {
         activeView={activeView}
         onViewChange={(view) => {
           setActiveView(view)
-          setIsSidebarOpen(false)
         }}
         onLoadChat={(id) => {
           handleLoadChat(id)
-          setIsSidebarOpen(false)
         }}
         onNewChat={(force) => {
           handleNewChat(force)
@@ -2461,7 +2487,6 @@ function RealApp(): React.JSX.Element {
         config={config}
         onOpenSearch={() => {
           setIsSearchModalOpen(true)
-          setIsSidebarOpen(false)
         }}
       />
     )
@@ -2580,7 +2605,7 @@ function RealApp(): React.JSX.Element {
       {/* Sidebar */}
       {renderedSidebar}
 
-      <main className={clsx('flex-1 flex flex-col relative z-10 min-w-0 h-full transition-all duration-400 ease-[cubic-bezier(0.25,1,0.5,1)]', isTodoPanelOpen && 'pr-[280px]')}>
+      <main className="flex-1 flex flex-col relative z-10 min-w-0 h-full transition-all duration-400 ease-[cubic-bezier(0.25,1,0.5,1)]">
         {!isOnline && <OfflineBanner />}
         {activeView === 'chat' && !isFullscreenInput && (
           <>
@@ -2597,16 +2622,6 @@ function RealApp(): React.JSX.Element {
                 openaiModelName={config?.openaiModelName}
               />
             </div>
-            {messages.length > 0 && (
-              <button
-                onClick={() => handleNewChat()}
-                className="absolute right-5 top-4 z-30 flex h-9 items-center gap-2 rounded-xl border border-white/[0.065] bg-white/[0.026] px-3.5 text-xs font-medium text-text-secondary shadow-[0_8px_28px_rgba(0,0,0,0.28)] backdrop-blur-md transition-all duration-300 hover:bg-white/[0.065] hover:text-text-primary hover:border-white/[0.1] active:scale-[0.97] cursor-pointer rgb-new-chat-btn animate-fade-in"
-                title="New Chat (Ctrl+N)"
-              >
-                <Plus size={14} weight="bold" className="text-accent-primary" />
-                <span>New Chat</span>
-              </button>
-            )}
           </>
         )}
         {activeView === 'chat' && isFullscreenInput ? (
@@ -2808,8 +2823,11 @@ function RealApp(): React.JSX.Element {
             )}
           </>
         )}
+        <DownloadProgressOverlay
+          downloads={visibleDownloads}
+          className="absolute right-5 top-4 z-30 w-[min(360px,calc(100vw-2rem))]"
+        />
       </main>
-      <DownloadProgressOverlay downloads={visibleDownloads} />
       <ErrorPopup />
       <ScreenshotModal
         isOpen={isScreenshotModalOpen}
@@ -2862,7 +2880,7 @@ function RealApp(): React.JSX.Element {
         </div>
       )}
       <TodoPanel
-        todo={todoState}
+        todo={currentChatId ? chatTodos[currentChatId] || null : null}
         isOpen={isTodoPanelOpen}
         onToggle={() => setIsTodoPanelOpen((p) => !p)}
         onClose={() => setIsTodoPanelOpen(false)}
