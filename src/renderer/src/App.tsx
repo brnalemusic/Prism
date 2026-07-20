@@ -42,7 +42,7 @@ import {
   CodeBlock
 } from './components/AnimatedStreamingText'
 import clsx from 'clsx'
-import { CaretDown, Quotes, Brain, FilePdf, FilePpt, CircleNotch, CheckCircle, XCircle } from '@phosphor-icons/react'
+import { CaretDown, Quotes, Brain, FilePdf, FilePpt, CheckCircle, XCircle } from '@phosphor-icons/react'
 import { ScreenshotModal } from './components/ScreenshotModal'
 import { SubagentDelegationModal } from './components/SubagentDelegationModal'
 import { YoutubeAppModal } from './components/YoutubeAppModal'
@@ -428,6 +428,22 @@ const AiMessage = React.memo(function AiMessage({
   const streamStats = useStreamStats(msg.content, !!msg.isStreaming)
   const nativeToolCalls = useMemo(() => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls), [msg.toolCalls, msg.streamingToolCalls])
 
+  const hasThoughtBlock = useMemo(() => {
+    const passiveTools = ['computer_use_read_file', 'computer_use_list_installed_applications', 'list_installed_applications', 'search_installed_applications']
+    const filteredThoughts = (msg.thoughts || '').replace(
+      /\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g,
+      (match) => {
+        try {
+          const json = match.replace('[PRISM_EXECUTE_TOOL]', '').replace('[/PRISM_EXECUTE_TOOL]', '')
+          const parsed = JSON.parse(json)
+          if (passiveTools.includes(parsed.type)) return ''
+        } catch {}
+        return match
+      }
+    ).trim()
+    return !!(filteredThoughts || msg.isThinking)
+  }, [msg.thoughts, msg.isThinking])
+
 
   if (msg.isConnecting) {
     return (
@@ -658,6 +674,9 @@ const AiMessage = React.memo(function AiMessage({
                 }
               })
 
+              if (hasThoughtBlock && (mergedStatus === 'writing' || mergedStatus === 'running')) {
+                return null
+              }
               const firstItem = group.items[0]
               return (
                 <div key={`tc-group-${firstItem.partIndex}`} className="flex items-center gap-1.5">
@@ -696,6 +715,9 @@ const AiMessage = React.memo(function AiMessage({
                   if (tc.name === 'malformed_tool_call') {
                     return <MalformedToolCallWarning key={`tc-${item.partIndex}`} toolCall={tc} />
                   }
+                  if (hasThoughtBlock && (tc.status === 'writing' || tc.status === 'running')) {
+                    return null
+                  }
                   return (
                     <div key={`tc-${item.partIndex}`} className="flex items-center gap-1.5">
                       <ToolCallIndicator
@@ -705,6 +727,7 @@ const AiMessage = React.memo(function AiMessage({
                   )
                 }
               } else {
+                if (hasThoughtBlock) return null
                 const isSearch =
                   item.writingToolName === 'web_search' ||
                   item.writingToolName === 'search_chat_history' ||
@@ -742,6 +765,7 @@ const AiMessage = React.memo(function AiMessage({
                   </div>
                 )
               } else {
+                if (hasThoughtBlock) return null
                 return (
                   <div key={`writing-ma-${item.partIndex}`} className="flex items-center gap-1.5">
                     <ToolCallIndicator
@@ -811,15 +835,19 @@ const AiMessage = React.memo(function AiMessage({
 
                   const miniAppId = `mini-app-native-${idx}-${title.replace(/\s+/g, '-').toLowerCase()}`
 
+                  if (status === 'writing' || status === 'running') {
+                    if (hasThoughtBlock) return null
+                    return (
+                      <div key={miniAppId} className="flex items-center gap-1.5 mt-1">
+                        <ToolCallIndicator tools={[{ name: 'create_mini_app', status }]} />
+                      </div>
+                    )
+                  }
+
                   return (
                     <div key={miniAppId} className="w-full flex flex-col gap-2 my-2 select-none animate-fade-in">
                       <div className="flex items-center gap-2 text-[13px] text-text-secondary font-medium">
-                        {status === 'writing' || status === 'running' ? (
-                          <>
-                            <CircleNotch size={14} className="animate-spin text-status-warning shrink-0" />
-                            <span className="tool-shimmer-text">Creating mini app: <span className="font-semibold text-text-primary">{title}</span>...</span>
-                          </>
-                        ) : status === 'error' || status === 'cancelled' ? (
+                        {status === 'error' || status === 'cancelled' ? (
                           <>
                             <XCircle size={14} className="text-status-error shrink-0" />
                             <span>Failed to create mini app: <span className="font-semibold text-text-primary">{title}</span></span>
@@ -847,7 +875,10 @@ const AiMessage = React.memo(function AiMessage({
                 }
                 return null
               })}
-              {nativeToolCalls.some(tc => tc.name !== 'to_ask' && tc.name !== 'render_chat_history' && tc.name !== 'malformed_tool_call' && tc.name !== 'create_mini_app') && (
+              {(!hasThoughtBlock || !nativeToolCalls
+                .filter(tc => tc.name !== 'to_ask' && tc.name !== 'render_chat_history' && tc.name !== 'malformed_tool_call' && tc.name !== 'create_mini_app')
+                .some(tc => tc.status === 'writing' || tc.status === 'running')) &&
+                nativeToolCalls.some(tc => tc.name !== 'to_ask' && tc.name !== 'render_chat_history' && tc.name !== 'malformed_tool_call' && tc.name !== 'create_mini_app') && (
                 <div className="flex items-center gap-1.5 mt-1">
                   <ToolCallIndicator
                     tools={nativeToolCalls
@@ -862,7 +893,7 @@ const AiMessage = React.memo(function AiMessage({
             </div>
           )}
 
-          {msg.isWritingToolCall &&
+          {!hasThoughtBlock && msg.isWritingToolCall &&
             !msg.content.includes('[PRISM_EXECUTE_TOOL]') &&
             !msg.content.includes('<mini_app>') &&
             nativeToolCalls.length === 0 && (
