@@ -446,6 +446,14 @@ const AiMessage = React.memo(function AiMessage({
 
   const shouldHideActiveBelow = hasThoughtBlock && (!msg.content || msg.content.trim() === '')
 
+  const hasTextOutput = useMemo(() => {
+    const cleaned = msg.content
+      .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)/gi, '')
+      .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/gi, '')
+      .trim()
+    return cleaned !== ''
+  }, [msg.content])
+
 
   if (msg.isConnecting) {
     return (
@@ -676,6 +684,9 @@ const AiMessage = React.memo(function AiMessage({
                 }
               })
 
+              if (hasThoughtBlock || hasTextOutput) {
+                return null
+              }
               if (shouldHideActiveBelow && (mergedStatus === 'writing' || mergedStatus === 'running')) {
                 return null
               }
@@ -717,6 +728,9 @@ const AiMessage = React.memo(function AiMessage({
                   if (tc.name === 'malformed_tool_call') {
                     return <MalformedToolCallWarning key={`tc-${item.partIndex}`} toolCall={tc} />
                   }
+                  if (hasThoughtBlock || hasTextOutput) {
+                    return null
+                  }
                   if (shouldHideActiveBelow && (tc.status === 'writing' || tc.status === 'running')) {
                     return null
                   }
@@ -729,6 +743,7 @@ const AiMessage = React.memo(function AiMessage({
                   )
                 }
               } else {
+                if (hasThoughtBlock || hasTextOutput) return null
                 if (shouldHideActiveBelow) return null
                 const isSearch =
                   item.writingToolName === 'web_search' ||
@@ -767,6 +782,7 @@ const AiMessage = React.memo(function AiMessage({
                   </div>
                 )
               } else {
+                if (hasThoughtBlock || hasTextOutput) return null
                 if (shouldHideActiveBelow) return null
                 return (
                   <div key={`writing-ma-${item.partIndex}`} className="flex items-center gap-1.5">
@@ -838,6 +854,7 @@ const AiMessage = React.memo(function AiMessage({
                   const miniAppId = `mini-app-native-${idx}-${title.replace(/\s+/g, '-').toLowerCase()}`
 
                   if (status === 'writing' || status === 'running') {
+                    if (hasThoughtBlock || hasTextOutput) return null
                     if (shouldHideActiveBelow) return null
                     return (
                       <div key={miniAppId} className="flex items-center gap-1.5 mt-1">
@@ -877,7 +894,7 @@ const AiMessage = React.memo(function AiMessage({
                 }
                 return null
               })}
-              {(!shouldHideActiveBelow || !nativeToolCalls
+              {!hasThoughtBlock && !hasTextOutput && (!shouldHideActiveBelow || !nativeToolCalls
                 .filter(tc => tc.name !== 'to_ask' && tc.name !== 'render_chat_history' && tc.name !== 'malformed_tool_call' && tc.name !== 'create_mini_app')
                 .some(tc => tc.status === 'writing' || tc.status === 'running')) &&
                 nativeToolCalls.some(tc => tc.name !== 'to_ask' && tc.name !== 'render_chat_history' && tc.name !== 'malformed_tool_call' && tc.name !== 'create_mini_app') && (
@@ -895,7 +912,7 @@ const AiMessage = React.memo(function AiMessage({
             </div>
           )}
 
-          {!shouldHideActiveBelow && msg.isWritingToolCall &&
+          {!hasThoughtBlock && !hasTextOutput && !shouldHideActiveBelow && msg.isWritingToolCall &&
             !msg.content.includes('[PRISM_EXECUTE_TOOL]') &&
             !msg.content.includes('<mini_app>') &&
             nativeToolCalls.length === 0 && (
