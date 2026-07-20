@@ -1168,6 +1168,28 @@ let persistentContext: BrowserContext | null = null
 let persistentPage: Page | null = null
 let idleTimer: NodeJS.Timeout | null = null
 
+function setupBrowserAbortHandler(signal?: AbortSignal): (() => void) | null {
+  if (!signal || signal.aborted) {
+    if (signal?.aborted) {
+      if (persistentPage && !persistentPage.isClosed()) {
+        persistentPage.close().catch(() => {})
+      }
+      closePersistentBrowser().catch(() => {})
+    }
+    return null
+  }
+  const handler = () => {
+    if (persistentPage && !persistentPage.isClosed()) {
+      persistentPage.close().catch(() => {})
+    }
+    closePersistentBrowser().catch(() => {})
+  }
+  signal.addEventListener('abort', handler)
+  return () => {
+    signal.removeEventListener('abort', handler)
+  }
+}
+
 function resetIdleTimer() {
   if (idleTimer) {
     clearTimeout(idleTimer)
@@ -1220,8 +1242,10 @@ async function getOrCreatePersistentPage(): Promise<Page> {
   return persistentPage
 }
 
-export async function openBrowser(url?: string): Promise<string> {
+export async function openBrowser(url?: string, signal?: AbortSignal): Promise<string> {
+  const cleanup = setupBrowserAbortHandler(signal)
   try {
+    if (signal?.aborted) throw new Error('AbortError')
     const page = await getOrCreatePersistentPage()
     resetIdleTimer()
     if (url) {
@@ -1235,13 +1259,18 @@ export async function openBrowser(url?: string): Promise<string> {
     }
     return 'Browser session opened successfully and is ready for automation. The browser will automatically close if idle for 5 minutes.'
   } catch (error) {
+    if (signal?.aborted) throw new Error('AbortError')
     const message = error instanceof Error ? error.message : String(error)
     return `Error opening browser: ${message}`
+  } finally {
+    cleanup?.()
   }
 }
 
-export async function browserNavigate(url: string): Promise<string> {
+export async function browserNavigate(url: string, signal?: AbortSignal): Promise<string> {
+  const cleanup = setupBrowserAbortHandler(signal)
   try {
+    if (signal?.aborted) throw new Error('AbortError')
     if (!persistentPage || persistentPage.isClosed()) {
       return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
     }
@@ -1254,13 +1283,18 @@ export async function browserNavigate(url: string): Promise<string> {
     await handleConsentBanners(persistentPage)
     return `Navigated to ${targetUrl} successfully. Current page title: "${await persistentPage.title()}"`
   } catch (error) {
+    if (signal?.aborted) throw new Error('AbortError')
     const message = error instanceof Error ? error.message : String(error)
     return `Error navigating to ${url}: ${message}`
+  } finally {
+    cleanup?.()
   }
 }
 
-export async function browserSnapshot(full?: string): Promise<string> {
+export async function browserSnapshot(full?: string, signal?: AbortSignal): Promise<string> {
+  const cleanup = setupBrowserAbortHandler(signal)
   try {
+    if (signal?.aborted) throw new Error('AbortError')
     if (!persistentPage || persistentPage.isClosed()) {
       return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
     }
@@ -1414,13 +1448,18 @@ export async function browserSnapshot(full?: string): Promise<string> {
       ? result.substring(0, MAX_CONTENT) + '\n... (truncated)'
       : result
   } catch (error) {
+    if (signal?.aborted) throw new Error('AbortError')
     const message = error instanceof Error ? error.message : String(error)
     return `Error capturing page snapshot: ${message}`
+  } finally {
+    cleanup?.()
   }
 }
 
-export async function browserClick(elementId: string): Promise<string> {
+export async function browserClick(elementId: string, signal?: AbortSignal): Promise<string> {
+  const cleanup = setupBrowserAbortHandler(signal)
   try {
+    if (signal?.aborted) throw new Error('AbortError')
     if (!persistentPage || persistentPage.isClosed()) {
       return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
     }
@@ -1487,13 +1526,18 @@ export async function browserClick(elementId: string): Promise<string> {
 
     return `Clicked element with data-prism-id="${elementId}" successfully.`
   } catch (error) {
+    if (signal?.aborted) throw new Error('AbortError')
     const message = error instanceof Error ? error.message : String(error)
     return `Error clicking element "${elementId}": ${message}`
+  } finally {
+    cleanup?.()
   }
 }
 
-export async function browserType(elementId: string, text: string): Promise<string> {
+export async function browserType(elementId: string, text: string, signal?: AbortSignal): Promise<string> {
+  const cleanup = setupBrowserAbortHandler(signal)
   try {
+    if (signal?.aborted) throw new Error('AbortError')
     if (!persistentPage || persistentPage.isClosed()) {
       return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
     }
@@ -1506,13 +1550,18 @@ export async function browserType(elementId: string, text: string): Promise<stri
     await locator.fill(text)
     return `Typed text into element with data-prism-id="${elementId}" successfully.`
   } catch (error) {
+    if (signal?.aborted) throw new Error('AbortError')
     const message = error instanceof Error ? error.message : String(error)
     return `Error typing into element "${elementId}": ${message}`
+  } finally {
+    cleanup?.()
   }
 }
 
-export async function browserPress(key: string): Promise<string> {
+export async function browserPress(key: string, signal?: AbortSignal): Promise<string> {
+  const cleanup = setupBrowserAbortHandler(signal)
   try {
+    if (signal?.aborted) throw new Error('AbortError')
     if (!persistentPage || persistentPage.isClosed()) {
       return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
     }
@@ -1520,13 +1569,18 @@ export async function browserPress(key: string): Promise<string> {
     await persistentPage.keyboard.press(key)
     return `Pressed keyboard key "${key}" successfully.`
   } catch (error) {
+    if (signal?.aborted) throw new Error('AbortError')
     const message = error instanceof Error ? error.message : String(error)
     return `Error pressing key "${key}": ${message}`
+  } finally {
+    cleanup?.()
   }
 }
 
-export async function browserScroll(direction: 'up' | 'down', amount?: string): Promise<string> {
+export async function browserScroll(direction: 'up' | 'down', amount?: string, signal?: AbortSignal): Promise<string> {
+  const cleanup = setupBrowserAbortHandler(signal)
   try {
+    if (signal?.aborted) throw new Error('AbortError')
     if (!persistentPage || persistentPage.isClosed()) {
       return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
     }
@@ -1540,13 +1594,18 @@ export async function browserScroll(direction: 'up' | 'down', amount?: string): 
     )
     return `Scrolled page ${direction} successfully.`
   } catch (error) {
+    if (signal?.aborted) throw new Error('AbortError')
     const message = error instanceof Error ? error.message : String(error)
     return `Error scrolling page: ${message}`
+  } finally {
+    cleanup?.()
   }
 }
 
-export async function browserBack(): Promise<string> {
+export async function browserBack(signal?: AbortSignal): Promise<string> {
+  const cleanup = setupBrowserAbortHandler(signal)
   try {
+    if (signal?.aborted) throw new Error('AbortError')
     if (!persistentPage || persistentPage.isClosed()) {
       return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
     }
@@ -1554,13 +1613,18 @@ export async function browserBack(): Promise<string> {
     await persistentPage.goBack({ waitUntil: 'domcontentloaded', timeout: 15000 })
     return 'Navigated back in browser history successfully.'
   } catch (error) {
+    if (signal?.aborted) throw new Error('AbortError')
     const message = error instanceof Error ? error.message : String(error)
     return `Error navigating back: ${message}`
+  } finally {
+    cleanup?.()
   }
 }
 
-export async function browserScreenshot(): Promise<{ result: string; base64?: string }> {
+export async function browserScreenshot(signal?: AbortSignal): Promise<{ result: string; base64?: string }> {
+  const cleanup = setupBrowserAbortHandler(signal)
   try {
+    if (signal?.aborted) throw new Error('AbortError')
     if (!persistentPage || persistentPage.isClosed()) {
       return {
         result:
@@ -1575,8 +1639,11 @@ export async function browserScreenshot(): Promise<{ result: string; base64?: st
       base64
     }
   } catch (error) {
+    if (signal?.aborted) throw new Error('AbortError')
     const message = error instanceof Error ? error.message : String(error)
     return { result: `Error capturing browser screenshot: ${message}` }
+  } finally {
+    cleanup?.()
   }
 }
 
@@ -1602,8 +1669,10 @@ export async function closePersistentBrowser(): Promise<string> {
   return 'No active browser session to close.'
 }
 
-export async function webScript(url: string, script: string): Promise<string> {
+export async function webScript(url: string, script: string, signal?: AbortSignal): Promise<string> {
+  const cleanup = setupBrowserAbortHandler(signal)
   try {
+    if (signal?.aborted) throw new Error('AbortError')
     const page = await getOrCreatePersistentPage()
     resetIdleTimer()
     if (url) {
@@ -1626,13 +1695,18 @@ export async function webScript(url: string, script: string): Promise<string> {
     }, script)
     return typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)
   } catch (error) {
+    if (signal?.aborted) throw new Error('AbortError')
     const message = error instanceof Error ? error.message : String(error)
     return `Error executing web script: ${message}`
+  } finally {
+    cleanup?.()
   }
 }
 
-export async function detailedDomPage(url?: string): Promise<string> {
+export async function detailedDomPage(url?: string, signal?: AbortSignal): Promise<string> {
+  const cleanup = setupBrowserAbortHandler(signal)
   try {
+    if (signal?.aborted) throw new Error('AbortError')
     const page = await getOrCreatePersistentPage()
     resetIdleTimer()
     if (url) {
@@ -1747,8 +1821,11 @@ export async function detailedDomPage(url?: string): Promise<string> {
       ? result.substring(0, MAX_CONTENT) + '\n... (truncated)'
       : result
   } catch (error) {
+    if (signal?.aborted) throw new Error('AbortError')
     const message = error instanceof Error ? error.message : String(error)
     return `Error getting detailed DOM: ${message}`
+  } finally {
+    cleanup?.()
   }
 }
 

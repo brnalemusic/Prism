@@ -1388,16 +1388,16 @@ const toolFunctions: Record<
   search_installed_applications: (args) => Promise.resolve(JSON.stringify(searchApps(args.query || ''), null, 2)),
   open_application: (args) => openApplication(args.appPath || ''),
   open_browser_link: (args) => openBrowserLink(args.url || ''),
-  open_browser: (args) => openBrowser(args.url),
-  browser_navigate: (args) => browserNavigate(args.url || ''),
-  browser_snapshot: (args) => browserSnapshot(args.full),
-  browser_click: (args) => browserClick(args.elementId || ''),
-  browser_type: (args) => browserType(args.elementId || '', args.text || ''),
-  browser_press: (args) => browserPress(args.key || ''),
-  browser_scroll: (args) => browserScroll(args.direction as 'up' | 'down', args.amount),
-  browser_back: () => browserBack(),
-  browser_screenshot: async (_args, _event, _apiKey, _signal, chatId) => {
-    const res = await browserScreenshot()
+  open_browser: (args, _event, _apiKey, signal) => openBrowser(args.url, signal),
+  browser_navigate: (args, _event, _apiKey, signal) => browserNavigate(args.url || '', signal),
+  browser_snapshot: (args, _event, _apiKey, signal) => browserSnapshot(args.full, signal),
+  browser_click: (args, _event, _apiKey, signal) => browserClick(args.elementId || '', signal),
+  browser_type: (args, _event, _apiKey, signal) => browserType(args.elementId || '', args.text || '', signal),
+  browser_press: (args, _event, _apiKey, signal) => browserPress(args.key || '', signal),
+  browser_scroll: (args, _event, _apiKey, signal) => browserScroll(args.direction as 'up' | 'down', args.amount, signal),
+  browser_back: (_args, _event, _apiKey, signal) => browserBack(signal),
+  browser_screenshot: async (_args, _event, _apiKey, signal, chatId) => {
+    const res = await browserScreenshot(signal)
     if (res.base64) {
       if (chatId) {
         lastScreenshots.set(chatId, res.base64)
@@ -1408,8 +1408,8 @@ const toolFunctions: Record<
     return res.result
   },
   browser_close: () => closePersistentBrowser(),
-  web_script: (args) => webScript(args.url || '', args.script || ''),
-  detailed_dom_page: (args) => detailedDomPage(args.url),
+  web_script: (args, _event, _apiKey, signal) => webScript(args.url || '', args.script || '', signal),
+  detailed_dom_page: (args, _event, _apiKey, signal) => detailedDomPage(args.url, signal),
   web_search: (args, event, _apiKey, signal, chatId) => {
     if (args.searches && Array.isArray(args.searches)) {
       return webSearchContinuous(args.searches as any, {
@@ -1463,7 +1463,8 @@ const toolFunctions: Record<
       args.limit ? parseInt(args.limit, 10) : undefined,
       signal
     ),
-  computer_use_see_screen: async (args, _event, _apiKey, _signal, chatId) => {
+  computer_use_see_screen: async (args, _event, _apiKey, signal, chatId) => {
+    if (signal?.aborted) throw new Error('AbortError')
     const appName = args.appName || 'Entire Screen'
     const capture = await captureAppScreenshot(appName)
     if (capture.base64) {
@@ -2367,9 +2368,6 @@ async function runSubagents(
     // Append subagent chat log for persistence
     return `${combinedReport}\n\n<subagent_chat>${JSON.stringify(subagentChatLog)}</subagent_chat>`
   } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      return 'Sub-agents execution was cancelled by user.'
-    }
     throw err
   } finally {
     ipcMain.removeListener('subagent-message-broadcast', externalMessageListener)
@@ -2504,6 +2502,7 @@ const abortController: AbortController | null = null
 const CANCEL_MESSAGE = '-------------- You cancelled AI response ----------------'
 
 export function cancelChatMessage(chatId?: string): void {
+  closePersistentBrowser().catch(() => {})
   if (chatId) {
     const run = activeRuns.get(chatId)
     if (run) {
