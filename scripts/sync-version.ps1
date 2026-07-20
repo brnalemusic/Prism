@@ -63,12 +63,17 @@ Write-Host ""
 
 # --- Update package.json ---
 $pkg.version = $newVersion
-$pkg | ConvertTo-Json -Depth 10 | Set-Content $pkgPath -Encoding UTF8
+$json = $pkg | ConvertTo-Json -Depth 10
+[System.IO.File]::WriteAllText((Get-Item $pkgPath).FullName, $json, (New-Object System.Text.UTF8Encoding $false))
 
 Write-Step "OK" "Updated package.json" Green
 
 # --- Collect changed files ---
 $changedFiles = @()
+
+# Save old ErrorActionPreference to avoid native command error on git stderr output
+$oldEAP = $ErrorActionPreference
+$ErrorActionPreference = "SilentlyContinue"
 
 # Check git diff for package.json
 $gitDiff = git diff --name-only 2>$null
@@ -87,6 +92,8 @@ if ($untracked) {
         }
     }
 }
+
+$ErrorActionPreference = $oldEAP
 
 # --- Show changed files ---
 if ($changedFiles.Count -gt 0) {
