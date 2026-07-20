@@ -454,6 +454,64 @@ const AiMessage = React.memo(function AiMessage({
     return cleaned !== ''
   }, [msg.content])
 
+  const shouldHideIndicator = useCallback((status: ToolCall['status']) => {
+    const isActive = status === 'writing' || status === 'running'
+    if (hasTextOutput) {
+      return !isActive
+    }
+    return hasThoughtBlock
+  }, [hasTextOutput, hasThoughtBlock])
+
+  const visibleNativeTools = useMemo(() => {
+    const list = nativeToolCalls.filter(
+      (tc) =>
+        tc.name !== 'to_ask' &&
+        tc.name !== 'render_chat_history' &&
+        tc.name !== 'malformed_tool_call' &&
+        tc.name !== 'create_mini_app'
+    )
+    return list.filter((tc) => !shouldHideIndicator(tc.status))
+  }, [nativeToolCalls, shouldHideIndicator])
+  const parts = useMemo(() => {
+    return (msg.content || '').split(
+      /(\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
+    )
+  }, [msg.content])
+
+  const shouldShowInlineTool = useCallback((status: ToolCall['status'], partIndex: number) => {
+    const isActive = status === 'writing' || status === 'running'
+    if (isActive) {
+      const hasTextBefore = parts.slice(0, partIndex).some(p => {
+        const isTool = p.startsWith('[PRISM_EXECUTE_TOOL]')
+        const isMiniApp = p.startsWith('<mini_app>')
+        return !isTool && !isMiniApp && p.trim() !== ''
+      })
+      if (!hasTextBefore && hasThoughtBlock) {
+        return false
+      }
+      return true
+    }
+
+    const hasTextAfter = parts.slice(partIndex + 1).some(p => {
+      const isTool = p.startsWith('[PRISM_EXECUTE_TOOL]')
+      const isMiniApp = p.startsWith('<mini_app>')
+      return !isTool && !isMiniApp && p.trim() !== ''
+    })
+    if (hasTextAfter) {
+      return false
+    }
+
+    const hasTextBefore = parts.slice(0, partIndex).some(p => {
+      const isTool = p.startsWith('[PRISM_EXECUTE_TOOL]')
+      const isMiniApp = p.startsWith('<mini_app>')
+      return !isTool && !isMiniApp && p.trim() !== ''
+    })
+    if (!hasTextBefore) {
+      return !hasThoughtBlock
+    }
+
+    return true
+  }, [parts, hasThoughtBlock])
 
   if (msg.isConnecting) {
     return (
@@ -468,10 +526,6 @@ const AiMessage = React.memo(function AiMessage({
   if (!msg.content && !msg.toolCalls?.length && !msg.isWritingToolCall) {
     return null
   }
-
-  const parts = msg.content.split(
-    /(\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
-  )
 
   interface PartItem {
     partIndex: number
@@ -684,13 +738,13 @@ const AiMessage = React.memo(function AiMessage({
                 }
               })
 
-              if (hasThoughtBlock || hasTextOutput) {
+              const firstItem = group.items[0]
+              if (!shouldShowInlineTool(mergedStatus, firstItem.partIndex)) {
                 return null
               }
               if (shouldHideActiveBelow && (mergedStatus === 'writing' || mergedStatus === 'running')) {
                 return null
               }
-              const firstItem = group.items[0]
               return (
                 <div key={`tc-group-${firstItem.partIndex}`} className="flex items-center gap-1.5">
                   <ToolCallIndicator
@@ -728,7 +782,7 @@ const AiMessage = React.memo(function AiMessage({
                   if (tc.name === 'malformed_tool_call') {
                     return <MalformedToolCallWarning key={`tc-${item.partIndex}`} toolCall={tc} />
                   }
-                  if (hasThoughtBlock || hasTextOutput) {
+                  if (!shouldShowInlineTool(tc.status, item.partIndex)) {
                     return null
                   }
                   if (shouldHideActiveBelow && (tc.status === 'writing' || tc.status === 'running')) {
@@ -743,7 +797,7 @@ const AiMessage = React.memo(function AiMessage({
                   )
                 }
               } else {
-                if (hasThoughtBlock || hasTextOutput) return null
+                if (!shouldShowInlineTool('writing', item.partIndex)) return null
                 if (shouldHideActiveBelow) return null
                 const isSearch =
                   item.writingToolName === 'web_search' ||
@@ -782,7 +836,7 @@ const AiMessage = React.memo(function AiMessage({
                   </div>
                 )
               } else {
-                if (hasThoughtBlock || hasTextOutput) return null
+                if (!shouldShowInlineTool('writing', item.partIndex)) return null
                 if (shouldHideActiveBelow) return null
                 return (
                   <div key={`writing-ma-${item.partIndex}`} className="flex items-center gap-1.5">
@@ -854,7 +908,7 @@ const AiMessage = React.memo(function AiMessage({
                   const miniAppId = `mini-app-native-${idx}-${title.replace(/\s+/g, '-').toLowerCase()}`
 
                   if (status === 'writing' || status === 'running') {
-                    if (hasThoughtBlock || hasTextOutput) return null
+                    if (shouldHideIndicator(status)) return null
                     if (shouldHideActiveBelow) return null
                     return (
                       <div key={miniAppId} className="flex items-center gap-1.5 mt-1">
@@ -894,25 +948,20 @@ const AiMessage = React.memo(function AiMessage({
                 }
                 return null
               })}
-              {!hasThoughtBlock && !hasTextOutput && (!shouldHideActiveBelow || !nativeToolCalls
-                .filter(tc => tc.name !== 'to_ask' && tc.name !== 'render_chat_history' && tc.name !== 'malformed_tool_call' && tc.name !== 'create_mini_app')
-                .some(tc => tc.status === 'writing' || tc.status === 'running')) &&
-                nativeToolCalls.some(tc => tc.name !== 'to_ask' && tc.name !== 'render_chat_history' && tc.name !== 'malformed_tool_call' && tc.name !== 'create_mini_app') && (
+              {visibleNativeTools.length > 0 && (
                 <div className="flex items-center gap-1.5 mt-1">
                   <ToolCallIndicator
-                    tools={nativeToolCalls
-                      .filter(tc => tc.name !== 'to_ask' && tc.name !== 'render_chat_history' && tc.name !== 'malformed_tool_call' && tc.name !== 'create_mini_app')
-                      .map(tc => ({
-                        name: tc.name,
-                        status: tc.status
-                      }))}
+                    tools={visibleNativeTools.map(tc => ({
+                      name: tc.name,
+                      status: tc.status
+                    }))}
                   />
                 </div>
               )}
             </div>
           )}
 
-          {!hasThoughtBlock && !hasTextOutput && !shouldHideActiveBelow && msg.isWritingToolCall &&
+          {!shouldHideIndicator('writing') && !shouldHideActiveBelow && msg.isWritingToolCall &&
             !msg.content.includes('[PRISM_EXECUTE_TOOL]') &&
             !msg.content.includes('<mini_app>') &&
             nativeToolCalls.length === 0 && (
