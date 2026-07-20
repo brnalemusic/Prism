@@ -1,6 +1,6 @@
-{
+﻿{
     "name":  "prism",
-    "version":  "6.0.2",
+    "version":  "6.0.3",
     "description":  "An Electron application with React and TypeScript",
     "main":  "./out/main/index.js",
     "author":  "Breno",
