@@ -970,7 +970,7 @@ function RealApp(): React.JSX.Element {
 
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
   const [isFullscreenInput, setIsFullscreenInput] = useState(false)
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [chatTodos, setChatTodos] = useState<Record<string, TodoState>>({})
   const [isTodoPanelOpen, setIsTodoPanelOpen] = useState(false)
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)

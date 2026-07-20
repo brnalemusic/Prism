@@ -224,7 +224,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'browser_navigate',
-    description: 'Navigate browser to URL.',
+    description: 'Navigate browser to URL. You will be called back when download is finished.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_navigate","url":"URL"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       url: 'Target URL to load.'
@@ -240,7 +240,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'browser_click',
-    description: 'Click element on page by ID.',
+    description: 'Click element on page by ID. You will be called back when download is finished.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_click","elementId":"1"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       elementId: 'The reference ID from the snapshot.'
@@ -248,7 +248,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'browser_type',
-    description: 'Type text into element by ID.',
+    description: 'Type text into element by ID. You will be called back when download is finished.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_type","elementId":"2","text":"hello"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       elementId: 'The reference ID from the snapshot.',
@@ -292,7 +292,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'web_script',
-    description: 'Execute JavaScript on page.',
+    description: 'Execute JavaScript on page. You will be called back when download is finished.',
     usage:
       '[PRISM_EXECUTE_TOOL]{"type":"web_script","url":"URL","script":"return document.title"}[/PRISM_EXECUTE_TOOL]',
     parameters: {

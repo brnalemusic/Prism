@@ -38,6 +38,13 @@ const trackedDownloads = new Map<string, DownloadProgress>()
 const provisionalDownloadIds = new Map<string, string>()
 const cdpGuidToDownloadId = new Map<string, string>()
 const activeDownloadSaves = new WeakMap<Download, Promise<string>>()
+const consumedDownloadResults = new Set<string>()
+
+type DownloadCompletionResult =
+  | { success: true; filePath: string; filename: string }
+  | { success: false; error: string }
+
+let downloadCompleteListeners: Array<(id: string, result: DownloadCompletionResult) => void> = []
 const DIRECT_DOWNLOAD_EXTENSIONS = new Set([
   '.7z',
   '.apk',
@@ -104,6 +111,41 @@ function cleanupTrackedDownload(progress: DownloadProgress): void {
   }, 60_000)
 }
 
+function getCompletedDownload(): DownloadCompletionResult | null {
+  for (const progress of trackedDownloads.values()) {
+    if (consumedDownloadResults.has(progress.id)) continue
+    if (progress.status === 'completed') {
+      consumedDownloadResults.add(progress.id)
+      return { success: true, filePath: progress.targetPath || '', filename: progress.filename }
+    }
+    if (progress.status === 'failed' || progress.status === 'cancelled') {
+      consumedDownloadResults.add(progress.id)
+      return { success: false, error: progress.error || `Download ${progress.status}` }
+    }
+  }
+  return null
+}
+
+async function waitForDownloadCompletion(timeoutMs = 10000): Promise<DownloadCompletionResult | null> {
+  const existingResult = getCompletedDownload()
+  if (existingResult) return existingResult
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      downloadCompleteListeners = downloadCompleteListeners.filter((fn) => fn !== onComplete)
+      resolve(getCompletedDownload())
+    }, timeoutMs)
+
+    const onComplete = (id: string, result: DownloadCompletionResult) => {
+      clearTimeout(timer)
+      consumedDownloadResults.add(id)
+      resolve(result)
+    }
+
+    downloadCompleteListeners.push(onComplete)
+  })
+}
+
 function updateTrackedDownload(
   id: string,
   patch: Partial<DownloadProgress> & { filename?: string }
@@ -143,6 +185,17 @@ function updateTrackedDownload(
   trackedDownloads.set(id, progress)
   emitDownloadProgress(progress)
   cleanupTrackedDownload(progress)
+
+  if (['completed', 'failed', 'cancelled'].includes(progress.status)) {
+    const result: DownloadCompletionResult =
+      progress.status === 'completed'
+        ? { success: true, filePath: progress.targetPath || '', filename: progress.filename }
+        : { success: false, error: progress.error || `Download ${progress.status}` }
+    const listeners = downloadCompleteListeners
+    downloadCompleteListeners = []
+    listeners.forEach((fn) => fn(progress.id, result))
+  }
+
   return progress
 }
 
@@ -1281,6 +1334,14 @@ export async function browserNavigate(url: string, signal?: AbortSignal): Promis
       timeout: 30000
     })
     await handleConsentBanners(persistentPage)
+
+    const downloadResult = await waitForDownloadCompletion(8000)
+    if (downloadResult) {
+      return downloadResult.success
+        ? `SUCCESS: Download saved to ${downloadResult.filePath}`
+        : `FAILED: Download error - ${downloadResult.error}`
+    }
+
     return `Navigated to ${targetUrl} successfully. Current page title: "${await persistentPage.title()}"`
   } catch (error) {
     if (signal?.aborted) throw new Error('AbortError')
@@ -1480,7 +1541,7 @@ export async function browserClick(elementId: string, signal?: AbortSignal): Pro
           referer: persistentPage.url(),
           cookieHeader: await getCookieHeaderForUrl(directDownloadCandidate.url)
         })
-        return `Clicked element with data-prism-id="${elementId}" successfully. The element points to a downloadable file and it was automatically saved to your Downloads folder: ${targetPath}`
+        return `SUCCESS: Download saved to ${targetPath}`
       } catch (err) {
         directDownloadError = err instanceof Error ? err.message : String(err)
         console.warn(
@@ -1517,14 +1578,14 @@ export async function browserClick(elementId: string, signal?: AbortSignal): Pro
     const download = await downloadPromise
     if (download) {
       const targetPath = await savePlaywrightDownload(download)
-      return `Clicked element with data-prism-id="${elementId}" successfully. A file download was detected and automatically saved to your Downloads folder: ${targetPath}`
+      return `SUCCESS: Download saved to ${targetPath}`
     }
 
     if (directDownloadError) {
-      return `Clicked element with data-prism-id="${elementId}" successfully, but the linked file could not be automatically saved: ${directDownloadError}`
+      return `FAILED: Download error - ${directDownloadError}`
     }
 
-    return `Clicked element with data-prism-id="${elementId}" successfully.`
+    return `No download.`
   } catch (error) {
     if (signal?.aborted) throw new Error('AbortError')
     const message = error instanceof Error ? error.message : String(error)
@@ -1548,6 +1609,14 @@ export async function browserType(elementId: string, text: string, signal?: Abor
       return `Error: Element with data-prism-id="${elementId}" not found on the page.`
     }
     await locator.fill(text)
+
+    const downloadResult = await waitForDownloadCompletion(5000)
+    if (downloadResult) {
+      return downloadResult.success
+        ? `SUCCESS: Download saved to ${downloadResult.filePath}`
+        : `FAILED: Download error - ${downloadResult.error}`
+    }
+
     return `Typed text into element with data-prism-id="${elementId}" successfully.`
   } catch (error) {
     if (signal?.aborted) throw new Error('AbortError')
@@ -1693,7 +1762,16 @@ export async function webScript(url: string, script: string, signal?: AbortSigna
         return fn()
       }
     }, script)
-    return typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)
+    const scriptResult = typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)
+
+    const downloadResult = await waitForDownloadCompletion(5000)
+    if (downloadResult) {
+      return downloadResult.success
+        ? `SUCCESS: Download saved to ${downloadResult.filePath}`
+        : `FAILED: Download error - ${downloadResult.error}`
+    }
+
+    return scriptResult
   } catch (error) {
     if (signal?.aborted) throw new Error('AbortError')
     const message = error instanceof Error ? error.message : String(error)
