@@ -1249,8 +1249,8 @@ function applyReasoningConfig(
  */
 function ensureHistoryFitsLimit(history: Content[]): Content[] {
   // 10k characters requested for file reads, but for the WHOLE history
-  // we'll use 40k as a safe buffer for context while being much more restrictive than before.
-  const MAX_CHARS = 40000
+  // we'll use 600k as a safe buffer for context.
+  const MAX_CHARS = 600000
 
   // 1. Preserve System Messages
   const systemMessages: Content[] = []
@@ -1326,7 +1326,9 @@ function ensureHistoryFitsLimit(history: Content[]): Content[] {
       }
     }
 
-    if (currentTotal + msgSize < MAX_CHARS) {
+    // Always keep at least the very first message we process (the most recent one)
+    // to prevent contents from being completely empty, which crashes the Gemini SDK.
+    if (i === processedHistory.length - 1 || currentTotal + msgSize < MAX_CHARS) {
       keptMessages.unshift(msg)
       currentTotal += msgSize
     } else {
