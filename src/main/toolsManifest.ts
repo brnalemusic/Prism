@@ -169,7 +169,7 @@ export const toolsManifest: ToolDefinition[] = [
       path: 'Absolute file path.',
       startLine: 'Starting line number (1-based index) to read from.',
       limit:
-        'Optional: Number of lines to read starting from startLine (defaults to 200, maximum 200).'
+        'Optional: Number of lines to read starting from startLine (defaults to 200, maximum 500).'
     }
   },
   {

@@ -420,10 +420,10 @@ export function validateSchemaArgs(
           message: `Argument "limit" for "computer_use_read_file" must be a positive integer. Passed: "${args.limit}".`
         }
       }
-      if (limitNum > 200) {
+      if (limitNum > 500) {
         return {
           type: 'invalid_args',
-          message: `Argument "limit" for "computer_use_read_file" cannot exceed 200. Passed: "${args.limit}".`
+          message: `Argument "limit" for "computer_use_read_file" cannot exceed 500. Passed: "${args.limit}".`
         }
       }
     }

@@ -2925,7 +2925,7 @@ export async function handleChatMessage(
         let accumulatedThoughts = ''
         let accumulatedFinalResponse = ''
         let iterationCount = 0
-        const MAX_ITERATIONS = 10
+        const MAX_ITERATIONS = 50
 
         while (iterationCount < MAX_ITERATIONS) {
           iterationCount++
@@ -3523,6 +3523,14 @@ export async function handleChatMessage(
         }
 
         // If exiting the iteration loop without success (e.g. reached MAX_ITERATIONS)
+        event.sender.send('chat-reply-end', {
+          thoughts: accumulatedThoughts.trim(),
+          finalResponse: accumulatedFinalResponse.trim(),
+          rawText: accumulatedThoughts + accumulatedFinalResponse,
+          isThinking: false,
+          chatId: chatId
+        })
+        saveChatSession(chatId, runHistory, finalTitle || undefined)
         success = true
       } catch (error) {
         if (error instanceof Error && error.message === 'TIMEOUT_ERROR_FIRST') {
@@ -3660,7 +3668,7 @@ export async function handleLauncherChatMessage(
         let accumulatedThoughts = ''
         let accumulatedFinalResponse = ''
         let iterationCount = 0
-        const MAX_ITERATIONS = 10
+        const MAX_ITERATIONS = 50
 
         while (iterationCount < MAX_ITERATIONS) {
           iterationCount++
@@ -4079,6 +4087,10 @@ export async function handleLauncherChatMessage(
           return
         }
 
+        event.sender.send('launcher-reply-end', {
+          thoughts: accumulatedThoughts.trim(),
+          finalResponse: accumulatedFinalResponse.trim()
+        })
         success = true
       } catch (error) {
         if (
@@ -4535,6 +4547,10 @@ Available tools:
           return
         }
 
+        event.sender.send('ai-search-reply-end', {
+          thoughts: accumulatedThoughts.trim(),
+          finalResponse: accumulatedFinalResponse.trim()
+        })
         success = true
       } catch (error) {
         if (
