@@ -678,7 +678,7 @@ async function* generateAiStream(
     timeoutTimer = setTimeout(() => {
       hasTimedOut = 'first'
       localController.abort()
-    }, 15000)
+    }, 45000)
   }
 
   const startChunkTimeout = () => {
@@ -744,14 +744,25 @@ async function* generateAiStream(
       try {
         for await (const chunk of responseStream) {
           if (localController.signal.aborted) throw new Error('AbortError')
-          startChunkTimeout()
+
+          const hasTools = !!configObj.tools && configObj.tools.length > 0
+          const candidate = chunk.candidates?.[0]
+          let isWritingTool = false
+          if (candidate?.content?.parts) {
+            isWritingTool = candidate.content.parts.some((part: any) => part.functionCall)
+          }
+
+          if (hasTools || isWritingTool) {
+            clearTimer()
+          } else {
+            startChunkTimeout()
+          }
 
           let thought = ''
           let text = ''
           const chunkToolCalls: StreamToolCallDelta[] = []
 
           let textThoughtSignature: string | undefined = undefined
-          const candidate = chunk.candidates?.[0]
           if (candidate?.content?.parts) {
             for (const part of candidate.content.parts) {
               const sig = part.thoughtSignature || (part as any).thought_signature
@@ -840,15 +851,23 @@ async function* generateAiStream(
       try {
         for await (const chunk of responseStream) {
           if (localController.signal.aborted) throw new Error('AbortError')
-          startChunkTimeout()
 
+          const hasTools = !!requestConfig.tools && requestConfig.tools.length > 0
           const choice = chunk.choices?.[0]
+          const delta = choice?.delta || {}
+          const toolCalls = delta.tool_calls || []
+          const isWritingTool = toolCalls.length > 0 || accumulatedToolCalls.size > 0
+
+          if (hasTools || isWritingTool) {
+            clearTimer()
+          } else {
+            startChunkTimeout()
+          }
+
           if (!choice) continue
 
-          const delta = choice.delta || {}
           const thought = (delta as any).reasoning_content || ''
           const text = delta.content || ''
-          const toolCalls = delta.tool_calls || []
 
           const chunkToolCalls: StreamToolCallDelta[] = []
 
