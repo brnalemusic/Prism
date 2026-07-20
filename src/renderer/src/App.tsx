@@ -444,6 +444,8 @@ const AiMessage = React.memo(function AiMessage({
     return !!(filteredThoughts || msg.isThinking)
   }, [msg.thoughts, msg.isThinking])
 
+  const shouldHideActiveBelow = hasThoughtBlock && (!msg.content || msg.content.trim() === '')
+
 
   if (msg.isConnecting) {
     return (
@@ -674,7 +676,7 @@ const AiMessage = React.memo(function AiMessage({
                 }
               })
 
-              if (hasThoughtBlock && (mergedStatus === 'writing' || mergedStatus === 'running')) {
+              if (shouldHideActiveBelow && (mergedStatus === 'writing' || mergedStatus === 'running')) {
                 return null
               }
               const firstItem = group.items[0]
@@ -715,7 +717,7 @@ const AiMessage = React.memo(function AiMessage({
                   if (tc.name === 'malformed_tool_call') {
                     return <MalformedToolCallWarning key={`tc-${item.partIndex}`} toolCall={tc} />
                   }
-                  if (hasThoughtBlock && (tc.status === 'writing' || tc.status === 'running')) {
+                  if (shouldHideActiveBelow && (tc.status === 'writing' || tc.status === 'running')) {
                     return null
                   }
                   return (
@@ -727,7 +729,7 @@ const AiMessage = React.memo(function AiMessage({
                   )
                 }
               } else {
-                if (hasThoughtBlock) return null
+                if (shouldHideActiveBelow) return null
                 const isSearch =
                   item.writingToolName === 'web_search' ||
                   item.writingToolName === 'search_chat_history' ||
@@ -765,7 +767,7 @@ const AiMessage = React.memo(function AiMessage({
                   </div>
                 )
               } else {
-                if (hasThoughtBlock) return null
+                if (shouldHideActiveBelow) return null
                 return (
                   <div key={`writing-ma-${item.partIndex}`} className="flex items-center gap-1.5">
                     <ToolCallIndicator
@@ -836,7 +838,7 @@ const AiMessage = React.memo(function AiMessage({
                   const miniAppId = `mini-app-native-${idx}-${title.replace(/\s+/g, '-').toLowerCase()}`
 
                   if (status === 'writing' || status === 'running') {
-                    if (hasThoughtBlock) return null
+                    if (shouldHideActiveBelow) return null
                     return (
                       <div key={miniAppId} className="flex items-center gap-1.5 mt-1">
                         <ToolCallIndicator tools={[{ name: 'create_mini_app', status }]} />
@@ -875,7 +877,7 @@ const AiMessage = React.memo(function AiMessage({
                 }
                 return null
               })}
-              {(!hasThoughtBlock || !nativeToolCalls
+              {(!shouldHideActiveBelow || !nativeToolCalls
                 .filter(tc => tc.name !== 'to_ask' && tc.name !== 'render_chat_history' && tc.name !== 'malformed_tool_call' && tc.name !== 'create_mini_app')
                 .some(tc => tc.status === 'writing' || tc.status === 'running')) &&
                 nativeToolCalls.some(tc => tc.name !== 'to_ask' && tc.name !== 'render_chat_history' && tc.name !== 'malformed_tool_call' && tc.name !== 'create_mini_app') && (
@@ -893,7 +895,7 @@ const AiMessage = React.memo(function AiMessage({
             </div>
           )}
 
-          {!hasThoughtBlock && msg.isWritingToolCall &&
+          {!shouldHideActiveBelow && msg.isWritingToolCall &&
             !msg.content.includes('[PRISM_EXECUTE_TOOL]') &&
             !msg.content.includes('<mini_app>') &&
             nativeToolCalls.length === 0 && (
@@ -2490,7 +2492,7 @@ function RealApp(): React.JSX.Element {
                           }))
                           const allTools = [...toolsList, ...streamingTools] as { name: string; status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown' }[]
                           const activeTools = allTools.filter(t => t.status !== 'done' && t.status !== 'error' && t.status !== 'cancelled')
-                          if (activeTools.length > 0) {
+                          if (activeTools.length > 0 && !hasContent) {
                             const lastTool = activeTools[activeTools.length - 1]
                             return <ToolCallIndicator tools={[lastTool]} />
                           }
