@@ -2261,7 +2261,7 @@ export function getSystemToolsPrompt(
     })
     .map((t) => {
       const p = Object.entries(t.parameters)
-        .map(([k, d]) => `${k}:${d}`)
+        .map(([k, d]) => `${k}:${typeof d === 'string' ? d : d.description || d.type}`)
         .join(',')
       return `${t.name}: ${t.description} | ${t.usage}${p ? ` | ${p}` : ''}`
     })

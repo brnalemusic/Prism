@@ -56,8 +56,12 @@ export function getNativeToolsForOpenAi(target: 'main' | 'subagent' | 'launcher'
     .filter((t) => !t.target || t.target === 'both' || t.target === target)
     .map((t) => {
       const properties: Record<string, any> = {}
-      for (const [key, desc] of Object.entries(t.parameters || {})) {
-        properties[key] = { type: 'string', description: desc }
+      for (const [key, paramDef] of Object.entries(t.parameters || {})) {
+        if (typeof paramDef === 'string') {
+          properties[key] = { type: 'string', description: paramDef }
+        } else if (typeof paramDef === 'object' && paramDef !== null) {
+          properties[key] = paramDef
+        }
       }
       const hasParams = Object.keys(properties).length > 0
       return {

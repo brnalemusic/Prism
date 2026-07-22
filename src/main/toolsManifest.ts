@@ -1,8 +1,16 @@
+export interface ToolParameterSchema {
+  type: string
+  description?: string
+  items?: any
+  properties?: Record<string, any>
+  required?: string[]
+}
+
 export interface ToolDefinition {
   name: string
   description: string
   usage: string
-  parameters: Record<string, string>
+  parameters: Record<string, string | ToolParameterSchema>
   target?: 'main' | 'subagent' | 'both' | 'launcher'
 }
 
@@ -194,8 +202,19 @@ export const toolsManifest: ToolDefinition[] = [
     usage:
       '[PRISM_EXECUTE_TOOL]{"type":"web_search","searches":[{"title":"Finding common errors with X","query":"X not working windows"},{"title":"Searching on how to update X","query":"how to update X"}]}[/PRISM_EXECUTE_TOOL]',
     parameters: {
-      searches:
-        'Array of search objects. Each object must have "title" (a concise human-friendly action phrase shown to the user, e.g. "Finding common errors with...", never raw query syntax) and "query" (the actual keywords sent to Google). Use multiple entries when the task benefits from exploring several angles; one entry is valid for focused lookups.'
+      searches: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: 'A concise human-friendly action phrase shown to the user' },
+            query: { type: 'string', description: 'The actual keywords sent to Google' }
+          },
+          required: ['title', 'query']
+        },
+        description:
+          'Array of search objects. Each object must have "title" (a concise human-friendly action phrase shown to the user, e.g. "Finding common errors with...", never raw query syntax) and "query" (the actual keywords sent to Google). Use multiple entries when the task benefits from exploring several angles; one entry is valid for focused lookups.'
+      }
     }
   },
   {
@@ -382,7 +401,11 @@ export const toolsManifest: ToolDefinition[] = [
     usage: '[PRISM_EXECUTE_TOOL]{"type":"to_ask","session_id":"UUID","questions":[]}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       session_id: 'Unique UUID.',
-      questions: 'JSON array of question objects (id, type, title, prompt).'
+      questions: {
+        type: 'array',
+        items: { type: 'object' },
+        description: 'JSON array of question objects (id, type, title, prompt).'
+      }
     }
   },
   {
@@ -446,8 +469,12 @@ export const toolsManifest: ToolDefinition[] = [
     usage:
       '[PRISM_EXECUTE_TOOL]{"type":"create_todo","tasks":["Research API documentation","Implement GET endpoint","Test the route"]}[/PRISM_EXECUTE_TOOL]',
     parameters: {
-      tasks:
-        'Array of strings with 2 to 30 tasks. Each task must be a concise and actionable description of a step.'
+      tasks: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Array of strings with 2 to 30 tasks. Each task must be a concise and actionable description of a step.'
+      }
     },
     target: 'main'
   },
