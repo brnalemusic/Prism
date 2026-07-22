@@ -21,7 +21,13 @@ export function setChatModel(modelKey: string): void {
   currentSelectedChatModel = modelKey
 }
 
-export function getChatModel(_id?: string): string {
+export function getChatModel(id?: string): string {
+  if (id) {
+    const session = loadChatSession(id)
+    if (session?.model) {
+      return session.model
+    }
+  }
   return currentSelectedChatModel
 }
 
@@ -176,12 +182,26 @@ export async function handleChatMessage(
 
   // Save session
   if (isFirstMessage) {
-    saveChatSession(chatId, historyMessages, 'New Conversation')
+    saveChatSession(
+      chatId,
+      historyMessages,
+      'New Conversation',
+      currentSessionMode,
+      currentDisciplinePath,
+      currentSelectedChatModel
+    )
     event.sender.send('chat-session-created', { id: chatId })
     // Background title generator
     generateTitleInBackground(event, provider, model.id, message, chatId)
   } else {
-    saveChatSession(chatId, historyMessages)
+    saveChatSession(
+      chatId,
+      historyMessages,
+      undefined,
+      currentSessionMode,
+      currentDisciplinePath,
+      currentSelectedChatModel
+    )
   }
 
   event.sender.send('chat-reply-start', { chatId })
@@ -351,7 +371,14 @@ export async function handleChatMessage(
       }
 
       historyMessages.push(assistantMessage)
-      saveChatSession(chatId, historyMessages)
+      saveChatSession(
+        chatId,
+        historyMessages,
+        undefined,
+        currentSessionMode,
+        currentDisciplinePath,
+        currentSelectedChatModel
+      )
 
       // Execute tool calls if any returned
       if (streamResult.toolCalls.length > 0) {
@@ -390,7 +417,14 @@ export async function handleChatMessage(
             content: toolOutput
           })
 
-          saveChatSession(chatId, historyMessages)
+          saveChatSession(
+            chatId,
+            historyMessages,
+            undefined,
+            currentSessionMode,
+            currentDisciplinePath,
+            currentSelectedChatModel
+          )
         }
         // Continue loop to let model process tool outputs
         continue
@@ -424,7 +458,14 @@ export async function handleChatMessage(
             role: 'user',
             content: `Tool Execution Result for ${toolName}:\n${toolOutput}`
           })
-          saveChatSession(chatId, historyMessages)
+          saveChatSession(
+            chatId,
+            historyMessages,
+            undefined,
+            currentSessionMode,
+            currentDisciplinePath,
+            currentSelectedChatModel
+          )
           continue
         } catch {
           // If tag parsing fails, break

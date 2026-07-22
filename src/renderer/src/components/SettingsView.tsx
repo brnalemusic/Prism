@@ -320,7 +320,7 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
 
   const sections: NavSection[] = [
     { id: 'shortcuts', label: 'Shortcuts', icon: <Keyboard size={18} weight="bold" /> },
-    { id: 'providers', label: 'API Keys & Providers', icon: <Key size={18} weight="bold" /> },
+    { id: 'providers', label: 'BYOK', icon: <Key size={18} weight="bold" /> },
     { id: 'intelligence', label: 'Intelligence', icon: <Bot size={18} weight="bold" /> },
     { id: 'runtime', label: 'AI Runtime', icon: <Shield size={18} weight="bold" /> },
     { id: 'appearance', label: 'Appearance', icon: <Palette size={18} weight="bold" /> },
