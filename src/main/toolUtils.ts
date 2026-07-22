@@ -38,11 +38,14 @@ export interface ToolArgs extends Record<string, any> {
   screenshotShortcut?: string
   appName?: string
   defaultModel?: string
+  lastSelectedChatModel?: string
   subagentModel?: string
+  searchModel?: string
+  quickLauncherModel?: string
+  sttModel?: string
   minimizeToTray?: string
   autoLaunch?: string
   quickLauncherMode?: string
-  userGeminiKey?: string
   username?: string
   instructions?: string
   model?: string

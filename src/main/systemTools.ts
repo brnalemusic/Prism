@@ -2791,6 +2791,17 @@ export async function executeSystemTool(
     // Configuration
     case 'configure_prism': {
       try {
+        // Explicit Security Check: AI cannot edit API keys or provider credentials
+        if (
+          args.userGeminiKey !== undefined ||
+          args.userOpenaiKey !== undefined ||
+          args.userNvidiaNimKey !== undefined ||
+          args.apiKey !== undefined ||
+          args.providers !== undefined
+        ) {
+          return 'Error: Modifying API keys or provider credentials via AI tools is strictly disabled for security reasons.'
+        }
+
         const config = loadConfig()
         const changed: string[] = []
 
@@ -2822,13 +2833,28 @@ export async function executeSystemTool(
           config.youtubeModeShortcut = args.youtubeModeShortcut
           changed.push(`youtubeModeShortcut: "${args.youtubeModeShortcut}"`)
         }
-        if (args.defaultModel !== undefined && args.defaultModel !== '') {
+        if (args.lastSelectedChatModel !== undefined && args.lastSelectedChatModel !== '') {
+          config.lastSelectedChatModel = args.lastSelectedChatModel
+          changed.push(`lastSelectedChatModel: "${args.lastSelectedChatModel}"`)
+        } else if (args.defaultModel !== undefined && args.defaultModel !== '') {
           config.lastSelectedChatModel = args.defaultModel
-          changed.push(`defaultModel: "${args.defaultModel}"`)
+          changed.push(`lastSelectedChatModel: "${args.defaultModel}"`)
         }
         if (args.subagentModel !== undefined && args.subagentModel !== '') {
           config.subagentModel = args.subagentModel
           changed.push(`subagentModel: "${args.subagentModel}"`)
+        }
+        if (args.searchModel !== undefined && args.searchModel !== '') {
+          config.searchModel = args.searchModel
+          changed.push(`searchModel: "${args.searchModel}"`)
+        }
+        if (args.quickLauncherModel !== undefined && args.quickLauncherModel !== '') {
+          config.quickLauncherModel = args.quickLauncherModel
+          changed.push(`quickLauncherModel: "${args.quickLauncherModel}"`)
+        }
+        if (args.sttModel !== undefined && args.sttModel !== '') {
+          config.sttModel = args.sttModel
+          changed.push(`sttModel: "${args.sttModel}"`)
         }
         if (args.minimizeToTray !== undefined) {
           config.minimizeToTray = args.minimizeToTray === 'true' || args.minimizeToTray === true
@@ -2851,7 +2877,7 @@ export async function executeSystemTool(
           changed.push(`ttsVoice: "${args.ttsVoice}"`)
         }
         if (args.theme !== undefined && args.theme !== '') {
-          config.theme = args.theme
+          config.theme = args.theme as any
           changed.push(`theme: "${args.theme}"`)
         }
         if (args.terminalShell !== undefined && args.terminalShell !== '') {

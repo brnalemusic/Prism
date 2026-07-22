@@ -33,6 +33,7 @@ type Config = AppConfig
 
 import { ApiManagerSettings } from './ApiManagerSettings'
 import { ModelSelector } from './ModelSelector'
+import { DocumentShredderGame } from './DocumentShredderGame'
 
 type SectionId =
   | 'shortcuts'
@@ -154,6 +155,27 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
   const [availableTools, setAvailableTools] = useState<
     Array<{ name: string; label: string; desc: string }>
   >(STATIC_TOOLS)
+
+  // --- Easter Egg State ---
+  const [easterEggClicks, setEasterEggClicks] = useState(0)
+  const [lastClickTimestamp, setLastClickTimestamp] = useState(0)
+  const [isEasterEggOpen, setIsEasterEggOpen] = useState(false)
+
+  const handleVersionClick = (): void => {
+    const now = Date.now()
+    if (now - lastClickTimestamp > 3000) {
+      setEasterEggClicks(1)
+    } else {
+      const newCount = easterEggClicks + 1
+      if (newCount >= 10) {
+        setEasterEggClicks(0)
+        setIsEasterEggOpen(true)
+      } else {
+        setEasterEggClicks(newCount)
+      }
+    }
+    setLastClickTimestamp(now)
+  }
 
   useEffect(() => {
     async function fetchTools(): Promise<void> {
@@ -968,7 +990,10 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
             The current version of Prism desktop installed on your system.
           </span>
         </div>
-        <span className="text-xs font-semibold bg-accent-primary/10 border border-accent-primary/20 text-accent-primary rounded-xl px-3 py-1.5 shrink-0">
+        <span
+          onClick={handleVersionClick}
+          className="text-xs font-semibold bg-accent-primary/10 border border-accent-primary/20 text-accent-primary rounded-xl px-3 py-1.5 shrink-0 select-none cursor-default"
+        >
           {config.appVersion ? `v${config.appVersion}` : 'Loading...'}
         </span>
       </div>
@@ -1473,6 +1498,9 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
           <div className="max-w-3xl">{renderActiveSection()}</div>
         </div>
       </div>
+
+      {/* ─── Easter Egg Fruit Ninja Game Modal Overlay ─── */}
+      {isEasterEggOpen && <DocumentShredderGame onClose={() => setIsEasterEggOpen(false)} />}
     </div>
   )
 }
