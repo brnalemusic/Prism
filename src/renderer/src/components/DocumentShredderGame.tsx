@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, ArrowsCounterClockwise, Sparkle, Flame, FileText } from '@phosphor-icons/react'
+import { X, ArrowsCounterClockwise, Flame, FileText } from '@phosphor-icons/react'
 
 // --- Web Audio API Sound Synthesizer ---
 class SoundSynthesizer {
