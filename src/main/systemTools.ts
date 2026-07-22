@@ -5,7 +5,7 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as os from 'os'
 import { toolsManifest } from './toolsManifest'
-import { DownloadProgress, SessionMode } from '../shared/types'
+import { DownloadProgress, SessionMode, TodoState } from '../shared/types'
 import { loadConfig } from './config'
 import {
   chromium,
@@ -2536,6 +2536,37 @@ export async function captureAppScreenshot(
   }
 }
 
+// ── Todo System ──────────────────────────────────────────────────────────────
+export const sessionTodos = new Map<string, TodoState>()
+
+export function getTodoForChat(chatId: string): TodoState | null {
+  return sessionTodos.get(chatId) || null
+}
+
+let _currentSessionIdForTodo = ''
+export function setCurrentSessionIdForTodo(id: string): void {
+  _currentSessionIdForTodo = id
+}
+
+export function buildTodoReminder(chatId?: string): string {
+  const todo = sessionTodos.get(chatId || _currentSessionIdForTodo)
+  if (!todo || !todo.active) return ''
+  const pendingCount = todo.tasks.filter((t) => t.status !== 'done').length
+  if (pendingCount === 0) return ''
+
+  const statusIcon = (s: string) => {
+    if (s === 'done') return '[DONE]'
+    if (s === 'working') return '[WORKING]'
+    return '[PENDING]'
+  }
+
+  const taskLines = todo.tasks
+    .map((t) => `- ${statusIcon(t.status)} ${t.title}`)
+    .join('\n')
+
+  return `\n\n# Active Todo List\nYou have ${pendingCount} pending tasks:\n${taskLines}\n\nIMPORTANT: Use \`edit_todo\` to update task status as you work. Set to "working" when you start a task and "done" when you complete it. You MUST complete ALL tasks in the todo list before responding to the user. Do NOT proceed without finishing all tasks.`
+}
+
 export async function executeSystemTool(
   toolName: string,
   args: Record<string, any>,
@@ -2545,8 +2576,11 @@ export async function executeSystemTool(
   chatId?: string
 ): Promise<string> {
   switch (toolName) {
+    // Terminal
     case 'execute_terminal_command':
       return await runTerminalCommand(args.command || '', apiKey, signal, event, chatId)
+
+    // File operations
     case 'computer_use_create_file':
       return await computerCreateFile(args.path || args.filePath || '', args.content || '', signal)
     case 'computer_use_create_directory':
@@ -2563,13 +2597,180 @@ export async function executeSystemTool(
       return await computerReadFile(args.path || args.filePath || '', 1, 200, signal)
     case 'computer_use_edit_file':
       return await computerEditFile(args.path || args.filePath || '', args.startLine || '1', args.endLine || '1', args.content || args.newContent || '', signal)
+    case 'computer_use_copy_file':
+      return await computerCopyFile(args.sourcePath || '', args.destinationPath || '', args.overwrite, signal)
+    case 'computer_use_move_file':
+      return await computerMoveFile(args.sourcePath || '', args.destinationPath || '', args.overwrite, signal)
+    case 'computer_use_get_file_info':
+      return await computerGetFileInfo(args.path || args.filePath || '', signal)
     case 'computer_use_list_directory':
       return await computerListDirectory(args.path || '.', signal)
+
+    // Applications & links
     case 'open_application':
       return await openApplication(args.appPath || args.appName || '')
     case 'open_browser_link':
       return await openBrowserLink(args.url || '')
+    case 'search_installed_applications': {
+      const files = await searchWorkspaceFiles(args.query || '')
+      return files.length > 0
+        ? files.map((f) => `${f.name} (${f.relativePath})`).join('\n')
+        : 'No matching files found.'
+    }
+
+    // Web search
+    case 'web_search': {
+      const searches = args.searches
+      if (Array.isArray(searches) && searches.length > 0) {
+        return await webSearchContinuous(searches, { signal })
+      }
+      return await webSearchSingle(args.query || args.search || '', signal)
+    }
+    case 'saw_link_from_url':
+      return await sawLinkFromUrl(args.url || '', signal)
+
+    // Persistent browser
+    case 'open_browser':
+      return await openBrowser(args.url, signal)
+    case 'browser_navigate':
+      return await browserNavigate(args.url || '', signal)
+    case 'browser_snapshot':
+      return await browserSnapshot(args.full, signal)
+    case 'browser_click':
+      return await browserClick(String(args.elementId || ''), signal)
+    case 'browser_type':
+      return await browserType(String(args.elementId || ''), args.text || '', signal)
+    case 'browser_press':
+      return await browserPress(args.key || 'Enter', signal)
+    case 'browser_scroll':
+      return await browserScroll(args.direction || 'down', args.amount, signal)
+    case 'browser_back':
+      return await browserBack(signal)
+    case 'browser_screenshot': {
+      const screenshotResult = await browserScreenshot(signal)
+      return screenshotResult.result
+    }
+    case 'browser_close':
+      return await closePersistentBrowser()
+
+    // Web scripting & DOM
+    case 'web_script':
+      return await webScript(args.url || '', args.script || '', signal)
+    case 'detailed_dom_page':
+      return await detailedDomPage(args.url, signal)
+
+    // Screenshot
+    case 'computer_use_see_screen': {
+      const screenResult = await captureAppScreenshot(args.appName || 'Entire Screen')
+      return screenResult.result
+    }
+
+    // Todo system
+    case 'create_todo': {
+      const tasksInput = args.tasks
+      let taskTitles: string[] = []
+      if (typeof tasksInput === 'string') {
+        try {
+          const parsed = JSON.parse(tasksInput)
+          if (Array.isArray(parsed)) taskTitles = parsed.map(String)
+        } catch {
+          taskTitles = [tasksInput]
+        }
+      } else if (Array.isArray(tasksInput)) {
+        taskTitles = tasksInput.map(String)
+      }
+
+      if (taskTitles.length < 2) {
+        return 'Error: create_todo requires at least 2 tasks. Please define a more detailed plan with at least 2 steps.'
+      }
+      if (taskTitles.length > 30) {
+        taskTitles = taskTitles.slice(0, 30)
+      }
+
+      const todoChatId = chatId || _currentSessionIdForTodo
+      const todo: TodoState = {
+        tasks: taskTitles.map((title, i) => ({
+          id: `task-${i}`,
+          title,
+          status: 'pending' as const
+        })),
+        createdAt: Date.now(),
+        active: true,
+        chatId: todoChatId
+      }
+      sessionTodos.set(todoChatId, todo)
+
+      try {
+        const wins = BrowserWindow.getAllWindows()
+        for (const win of wins) {
+          if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
+            win.webContents.send('chat-todo-update', todo)
+          }
+        }
+      } catch {}
+
+      return `Todo list created with ${taskTitles.length} tasks. Use edit_todo to update each task's status as you work through them: set to "working" when starting a task and "done" when completing it. All tasks must be completed before finishing.`
+    }
+
+    case 'edit_todo': {
+      const todoChatId = chatId || _currentSessionIdForTodo
+      const todo = sessionTodos.get(todoChatId)
+      if (!todo || !todo.active) {
+        return 'Error: No active todo list. Create one first with create_todo.'
+      }
+
+      const taskId = (args.id || '').toString().trim()
+      const newStatus = (args.status || '').toString().trim() as 'working' | 'done'
+
+      if (!taskId) return 'Error: Task ID is required (e.g. "task-0", "task-1").'
+      if (newStatus !== 'working' && newStatus !== 'done') {
+        return 'Error: Status must be "working" or "done".'
+      }
+
+      const taskIndex = todo.tasks.findIndex((t) => t.id === taskId)
+      if (taskIndex === -1) {
+        return `Error: Task "${taskId}" not found. Available tasks: ${todo.tasks.map((t) => `${t.id} (${t.title})`).join(', ')}`
+      }
+
+      if (todo.tasks[taskIndex].status === 'done' && newStatus === 'done') {
+        return `Task "${taskId}" (${todo.tasks[taskIndex].title}) is already marked as done.`
+      }
+
+      todo.tasks[taskIndex] = {
+        ...todo.tasks[taskIndex],
+        status: newStatus
+      }
+
+      const allDone = todo.tasks.every((t) => t.status === 'done')
+      if (allDone) {
+        todo.active = false
+      }
+
+      try {
+        const wins = BrowserWindow.getAllWindows()
+        for (const win of wins) {
+          if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
+            win.webContents.send('chat-todo-update', todo)
+          }
+        }
+        if (allDone) {
+          for (const win of wins) {
+            if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
+              win.webContents.send('chat-todo-complete', { chatId: todoChatId })
+            }
+          }
+        }
+      } catch {}
+
+      if (allDone) {
+        sessionTodos.delete(todoChatId)
+        return `All tasks completed! The todo list has been concluded.`
+      }
+
+      return `Task "${todo.tasks[taskIndex].title}" updated to "${newStatus}". ${todo.tasks.filter((t) => t.status === 'done').length}/${todo.tasks.length} tasks completed. Continue with the remaining tasks.`
+    }
+
     default:
-      return `Tool ${toolName} executed successfully.`
+      return `Tool "${toolName}" is registered but not yet wired in the executor. Args received: ${JSON.stringify(args)}`
   }
 }

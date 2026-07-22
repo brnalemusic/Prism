@@ -2,7 +2,8 @@ import { IpcMainEvent } from 'electron'
 import * as os from 'os'
 import { SessionMode, AttachedFile, StreamToolCallDelta } from '../../shared/types'
 import { toolsManifest } from '../toolsManifest'
-import { executeSystemTool, getSystemToolsPrompt, setActiveCwd } from '../systemTools'
+import { executeSystemTool, getSystemToolsPrompt, setActiveCwd, buildTodoReminder, setCurrentSessionIdForTodo } from '../systemTools'
+import { loadConfig } from '../config'
 import { saveChatSession, loadChatSession, updateChatSessionTitle } from '../history'
 import { resolveProviderAndModel } from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
@@ -185,17 +186,53 @@ export async function handleChatMessage(
   })
 
   try {
-    const systemPrompt = getSystemToolsPrompt(model.id, 'main', undefined, currentSessionMode, currentDisciplinePath)
+    // Workflow matching: check if the user's message starts with a slash command
+    const config = loadConfig()
+    const firstMsgText = userText.trim()
+    const matchedWorkflow = config.workflows?.find((w) =>
+      firstMsgText.toLowerCase().startsWith(w.command.toLowerCase())
+    )
+
+    const systemPrompt = getSystemToolsPrompt(
+      model.id,
+      'main',
+      matchedWorkflow?.toolConstraints,
+      currentSessionMode,
+      currentDisciplinePath
+    )
+    let fullPrompt = systemPrompt
+    if (matchedWorkflow) {
+      fullPrompt += `\n\n# Active Workflow: ${matchedWorkflow.name}\n${matchedWorkflow.systemInstruction}`
+    }
+
+    // Todo reminder: inject active todo state into system prompt
+    const todoReminder = buildTodoReminder(chatId)
+    if (todoReminder) {
+      fullPrompt += todoReminder
+    }
+
+    setCurrentSessionIdForTodo(chatId)
+
     const openAiTools = getNativeToolsForOpenAi('main')
 
     let maxLoops = 10
     let loopCount = 0
+    let accumulatedReplyText = ''
+    let accumulatedReasoningText = ''
 
     while (loopCount < maxLoops) {
       loopCount++
 
+      // Update todo reminder on each iteration
+      let iterationPrompt = fullPrompt
+      const currentTodoReminder = buildTodoReminder(chatId)
+      if (currentTodoReminder) {
+        const cleanBase = iterationPrompt.replace(/\n\n# Active Todo List[\s\S]*?(?=\n\n#|$)/, '')
+        iterationPrompt = cleanBase.trim() + currentTodoReminder
+      }
+
       const messagesForApi: OpenAiMessage[] = [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: iterationPrompt },
         ...convertHistoryToOpenAi(historyMessages)
       ]
 
@@ -228,7 +265,9 @@ export async function handleChatMessage(
           onTextDelta: (text) => {
             currentReplyText += text
             chunkCount++
-            const { thoughts, content } = parseThoughtAndContent(currentReplyText, currentReasoningText)
+            const combinedText = accumulatedReplyText ? accumulatedReplyText + '\n\n' + currentReplyText : currentReplyText
+            const combinedReasoning = accumulatedReasoningText ? accumulatedReasoningText + '\n\n' + currentReasoningText : currentReasoningText
+            const { thoughts, content } = parseThoughtAndContent(combinedText, combinedReasoning)
             event.sender.send('chat-reply-chunk', {
               chatId,
               thoughts,
@@ -240,7 +279,9 @@ export async function handleChatMessage(
           onReasoningDelta: (reasoning) => {
             currentReasoningText += reasoning
             chunkCount++
-            const { thoughts, content } = parseThoughtAndContent(currentReplyText, currentReasoningText)
+            const combinedText = accumulatedReplyText ? accumulatedReplyText + '\n\n' + currentReplyText : currentReplyText
+            const combinedReasoning = accumulatedReasoningText ? accumulatedReasoningText + '\n\n' + currentReasoningText : currentReasoningText
+            const { thoughts, content } = parseThoughtAndContent(combinedText, combinedReasoning)
             event.sender.send('chat-reply-chunk', {
               chatId,
               thoughts,
@@ -264,9 +305,19 @@ export async function handleChatMessage(
       currentReplyText = streamResult.text || currentReplyText
       currentReasoningText = streamResult.reasoning || currentReasoningText
 
+      // Accumulate text across tool-call loop iterations so the UI preserves
+      // text that was streamed before the tool call.
+      const { thoughts: iterThoughts, content: iterContent } = parseThoughtAndContent(currentReplyText, currentReasoningText)
+      if (iterContent) {
+        accumulatedReplyText = accumulatedReplyText ? accumulatedReplyText + '\n\n' + iterContent : iterContent
+      }
+      if (iterThoughts) {
+        accumulatedReasoningText = accumulatedReasoningText ? accumulatedReasoningText + '\n\n' + iterThoughts : iterThoughts
+      }
+
       const assistantMessage: OpenAiMessage = {
         role: 'assistant',
-        content: currentReplyText || null
+        content: accumulatedReplyText || null
       }
 
       if (streamResult.toolCalls.length > 0) {
@@ -371,11 +422,10 @@ export async function handleChatMessage(
       }
 
       // No tool calls, finish
-      const { thoughts: finalThoughts, content: finalContent } = parseThoughtAndContent(currentReplyText, currentReasoningText)
       event.sender.send('chat-reply-end', {
-        thoughts: finalThoughts,
-        finalResponse: finalContent,
-        rawText: currentReplyText,
+        thoughts: accumulatedReasoningText,
+        finalResponse: accumulatedReplyText,
+        rawText: accumulatedReplyText,
         isThinking: false,
         chatId
       })

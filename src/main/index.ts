@@ -42,7 +42,8 @@ import {
   searchWorkspaceFiles,
   openApplication,
   captureAppScreenshot,
-  detectAvailableTerminals
+  detectAvailableTerminals,
+  getTodoForChat
 } from './systemTools'
 import {
   initAppScanner,
@@ -791,8 +792,8 @@ if (!gotTheLock) {
       return session ? session.messages : []
     })
 
-    ipcMain.handle('get-todo-for-chat', (_event, _id: string) => {
-      return null
+    ipcMain.handle('get-todo-for-chat', (_event, id: string) => {
+      return getTodoForChat(id)
     })
 
     ipcMain.handle('get-chat-model', (_event, id: string) => {
