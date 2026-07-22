@@ -21,7 +21,8 @@ export async function fetchModelsFromProvider(
     return { success: false, models: [], error: 'Base URL is required' }
   }
 
-  const endpoint = `${normUrl}/models`
+  const isGoogle = normUrl.includes('generativelanguage.googleapis.com')
+  const endpoint = isGoogle ? `${normUrl}/openai/models` : `${normUrl}/models`
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
@@ -30,8 +31,6 @@ export async function fetchModelsFromProvider(
   if (completionType === 'anthropic_messages' || normUrl.includes('anthropic.com')) {
     headers['x-api-key'] = apiKey
     headers['anthropic-version'] = '2023-06-01'
-  } else if (normUrl.includes('generativelanguage.googleapis.com')) {
-    headers['x-goog-api-key'] = apiKey
   } else if (apiKey) {
     headers['Authorization'] = `Bearer ${apiKey}`
   }
@@ -61,6 +60,8 @@ export async function fetchModelsFromProvider(
     } else if (Array.isArray(data)) {
       modelList = data.map((m: any) => (typeof m === 'string' ? m : m.id || m.name)).filter(Boolean)
     }
+
+    modelList = modelList.map((id) => (id.startsWith('models/') ? id.slice(7) : id))
 
     const models: ProviderModel[] = modelList.map((id) => {
       const trusted = isModelTrusted(id)

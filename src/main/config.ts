@@ -40,6 +40,13 @@ export interface AppConfig {
   sessionMode: SessionMode
   disciplinePath?: string
   modelReasoningLevels?: Record<string, string>
+  userGeminiKey?: string
+  userNvidiaNimKey?: string
+  userOpenaiKey?: string
+  openaiBaseUrl?: string
+  openaiModelId?: string
+  openaiModelName?: string
+  defaultModel?: string
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -101,7 +108,105 @@ const VALID_VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'])
 const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno', 'ursula', 'rgb'])
 const VALID_SESSION_MODES = new Set(['conversation', 'execution', 'discipline'])
 
+function tryDecryptKey(key?: string): string {
+  if (!key || typeof key !== 'string') return ''
+  const trimmed = key.trim()
+  if (!trimmed) return ''
+  const isHex = /^[0-9a-fA-F]+$/.test(trimmed)
+  if (isHex && safeStorage.isEncryptionAvailable()) {
+    try {
+      const buffer = Buffer.from(trimmed, 'hex')
+      return safeStorage.decryptString(buffer)
+    } catch {
+      return trimmed
+    }
+  }
+  return trimmed
+}
+
+export function synthesizeLegacyProviders(config: Partial<AppConfig>): ProviderConfig[] {
+  const synthesized: ProviderConfig[] = []
+
+  const legacyGemini = tryDecryptKey(config.userGeminiKey) || process.env.GEMINI_API_KEY
+  if (legacyGemini && legacyGemini.trim() !== '') {
+    const defaultModel = config.defaultModel || config.lastSelectedChatModel || 'gemini-3.6-flash'
+    synthesized.push({
+      id: 'google-gemini',
+      name: 'Google AI Studio',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      apiKey: legacyGemini.trim(),
+      completionType: 'chat_completions',
+      isTrusted: true,
+      models: [
+        { id: defaultModel, name: defaultModel, enabled: true, isTrusted: true },
+        { id: 'gemini-3.5-flash-lite', name: 'gemini-3.5-flash-lite', enabled: true, isTrusted: true },
+        { id: 'gemini-3.1-pro', name: 'gemini-3.1-pro', enabled: true, isTrusted: true }
+      ]
+    })
+  }
+
+  const legacyNvidia = tryDecryptKey(config.userNvidiaNimKey)
+  if (legacyNvidia && legacyNvidia.trim() !== '') {
+    synthesized.push({
+      id: 'nvidia-nim',
+      name: 'NVIDIA NIM',
+      baseUrl: 'https://integrate.api.nvidia.com/v1',
+      apiKey: legacyNvidia.trim(),
+      completionType: 'chat_completions',
+      isTrusted: true,
+      models: [
+        { id: 'meta/llama-3.3-70b-instruct', name: 'meta/llama-3.3-70b-instruct', enabled: true, isTrusted: true }
+      ]
+    })
+  }
+
+  const legacyOpenai = tryDecryptKey(config.userOpenaiKey)
+  if (legacyOpenai && legacyOpenai.trim() !== '') {
+    const modelId = config.openaiModelId || 'gpt-4o'
+    synthesized.push({
+      id: 'openai',
+      name: 'OpenAI GPT',
+      baseUrl: config.openaiBaseUrl || 'https://api.openai.com/v1',
+      apiKey: legacyOpenai.trim(),
+      completionType: 'chat_completions',
+      isTrusted: true,
+      models: [
+        { id: modelId, name: config.openaiModelName || modelId, enabled: true, isTrusted: true }
+      ]
+    })
+  }
+
+  return synthesized
+}
+
 function normalizeConfig(config: AppConfig): AppConfig {
+  let providers = Array.isArray(config.providers) ? [...config.providers] : []
+
+  const hasActiveProvider = providers.some(
+    (p) => p && p.apiKey && p.apiKey.trim() !== '' && Array.isArray(p.models) && p.models.some((m) => m && m.enabled)
+  )
+
+  if (!hasActiveProvider) {
+    const synthesized = synthesizeLegacyProviders(config)
+    for (const syn of synthesized) {
+      const existingIdx = providers.findIndex((p) => p.id === syn.id || p.baseUrl === syn.baseUrl)
+      if (existingIdx >= 0) {
+        if (!providers[existingIdx].apiKey || providers[existingIdx].apiKey.trim() === '') {
+          providers[existingIdx] = {
+            ...providers[existingIdx],
+            apiKey: syn.apiKey,
+            models:
+              providers[existingIdx].models && providers[existingIdx].models.length > 0
+                ? providers[existingIdx].models
+                : syn.models
+          }
+        }
+      } else {
+        providers.push(syn)
+      }
+    }
+  }
+
   return {
     ...config,
     launcherShortcut: config.launcherShortcut || DEFAULT_CONFIG.launcherShortcut,
@@ -111,7 +216,7 @@ function normalizeConfig(config: AppConfig): AppConfig {
     dictationShortcut: config.dictationShortcut || DEFAULT_CONFIG.dictationShortcut,
     webSearchShortcut: config.webSearchShortcut || DEFAULT_CONFIG.webSearchShortcut,
     youtubeModeShortcut: config.youtubeModeShortcut || DEFAULT_CONFIG.youtubeModeShortcut,
-    providers: Array.isArray(config.providers) ? config.providers : [],
+    providers,
     lastSelectedChatModel: typeof config.lastSelectedChatModel === 'string' ? config.lastSelectedChatModel : '',
     sttModel: typeof config.sttModel === 'string' ? config.sttModel : '',
     quickLauncherModel: typeof config.quickLauncherModel === 'string' ? config.quickLauncherModel : '',

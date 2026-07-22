@@ -47,8 +47,40 @@ import { loadConfig } from './config'
 
 export async function testGeminiConnection(_overrideKey?: string): Promise<ConnectionTestResult> {
   const config = loadConfig()
-  const providers = config.providers || []
-  const activeProvider = providers.find((p) => p.apiKey && p.apiKey.trim() !== '' && p.models.some((m) => m.enabled))
+  let providers = config.providers || []
+
+  if (_overrideKey && _overrideKey.trim() !== '') {
+    const existingIdx = providers.findIndex((p) => p.apiKey && p.apiKey.trim() !== '')
+    if (existingIdx >= 0) {
+      providers = providers.map((p, idx) => (idx === existingIdx ? { ...p, apiKey: _overrideKey.trim() } : p))
+    }
+  }
+
+  let activeProvider = providers.find((p) => p.apiKey && p.apiKey.trim() !== '' && p.models.some((m) => m.enabled))
+
+  if (!activeProvider || !activeProvider.apiKey) {
+    const fallbackKey =
+      (_overrideKey && _overrideKey.trim() !== '' ? _overrideKey : undefined) ||
+      (config as any).userGeminiKey ||
+      process.env.GEMINI_API_KEY
+
+    if (fallbackKey && fallbackKey.trim() !== '') {
+      const defaultModel = (config as any).defaultModel || config.lastSelectedChatModel || 'gemini-3.6-flash'
+      activeProvider = {
+        id: 'google-gemini',
+        name: 'Google AI Studio',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+        apiKey: fallbackKey.trim(),
+        completionType: 'chat_completions',
+        isTrusted: true,
+        models: [
+          { id: defaultModel, name: defaultModel, enabled: true, isTrusted: true },
+          { id: 'gemini-3.5-flash-lite', name: 'gemini-3.5-flash-lite', enabled: true, isTrusted: true },
+          { id: 'gemini-3.1-pro', name: 'gemini-3.1-pro', enabled: true, isTrusted: true }
+        ]
+      }
+    }
+  }
 
   if (!activeProvider || !activeProvider.apiKey) {
     return {
