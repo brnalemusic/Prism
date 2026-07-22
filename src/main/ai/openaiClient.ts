@@ -31,6 +31,10 @@ export async function streamOpenAiCompletion(
   const normUrl = normalizeBaseUrl(provider.baseUrl)
   const completionType = provider.completionType || 'chat_completions'
 
+  if (completionType === 'responses') {
+    return streamOpenAiResponses(provider, normUrl, modelId, messages, tools, signal, callbacks)
+  }
+
   if (completionType === 'anthropic_messages') {
     return streamAnthropicMessages(provider, normUrl, modelId, messages, tools, signal, callbacks)
   }
@@ -40,9 +44,7 @@ export async function streamOpenAiCompletion(
   // bridge at /v1beta/openai/... requires Authorization: Bearer like any OpenAI provider.
   const isGoogleAiStudio = normUrl.includes('generativelanguage.googleapis.com')
   let endpoint: string
-  if (completionType === 'responses') {
-    endpoint = `${normUrl}/responses`
-  } else if (isGoogleAiStudio) {
+  if (isGoogleAiStudio) {
     endpoint = `${normUrl}/openai/chat/completions`
   } else {
     endpoint = `${normUrl}/chat/completions`
@@ -330,6 +332,202 @@ async function streamAnthropicMessages(
           }
         } catch {
           // ignore parsing error
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  const toolCalls = Array.from(toolCallsMap.values()).filter((tc) => tc.name)
+
+  return {
+    text: fullText,
+    reasoning: fullReasoning,
+    toolCalls,
+    finishReason
+  }
+}
+
+async function streamOpenAiResponses(
+  provider: ProviderConfig,
+  normUrl: string,
+  modelId: string,
+  messages: OpenAiMessage[],
+  tools: OpenAiToolDefinition[],
+  signal: AbortSignal,
+  callbacks: StreamCallbacks
+): Promise<StreamResult> {
+  const endpoint = normUrl.endsWith('/responses') ? normUrl : `${normUrl}/responses`
+
+  console.log(`[Main Chat - Responses API] Calling ${modelId} with [${provider.name || provider.baseUrl}] (${messages.length} input items, ${tools?.length || 0} tools)`)
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  }
+  if (provider.apiKey) {
+    headers['Authorization'] = `Bearer ${provider.apiKey}`
+  }
+
+  // Responses API schema: uses "input" instead of "messages"
+  const bodyPayload: any = {
+    model: modelId,
+    input: messages,
+    stream: true
+  }
+
+  // Responses API schema: tools are flat objects with type: "function"
+  if (tools && tools.length > 0) {
+    bodyPayload.tools = tools.map((t) => ({
+      type: 'function',
+      name: t.function.name,
+      description: t.function.description,
+      parameters: t.function.parameters
+    }))
+    bodyPayload.tool_choice = 'auto'
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(bodyPayload),
+    signal
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '')
+    console.error(`[AI Client] Responses API Error ${response.status} (${response.statusText}) from ${endpoint}`)
+    console.error(`[AI Client] Response body: ${errorText}`)
+    throw new Error(`Responses API Error ${response.status} (${response.statusText}): ${errorText}`)
+  }
+
+  if (!response.body) {
+    throw new Error('No response body received from responses stream endpoint')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+
+  let fullText = ''
+  let fullReasoning = ''
+  let finishReason = ''
+  const toolCallsMap = new Map<number, { id: string; name: string; args: string }>()
+  let currentToolIdx = 0
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith(':')) continue
+
+        if (trimmed === 'data: [DONE]') {
+          break
+        }
+
+        if (trimmed.startsWith('data: ')) {
+          const jsonStr = trimmed.slice(6)
+          try {
+            const parsed = JSON.parse(jsonStr)
+
+            const choice = parsed.choices?.[0] || parsed
+            const delta = choice?.delta || parsed.delta || choice?.message || {}
+
+            if (choice?.finish_reason) {
+              finishReason = choice.finish_reason
+            }
+            if (parsed.status === 'completed' || parsed.type === 'response.completed') {
+              finishReason = 'stop'
+            }
+
+            // Reasoning stream
+            const reasoningChunk = delta.reasoning_content || delta.reasoning || delta.thinking || parsed.reasoning || ''
+            if (reasoningChunk) {
+              fullReasoning += reasoningChunk
+              callbacks.onReasoningDelta(reasoningChunk)
+            }
+
+            // Content text stream
+            const textChunk =
+              delta.content ||
+              (parsed.type === 'response.text.delta' ? parsed.delta : '') ||
+              (typeof parsed.delta === 'string' ? parsed.delta : '') ||
+              (typeof parsed.text === 'string' ? parsed.text : '') ||
+              ''
+            if (typeof textChunk === 'string' && textChunk) {
+              fullText += textChunk
+              callbacks.onTextDelta(textChunk)
+            }
+
+            // Responses API output_item / function call events
+            if (parsed.type === 'response.output_item.added' && parsed.item?.type === 'function_call') {
+              const idx = currentToolIdx++
+              toolCallsMap.set(idx, {
+                id: parsed.item.call_id || parsed.item.id || `call_${Date.now()}_${idx}`,
+                name: parsed.item.name || '',
+                args: parsed.item.arguments || ''
+              })
+            } else if (parsed.type === 'response.function_call_arguments.delta') {
+              const callId = parsed.call_id || parsed.item_id
+              let foundKey: number | undefined
+              for (const [k, v] of toolCallsMap.entries()) {
+                if (v.id === callId) {
+                  foundKey = k
+                  break
+                }
+              }
+              if (foundKey !== undefined) {
+                const existing = toolCallsMap.get(foundKey)!
+                const argDelta = parsed.delta || ''
+                existing.args += argDelta
+                callbacks.onToolCallDelta({
+                  index: foundKey,
+                  id: existing.id,
+                  name: existing.name,
+                  argsDelta: argDelta
+                })
+              }
+            } else if (Array.isArray(delta.tool_calls)) {
+              for (const tcDelta of delta.tool_calls) {
+                const idx = tcDelta.index ?? 0
+                let existing = toolCallsMap.get(idx)
+                if (!existing) {
+                  existing = {
+                    id: tcDelta.id || `call_${Date.now()}_${idx}`,
+                    name: tcDelta.function?.name || tcDelta.name || '',
+                    args: ''
+                  }
+                  toolCallsMap.set(idx, existing)
+                }
+
+                if (tcDelta.id && !existing.id) existing.id = tcDelta.id
+                if ((tcDelta.function?.name || tcDelta.name) && !existing.name) {
+                  existing.name = tcDelta.function?.name || tcDelta.name
+                }
+
+                const argsChunk = tcDelta.function?.arguments || tcDelta.arguments || ''
+                if (argsChunk) {
+                  existing.args += argsChunk
+                }
+
+                callbacks.onToolCallDelta({
+                  index: idx,
+                  id: existing.id,
+                  name: existing.name,
+                  argsDelta: argsChunk
+                })
+              }
+            }
+          } catch {
+            // Ignore non-JSON SSE lines
+          }
         }
       }
     }
