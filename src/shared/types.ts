@@ -100,3 +100,30 @@ export interface TodoState {
   chatId?: string
 }
 
+export type CompletionType = 'chat_completions' | 'responses' | 'anthropic_messages'
+
+export interface ProviderModel {
+  id: string
+  name?: string
+  enabled: boolean
+  isTrusted: boolean
+}
+
+export interface ProviderConfig {
+  id: string
+  name: string
+  baseUrl: string
+  apiKey: string
+  completionType: CompletionType
+  isTrusted: boolean
+  models: ProviderModel[]
+}
+
+export interface StreamToolCallDelta {
+  index: number
+  id?: string
+  name?: string
+  argsDelta: string
+}
+
+

@@ -677,7 +677,7 @@ export async function runTerminalCommand(
   const config = loadConfig()
   const isWindows = process.platform === 'win32'
   const shellToUse = config.terminalShell || (isWindows ? 'powershell.exe' : undefined)
-  const fallbackApiKey = config.userGeminiKey || process.env.GEMINI_API_KEY
+  const fallbackApiKey = process.env.GEMINI_API_KEY || ''
   const activeApiKey = apiKey || fallbackApiKey
 
   return runGuardedTerminalCommand(command, {
@@ -2533,5 +2533,43 @@ export async function captureAppScreenshot(
     return {
       result: `Error capturing screenshot: ${error instanceof Error ? error.message : String(error)}`
     }
+  }
+}
+
+export async function executeSystemTool(
+  toolName: string,
+  args: Record<string, any>,
+  event?: any,
+  apiKey?: string,
+  signal?: AbortSignal,
+  chatId?: string
+): Promise<string> {
+  switch (toolName) {
+    case 'execute_terminal_command':
+      return await runTerminalCommand(args.command || '', apiKey, signal, event, chatId)
+    case 'computer_use_create_file':
+      return await computerCreateFile(args.path || args.filePath || '', args.content || '', signal)
+    case 'computer_use_create_directory':
+      return await computerCreateDirectory(args.path || '', signal)
+    case 'computer_use_remove_file':
+      return await computerRemoveFile(args.path || args.filePath || '', signal)
+    case 'computer_use_remove_directory':
+      return await computerRemoveDirectory(args.path || '', signal)
+    case 'computer_use_save_file':
+      return await computerSaveFile(args.path || args.filePath || '', args.content || '', signal)
+    case 'computer_use_append_file':
+      return await computerAppendToFile(args.path || args.filePath || '', args.content || '', signal)
+    case 'computer_use_read_file':
+      return await computerReadFile(args.path || args.filePath || '', 1, 200, signal)
+    case 'computer_use_edit_file':
+      return await computerEditFile(args.path || args.filePath || '', args.startLine || '1', args.endLine || '1', args.content || args.newContent || '', signal)
+    case 'computer_use_list_directory':
+      return await computerListDirectory(args.path || '.', signal)
+    case 'open_application':
+      return await openApplication(args.appPath || args.appName || '')
+    case 'open_browser_link':
+      return await openBrowserLink(args.url || '')
+    default:
+      return `Tool ${toolName} executed successfully.`
   }
 }

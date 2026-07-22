@@ -21,23 +21,23 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import {
   initGemini,
   handleChatMessage,
-  setGeminiModel,
+  setChatModel,
   setSubagentModel,
-  setUserApiKey,
   cancelChatMessage,
-  loadChatIntoHistory,
   activeRuns,
   handleLauncherChatMessage,
-  setSessionMode, // Imported here
-
+  setSessionMode,
   clearLauncherChat,
   generateTts,
   handleAiSearchChatMessage,
   cancelAiSearch,
   transcribeAudio,
   getChatModel,
-  getTodoForChat
-} from './gemini'
+  getAllProviders,
+  saveProviders,
+  fetchModelsFromProvider,
+  getActiveModels
+} from './ai'
 import {
   searchWorkspaceFiles,
   openApplication,
@@ -52,10 +52,9 @@ import {
 } from './appScanner'
 import { loadConfig, saveConfig, AppConfig } from './config'
 import { toolsManifest } from './toolsManifest'
-import { listChatSessions, deleteChatSession, searchChatsOffline } from './history'
+import { listChatSessions, loadChatSession, deleteChatSession, searchChatsOffline } from './history'
 import {
   testGeminiConnection,
-  setConnectionApiKey,
   markConnectionActive,
   stopKeepAlive,
   checkInternetConnectivity
@@ -758,7 +757,7 @@ if (!gotTheLock) {
     // IPC Handlers
     ipcMain.on('chat-message', handleChatMessage)
     ipcMain.on('set-model', (_event, modelKey) => {
-      setGeminiModel(modelKey)
+      setChatModel(modelKey)
       mainWindow?.webContents.send('model-changed', modelKey)
       launcherWindow?.webContents.send('model-changed', modelKey)
     })
@@ -788,11 +787,12 @@ if (!gotTheLock) {
     })
 
     ipcMain.handle('load-chat', (_event, id: string) => {
-      return loadChatIntoHistory(id)
+      const session = loadChatSession(id)
+      return session ? session.messages : []
     })
 
-    ipcMain.handle('get-todo-for-chat', (_event, id: string) => {
-      return getTodoForChat(id)
+    ipcMain.handle('get-todo-for-chat', (_event, _id: string) => {
+      return null
     })
 
     ipcMain.handle('get-chat-model', (_event, id: string) => {
@@ -852,7 +852,9 @@ if (!gotTheLock) {
     })
 
     ipcMain.on('launcher-chat-message', (event, data) => {
-      handleLauncherChatMessage(event, data)
+      const win = launcherWindow || BrowserWindow.fromWebContents(event.sender)!
+      const msg = typeof data === 'string' ? data : data.message
+      handleLauncherChatMessage(win, msg)
     })
 
     ipcMain.on('launcher-chat-clear', () => {
@@ -1009,30 +1011,47 @@ if (!gotTheLock) {
     })
 
     ipcMain.handle('save-config', (_event, config: AppConfig) => {
-      currentConfig = config
-
-      // Update the API key in the gemini module
-      if (config.userGeminiKey) {
-        setUserApiKey(config.userGeminiKey)
-        setConnectionApiKey(config.userGeminiKey)
-      }
-      setGeminiModel(config.defaultModel)
-      setSubagentModel(config.subagentModel)
-
       const success = saveConfig(config)
       if (success) {
+        currentConfig = loadConfig()
+        if (currentConfig.subagentModel) {
+          setSubagentModel(currentConfig.subagentModel)
+        }
         if (!IS_DEMO) registerGlobalShortcuts()
         updateNativeIcons()
-        // Notify both windows
-        mainWindow?.webContents.send('config-changed', config)
-        launcherWindow?.webContents.send('config-changed', config)
-        subagentSettingsWindow?.webContents.send('config-changed', config)
+        // Notify windows with merged config
+        mainWindow?.webContents.send('config-changed', currentConfig)
+        launcherWindow?.webContents.send('config-changed', currentConfig)
+        subagentSettingsWindow?.webContents.send('config-changed', currentConfig)
       }
       return success
     })
 
     ipcMain.handle('get-tool-definitions', () => {
       return toolsManifest
+    })
+
+    ipcMain.handle('get-providers', () => {
+      return getAllProviders()
+    })
+
+    ipcMain.handle('save-providers', (_event, providers: any) => {
+      const success = saveProviders(providers)
+      if (success) {
+        currentConfig = loadConfig()
+        mainWindow?.webContents.send('config-changed', currentConfig)
+        launcherWindow?.webContents.send('config-changed', currentConfig)
+        subagentSettingsWindow?.webContents.send('config-changed', currentConfig)
+      }
+      return success
+    })
+
+    ipcMain.handle('fetch-provider-models', async (_event, { baseUrl, apiKey, completionType }: any) => {
+      return await fetchModelsFromProvider(baseUrl, apiKey, completionType)
+    })
+
+    ipcMain.handle('get-active-models', () => {
+      return getActiveModels()
     })
 
     // Pre-launch connection test used by the loading screen.
@@ -1097,12 +1116,8 @@ if (!gotTheLock) {
       registerDemoDownloadHandlers()
     } else {
       registerGlobalShortcuts()
-      setGeminiModel(currentConfig.defaultModel)
-      setSubagentModel(currentConfig.subagentModel)
-
-      if (currentConfig.userGeminiKey) {
-        setUserApiKey(currentConfig.userGeminiKey)
-        setConnectionApiKey(currentConfig.userGeminiKey)
+      if (currentConfig.subagentModel) {
+        setSubagentModel(currentConfig.subagentModel)
       }
 
       registerAppsUpdatedCallback((apps) => {

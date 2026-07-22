@@ -1,18 +1,26 @@
-import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useLayoutEffect } from 'react'
-import { CaretDown as ChevronDown, Check } from '@phosphor-icons/react'
+import { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
+import { CaretDown as ChevronDown, Check, MagnifyingGlass, CheckCircle, Warning } from '@phosphor-icons/react'
 import { clsx } from 'clsx'
-import { MODELS, MODEL_CATEGORIES } from '../constants'
 import { isShortcutPressed } from '../utils'
+
+interface ActiveModelItem {
+  providerId: string
+  providerName: string
+  isProviderTrusted: boolean
+  model: {
+    id: string
+    name?: string
+    enabled: boolean
+    isTrusted: boolean
+  }
+  fullKey: string
+}
 
 interface ModelSelectorProps {
   selectedModel: string
-  onModelChange: (modelId: string) => void
+  onModelChange: (modelKey: string) => void
   disabled?: boolean
-  hasGeminiKey?: boolean
-  hasNvidiaNimKey?: boolean
-  hasOpenaiKey?: boolean
-  openaiModelId?: string
-  openaiModelName?: string
+  align?: 'left' | 'right'
 }
 
 export interface ModelSelectorHandle {
@@ -20,48 +28,49 @@ export interface ModelSelectorHandle {
 }
 
 export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>(
-  (
-    {
-      selectedModel,
-      onModelChange,
-      disabled,
-      hasGeminiKey,
-      hasNvidiaNimKey,
-      hasOpenaiKey,
-      openaiModelId,
-      openaiModelName
-    },
-    ref
-  ) => {
+  ({ selectedModel, onModelChange, disabled, align = 'right' }, ref) => {
     const [isOpen, setIsOpen] = useState(false)
     const [shortcut, setShortcut] = useState('CommandOrControl+M')
     const [searchQuery, setSearchQuery] = useState('')
+    const [activeModels, setActiveModels] = useState<ActiveModelItem[]>([])
     const containerRef = useRef<HTMLDivElement>(null)
 
     useImperativeHandle(ref, () => ({
       open: () => {
-        if (!disabled) {
-          setIsOpen(true)
-        }
+        if (!disabled) setIsOpen(true)
       }
     }))
 
+    const loadActiveModels = async () => {
+      try {
+        const list = await window.api.getActiveModels()
+        setActiveModels(list || [])
+      } catch (e) {
+        console.error('Failed to fetch active models:', e)
+      }
+    }
+
     useEffect(() => {
+      loadActiveModels()
+
       window.api.getConfig().then((config) => {
-        if (config.modelSelectionShortcut) {
-          setShortcut(config.modelSelectionShortcut)
-        }
+        if (config.modelSelectionShortcut) setShortcut(config.modelSelectionShortcut)
       })
 
-      window.api.onConfigChanged((config) => {
-        if (config.modelSelectionShortcut) {
-          setShortcut(config.modelSelectionShortcut)
-        }
+      const unsubscribeConfig = window.api.onConfigChanged((config) => {
+        if (config.modelSelectionShortcut) setShortcut(config.modelSelectionShortcut)
+        loadActiveModels()
       })
+
+      return () => {
+        unsubscribeConfig()
+      }
     }, [])
 
     useEffect(() => {
-      if (!isOpen) {
+      if (isOpen) {
+        loadActiveModels()
+      } else {
         setSearchQuery('')
       }
     }, [isOpen])
@@ -75,13 +84,11 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
       const handleKeyDown = (e: KeyboardEvent): void => {
         if (disabled) return
-
         if (isShortcutPressed(e, shortcut)) {
           e.preventDefault()
           setIsOpen(!isOpen)
           return
         }
-
         if (isOpen && e.key === 'Escape') {
           e.preventDefault()
           setIsOpen(false)
@@ -95,83 +102,44 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         document.removeEventListener('mousedown', handleClickOutside)
         window.removeEventListener('keydown', handleKeyDown)
       }
-    }, [isOpen, selectedModel, shortcut, disabled])
+    }, [isOpen, shortcut, disabled])
 
-    const availableCategories: string[] = []
-    if (hasGeminiKey) availableCategories.push('gemini')
-    if (hasNvidiaNimKey) availableCategories.push('nvidia-nim')
-    if (hasOpenaiKey) availableCategories.push('openai-compatible')
+    // Find currently selected model display item
+    const selectedItem = activeModels.find(
+      (item) => item.fullKey === selectedModel || item.model.id === selectedModel || item.model.name === selectedModel
+    )
 
-    const availableModels = MODELS.filter((m) => {
-      if (m.category === 'openai-compatible') return false
-      return availableCategories.includes(m.category)
-    })
+    const rawDisplayName = selectedItem
+      ? selectedItem.model.name || selectedItem.model.id
+      : selectedModel || 'Select Model'
 
-    if (hasOpenaiKey && openaiModelId) {
-      availableModels.push({
-        id: openaiModelId,
-        name: openaiModelName || openaiModelId,
-        category: 'openai-compatible'
-      })
-    }
-
-    const currentModel = availableModels.find((m) => m.id === selectedModel)
-
-    const getDisplayName = (): string => {
-      if (currentModel) return currentModel.name
-      if (hasOpenaiKey && selectedModel === openaiModelId) {
-        return openaiModelName || openaiModelId || selectedModel
+    const getModelOnly = (val: string): string => {
+      if (!val) return ''
+      if (val.includes('/')) {
+        const parts = val.split('/')
+        return parts[parts.length - 1]
       }
-      return selectedModel
+      return val
     }
 
-    const groupedModels: Record<string, typeof availableModels> = {}
-    for (const model of availableModels) {
-      const cat = model.category
-      if (!groupedModels[cat]) groupedModels[cat] = []
-      groupedModels[cat].push(model)
+    const displayName = getModelOnly(rawDisplayName)
+
+    // Group active models by provider
+    const grouped: Record<string, ActiveModelItem[]> = {}
+    for (const item of activeModels) {
+      if (!grouped[item.providerName]) grouped[item.providerName] = []
+      grouped[item.providerName].push(item)
     }
 
-    const categoryOrder = ['gemini', 'nvidia-nim', 'openai-compatible']
-
-    const totalModels = availableModels.length
-    const itemHeight = 44
-    const headerHeight = 24
-    const padding = 8
-    const searchBoxHeight = 46
-
-    const contentHeight = categoryOrder.reduce((acc, catKey) => {
-      const models = groupedModels[catKey] || []
-      const matchingModels = models.filter((m) =>
-        m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        m.id.toLowerCase().includes(searchQuery.toLowerCase())
+    const filteredGroupKeys = Object.keys(grouped).filter((providerName) => {
+      const items = grouped[providerName]
+      return items.some(
+        (i) =>
+          i.model.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (i.model.name && i.model.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+          providerName.toLowerCase().includes(searchQuery.toLowerCase())
       )
-      if (matchingModels.length === 0) return acc
-      return acc + headerHeight + matchingModels.length * itemHeight
-    }, padding * 2 + searchBoxHeight)
-
-    const [dropdownMaxHeight, setDropdownMaxHeight] = useState(300)
-    const dropdownRef = useRef<HTMLDivElement>(null)
-
-    useLayoutEffect(() => {
-      if (!isOpen) return
-
-      const measure = (): void => {
-        const containerRect = containerRef.current?.getBoundingClientRect()
-        if (!containerRect) return
-
-        const spaceBelow = window.innerHeight - containerRect.bottom
-        const bottomBuffer = 48
-        const computed = Math.min(
-          Math.max(contentHeight, 80),
-          Math.floor(spaceBelow - bottomBuffer),
-          Math.floor(window.innerHeight * 0.5)
-        )
-        setDropdownMaxHeight(Math.max(computed, 120))
-      }
-
-      measure()
-    }, [isOpen, contentHeight])
+    })
 
     return (
       <div className="relative" ref={containerRef}>
@@ -180,86 +148,110 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
           disabled={disabled}
           onClick={() => setIsOpen(!isOpen)}
           className={clsx(
-            'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold outline-none transition-all duration-200 border border-transparent hover:bg-white/[0.05] hover:border-white/[0.09]',
-            isOpen
-              ? 'bg-white/[0.08] text-text-primary border-white/10'
-              : 'bg-transparent text-text-primary/95',
+            'flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-semibold outline-none transition-all duration-200 border border-transparent hover:bg-white/[0.05] hover:border-white/[0.09]',
+            isOpen ? 'bg-white/[0.08] text-text-primary border-white/10' : 'bg-transparent text-text-primary',
             disabled && 'cursor-not-allowed opacity-50'
           )}
         >
-          <span className="text-[13.5px] font-bold tracking-wide">{getDisplayName()}</span>
+          <span className="text-xs sm:text-[13.5px] font-bold tracking-wide truncate max-w-[160px] sm:max-w-[220px]">{displayName}</span>
           <ChevronDown
             size={13}
-            className={clsx(
-              'text-text-secondary/75 transition-transform duration-200',
-              isOpen && 'rotate-180'
-            )}
+            className={clsx('text-text-muted transition-transform duration-200 shrink-0', isOpen && 'rotate-180')}
           />
         </button>
 
         {isOpen && (
-          <div
-            ref={dropdownRef}
-            className="model-menu-panel absolute top-full left-0 mt-2 z-50 p-2.5 animate-soft-pop text-left opacity-100 overflow-y-auto custom-scrollbar model-selector-dropdown flex flex-col"
-            style={{ maxHeight: `${dropdownMaxHeight}px`, width: '18rem' }}
-          >
-            {/* Search input */}
-            <div className="px-1 pb-2.5 mb-2 border-b border-white/[0.04] shrink-0">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search models..."
-                className="w-full bg-white/[0.03] border border-white/[0.07] rounded-lg px-2.5 py-1.5 text-[11px] text-text-primary placeholder:text-text-secondary/40 focus:outline-none focus:border-accent-primary/45 focus:bg-white/[0.05] transition-all duration-200 select-text"
-                onClick={(e) => e.stopPropagation()} // Prevent dropdown closing on click
-              />
+          <div className={clsx(
+            "absolute top-full mt-2 w-72 sm:w-80 z-[100] rounded-2xl border border-white/[0.12] bg-surface backdrop-blur-2xl shadow-2xl overflow-hidden flex flex-col max-h-96 animate-soft-pop",
+            align === 'left' ? 'left-0' : 'right-0'
+          )}>
+            {/* Search Box */}
+            <div className="p-2.5 border-b border-white/[0.08] bg-black/20">
+              <div className="relative">
+                <MagnifyingGlass size={14} className="absolute left-3 top-2.5 text-text-muted" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search models or providers..."
+                  className="w-full pl-9 pr-3 py-1.5 bg-white/[0.04] border border-white/[0.1] rounded-xl text-xs text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-primary"
+                  autoFocus
+                />
+              </div>
             </div>
 
-            <div className="flex-grow overflow-y-auto custom-scrollbar pr-0.5">
-              {totalModels === 0 && (
-                <div className="px-3 py-4 text-xs text-text-secondary/60 text-center select-none">
-                  No models available. Configure an API key in Settings.
+            {/* Models list */}
+            <div className="p-2 overflow-y-auto space-y-3 flex-1">
+              {filteredGroupKeys.length === 0 ? (
+                <div className="py-6 text-center text-xs text-text-muted">
+                  {activeModels.length === 0 ? 'No active models found in API Settings.' : 'No models match search.'}
                 </div>
-              )}
-              {categoryOrder.map((catKey) => {
-                const models = groupedModels[catKey] || []
-                const matchingModels = models.filter((m) =>
-                  m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                  m.id.toLowerCase().includes(searchQuery.toLowerCase())
-                )
-                if (matchingModels.length === 0) return null
-                const catLabel = MODEL_CATEGORIES[catKey] || catKey
+              ) : (
+                filteredGroupKeys.map((pName) => {
+                  const items = grouped[pName].filter(
+                    (i) =>
+                      i.model.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      (i.model.name && i.model.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+                      pName.toLowerCase().includes(searchQuery.toLowerCase())
+                  )
+                  if (!items.length) return null
+                  const isTrusted = items[0]?.isProviderTrusted
 
-                return (
-                  <div key={catKey} className="mb-2.5 last:mb-0">
-                    <div className="px-3 py-1 text-[9px] font-bold text-text-secondary/40 uppercase tracking-widest select-none">
-                      {catLabel}
+                  return (
+                    <div key={pName} className="space-y-1">
+                      <div className="px-3 py-1 flex items-center justify-between text-[10px] font-bold tracking-wider text-text-muted uppercase">
+                        <span className="flex items-center gap-1.5">
+                          {pName}
+                          {isTrusted ? (
+                            <span title="This provider is trusted by Prism.">
+                              <CheckCircle size={12} weight="fill" className="text-status-success cursor-help" />
+                            </span>
+                          ) : (
+                            <span title="This provider is not trusted by Prism.">
+                              <Warning size={12} weight="fill" className="text-status-warning cursor-help" />
+                            </span>
+                          )}
+                        </span>
+                      </div>
+
+                      {items.map((item) => {
+                        const isSelected =
+                          selectedModel === item.fullKey ||
+                          selectedModel === item.model.id ||
+                          selectedModel === item.model.name
+
+                        const mainLabel = getModelOnly(item.model.name || item.model.id)
+                        const subLabel = getModelOnly(item.model.id)
+
+                        return (
+                          <button
+                            key={item.fullKey}
+                            type="button"
+                            onClick={() => {
+                              onModelChange(item.fullKey)
+                              setIsOpen(false)
+                            }}
+                            className={clsx(
+                              'w-full flex items-center justify-between px-3 py-2 rounded-xl text-left text-xs transition-all',
+                              isSelected
+                                ? 'bg-accent-primary/15 text-accent-primary font-bold border border-accent-primary/30'
+                                : 'text-text-secondary hover:bg-white/[0.06] hover:text-text-primary border border-transparent'
+                            )}
+                          >
+                            <div className="truncate pr-2">
+                              <div className="truncate font-semibold">{mainLabel}</div>
+                              {item.model.name && mainLabel !== subLabel && (
+                                <div className="text-[10px] text-text-muted font-mono truncate">{subLabel}</div>
+                              )}
+                            </div>
+                            {isSelected && <Check size={14} weight="bold" className="text-accent-primary shrink-0" />}
+                          </button>
+                        )
+                      })}
                     </div>
-                    {matchingModels.map((model) => (
-                      <button
-                        key={model.id}
-                        type="button"
-                        onClick={() => {
-                          onModelChange(model.id)
-                          setIsOpen(false)
-                        }}
-                        className={clsx(
-                          'w-full flex items-center justify-between rounded-xl px-3 py-1.5 transition-all text-left mt-0.5 select-none cursor-pointer',
-                          selectedModel === model.id
-                            ? 'bg-accent-primary/[0.12] text-accent-primary border border-accent-primary/20'
-                            : 'border border-transparent hover:bg-white/[0.04] text-text-primary'
-                        )}
-                      >
-                        <div className="flex flex-col min-w-0 pr-2">
-                          <div className="font-semibold text-xs text-text-primary/90">{model.name}</div>
-                          <div className="text-[9px] text-text-secondary/40 font-mono mt-0.5 truncate">{model.id}</div>
-                        </div>
-                        {selectedModel === model.id && <Check size={12} className="shrink-0 text-accent-primary" />}
-                      </button>
-                    ))}
-                  </div>
-                )
-              })}
+                  )
+                })
+              )}
             </div>
           </div>
         )}

@@ -754,8 +754,9 @@ export function QuickLauncher(): React.JSX.Element {
       if (cfg.modelSelectionShortcut) {
         setShortcut(cfg.modelSelectionShortcut)
       }
-      if (cfg.defaultModel) {
-        setActiveModelId(cfg.defaultModel)
+      const activeModel = cfg.quickLauncherModel || cfg.lastSelectedChatModel
+      if (activeModel) {
+        setActiveModelId(activeModel)
       }
       if (cfg.quickLauncherMode) {
         setQuickLauncherMode(cfg.quickLauncherMode)
@@ -775,8 +776,9 @@ export function QuickLauncher(): React.JSX.Element {
       if (cfg.modelSelectionShortcut) {
         setShortcut(cfg.modelSelectionShortcut)
       }
-      if (cfg.defaultModel) {
-        setActiveModelId(cfg.defaultModel)
+      const updatedModel = cfg.quickLauncherModel || cfg.lastSelectedChatModel
+      if (updatedModel) {
+        setActiveModelId(updatedModel)
       }
       if (cfg.quickLauncherMode) {
         setQuickLauncherMode(cfg.quickLauncherMode)

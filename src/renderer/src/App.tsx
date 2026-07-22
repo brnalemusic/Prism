@@ -1244,9 +1244,9 @@ function RealApp(): React.JSX.Element {
       const cfg = await window.api.getConfig()
       if (cfg) {
         setConfig(cfg)
-        if (cfg.defaultModel) {
-          setSelectedModel(cfg.defaultModel)
-          window.api.setModel(cfg.defaultModel)
+        if (cfg.lastSelectedChatModel) {
+          setSelectedModel(cfg.lastSelectedChatModel)
+          window.api.setModel(cfg.lastSelectedChatModel)
         }
         if (cfg.sessionMode) {
           setSessionMode(cfg.sessionMode)
@@ -1483,7 +1483,12 @@ function RealApp(): React.JSX.Element {
   const handleModelChange = useCallback((newModel: string): void => {
     setSelectedModel(newModel)
     window.api.setModel(newModel)
-  }, [])
+    if (config) {
+      const updatedConfig = { ...config, lastSelectedChatModel: newModel }
+      setConfig(updatedConfig)
+      window.api.saveConfig(updatedConfig)
+    }
+  }, [config])
 
   const handleReasoningLevelChange = useCallback(async (modelId: string, level: string): Promise<void> => {
     if (!config) return
@@ -1866,9 +1871,9 @@ function RealApp(): React.JSX.Element {
     setInputText('')
     setIsFullscreenInput(false)
     window.api.clearChat()
-    if (config?.defaultModel) {
-      setSelectedModel(config.defaultModel)
-      window.api.setModel(config.defaultModel)
+    if (config?.lastSelectedChatModel) {
+      setSelectedModel(config.lastSelectedChatModel)
+      window.api.setModel(config.lastSelectedChatModel)
     }
     setCurrentChatTitle(null)
     setIsTitleStreaming(false)
@@ -1876,7 +1881,7 @@ function RealApp(): React.JSX.Element {
       clearInterval(titleIntervalRef.current)
       titleIntervalRef.current = null
     }
-  }, [config?.defaultModel])
+  }, [config?.lastSelectedChatModel])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
@@ -1955,12 +1960,11 @@ function RealApp(): React.JSX.Element {
     }
   }, [handleSend, handleModelChange, handleNewChat])
 
-  const handleSaveApiKey = async (key: string): Promise<void> => {
+  const handleSaveApiKey = async (_key: string): Promise<void> => {
     if (config) {
-      const newConfig = { ...config, userGeminiKey: key }
-      const success = await window.api.saveConfig(newConfig)
-      if (success) {
-        setConfig(newConfig)
+      const freshConfig = await window.api.getConfig()
+      if (freshConfig) {
+        setConfig(freshConfig)
       }
     }
   }
@@ -2231,6 +2235,47 @@ function RealApp(): React.JSX.Element {
       }
     })
 
+    const removeToolCallDeltaListener = window.api.onToolCallDelta((data) => {
+      const { chatId, index, name, argsDelta } = data
+      if (chatId === currentChatIdRef.current) {
+        setMessages((prev) => {
+          const newMessages = [...prev]
+          const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
+          if (lastMsgIndex !== -1) {
+            const lastMsg = { ...newMessages[lastMsgIndex] }
+            const streamingToolCalls = lastMsg.streamingToolCalls ? [...lastMsg.streamingToolCalls] : []
+            const existingIdx = streamingToolCalls.findIndex((stc) => stc.index === index)
+            if (existingIdx !== -1) {
+              streamingToolCalls[existingIdx] = {
+                ...streamingToolCalls[existingIdx],
+                name: name || streamingToolCalls[existingIdx].name,
+                arguments: streamingToolCalls[existingIdx].arguments + (argsDelta || '')
+              }
+            } else {
+              streamingToolCalls.push({
+                index,
+                name: name || 'task',
+                arguments: argsDelta || '',
+                isComplete: false
+              })
+            }
+            // Ensure the tool-writing indicator shows even when the model (e.g. Gemini)
+            // goes straight to a tool call without producing any text first.
+            // Without this, isConnecting stays true and isWritingToolCall stays false,
+            // so the "Searching web" / "Working" label never renders.
+            newMessages[lastMsgIndex] = {
+              ...lastMsg,
+              isConnecting: false,
+              isWritingToolCall: true,
+              streamingToolCalls
+            }
+            return newMessages
+          }
+          return prev
+        })
+      }
+    })
+
     const removeToolStartListener = window.api.onToolStart((data) => {
       const { chatId } = data
       if (chatId === currentChatIdRef.current) {
@@ -2447,6 +2492,7 @@ function RealApp(): React.JSX.Element {
       removeChatChunkListener()
       removeChatEndListener()
       removeChatErrorListener()
+      removeToolCallDeltaListener()
       removeToolStartListener()
       removeToolEndListener()
       removeToolUpdateListener()
@@ -2673,10 +2719,22 @@ function RealApp(): React.JSX.Element {
     config
   ])
 
-  const hasGeminiKey = !!(config?.userGeminiKey || config?.envGeminiKey === 'present')
-  const hasNvidiaNimKey = !!(config?.userNvidiaNimKey || config?.envNvidiaNimKey === 'present')
-  const hasOpenaiKey = !!(config?.userOpenaiKey || config?.envOpenaiKey === 'present')
-  const isKeyMissing = !hasGeminiKey && !hasNvidiaNimKey && !hasOpenaiKey
+  const [hasActiveProviders, setHasActiveProviders] = useState<boolean>(true)
+
+  useEffect(() => {
+    const checkProviders = async () => {
+      try {
+        const providers = await window.api.getProviders()
+        const active = (providers || []).some((p) => p.apiKey && p.models.some((m) => m.enabled))
+        setHasActiveProviders(active)
+      } catch {
+        setHasActiveProviders(false)
+      }
+    }
+    checkProviders()
+  }, [config])
+
+  const isKeyMissing = !hasActiveProviders
 
   if (window.location.hash === '#mini-app') {
     return (
@@ -2734,7 +2792,7 @@ function RealApp(): React.JSX.Element {
             }
           }}
           isKeyMissing={isKeyMissing}
-          apiKey={config?.userGeminiKey || ''}
+          apiKey={''}
           onApiKeySave={handleSaveApiKey}
           configLoaded={config !== null}
         />
@@ -2744,7 +2802,7 @@ function RealApp(): React.JSX.Element {
         isOpen={isApiKeyModalOpen}
         onClose={() => setIsApiKeyModalOpen(false)}
         onSave={handleSaveApiKey}
-        initialValue={config?.userGeminiKey || ''}
+        initialValue={''}
       />
       <SearchModal
         isOpen={isSearchModalOpen}
@@ -2752,12 +2810,12 @@ function RealApp(): React.JSX.Element {
         onOpenChat={handleLoadChat}
       />
       {isSettingsModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8 animate-fade-in">
+        <div className="fixed inset-0 z-[100] overflow-y-auto p-2.5 sm:p-6 md:p-8 flex flex-col animate-soft-pop">
           <div
-            className="absolute inset-0 bg-black/[0.55] backdrop-blur-xl"
+            className="fixed inset-0 bg-black/65 backdrop-blur-xl"
             onClick={() => setIsSettingsModalOpen(false)}
           />
-          <div className="premium-panel relative w-full max-w-5xl h-[85vh] overflow-hidden rounded-[30px] border border-white/[0.08] shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex flex-col transform transition-all duration-300 scale-100 translate-y-0">
+          <div className="m-auto relative w-full max-w-5xl h-[92vh] sm:h-[85vh] overflow-hidden rounded-[24px] sm:rounded-[30px] border border-white/[0.12] bg-surface shadow-2xl flex flex-col z-10">
             <SettingsView onClose={() => setIsSettingsModalOpen(false)} />
           </div>
         </div>
@@ -2788,11 +2846,6 @@ function RealApp(): React.JSX.Element {
                 selectedModel={selectedModel}
                 onModelChange={handleModelChange}
                 disabled={isProcessing}
-                hasGeminiKey={hasGeminiKey}
-                hasNvidiaNimKey={hasNvidiaNimKey}
-                hasOpenaiKey={hasOpenaiKey}
-                openaiModelId={config?.openaiModelId}
-                openaiModelName={config?.openaiModelName}
               />
             </div>
           </>
@@ -2805,11 +2858,6 @@ function RealApp(): React.JSX.Element {
               onCancel={handleCancel}
               isProcessing={isProcessing}
               isKeyMissing={isKeyMissing}
-              hasGeminiKey={hasGeminiKey}
-              hasNvidiaNimKey={hasNvidiaNimKey}
-              hasOpenaiKey={hasOpenaiKey}
-              openaiModelId={config?.openaiModelId}
-              openaiModelName={config?.openaiModelName}
               disabled={isProcessing || isKeyMissing || !isOnline}
               selectedModel={selectedModel}
               onModelChange={handleModelChange}
@@ -2884,11 +2932,6 @@ function RealApp(): React.JSX.Element {
                             onCancel={handleCancel}
                             isProcessing={isProcessing}
                             isKeyMissing={isKeyMissing}
-                            hasGeminiKey={hasGeminiKey}
-                            hasNvidiaNimKey={hasNvidiaNimKey}
-                            hasOpenaiKey={hasOpenaiKey}
-                            openaiModelId={config?.openaiModelId}
-                            openaiModelName={config?.openaiModelName}
                             disabled={isProcessing || isKeyMissing || !isOnline}
                             selectedModel={selectedModel}
                             onModelChange={handleModelChange}
@@ -2965,11 +3008,6 @@ function RealApp(): React.JSX.Element {
                   onCancel={handleCancel}
                   isProcessing={isProcessing}
                   isKeyMissing={isKeyMissing}
-                  hasGeminiKey={hasGeminiKey}
-                  hasNvidiaNimKey={hasNvidiaNimKey}
-                  hasOpenaiKey={hasOpenaiKey}
-                  openaiModelId={config?.openaiModelId}
-                  openaiModelName={config?.openaiModelName}
                   disabled={isProcessing || isKeyMissing || !isOnline}
                   selectedModel={selectedModel}
                   onModelChange={handleModelChange}

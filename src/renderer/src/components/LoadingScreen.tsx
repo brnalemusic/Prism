@@ -230,7 +230,7 @@ export function LoadingScreen({
             if (keyMissing) {
               setKeyFailed(true)
               setErrorMsg(
-                'No Gemini API key configured. Prism requires a valid API key to continue.'
+                'No active API provider configured. Prism requires a valid API key to continue.'
               )
               setBootState('failed')
             }
@@ -288,7 +288,7 @@ function StepRow({ step }: { step: StepStatus }): React.JSX.Element {
 function buildSteps(state: BootState, keyFailed?: boolean): StepStatus[] {
   const base: StepStatus[] = [
     { label: 'Establishing connection', state: 'pending' },
-    { label: 'Verifying Gemini API key', state: 'pending' },
+    { label: 'Verifying API keys', state: 'pending' },
     { label: 'Testing connection', state: 'pending' },
     { label: 'Ready', state: 'pending' }
   ]

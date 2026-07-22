@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent, webFrame } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { StructuredChatResponse, StreamingToolCall } from '../main/gemini'
+import type { StructuredChatResponse, StreamingToolCall } from '../main/ai'
 import type { AppConfig } from '../main/config'
 import type {
   ToolUpdate,
@@ -598,6 +598,23 @@ const api = {
   },
   getTodoForChat: (chatId: string): Promise<TodoState | null> => {
     return ipcRenderer.invoke('get-todo-for-chat', chatId)
+  },
+  getProviders: (): Promise<any> => {
+    return ipcRenderer.invoke('get-providers')
+  },
+  saveProviders: (providers: any): Promise<boolean> => {
+    return ipcRenderer.invoke('save-providers', providers)
+  },
+  fetchProviderModels: (params: any): Promise<any> => {
+    return ipcRenderer.invoke('fetch-provider-models', params)
+  },
+  getActiveModels: (): Promise<any> => {
+    return ipcRenderer.invoke('get-active-models')
+  },
+  onToolCallDelta: (callback: (delta: any) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, delta: any): void => callback(delta)
+    ipcRenderer.on('chat-tool-call-delta', listener)
+    return () => ipcRenderer.removeListener('chat-tool-call-delta', listener)
   }
 }
 

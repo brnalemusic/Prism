@@ -1,7 +1,7 @@
 import { app, safeStorage } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
-import { SessionMode } from '../shared/types'
+import { SessionMode, ProviderConfig } from '../shared/types'
 
 export interface SlashWorkflow {
   id: string
@@ -20,20 +20,15 @@ export interface AppConfig {
   dictationShortcut: string
   webSearchShortcut: string
   youtubeModeShortcut: string
-  defaultModel: string
-  subagentModel: string
+  providers: ProviderConfig[]
+  lastSelectedChatModel?: string
+  sttModel?: string
+  quickLauncherModel?: string
+  searchModel?: string
+  subagentModel?: string
   minimizeToTray: boolean
   autoLaunch: boolean
   quickLauncherMode?: 'simple' | 'advanced'
-  userGeminiKey?: string
-  envGeminiKey?: string
-  userNvidiaNimKey?: string
-  envNvidiaNimKey?: string
-  userOpenaiKey?: string
-  envOpenaiKey?: string
-  openaiBaseUrl?: string
-  openaiModelId?: string
-  openaiModelName?: string
   username?: string
   appVersion?: string
   ttsVoice: string
@@ -47,7 +42,6 @@ export interface AppConfig {
   modelReasoningLevels?: Record<string, string>
 }
 
-
 const DEFAULT_CONFIG: AppConfig = {
   launcherShortcut: 'CommandOrControl+Space',
   modelSelectionShortcut: 'CommandOrControl+M',
@@ -56,18 +50,16 @@ const DEFAULT_CONFIG: AppConfig = {
   dictationShortcut: 'CommandOrControl+D',
   webSearchShortcut: 'CommandOrControl+S',
   youtubeModeShortcut: 'CommandOrControl+Y',
-  defaultModel: 'gemini-3.1-flash-lite',
-  subagentModel: 'gemini-3.1-flash-lite',
+  providers: [],
+  lastSelectedChatModel: '',
+  sttModel: '',
+  quickLauncherModel: '',
+  searchModel: '',
+  subagentModel: '',
   minimizeToTray: false,
   modelReasoningLevels: {},
   autoLaunch: false,
   quickLauncherMode: 'simple',
-  userGeminiKey: '',
-  userNvidiaNimKey: '',
-  userOpenaiKey: '',
-  openaiBaseUrl: '',
-  openaiModelId: '',
-  openaiModelName: '',
   ttsVoice: 'Aoede',
   theme: 'marine',
   zoomFactor: 1.0,
@@ -105,46 +97,11 @@ const DEFAULT_CONFIG: AppConfig = {
   ]
 }
 
-const VALID_MODEL_KEYS = new Set([
-  // Gemini
-  'gemini-3.1-flash-lite',
-  'gemini-3-flash',
-  'gemini-3.1-pro',
-  'gemini-3.5-flash',
-  // NVIDIA NIM
-  'deepseek-ai/deepseek-v4-flash',
-  'deepseek-ai/deepseek-v4-pro',
-  'minimaxai/minimax-m3',
-  'openai/gpt-oss-120b',
-  'stepfun-ai/step-3.7-flash',
-  'z-ai/glm-5.2'
-])
 const VALID_VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'])
 const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno', 'ursula', 'rgb'])
 const VALID_SESSION_MODES = new Set(['conversation', 'execution', 'discipline'])
 
-function mapLegacyModelKey(key: string): string {
-  const mapping: Record<string, string> = {
-    'prism-4': 'gemini-3.1-flash-lite',
-    'prism-4.1': 'gemini-3.1-flash-lite',
-    'prism-4.2': 'gemma-4-26b-a4b-it',
-    'prism-4.3': 'gemma-4-31b-it',
-    'prism-5': 'gemini-3.5-flash',
-    'prism-6-super-fast': 'gemini-3.1-flash-lite',
-    'prism-6-fast-old': 'gemini-3.1-flash-lite',
-    'prism-6-fast': 'gemini-3.5-flash',
-    'prism-6-dragon': 'gemma-4-26b-a4b-it',
-    'prism-6-dense': 'gemma-4-31b-it'
-  }
-  return mapping[key] || key
-}
-
 function normalizeConfig(config: AppConfig): AppConfig {
-  const defaultModel = mapLegacyModelKey(config.defaultModel)
-  const subagentModel = mapLegacyModelKey(config.subagentModel)
-  const isDefaultValid = VALID_MODEL_KEYS.has(defaultModel) || (config.openaiModelId && defaultModel === config.openaiModelId)
-  const isSubagentValid = VALID_MODEL_KEYS.has(subagentModel) || (config.openaiModelId && subagentModel === config.openaiModelId)
-
   return {
     ...config,
     launcherShortcut: config.launcherShortcut || DEFAULT_CONFIG.launcherShortcut,
@@ -154,13 +111,12 @@ function normalizeConfig(config: AppConfig): AppConfig {
     dictationShortcut: config.dictationShortcut || DEFAULT_CONFIG.dictationShortcut,
     webSearchShortcut: config.webSearchShortcut || DEFAULT_CONFIG.webSearchShortcut,
     youtubeModeShortcut: config.youtubeModeShortcut || DEFAULT_CONFIG.youtubeModeShortcut,
-    defaultModel: isDefaultValid ? defaultModel : DEFAULT_CONFIG.defaultModel,
-    subagentModel: isSubagentValid ? subagentModel : DEFAULT_CONFIG.subagentModel,
-    userNvidiaNimKey: typeof config.userNvidiaNimKey === 'string' ? config.userNvidiaNimKey : '',
-    userOpenaiKey: typeof config.userOpenaiKey === 'string' ? config.userOpenaiKey : '',
-    openaiBaseUrl: typeof config.openaiBaseUrl === 'string' ? config.openaiBaseUrl : '',
-    openaiModelId: typeof config.openaiModelId === 'string' ? config.openaiModelId : '',
-    openaiModelName: typeof config.openaiModelName === 'string' ? config.openaiModelName : '',
+    providers: Array.isArray(config.providers) ? config.providers : [],
+    lastSelectedChatModel: typeof config.lastSelectedChatModel === 'string' ? config.lastSelectedChatModel : '',
+    sttModel: typeof config.sttModel === 'string' ? config.sttModel : '',
+    quickLauncherModel: typeof config.quickLauncherModel === 'string' ? config.quickLauncherModel : '',
+    searchModel: typeof config.searchModel === 'string' ? config.searchModel : '',
+    subagentModel: typeof config.subagentModel === 'string' ? config.subagentModel : '',
     ttsVoice: VALID_VOICES.has(config.ttsVoice) ? config.ttsVoice : DEFAULT_CONFIG.ttsVoice,
     theme: VALID_THEMES.has(config.theme)
       ? (config.theme as 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb')
@@ -202,33 +158,21 @@ export function loadConfig(): AppConfig {
     const parsedConfig = JSON.parse(data)
     const config = normalizeConfig({ ...DEFAULT_CONFIG, ...parsedConfig })
 
-    if (
-      !parsedConfig.defaultModel ||
-      !VALID_MODEL_KEYS.has(mapLegacyModelKey(parsedConfig.defaultModel)) ||
-      !parsedConfig.subagentModel ||
-      !VALID_MODEL_KEYS.has(mapLegacyModelKey(parsedConfig.subagentModel))
-    ) {
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2))
-    }
-
-    // Decrypt API keys if they exist
-    const keysToDecrypt = ['userGeminiKey', 'userNvidiaNimKey', 'userOpenaiKey'] as const
-    for (const key of keysToDecrypt) {
-      const val = config[key]
-      if (val) {
-        const isHex = /^[0-9a-fA-F]+$/.test(val)
-        if (safeStorage.isEncryptionAvailable() && isHex) {
+    // Decrypt API keys inside providers if safeStorage was used
+    if (config.providers && Array.isArray(config.providers)) {
+      config.providers = config.providers.map((p) => {
+        let key = p.apiKey || ''
+        const isHex = /^[0-9a-fA-F]+$/.test(key)
+        if (key && safeStorage.isEncryptionAvailable() && isHex) {
           try {
-            const buffer = Buffer.from(val, 'hex')
-            config[key] = safeStorage.decryptString(buffer)
+            const buffer = Buffer.from(key, 'hex')
+            key = safeStorage.decryptString(buffer)
           } catch (e) {
-            console.error(`Failed to decrypt ${key}:`, e)
-            config[key] = ''
+            console.error(`Failed to decrypt provider ${p.name} key:`, e)
           }
-        } else if (isHex && !safeStorage.isEncryptionAvailable()) {
-          config[key] = ''
         }
-      }
+        return { ...p, apiKey: key }
+      })
     }
 
     return config
@@ -238,26 +182,39 @@ export function loadConfig(): AppConfig {
   }
 }
 
-export function saveConfig(config: AppConfig): boolean {
+export function saveConfig(config: Partial<AppConfig>): boolean {
   try {
     if (!fs.existsSync(CONFIG_DIR)) {
       fs.mkdirSync(CONFIG_DIR, { recursive: true })
     }
 
-    const configToSave = normalizeConfig({ ...config })
+    const existingConfig = loadConfig()
+    const mergedConfig = { ...existingConfig, ...config }
+    const configToSave = normalizeConfig(mergedConfig)
 
-    // Encrypt API keys if they exist and safeStorage is available
-    const keysToEncrypt = ['userGeminiKey', 'userNvidiaNimKey', 'userOpenaiKey'] as const
-    for (const key of keysToEncrypt) {
-      const val = configToSave[key]
-      if (val && safeStorage.isEncryptionAvailable()) {
-        try {
-          const encrypted = safeStorage.encryptString(val)
-          configToSave[key] = encrypted.toString('hex')
-        } catch (e) {
-          console.error(`Failed to encrypt ${key}:`, e)
+    // Encrypt API keys inside providers using safeStorage if not already encrypted
+    if (configToSave.providers && Array.isArray(configToSave.providers)) {
+      configToSave.providers = configToSave.providers.map((p) => {
+        let key = p.apiKey || ''
+        let isAlreadyEncrypted = false
+        if (key && /^[0-9a-fA-F]+$/.test(key)) {
+          try {
+            safeStorage.decryptString(Buffer.from(key, 'hex'))
+            isAlreadyEncrypted = true
+          } catch {
+            isAlreadyEncrypted = false
+          }
         }
-      }
+        if (key && safeStorage.isEncryptionAvailable() && !isAlreadyEncrypted) {
+          try {
+            const encrypted = safeStorage.encryptString(key)
+            key = encrypted.toString('hex')
+          } catch (e) {
+            console.error(`Failed to encrypt provider ${p.name} key:`, e)
+          }
+        }
+        return { ...p, apiKey: key }
+      })
     }
 
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(configToSave, null, 2))
@@ -267,3 +224,4 @@ export function saveConfig(config: AppConfig): boolean {
     return false
   }
 }
+

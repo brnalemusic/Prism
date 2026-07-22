@@ -25,45 +25,18 @@ import {
   YoutubeLogo,
   X
 } from '@phosphor-icons/react'
-import { MODELS } from '../constants'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import clsx from 'clsx'
-import type { SlashWorkflow } from '../../../main/config'
-import type { SessionMode } from '../../../shared/types'
+import type { AppConfig, SlashWorkflow } from '../../../main/config'
 
-interface Config {
-  launcherShortcut: string
-  modelSelectionShortcut: string
-  screenshotShortcut: string
-  newChatShortcut: string
-  dictationShortcut: string
-  webSearchShortcut: string
-  youtubeModeShortcut: string
-  defaultModel: string
-  subagentModel: string
-  minimizeToTray: boolean
-  autoLaunch: boolean
-  quickLauncherMode: 'simple' | 'advanced'
-  userGeminiKey: string
-  userNvidiaNimKey: string
-  userOpenaiKey: string
-  openaiBaseUrl: string
-  openaiModelId: string
-  openaiModelName: string
-  username?: string
-  appVersion?: string
-  ttsVoice: string
-  theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb'
-  zoomFactor: number
-  terminalShell?: string
-  workflows?: SlashWorkflow[]
-  rgbThemeExpiry?: number
-  sessionMode: SessionMode
-  disciplinePath?: string
-}
+type Config = AppConfig
+
+import { ApiManagerSettings } from './ApiManagerSettings'
+import { ModelSelector } from './ModelSelector'
 
 type SectionId =
   | 'shortcuts'
+  | 'providers'
   | 'intelligence'
   | 'runtime'
   | 'appearance'
@@ -141,6 +114,7 @@ function formatToolName(name: string): string {
 
 export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.Element {
   const [config, setConfig] = useState<Config>({
+    providers: [],
     launcherShortcut: 'CommandOrControl+Space',
     modelSelectionShortcut: 'CommandOrControl+M',
     screenshotShortcut: 'Ctrl+Alt+Space',
@@ -148,17 +122,9 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
     dictationShortcut: 'CommandOrControl+D',
     webSearchShortcut: 'CommandOrControl+S',
     youtubeModeShortcut: 'CommandOrControl+Y',
-    defaultModel: 'gemini-3.1-flash-lite',
-    subagentModel: 'gemini-3.1-flash-lite',
     minimizeToTray: false,
     autoLaunch: false,
     quickLauncherMode: 'simple',
-    userGeminiKey: '',
-    userNvidiaNimKey: '',
-    userOpenaiKey: '',
-    openaiBaseUrl: '',
-    openaiModelId: '',
-    openaiModelName: '',
     appVersion: '',
     ttsVoice: 'Aoede',
     theme: 'marine',
@@ -233,14 +199,9 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
       if (savedConfig) {
         setConfig({
           ...savedConfig,
+          providers: savedConfig.providers || [],
           autoLaunch: savedConfig.autoLaunch ?? false,
           quickLauncherMode: savedConfig.quickLauncherMode ?? 'simple',
-          userGeminiKey: savedConfig.userGeminiKey || '',
-          userNvidiaNimKey: savedConfig.userNvidiaNimKey || '',
-          userOpenaiKey: savedConfig.userOpenaiKey || '',
-          openaiBaseUrl: savedConfig.openaiBaseUrl || '',
-          openaiModelId: savedConfig.openaiModelId || '',
-          openaiModelName: savedConfig.openaiModelName || '',
           screenshotShortcut: savedConfig.screenshotShortcut || 'Ctrl+Alt+Space',
           newChatShortcut: savedConfig.newChatShortcut || 'CommandOrControl+N',
           dictationShortcut: savedConfig.dictationShortcut || 'CommandOrControl+D',
@@ -265,14 +226,9 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
         setConfig((prev) => ({
           ...prev,
           ...cfg,
+          providers: cfg.providers || prev.providers || [],
           autoLaunch: cfg.autoLaunch ?? false,
           quickLauncherMode: cfg.quickLauncherMode ?? 'simple',
-          userGeminiKey: cfg.userGeminiKey || '',
-          userNvidiaNimKey: cfg.userNvidiaNimKey || '',
-          userOpenaiKey: cfg.userOpenaiKey || '',
-          openaiBaseUrl: cfg.openaiBaseUrl || '',
-          openaiModelId: cfg.openaiModelId || '',
-          openaiModelName: cfg.openaiModelName || '',
           screenshotShortcut: cfg.screenshotShortcut || 'Ctrl+Alt+Space',
           newChatShortcut: cfg.newChatShortcut || prev.newChatShortcut || 'CommandOrControl+N',
           dictationShortcut: cfg.dictationShortcut || prev.dictationShortcut || 'CommandOrControl+D',
@@ -311,6 +267,7 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
 
   const handleReset = (): void => {
     setConfig({
+      providers: config.providers || [],
       launcherShortcut: 'CommandOrControl+Space',
       modelSelectionShortcut: 'CommandOrControl+M',
       screenshotShortcut: 'Ctrl+Alt+Space',
@@ -318,17 +275,9 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
       dictationShortcut: 'CommandOrControl+D',
       webSearchShortcut: 'CommandOrControl+S',
       youtubeModeShortcut: 'CommandOrControl+Y',
-      defaultModel: 'gemini-3.1-flash-lite',
-      subagentModel: 'gemini-3.1-flash-lite',
       minimizeToTray: false,
       autoLaunch: false,
       quickLauncherMode: 'simple',
-      userGeminiKey: '',
-      userNvidiaNimKey: '',
-      userOpenaiKey: '',
-      openaiBaseUrl: '',
-      openaiModelId: '',
-      openaiModelName: '',
       appVersion: config.appVersion,
       ttsVoice: 'Aoede',
       theme: 'marine',
@@ -349,6 +298,7 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
 
   const sections: NavSection[] = [
     { id: 'shortcuts', label: 'Shortcuts', icon: <Keyboard size={18} weight="bold" /> },
+    { id: 'providers', label: 'API Keys & Providers', icon: <Key size={18} weight="bold" /> },
     { id: 'intelligence', label: 'Intelligence', icon: <Bot size={18} weight="bold" /> },
     { id: 'runtime', label: 'AI Runtime', icon: <Shield size={18} weight="bold" /> },
     { id: 'appearance', label: 'Appearance', icon: <Palette size={18} weight="bold" /> },
@@ -522,66 +472,81 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
     </div>
   )
 
-  const renderModelGrid = (
-    selectedModel: string,
-    onSelect: (id: string) => void
-  ): React.JSX.Element => (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {MODELS.map((model) => (
-        <button
-          key={model.id}
-          onClick={() => onSelect(model.id)}
-          className={clsx(
-            'relative flex flex-col items-start rounded-[20px] border p-4 text-left transition-all duration-200 active:scale-[0.98]',
-            selectedModel === model.id
-              ? 'border-accent-primary/30 bg-accent-primary/[0.09]'
-              : 'border-white/[0.08] bg-white/[0.035] hover:bg-white/[0.055]'
-          )}
-        >
-          <span
-            className={clsx(
-              'mb-1 text-sm font-semibold',
-              selectedModel === model.id
-                ? 'text-accent-primary'
-                : 'text-text-primary'
-            )}
-          >
-            {model.name}
-          </span>
-        </button>
-      ))}
-    </div>
-  )
-
   const renderIntelligence = (): React.JSX.Element => (
     <div className="space-y-8 animate-soft-pop">
       <SectionHeader
-        title="Intelligence"
-        subtitle="Choose which models power Prism's main chat and subagent orchestration."
+        title="Feature Intelligence Model Assignments"
+        subtitle="Assign specific AI models for Dictation (STT), Quick Launcher, Search, and Subagents."
       />
 
-      {/* Default Model */}
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-          <span className="flex h-5 w-5 items-center justify-center rounded-md bg-accent-primary/10">
-            <Bot size={12} className="text-accent-primary" />
-          </span>
-          Model at Startup
-        </h3>
-        {renderModelGrid(config.defaultModel, (id) => setConfig({ ...config, defaultModel: id }))}
-      </div>
+      <div className="space-y-6">
+        {/* Speech-To-Text Dictator Model */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035]">
+          <div>
+            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+              <Microphone size={16} className="text-accent-primary" />
+              Dictator (Speech-To-Text / Audio) Model
+            </h3>
+            <p className="text-xs text-text-secondary/60 mt-1">
+              Used for audio transcription when recording voice input.
+            </p>
+          </div>
+          <ModelSelector
+            selectedModel={(config as any).sttModel || ''}
+            onModelChange={(m) => setConfig({ ...config, sttModel: m } as any)}
+          />
+        </div>
 
-      <div className="h-px bg-white/[0.04]" />
+        {/* Quick Launcher Model */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035]">
+          <div>
+            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+              <Lightning size={16} className="text-amber-400" />
+              Quick Launcher Assistant Model
+            </h3>
+            <p className="text-xs text-text-secondary/60 mt-1">
+              Used when asking fast questions in the Quick Launcher bar.
+            </p>
+          </div>
+          <ModelSelector
+            selectedModel={(config as any).quickLauncherModel || ''}
+            onModelChange={(m) => setConfig({ ...config, quickLauncherModel: m } as any)}
+          />
+        </div>
 
-      {/* Subagent Model */}
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-          <span className="flex h-5 w-5 items-center justify-center rounded-md bg-accent-secondary/10">
-            <Bot size={12} className="text-accent-secondary" />
-          </span>
-          Subagent Orchestration
-        </h3>
-        {renderModelGrid(config.subagentModel, (id) => setConfig({ ...config, subagentModel: id }))}
+        {/* Conversation Search Model */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035]">
+          <div>
+            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+              <Globe size={16} className="text-emerald-400" />
+              Conversation Search Model
+            </h3>
+            <p className="text-xs text-text-secondary/60 mt-1">
+              Used for searching and synthesizing past conversation history.
+            </p>
+          </div>
+          <ModelSelector
+            selectedModel={(config as any).searchModel || ''}
+            onModelChange={(m) => setConfig({ ...config, searchModel: m } as any)}
+          />
+        </div>
+
+        {/* Subagent Orchestration Model */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035]">
+          <div>
+            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+              <Bot size={16} className="text-purple-400" />
+              Subagents Swarm Model
+            </h3>
+            <p className="text-xs text-text-secondary/60 mt-1">
+              Used by delegated worker subagents during swarm tasks.
+            </p>
+          </div>
+          <ModelSelector
+            selectedModel={config.subagentModel || ''}
+            onModelChange={(m) => setConfig({ ...config, subagentModel: m })}
+          />
+        </div>
       </div>
     </div>
   )
@@ -980,80 +945,14 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
 
       <div className="h-px bg-white/[0.04]" />
 
-      {/* API Keys */}
-      <div className="space-y-6">
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-            <Key size={16} className="text-accent-primary" />
-            Gemini API Key
-          </h3>
-          <input
-            type="password"
-            value={config.userGeminiKey || ''}
-            onChange={(e) => setConfig({ ...config, userGeminiKey: e.target.value })}
-            placeholder="If left blank, Prism will use the default key (if available)"
-            className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
-          />
+      <div className="flex items-start gap-2 rounded-[18px] border border-accent-primary/10 bg-accent-primary/[0.045] p-3">
+        <div className="text-accent-secondary shrink-0 mt-0.5">
+          <Shield size={14} />
         </div>
-
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-            <Lightning size={16} className="text-accent-primary" />
-            NVIDIA NIM API Key
-          </h3>
-          <input
-            type="password"
-            value={config.userNvidiaNimKey || ''}
-            onChange={(e) => setConfig({ ...config, userNvidiaNimKey: e.target.value })}
-            placeholder="Enter your NVIDIA NIM API key"
-            className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
-          />
-        </div>
-
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-            <Globe size={16} className="text-accent-primary" />
-            OpenAI Compatible
-          </h3>
-          <input
-            type="password"
-            value={config.userOpenaiKey || ''}
-            onChange={(e) => setConfig({ ...config, userOpenaiKey: e.target.value })}
-            placeholder="API Key"
-            className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
-          />
-          <input
-            type="text"
-            value={config.openaiBaseUrl || ''}
-            onChange={(e) => setConfig({ ...config, openaiBaseUrl: e.target.value })}
-            placeholder="Base URL (e.g. https://api.openai.com/v1)"
-            className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
-          />
-          <input
-            type="text"
-            value={config.openaiModelId || ''}
-            onChange={(e) => setConfig({ ...config, openaiModelId: e.target.value })}
-            placeholder="Model ID (e.g. gpt-4o)"
-            className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
-          />
-          <input
-            type="text"
-            value={config.openaiModelName || ''}
-            onChange={(e) => setConfig({ ...config, openaiModelName: e.target.value })}
-            placeholder="Display Name (e.g. GPT-4o)"
-            className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
-          />
-        </div>
-
-        <div className="flex items-start gap-2 rounded-[18px] border border-accent-primary/10 bg-accent-primary/[0.045] p-3">
-          <div className="text-accent-secondary shrink-0 mt-0.5">
-            <Shield size={14} />
-          </div>
-          <p className="text-[11px] text-text-secondary/70 leading-normal">
-            Your keys are saved locally in an encrypted format. Prism does not collect or share your
-            API keys.
-          </p>
-        </div>
+        <p className="text-[11px] text-text-secondary/70 leading-normal">
+          Your keys are saved locally in an encrypted format. Prism does not collect or share your
+          API keys.
+        </p>
       </div>
     </div>
   )
@@ -1427,6 +1326,8 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
     switch (activeSection) {
       case 'shortcuts':
         return renderShortcuts()
+      case 'providers':
+        return <ApiManagerSettings />
       case 'intelligence':
         return renderIntelligence()
       case 'runtime':

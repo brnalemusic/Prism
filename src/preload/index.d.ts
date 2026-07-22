@@ -218,6 +218,11 @@ export interface PrismAPI {
   onTodoUpdate: (callback: (data: TodoState) => void) => () => void
   onTodoComplete: (callback: (data: { chatId: string }) => void) => () => void
   getTodoForChat: (chatId: string) => Promise<TodoState | null>
+  getProviders: () => Promise<import('../shared/types').ProviderConfig[]>
+  saveProviders: (providers: import('../shared/types').ProviderConfig[]) => Promise<boolean>
+  fetchProviderModels: (params: { baseUrl: string; apiKey: string; completionType: import('../shared/types').CompletionType }) => Promise<{ success: boolean; models: import('../shared/types').ProviderModel[]; error?: string }>
+  getActiveModels: () => Promise<Array<{ providerId: string; providerName: string; isProviderTrusted: boolean; model: import('../shared/types').ProviderModel; fullKey: string }>>
+  onToolCallDelta: (callback: (delta: import('../shared/types').StreamToolCallDelta & { chatId: string }) => void) => () => void
 }
 
 declare global {

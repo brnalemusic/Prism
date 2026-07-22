@@ -32,68 +32,85 @@ export const KEEPALIVE_WINDOW_MS = 2 * 60 * 60 * 1000 // 2 hours
 /** Heartbeat cadence — kept safely under the undici 3.5-min keepAliveTimeout. */
 export const HEARTBEAT_INTERVAL_MS = 150000 // 2.5 minutes
 
-let userApiKey: string | null = null
-
-/** In-memory expiry timestamp of the current keep-alive window. */
 let connectionSessionExpiry = 0
 let heartbeatTimer: NodeJS.Timeout | null = null
 
-/**
- * Sets the user's API key for connection testing. Mirrors gemini.ts so this
- * module can validate the key independently.
- */
-export function setConnectionApiKey(key: string): void {
-  userApiKey = key
+export function setConnectionApiKey(_key: string): void {
+  // Deprecated stub
 }
 
 /**
  * Lightweight ping to the Gemini API used both as the pre-launch connection
  * test and as the keep-alive heartbeat.
  */
-export async function testGeminiConnection(overrideKey?: string): Promise<ConnectionTestResult> {
-  const apiKey = overrideKey || userApiKey || process.env.GEMINI_API_KEY
+import { loadConfig } from './config'
 
-  if (!apiKey || apiKey.trim() === '' || apiKey === 'your_api_key_here') {
+export async function testGeminiConnection(_overrideKey?: string): Promise<ConnectionTestResult> {
+  const config = loadConfig()
+  const providers = config.providers || []
+  const activeProvider = providers.find((p) => p.apiKey && p.apiKey.trim() !== '' && p.models.some((m) => m.enabled))
+
+  if (!activeProvider || !activeProvider.apiKey) {
     return {
       ok: false,
       errorType: 'invalid-key',
-      message: 'No Gemini API key is configured.'
+      message: 'No active API provider configured. Please add an API provider.'
     }
   }
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
-      { method: 'GET' }
-    )
-    if (response.ok) {
+    const baseUrl = activeProvider.baseUrl.replace(/\/+$/, '')
+    const headers: Record<string, string> = {}
+
+    if (activeProvider.completionType === 'anthropic_messages') {
+      headers['x-api-key'] = activeProvider.apiKey
+      headers['anthropic-version'] = '2023-06-01'
+    } else if (baseUrl.includes('generativelanguage.googleapis.com')) {
+      headers['x-goog-api-key'] = activeProvider.apiKey
+    } else {
+      headers['Authorization'] = `Bearer ${activeProvider.apiKey}`
+    }
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 8000)
+
+    const response = await fetch(`${baseUrl}/models`, {
+      method: 'GET',
+      headers,
+      signal: controller.signal
+    })
+    clearTimeout(timeout)
+
+    if (response.ok || response.status === 200 || response.status === 404) {
       return { ok: true }
     }
+
     if (response.status === 401 || response.status === 403) {
       return {
         ok: false,
         errorType: 'invalid-key',
-        message: 'Your Gemini API key is invalid or expired.'
+        message: `API key for provider "${activeProvider.name}" is invalid or expired.`
       }
     }
+
     return {
       ok: false,
       errorType: 'server',
-      message: `Gemini servers returned status ${response.status}.`
+      message: `Provider "${activeProvider.name}" returned status ${response.status}.`
     }
   } catch (error) {
-    return classifyError(error, null)
+    return classifyError(error, activeProvider.name)
   }
 }
 
 /**
- * Maps a Gemini/HTTP error to a coarse errorType for the loading screen.
+ * Maps an HTTP/network error to a coarse errorType for the loading screen.
  */
-function classifyError(primary: unknown, secondary: unknown): ConnectionTestResult {
+function classifyError(primary: unknown, providerName?: string): ConnectionTestResult {
   const msg = (e: unknown): string =>
     e instanceof Error ? e.message : typeof e === 'string' ? e : JSON.stringify(e)
 
-  const text = `${msg(primary)} ${msg(secondary)}`.toLowerCase()
+  const text = msg(primary).toLowerCase()
 
   if (
     text.includes('api key not valid') ||
@@ -106,7 +123,7 @@ function classifyError(primary: unknown, secondary: unknown): ConnectionTestResu
     return {
       ok: false,
       errorType: 'invalid-key',
-      message: 'Your Gemini API key is invalid or expired.'
+      message: `API key for provider "${providerName || 'API'}" is invalid or expired.`
     }
   }
 
@@ -131,14 +148,14 @@ function classifyError(primary: unknown, secondary: unknown): ConnectionTestResu
     return {
       ok: false,
       errorType: 'server',
-      message: 'Gemini servers are busy. Try again in a moment.'
+      message: `Servers for provider "${providerName || 'API'}" are busy. Try again in a moment.`
     }
   }
 
   return {
     ok: false,
     errorType: 'unknown',
-    message: msg(primary) || 'Could not reach the Gemini API.'
+    message: msg(primary) || 'Could not reach the configured API provider.'
   }
 }
 
