@@ -59,15 +59,20 @@ export function getNativeToolsForOpenAi(target: 'main' | 'subagent' | 'launcher'
       for (const [key, desc] of Object.entries(t.parameters || {})) {
         properties[key] = { type: 'string', description: desc }
       }
+      const hasParams = Object.keys(properties).length > 0
       return {
         type: 'function',
         function: {
           name: t.name,
           description: t.description,
-          parameters: {
-            type: 'object',
-            properties
-          }
+          ...(hasParams
+            ? {
+                parameters: {
+                  type: 'object',
+                  properties
+                }
+              }
+            : {})
         }
       }
     })
@@ -215,7 +220,7 @@ export async function handleChatMessage(
 
     const openAiTools = getNativeToolsForOpenAi('main')
 
-    let maxLoops = 10
+    let maxLoops = 100
     let loopCount = 0
     let accumulatedReplyText = ''
     let accumulatedReasoningText = ''
@@ -315,9 +320,10 @@ export async function handleChatMessage(
         accumulatedReasoningText = accumulatedReasoningText ? accumulatedReasoningText + '\n\n' + iterThoughts : iterThoughts
       }
 
-      const assistantMessage: OpenAiMessage = {
+      const assistantMessage: OpenAiMessage & { reasoning_content?: string } = {
         role: 'assistant',
-        content: accumulatedReplyText || null
+        content: streamResult.toolCalls.length > 0 ? (iterContent || null) : (accumulatedReplyText || iterContent || null),
+        ...(accumulatedReasoningText || iterThoughts ? { reasoning_content: accumulatedReasoningText || iterThoughts } : {})
       }
 
       if (streamResult.toolCalls.length > 0) {
@@ -435,7 +441,9 @@ export async function handleChatMessage(
     if (abortController.signal.aborted || error.name === 'AbortError') {
       event.sender.send('chat-reply-error', { error: 'Message cancelled by user', chatId })
     } else {
-      console.error('Error in handleChatMessage:', error)
+      console.error(`[Main Chat] Error in handleChatMessage for chat ${chatId}:`, error)
+      console.error(`[Main Chat] Error name: ${error.name}, message: ${error.message}`)
+      if (error.stack) console.error(`[Main Chat] Stack: ${error.stack}`)
       event.sender.send('chat-reply-error', { error: error.message || String(error), chatId })
     }
   } finally {
@@ -455,10 +463,15 @@ function convertHistoryToOpenAi(history: any[]): OpenAiMessage[] {
           content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
         }
       }
+      const hasToolCalls = Array.isArray(m.tool_calls) && m.tool_calls.length > 0
+      const content = m.content ?? (m.parts ? m.parts.map((p: any) => p.text || '').join('\n') : null)
+      const reasoning = m.reasoning_content || m.reasoning || m.thoughts
       return {
         role: m.role === 'model' ? 'assistant' : m.role,
-        content: m.content || (m.parts ? m.parts.map((p: any) => p.text || '').join('\n') : ''),
-        tool_calls: m.tool_calls
+        // Preserve null for assistant messages with tool_calls (required by some APIs like Google AI Studio)
+        content: hasToolCalls && (content === null || content === '') ? null : (content || ''),
+        tool_calls: m.tool_calls,
+        ...(reasoning ? { reasoning_content: reasoning } : {})
       }
     })
 }

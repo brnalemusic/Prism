@@ -41,13 +41,22 @@ function sanitizeId(id: string): string {
  * Safely extracts text from content parts, combining all text components.
  * Optionally filters out technical blocks like tool calls and system results.
  */
-export function getMessageText(content?: Content, clean = false): string {
-  if (!content || !content.parts) return ''
+export function getMessageText(content?: Content | any, clean = false): string {
+  if (!content) return ''
 
-  let text = content.parts
-    .map((p) => p.text || '')
-    .join(' ')
-    .trim()
+  let text = ''
+  if (typeof content.content === 'string') {
+    text = content.content
+  } else if (Array.isArray(content.content)) {
+    text = content.content
+      .map((p: any) => (typeof p === 'string' ? p : p.text || ''))
+      .join(' ')
+  } else if (content.parts) {
+    text = content.parts
+      .map((p: any) => p.text || '')
+      .join(' ')
+  }
+  text = text.trim()
 
   if (clean && text) {
     // Remove tool calls

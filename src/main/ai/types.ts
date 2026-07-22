@@ -37,7 +37,7 @@ export interface OpenAiToolDefinition {
   function: {
     name: string
     description: string
-    parameters: Record<string, unknown>
+    parameters?: Record<string, unknown>
   }
 }
 

@@ -48,7 +48,7 @@ export async function streamOpenAiCompletion(
     endpoint = `${normUrl}/chat/completions`
   }
 
-  console.log(`[Main Chat] Calling ${modelId} with [${provider.name || provider.baseUrl}]`)
+  console.log(`[Main Chat] Calling ${modelId} with [${provider.name || provider.baseUrl}] (${messages.length} messages, ${tools?.length || 0} tools)`)
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
@@ -78,6 +78,9 @@ export async function streamOpenAiCompletion(
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '')
+    console.error(`[AI Client] API Error ${response.status} (${response.statusText}) from ${endpoint}`)
+    console.error(`[AI Client] Response body: ${errorText}`)
+    console.error(`[AI Client] Request model: ${modelId}, messages count: ${messages.length}, tools count: ${tools?.length || 0}`)
     throw new Error(`API Error ${response.status} (${response.statusText}): ${errorText}`)
   }
 

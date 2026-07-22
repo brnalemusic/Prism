@@ -1526,7 +1526,21 @@ function RealApp(): React.JSX.Element {
           let screenshot: string | undefined = undefined
           let file: AttachedFile | undefined = undefined
 
-          if (m.parts) {
+          const mAny = m as any
+          if (typeof mAny.content === 'string') {
+            text = mAny.content
+          } else if (Array.isArray(mAny.content)) {
+            for (const part of mAny.content) {
+              if (typeof part === 'string') {
+                text += part
+              } else if (part?.text) {
+                text += part.text
+              }
+              if (part?.type === 'image_url' && part.image_url?.url) {
+                screenshot = part.image_url.url
+              }
+            }
+          } else if (m.parts) {
             for (const part of m.parts) {
               if (part.text) {
                 text += part.text
@@ -1638,7 +1652,7 @@ function RealApp(): React.JSX.Element {
               file,
               isStreaming: false
             })
-          } else if (m.role === 'model') {
+          } else if (m.role === 'model' || m.role === 'assistant') {
             let aiMsg: Message | undefined = mappedMessages[mappedMessages.length - 1]
 
             if (!aiMsg || aiMsg.role !== 'ai') {
@@ -1654,7 +1668,34 @@ function RealApp(): React.JSX.Element {
               mappedMessages.push(aiMsg)
             }
 
-            // Reconstruct native tool calls from functionCall parts
+            // Extract explicit reasoning/thoughts stored on message object
+            const directReasoning = (m as any).reasoning_content || (m as any).reasoning || (m as any).thoughts
+            if (directReasoning && typeof directReasoning === 'string') {
+              aiMsg.thoughts = (aiMsg.thoughts ? aiMsg.thoughts + '\n\n' : '') + directReasoning.trim()
+            }
+
+            // Reconstruct native tool calls from functionCall parts or tool_calls
+            if (Array.isArray(mAny.tool_calls)) {
+              for (const tc of mAny.tool_calls) {
+                if (!aiMsg.toolCalls) aiMsg.toolCalls = []
+                let tcArgs: any = {}
+                try {
+                  tcArgs = typeof tc.function?.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function?.arguments || {}
+                } catch {
+                  tcArgs = { raw: tc.function?.arguments }
+                }
+                const tcName = tc.function?.name || ''
+                const alreadyExists = aiMsg.toolCalls.some(t => t.name === tcName && JSON.stringify(t.args) === JSON.stringify(tcArgs))
+                if (tcName && !alreadyExists) {
+                  aiMsg.toolCalls.push({
+                    name: tcName,
+                    args: tcArgs,
+                    status: 'done'
+                  })
+                }
+              }
+            }
+
             for (const part of m.parts || []) {
               const fCall = (part as any).functionCall
               if (fCall) {
@@ -1678,15 +1719,15 @@ function RealApp(): React.JSX.Element {
               }
             }
 
-            // Parse Thoughts and extract them from content
-            const thoughtsRegex = /<thought>([\s\S]*?)<\/thought>/gi
+            // Parse Thoughts and extract them from content tags (<thought> or <think>)
+            const thoughtsRegex = /<(?:thought|think)>([\s\S]*?)<\/(?:thought|think)>/gi
             let thoughtsMatch
             while ((thoughtsMatch = thoughtsRegex.exec(text)) !== null) {
-              aiMsg.thoughts = (aiMsg.thoughts || '') + thoughtsMatch[1].trim() + '\n\n'
+              aiMsg.thoughts = (aiMsg.thoughts ? aiMsg.thoughts + '\n\n' : '') + thoughtsMatch[1].trim()
             }
 
             // Remove thoughts from the text that will become content
-            const textWithoutThoughts = text.replace(/<thought>[\s\S]*?<\/thought>/gi, '').trim()
+            const textWithoutThoughts = text.replace(/<(?:thought|think)>[\s\S]*?<\/(?:thought|think)>/gi, '').trim()
 
             // Parse Tool Calls (DO NOT remove from content, as renderAiMessage needs them as markers)
             const toolCallRegex = /\[PRISM_EXECUTE_TOOL\]([\s\S]*?)\[\/PRISM_EXECUTE_TOOL\]/gi
@@ -2072,6 +2113,20 @@ function RealApp(): React.JSX.Element {
             `[UI Chat] onChatChunk state update: lastMsg index=${lastMsgIndex}, lastMsg role=${lastMsg?.role}, isStreaming=${lastMsg?.isStreaming}`
           )
           if (lastMsg && lastMsg.role === 'ai') {
+            let updatedToolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
+
+            if (updatedToolCalls.some((t) => t.status === 'running' && t.result !== undefined)) {
+              updatedToolCalls = updatedToolCalls.map((tc) => {
+                if (tc.status === 'running' && tc.result !== undefined) {
+                  return {
+                    ...tc,
+                    status: tc.result.startsWith('Error') ? 'error' : 'done'
+                  }
+                }
+                return tc
+              })
+            }
+
             newMessages[lastMsgIndex] = {
               ...lastMsg,
               thoughts,
@@ -2080,7 +2135,8 @@ function RealApp(): React.JSX.Element {
               isWritingToolCall,
               toolType,
               streamingToolCalls,
-              isConnecting: false
+              isConnecting: false,
+              toolCalls: updatedToolCalls
             }
           } else {
             console.warn(
@@ -2130,6 +2186,16 @@ function RealApp(): React.JSX.Element {
                 }
               }
             }
+
+            promotedToolCalls = promotedToolCalls.map((tc) => {
+              if (tc.status === 'running') {
+                return {
+                  ...tc,
+                  status: tc.result && tc.result.startsWith('Error') ? 'error' : 'done'
+                }
+              }
+              return tc
+            })
             newMessages[lastMsgIndex] = {
               ...lastMsg,
               thoughts,
@@ -2259,14 +2325,24 @@ function RealApp(): React.JSX.Element {
                 isComplete: false
               })
             }
-            // Ensure the tool-writing indicator shows even when the model (e.g. Gemini)
-            // goes straight to a tool call without producing any text first.
-            // Without this, isConnecting stays true and isWritingToolCall stays false,
-            // so the "Searching web" / "Working" label never renders.
+            // Transition any finished running tool calls to done/error when next tool delta arrives
+            let toolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
+            if (toolCalls.some((t) => t.status === 'running' && t.result !== undefined)) {
+              toolCalls = toolCalls.map((tc) => {
+                if (tc.status === 'running' && tc.result !== undefined) {
+                  return {
+                    ...tc,
+                    status: tc.result.startsWith('Error') ? 'error' : 'done'
+                  }
+                }
+                return tc
+              })
+            }
             newMessages[lastMsgIndex] = {
               ...lastMsg,
               isConnecting: false,
               isWritingToolCall: true,
+              toolCalls,
               streamingToolCalls
             }
             return newMessages
@@ -2285,16 +2361,24 @@ function RealApp(): React.JSX.Element {
 
           if (lastMsgIndex !== -1) {
             const lastMsg = { ...newMessages[lastMsgIndex] }
-            const toolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
+            let toolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
 
-            // Check if there's an existing entry promoted from streaming (status 'running'
-            // without args yet, or a 'writing' leftover) that we should update in-place
+            // Transition any previous running tool calls that finished execution to done/error
+            toolCalls = toolCalls.map((t) => {
+              if (t.status === 'running' && t.result !== undefined) {
+                return {
+                  ...t,
+                  status: t.result.startsWith('Error') ? 'error' : 'done'
+                }
+              }
+              return t
+            })
+
             const promotedIndex = toolCalls.findLastIndex(
-              (t) => t.name === data.name && t.status === 'running'
+              (t) => t.name === data.name && (t.status === 'running' || t.status === 'done')
             )
 
             if (promotedIndex !== -1) {
-              // Update the promoted entry with the real args from the tool-start event
               toolCalls[promotedIndex] = {
                 ...toolCalls[promotedIndex],
                 args: data.args,
@@ -2336,9 +2420,10 @@ function RealApp(): React.JSX.Element {
             )
 
             if (lastToolIndex !== -1) {
+              // Save execution result but keep status: 'running' so shimmer stays active
+              // until the next AI streaming chunk or tool call arrives.
               toolCalls[lastToolIndex] = {
                 ...toolCalls[lastToolIndex],
-                status: data.result.startsWith('Error') ? 'error' : 'done',
                 result: data.result
               }
               lastMsg.toolCalls = toolCalls

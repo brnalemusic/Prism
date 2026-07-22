@@ -26,11 +26,11 @@ export async function handleAiSearchChatMessage(
   const { provider, model } = resolveProviderAndModel(modelSelection)
 
   if (!provider || !provider.apiKey || !model) {
-    event.sender.send('ai-search-error', { error: 'No active AI Provider configured for search' })
+    event.sender.send('ai-search-reply-error', { error: 'No active AI Provider configured for search' })
     return
   }
 
-  event.sender.send('ai-search-start')
+  event.sender.send('ai-search-reply-start')
 
   try {
     const offlineData = searchChatsOffline(query)
@@ -66,7 +66,7 @@ export async function handleAiSearchChatMessage(
       {
         onTextDelta: (text) => {
           fullText += text
-          event.sender.send('ai-search-chunk', { text })
+          event.sender.send('ai-search-reply-chunk', { text })
         },
         onReasoningDelta: () => {},
         onToolCallDelta: () => {}
@@ -75,17 +75,17 @@ export async function handleAiSearchChatMessage(
 
     console.log(`[AI SEARCH DEBUG MAIN] AI Search completed. response: ${result.text?.length || 0} chars`)
 
-    event.sender.send('ai-search-end', {
+    event.sender.send('ai-search-reply-end', {
       finalResponse: result.text,
       offlineResults: offlineData.results
     })
   } catch (error: any) {
     if (searchAbortController?.signal.aborted) {
       console.log('[AI SEARCH DEBUG MAIN] Search aborted before main loop')
-      event.sender.send('ai-search-error', { error: 'Search cancelled' })
+      event.sender.send('ai-search-reply-error', { error: 'Search cancelled' })
     } else {
       console.error('AI Search Error:', error)
-      event.sender.send('ai-search-error', { error: error.message || String(error) })
+      event.sender.send('ai-search-reply-error', { error: error.message || String(error) })
     }
   } finally {
     searchAbortController = null

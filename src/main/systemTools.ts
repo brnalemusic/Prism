@@ -1,12 +1,13 @@
 import { exec, execFile } from 'child_process'
-import { shell, desktopCapturer, app, BrowserWindow } from 'electron'
+import { shell, desktopCapturer, app, BrowserWindow, ipcMain } from 'electron'
 
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as os from 'os'
 import { toolsManifest } from './toolsManifest'
 import { DownloadProgress, SessionMode, TodoState } from '../shared/types'
-import { loadConfig } from './config'
+import { loadConfig, saveConfig, SlashWorkflow } from './config'
+import { searchChatHistory, searchChatMemory, loadChatSession } from './history'
 import {
   chromium,
   type Browser,
@@ -2770,7 +2771,365 @@ export async function executeSystemTool(
       return `Task "${todo.tasks[taskIndex].title}" updated to "${newStatus}". ${todo.tasks.filter((t) => t.status === 'done').length}/${todo.tasks.length} tasks completed. Continue with the remaining tasks.`
     }
 
+    // Chat history tools
+    case 'search_chat_history':
+      return await searchChatHistory(args.query || '')
+    case 'search_chat_memory':
+      return await searchChatMemory(args.query || '')
+    case 'render_chat_history': {
+      const query = args.query || ''
+      const cleanId = query.replace('chat_', '').replace('.json', '').trim()
+      const session = loadChatSession(cleanId)
+      if (session) {
+        return `Successfully rendered chat history item in UI. Title: "${session.title}", Messages: ${session.messages.length}`
+      }
+      return `Error: Chat history session "${cleanId}" not found.`
+    }
+    case 'not_found_chat_history':
+      return 'Successfully registered that no matching chat history was found.'
+
+    // Configuration
+    case 'configure_prism': {
+      try {
+        const config = loadConfig()
+        const changed: string[] = []
+
+        if (args.launcherShortcut !== undefined && args.launcherShortcut !== '') {
+          config.launcherShortcut = args.launcherShortcut
+          changed.push(`launcherShortcut: "${args.launcherShortcut}"`)
+        }
+        if (args.screenshotShortcut !== undefined && args.screenshotShortcut !== '') {
+          config.screenshotShortcut = args.screenshotShortcut
+          changed.push(`screenshotShortcut: "${args.screenshotShortcut}"`)
+        }
+        if (args.modelSelectionShortcut !== undefined && args.modelSelectionShortcut !== '') {
+          config.modelSelectionShortcut = args.modelSelectionShortcut
+          changed.push(`modelSelectionShortcut: "${args.modelSelectionShortcut}"`)
+        }
+        if (args.newChatShortcut !== undefined && args.newChatShortcut !== '') {
+          config.newChatShortcut = args.newChatShortcut
+          changed.push(`newChatShortcut: "${args.newChatShortcut}"`)
+        }
+        if (args.dictationShortcut !== undefined && args.dictationShortcut !== '') {
+          config.dictationShortcut = args.dictationShortcut
+          changed.push(`dictationShortcut: "${args.dictationShortcut}"`)
+        }
+        if (args.webSearchShortcut !== undefined && args.webSearchShortcut !== '') {
+          config.webSearchShortcut = args.webSearchShortcut
+          changed.push(`webSearchShortcut: "${args.webSearchShortcut}"`)
+        }
+        if (args.youtubeModeShortcut !== undefined && args.youtubeModeShortcut !== '') {
+          config.youtubeModeShortcut = args.youtubeModeShortcut
+          changed.push(`youtubeModeShortcut: "${args.youtubeModeShortcut}"`)
+        }
+        if (args.defaultModel !== undefined && args.defaultModel !== '') {
+          config.lastSelectedChatModel = args.defaultModel
+          changed.push(`defaultModel: "${args.defaultModel}"`)
+        }
+        if (args.subagentModel !== undefined && args.subagentModel !== '') {
+          config.subagentModel = args.subagentModel
+          changed.push(`subagentModel: "${args.subagentModel}"`)
+        }
+        if (args.minimizeToTray !== undefined) {
+          config.minimizeToTray = args.minimizeToTray === 'true' || args.minimizeToTray === true
+          changed.push(`minimizeToTray: ${config.minimizeToTray}`)
+        }
+        if (args.autoLaunch !== undefined) {
+          config.autoLaunch = args.autoLaunch === 'true' || args.autoLaunch === true
+          changed.push(`autoLaunch: ${config.autoLaunch}`)
+        }
+        if (args.quickLauncherMode !== undefined) {
+          config.quickLauncherMode = args.quickLauncherMode
+          changed.push(`quickLauncherMode: "${args.quickLauncherMode}"`)
+        }
+        if (args.username !== undefined && args.username !== '') {
+          config.username = args.username
+          changed.push(`username: "${args.username}"`)
+        }
+        if (args.ttsVoice !== undefined && args.ttsVoice !== '') {
+          config.ttsVoice = args.ttsVoice
+          changed.push(`ttsVoice: "${args.ttsVoice}"`)
+        }
+        if (args.theme !== undefined && args.theme !== '') {
+          config.theme = args.theme
+          changed.push(`theme: "${args.theme}"`)
+        }
+        if (args.terminalShell !== undefined && args.terminalShell !== '') {
+          config.terminalShell = args.terminalShell
+          changed.push(`terminalShell: "${args.terminalShell}"`)
+        }
+        if (args.zoomFactor !== undefined) {
+          const zoom = parseFloat(args.zoomFactor)
+          if (!isNaN(zoom) && zoom >= 0.5 && zoom <= 3.0) {
+            config.zoomFactor = zoom
+            changed.push(`zoomFactor: ${zoom}`)
+          }
+        }
+
+        if (changed.length === 0) {
+          return 'No valid settings provided to configure. Please specify at least one setting.'
+        }
+
+        const success = saveConfig(config)
+        if (success) {
+          ipcMain.emit('update-config-from-tools', null, config)
+          return `Successfully updated settings:\n${changed.map((c) => `- ${c}`).join('\n')}`
+        }
+        return 'Error: Failed to save configuration.'
+      } catch (err) {
+        return `Error configuring Prism: ${err instanceof Error ? err.message : String(err)}`
+      }
+    }
+
+    // Internal docs
+    case 'internal_docs_list': {
+      try {
+        const isDev = !app.isPackaged
+        const docsPath = isDev
+          ? path.join(__dirname, '../../resources/docs')
+          : path.join(process.resourcesPath, 'docs')
+
+        try {
+          const files = await fs.readdir(docsPath)
+          const mdFiles = files.filter((f) => f.endsWith('.md'))
+          if (mdFiles.length === 0) return 'No internal documentation found.'
+          return `Available internal documentation files:\n${mdFiles.map((f) => `- ${f}`).join('\n')}`
+        } catch (e: any) {
+          if (e.code === 'ENOENT') return 'Documentation directory not found.'
+          throw e
+        }
+      } catch (error) {
+        return `Error listing docs: ${error instanceof Error ? error.message : String(error)}`
+      }
+    }
+    case 'internal_docs_read': {
+      try {
+        const isDev = !app.isPackaged
+        const docsPath = isDev
+          ? path.join(__dirname, '../../resources/docs')
+          : path.join(process.resourcesPath, 'docs')
+
+        const filename = args.filename
+        if (!filename || !filename.endsWith('.md')) {
+          return 'Error: Invalid filename. Must be a .md file from the internal_docs_list.'
+        }
+
+        const filePath = path.join(docsPath, path.basename(filename))
+        try {
+          const content = await fs.readFile(filePath, 'utf-8')
+          return content
+        } catch (e: any) {
+          if (e.code === 'ENOENT') return `Error: Documentation file "${filename}" not found.`
+          throw e
+        }
+      } catch (error) {
+        return `Error reading doc: ${error instanceof Error ? error.message : String(error)}`
+      }
+    }
+
+    // Questionnaire
+    case 'to_ask': {
+      return new Promise<string>((resolve, reject) => {
+        const sessionId =
+          args.session_id || `session-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
+
+        const onAbort = () => {
+          activeQuestionnaireResolvers.delete(sessionId)
+          reject(new Error('AbortError'))
+        }
+
+        if (signal) {
+          if (signal.aborted) {
+            return reject(new Error('AbortError'))
+          }
+          signal.addEventListener('abort', onAbort)
+        }
+
+        // Send questionnaire to renderer
+        try {
+          const wins = BrowserWindow.getAllWindows()
+          for (const win of wins) {
+            if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
+              win.webContents.send('show-questionnaire', {
+                sessionId,
+                questions: args.questions || []
+              })
+            }
+          }
+        } catch {}
+
+        activeQuestionnaireResolvers.set(sessionId, (result) => {
+          if (signal) {
+            signal.removeEventListener('abort', onAbort)
+          }
+          resolve(result)
+        })
+      })
+    }
+
+    // Workflow management
+    case 'list_workflows': {
+      try {
+        const config = loadConfig()
+        const workflows = config.workflows || []
+        if (workflows.length === 0) {
+          return 'No custom workflows configured.'
+        }
+        return JSON.stringify(workflows, null, 2)
+      } catch (err) {
+        return `Error listing workflows: ${err instanceof Error ? err.message : String(err)}`
+      }
+    }
+    case 'save_workflow': {
+      try {
+        const config = loadConfig()
+        const wList = config.workflows || []
+
+        const command = (args.command || '').trim()
+        const name = (args.name || '').trim()
+        const description = (args.description || '').trim()
+        const systemInstruction = (args.systemInstruction || '').trim()
+
+        let toolConstraints: string[] = []
+        if (args.toolConstraints) {
+          if (Array.isArray(args.toolConstraints)) {
+            toolConstraints = args.toolConstraints
+          } else if (typeof args.toolConstraints === 'string') {
+            try {
+              const parsed = JSON.parse(args.toolConstraints)
+              if (Array.isArray(parsed)) {
+                toolConstraints = parsed.map((t: any) => String(t).trim())
+              } else {
+                toolConstraints = args.toolConstraints.split(',').map((t: string) => t.trim()).filter(Boolean)
+              }
+            } catch {
+              toolConstraints = args.toolConstraints.split(',').map((t: string) => t.trim()).filter(Boolean)
+            }
+          }
+        }
+
+        if (!command.startsWith('/')) {
+          return 'Error: Workflow command must start with a slash (/) (e.g., "/coder")'
+        }
+        if (command.includes(' ')) {
+          return 'Error: Workflow command cannot contain spaces'
+        }
+        if (command.length <= 1) {
+          return 'Error: Workflow command is too short'
+        }
+        if (!name) {
+          return 'Error: Workflow name is required'
+        }
+        if (!systemInstruction) {
+          return 'Error: Workflow systemInstruction (System Instruction) is required'
+        }
+
+        const targetId = args.id || ''
+        let existingIndex = -1
+        if (targetId) {
+          existingIndex = wList.findIndex((w) => w.id === targetId)
+        }
+        if (existingIndex === -1) {
+          existingIndex = wList.findIndex((w) => w.command.toLowerCase() === command.toLowerCase())
+        }
+
+        const isDuplicate = wList.some(
+          (w) => w.command.toLowerCase() === command.toLowerCase() && w.id !== targetId
+        )
+        if (isDuplicate) {
+          return `Error: A workflow with command "${command}" already exists.`
+        }
+
+        // Validate toolConstraints exist in manifest
+        const validToolNames = new Set(toolsManifest.map((t) => t.name))
+        for (const tc of toolConstraints) {
+          if (!validToolNames.has(tc)) {
+            return `Error: Tool constraint "${tc}" is not a valid tool name.`
+          }
+        }
+
+        const updatedWorkflow: SlashWorkflow = {
+          id: targetId || `workflow-${Date.now()}`,
+          command,
+          name,
+          description,
+          systemInstruction,
+          toolConstraints
+        }
+
+        let updatedWorkflows: SlashWorkflow[] = []
+        if (existingIndex !== -1) {
+          updatedWorkflows = [...wList]
+          updatedWorkflows[existingIndex] = updatedWorkflow
+        } else {
+          updatedWorkflows = [...wList, updatedWorkflow]
+        }
+
+        const updatedConfig = { ...config, workflows: updatedWorkflows }
+        const success = saveConfig(updatedConfig)
+        if (success) {
+          ipcMain.emit('update-config-from-tools', null, updatedConfig)
+          return `Successfully saved workflow "${name}" (${command}).`
+        } else {
+          return 'Error: Failed to save the configuration containing the updated workflow.'
+        }
+      } catch (err) {
+        return `Error saving workflow: ${err instanceof Error ? err.message : String(err)}`
+      }
+    }
+    case 'delete_workflow': {
+      try {
+        const config = loadConfig()
+        const wList = config.workflows || []
+        const identifier = (args.command || args.id || '').trim().toLowerCase()
+
+        if (!identifier) {
+          return 'Error: Please specify "command" or "id" of the workflow to delete.'
+        }
+
+        const index = wList.findIndex(
+          (w) => w.id.toLowerCase() === identifier || w.command.toLowerCase() === identifier
+        )
+
+        if (index === -1) {
+          return `Error: No workflow found matching "${identifier}".`
+        }
+
+        const removedWorkflow = wList[index]
+        const updatedWorkflows = wList.filter((_, i) => i !== index)
+        const updatedConfig = { ...config, workflows: updatedWorkflows }
+
+        const success = saveConfig(updatedConfig)
+        if (success) {
+          ipcMain.emit('update-config-from-tools', null, updatedConfig)
+          return `Successfully deleted workflow "${removedWorkflow.name}" (${removedWorkflow.command}).`
+        } else {
+          return 'Error: Failed to save the configuration after deleting the workflow.'
+        }
+      } catch (err) {
+        return `Error deleting workflow: ${err instanceof Error ? err.message : String(err)}`
+      }
+    }
+
+    // Mini app (handled by renderer, just return success)
+    case 'create_mini_app':
+      return 'Mini App created successfully.'
+
     default:
       return `Tool "${toolName}" is registered but not yet wired in the executor. Args received: ${JSON.stringify(args)}`
   }
 }
+
+// Questionnaire resolvers (for to_ask tool)
+const activeQuestionnaireResolvers = new Map<string, (result: string) => void>()
+
+ipcMain.on(
+  'submit-questionnaire',
+  (_event, data: { sessionId: string; responses: Record<string, string> }) => {
+    const resolver = activeQuestionnaireResolvers.get(data.sessionId)
+    if (resolver) {
+      resolver(JSON.stringify({ session_id: data.sessionId, responses: data.responses }))
+      activeQuestionnaireResolvers.delete(data.sessionId)
+    }
+  }
+)
