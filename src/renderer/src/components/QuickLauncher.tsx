@@ -28,7 +28,7 @@ import clsx from 'clsx'
 import { LandingBackgroundEffects } from './LandingBackgroundEffects'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ActionLoader, ToolCall } from './ActionLoader'
+import { ActionLoader, ToolCall, ToolCallIndicator } from './ActionLoader'
 import {
   StreamContext,
   StaticMarkdownComponents,
@@ -72,6 +72,7 @@ interface Message {
   isError?: boolean
   isStreaming?: boolean
   isThinking?: boolean
+  isConnecting?: boolean
   isWritingToolCall?: boolean
   toolType?: 'task' | 'search' | 'mini-app'
   toolCalls?: ToolCall[]
@@ -250,8 +251,32 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
   msg,
   markdownComponents
 }: LauncherAiMessageProps) {
-  const streamStats = useStreamStats(msg.content, !!msg.isStreaming)
+  const contentText = msg.content || ''
+  const streamStats = useStreamStats(contentText, !!msg.isStreaming)
   const nativeToolCalls = useMemo(() => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls), [msg.toolCalls, msg.streamingToolCalls])
+
+  const hasContent = contentText.trim() !== ''
+  const filteredThoughts = (msg.thoughts || '').replace(
+    /\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g,
+    ''
+  ).trim()
+  const hasThoughtBlock = !!(filteredThoughts || msg.isThinking)
+
+  if (!hasContent && (msg.isConnecting || (!hasThoughtBlock && (msg.isWritingToolCall || (msg.streamingToolCalls && msg.streamingToolCalls.length > 0))))) {
+    return (
+      <div className="flex items-center gap-1.5 h-6 select-none py-1">
+        <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe" />
+        {msg.isWritingToolCall && msg.streamingToolCalls && msg.streamingToolCalls.length > 0 && (
+          <ToolCallIndicator
+            tools={msg.streamingToolCalls.map((stc) => ({
+              name: stc.name,
+              status: 'writing'
+            }))}
+          />
+        )}
+      </div>
+    )
+  }
 
   return (
     <StreamContext.Provider value={streamStats}>
@@ -261,9 +286,9 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
           msg.isStreaming && 'opacity-90'
         )}
       >
-        {/* Thought Section (reconstructed visually only for Quick Launcher!) */}
-        {(msg.isThinking || msg.thoughts) && (
-          <div className="w-full mb-3">
+        {/* Thought Section */}
+        {hasThoughtBlock && (
+          <div className="w-full mb-3 select-none">
             <details className="group w-full select-none">
               <summary
                 className={clsx(
@@ -280,12 +305,26 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
 
                 <span className="font-medium leading-normal">
                   {(() => {
-                    // Extract bold outlines like "**Initiating Black Hole Analysis**"
+                    const toolsList = msg.toolCalls || []
+                    const streamingTools = (msg.streamingToolCalls || []).map((stc) => ({
+                      name: stc.name,
+                      status: 'writing' as const
+                    }))
+                    const allTools = [...toolsList, ...streamingTools] as Array<{
+                      name: string
+                      status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown'
+                    }>
+                    const activeTools = allTools.filter(
+                      (t) => t.status !== 'done' && t.status !== 'error' && t.status !== 'cancelled'
+                    )
+                    if (activeTools.length > 0 && !hasContent) {
+                      const lastTool = activeTools[activeTools.length - 1]
+                      return <ToolCallIndicator tools={[lastTool]} />
+                    }
                     const outlineMatches = Array.from(
-                      (msg.thoughts || '').matchAll(/\*\*(.*?)\*\*/g)
+                      filteredThoughts.matchAll(/\*\*(.*?)\*\*/g)
                     )
                     if (outlineMatches.length > 0) {
-                      // Take the last match to show current thinking step
                       return outlineMatches[outlineMatches.length - 1][1]
                     }
                     return msg.isThinking ? 'Thinking...' : 'Thinking'
@@ -298,7 +337,7 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
                 />
               </summary>
               <div className="mt-1.5 border-l border-white/[0.06] ml-1.5 pl-4 py-0.5 font-mono text-[11px] leading-relaxed select-text text-text-secondary/50">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.thoughts || ''}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{filteredThoughts}</ReactMarkdown>
               </div>
             </details>
           </div>
@@ -306,7 +345,7 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
 
         {/* Content rendering: split by tool call and mini-app tags to render inline */}
         {(() => {
-          const parts = msg.content.split(
+          const parts = contentText.split(
             /(\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
           )
 
@@ -897,7 +936,8 @@ export function QuickLauncher(): React.JSX.Element {
           content: '',
           thoughts: '',
           isStreaming: true,
-          isThinking: true,
+          isThinking: false,
+          isConnecting: true,
           toolCalls: []
         }
       ])
@@ -909,9 +949,10 @@ export function QuickLauncher(): React.JSX.Element {
         const newMsgs = [...prev]
         const lastMsg = { ...newMsgs[newMsgs.length - 1] }
         if (lastMsg.role === 'ai') {
-          lastMsg.content = data.finalResponse
-          lastMsg.thoughts = data.thoughts
+          lastMsg.content = data.finalResponse || ''
+          lastMsg.thoughts = data.thoughts || ''
           lastMsg.isThinking = data.isThinking
+          lastMsg.isConnecting = false
           lastMsg.isWritingToolCall = data.isWritingToolCall
           lastMsg.toolType = data.toolType
           lastMsg.streamingToolCalls = data.streamingToolCalls
@@ -927,10 +968,11 @@ export function QuickLauncher(): React.JSX.Element {
         const newMsgs = [...prev]
         const lastMsg = { ...newMsgs[newMsgs.length - 1] }
         if (lastMsg.role === 'ai') {
-          lastMsg.content = data.finalResponse
-          lastMsg.thoughts = data.thoughts
+          lastMsg.content = data.finalResponse || lastMsg.content || ''
+          lastMsg.thoughts = data.thoughts || lastMsg.thoughts || ''
           lastMsg.isStreaming = false
           lastMsg.isThinking = false
+          lastMsg.isConnecting = false
           lastMsg.isWritingToolCall = false
           lastMsg.streamingToolCalls = undefined
         }
