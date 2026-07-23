@@ -1,6 +1,6 @@
 # Prism
 
-**Prism** (v7.0.1) is an open, multi-provider Electron + React desktop AI assistant. It bridges cognitive artificial intelligence models with local operating system execution, combining a full-featured multi-pane chat workspace, a global Quick Launcher, local command sandboxing, Playwright browser automation, interactive mini-apps, voice dictation, text-to-speech (TTS), custom slash workflows, and a visual styling engine.
+**Prism** is an open, multi-provider Electron + React desktop AI assistant. It bridges cognitive artificial intelligence models with local operating system execution, combining a full-featured multi-pane chat workspace, a global Quick Launcher, local command sandboxing, Playwright browser automation, interactive mini-apps, voice dictation, text-to-speech (TTS), custom slash workflows, and a visual styling engine.
 
 Unlike legacy setups locked to single API vendors or fixed fine-tuned models, Prism features an open **Multi-Provider & Dynamic Model Architecture**. Anyone can connect Google AI Studio, OpenAI GPT, Anthropic Claude, OpenRouter, NVIDIA NIM, GroqCloud, Cerebras AI, or any custom OpenAI-compatible / Anthropic-compatible / Responses API-compatible endpoint (such as local LLMs running on Ollama or LM Studio).
 
