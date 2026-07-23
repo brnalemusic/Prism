@@ -20,6 +20,19 @@ export interface StreamResult {
   finishReason: string
 }
 
+export function sanitizeOpenAiMessages(messages: OpenAiMessage[]): OpenAiMessage[] {
+  return messages.map((m) => {
+    const cleanMsg: OpenAiMessage = {
+      role: m.role,
+      content: m.content
+    }
+    if (m.name) cleanMsg.name = m.name
+    if (m.tool_calls) cleanMsg.tool_calls = m.tool_calls
+    if (m.tool_call_id) cleanMsg.tool_call_id = m.tool_call_id
+    return cleanMsg
+  })
+}
+
 export async function streamOpenAiCompletion(
   provider: ProviderConfig,
   modelId: string,
@@ -61,7 +74,7 @@ export async function streamOpenAiCompletion(
 
   const bodyPayload: any = {
     model: modelId,
-    messages,
+    messages: sanitizeOpenAiMessages(messages),
     stream: true
   }
 
@@ -372,7 +385,7 @@ async function streamOpenAiResponses(
   // Responses API schema: uses "input" instead of "messages"
   const bodyPayload: any = {
     model: modelId,
-    input: messages,
+    input: sanitizeOpenAiMessages(messages),
     stream: true
   }
 

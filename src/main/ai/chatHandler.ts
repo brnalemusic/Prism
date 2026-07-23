@@ -510,13 +510,11 @@ function convertHistoryToOpenAi(history: any[]): OpenAiMessage[] {
       }
       const hasToolCalls = Array.isArray(m.tool_calls) && m.tool_calls.length > 0
       const content = m.content ?? (m.parts ? m.parts.map((p: any) => p.text || '').join('\n') : null)
-      const reasoning = m.reasoning_content || m.reasoning || m.thoughts
       return {
         role: m.role === 'model' ? 'assistant' : m.role,
         // Preserve null for assistant messages with tool_calls (required by some APIs like Google AI Studio)
         content: hasToolCalls && (content === null || content === '') ? null : (content || ''),
-        tool_calls: m.tool_calls,
-        ...(reasoning ? { reasoning_content: reasoning } : {})
+        tool_calls: m.tool_calls
       }
     })
 }
