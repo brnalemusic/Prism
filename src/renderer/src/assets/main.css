@@ -170,7 +170,7 @@
   --color-status-error: var(--status-error);
 
   --font-sans: var(--theme-font-sans);
-  --font-mono: 'SF Mono', 'JetBrains Mono', Consolas, monospace;
+  --font-mono: 'Cascadia Code', 'Fira Code', 'Ubuntu Mono', 'JetBrains Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'SF Mono', Consolas, monospace;
 }
 
 @layer base {
@@ -235,9 +235,13 @@
 }
 
 @layer utilities {
-  .prose :where(code:not([class])):before,
-  .prose :where(code:not([class])):after {
-    content: none;
+  .prose :where(code)::before,
+  .prose :where(code)::after,
+  .prose code::before,
+  .prose code::after {
+    content: '' !important;
+    content: none !important;
+    display: none !important;
   }
 
   .prose {
@@ -248,14 +252,17 @@
     color: rgba(244, 241, 234, 0.9);
   }
 
-  .prose :where(code:not([class])) {
-    background-color: rgba(255, 255, 255, 0.055);
-    color: var(--color-accent-secondary);
-    padding: 0.2rem 0.42rem;
-    border-radius: 0.55rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    font-weight: 600;
-    font-size: 0.875em;
+  .prose :where(code),
+  .prose code:not(pre code) {
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 1px !important;
+    color: var(--color-accent-secondary) !important;
+    font-family: 'Cascadia Code', 'Fira Code', 'Ubuntu Mono', 'JetBrains Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'Consolas', monospace !important;
+    font-weight: 500 !important;
+    font-size: 0.93em !important;
   }
 
   .prose :where(pre) {

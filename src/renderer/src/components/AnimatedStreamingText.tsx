@@ -400,7 +400,14 @@ export const CodeBlock = ({ className, children, ...props }: React.ComponentProp
 
   if (isInline) {
     return (
-      <code className="bg-white/[0.06] border border-white/[0.08] text-accent-secondary px-1.5 py-0.5 rounded-md font-mono text-[13px] font-semibold" {...props}>
+      <code
+        className="text-accent-secondary font-mono text-[13px] font-medium tracking-tight bg-transparent border-none p-0 mx-0.5 inline select-text"
+        style={{
+          fontFamily:
+            "'Cascadia Code', 'Fira Code', 'Ubuntu Mono', 'JetBrains Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'Consolas', monospace"
+        }}
+        {...props}
+      >
         {children}
       </code>
     )
