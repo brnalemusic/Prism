@@ -2291,27 +2291,27 @@ export function getSystemToolsPrompt(
 
   if (target === 'launcher') {
     return `# Identity & Context
-Role: Prism Mini-Chat (\${modelName}), running in the Quick Launcher.
-Context: \${date} | \${platform} | \${username} | Home: \${homeDir} | CWD: \${cwd} | Terminal: \${terminalSummary}
+Role: Prism Mini-Chat (${modelName}), running in the Quick Launcher.
+Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
 # Rules
 - **Simple Markdown Only:** Respond ONLY using traditional simple Markdown (no HTML/CSS, no Rich Markdown).
 - **Auto-Open:** If an app, link, or path is sent in isolation, IMMEDIATELY open it via open_browser_link or open_application.
-- **Transitions:** For complex tasks (terminal/files/subagents/Rich Markdown), immediately call open_main_app with instructions.
-- Models: prism-6-super-fast (default/latency), prism-6-fast-old (simple automation), prism-6-fast (code/swarm), prism-6-dragon (research), prism-6-dense (math/debugging).
+- **Transitions:** For complex tasks (terminal/files/Rich Markdown), immediately call open_main_app with instructions.
+- Models: prism-6-super-fast (default/latency), prism-6-fast-old (simple automation), prism-6-fast (code), prism-6-dragon (research), prism-6-dense (math/debugging).
 
 # Tool Protocol & Execution
 - **Native Tool Calling**: You have access to native tool calling. Call functions natively when needed. Do NOT write [PRISM_EXECUTE_TOOL] blocks yourself, the system handles function execution natively.
 - **Requirements**: Absolute paths are required for all file operations.
 
 Tools:
-\${toolsPrompt}`
+${toolsPrompt}`
   }
 
   if (sessionMode === 'conversation' && target === 'main') {
     return `# Identity & Context
-Role: \${name} (\${modelName}), running in Conversation Mode.
-Context: \${date} | \${platform} | \dots | Home: \${homeDir} | CWD: \${cwd}
+Role: ${name} (${modelName}), running in Conversation Mode.
+Context: ${date} | ${platform} | Home: ${homeDir} | CWD: ${cwd}
 
 # Rules
 - **Conversation Mode**: You are running in Conversation Mode. You do NOT have access to any tools. Do NOT attempt to perform any tool/function calls. Reply to the user using text/Markdown.
@@ -2320,17 +2320,12 @@ Context: \${date} | \${platform} | \dots | Home: \${homeDir} | CWD: \${cwd}
   }
 
   const parallelRule =
-    target === 'main'
-      ? '- Parallelism: You can call multiple functions natively in parallel to speed up tasks. Use run_subagents for complex tasks.'
-      : '- Collaboration: Use send_group_message and wait_for_updates for Group Chat sync. You can call multiple functions natively in parallel.'
-  const humanUserRule =
-    target === 'subagent'
-      ? '- Human user messages: Any group message from Master Coordinator is from the Prism user. Respond via send_group_message.'
-      : ''
+    '- Parallelism: You can call multiple functions natively in parallel to speed up tasks.'
 
-  const disciplineRule = sessionMode === 'discipline' && disciplinePath
-    ? `\n- **Discipline Mode**: You are operating in Discipline Mode. All operations and commands run directly in: ${disciplinePath}. Perform modifications relative to this path.`
-    : ''
+  const disciplineRule =
+    sessionMode === 'discipline' && disciplinePath
+      ? `\n- **Discipline Mode**: You are operating in Discipline Mode. All operations and commands run directly in: ${disciplinePath}. Perform modifications relative to this path.`
+      : ''
 
   return `# Identity & Context
 Role: ${name} (${modelName}), a concise, tool-capable desktop assistant.
@@ -2365,7 +2360,6 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | 
 - **Filesystem Safety**: \`computer_use_*\` file tools modify files only at explicit paths (no filesystem roots or protected system paths).
 - **Persistent Browser**: For browser_* actions (except browser_close) and web_script, call open_browser first and browser_close when done.
 ${parallelRule}
-${humanUserRule}
 
 # Prism Internal Knowledge
 For Prism-specific questions (features, themes, shortcuts, architecture), you MUST use \`internal_docs_list\` and \`internal_docs_read\`. Do NOT hallucinate facts.
@@ -2376,48 +2370,6 @@ Schema: {"session_id": "UUID", "questions": [{"id": "q1", "type": "multiple-choi
 
 Tools:
 ${toolsPrompt}`
-}
-
-/**
- * Returns a specialized system prompt for the Master Coordinator Agent.
- */
-export function getMasterAgentSystemPrompt(modelKey: string, totalSubagents: number): string {
-  const basePrompt = getSystemToolsPrompt(modelKey, 'subagent')
-  return `${basePrompt}
-
-[IDENTITY]: Master Coordinator.
-[ROLE]: Supreme coordinator of the bot swarm. Direct, analyze, and synthesize the work of the ${totalSubagents} worker subagents.
-[SWARM PROTOCOL]:
-1. REAL-TIME ASSESSMENT: Read group chat messages to track worker progress.
-2. COLLABORATION: Direct workers by broadcasting goals and asking for specific outputs. Use 'send_group_message' with status="working" to post updates.
-3. ASYNC SLEEP: If waiting for subagents, you MUST call 'wait_for_updates' in the same response to sleep. Do not poll.
-4. SWARM TERMINATION: Workers exit individually by asking/granting peer exit permission. Swarm terminates when all worker subagents exit.
-5. MANDATORY UPDATE: Update the team at every iteration. Do not perform private work without updating.
-`
-}
-
-/**
- * Returns a specialized system prompt for sub-agents.
- */
-export function getSubagentSystemPrompt(modelKey: string, index: number, total: number): string {
-  const basePrompt = getSystemToolsPrompt(modelKey, 'subagent')
-  const otherAgents = Array.from({ length: total }, (_, i) => i).filter((i) => i !== index)
-
-  return `${basePrompt}
-
-[IDENTITY]: Agent #${index}.
-[TEAM]: Master Coordinator, ${otherAgents.length > 0 ? otherAgents.map((i) => `Agent #${i}`).join(', ') : 'Solo'}.
-[GROUP CHAT RULES]:
-1. COLLABORATION: Use 'send_group_message' to share memory. State what you do, what you found, or what decision you need.
-2. STAYING ALIVE: You are active ONLY while using tools. To await team updates, you MUST send a 'send_group_message' with status="working" and call 'wait_for_updates' in the same response.
-3. MANDATORY UPDATES: Report your plan before running tools. Report results/evidence/next steps after tools. Do not do silent work.
-4. CLOSED-LOOP SYNC: Respond to new [UNREAD MESSAGES] and correct course when Coordinator directs you.
-5. WAITING: Use 'wait_for_updates' instead of polling or idling when waiting for a reply or permission.
-6. PEER EXIT PERMISSION: Ask other workers for permission to exit when task is done ("I have finished task X, do you need anything else or can I exit?"). Stay active if they need you. Exit ONLY if all other active worker subagents give explicit permission (e.g. "Yes, you can exit").
-7. INDIVIDUAL TERMINATION: After permission, exit by sending final update with status="done" or status="error", reporting results and evidence. Swarm finishes when all workers exit.
-8. PEER REVIEW: Active subagents must review exit requests and reply granting ("Yes, you can exit") or denying them.
-9. NO SUBAGENTS: Do not spawn more subagents. Focus on your task.
-[OUTPUT]: Thoughts are private. Your FINAL RESPONSE should be a concise mission report for the Main Agent, outputted ONLY after exit permission is granted.`
 }
 
 /**
@@ -2756,7 +2708,7 @@ export async function executeSystemTool(
         }
         if (allDone) {
           for (const win of wins) {
-            if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
+            if (!win.webContents.getURL().includes('#launcher')) {
               win.webContents.send('chat-todo-complete', { chatId: todoChatId })
             }
           }
@@ -2839,10 +2791,6 @@ export async function executeSystemTool(
         } else if (args.defaultModel !== undefined && args.defaultModel !== '') {
           config.lastSelectedChatModel = args.defaultModel
           changed.push(`lastSelectedChatModel: "${args.defaultModel}"`)
-        }
-        if (args.subagentModel !== undefined && args.subagentModel !== '') {
-          config.subagentModel = args.subagentModel
-          changed.push(`subagentModel: "${args.subagentModel}"`)
         }
         if (args.searchModel !== undefined && args.searchModel !== '') {
           config.searchModel = args.searchModel

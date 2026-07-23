@@ -57,7 +57,7 @@ export function cancelChatMessage(chatId?: string): void {
   }
 }
 
-export function getNativeToolsForOpenAi(target: 'main' | 'subagent' | 'launcher' = 'main'): OpenAiToolDefinition[] {
+export function getNativeToolsForOpenAi(target: 'main' | 'launcher' = 'main'): OpenAiToolDefinition[] {
   return toolsManifest
     .filter((t) => !t.target || t.target === 'both' || t.target === target)
     .map((t) => {

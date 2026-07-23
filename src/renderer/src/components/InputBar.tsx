@@ -4,7 +4,6 @@ import {
   Stop as Square,
   PlayCircle as CirclePlay,
   Lock,
-  Robot as Bot,
   CornersOut as Maximize2,
   CornersIn as Minimize2,
   Microphone,
@@ -55,7 +54,6 @@ interface InputBarProps {
   onRemoveFile?: () => void
   onAttachFile?: (file: AttachedFile) => void
   onOpenScreenshotModal?: () => void
-  onOpenSubagentModal?: () => void
   onOpenYoutubeModal?: () => void
   activeWorkflow?: SlashWorkflow | null
   setActiveWorkflow?: (val: SlashWorkflow | null) => void
@@ -95,7 +93,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       onRemoveFile,
       onAttachFile,
       onOpenScreenshotModal,
-      onOpenSubagentModal,
       onOpenYoutubeModal,
       activeWorkflow,
       setActiveWorkflow,
@@ -651,18 +648,6 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                         >
                           <CirclePlay size={16} className="text-accent-primary" />
                           <span>YouTube</span>
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            onOpenSubagentModal?.()
-                            setShowAttachMenu(false)
-                            setShowAppsMenu(false)
-                          }}
-                          className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.04] transition-all text-left"
-                        >
-                          <Bot size={16} className="text-accent-secondary" />
-                          <span>Subagents Swarm</span>
                         </button>
                       </div>
                     </div>

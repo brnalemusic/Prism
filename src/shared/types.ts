@@ -1,13 +1,3 @@
-export interface SubagentMessage {
-  agentIndex: number
-  content: string
-  status: 'working' | 'done' | 'error'
-  timestamp: number
-  senderRole: 'user' | 'agent' | 'master'
-  senderName: string
-  chatId?: string
-}
-
 export interface MiniAppData {
   id: string
   title: string
@@ -55,7 +45,6 @@ export interface ToolCall {
   args: Record<string, unknown>
   result?: string
   status: 'writing' | 'running' | 'cooldown' | 'done' | 'error' | 'cancelled'
-  subagentMessages?: SubagentMessage[]
   agentUpdates?: Record<
     number,
     {

@@ -362,30 +362,6 @@ export function validateSchemaArgs(
     }
   }
 
-  // Special validation for run_subagents quantity and prompts
-  if (toolName === 'run_subagents') {
-    const quantityVal = parseInt(args.quantity || '0', 10)
-    if (isNaN(quantityVal) || quantityVal <= 0) {
-      return {
-        type: 'invalid_args',
-        message: `Argument "quantity" for "run_subagents" must be a positive integer. Passed: "${args.quantity}".`
-      }
-    }
-    const missingPrompts: string[] = []
-    for (let i = 1; i <= quantityVal; i++) {
-      const key = `prompt:${i}`
-      if (!args[key] || args[key].trim() === '') {
-        missingPrompts.push(key)
-      }
-    }
-    if (missingPrompts.length > 0) {
-      return {
-        type: 'missing_args',
-        message: `Tool "run_subagents" is missing required arguments for quantity=${quantityVal}: ${missingPrompts.join(', ')}.`
-      }
-    }
-  }
-
   // Special validation for configure_prism: make sure at least one parameter is passed
   if (toolName === 'configure_prism') {
     const hasAtLeastOneArg = passedParams.some(
@@ -437,15 +413,7 @@ export function validateSchemaArgs(
   for (const passedKey of passedParams) {
     if (passedKey === 'rawContent' || passedKey === 'originalName') continue
 
-    let isExpected = expectedParams[passedKey] !== undefined
-
-    if (!isExpected && toolName === 'run_subagents' && passedKey.startsWith('prompt:')) {
-      const parts = passedKey.split(':')
-      const num = parseInt(parts[1], 10)
-      if (!isNaN(num) && num > 0) {
-        isExpected = true
-      }
-    }
+    const isExpected = expectedParams[passedKey] !== undefined
 
     if (!isExpected) {
       unknownArgs.push(passedKey)

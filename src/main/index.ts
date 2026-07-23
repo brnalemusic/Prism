@@ -22,7 +22,6 @@ import {
   initGemini,
   handleChatMessage,
   setChatModel,
-  setSubagentModel,
   cancelChatMessage,
   activeRuns,
   handleLauncherChatMessage,
@@ -60,7 +59,7 @@ import {
   stopKeepAlive,
   checkInternetConnectivity
 } from './connection'
-import { SubagentMessage, ApplicationInfo } from '../shared/types'
+import { ApplicationInfo } from '../shared/types'
 import { IS_DEMO } from '../shared/demo'
 
 import { initAutoUpdater } from './updater'
@@ -131,8 +130,6 @@ function saveWindowState(state: WindowState): void {
 let currentConfig: AppConfig
 let mainWindow: BrowserWindow | null = null
 let launcherWindow: BrowserWindow | null = null
-let subagentsWindow: BrowserWindow | null = null
-let subagentSettingsWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 let cachedApps: ApplicationInfo[] = []
@@ -194,8 +191,6 @@ function updateNativeIcons(): void {
   const windows = [
     mainWindow,
     launcherWindow,
-    subagentsWindow,
-    subagentSettingsWindow,
     ...miniAppWindows.values()
   ]
 
@@ -333,95 +328,6 @@ function createTray(): void {
   tray.on('double-click', () => {
     mainWindow?.show()
   })
-}
-
-function createSubagentsWindow(initialMessages?: SubagentMessage[]): void {
-  if (subagentsWindow) {
-    subagentsWindow.show()
-    subagentsWindow.focus()
-    if (initialMessages) {
-      subagentsWindow.webContents.send('subagent-initial-messages', initialMessages)
-    }
-    return
-  }
-
-  subagentsWindow = new BrowserWindow({
-    width: 400,
-    height: 650,
-    show: false,
-    autoHideMenuBar: true,
-    frame: process.platform !== 'win32',
-    titleBarStyle: process.platform === 'win32' ? undefined : 'hidden',
-    backgroundColor: '#0A0A0F',
-    ...(process.platform === 'linux' || process.platform === 'win32'
-      ? { icon: getAppIconPath() }
-      : {}),
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
-    }
-  })
-
-  subagentsWindow.on('ready-to-show', () => {
-    subagentsWindow?.show()
-    if (initialMessages) {
-      subagentsWindow?.webContents.send('subagent-initial-messages', initialMessages)
-    }
-  })
-
-  subagentsWindow.on('closed', () => {
-    subagentsWindow = null
-  })
-
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    subagentsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#subagents`)
-  } else {
-    subagentsWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: 'subagents' })
-  }
-}
-
-function createSubagentSettingsWindow(): void {
-  if (subagentSettingsWindow) {
-    subagentSettingsWindow.show()
-    subagentSettingsWindow.focus()
-    return
-  }
-
-  subagentSettingsWindow = new BrowserWindow({
-    width: 430,
-    height: 560,
-    show: false,
-    autoHideMenuBar: true,
-    frame: process.platform !== 'win32',
-    titleBarStyle: process.platform === 'win32' ? undefined : 'hidden',
-    backgroundColor: '#0A0A0F',
-    resizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    ...(process.platform === 'linux' || process.platform === 'win32'
-      ? { icon: getAppIconPath() }
-      : {}),
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
-    }
-  })
-
-  subagentSettingsWindow.on('ready-to-show', () => {
-    subagentSettingsWindow?.show()
-  })
-
-  subagentSettingsWindow.on('closed', () => {
-    subagentSettingsWindow = null
-  })
-
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    subagentSettingsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#subagent-settings`)
-  } else {
-    subagentSettingsWindow.loadFile(join(__dirname, '../renderer/index.html'), {
-      hash: 'subagent-settings'
-    })
-  }
 }
 
 async function handleScreenshotShortcut(): Promise<void> {
@@ -896,31 +802,6 @@ if (!gotTheLock) {
       }
     })
 
-    ipcMain.on('minimize-subagents-window', () => {
-      subagentsWindow?.minimize()
-    })
-
-    ipcMain.on('close-subagents-window', () => {
-      subagentsWindow?.close()
-    })
-
-    ipcMain.on('open-subagents-window', (_event, initialMessages) => {
-      createSubagentsWindow(initialMessages)
-    })
-
-    ipcMain.on('open-subagent-settings-window', () => {
-      createSubagentSettingsWindow()
-    })
-
-    ipcMain.on('close-subagent-settings-window', () => {
-      subagentSettingsWindow?.close()
-    })
-
-    ipcMain.on('subagent-message-broadcast', (_event, data) => {
-      subagentsWindow?.webContents.send('subagent-message', data)
-      mainWindow?.webContents.send('subagent-message', data)
-    })
-
     ipcMain.on('auto-minimize-trigger', () => {
       setTimeout(() => {
         mainWindow?.minimize()
@@ -1015,15 +896,11 @@ if (!gotTheLock) {
       const success = saveConfig(config)
       if (success) {
         currentConfig = loadConfig()
-        if (currentConfig.subagentModel) {
-          setSubagentModel(currentConfig.subagentModel)
-        }
         if (!IS_DEMO) registerGlobalShortcuts()
         updateNativeIcons()
         // Notify windows with merged config
         mainWindow?.webContents.send('config-changed', currentConfig)
         launcherWindow?.webContents.send('config-changed', currentConfig)
-        subagentSettingsWindow?.webContents.send('config-changed', currentConfig)
       }
       return success
     })
@@ -1042,7 +919,6 @@ if (!gotTheLock) {
         currentConfig = loadConfig()
         mainWindow?.webContents.send('config-changed', currentConfig)
         launcherWindow?.webContents.send('config-changed', currentConfig)
-        subagentSettingsWindow?.webContents.send('config-changed', currentConfig)
       }
       return success
     })
@@ -1092,7 +968,6 @@ if (!gotTheLock) {
       // Notify windows of config-changed to keep states synchronized
       mainWindow?.webContents.send('config-changed', currentConfig)
       launcherWindow?.webContents.send('config-changed', currentConfig)
-      subagentSettingsWindow?.webContents.send('config-changed', currentConfig)
     })
 
 
@@ -1110,16 +985,12 @@ if (!gotTheLock) {
       // Notify both windows
       mainWindow?.webContents.send('config-changed', config)
       launcherWindow?.webContents.send('config-changed', config)
-      subagentSettingsWindow?.webContents.send('config-changed', config)
     })
 
     if (IS_DEMO) {
       registerDemoDownloadHandlers()
     } else {
       registerGlobalShortcuts()
-      if (currentConfig.subagentModel) {
-        setSubagentModel(currentConfig.subagentModel)
-      }
 
       registerAppsUpdatedCallback((apps) => {
         cachedApps = apps

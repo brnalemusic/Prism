@@ -4,7 +4,6 @@ import type { AppConfig } from '../main/config'
 import type { ChatSession } from '../main/history'
 import type { Content } from '@google/genai'
 import type {
-  SubagentMessage,
   MiniAppData,
   ToolUpdate,
   DownloadProgress,
@@ -90,7 +89,6 @@ export interface PrismAPI {
   onConfigChanged: (callback: (config: AppConfig) => void) => () => void
   onChatSessionCreated: (callback: (data: { id: string }) => void) => () => void
   onChatTitleReceived: (callback: (data: { id: string; title: string }) => void) => () => void
-  onSubagentMessage: (callback: (data: SubagentMessage) => void) => () => void
   submitLauncher: (data: {
     message: string
     screenshot?: string
@@ -101,13 +99,7 @@ export interface PrismAPI {
   maximizeApp: () => void
   isMaximized: () => Promise<boolean>
   onMaximizedChange: (callback: (isMaximized: boolean) => void) => () => void
-  minimizeSubagentsWindow: () => void
-  openSubagentsWindow: (initialMessages?: SubagentMessage[]) => void
-  openSubagentSettingsWindow: () => void
-  broadcastSubagentMessage: (data: SubagentMessage) => void
   closeApp: () => void
-  closeSubagentsWindow: () => void
-  closeSubagentSettingsWindow: () => void
   openMiniAppWindow: (data: MiniAppData) => void
   closeMiniAppWindow: (id: string) => void
   minimizeMiniAppWindow: (id: string) => void

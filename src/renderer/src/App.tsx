@@ -22,10 +22,8 @@ import { TitleBar } from './components/TitleBar'
 import { SettingsView } from './components/SettingsView'
 import { ApiKeyModal } from './components/ApiKeyModal'
 import { MissingKeyBanner } from './components/MissingKeyBanner'
-import { SubagentChat } from './components/SubagentChat'
 import { SearchModal } from './components/SearchModal'
 import { RenderChatHistory } from './components/RenderChatHistory'
-import { SubagentModelSettings } from './components/SubagentModelSettings'
 import { MiniAppRenderer } from './components/MiniAppRenderer'
 import { TtsButton } from './components/TtsButton'
 import { CopyMessageButton } from './components/CopyMessageButton'
@@ -44,7 +42,6 @@ import {
 import clsx from 'clsx'
 import { CaretDown, Quotes, Brain, FilePdf, FilePpt, CheckCircle, XCircle } from '@phosphor-icons/react'
 import { ScreenshotModal } from './components/ScreenshotModal'
-import { SubagentDelegationModal } from './components/SubagentDelegationModal'
 import { YoutubeAppModal } from './components/YoutubeAppModal'
 import TodoPanel from './components/TodoPanel'
 import { AppConfig, SlashWorkflow } from '../../main/config'
@@ -1029,7 +1026,6 @@ function RealApp(): React.JSX.Element {
   }, [attachedFile])
 
   const [isScreenshotModalOpen, setIsScreenshotModalOpen] = useState(false)
-  const [isSubagentModalOpen, setIsSubagentModalOpen] = useState(false)
   const [isYoutubeModalOpen, setIsYoutubeModalOpen] = useState(false)
   const [selectedModel, setSelectedModel] = useState('prism-6-super-fast')
   const [activeView, setActiveView] = useState('chat')
@@ -1579,17 +1575,6 @@ function RealApp(): React.JSX.Element {
                   if (toolCall) {
                     toolCall.result = resultStr
                     toolCall.status = 'done'
-
-                    // Parse subagent messages if present
-                    const chatLogRegex = /<subagent_chat>([\s\S]*?)<\/subagent_chat>/gi
-                    const chatLogMatch = chatLogRegex.exec(resultStr)
-                    if (chatLogMatch) {
-                      try {
-                        toolCall.subagentMessages = JSON.parse(chatLogMatch[1])
-                      } catch (e) {
-                        console.error('Failed to parse subagent chat log', e)
-                      }
-                    }
                   }
                 }
               }
@@ -1616,17 +1601,6 @@ function RealApp(): React.JSX.Element {
                 if (toolCall) {
                   toolCall.result = result
                   toolCall.status = 'done'
-
-                  // Parse subagent messages if present
-                  const chatLogRegex = /<subagent_chat>([\s\S]*?)<\/subagent_chat>/gi
-                  const chatLogMatch = chatLogRegex.exec(result)
-                  if (chatLogMatch) {
-                    try {
-                      ;(toolCall as ToolCall).subagentMessages = JSON.parse(chatLogMatch[1])
-                    } catch (e) {
-                      console.error('Failed to parse subagent chat log', e)
-                    }
-                  }
                 }
               }
             }
@@ -2458,50 +2432,11 @@ function RealApp(): React.JSX.Element {
                     ...(toolCall.searchUpdates || []),
                     data.update.searchTitle
                   ]
-                } else if (data.update.agentIndex !== undefined) {
-                  const prevUpdate = toolCall.agentUpdates?.[data.update.agentIndex]
-                  const newPhase = data.update.phase || prevUpdate?.phase || 'thinking'
-                  toolCall.agentUpdates = {
-                    ...(toolCall.agentUpdates || {}),
-                    [data.update.agentIndex]: {
-                      phase: newPhase,
-                      command: data.update.command ?? prevUpdate?.command,
-                      output: data.update.output ?? prevUpdate?.output
-                    }
-                  }
                 }
                 toolCalls[toolCallIndex] = toolCall
                 lastMsg.toolCalls = toolCalls
                 newMessages[i] = lastMsg
                 return newMessages // Found and updated
-              }
-            }
-          }
-          return newMessages
-        })
-      }
-    })
-
-    const removeSubagentMessageListener = window.api.onSubagentMessage((data) => {
-      const { chatId } = data
-      if (chatId === currentChatIdRef.current) {
-        setMessages((prev) => {
-          const newMessages = [...prev]
-          for (let i = newMessages.length - 1; i >= 0; i--) {
-            const msg = newMessages[i]
-            if (msg.role === 'ai' && msg.toolCalls) {
-              const toolCallIndex = msg.toolCalls.findLastIndex(
-                (t) => t.name === 'run_subagents' && (t.status === 'running' || t.status === 'done')
-              )
-              if (toolCallIndex !== -1) {
-                const lastMsg = { ...msg }
-                const toolCalls = [...(lastMsg.toolCalls || [])]
-                const toolCall = { ...toolCalls[toolCallIndex] }
-                toolCall.subagentMessages = [...(toolCall.subagentMessages || []), data]
-                toolCalls[toolCallIndex] = toolCall
-                lastMsg.toolCalls = toolCalls
-                newMessages[i] = lastMsg
-                return newMessages
               }
             }
           }
@@ -2581,7 +2516,6 @@ function RealApp(): React.JSX.Element {
       removeToolStartListener()
       removeToolEndListener()
       removeToolUpdateListener()
-      removeSubagentMessageListener()
       removeTitleReceivedListener()
       removeTodoUpdateListener()
       removeTodoCompleteListener()
@@ -2854,14 +2788,6 @@ function RealApp(): React.JSX.Element {
     return <QuickLauncher />
   }
 
-  if (route === '#subagents') {
-    return <SubagentChat />
-  }
-
-  if (route === '#subagent-settings') {
-    return <SubagentModelSettings />
-  }
-
   if (route === '#updater') {
     return <UpdaterView />
   }
@@ -2958,7 +2884,6 @@ function RealApp(): React.JSX.Element {
               onRemoveFile={() => setAttachedFile(null)}
               onAttachFile={(file) => setAttachedFile(file)}
               onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
-              onOpenSubagentModal={() => setIsSubagentModalOpen(true)}
               onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
               activeWorkflow={activeWorkflow}
               setActiveWorkflow={setActiveWorkflow}
@@ -3032,7 +2957,6 @@ function RealApp(): React.JSX.Element {
                             onRemoveFile={() => setAttachedFile(null)}
                             onAttachFile={(file) => setAttachedFile(file)}
                             onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
-                            onOpenSubagentModal={() => setIsSubagentModalOpen(true)}
                             onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
                             activeWorkflow={activeWorkflow}
                             setActiveWorkflow={setActiveWorkflow}
@@ -3108,7 +3032,6 @@ function RealApp(): React.JSX.Element {
                   onRemoveFile={() => setAttachedFile(null)}
                   onAttachFile={(file) => setAttachedFile(file)}
                   onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
-                  onOpenSubagentModal={() => setIsSubagentModalOpen(true)}
                   onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
                   activeWorkflow={activeWorkflow}
                   setActiveWorkflow={setActiveWorkflow}
@@ -3134,14 +3057,6 @@ function RealApp(): React.JSX.Element {
             mimeType: 'image/png',
             data: base64
           })
-        }}
-      />
-      <SubagentDelegationModal
-        isOpen={isSubagentModalOpen}
-        onClose={() => setIsSubagentModalOpen(false)}
-        defaultSubagentModel={config?.subagentModel || 'prism-6-dragon'}
-        onDelegate={(data) => {
-          handleSend(`[MANUAL_SUBAGENTS]${JSON.stringify(data)}`)
         }}
       />
       <YoutubeAppModal

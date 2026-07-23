@@ -5,7 +5,6 @@ import type { AppConfig } from '../main/config'
 import type {
   ToolUpdate,
   DownloadProgress,
-  SubagentMessage,
   MiniAppData,
   ApplicationInfo,
   FileSearchResult,
@@ -278,11 +277,6 @@ const api = {
     ipcRenderer.on('chat-title-received', listener)
     return () => ipcRenderer.removeListener('chat-title-received', listener)
   },
-  onSubagentMessage: (callback: (data: SubagentMessage) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, data: SubagentMessage): void => callback(data)
-    ipcRenderer.on('subagent-message', listener)
-    return () => ipcRenderer.removeListener('subagent-message', listener)
-  },
   submitLauncher: (data: {
     message: string
     screenshot?: string
@@ -297,15 +291,7 @@ const api = {
     ipcRenderer.on('window-maximized-change', listener)
     return () => ipcRenderer.removeListener('window-maximized-change', listener)
   },
-  minimizeSubagentsWindow: (): void => ipcRenderer.send('minimize-subagents-window'),
-  openSubagentsWindow: (initialMessages?: SubagentMessage[]): void =>
-    ipcRenderer.send('open-subagents-window', initialMessages),
-  openSubagentSettingsWindow: (): void => ipcRenderer.send('open-subagent-settings-window'),
-  broadcastSubagentMessage: (data: SubagentMessage): void =>
-    ipcRenderer.send('subagent-message-broadcast', data),
   closeApp: (): void => ipcRenderer.send('close-app'),
-  closeSubagentsWindow: (): void => ipcRenderer.send('close-subagents-window'),
-  closeSubagentSettingsWindow: (): void => ipcRenderer.send('close-subagent-settings-window'),
   openMiniAppWindow: (data: MiniAppData): void => ipcRenderer.send('open-mini-app-window', data),
   closeMiniAppWindow: (id: string): void => ipcRenderer.send('close-mini-app-window', id),
   minimizeMiniAppWindow: (id: string): void => ipcRenderer.send('minimize-mini-app-window', id),

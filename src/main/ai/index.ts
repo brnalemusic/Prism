@@ -25,10 +25,6 @@ export function setGeminiModel(modelKey: string): boolean {
   return !!model
 }
 
-export function setSubagentModel(_modelKey: string): boolean {
-  return true
-}
-
 export function setUserApiKey(_key: string): void {
   // No-op for legacy setUserApiKey
 }

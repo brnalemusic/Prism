@@ -1,8 +1,6 @@
 import { useState } from 'react'
 import { clsx } from 'clsx'
-import { SubagentMessage } from '../../../shared/types'
 import {
-  DeviceMobile,
   MagnifyingGlass,
   Terminal,
   ArrowUpRight,
@@ -20,7 +18,6 @@ import {
   FileCode
 } from '@phosphor-icons/react'
 import { MiniAppRenderer } from './MiniAppRenderer'
-
 
 // Tool labels mapping for simplified display
 const TOOL_LABELS: Record<string, string> = {
@@ -58,7 +55,6 @@ export interface ToolCall {
   args: Record<string, unknown>
   result?: string
   status: 'writing' | 'running' | 'cooldown' | 'done' | 'error' | 'cancelled'
-  subagentMessages?: SubagentMessage[]
   agentUpdates?: Record<
     string | number,
     {
@@ -405,10 +401,6 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
     displayTitle = 'Reading Documentation'
     displayDetail = getStringArg(toolCall.args, 'filename') || 'Loading documentation file.'
     tone = 'search'
-  } else if (toolCall.name === 'run_subagents') {
-    displayTitle = 'Orchestrating Agents'
-    displayDetail = 'Coordinating parallel work.'
-    tone = 'think'
   } else if (
     toolCall.name.startsWith('browser_') ||
     toolCall.name === 'open_browser' ||
@@ -699,7 +691,6 @@ export function AnsiRenderer({ text }: { text: string }): React.JSX.Element {
 
 function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writingArgs?: Record<string, unknown> }): React.JSX.Element {
   const [isExpanded, setIsExpanded] = useState(false)
-  const [selectedAgentKey, setSelectedAgentKey] = useState<string>('master')
 
   const { displayTitle, displayDetail, tone, isDone, isWriting, isRunning, statusLabel, renderIcon } =
     useToolCallMeta(toolCall, writingArgs)
@@ -733,32 +724,6 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
       icon: 'text-accent-primary'
     }
   }[tone]
-
-  const hasAgentUpdates = toolCall.agentUpdates && Object.keys(toolCall.agentUpdates).length > 0
-  const agentKeys = Object.keys(toolCall.agentUpdates || {})
-  const workerKeys = agentKeys
-    .filter((k) => k !== 'master')
-    .sort((a, b) => parseInt(a) - parseInt(b))
-
-  const activeKey = toolCall.agentUpdates?.[selectedAgentKey]
-    ? selectedAgentKey
-    : toolCall.agentUpdates?.['master']
-      ? 'master'
-      : agentKeys[0]
-  const activeAgent = toolCall.agentUpdates?.[activeKey]
-
-  const masterX = 200
-  const masterY = 35
-  const workerY = 110
-
-  const getWorkerX = (index: number, total: number): number => {
-    if (total <= 1) return 200
-    return 60 + (index * 280) / (total - 1)
-  }
-
-  const showSubagentPanel =
-    toolCall.name === 'run_subagents' &&
-    (toolCall.status === 'running' || toolCall.status === 'done' || toolCall.status === 'cancelled')
 
   return (
     <div className="my-2 flex flex-col gap-2 max-w-full select-none animate-fade-in">
@@ -852,19 +817,6 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
         )}
 
         <div className="flex items-center gap-1.5 ml-1">
-          {toolCall.name === 'run_subagents' && showSubagentPanel && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                window.api.openSubagentsWindow(toolCall.subagentMessages)
-              }}
-              className="p-1 rounded cursor-pointer transition-colors text-accent-primary hover:bg-accent-primary/10"
-              title="Open Subagent Chat"
-            >
-              <DeviceMobile size={13} weight="regular" />
-            </button>
-          )}
-
           {canExpand && (
             <CaretDown
               size={12}
@@ -944,318 +896,6 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
               Execution cancelled.
             </span>
           ) : null}
-        </div>
-      )}
-
-      {/* ── Subagent Swarm panel styled futuristically ── */}
-      {showSubagentPanel && (isExpanded || isRunning) && (
-        <div className="rounded-xl border border-white/[0.04] bg-white/[0.015] p-4 flex flex-col gap-4 mt-1 tool-pill-result-enter max-w-[460px] backdrop-blur-md">
-          {hasAgentUpdates ? (
-            <>
-              {/* SVG Swarm Graph */}
-              <div className="w-full relative flex justify-center py-2 rounded-lg border border-white/[0.02] bg-black/10">
-                <svg viewBox="0 0 400 160" className="w-full select-none">
-                  {/* Glow Filters */}
-                  <defs>
-                    <linearGradient id="line-grad-compact" x1="0%" y1="0%" x2="0%" y2="100%">
-                      <stop offset="0%" stopColor="var(--color-accent-primary)" stopOpacity="0.8" />
-                      <stop
-                        offset="100%"
-                        stopColor="var(--color-accent-secondary)"
-                        stopOpacity="0.3"
-                      />
-                    </linearGradient>
-                    <filter id="glow-master-compact" x="-50%" y="-50%" width="200%" height="200%">
-                      <feDropShadow
-                        dx="0"
-                        dy="0"
-                        stdDeviation="6"
-                        floodColor="var(--color-accent-primary)"
-                        floodOpacity="0.4"
-                      />
-                    </filter>
-                    <filter
-                      id="glow-worker-thinking-compact"
-                      x="-50%"
-                      y="-50%"
-                      width="200%"
-                      height="200%"
-                    >
-                      <feDropShadow
-                        dx="0"
-                        dy="0"
-                        stdDeviation="5"
-                        floodColor="var(--color-accent-primary)"
-                        floodOpacity="0.3"
-                      />
-                    </filter>
-                    <filter
-                      id="glow-worker-tool-compact"
-                      x="-50%"
-                      y="-50%"
-                      width="200%"
-                      height="200%"
-                    >
-                      <feDropShadow
-                        dx="0"
-                        dy="0"
-                        stdDeviation="5"
-                        floodColor="var(--color-status-warning)"
-                        floodOpacity="0.3"
-                      />
-                    </filter>
-                  </defs>
-
-                  {/* Connection Lines (Bezier curves with animated signal packets) */}
-                  {workerKeys.map((key, idx) => {
-                    const phase = toolCall.agentUpdates?.[key]?.phase || 'idle'
-                    const style = getPhaseStyle(phase)
-                    const x = getWorkerX(idx, workerKeys.length)
-                    const isAnimating = phase === 'thinking' || phase === 'tool_use'
-
-                    const dPath = `M ${masterX} ${masterY} C ${masterX} ${(masterY + workerY) / 2}, ${x} ${(masterY + workerY) / 2}, ${x} ${workerY}`
-
-                    return (
-                      <g key={`path-group-compact-${key}`}>
-                        <path
-                          id={`path-worker-compact-${key}`}
-                          d={dPath}
-                          fill="none"
-                          stroke={
-                            phase === 'idle' ? 'var(--color-text-muted)' : 'url(#line-grad-compact)'
-                          }
-                          strokeWidth={1.5}
-                          strokeOpacity={phase === 'idle' ? 0.15 : 0.6}
-                          strokeDasharray={isAnimating ? '4,4' : 'none'}
-                          className={clsx(
-                            'transition-all duration-500',
-                            isAnimating && 'swarm-dash'
-                          )}
-                        />
-                        {isAnimating && (
-                          <circle r="3.5" fill={style.color}>
-                            <animateMotion dur="2s" repeatCount="indefinite">
-                              <mpath href={`#path-worker-compact-${key}`} />
-                            </animateMotion>
-                          </circle>
-                        )}
-                      </g>
-                    )
-                  })}
-
-                  {/* Master Node */}
-                  {(() => {
-                    const phase = toolCall.agentUpdates?.['master']?.phase || 'idle'
-                    const style = getPhaseStyle(phase)
-                    const isSelected = activeKey === 'master'
-
-                    return (
-                      <g
-                        className="cursor-pointer group"
-                        onClick={() => setSelectedAgentKey('master')}
-                      >
-                        {isSelected && (
-                          <circle
-                            cx={masterX}
-                            cy={masterY}
-                            r={18}
-                            fill="none"
-                            stroke={style.border}
-                            strokeWidth={1}
-                            className="animate-ping opacity-25"
-                          />
-                        )}
-                        <circle
-                          cx={masterX}
-                          cy={masterY}
-                          r={15}
-                          fill="var(--color-background-secondary)"
-                          stroke={style.border}
-                          strokeWidth={isSelected ? 2.5 : 1.5}
-                          filter={isSelected ? 'url(#glow-master-compact)' : undefined}
-                          className="transition-all duration-300 hover:stroke-accent-primary"
-                        />
-                        <text
-                          x={masterX}
-                          y={masterY + 4}
-                          textAnchor="middle"
-                          fontSize="11"
-                          className="pointer-events-none select-none"
-                        >
-                          👑
-                        </text>
-                        <text
-                          x={masterX}
-                          y={masterY - 18}
-                          textAnchor="middle"
-                          fontSize="8"
-                          fontWeight="bold"
-                          fill="var(--color-text-primary)"
-                          className="font-sans tracking-wider opacity-90 pointer-events-none select-none uppercase"
-                        >
-                          Coordinator
-                        </text>
-                      </g>
-                    )
-                  })()}
-
-                  {/* Worker Nodes */}
-                  {workerKeys.map((key, idx) => {
-                    const phase = toolCall.agentUpdates?.[key]?.phase || 'idle'
-                    const style = getPhaseStyle(phase)
-                    const x = getWorkerX(idx, workerKeys.length)
-                    const isSelected = activeKey === String(key)
-                    const isAnimating = phase === 'thinking' || phase === 'tool_use'
-
-                    let filterId: string | undefined = undefined
-                    if (isSelected) {
-                      filterId =
-                        phase === 'tool_use'
-                          ? 'url(#glow-worker-tool-compact)'
-                          : 'url(#glow-worker-thinking-compact)'
-                    }
-
-                    return (
-                      <g
-                        key={`node-compact-${key}`}
-                        className="cursor-pointer group"
-                        onClick={() => setSelectedAgentKey(String(key))}
-                      >
-                        {isAnimating && (
-                          <circle
-                            cx={x}
-                            cy={workerY}
-                            r={14}
-                            fill="none"
-                            stroke={style.border}
-                            strokeWidth={1}
-                            className="animate-ping opacity-25"
-                          />
-                        )}
-                        <circle
-                          cx={x}
-                          cy={workerY}
-                          r={11}
-                          fill="var(--color-background-secondary)"
-                          stroke={style.border}
-                          strokeWidth={isSelected ? 2.5 : 1.5}
-                          filter={filterId}
-                          className="transition-all duration-300 hover:stroke-accent-secondary"
-                        />
-                        <text
-                          x={x}
-                          y={workerY + 3.5}
-                          textAnchor="middle"
-                          fontSize="8"
-                          fontWeight="bold"
-                          fill={style.color}
-                          className="pointer-events-none font-mono select-none"
-                        >
-                          {key}
-                        </text>
-                        <text
-                          x={x}
-                          y={workerY + 22}
-                          textAnchor="middle"
-                          fontSize="8"
-                          fill="var(--color-text-secondary)"
-                          className="opacity-70 font-sans pointer-events-none select-none"
-                        >
-                          Agent {key}
-                        </text>
-                        <text
-                          x={x}
-                          y={workerY + 32}
-                          textAnchor="middle"
-                          fontSize="7"
-                          fontWeight="semibold"
-                          fill={style.color}
-                          className="opacity-80 font-sans pointer-events-none select-none uppercase tracking-wider"
-                        >
-                          {phase === 'tool_use' ? 'tool call' : phase}
-                        </text>
-                      </g>
-                    )
-                  })}
-                </svg>
-              </div>
-
-              {/* Agent Detail Card */}
-              {activeAgent && (
-                <div className="flex flex-col gap-3 p-3.5 rounded-xl border border-white/[0.04] bg-white/[0.015] backdrop-blur-md transition-all duration-300">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-medium text-text-secondary uppercase tracking-widest flex items-center gap-1.5">
-                      {activeKey === 'master'
-                        ? '👑 Master Coordinator'
-                        : `🤖 Worker Agent #${activeKey}`}
-                    </span>
-                    <span
-                      className={clsx(
-                        'text-[10px] font-bold uppercase px-2 py-0.5 rounded-sm tracking-wider flex items-center gap-1.5',
-                        activeAgent.phase === 'thinking'
-                          ? 'bg-accent-primary/10 text-accent-primary'
-                          : activeAgent.phase === 'tool_use'
-                            ? 'bg-status-warning/10 text-status-warning'
-                            : activeAgent.phase === 'done'
-                              ? 'bg-status-success/10 text-status-success'
-                              : 'bg-status-error/10 text-status-error'
-                      )}
-                    >
-                      <span
-                        className={clsx(
-                          'w-1.5 h-1.5 rounded-full',
-                          activeAgent.phase === 'thinking' && 'bg-accent-primary animate-pulse',
-                          activeAgent.phase === 'tool_use' && 'bg-status-warning animate-pulse',
-                          activeAgent.phase === 'done' && 'bg-status-success',
-                          activeAgent.phase === 'error' && 'bg-status-error',
-                          activeAgent.phase === 'cancelled' && 'bg-text-muted'
-                        )}
-                      />
-                      {activeAgent.command?.includes('WAITING')
-                        ? 'LISTENING'
-                        : activeAgent.command?.includes('MESSAGE TO')
-                          ? 'SENDING'
-                          : activeAgent.phase.replace('_', ' ')}
-                    </span>
-                  </div>
-
-                  {activeAgent.command && (
-                    <div className="font-mono text-[10.5px] bg-black/35 border border-white/[0.03] rounded-lg p-3 flex flex-col gap-1.5 select-text">
-                      <div className="flex items-center gap-1.5 text-accent-secondary/90 font-semibold border-b border-white/[0.04] pb-1.5 mb-0.5">
-                        <Terminal size={12} />
-                        <span>ACTIVE PROCESS</span>
-                      </div>
-                      <div className="flex gap-2">
-                        <span className="text-text-muted select-none font-bold">$</span>
-                        <code className="text-text-primary break-all leading-relaxed">
-                          {activeAgent.command}
-                        </code>
-                      </div>
-                    </div>
-                  )}
-
-                  {activeAgent.output && (
-                    <div className="font-mono text-[10.5px] bg-black/35 border border-white/[0.03] rounded-lg p-3 flex flex-col gap-1.5 select-text">
-                      <div className="flex items-center gap-1.5 text-text-muted opacity-80 font-semibold border-b border-white/[0.04] pb-1.5 mb-0.5">
-                        <FileText size={12} />
-                        <span>CONSOLE OUTPUT</span>
-                      </div>
-                      <div className="text-text-secondary/95 break-words leading-relaxed max-h-[140px] overflow-y-auto whitespace-pre-wrap">
-                        {activeAgent.output}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-4">
-              <CircleNotch size={20} weight="bold" className="animate-spin text-text-muted mb-2" />
-              <span className="text-[11px] tracking-wider uppercase font-medium text-text-muted">
-                Synchronizing Swarm Network...
-              </span>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -1406,22 +1046,6 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
         )}
 
         <div className="flex items-center gap-1.5 ml-1">
-          {toolCall.name === 'run_subagents' &&
-            (toolCall.status === 'running' ||
-              toolCall.status === 'done' ||
-              toolCall.status === 'cancelled') && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  window.api.openSubagentsWindow(toolCall.subagentMessages)
-                }}
-                className="p-1 rounded cursor-pointer transition-colors text-accent-primary hover:bg-accent-primary/10"
-                title="Open Subagent Chat"
-              >
-                <DeviceMobile size={13} weight="regular" />
-              </button>
-            )}
-
           {canExpand && (
             <CaretDown
               size={12}

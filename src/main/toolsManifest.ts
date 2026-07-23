@@ -11,52 +11,10 @@ export interface ToolDefinition {
   description: string
   usage: string
   parameters: Record<string, string | ToolParameterSchema>
-  target?: 'main' | 'subagent' | 'both' | 'launcher'
+  target?: 'main' | 'both' | 'launcher'
 }
 
 export const toolsManifest: ToolDefinition[] = [
-  {
-    name: 'run_subagents',
-    description: 'Spawn sub-agents for parallel tasks.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"run_subagents","quantity":"X","prompt:1":"P1"}[/PRISM_EXECUTE_TOOL]',
-    parameters: {
-      quantity: 'Number of agents.',
-      'prompt:1': 'Prompt for agent 1.',
-      'prompt:2': 'Prompt for agent 2 (repeat up to X).'
-    },
-    target: 'main'
-  },
-  {
-    name: 'send_group_message',
-    description: 'Send group chat message.',
-    usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"send_group_message","content":"TXT","status":"working|done|error"}[/PRISM_EXECUTE_TOOL]',
-    parameters: {
-      content: 'Message text.',
-      status: '"working" to stay active (requires wait_for_updates), "done" or "error" to exit.'
-    },
-    target: 'subagent'
-  },
-  {
-    name: 'read_group_messages',
-    description: 'Fetch group chat history.',
-    usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"read_group_messages","sinceTimestamp":"TS","limit":"N"}[/PRISM_EXECUTE_TOOL]',
-    parameters: {
-      sinceTimestamp: 'Optional: Filter by timestamp.',
-      limit: 'Optional: Max messages.'
-    },
-    target: 'subagent'
-  },
-  {
-    name: 'wait_for_updates',
-    description: 'Pause and wait for new group messages.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"wait_for_updates","timeoutSeconds":"SEC"}[/PRISM_EXECUTE_TOOL]',
-    parameters: {
-      timeoutSeconds: 'Max wait time (max 180s).'
-    },
-    target: 'subagent'
-  },
   {
     name: 'execute_terminal_command',
     description: 'Run shell command in user terminal.',
@@ -369,7 +327,6 @@ export const toolsManifest: ToolDefinition[] = [
       youtubeModeShortcut: 'Optional: Toggle YouTube mode hotkey.',
       lastSelectedChatModel: 'Optional: Main chat model key.',
       defaultModel: 'Optional: Main chat model key (alias for lastSelectedChatModel).',
-      subagentModel: 'Optional: Subagent model key.',
       searchModel: 'Optional: Web search model key.',
       quickLauncherModel: 'Optional: Quick launcher model key.',
       sttModel: 'Optional: Dictation/STT model key.',

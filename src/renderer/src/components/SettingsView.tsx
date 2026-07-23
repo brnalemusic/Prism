@@ -77,11 +77,6 @@ const STATIC_TOOLS = [
     desc: 'Search keywords in prior conversations'
   },
   {
-    name: 'run_subagents',
-    label: 'Run Subagents Swarm',
-    desc: 'Delegate sub-tasks to nested agents'
-  },
-  {
     name: 'computer_use_see_screen',
     label: 'See Screen',
     desc: 'Take screenshot of screen or specific app'
@@ -550,23 +545,6 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
           <ModelSelector
             selectedModel={(config as any).searchModel || ''}
             onModelChange={(m) => setConfig({ ...config, searchModel: m } as any)}
-          />
-        </div>
-
-        {/* Subagent Orchestration Model */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035]">
-          <div>
-            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-              <Bot size={16} className="text-purple-400" />
-              Subagents Swarm Model
-            </h3>
-            <p className="text-xs text-text-secondary/60 mt-1">
-              Used by delegated worker subagents during swarm tasks.
-            </p>
-          </div>
-          <ModelSelector
-            selectedModel={config.subagentModel || ''}
-            onModelChange={(m) => setConfig({ ...config, subagentModel: m })}
           />
         </div>
       </div>
