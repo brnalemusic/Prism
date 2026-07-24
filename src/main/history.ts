@@ -313,8 +313,8 @@ export async function searchChatHistory(query: string): Promise<string> {
       for (let i = 0; i < session.messages.length; i++) {
         const msg = session.messages[i]
 
-        // ONLY read User and AI messages
-        if (msg.role !== 'user' && msg.role !== 'model') {
+        // Read User, Model, and Assistant messages
+        if (msg.role !== 'user' && msg.role !== 'model' && msg.role !== 'assistant') {
           continue
         }
 
@@ -513,7 +513,10 @@ export function searchChatsOffline(query: string): {
     return { results: [] }
   }
 
-  const queryKeywords = cleanQuery.split(/\s+/).filter((k) => k.length > 0)
+  const allKeywords = cleanQuery.split(/\s+/).filter((k) => k.length > 0)
+  const stopWords = new Set(['uma', 'vez', 'que', 'de', 'do', 'da', 'em', 'no', 'na', 'os', 'as', 'um', 'e', 'ou', 'com', 'por', 'me', 'my', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'is', 'it'])
+  const significantKeywords = allKeywords.filter((k) => k.length > 2 && !stopWords.has(k))
+  const searchKeywords = significantKeywords.length > 0 ? significantKeywords : allKeywords
 
   for (const file of files) {
     try {
@@ -521,21 +524,26 @@ export function searchChatsOffline(query: string): {
       const session: ChatSession = JSON.parse(data)
 
       const titleLower = session.title.toLowerCase()
-      const matchedTitle = queryKeywords.every((kw) => titleLower.includes(kw))
+      const matchedTitle =
+        titleLower.includes(cleanQuery) ||
+        allKeywords.every((kw) => titleLower.includes(kw)) ||
+        searchKeywords.some((kw) => titleLower.includes(kw))
 
       const messageMatches: SearchMatch[] = []
 
       for (const msg of session.messages) {
-        if (msg.role !== 'user' && msg.role !== 'model') continue
+        if (msg.role !== 'user' && msg.role !== 'model' && msg.role !== 'assistant') continue
         const text = getMessageText(msg, true)
         if (!text) continue
 
         const textLower = text.toLowerCase()
-        const matchedMessage = queryKeywords.every((kw) => textLower.includes(kw))
+        const isExactMatch = cleanQuery.length > 3 && textLower.includes(cleanQuery)
+        const isAllMatch = allKeywords.length > 0 && allKeywords.every((kw) => textLower.includes(kw))
+        const isSignificantMatch = searchKeywords.length > 0 && searchKeywords.some((kw) => textLower.includes(kw))
 
-        if (matchedMessage) {
+        if (isExactMatch || isAllMatch || isSignificantMatch) {
           let firstIndex = Infinity
-          for (const kw of queryKeywords) {
+          for (const kw of searchKeywords) {
             const idx = textLower.indexOf(kw)
             if (idx !== -1 && idx < firstIndex) {
               firstIndex = idx
@@ -545,7 +553,7 @@ export function searchChatsOffline(query: string): {
           let snippet = ''
           if (firstIndex !== Infinity) {
             const start = Math.max(0, firstIndex - 60)
-            const end = Math.min(text.length, firstIndex + queryKeywords[0].length + 60)
+            const end = Math.min(text.length, firstIndex + searchKeywords[0].length + 60)
             snippet =
               (start > 0 ? '...' : '') +
               text.substring(start, end).replace(/\n/g, ' ') +
@@ -554,8 +562,10 @@ export function searchChatsOffline(query: string): {
             snippet = text.substring(0, 100).replace(/\n/g, ' ') + (text.length > 100 ? '...' : '')
           }
 
+          const normalizedRole: 'user' | 'model' = msg.role === 'user' ? 'user' : 'model'
+
           messageMatches.push({
-            role: msg.role as 'user' | 'model',
+            role: normalizedRole,
             text: text,
             snippet: snippet
           })
@@ -576,7 +586,11 @@ export function searchChatsOffline(query: string): {
     }
   }
 
-  results.sort((a, b) => b.lastUpdated - a.lastUpdated)
+  results.sort((a, b) => {
+    const scoreA = (a.matchedTitle ? 10 : 0) + a.messageMatches.length
+    const scoreB = (b.matchedTitle ? 10 : 0) + b.messageMatches.length
+    return scoreB - scoreA || b.lastUpdated - a.lastUpdated
+  })
 
   const didYouMean = getSpellingSuggestion(query)
 
@@ -620,7 +634,7 @@ export async function searchChatMemory(query: string): Promise<string> {
 
       // Check messages
       for (const msg of session.messages) {
-        if (msg.role !== 'user' && msg.role !== 'model') continue
+        if (msg.role !== 'user' && msg.role !== 'model' && msg.role !== 'assistant') continue
         const text = getMessageText(msg, true)
         if (!text) continue
         const textLower = text.toLowerCase()
