@@ -297,7 +297,7 @@ export const toolsManifest: ToolDefinition[] = [
     name: 'open_main_app',
     description: 'Open main application window.',
     usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"open_main_app","instructions":"TXT","model":"prism-6-super-fast"}[/PRISM_EXECUTE_TOOL]',
+      '[PRISM_EXECUTE_TOOL]{"type":"open_main_app","instructions":"TXT","model":"MODEL_KEY"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       instructions: 'Target instructions.',
       model: 'Model key (super-fast|fast|dragon|dense).',

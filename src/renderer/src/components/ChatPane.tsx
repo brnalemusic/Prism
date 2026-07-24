@@ -3,7 +3,6 @@ import clsx from 'clsx'
 import { CaretDown, ChatTeardropText, Columns, X } from '@phosphor-icons/react'
 import { InputBar, InputBarHandle } from './InputBar'
 import TodoPanel from './TodoPanel'
-import { LandingBackgroundEffects } from './LandingBackgroundEffects'
 import type { TabSession } from '../types/tab'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
 import type { TodoState } from '../../../shared/types'
@@ -182,7 +181,6 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
           {/* Landing State when tab has no messages */}
           {tab.messages.length === 0 && (
             <div className="flex-1 flex flex-col items-center justify-center p-4 min-h-full">
-              <LandingBackgroundEffects />
               <div className="w-full max-w-[720px] flex flex-col items-center gap-6 z-10 my-auto">
                 <div className="flex flex-col items-center text-center space-y-2">
                   <h1 className="text-2xl font-bold tracking-tight text-text-primary">

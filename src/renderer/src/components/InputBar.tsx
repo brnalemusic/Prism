@@ -82,7 +82,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       disabled,
       isProcessing,
       isKeyMissing,
-      selectedModel = 'prism-6-super-fast',
+      selectedModel = '',
       text,
       setText,
       isSearchEnabled,

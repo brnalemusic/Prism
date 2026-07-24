@@ -2227,19 +2227,7 @@ export function getSystemToolsPrompt(
   const terminalSummary = getLocalCommandSandboxSummary(shellName)
   const shellSyntax = getShellSyntaxSummary(shellName)
   const name = 'Prism AI'
-  const modelNames: Record<string, string> = {
-    'prism-4': 'Prism 4',
-    'prism-4.1': 'Prism 4.1',
-    'prism-4.2': 'Prism 4.2',
-    'prism-4.3': 'Prism 4.3',
-    'prism-5': 'Prism 5',
-    'prism-6-super-fast': 'Prism 6 Super-Fast',
-    'prism-6-fast-old': 'Prism 6 Fast-Old',
-    'prism-6-fast': 'Prism 6 Fast',
-    'prism-6-dragon': 'Prism 6 Dragon',
-    'prism-6-dense': 'Prism 6 Dense'
-  }
-  const modelName = modelNames[modelKey] || 'Prism 6 Super-Fast'
+  const modelName = modelKey || 'AI Assistant'
 
   const toolsPrompt = toolsManifest
     .filter((t) => {

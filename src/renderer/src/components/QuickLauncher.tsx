@@ -651,7 +651,7 @@ export function QuickLauncher(): React.JSX.Element {
   const [isSearchEnabled, setIsSearchEnabled] = useState(false)
   const [isYoutubeMode, setIsYoutubeMode] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
-  const [activeModelId, setActiveModelId] = useState('prism-6-super-fast')
+  const [activeModelId, setActiveModelId] = useState('')
   const [shortcut, setShortcut] = useState('CommandOrControl+M')
   const [isFocused, setIsFocused] = useState(false)
   const [quickLauncherMode, setQuickLauncherMode] = useState<'simple' | 'advanced'>('simple')

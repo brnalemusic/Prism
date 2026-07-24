@@ -1,34 +1,80 @@
-import React from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
-import { Plus, X, Columns, SquaresFour, ChatTeardropText } from '@phosphor-icons/react'
+import { Plus, X, Columns, ChatTeardropText, StopCircle } from '@phosphor-icons/react'
+import { ModelSelector } from './ModelSelector'
 import type { TabSession } from '../types/tab'
 
 interface TabBarProps {
   tabs: TabSession[]
   activeTabId: string
   visibleTabIds: string[]
+  selectedModel: string
+  onModelChange: (modelKey: string) => void
   onSelectTab: (id: string) => void
   onCloseTab: (id: string) => void
   onNewTab: () => void
   onToggleSplitTab: (id: string) => void
+  onStopAgent: (id: string) => void
+}
+
+interface ContextMenuState {
+  x: number
+  y: number
+  tabId: string
 }
 
 export const TabBar: React.FC<TabBarProps> = ({
   tabs,
   activeTabId,
   visibleTabIds,
+  selectedModel,
+  onModelChange,
   onSelectTab,
   onCloseTab,
   onNewTab,
-  onToggleSplitTab
+  onToggleSplitTab,
+  onStopAgent
 }) => {
   const isMaxTabs = tabs.length >= 10
   const visibleCount = visibleTabIds.length
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Close context menu on outside click or escape
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent): void => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setContextMenu(null)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setContextMenu(null)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
+
+  const handleContextMenu = (e: React.MouseEvent, tabId: string): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      tabId
+    })
+  }
+
+  const contextTab = contextMenu ? tabs.find((t) => t.id === contextMenu.tabId) : null
+  const isContextTabVisible = contextMenu ? visibleTabIds.includes(contextMenu.tabId) : false
 
   return (
-    <div className="flex h-10 w-full items-center justify-between border-b border-white/[0.06] bg-background-main/90 px-3 select-none backdrop-blur-md z-30">
-      {/* Scrollable Tabs List */}
-      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar flex-1 mr-2 py-1">
+    <div className="flex h-11 w-full items-center justify-between border-b border-white/[0.06] bg-background-main/90 px-3 select-none backdrop-blur-md z-30 relative">
+      {/* Tabs Container - Flexible sizing so all tabs fit on screen */}
+      <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-3 py-1 overflow-hidden">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId
           const isVisible = visibleTabIds.includes(tab.id)
@@ -37,8 +83,9 @@ export const TabBar: React.FC<TabBarProps> = ({
             <div
               key={tab.id}
               onClick={() => onSelectTab(tab.id)}
+              onContextMenu={(e) => handleContextMenu(e, tab.id)}
               className={clsx(
-                'group relative flex h-8 items-center gap-2 rounded-xl px-3 text-xs font-medium transition-all duration-200 cursor-pointer shrink-0 border max-w-[200px]',
+                'group relative flex h-8 items-center gap-2 rounded-xl px-2.5 text-xs font-medium transition-all duration-200 cursor-pointer shrink flex-1 min-w-[80px] max-w-[170px] border',
                 isActive
                   ? 'bg-white/[0.08] text-text-primary border-accent-primary/40 shadow-sm'
                   : isVisible
@@ -46,8 +93,8 @@ export const TabBar: React.FC<TabBarProps> = ({
                     : 'bg-transparent text-text-muted hover:bg-white/[0.025] hover:text-text-secondary border-transparent'
               )}
             >
-              {/* Tab status indicator */}
-              <div className="flex items-center gap-1.5 shrink-0">
+              {/* Status icon / spinner */}
+              <div className="flex items-center gap-1 shrink-0">
                 <ChatTeardropText
                   size={14}
                   className={clsx(
@@ -59,83 +106,113 @@ export const TabBar: React.FC<TabBarProps> = ({
                 )}
               </div>
 
-              {/* Title */}
-              <span className="truncate max-w-[110px] font-medium tracking-tight">
+              {/* Tab Title */}
+              <span className="truncate flex-1 font-medium tracking-tight text-[11.5px]">
                 {tab.title || 'New Chat'}
               </span>
 
-              {/* Action badges: Split view toggle + Close tab */}
-              <div className="flex items-center gap-1 shrink-0">
-                {/* Split view toggle button */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onToggleSplitTab(tab.id)
-                  }}
-                  title={
-                    isVisible
-                      ? 'Remove from split view'
-                      : visibleCount >= 4
-                        ? 'Split view limit reached (max 4)'
-                        : 'Show in split view'
-                  }
-                  disabled={!isVisible && visibleCount >= 4}
-                  className={clsx(
-                    'flex h-5 w-5 items-center justify-center rounded-md transition-all duration-150',
-                    isVisible
-                      ? 'bg-accent-primary/20 text-accent-primary hover:bg-accent-primary/30'
-                      : 'text-text-muted opacity-0 group-hover:opacity-100 hover:bg-white/[0.08] hover:text-text-secondary disabled:opacity-30 disabled:cursor-not-allowed'
-                  )}
-                >
-                  <Columns size={12} weight={isVisible ? 'bold' : 'regular'} />
-                </button>
-
-                {/* Close Tab Button */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onCloseTab(tab.id)
-                  }}
-                  className="flex h-5 w-5 items-center justify-center rounded-md text-text-muted hover:bg-white/[0.1] hover:text-text-primary transition-colors duration-150"
-                  title="Close tab"
-                >
-                  <X size={12} />
-                </button>
-              </div>
+              {/* Close Tab Button */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onCloseTab(tab.id)
+                }}
+                className="flex h-4.5 w-4.5 items-center justify-center rounded text-text-muted opacity-0 group-hover:opacity-100 hover:bg-white/[0.12] hover:text-text-primary transition-all duration-150 shrink-0"
+                title="Close tab"
+              >
+                <X size={11} />
+              </button>
             </div>
           )
         })}
 
-        {/* New Tab Button */}
+        {/* Plus (+) Button for New Tab */}
         <button
           type="button"
           onClick={onNewTab}
           disabled={isMaxTabs}
           title={isMaxTabs ? 'Maximum 10 tabs reached' : 'New tab'}
           className={clsx(
-            'flex h-8 items-center gap-1.5 rounded-xl px-2.5 text-xs font-medium border border-white/[0.05] transition-all duration-200 shrink-0 cursor-pointer',
+            'flex h-8 w-8 items-center justify-center rounded-xl border border-white/[0.06] transition-all duration-200 shrink-0 cursor-pointer',
             isMaxTabs
-              ? 'opacity-40 cursor-not-allowed text-text-muted bg-transparent'
-              : 'bg-white/[0.02] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary active:scale-95'
+              ? 'opacity-30 cursor-not-allowed text-text-muted bg-transparent border-transparent'
+              : 'bg-white/[0.02] text-text-secondary hover:bg-white/[0.07] hover:text-text-primary active:scale-95'
           )}
         >
           <Plus size={14} />
-          <span className="hidden sm:inline">New Tab</span>
-          <span className="text-[10px] text-text-muted font-mono bg-white/[0.04] px-1 rounded">
-            {tabs.length}/10
-          </span>
         </button>
       </div>
 
-      {/* Split View Status Indicator */}
-      <div className="flex items-center gap-2 text-xs text-text-muted font-mono shrink-0 bg-white/[0.02] px-2.5 py-1 rounded-xl border border-white/[0.04]">
-        <SquaresFour size={14} className="text-accent-primary" />
-        <span className="text-[11px]">
-          Visible: <strong className="text-text-primary font-semibold">{visibleCount}</strong>/4
-        </span>
+      {/* Model Selector Dropdown on Right Side of TabBar */}
+      <div className="shrink-0 flex items-center">
+        <ModelSelector
+          selectedModel={selectedModel}
+          onModelChange={onModelChange}
+          align="right"
+        />
       </div>
+
+      {/* Custom Context Menu */}
+      {contextMenu && contextTab && (
+        <div
+          ref={menuRef}
+          className="fixed z-[100] w-48 rounded-2xl border border-white/[0.12] bg-surface/95 backdrop-blur-2xl shadow-2xl p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none"
+          style={{
+            left: `${Math.min(contextMenu.x, window.innerWidth - 200)}px`,
+            top: `${Math.min(contextMenu.y, window.innerHeight - 150)}px`
+          }}
+        >
+          {/* Split View Toggle */}
+          <button
+            type="button"
+            disabled={!isContextTabVisible && visibleCount >= 4}
+            onClick={() => {
+              onToggleSplitTab(contextTab.id)
+              setContextMenu(null)
+            }}
+            className={clsx(
+              'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full',
+              !isContextTabVisible && visibleCount >= 4
+                ? 'opacity-40 cursor-not-allowed text-text-muted'
+                : 'text-text-secondary hover:bg-white/[0.08] hover:text-text-primary'
+            )}
+          >
+            <Columns size={14} className="text-accent-primary shrink-0" />
+            <span>{isContextTabVisible ? 'Remove from split view' : 'Split view'}</span>
+          </button>
+
+          {/* Stop Agent (if running) */}
+          {contextTab.isProcessing && (
+            <button
+              type="button"
+              onClick={() => {
+                onStopAgent(contextTab.id)
+                setContextMenu(null)
+              }}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium text-status-error hover:bg-status-error/10 transition-colors w-full"
+            >
+              <StopCircle size={14} className="shrink-0" />
+              <span>Stop agent</span>
+            </button>
+          )}
+
+          <div className="h-[1px] bg-white/[0.06] my-0.5" />
+
+          {/* Close Tab */}
+          <button
+            type="button"
+            onClick={() => {
+              onCloseTab(contextTab.id)
+              setContextMenu(null)
+            }}
+            className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-colors w-full"
+          >
+            <X size={14} className="shrink-0" />
+            <span>Close tab</span>
+          </button>
+        </div>
+      )}
     </div>
   )
 }

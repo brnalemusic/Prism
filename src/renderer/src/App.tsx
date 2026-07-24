@@ -522,6 +522,13 @@ function RealApp(): React.JSX.Element {
   const [chatTodos, setChatTodos] = useState<Record<string, TodoState>>({})
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
 
+  // Global Selected Model State
+  const [selectedModel, setSelectedModel] = useState<string>('')
+  const selectedModelRef = useRef(selectedModel)
+  useEffect(() => {
+    selectedModelRef.current = selectedModel
+  }, [selectedModel])
+
   // Tabs Management State
   const initialTab: TabSession = {
     id: 'tab-1',
@@ -534,7 +541,7 @@ function RealApp(): React.JSX.Element {
     disciplinePath: '',
     isProcessing: false,
     isTodoOpen: false,
-    selectedModel: 'prism-6-super-fast',
+    selectedModel: selectedModel,
     isSearchEnabled: false
   }
 
@@ -699,15 +706,30 @@ function RealApp(): React.JSX.Element {
   useEffect(() => {
     async function init(): Promise<void> {
       const cfg = await window.api.getConfig()
+      let initialModel = cfg?.lastSelectedChatModel || ''
+      if (!initialModel) {
+        try {
+          const activeModels = await window.api.getActiveModels()
+          if (activeModels && activeModels.length > 0) {
+            initialModel = activeModels[0].fullKey
+          }
+        } catch (e) {
+          console.error('Failed to fetch active models:', e)
+        }
+      }
+      if (initialModel) {
+        setSelectedModel(initialModel)
+        window.api.setModel(initialModel)
+        setTabs((prev) => prev.map((t) => ({ ...t, selectedModel: initialModel })))
+      }
       if (cfg) {
         setConfig(cfg)
-        if (cfg.lastSelectedChatModel) {
-          window.api.setModel(cfg.lastSelectedChatModel)
+        if (cfg.sessionMode) {
+          window.api.setSessionMode(
+            cfg.sessionMode,
+            cfg.sessionMode === 'discipline' ? cfg.disciplinePath || '' : ''
+          )
         }
-        window.api.setSessionMode(
-          cfg.sessionMode || 'execution',
-          (cfg.sessionMode || 'execution') === 'discipline' ? cfg.disciplinePath || '' : ''
-        )
       }
     }
     init()
@@ -738,7 +760,7 @@ function RealApp(): React.JSX.Element {
         disciplinePath: '',
         isProcessing: false,
         isTodoOpen: false,
-        selectedModel: 'prism-6-super-fast',
+        selectedModel: selectedModelRef.current,
         isSearchEnabled: false
       }
       setActiveTabId(newId)
@@ -770,7 +792,7 @@ function RealApp(): React.JSX.Element {
             disciplinePath: '',
             isProcessing: false,
             isTodoOpen: false,
-            selectedModel: 'prism-6-super-fast',
+            selectedModel: selectedModelRef.current,
             isSearchEnabled: false
           }
         ]
@@ -963,6 +985,18 @@ function RealApp(): React.JSX.Element {
     },
     []
   )
+
+  const handleModelChange = useCallback((modelKey: string) => {
+    setSelectedModel(modelKey)
+    window.api.setModel(modelKey)
+    setTabs((prev) => prev.map((t) => ({ ...t, selectedModel: modelKey })))
+    setConfig((prev) => {
+      if (!prev) return prev
+      const next = { ...prev, lastSelectedChatModel: modelKey }
+      window.api.saveConfig(next)
+      return next
+    })
+  }, [])
 
   const handleReasoningLevelChange = useCallback(async (modelKey: string, level: string) => {
     if (config) {
@@ -1199,7 +1233,6 @@ function RealApp(): React.JSX.Element {
 
   const getPaneSpanClass = (index: number, count: number) => {
     if (count === 3 && index === 2) {
-      // 3rd tab spans full horizontal width on bottom row
       return 'col-span-2 row-span-1'
     }
     return 'col-span-1 row-span-1'
@@ -1303,10 +1336,18 @@ function RealApp(): React.JSX.Element {
           tabs={tabs}
           activeTabId={activeTabId}
           visibleTabIds={visibleTabIds}
+          selectedModel={selectedModel || activeTab.selectedModel}
+          onModelChange={handleModelChange}
           onSelectTab={handleSelectTab}
           onCloseTab={handleCloseTab}
           onNewTab={handleNewChat}
           onToggleSplitTab={handleToggleSplitTab}
+          onStopAgent={(tabId) => {
+            const targetTab = tabs.find((t) => t.id === tabId)
+            if (targetTab?.chatId) {
+              window.api.cancelChat(targetTab.chatId)
+            }
+          }}
         />
 
         {/* Main Grid View for Visible Tab Panes */}
@@ -1318,7 +1359,7 @@ function RealApp(): React.JSX.Element {
                 className={clsx('h-full w-full overflow-hidden', getPaneSpanClass(index, visibleTabs.length))}
               >
                 <ChatPane
-                  tab={tab}
+                  tab={{ ...tab, selectedModel: selectedModel || tab.selectedModel }}
                   isFocused={tab.id === activeTabId}
                   isSplitView={visibleTabs.length > 1}
                   todo={tab.chatId ? chatTodos[tab.chatId] || null : null}
@@ -1346,11 +1387,7 @@ function RealApp(): React.JSX.Element {
                       window.api.cancelChat(tab.chatId)
                     }
                   }}
-                  onModelChange={(model) => {
-                    setTabs((prev) =>
-                      prev.map((t) => (t.id === tab.id ? { ...t, selectedModel: model } : t))
-                    )
-                  }}
+                  onModelChange={handleModelChange}
                   onReasoningLevelChange={(model, level) => {
                     handleReasoningLevelChange(model, level)
                   }}
