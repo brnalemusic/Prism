@@ -228,7 +228,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
 
           {/* Messages list when tab has messages */}
           {tab.messages.length > 0 && (
-            <div className="w-full flex-grow flex flex-col pb-36 pt-4">
+            <div className="w-full flex-grow flex flex-col pb-[22vh] pt-4">
               {renderedMessages}
             </div>
           )}

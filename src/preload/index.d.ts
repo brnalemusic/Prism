@@ -121,7 +121,7 @@ export interface PrismAPI {
   }>
   getToolDefinitions: () => Promise<any[]>
   getChats: () => Promise<Omit<ChatSession, 'messages'>[]>
-  loadChat: (id: string) => Promise<Content[]>
+  loadChat: (id: string) => Promise<any[]>
   getChatModel: (id: string) => Promise<string | undefined>
   deleteChat: (id: string) => Promise<boolean>
   getRunningChats: () => Promise<string[]>

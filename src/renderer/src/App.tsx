@@ -38,7 +38,7 @@ import {
   CodeBlock
 } from './components/AnimatedStreamingText'
 import clsx from 'clsx'
-import { CaretDown, Quotes, Brain, FilePdf, FilePpt } from '@phosphor-icons/react'
+import { CaretDown, Quotes, Brain, FilePdf, FilePpt, CheckCircle, XCircle } from '@phosphor-icons/react'
 import { ScreenshotModal } from './components/ScreenshotModal'
 import { YoutubeAppModal } from './components/YoutubeAppModal'
 import { AppConfig, SlashWorkflow } from '../../main/config'
@@ -363,15 +363,14 @@ const AiMessage = React.memo(function AiMessage({
 
   if (msg.isConnecting) {
     return (
-      <div className="flex flex-col gap-2.5 w-full max-w-[320px] py-3 animate-pulse">
-        <div className="h-3.5 w-full rounded-full bg-white/[0.08]" />
-        <div className="h-3.5 w-5/6 rounded-full bg-white/[0.08]" />
-        <div className="h-3.5 w-2/3 rounded-full bg-white/[0.08]" />
+      <div className="flex items-center gap-2 text-[13px] font-medium text-text-secondary py-1 select-none">
+        <span className="w-2 h-2 rounded-full bg-accent-primary animate-pulse shrink-0" />
+        <span className="tool-shimmer-text">Connecting...</span>
       </div>
     )
   }
 
-  if (!msg.content && !msg.toolCalls?.length && !msg.isWritingToolCall) {
+  if (!msg.content && !msg.toolCalls?.length && !msg.isWritingToolCall && !msg.isStreaming) {
     return null
   }
 
@@ -659,6 +658,96 @@ const AiMessage = React.memo(function AiMessage({
           )
         })}
 
+        {nativeToolCalls.map((tc, idx) => {
+          if (tc.name === 'to_ask') {
+            return (
+              <QuestionnaireRenderer
+                key={`native-tc-${idx}`}
+                toolCall={{
+                  name: tc.name,
+                  status: tc.status,
+                  args: tc.args || {}
+                }}
+                chatId={currentChatId || ''}
+              />
+            )
+          }
+          if (tc.name === 'render_chat_history') {
+            return (
+              <RenderChatHistory
+                key={`native-tc-${idx}`}
+                chatId={String(tc.args?.query || '')}
+                onOpenChat={handleLoadChat || (() => {})}
+              />
+            )
+          }
+          if (tc.name === 'malformed_tool_call') {
+            return (
+              <MalformedToolCallWarning
+                key={`native-tc-${idx}`}
+                toolCall={{
+                  name: tc.name,
+                  status: tc.status,
+                  args: tc.args || {}
+                }}
+              />
+            )
+          }
+          if (tc.name === 'create_mini_app') {
+            const title = (tc.args.title || 'Mini App') as string
+            const html = (tc.args.html || tc.args.code || '') as string
+            const css = (tc.args.css || '') as string
+            const js = (tc.args.js || tc.args.javascript || '') as string
+            const status = tc.status
+
+            const miniAppId = `mini-app-native-${idx}-${title.replace(/\s+/g, '-').toLowerCase()}`
+
+            if (status === 'writing' || status === 'running') {
+              if (shouldHideIndicator(status)) return null
+              if (shouldHideActiveBelow) return null
+              return (
+                <div key={miniAppId} className="flex items-center gap-1.5 mt-1">
+                  <ToolCallIndicator tools={[{ name: 'create_mini_app', status }]} />
+                </div>
+              )
+            }
+
+            return (
+              <div key={miniAppId} className="w-full flex flex-col gap-2 my-2 select-none animate-fade-in">
+                <div className="flex items-center gap-2 text-[13px] text-text-secondary font-medium">
+                  {status === 'error' || status === 'cancelled' ? (
+                    <>
+                      <XCircle size={14} className="text-status-error shrink-0" />
+                      <span>
+                        Failed to create mini app: <span className="font-semibold text-text-primary">{title}</span>
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle size={14} className="text-status-success shrink-0" />
+                      <span>
+                        Created mini app: <span className="font-semibold text-text-primary">{title}</span>
+                      </span>
+                    </>
+                  )}
+                </div>
+                {status === 'done' && (
+                  <div className="w-full px-0">
+                    <MiniAppRenderer
+                      id={miniAppId}
+                      title={title}
+                      html={html}
+                      css={css}
+                      js={js}
+                    />
+                  </div>
+                )}
+              </div>
+            )
+          }
+          return null
+        })}
+
         {visibleNativeTools.length > 0 && (
           <div className="flex items-center gap-1.5 mt-1">
             <ToolCallIndicator
@@ -685,14 +774,20 @@ const AiMessage = React.memo(function AiMessage({
 const TabMessagesList = React.memo(function TabMessagesList({
   messages,
   currentChatId,
-  handleLoadChat,
-  markdownComponents
+  handleLoadChat
 }: {
   messages: Message[]
   currentChatId?: string
   handleLoadChat: (id: string) => void
-  markdownComponents: Components
 }) {
+  const markdownComponents = useMemo(
+    () => ({
+      ...MarkdownComponents,
+      ...StaticMarkdownComponents
+    }),
+    []
+  )
+
   if (messages.length === 0) return null
 
   return (
@@ -750,7 +845,7 @@ const TabMessagesList = React.memo(function TabMessagesList({
           .trim()
 
         const hasThoughtBlock = !!(filteredThoughts || msg.isThinking)
-        const hasContent = !!msg.content
+        const hasContent = !!(msg.content && msg.content.trim() !== '')
 
         return (
           <div
@@ -760,20 +855,57 @@ const TabMessagesList = React.memo(function TabMessagesList({
             {hasThoughtBlock && (
               <div className="w-full mb-3 select-none">
                 <details className="group w-full select-none">
-                  <summary className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-text-muted hover:text-text-secondary transition-colors duration-150 py-1">
-                    <Brain size={14} className="text-accent-secondary shrink-0" />
-                    <span>
+                  <summary className="inline-flex items-center gap-2 cursor-pointer text-sm font-semibold text-text-primary hover:text-white transition-colors duration-150 py-1 select-none list-none [&::-webkit-details-marker]:hidden">
+                    <Brain
+                      size={15}
+                      className={clsx(
+                        'text-accent-secondary shrink-0 transition-all duration-300',
+                        msg.isThinking && 'animate-pulse'
+                      )}
+                    />
+                    <span className="font-semibold text-sm leading-normal text-text-primary">
                       {(() => {
-                        if (filteredThoughts) {
-                          const wordCount = filteredThoughts.split(/\s+/).filter(Boolean).length
-                          return `Thought process (${wordCount} words)`
+                        const toolsList = msg.toolCalls || []
+                        const streamingTools = (msg.streamingToolCalls || []).map((stc) => ({
+                          name: stc.name,
+                          status: 'writing' as const
+                        }))
+                        const allTools = [
+                          ...toolsList,
+                          ...streamingTools
+                        ] as ToolCallItem[]
+                        const activeTools = allTools.filter(
+                          (t) =>
+                            t.status !== 'done' &&
+                            t.status !== 'error' &&
+                            t.status !== 'cancelled'
+                        )
+                        if (activeTools.length > 0 && !hasContent) {
+                          const lastTool = activeTools[activeTools.length - 1]
+                          return <ToolCallIndicator tools={[lastTool]} />
                         }
-                        return msg.isThinking ? 'Thinking...' : 'Thinking'
+
+                        if (msg.isThinking) {
+                          return 'Thinking...'
+                        }
+
+                        const duration =
+                          msg.thinkingDuration !== undefined
+                            ? msg.thinkingDuration
+                            : msg.thoughts && msg.thoughts.trim() !== ''
+                              ? Math.max(1, Math.round(msg.thoughts.length / 120))
+                              : undefined
+
+                        if (duration !== undefined) {
+                          return `Thought for ${duration} ${duration === 1 ? 'second' : 'seconds'}`
+                        }
+
+                        return 'Thought'
                       })()}
                     </span>
                     <CaretDown
-                      size={11}
-                      className="text-text-muted/50 transition-transform duration-200 group-open:rotate-180"
+                      size={13}
+                      className="text-text-primary/70 transition-transform duration-200 group-open:rotate-180"
                     />
                   </summary>
                   <div className="mt-1.5 border-l border-white/[0.06] ml-1.5 pl-4 py-0.5 font-mono text-[11px] leading-relaxed select-text text-text-secondary/50">
@@ -793,9 +925,18 @@ const TabMessagesList = React.memo(function TabMessagesList({
             )}
 
             <div className="w-full text-text-primary">
-              {!hasContent && (msg.isConnecting || (!hasThoughtBlock && msg.isWritingToolCall)) ? (
+              {!hasContent &&
+              (msg.isConnecting || (!hasThoughtBlock && msg.isWritingToolCall) || (msg.isStreaming && !hasThoughtBlock)) ? (
                 <div className="flex items-center gap-1.5 h-6 select-none">
-                  <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe" />
+                  <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
+                  {msg.isWritingToolCall && msg.streamingToolCalls && msg.streamingToolCalls.length > 0 && (
+                    <ToolCallIndicator
+                      tools={msg.streamingToolCalls.map((stc) => ({
+                        name: stc.name,
+                        status: 'writing' as const
+                      }))}
+                    />
+                  )}
                 </div>
               ) : (
                 <AiMessage
@@ -910,13 +1051,6 @@ function RealApp(): React.JSX.Element {
   }, [tabs, visibleTabIds])
 
   const [quotedText, setQuotedText] = useState<string | null>(null)
-  const markdownComponents = useMemo(
-    () => ({
-      ...MarkdownComponents,
-      ...StaticMarkdownComponents
-    }),
-    []
-  )
   const quotedTextRef = useRef<string | null>(null)
   useEffect(() => {
     quotedTextRef.current = quotedText
@@ -1198,19 +1332,215 @@ function RealApp(): React.JSX.Element {
   const handleLoadChat = useCallback(async (chatId: string) => {
     try {
       const rawContent = await window.api.loadChat(chatId)
-      const messages: Message[] = (rawContent || []).map((c: any) => {
-        const isUser = c.role === 'user'
-        let text = ''
-        if (typeof c.parts === 'string') {
-          text = c.parts
-        } else if (Array.isArray(c.parts)) {
-          text = c.parts.map((p: any) => p.text || '').join('')
+      if (!Array.isArray(rawContent)) return
+
+      const extractMessageText = (c: any): string => {
+        if (!c) return ''
+        if (typeof c.content === 'string') return c.content
+        if (Array.isArray(c.content)) {
+          return c.content
+            .map((part: any) => {
+              if (typeof part === 'string') return part
+              if (part && typeof part === 'object') {
+                if (part.type === 'text' && typeof part.text === 'string') return part.text
+                if (typeof part.text === 'string') return part.text
+              }
+              return ''
+            })
+            .filter(Boolean)
+            .join('\n')
         }
-        return {
-          role: isUser ? 'user' : 'ai',
-          content: text
+        if (typeof c.parts === 'string') return c.parts
+        if (Array.isArray(c.parts)) {
+          return c.parts
+            .map((part: any) => {
+              if (typeof part === 'string') return part
+              if (part && typeof part === 'object' && typeof part.text === 'string') return part.text
+              return ''
+            })
+            .filter(Boolean)
+            .join('\n')
         }
-      })
+        return ''
+      }
+
+      const extractThoughts = (c: any): string | undefined => {
+        if (!c) return undefined
+        if (typeof c.thoughts === 'string' && c.thoughts.trim() !== '') return c.thoughts
+        if (typeof c.reasoning_content === 'string' && c.reasoning_content.trim() !== '')
+          return c.reasoning_content
+        if (typeof c.reasoning === 'string' && c.reasoning.trim() !== '') return c.reasoning
+        return undefined
+      }
+
+      const messages: Message[] = []
+
+      for (let i = 0; i < rawContent.length; i++) {
+        const c = rawContent[i]
+        if (!c) continue
+
+        const role = c.role
+
+        // 1. Tool result message (OpenAI format: role === 'tool')
+        if (role === 'tool') {
+          const toolCallId = c.tool_call_id
+          const toolName = c.name
+          const toolResult =
+            typeof c.content === 'string' ? c.content : JSON.stringify(c.content || '')
+
+          const lastAi = messages.slice().reverse().find((m) => m.role === 'ai')
+          if (lastAi) {
+            if (!lastAi.toolCalls) lastAi.toolCalls = []
+            const targetTc = lastAi.toolCalls.find(
+              (tc: any) =>
+                (toolCallId && tc.id === toolCallId) ||
+                (toolName && tc.name === toolName && tc.result === undefined)
+            )
+            if (targetTc) {
+              targetTc.result = toolResult
+              targetTc.status = toolResult.startsWith('Error') ? 'error' : 'done'
+            } else if (toolName) {
+              lastAi.toolCalls.push({
+                name: toolName,
+                args: {},
+                result: toolResult,
+                status: toolResult.startsWith('Error') ? 'error' : 'done'
+              })
+            }
+          }
+          continue
+        }
+
+        const rawText = extractMessageText(c)
+
+        // 2. Tag-based tool execution result (role === 'user' starting with "Tool Execution Result for ")
+        if (role === 'user' && rawText.startsWith('Tool Execution Result for ')) {
+          const lastAi = messages.slice().reverse().find((m) => m.role === 'ai')
+          if (lastAi) {
+            if (!lastAi.toolCalls) lastAi.toolCalls = []
+            const emptyTc = lastAi.toolCalls.find((tc) => tc.result === undefined)
+            const toolOutput = rawText.replace(/^Tool Execution Result for [^\n]+:\n?/, '')
+            if (emptyTc) {
+              emptyTc.result = toolOutput
+              emptyTc.status = toolOutput.startsWith('Error') ? 'error' : 'done'
+            }
+          }
+          continue
+        }
+
+        // 3. User Message
+        if (role === 'user') {
+          const displayText = rawText
+            .replace(/^\[FORCE_SEARCH\]\s*/i, '')
+            .replace(/<attached_file[^>]*\/>/gi, '')
+            .trim()
+
+          let screenshot: string | undefined = undefined
+          let file: AttachedFile | undefined = undefined
+
+          if (Array.isArray(c.content)) {
+            for (const part of c.content) {
+              if (part && typeof part === 'object' && part.type === 'image_url') {
+                screenshot = part.image_url?.url
+              }
+            }
+          } else if (Array.isArray(c.parts)) {
+            for (const part of c.parts) {
+              if (part && typeof part === 'object' && part.inlineData) {
+                screenshot = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`
+              }
+            }
+          }
+
+          messages.push({
+            role: 'user',
+            content: displayText,
+            screenshot,
+            file
+          })
+          continue
+        }
+
+        // 4. Assistant / AI Message
+        if (role === 'assistant' || role === 'model' || role === 'ai') {
+          const thoughts = extractThoughts(c)
+          const rawToolCalls = c.tool_calls || c.toolCalls || []
+
+          const toolCalls: (ToolCallItem & { id?: string })[] = rawToolCalls.map((tc: any) => {
+            const name = tc.function?.name || tc.name || ''
+            let args: Record<string, unknown> = {}
+            if (typeof tc.function?.arguments === 'string') {
+              try {
+                args = JSON.parse(tc.function.arguments)
+              } catch {
+                args = { raw: tc.function.arguments }
+              }
+            } else if (typeof tc.args === 'string') {
+              try {
+                args = JSON.parse(tc.args)
+              } catch {
+                args = { raw: tc.args }
+              }
+            } else if (tc.args && typeof tc.args === 'object') {
+              args = tc.args
+            }
+
+            let result: string | undefined = undefined
+            if (tc.id) {
+              const toolMsg = rawContent.find(
+                (m: any) => m.role === 'tool' && m.tool_call_id === tc.id
+              )
+              if (toolMsg) {
+                result =
+                  typeof toolMsg.content === 'string'
+                    ? toolMsg.content
+                    : JSON.stringify(toolMsg.content || '')
+              }
+            }
+
+            return {
+              id: tc.id,
+              name,
+              args,
+              result,
+              status: result ? (result.startsWith('Error') ? 'error' : 'done') : 'done'
+            }
+          })
+
+          // Check for tag-based tool calls inside content [PRISM_EXECUTE_TOOL]
+          const tagMatches = Array.from(
+            rawText.matchAll(/\[PRISM_EXECUTE_TOOL\]([\s\S]*?)\[\/PRISM_EXECUTE_TOOL\]/g)
+          )
+          for (const match of tagMatches) {
+            try {
+              const toolData = JSON.parse(match[1])
+              const toolName = toolData.type || toolData.name || 'tool'
+              delete toolData.type
+              delete toolData.name
+
+              const alreadyInList = toolCalls.some((tc) => tc.name === toolName)
+              if (!alreadyInList) {
+                toolCalls.push({
+                  name: toolName,
+                  args: toolData,
+                  status: 'done'
+                })
+              }
+            } catch {
+              /* ignore parse errors */
+            }
+          }
+
+          messages.push({
+            role: 'ai',
+            content: rawText,
+            thoughts,
+            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+            isStreaming: false,
+            isThinking: false
+          })
+        }
+      }
 
       const chats = await window.api.getChats()
       const historyItem = chats.find((item) => item.id === chatId)
@@ -1372,10 +1702,25 @@ function RealApp(): React.JSX.Element {
   useEffect(() => {
     const removeChatStartListener = window.api.onChatStart((data) => {
       const { chatId } = data
+      setRunningChats((prev) => ({ ...prev, [chatId]: true }))
       setTabs((prev) =>
         prev.map((t) => {
-          if (t.id === activeTabIdRef.current || t.chatId === chatId) {
-            return { ...t, chatId, isProcessing: true }
+          if (t.chatId === chatId || (t.id === activeTabIdRef.current && !t.chatId)) {
+            const msgs = [...t.messages]
+            const lastMsg = msgs[msgs.length - 1]
+            if (!lastMsg || lastMsg.role !== 'ai' || !lastMsg.isStreaming) {
+              msgs.push({
+                role: 'ai',
+                content: '',
+                thoughts: '',
+                isStreaming: true,
+                isThinking: false,
+                thinkingStartTime: undefined,
+                isConnecting: true,
+                toolCalls: []
+              })
+            }
+            return { ...t, chatId, messages: msgs, isProcessing: true }
           }
           return t
         })
@@ -1383,42 +1728,64 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeChatChunkListener = window.api.onChatChunk((data) => {
-      const { chatId, text, thinking, isConnecting, toolCall, streamingToolCall } = data
+      const {
+        chatId,
+        thoughts,
+        finalResponse,
+        isThinking,
+        isWritingToolCall,
+        toolType,
+        streamingToolCalls
+      } = data
       setTabs((prevTabs) =>
         prevTabs.map((tab) => {
           if (tab.chatId === chatId) {
-            const msgs = [...tab.messages]
-            const lastMsg = msgs[msgs.length - 1]
-            if (lastMsg && lastMsg.role === 'ai' && lastMsg.isStreaming) {
-              const updatedToolCalls = toolCall
-                ? [...(lastMsg.toolCalls || []), toolCall]
-                : lastMsg.toolCalls
-              const updatedStreamingToolCalls = streamingToolCall
-                ? [...(lastMsg.streamingToolCalls || []), streamingToolCall]
-                : lastMsg.streamingToolCalls
+            const newMessages = [...tab.messages]
+            const lastMsgIndex = newMessages.length - 1
+            const lastMsg = newMessages[lastMsgIndex]
 
-              msgs[msgs.length - 1] = {
-                ...lastMsg,
-                content: text !== undefined ? text : lastMsg.content,
-                thoughts: thinking !== undefined ? thinking : lastMsg.thoughts,
-                isConnecting: isConnecting !== undefined ? isConnecting : lastMsg.isConnecting,
-                toolCalls: updatedToolCalls,
-                streamingToolCalls: updatedStreamingToolCalls
+            if (lastMsg && lastMsg.role === 'ai') {
+              let updatedToolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
+
+              if (updatedToolCalls.some((t) => t.status === 'running' && t.result !== undefined)) {
+                updatedToolCalls = updatedToolCalls.map((tc) => {
+                  if (tc.status === 'running' && tc.result !== undefined) {
+                    return {
+                      ...tc,
+                      status: tc.result.startsWith('Error') ? 'error' : 'done'
+                    }
+                  }
+                  return tc
+                })
               }
-            } else {
-              msgs.push({
-                role: 'ai',
-                content: text || '',
-                thoughts: thinking || '',
-                isStreaming: true,
-                isConnecting: !!isConnecting,
-                toolCalls: toolCall ? [toolCall] : [],
-                streamingToolCalls: streamingToolCall ? [streamingToolCall] : []
-              })
+
+              const startTime =
+                lastMsg.thinkingStartTime ||
+                (isThinking || (thoughts && thoughts.trim() !== '') ? Date.now() : undefined)
+              let duration = lastMsg.thinkingDuration
+              if (!isThinking && (lastMsg.isThinking || (thoughts && thoughts.trim() !== ''))) {
+                if (duration === undefined && startTime) {
+                  duration = Math.max(1, Math.round((Date.now() - startTime) / 1000))
+                }
+              }
+
+              newMessages[lastMsgIndex] = {
+                ...lastMsg,
+                thoughts,
+                content: finalResponse,
+                isThinking,
+                thinkingStartTime: startTime,
+                thinkingDuration: duration,
+                isWritingToolCall,
+                toolType,
+                streamingToolCalls,
+                isConnecting: false,
+                toolCalls: updatedToolCalls
+              }
             }
             return {
               ...tab,
-              messages: msgs,
+              messages: newMessages,
               isProcessing: true
             }
           }
@@ -1428,7 +1795,7 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeChatEndListener = window.api.onChatEnd((data) => {
-      const { chatId, thoughts, finalResponse, toolCalls } = data
+      const { chatId, thoughts, finalResponse } = data
       setRunningChats((prev) => {
         const next = { ...prev }
         delete next[chatId]
@@ -1437,21 +1804,75 @@ function RealApp(): React.JSX.Element {
       setTabs((prevTabs) =>
         prevTabs.map((tab) => {
           if (tab.chatId === chatId) {
-            const msgs = [...tab.messages]
-            const lastMsg = msgs[msgs.length - 1]
+            const newMessages = [...tab.messages]
+            const lastMsgIndex = newMessages.length - 1
+            const lastMsg = newMessages[lastMsgIndex]
+
             if (lastMsg && lastMsg.role === 'ai') {
-              msgs[msgs.length - 1] = {
+              let promotedToolCalls = lastMsg.toolCalls || []
+              if (lastMsg.streamingToolCalls && lastMsg.streamingToolCalls.length > 0) {
+                const completedStreaming = lastMsg.streamingToolCalls.filter(
+                  (stc) => stc.isComplete && stc.name
+                )
+                for (const stc of completedStreaming) {
+                  const alreadyExists = promotedToolCalls.some(
+                    (tc) => tc.name === stc.name && (tc.status === 'running' || tc.status === 'done')
+                  )
+                  if (!alreadyExists) {
+                    let parsedArgs: Record<string, unknown> = {}
+                    try {
+                      parsedArgs = JSON.parse(stc.arguments)
+                    } catch {
+                      /* ignore */
+                    }
+                    promotedToolCalls = [
+                      ...promotedToolCalls,
+                      {
+                        name: stc.name,
+                        args: parsedArgs,
+                        status: 'running' as const
+                      }
+                    ]
+                  }
+                }
+              }
+
+              promotedToolCalls = promotedToolCalls.map((tc) => {
+                if (tc.status === 'running') {
+                  return {
+                    ...tc,
+                    status: tc.result && tc.result.startsWith('Error') ? 'error' : 'done'
+                  }
+                }
+                return tc
+              })
+
+              let duration = lastMsg.thinkingDuration
+              if (
+                duration === undefined &&
+                lastMsg.thinkingStartTime &&
+                lastMsg.thoughts &&
+                lastMsg.thoughts.trim() !== ''
+              ) {
+                duration = Math.max(1, Math.round((Date.now() - lastMsg.thinkingStartTime) / 1000))
+              }
+
+              newMessages[lastMsgIndex] = {
                 ...lastMsg,
-                content: finalResponse || lastMsg.content,
-                thoughts: thoughts || lastMsg.thoughts,
-                toolCalls: toolCalls || lastMsg.toolCalls,
+                thoughts,
+                content: finalResponse,
                 isStreaming: false,
-                isThinking: false
+                isThinking: false,
+                thinkingDuration: duration,
+                isWritingToolCall: false,
+                isConnecting: false,
+                toolCalls: promotedToolCalls,
+                streamingToolCalls: undefined
               }
             }
             return {
               ...tab,
-              messages: msgs,
+              messages: newMessages,
               isProcessing: false
             }
           }
@@ -1461,7 +1882,7 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeChatErrorListener = window.api.onChatError((data) => {
-      const { chatId } = data
+      const { error, chatId } = data
       setRunningChats((prev) => {
         const next = { ...prev }
         delete next[chatId]
@@ -1470,7 +1891,246 @@ function RealApp(): React.JSX.Element {
       setTabs((prevTabs) =>
         prevTabs.map((tab) => {
           if (tab.chatId === chatId) {
-            return { ...tab, isProcessing: false }
+            const newMessages = [...tab.messages]
+            const lastMsgIndex = newMessages.length - 1
+            const lastMsg = newMessages[lastMsgIndex]
+            const isCancel = error.includes('cancelled')
+
+            if (lastMsg && lastMsg.role === 'ai') {
+              let updatedToolCalls = lastMsg.toolCalls
+              if (isCancel && lastMsg.toolCalls) {
+                updatedToolCalls = lastMsg.toolCalls.map((tc) =>
+                  tc.status === 'running'
+                    ? { ...tc, status: 'cancelled', result: 'Cancelled by user.' }
+                    : tc
+                )
+              }
+              newMessages[lastMsgIndex] = {
+                ...lastMsg,
+                isStreaming: false,
+                isThinking: false,
+                isConnecting: false,
+                toolCalls: updatedToolCalls
+              }
+            }
+
+            if (isCancel) {
+              newMessages.push({
+                role: 'separator',
+                separatorType: 'cancel',
+                content: 'Cancelled by user'
+              })
+            } else if (error === 'TIMEOUT_ERROR_FIRST') {
+              newMessages.push({
+                role: 'separator',
+                separatorType: 'error',
+                content: 'Request timed out: No response from the IA within 15 seconds.'
+              })
+            } else if (error === 'TIMEOUT_ERROR_CHUNK') {
+              newMessages.push({
+                role: 'separator',
+                separatorType: 'error',
+                content: 'Request timed out: IA stopped responding for over 30 seconds.'
+              })
+            } else {
+              const apiErrorMatch = error.match(/^API_KEY_ERROR:(\d{3}):(.+)$/)
+              let separatorContent: string
+              if (apiErrorMatch) {
+                separatorContent = `API key error: ${apiErrorMatch[1]} ${apiErrorMatch[2]}`
+              } else {
+                const httpMatch = error.match(/(\d{3})\s+(.*)/)
+                if (httpMatch) {
+                  separatorContent = `API key error: ${httpMatch[1]} ${httpMatch[2].trim()}`
+                } else {
+                  separatorContent = `API key error: 500 Internal Server Error`
+                }
+              }
+              newMessages.push({
+                role: 'separator',
+                separatorType: 'error',
+                content: separatorContent
+              })
+            }
+
+            return { ...tab, messages: newMessages, isProcessing: false }
+          }
+          return tab
+        })
+      )
+    })
+
+    const removeToolCallDeltaListener = window.api.onToolCallDelta((data) => {
+      const { chatId, index, name, argsDelta } = data
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.chatId === chatId) {
+            const newMessages = [...tab.messages]
+            const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
+            if (lastMsgIndex !== -1) {
+              const lastMsg = { ...newMessages[lastMsgIndex] }
+              const streamingToolCalls = lastMsg.streamingToolCalls
+                ? [...lastMsg.streamingToolCalls]
+                : []
+              const existingIdx = streamingToolCalls.findIndex((stc) => stc.index === index)
+              if (existingIdx !== -1) {
+                streamingToolCalls[existingIdx] = {
+                  ...streamingToolCalls[existingIdx],
+                  name: name || streamingToolCalls[existingIdx].name,
+                  arguments: streamingToolCalls[existingIdx].arguments + (argsDelta || '')
+                }
+              } else {
+                streamingToolCalls.push({
+                  index,
+                  name: name || 'task',
+                  arguments: argsDelta || '',
+                  isComplete: false
+                })
+              }
+
+              let toolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
+              if (toolCalls.some((t) => t.status === 'running' && t.result !== undefined)) {
+                toolCalls = toolCalls.map((tc) => {
+                  if (tc.status === 'running' && tc.result !== undefined) {
+                    return {
+                      ...tc,
+                      status: tc.result.startsWith('Error') ? 'error' : 'done'
+                    }
+                  }
+                  return tc
+                })
+              }
+
+              newMessages[lastMsgIndex] = {
+                ...lastMsg,
+                isConnecting: false,
+                isWritingToolCall: true,
+                toolCalls,
+                streamingToolCalls
+              }
+            }
+            return { ...tab, messages: newMessages }
+          }
+          return tab
+        })
+      )
+    })
+
+    const removeToolStartListener = window.api.onToolStart((data) => {
+      const { chatId } = data
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.chatId === chatId) {
+            const newMessages = [...tab.messages]
+            const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
+            if (lastMsgIndex !== -1) {
+              const lastMsg = { ...newMessages[lastMsgIndex] }
+              let toolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
+
+              toolCalls = toolCalls.map((t) => {
+                if (t.status === 'running' && t.result !== undefined) {
+                  return {
+                    ...t,
+                    status: t.result.startsWith('Error') ? 'error' : 'done'
+                  }
+                }
+                return t
+              })
+
+              const promotedIndex = toolCalls.findLastIndex(
+                (t) => t.name === data.name && (t.status === 'running' || t.status === 'done')
+              )
+
+              if (promotedIndex !== -1) {
+                toolCalls[promotedIndex] = {
+                  ...toolCalls[promotedIndex],
+                  args: data.args,
+                  status: 'running'
+                }
+                lastMsg.toolCalls = toolCalls
+                newMessages[lastMsgIndex] = lastMsg
+              } else {
+                const isDuplicate = toolCalls.some(
+                  (t) =>
+                    t.name === data.name &&
+                    JSON.stringify(t.args) === JSON.stringify(data.args) &&
+                    t.status === 'running'
+                )
+
+                if (!isDuplicate) {
+                  lastMsg.toolCalls = [...toolCalls, { name: data.name, args: data.args, status: 'running' }]
+                  newMessages[lastMsgIndex] = lastMsg
+                }
+              }
+            }
+            return { ...tab, messages: newMessages }
+          }
+          return tab
+        })
+      )
+    })
+
+    const removeToolEndListener = window.api.onToolEnd((data) => {
+      const { chatId } = data
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.chatId === chatId) {
+            const newMessages = [...tab.messages]
+            const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
+
+            if (lastMsgIndex !== -1 && newMessages[lastMsgIndex].toolCalls) {
+              const lastMsg = { ...newMessages[lastMsgIndex] }
+              const toolCalls = [...(lastMsg.toolCalls || [])]
+              const lastToolIndex = toolCalls.findLastIndex(
+                (t) => t.name === data.name && t.status === 'running'
+              )
+
+              if (lastToolIndex !== -1) {
+                toolCalls[lastToolIndex] = {
+                  ...toolCalls[lastToolIndex],
+                  result: data.result
+                }
+                lastMsg.toolCalls = toolCalls
+                newMessages[lastMsgIndex] = lastMsg
+              }
+            }
+            return { ...tab, messages: newMessages }
+          }
+          return tab
+        })
+      )
+    })
+
+    const removeToolUpdateListener = window.api.onToolUpdate((data) => {
+      const { chatId } = data
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.chatId === chatId) {
+            const newMessages = [...tab.messages]
+            for (let i = newMessages.length - 1; i >= 0; i--) {
+              const msg = newMessages[i]
+              if (msg.role === 'ai' && msg.toolCalls) {
+                const toolCallIndex = msg.toolCalls.findLastIndex(
+                  (t) =>
+                    t.name === data.toolCallName &&
+                    (t.status === 'running' || t.status === 'writing' || t.status === 'done')
+                )
+                if (toolCallIndex !== -1) {
+                  const lastMsg = { ...msg }
+                  const toolCalls = [...(lastMsg.toolCalls || [])]
+                  const toolCall = { ...toolCalls[toolCallIndex] }
+                  if (data.toolCallName === 'web_search' && data.update.searchTitle) {
+                    toolCall.searchUpdates = [
+                      ...(toolCall.searchUpdates || []),
+                      data.update.searchTitle
+                    ]
+                  }
+                  toolCalls[toolCallIndex] = toolCall
+                  lastMsg.toolCalls = toolCalls
+                  newMessages[i] = lastMsg
+                  return { ...tab, messages: newMessages }
+                }
+              }
+            }
           }
           return tab
         })
@@ -1502,6 +2162,10 @@ function RealApp(): React.JSX.Element {
       removeChatChunkListener()
       removeChatEndListener()
       removeChatErrorListener()
+      removeToolCallDeltaListener()
+      removeToolStartListener()
+      removeToolEndListener()
+      removeToolUpdateListener()
       removeTitleReceivedListener()
       removeTodoUpdateListener()
     }
@@ -1780,7 +2444,6 @@ function RealApp(): React.JSX.Element {
                       messages={tab.messages}
                       currentChatId={tab.chatId}
                       handleLoadChat={handleLoadChat}
-                      markdownComponents={markdownComponents}
                     />
                   }
                 />

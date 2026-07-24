@@ -19,10 +19,12 @@ export interface StreamingToolCall {
 export interface ToolCallItem {
   name: string
   args: Record<string, unknown>
+  result?: string
   status: 'writing' | 'running' | 'done' | 'error' | 'cancelled'
   addedLines?: number
   removedLines?: number
   readLines?: { start: number; end: number }[]
+  searchUpdates?: string[]
 }
 
 export interface Message {
@@ -31,6 +33,8 @@ export interface Message {
   thoughts?: string
   isStreaming?: boolean
   isThinking?: boolean
+  thinkingStartTime?: number
+  thinkingDuration?: number
   isError?: boolean
   toolCalls?: ToolCallItem[]
   streamingToolCalls?: StreamingToolCall[]

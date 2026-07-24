@@ -48,25 +48,13 @@ interface ToolCallIndicatorProps {
 export function ToolCallIndicator({ tools }: ToolCallIndicatorProps): React.JSX.Element | null {
   if (!tools || tools.length === 0) return null
 
-  // Show only the LAST tool
+  // Show only the LAST tool (even if done/error/etc to keep text visible)
   const lastTool = tools[tools.length - 1]
   const displayText = getToolLabel(lastTool.name)
-  const isRunning = lastTool.status === 'running' || lastTool.status === 'writing'
 
   return (
-    <span className="inline-flex items-center gap-2 text-[13px] font-medium leading-normal py-1 select-none text-text-secondary">
-      {isRunning ? (
-        <span className="w-2 h-2 rounded-full bg-accent-primary animate-pulse shrink-0" />
-      ) : lastTool.status === 'done' ? (
-        <CheckCircle size={14} className="text-status-success shrink-0" />
-      ) : lastTool.status === 'error' ? (
-        <XCircle size={14} className="text-status-error shrink-0" />
-      ) : (
-        <span className="w-2 h-2 rounded-full bg-text-muted shrink-0" />
-      )}
-      <span className={clsx(isRunning && 'tool-shimmer-text')}>
-        {displayText}
-      </span>
+    <span className="tool-shimmer-text text-[13px] font-medium leading-normal inline-block pb-[1.5px]">
+      {displayText}
     </span>
   )
 }

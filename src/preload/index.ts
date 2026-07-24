@@ -13,7 +13,6 @@ import type {
   AttachedFile
 } from '../shared/types'
 import type { ChatSession } from '../main/history'
-import type { Content } from '@google/genai'
 import type {
   DemoDownloadResult,
   DemoInstallProgress,
@@ -326,7 +325,7 @@ const api = {
   }> => ipcRenderer.invoke('test-gemini-connection'),
   getToolDefinitions: (): Promise<any[]> => ipcRenderer.invoke('get-tool-definitions'),
   getChats: (): Promise<Omit<ChatSession, 'messages'>[]> => ipcRenderer.invoke('get-chats'),
-  loadChat: (id: string): Promise<Content[]> => ipcRenderer.invoke('load-chat', id),
+  loadChat: (id: string): Promise<any[]> => ipcRenderer.invoke('load-chat', id),
   getChatModel: (id: string): Promise<string | undefined> => ipcRenderer.invoke('get-chat-model', id),
   deleteChat: (id: string): Promise<boolean> => ipcRenderer.invoke('delete-chat', id),
   getRunningChats: (): Promise<string[]> => ipcRenderer.invoke('get-running-chats'),
