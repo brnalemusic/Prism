@@ -1277,42 +1277,7 @@ function RealApp(): React.JSX.Element {
   const inputBarRef = useRef<InputBarHandle>(null)
   const modelSelectorRef = useRef<ModelSelectorHandle>(null)
 
-  const [greetingIndex, setGreetingIndex] = useState(0)
 
-  useEffect(() => {
-    if (messages.length === 0) {
-      const randomIndex = Math.floor(Math.random() * 15)
-      setGreetingIndex(randomIndex)
-    }
-  }, [messages.length])
-
-  const getGreeting = (): React.JSX.Element => {
-    const rawName = config?.username || 'user'
-    const formattedName = rawName.charAt(0).toUpperCase() + rawName.slice(1)
-    const highlight = (
-      <span className="font-medium text-accent-primary rgb-chroma-username">{formattedName}</span>
-    )
-
-    const greetings = [
-      <>Talk to me, {highlight}.</>,
-      <>Hey, {highlight}. Whenever you want.</>,
-      <>Hi, {highlight}, can I help you?</>,
-      <>What can I do for you today, {highlight}?</>,
-      <>Ready when you are, {highlight}.</>,
-      <>How's it going, {highlight}? Let's build.</>,
-      <>What's on your mind, {highlight}?</>,
-      <>Welcome back, {highlight}. What are we creating?</>,
-      <>How can I make your day easier, {highlight}?</>,
-      <>Tell me what you need, {highlight}.</>,
-      <>I'm listening, {highlight}.</>,
-      <>Let's get to work, {highlight}.</>,
-      <>What's the plan today, {highlight}?</>,
-      <>Need a hand with something, {highlight}?</>,
-      <>Let's code, {highlight}!</>
-    ]
-
-    return greetings[greetingIndex] || greetings[0]
-  }
 
   const handleSearchEnabledToggle = useCallback((val: boolean) => {
     window.api.setSearchEnabled(val)
@@ -2924,10 +2889,6 @@ function RealApp(): React.JSX.Element {
                     <LandingBackgroundEffects theme={config?.theme || 'marine'} />
 
                     <div className="relative z-10 flex flex-col items-center w-full max-w-[820px] text-center gap-6">
-                      <h1 className="text-[26px] sm:text-[32px] font-light text-text-primary/90 select-none leading-tight">
-                        {getGreeting()}
-                      </h1>
-
                       <div className="w-full relative z-20">
                         {/* White glow behind input box for Terno theme */}
                         {(config?.theme || 'marine') === 'terno' && (

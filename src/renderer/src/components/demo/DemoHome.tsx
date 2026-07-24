@@ -90,12 +90,8 @@ export function DemoHome({
         {/* Background effects matching current theme */}
         <LandingBackgroundEffects theme={activeTheme} />
 
-        {/* Home Screen Greeting and Selection Options */}
+        {/* Home Screen Selection Options */}
         <div className="relative z-10 flex flex-col items-center w-full max-w-[820px] text-center gap-6">
-          <h1 className="text-[26px] sm:text-[32px] font-light text-text-primary/90 select-none leading-tight">
-            {getGreeting()}
-          </h1>
-
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 w-full mt-4">
             {scripts.map((script, index) => (
               <button

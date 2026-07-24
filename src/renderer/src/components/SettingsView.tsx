@@ -558,84 +558,10 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
       {/* Theme */}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-text-primary">Application Theme</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {[
-            {
-              id: 'marine',
-              name: 'Marine',
-              desc: 'Matte blue accent with cool slate tones',
-              colors: ['#13151a', '#8fb4ff', '#78e0c2']
-            },
-            {
-              id: 'vertez',
-              name: 'Vertez',
-              desc: 'Flame orange-red accent with warm charcoal tones',
-              colors: ['#161413', '#ff4e3a', '#ff9f1c']
-            },
-            {
-              id: 'akoustik',
-              name: 'Akoustik',
-              desc: 'Moody purple accent with deep violet tones',
-              colors: ['#12101a', '#b07aff', '#e88cff']
-            },
-            {
-              id: 'terno',
-              name: 'Terno',
-              desc: 'AMOLED monochrome with elegant serif typography',
-              colors: ['#000000', '#ffffff', '#888888']
-            },
-            {
-              id: 'ursula',
-              name: 'Ursula Tree',
-              desc: 'Leaf green and baby green blend with classic serif font',
-              colors: ['#0a110a', '#388e3c', '#c8e6c9']
-            },
-
-          ].map((themeOpt) => (
-            <button
-              key={themeOpt.id}
-              onClick={() =>
-                setConfig({
-                  ...config,
-                  theme: themeOpt.id as
-                    | 'marine'
-                    | 'vertez'
-                    | 'akoustik'
-                    | 'terno'
-                    | 'ursula'
-                })
-              }
-              className={clsx(
-                'flex items-center gap-4 rounded-[20px] border p-4 text-left transition-all duration-200 active:scale-[0.98]',
-                config.theme === themeOpt.id
-                  ? 'border-accent-primary/30 bg-accent-primary/[0.09] text-accent-primary shadow-[0_0_15px_rgba(143,180,255,0.15)]'
-                  : 'border-white/[0.08] bg-white/[0.035] text-text-primary hover:bg-white/[0.055]'
-              )}
-            >
-              <div className="flex items-center gap-1.5 p-2 rounded-xl bg-black/30 border border-white/5 shrink-0">
-                <span
-                  className="w-3.5 h-3.5 rounded-full"
-                  style={{ backgroundColor: themeOpt.colors[0] }}
-                />
-                <span
-                  className="w-3.5 h-3.5 rounded-full"
-                  style={{ backgroundColor: themeOpt.colors[1] }}
-                />
-                <span
-                  className="w-3.5 h-3.5 rounded-full"
-                  style={{ backgroundColor: themeOpt.colors[2] }}
-                />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-sm font-semibold mb-0.5">{themeOpt.name}</span>
-                <span className="text-xs text-text-secondary/60 leading-tight">
-                  {themeOpt.desc}
-                </span>
-              </div>
-            </button>
-          ))}
-
-
+        <div className="rounded-[20px] border border-white/[0.08] bg-white/[0.025] p-6 text-center">
+          <p className="text-sm text-text-secondary font-medium">
+            Working on updates... Comming back soon.
+          </p>
         </div>
       </div>
 
