@@ -32,3 +32,4 @@ scratch/
 .dream*.py
 .dream*.txt
 .dream*.json
+electron.vite.config.*.mjs

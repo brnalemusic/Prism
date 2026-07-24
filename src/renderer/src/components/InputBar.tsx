@@ -26,7 +26,7 @@ import {
 import clsx from 'clsx'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 import { ReasoningSelector } from './ReasoningSelector'
-import { AttachedFile } from '../App'
+import type { AttachedFile } from '../types/tab'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
 import type { SessionMode } from '../../../shared/types'
 import { triggerErrorPopup, isShortcutPressed } from '../utils'

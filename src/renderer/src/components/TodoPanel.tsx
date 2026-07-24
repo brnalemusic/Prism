@@ -52,7 +52,7 @@ function TodoPanel({ todo, isOpen, onToggle, onClose }: TodoPanelProps): React.R
       {!isOpen && (
         <button
           onClick={onToggle}
-          className="fixed right-0 top-1/2 -translate-y-1/2 z-20 flex h-16 w-6 items-center justify-center rounded-l-xl border border-r-0 border-white/[0.05] bg-white/[0.02] text-text-secondary shadow-lg backdrop-blur-md transition-all duration-300 hover:w-8 hover:bg-white/[0.05] hover:text-text-primary group todo-toggle-btn cursor-pointer"
+          className="absolute right-0 top-1/2 -translate-y-1/2 z-20 flex h-16 w-6 items-center justify-center rounded-l-xl border border-r-0 border-white/[0.05] bg-white/[0.02] text-text-secondary shadow-lg backdrop-blur-md transition-all duration-300 hover:w-8 hover:bg-white/[0.05] hover:text-text-primary group todo-toggle-btn cursor-pointer"
           title="Open Todo List"
         >
           <div className="relative flex items-center justify-center">
