@@ -537,6 +537,8 @@ const AiMessage = React.memo(function AiMessage({
               const tc = item.toolCall
               if (tc) {
                 if (tc.name === 'to_ask') {
+                  // Only render the read-only done-state summary inline in chat;
+                  // the active wizard is rendered by ChatPane above the InputBar.
                   return (
                     <QuestionnaireRenderer
                       key={`tc-${item.partIndex}`}
@@ -660,6 +662,7 @@ const AiMessage = React.memo(function AiMessage({
 
         {nativeToolCalls.map((tc, idx) => {
           if (tc.name === 'to_ask') {
+            // Render done-state summary inline; active wizard is handled by ChatPane.
             return (
               <QuestionnaireRenderer
                 key={`native-tc-${idx}`}
@@ -1041,14 +1044,27 @@ function RealApp(): React.JSX.Element {
   }, [activeTabId])
 
   const activeTab = useMemo(() => {
-    return tabs.find((t) => t.id === activeTabId) || tabs[0]
+    return tabs.find((t) => t.id === activeTabId) || tabs[0] || initialTab
   }, [tabs, activeTabId])
 
   const visibleTabs = useMemo(() => {
-    return visibleTabIds
+    const matched = visibleTabIds
       .map((id) => tabs.find((t) => t.id === id))
       .filter((t): t is TabSession => t !== undefined)
-  }, [tabs, visibleTabIds])
+
+    if (matched.length > 0) {
+      if (!matched.some((t) => t.id === activeTabId)) {
+        const active = tabs.find((t) => t.id === activeTabId)
+        if (active) {
+          return visibleTabIds.length <= 1 ? [active] : [...matched.slice(0, 3), active]
+        }
+      }
+      return matched
+    }
+
+    const fallback = tabs.find((t) => t.id === activeTabId) || tabs[0]
+    return fallback ? [fallback] : []
+  }, [tabs, visibleTabIds, activeTabId])
 
   const [quotedText, setQuotedText] = useState<string | null>(null)
   const quotedTextRef = useRef<string | null>(null)
@@ -1218,36 +1234,50 @@ function RealApp(): React.JSX.Element {
 
   // Tab operations
   const handleNewChat = useCallback((force?: boolean) => {
-    setTabs((prevTabs) => {
-      if (prevTabs.length >= 10 && !force) {
-        return prevTabs
+    setActiveView('chat')
+    const currentTabs = tabsRef.current
+
+    if (currentTabs.length >= 10 && !force) {
+      const emptyTab = currentTabs.find((t) => !t.chatId && t.messages.length === 0)
+      if (emptyTab) {
+        setActiveTabId(emptyTab.id)
+        setVisibleTabIds((prevVis) => (prevVis.includes(emptyTab.id) ? prevVis : [emptyTab.id]))
+        return
       }
-      const newId = `tab-${Date.now()}`
-      const newTab: TabSession = {
-        id: newId,
-        chatId: undefined,
-        title: 'New Chat',
-        messages: [],
-        inputText: '',
-        attachedFile: null,
-        sessionMode: 'execution',
-        disciplinePath: '',
-        isProcessing: false,
-        isTodoOpen: false,
-        selectedModel: selectedModelRef.current,
-        isSearchEnabled: false
+      const lastTab = currentTabs[currentTabs.length - 1]
+      if (lastTab) {
+        setActiveTabId(lastTab.id)
+        setVisibleTabIds((prevVis) => (prevVis.includes(lastTab.id) ? prevVis : [lastTab.id]))
       }
-      setActiveTabId(newId)
-      setVisibleTabIds((prevVis) => {
-        if (prevVis.length === 1) {
-          return [newId]
-        } else if (prevVis.length < 4) {
-          return [...prevVis, newId]
-        } else {
-          return [...prevVis.slice(0, 3), newId]
-        }
-      })
-      return [...prevTabs, newTab]
+      return
+    }
+
+    const newId = `tab-${Date.now()}`
+    const newTab: TabSession = {
+      id: newId,
+      chatId: undefined,
+      title: 'New Chat',
+      messages: [],
+      inputText: '',
+      attachedFile: null,
+      sessionMode: 'execution',
+      disciplinePath: '',
+      isProcessing: false,
+      isTodoOpen: false,
+      selectedModel: selectedModelRef.current,
+      isSearchEnabled: false
+    }
+
+    setTabs((prevTabs) => [...prevTabs, newTab])
+    setActiveTabId(newId)
+    setVisibleTabIds((prevVis) => {
+      if (prevVis.length <= 1) {
+        return [newId]
+      } else if (prevVis.length < 4) {
+        return [...prevVis, newId]
+      } else {
+        return [...prevVis.slice(0, 3), newId]
+      }
     })
   }, [])
 
@@ -1313,10 +1343,11 @@ function RealApp(): React.JSX.Element {
   }, [])
 
   const handleSelectTab = useCallback((tabId: string) => {
+    setActiveView('chat')
     setActiveTabId(tabId)
     setVisibleTabIds((prevVis) => {
       if (!prevVis.includes(tabId)) {
-        if (prevVis.length === 1) {
+        if (prevVis.length <= 1) {
           return [tabId]
         } else if (prevVis.length < 4) {
           return [...prevVis, tabId]
@@ -1330,6 +1361,7 @@ function RealApp(): React.JSX.Element {
 
   // Load chat into ONLY the focused tab
   const handleLoadChat = useCallback(async (chatId: string) => {
+    setActiveView('chat')
     try {
       const rawContent = await window.api.loadChat(chatId)
       if (!Array.isArray(rawContent)) return
@@ -1795,7 +1827,7 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeChatEndListener = window.api.onChatEnd((data) => {
-      const { chatId, thoughts, finalResponse } = data
+      const { chatId, thoughts, finalResponse, thinkingDuration: eventDuration } = data
       setRunningChats((prev) => {
         const next = { ...prev }
         delete next[chatId]
@@ -1847,7 +1879,7 @@ function RealApp(): React.JSX.Element {
                 return tc
               })
 
-              let duration = lastMsg.thinkingDuration
+              let duration = eventDuration !== undefined ? eventDuration : lastMsg.thinkingDuration
               if (
                 duration === undefined &&
                 lastMsg.thinkingStartTime &&

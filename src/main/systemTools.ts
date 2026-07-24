@@ -2331,8 +2331,6 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | 
 - Do not expose thoughts/reasoning; provide conclusions and evidence.
 - Never invent tool results, paths, or citations.
 
-# Themes (via configure_prism)
-- marine (default blue/slate), vertez (orange-red/charcoal), akoustik (purple/violet), terno (monochrome black/white), ursula (green/reading-focused).
 
 # Search Protocols
 1. **Active Search:** Search using web_search and read page contents using saw_link_from_url. Do not rely solely on snippets.

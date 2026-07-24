@@ -283,6 +283,8 @@ export async function handleChatMessage(
       }
 
       let chunkCount = 0
+      let thinkingStart: number | null = null
+      let thinkingEnd: number | null = null
 
       const streamResult = await streamOpenAiCompletion(
         provider,
@@ -292,6 +294,9 @@ export async function handleChatMessage(
         abortController.signal,
         {
           onTextDelta: (text) => {
+            if (thinkingStart && !thinkingEnd) {
+              thinkingEnd = Date.now()
+            }
             currentReplyText += text
             chunkCount++
             const combinedText = accumulatedReplyText ? accumulatedReplyText + '\n\n' + currentReplyText : currentReplyText
@@ -306,6 +311,9 @@ export async function handleChatMessage(
             })
           },
           onReasoningDelta: (reasoning) => {
+            if (!thinkingStart) {
+              thinkingStart = Date.now()
+            }
             currentReasoningText += reasoning
             chunkCount++
             const combinedText = accumulatedReplyText ? accumulatedReplyText + '\n\n' + currentReplyText : currentReplyText
@@ -320,6 +328,9 @@ export async function handleChatMessage(
             })
           },
           onToolCallDelta: (delta: StreamToolCallDelta) => {
+            if (thinkingStart && !thinkingEnd) {
+              thinkingEnd = Date.now()
+            }
             // Real-time tool streaming to UI!
             event.sender.send('chat-tool-call-delta', {
               chatId,
@@ -330,6 +341,13 @@ export async function handleChatMessage(
       )
 
       console.log(`[Main Chat] Stream generation completed. Total chunks: ${chunkCount}`)
+
+      if (thinkingStart && !thinkingEnd) {
+        thinkingEnd = Date.now()
+      }
+      const iterThinkingDuration = thinkingStart
+        ? Math.max(1, Math.round(((thinkingEnd || Date.now()) - thinkingStart) / 1000))
+        : undefined
 
       currentReplyText = streamResult.text || currentReplyText
       currentReasoningText = streamResult.reasoning || currentReasoningText
@@ -344,10 +362,11 @@ export async function handleChatMessage(
         accumulatedReasoningText = accumulatedReasoningText ? accumulatedReasoningText + '\n\n' + iterThoughts : iterThoughts
       }
 
-      const assistantMessage: OpenAiMessage & { reasoning_content?: string } = {
+      const assistantMessage: OpenAiMessage & { reasoning_content?: string; thinking_duration?: number } = {
         role: 'assistant',
         content: streamResult.toolCalls.length > 0 ? (iterContent || null) : (accumulatedReplyText || iterContent || null),
-        ...(accumulatedReasoningText || iterThoughts ? { reasoning_content: accumulatedReasoningText || iterThoughts } : {})
+        ...(accumulatedReasoningText || iterThoughts ? { reasoning_content: accumulatedReasoningText || iterThoughts } : {}),
+        ...(iterThinkingDuration !== undefined ? { thinking_duration: iterThinkingDuration } : {})
       }
 
       if (streamResult.toolCalls.length > 0) {
@@ -478,6 +497,7 @@ export async function handleChatMessage(
         finalResponse: accumulatedReplyText,
         rawText: accumulatedReplyText,
         isThinking: false,
+        thinkingDuration: iterThinkingDuration,
         chatId
       })
       break

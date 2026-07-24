@@ -316,7 +316,7 @@ export const toolsManifest: ToolDefinition[] = [
   {
     name: 'configure_prism',
     description: 'Change application settings.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"configure_prism","theme":"marine"}[/PRISM_EXECUTE_TOOL]',
+    usage: '[PRISM_EXECUTE_TOOL]{"type":"configure_prism","username":"Alice"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       launcherShortcut: 'Optional: Launcher hotkey.',
       modelSelectionShortcut: 'Optional: Model picker hotkey.',
@@ -335,7 +335,6 @@ export const toolsManifest: ToolDefinition[] = [
       quickLauncherMode: 'Optional: simple|advanced.',
       username: 'Optional: User name.',
       ttsVoice: 'Optional: Aoede|Puck|Charon|Kore|Fenrir.',
-      theme: 'Optional: marine|vertez|akoustik|terno|ursula|rgb.',
       terminalShell: 'Optional: Shell executable or path (e.g. powershell.exe, cmd.exe, pwsh.exe).',
       zoomFactor:
         'Optional: Interface zoom factor as a number between 0.5 and 3.0 (e.g., 1.0 for 100%, 1.25 for 125%).'

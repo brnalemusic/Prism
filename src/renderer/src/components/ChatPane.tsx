@@ -1,8 +1,9 @@
-import React, { useRef, useEffect, useState } from 'react'
+import React, { useRef, useEffect, useState, useMemo } from 'react'
 import clsx from 'clsx'
 import { CaretDown, ChatTeardropText, Columns, X } from '@phosphor-icons/react'
 import { InputBar, InputBarHandle } from './InputBar'
 import TodoPanel from './TodoPanel'
+import { QuestionnaireWizard } from './QuestionnaireRenderer'
 import type { TabSession } from '../types/tab'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
 import type { TodoState } from '../../../shared/types'
@@ -63,6 +64,19 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
   renderedMessages
 }) => {
   const inputBarRef = useRef<InputBarHandle>(null)
+
+  // Find the active to_ask tool call from the latest AI message (status running or writing)
+  const activeQuestionnaire = useMemo(() => {
+    for (let i = tab.messages.length - 1; i >= 0; i--) {
+      const msg = tab.messages[i]
+      if (msg.role !== 'ai') continue
+      const tc = (msg.toolCalls || []).find(
+        (t) => t.name === 'to_ask' && (t.status === 'running' || t.status === 'writing')
+      )
+      if (tc) return { toolCall: { name: tc.name, status: tc.status, args: tc.args || {} }, chatId: tab.chatId || '' }
+    }
+    return null
+  }, [tab.messages, tab.chatId])
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const isAtBottomRef = useRef(true)
@@ -96,6 +110,14 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
       scrollToBottom('smooth')
     }
   }, [tab.messages.length, tab.messages[tab.messages.length - 1]?.content])
+
+  useEffect(() => {
+    if (!isFocused) return
+    const timer = setTimeout(() => {
+      inputBarRef.current?.focus()
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [isFocused, tab.id])
 
   const handleSendInputBar = (
     message: string,
@@ -191,7 +213,14 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
                   </p>
                 </div>
 
-                <div className="w-full">
+                <div className="w-full flex flex-col gap-0">
+                  {/* Questionnaire wizard card docked above InputBar (landing state) */}
+                  {activeQuestionnaire && (
+                    <QuestionnaireWizard
+                      toolCall={activeQuestionnaire.toolCall}
+                      chatId={activeQuestionnaire.chatId}
+                    />
+                  )}
                   <InputBar
                     ref={inputBarRef}
                     onSend={handleSendInputBar}
@@ -255,7 +284,14 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
               </div>
             )}
 
-            <div className="pointer-events-auto max-w-[800px] mx-auto">
+            <div className="pointer-events-auto max-w-[800px] mx-auto flex flex-col gap-0">
+              {/* Questionnaire wizard card docked above InputBar */}
+              {activeQuestionnaire && (
+                <QuestionnaireWizard
+                  toolCall={activeQuestionnaire.toolCall}
+                  chatId={activeQuestionnaire.chatId}
+                />
+              )}
               <InputBar
                 ref={inputBarRef}
                 onSend={handleSendInputBar}
