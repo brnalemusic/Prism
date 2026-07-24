@@ -26,6 +26,15 @@ const TOOL_LABELS: Record<string, string> = {
   execute_terminal_command: 'Running terminal command',
   run_command: 'Running terminal command',
   create_mini_app: 'Creating mini app',
+  computer_use_create_file: 'Creating file',
+  computer_use_edit_file: 'Editing file',
+  replace_file_content: 'Editing file',
+  multi_replace_file_content: 'Editing file',
+  write_to_file: 'Writing file',
+  computer_use_read_file: 'Reading file',
+  search_chat_history: 'Searching history',
+  list_installed_applications: 'Searching apps',
+  search_installed_applications: 'Searching apps'
 }
 
 function getToolLabel(name: string): string {
@@ -39,13 +48,25 @@ interface ToolCallIndicatorProps {
 export function ToolCallIndicator({ tools }: ToolCallIndicatorProps): React.JSX.Element | null {
   if (!tools || tools.length === 0) return null
 
-  // Show only the LAST tool (even if done/error/etc to keep text visible)
+  // Show only the LAST tool
   const lastTool = tools[tools.length - 1]
   const displayText = getToolLabel(lastTool.name)
+  const isRunning = lastTool.status === 'running' || lastTool.status === 'writing'
 
   return (
-    <span className="tool-shimmer-text text-[13px] font-medium leading-normal inline-block pb-[1.5px]">
-      {displayText}
+    <span className="inline-flex items-center gap-2 text-[13px] font-medium leading-normal py-1 select-none text-text-secondary">
+      {isRunning ? (
+        <span className="w-2 h-2 rounded-full bg-accent-primary animate-pulse shrink-0" />
+      ) : lastTool.status === 'done' ? (
+        <CheckCircle size={14} className="text-status-success shrink-0" />
+      ) : lastTool.status === 'error' ? (
+        <XCircle size={14} className="text-status-error shrink-0" />
+      ) : (
+        <span className="w-2 h-2 rounded-full bg-text-muted shrink-0" />
+      )}
+      <span className={clsx(isRunning && 'tool-shimmer-text')}>
+        {displayText}
+      </span>
     </span>
   )
 }

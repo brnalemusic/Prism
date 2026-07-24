@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { Plus, X, Columns, ChatTeardropText, StopCircle } from '@phosphor-icons/react'
 import { ModelSelector } from './ModelSelector'
@@ -40,7 +41,6 @@ export const TabBar: React.FC<TabBarProps> = ({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
-  // Close context menu on outside click or escape
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent): void => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -73,7 +73,7 @@ export const TabBar: React.FC<TabBarProps> = ({
 
   return (
     <div className="flex h-11 w-full items-center justify-between border-b border-white/[0.06] bg-background-main/90 px-3 select-none backdrop-blur-md z-30 relative">
-      {/* Tabs Container - Flexible sizing so all tabs fit on screen */}
+      {/* Tabs Container */}
       <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-3 py-1 overflow-hidden">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId
@@ -127,7 +127,7 @@ export const TabBar: React.FC<TabBarProps> = ({
           )
         })}
 
-        {/* Plus (+) Button for New Tab */}
+        {/* Plus (+) Button */}
         <button
           type="button"
           onClick={onNewTab}
@@ -144,7 +144,7 @@ export const TabBar: React.FC<TabBarProps> = ({
         </button>
       </div>
 
-      {/* Model Selector Dropdown on Right Side of TabBar */}
+      {/* Model Selector Dropdown */}
       <div className="shrink-0 flex items-center">
         <ModelSelector
           selectedModel={selectedModel}
@@ -153,14 +153,14 @@ export const TabBar: React.FC<TabBarProps> = ({
         />
       </div>
 
-      {/* Custom Context Menu */}
-      {contextMenu && contextTab && (
+      {/* Custom Right-Click Context Menu rendered via Portal at top level */}
+      {contextMenu && contextTab && createPortal(
         <div
           ref={menuRef}
-          className="fixed z-[100] w-48 rounded-2xl border border-white/[0.12] bg-surface/95 backdrop-blur-2xl shadow-2xl p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none"
+          className="fixed z-[99999] w-48 rounded-2xl border border-white/[0.12] bg-surface/95 backdrop-blur-2xl shadow-2xl p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
           style={{
             left: `${Math.min(contextMenu.x, window.innerWidth - 200)}px`,
-            top: `${Math.min(contextMenu.y, window.innerHeight - 150)}px`
+            top: `${Math.min(contextMenu.y, window.innerHeight - 160)}px`
           }}
         >
           {/* Split View Toggle */}
@@ -172,7 +172,7 @@ export const TabBar: React.FC<TabBarProps> = ({
               setContextMenu(null)
             }}
             className={clsx(
-              'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full',
+              'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full cursor-pointer',
               !isContextTabVisible && visibleCount >= 4
                 ? 'opacity-40 cursor-not-allowed text-text-muted'
                 : 'text-text-secondary hover:bg-white/[0.08] hover:text-text-primary'
@@ -182,20 +182,24 @@ export const TabBar: React.FC<TabBarProps> = ({
             <span>{isContextTabVisible ? 'Remove from split view' : 'Split view'}</span>
           </button>
 
-          {/* Stop Agent (if running) */}
-          {contextTab.isProcessing && (
-            <button
-              type="button"
-              onClick={() => {
-                onStopAgent(contextTab.id)
-                setContextMenu(null)
-              }}
-              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium text-status-error hover:bg-status-error/10 transition-colors w-full"
-            >
-              <StopCircle size={14} className="shrink-0" />
-              <span>Stop agent</span>
-            </button>
-          )}
+          {/* Stop Agent (Always present) */}
+          <button
+            type="button"
+            onClick={() => {
+              onStopAgent(contextTab.id)
+              setContextMenu(null)
+            }}
+            className={clsx(
+              'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full cursor-pointer',
+              contextTab.isProcessing
+                ? 'text-status-error hover:bg-status-error/10'
+                : 'text-text-muted hover:bg-white/[0.05] hover:text-text-secondary'
+            )}
+            title={contextTab.isProcessing ? 'Stop agent processing' : 'Agent is not processing'}
+          >
+            <StopCircle size={14} className="shrink-0" />
+            <span>Stop agent</span>
+          </button>
 
           <div className="h-[1px] bg-white/[0.06] my-0.5" />
 
@@ -206,12 +210,13 @@ export const TabBar: React.FC<TabBarProps> = ({
               onCloseTab(contextTab.id)
               setContextMenu(null)
             }}
-            className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-colors w-full"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-colors w-full cursor-pointer"
           >
             <X size={14} className="shrink-0" />
             <span>Close tab</span>
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

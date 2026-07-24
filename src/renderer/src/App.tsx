@@ -19,6 +19,11 @@ import { MiniAppRenderer } from './components/MiniAppRenderer'
 import { Spinner } from './components/Spinner'
 import { ErrorPopup } from './components/ErrorPopup'
 import { DownloadProgressOverlay } from './components/DownloadProgressOverlay'
+import { QuestionnaireRenderer } from './components/QuestionnaireRenderer'
+import { MalformedToolCallWarning } from './components/MalformedToolCallWarning'
+import { RenderChatHistory } from './components/RenderChatHistory'
+import { TtsButton } from './components/TtsButton'
+import { CopyMessageButton } from './components/CopyMessageButton'
 import { DemoApp } from './components/demo/DemoApp'
 import { UpdaterView } from './components/UpdaterView'
 import { isShortcutPressed } from './utils'
@@ -243,31 +248,44 @@ function consolidateToolCalls(
 
 interface AiMessageProps {
   msg: Message
+  currentChatId?: string
+  handleLoadChat?: (id: string) => void
   markdownComponents: Components
 }
 
 const AiMessage = React.memo(function AiMessage({
   msg,
+  currentChatId,
+  handleLoadChat,
   markdownComponents
 }: AiMessageProps) {
   const streamStats = useStreamStats(msg.content, !!msg.isStreaming)
-  const nativeToolCalls = useMemo(() => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls), [msg.toolCalls, msg.streamingToolCalls])
+  const nativeToolCalls = useMemo(
+    () => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls),
+    [msg.toolCalls, msg.streamingToolCalls]
+  )
 
   const hasThoughtBlock = useMemo(() => {
-    const passiveTools = ['computer_use_read_file', 'computer_use_list_installed_applications', 'list_installed_applications', 'search_installed_applications']
-    const filteredThoughts = (msg.thoughts || '').replace(
-      /\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g,
-      (match) => {
+    const passiveTools = [
+      'computer_use_read_file',
+      'computer_use_list_installed_applications',
+      'list_installed_applications',
+      'search_installed_applications'
+    ]
+    const filteredThoughts = (msg.thoughts || '')
+      .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g, (match) => {
         try {
           const json = match.replace('[PRISM_EXECUTE_TOOL]', '').replace('[/PRISM_EXECUTE_TOOL]', '')
           const parsed = JSON.parse(json)
           if (passiveTools.includes(parsed.type)) return ''
         } catch {}
         return match
-      }
-    ).trim()
+      })
+      .trim()
     return !!(filteredThoughts || msg.isThinking)
   }, [msg.thoughts, msg.isThinking])
+
+  const shouldHideActiveBelow = hasThoughtBlock && (!msg.content || msg.content.trim() === '')
 
   const hasTextOutput = useMemo(() => {
     const cleaned = msg.content
@@ -277,13 +295,16 @@ const AiMessage = React.memo(function AiMessage({
     return cleaned !== ''
   }, [msg.content])
 
-  const shouldHideIndicator = useCallback((status: ToolCallItem['status']) => {
-    const isActive = status === 'writing' || status === 'running'
-    if (hasTextOutput) {
-      return !isActive
-    }
-    return hasThoughtBlock
-  }, [hasTextOutput, hasThoughtBlock])
+  const shouldHideIndicator = useCallback(
+    (status: ToolCallItem['status']) => {
+      const isActive = status === 'writing' || status === 'running'
+      if (hasTextOutput) {
+        return !isActive
+      }
+      return hasThoughtBlock
+    },
+    [hasTextOutput, hasThoughtBlock]
+  )
 
   const visibleNativeTools = useMemo(() => {
     const list = nativeToolCalls.filter(
@@ -295,6 +316,50 @@ const AiMessage = React.memo(function AiMessage({
     )
     return list.filter((tc) => !shouldHideIndicator(tc.status))
   }, [nativeToolCalls, shouldHideIndicator])
+
+  const parts = useMemo(() => {
+    return (msg.content || '').split(
+      /(\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
+    )
+  }, [msg.content])
+
+  const shouldShowInlineTool = useCallback(
+    (status: ToolCallItem['status'], partIndex: number) => {
+      const isActive = status === 'writing' || status === 'running'
+      if (isActive) {
+        const hasTextBefore = parts.slice(0, partIndex).some((p) => {
+          const isTool = p.startsWith('[PRISM_EXECUTE_TOOL]')
+          const isMiniApp = p.startsWith('<mini_app>')
+          return !isTool && !isMiniApp && p.trim() !== ''
+        })
+        if (!hasTextBefore && hasThoughtBlock) {
+          return false
+        }
+        return true
+      }
+
+      const hasTextAfter = parts.slice(partIndex + 1).some((p) => {
+        const isTool = p.startsWith('[PRISM_EXECUTE_TOOL]')
+        const isMiniApp = p.startsWith('<mini_app>')
+        return !isTool && !isMiniApp && p.trim() !== ''
+      })
+      if (hasTextAfter) {
+        return false
+      }
+
+      const hasTextBefore = parts.slice(0, partIndex).some((p) => {
+        const isTool = p.startsWith('[PRISM_EXECUTE_TOOL]')
+        const isMiniApp = p.startsWith('<mini_app>')
+        return !isTool && !isMiniApp && p.trim() !== ''
+      })
+      if (!hasTextBefore) {
+        return !hasThoughtBlock
+      }
+
+      return true
+    },
+    [parts, hasThoughtBlock]
+  )
 
   if (msg.isConnecting) {
     return (
@@ -310,27 +375,290 @@ const AiMessage = React.memo(function AiMessage({
     return null
   }
 
+  interface PartItem {
+    partIndex: number
+    part: string
+    type: 'text' | 'mini_app' | 'tool_call'
+    isClosed: boolean
+    toolCall?: ToolCallItem
+    writingToolName?: string
+    writingToolArgs?: Record<string, unknown>
+    startOffset: number
+  }
+
+  let tempToolCallIndex = 0
+  let partStartOffset = 0
+
+  const items: PartItem[] = parts.map((part, index) => {
+    const currentPartStartOffset = partStartOffset
+    partStartOffset += part.length
+
+    if (part.startsWith('[PRISM_EXECUTE_TOOL]')) {
+      if (part.includes('[/PRISM_EXECUTE_TOOL]')) {
+        const tc = msg.toolCalls?.[tempToolCallIndex]
+        tempToolCallIndex++
+        return {
+          partIndex: index,
+          part,
+          type: 'tool_call',
+          isClosed: true,
+          toolCall: tc,
+          startOffset: currentPartStartOffset
+        }
+      } else {
+        const nameMatch = part.match(/<name>([\s\S]*?)(?:<\/name>|$)/i)
+        let toolName = nameMatch ? nameMatch[1].trim() : ''
+        if (!toolName) {
+          const typeMatch = part.match(/"type"\s*:\s*"([^"]*)/i)
+          if (typeMatch) {
+            toolName = typeMatch[1]
+          }
+        }
+        let writingToolArgs: Record<string, unknown> | undefined
+        try {
+          const jsonMatch = part.match(/\[PRISM_EXECUTE_TOOL\]([\s\S]*?)$/i)
+          if (jsonMatch) {
+            const partialJson = jsonMatch[1]
+            try {
+              const parsed = JSON.parse(partialJson)
+              if (parsed && typeof parsed === 'object') {
+                writingToolArgs = parsed as Record<string, unknown>
+              }
+            } catch { /* ignore */ }
+          }
+        } catch { /* ignore */ }
+        return {
+          partIndex: index,
+          part,
+          type: 'tool_call',
+          isClosed: false,
+          writingToolName: toolName,
+          writingToolArgs,
+          startOffset: currentPartStartOffset
+        }
+      }
+    } else if (part.startsWith('<mini_app>')) {
+      return {
+        partIndex: index,
+        part,
+        type: 'mini_app',
+        isClosed: part.includes('</mini_app>'),
+        startOffset: currentPartStartOffset
+      }
+    } else {
+      return {
+        partIndex: index,
+        part,
+        type: 'text',
+        isClosed: true,
+        startOffset: currentPartStartOffset
+      }
+    }
+  })
+
+  type GroupedItem = PartItem | { type: 'grouped_web_searches'; items: PartItem[] }
+  const groupedItems: GroupedItem[] = []
+  let currentSearchGroup: PartItem[] = []
+
+  const flushSearchGroup = () => {
+    if (currentSearchGroup.length > 0) {
+      if (currentSearchGroup.length === 1) {
+        groupedItems.push(currentSearchGroup[0])
+      } else {
+        groupedItems.push({
+          type: 'grouped_web_searches',
+          items: [...currentSearchGroup]
+        })
+      }
+      currentSearchGroup = []
+    }
+  }
+
+  items.forEach((item) => {
+    const isSearchTool =
+      item.type === 'tool_call' &&
+      ((item.isClosed && item.toolCall?.name === 'web_search') ||
+        (!item.isClosed &&
+          (item.writingToolName === 'web_search' ||
+            item.writingToolName === 'search_chat_history' ||
+            item.writingToolName === 'search')))
+
+    if (isSearchTool) {
+      currentSearchGroup.push(item)
+    } else {
+      flushSearchGroup()
+      groupedItems.push(item)
+    }
+  })
+  flushSearchGroup()
+
+  const cleanTextForCopy = (msg.content || '')
+    .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)/g, '')
+    .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/g, '')
+    .trim()
+
   return (
     <StreamContext.Provider value={streamStats}>
       <div className="flex flex-col w-full gap-3">
-        <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base">
-          <ReactMarkdown
-            remarkPlugins={[
-              remarkGfm,
-              remarkMath,
-              disableIndentedCode as unknown as import('unified').Pluggable
-            ]}
-            rehypePlugins={[
-              rehypeRaw,
-              rehypeParseMath,
-              rehypeKatex,
-              createStreamingFadeRehypePlugin(streamStats, 0)
-            ]}
-            components={markdownComponents}
-          >
-            {msg.content}
-          </ReactMarkdown>
-        </div>
+        {groupedItems.map((gItem, gIdx) => {
+          if ('items' in gItem) {
+            const group = gItem as { type: 'grouped_web_searches'; items: PartItem[] }
+            const toolCallItems = group.items.filter((item) => item.type === 'tool_call')
+
+            let mergedStatus: ToolCallItem['status'] = 'done'
+            if (toolCallItems.some((item) => !item.isClosed || item.toolCall?.status === 'writing')) {
+              mergedStatus = 'writing'
+            } else if (toolCallItems.some((item) => item.toolCall?.status === 'running')) {
+              mergedStatus = 'running'
+            } else if (toolCallItems.some((item) => item.toolCall?.status === 'error')) {
+              mergedStatus = 'error'
+            } else if (toolCallItems.some((item) => item.toolCall?.status === 'cancelled')) {
+              mergedStatus = 'cancelled'
+            }
+
+            const firstItem = group.items[0]
+            if (!shouldShowInlineTool(mergedStatus, firstItem.partIndex)) {
+              return null
+            }
+            if (shouldHideActiveBelow && (mergedStatus === 'writing' || mergedStatus === 'running')) {
+              return null
+            }
+            return (
+              <div key={`tc-group-${firstItem.partIndex}-${gIdx}`} className="flex items-center gap-1.5">
+                <ToolCallIndicator tools={[{ name: 'web_search', status: mergedStatus }]} />
+              </div>
+            )
+          }
+
+          const item = gItem as PartItem
+          const { part, startOffset } = item
+
+          if (item.type === 'tool_call') {
+            if (item.isClosed) {
+              const tc = item.toolCall
+              if (tc) {
+                if (tc.name === 'to_ask') {
+                  return (
+                    <QuestionnaireRenderer
+                      key={`tc-${item.partIndex}`}
+                      toolCall={{
+                        name: tc.name,
+                        status: tc.status,
+                        args: tc.args || {}
+                      }}
+                      chatId={currentChatId || ''}
+                    />
+                  )
+                }
+                if (tc.name === 'render_chat_history') {
+                  return (
+                    <RenderChatHistory
+                      key={`tc-${item.partIndex}`}
+                      chatId={String(tc.args?.query || '')}
+                      onOpenChat={handleLoadChat || (() => {})}
+                    />
+                  )
+                }
+                if (tc.name === 'malformed_tool_call') {
+                  return (
+                    <MalformedToolCallWarning
+                      key={`tc-${item.partIndex}`}
+                      toolCall={{
+                        name: tc.name,
+                        status: tc.status,
+                        args: tc.args || {}
+                      }}
+                    />
+                  )
+                }
+                if (!shouldShowInlineTool(tc.status, item.partIndex)) {
+                  return null
+                }
+                if (shouldHideActiveBelow && (tc.status === 'writing' || tc.status === 'running')) {
+                  return null
+                }
+                return (
+                  <div key={`tc-${item.partIndex}`} className="flex items-center gap-1.5">
+                    <ToolCallIndicator tools={[{ name: tc.name, status: tc.status }]} />
+                  </div>
+                )
+              }
+            } else {
+              if (!shouldShowInlineTool('writing', item.partIndex)) return null
+              if (shouldHideActiveBelow) return null
+              const isSearch =
+                item.writingToolName === 'web_search' ||
+                item.writingToolName === 'search_chat_history' ||
+                item.writingToolName === 'search'
+              const toolType = isSearch ? 'search' : 'task'
+              return (
+                <div key={`writing-tc-${item.partIndex}`} className="flex items-center gap-1.5">
+                  <ToolCallIndicator
+                    tools={[{ name: item.writingToolName || toolType, status: 'writing' }]}
+                  />
+                </div>
+              )
+            }
+            return null
+          } else if (item.type === 'mini_app') {
+            if (item.isClosed) {
+              const titleMatch = part.match(/<title>([\s\S]*?)<\/title>/i)
+              const htmlMatch = part.match(/<html>([\s\S]*?)<\/html>/i)
+              const cssMatch = part.match(/<css>([\s\S]*?)<\/css>/i)
+              const jsMatch = part.match(/<js>([\s\S]*?)<\/js>/i)
+
+              const contentHash = part.length.toString(36)
+              const miniAppId = `mini-app-${item.partIndex}-${contentHash}`
+
+              return (
+                <div key={miniAppId} className="w-full my-4 px-0">
+                  <MiniAppRenderer
+                    id={miniAppId}
+                    title={titleMatch ? titleMatch[1].trim() : 'Mini App'}
+                    html={htmlMatch ? htmlMatch[1].trim() : ''}
+                    css={cssMatch ? cssMatch[1].trim() : ''}
+                    js={jsMatch ? jsMatch[1].trim() : ''}
+                  />
+                </div>
+              )
+            } else {
+              if (!shouldShowInlineTool('writing', item.partIndex)) return null
+              if (shouldHideActiveBelow) return null
+              return (
+                <div key={`writing-ma-${item.partIndex}`} className="flex items-center gap-1.5">
+                  <ToolCallIndicator tools={[{ name: 'mini-app', status: 'writing' }]} />
+                </div>
+              )
+            }
+          }
+
+          if (!part || part.trim() === '') return null
+
+          return (
+            <div
+              key={`text-${item.partIndex}`}
+              className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
+            >
+              <ReactMarkdown
+                remarkPlugins={[
+                  remarkGfm,
+                  remarkMath,
+                  disableIndentedCode as unknown as import('unified').Pluggable
+                ]}
+                rehypePlugins={[
+                  rehypeRaw,
+                  rehypeParseMath,
+                  rehypeKatex,
+                  createStreamingFadeRehypePlugin(streamStats, startOffset)
+                ]}
+                components={markdownComponents}
+              >
+                {part}
+              </ReactMarkdown>
+            </div>
+          )
+        })}
+
         {visibleNativeTools.length > 0 && (
           <div className="flex items-center gap-1.5 mt-1">
             <ToolCallIndicator
@@ -341,6 +669,14 @@ const AiMessage = React.memo(function AiMessage({
             />
           </div>
         )}
+
+        {/* Copy & TTS buttons */}
+        {!msg.isStreaming && cleanTextForCopy && (
+          <div className="flex items-center gap-1.5 mt-2 select-none opacity-60 hover:opacity-100 transition-opacity">
+            <CopyMessageButton text={cleanTextForCopy} />
+            <TtsButton text={cleanTextForCopy} />
+          </div>
+        )}
       </div>
     </StreamContext.Provider>
   )
@@ -348,6 +684,8 @@ const AiMessage = React.memo(function AiMessage({
 
 const TabMessagesList = React.memo(function TabMessagesList({
   messages,
+  currentChatId,
+  handleLoadChat,
   markdownComponents
 }: {
   messages: Message[]
@@ -462,6 +800,8 @@ const TabMessagesList = React.memo(function TabMessagesList({
               ) : (
                 <AiMessage
                   msg={msg}
+                  currentChatId={currentChatId}
+                  handleLoadChat={handleLoadChat}
                   markdownComponents={markdownComponents}
                 />
               )}
@@ -1043,18 +1383,27 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeChatChunkListener = window.api.onChatChunk((data) => {
-      const { chatId, text, thinking, isConnecting } = data
+      const { chatId, text, thinking, isConnecting, toolCall, streamingToolCall } = data
       setTabs((prevTabs) =>
         prevTabs.map((tab) => {
           if (tab.chatId === chatId) {
             const msgs = [...tab.messages]
             const lastMsg = msgs[msgs.length - 1]
             if (lastMsg && lastMsg.role === 'ai' && lastMsg.isStreaming) {
+              const updatedToolCalls = toolCall
+                ? [...(lastMsg.toolCalls || []), toolCall]
+                : lastMsg.toolCalls
+              const updatedStreamingToolCalls = streamingToolCall
+                ? [...(lastMsg.streamingToolCalls || []), streamingToolCall]
+                : lastMsg.streamingToolCalls
+
               msgs[msgs.length - 1] = {
                 ...lastMsg,
                 content: text !== undefined ? text : lastMsg.content,
                 thoughts: thinking !== undefined ? thinking : lastMsg.thoughts,
-                isConnecting: isConnecting !== undefined ? isConnecting : lastMsg.isConnecting
+                isConnecting: isConnecting !== undefined ? isConnecting : lastMsg.isConnecting,
+                toolCalls: updatedToolCalls,
+                streamingToolCalls: updatedStreamingToolCalls
               }
             } else {
               msgs.push({
@@ -1062,7 +1411,9 @@ function RealApp(): React.JSX.Element {
                 content: text || '',
                 thoughts: thinking || '',
                 isStreaming: true,
-                isConnecting: !!isConnecting
+                isConnecting: !!isConnecting,
+                toolCalls: toolCall ? [toolCall] : [],
+                streamingToolCalls: streamingToolCall ? [streamingToolCall] : []
               })
             }
             return {
@@ -1077,7 +1428,7 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeChatEndListener = window.api.onChatEnd((data) => {
-      const { chatId, thoughts, finalResponse } = data
+      const { chatId, thoughts, finalResponse, toolCalls } = data
       setRunningChats((prev) => {
         const next = { ...prev }
         delete next[chatId]
@@ -1093,6 +1444,7 @@ function RealApp(): React.JSX.Element {
                 ...lastMsg,
                 content: finalResponse || lastMsg.content,
                 thoughts: thoughts || lastMsg.thoughts,
+                toolCalls: toolCalls || lastMsg.toolCalls,
                 isStreaming: false,
                 isThinking: false
               }
