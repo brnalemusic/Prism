@@ -33,7 +33,7 @@ type Config = AppConfig
 
 import { ApiManagerSettings } from './ApiManagerSettings'
 import { ModelSelector } from './ModelSelector'
-import { DocumentShredderGame } from './DocumentShredderGame'
+import { QuantumPhysicsGame } from './QuantumPhysicsGame'
 
 type SectionId =
   | 'shortcuts'
@@ -162,7 +162,7 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
       setEasterEggClicks(1)
     } else {
       const newCount = easterEggClicks + 1
-      if (newCount >= 10) {
+      if (newCount >= 5) {
         setEasterEggClicks(0)
         setIsEasterEggOpen(true)
       } else {
@@ -1403,8 +1403,8 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
         </div>
       </div>
 
-      {/* ─── Easter Egg Fruit Ninja Game Modal Overlay ─── */}
-      {isEasterEggOpen && <DocumentShredderGame onClose={() => setIsEasterEggOpen(false)} />}
+      {/* ─── Easter Egg Quantum Physics Game Overlay ─── */}
+      {isEasterEggOpen && <QuantumPhysicsGame onClose={() => setIsEasterEggOpen(false)} />}
     </div>
   )
 }
