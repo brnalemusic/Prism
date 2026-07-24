@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import {
   ArrowRight,
   DownloadSimple,
@@ -30,43 +29,9 @@ function renderCategoryIcon(category: string): React.JSX.Element {
 export function DemoHome({
   scripts,
   onSelectScript,
-  onDownload,
-  username = 'user'
+  onDownload
 }: DemoHomeProps): React.JSX.Element {
-  const formattedName = username.charAt(0).toUpperCase() + username.slice(1)
-  const [greetingIndex, setGreetingIndex] = useState(0)
-
-  useEffect(() => {
-    setGreetingIndex(Math.floor(Math.random() * 15))
-  }, [])
-
   const activeTheme = (document.documentElement.getAttribute('data-theme') as any) || 'marine'
-
-  const getGreeting = (): React.JSX.Element => {
-    const highlight = (
-      <span className="font-medium text-accent-primary rgb-chroma-username">{formattedName}</span>
-    )
-
-    const greetings = [
-      <>Talk to me, {highlight}.</>,
-      <>Hey, {highlight}. Whenever you want.</>,
-      <>Hi, {highlight}, can I help you?</>,
-      <>What can I do for you today, {highlight}?</>,
-      <>Ready when you are, {highlight}.</>,
-      <>How's it going, {highlight}? Let's build.</>,
-      <>What's on your mind, {highlight}?</>,
-      <>Welcome back, {highlight}. What are we creating?</>,
-      <>How can I make your day easier, {highlight}?</>,
-      <>Tell me what you need, {highlight}.</>,
-      <>I'm listening, {highlight}.</>,
-      <>Let's get to work, {highlight}.</>,
-      <>What's the plan today, {highlight}?</>,
-      <>Need a hand with something, {highlight}?</>,
-      <>Let's code, {highlight}!</>
-    ]
-
-    return greetings[greetingIndex] || greetings[0]
-  }
 
   return (
     <main className="relative flex h-full w-full flex-col overflow-hidden">

@@ -4,7 +4,7 @@ interface LandingBackgroundEffectsProps {
   theme?: string
 }
 
-export function LandingBackgroundEffects({ _theme }: LandingBackgroundEffectsProps & { _theme?: string }): React.JSX.Element {
+export function LandingBackgroundEffects(_props: LandingBackgroundEffectsProps): React.JSX.Element {
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none z-0 flex items-center justify-center">
       <img
