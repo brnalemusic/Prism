@@ -555,15 +555,87 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
     <div className="space-y-8 animate-soft-pop">
       <SectionHeader title="Appearance" subtitle="Customize Prism's theme and interface scaling." />
 
-      {/* Theme */}
+      {/* Accent Color */}
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-text-primary">Application Theme</h3>
-        <div className="rounded-[20px] border border-white/[0.08] bg-white/[0.025] p-6 text-center">
-          <p className="text-sm text-text-secondary font-medium">
-            Working on updates... Comming back soon.
+        <div>
+          <h3 className="text-sm font-semibold text-text-primary">Accent Color</h3>
+          <p className="text-xs text-text-secondary/60 mt-0.5">
+            Controls the secondary colors across Prism's interface.
           </p>
         </div>
+        <div className="rounded-[20px] border border-white/[0.08] bg-white/[0.025] p-5">
+          <div className="grid grid-cols-4 gap-3">
+            {([
+              { id: 'fire',   label: 'Fire Red',       primary: '#ff3b2f', secondary: '#ff6b35' },
+              { id: 'lava',   label: 'Lava Orange',    primary: '#ff6b00', secondary: '#ffae42' },
+              { id: 'gold',   label: 'Corporate Gold', primary: '#f5c518', secondary: '#ffe066' },
+              { id: 'forest', label: 'Forest Green',   primary: '#22c55e', secondary: '#86efac' },
+              { id: 'marine', label: 'Sea Blue',       primary: '#38bdf8', secondary: '#7dd3fc' },
+              { id: 'indigo', label: 'Indigo',         primary: '#6366f1', secondary: '#a5b4fc' },
+              { id: 'violet', label: 'Soft Violet',    primary: '#a855f7', secondary: '#d8b4fe' },
+              { id: 'white',  label: 'Classic White',  primary: '#ffffff', secondary: '#e4e4e7' },
+            ] as const).map(({ id, label, primary, secondary }) => {
+              const isActive = (config.theme || 'marine') === id
+              return (
+                <button
+                  key={id}
+                  title={label}
+                  onClick={() => {
+                    setConfig({ ...config, theme: id })
+                    document.documentElement.setAttribute('data-theme', id)
+                  }}
+                  className="group flex flex-col items-center gap-2 focus:outline-none"
+                >
+                  {/* Swatch circle */}
+                  <div
+                    className="relative flex items-center justify-center transition-transform duration-150 group-hover:scale-110 active:scale-95"
+                    style={{ width: 48, height: 48 }}
+                  >
+                    {/* Glow ring when active */}
+                    {isActive && (
+                      <div
+                        className="absolute inset-0 rounded-full"
+                        style={{
+                          boxShadow: `0 0 0 2px ${primary}, 0 0 14px ${primary}55`,
+                          borderRadius: '50%',
+                        }}
+                      />
+                    )}
+                    {/* Color circle */}
+                    <div
+                      className="rounded-full transition-all duration-150"
+                      style={{
+                        width: isActive ? 36 : 40,
+                        height: isActive ? 36 : 40,
+                        background: `radial-gradient(circle at 35% 35%, ${secondary}, ${primary})`,
+                        boxShadow: isActive
+                          ? `0 4px 16px ${primary}66`
+                          : `0 2px 8px ${primary}33`,
+                      }}
+                    />
+                    {/* Active check */}
+                    {isActive && (
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                          <path d="M2.5 7L5.5 10L11.5 4" stroke="rgba(0,0,0,0.7)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                  {/* Label */}
+                  <span
+                    className="text-[10px] font-medium leading-tight text-center transition-colors duration-150"
+                    style={{ color: isActive ? primary : 'var(--text-muted)' }}
+                  >
+                    {label}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
       </div>
+
 
       <div className="h-px bg-white/[0.04]" />
 

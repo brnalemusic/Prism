@@ -2,19 +2,14 @@
 @import 'tailwindcss';
 @plugin "@tailwindcss/typography";
 
-:root,
-[data-theme='marine'],
-[data-theme='vertez'],
-[data-theme='akoustik'],
-[data-theme='terno'],
-[data-theme='ursula'],
-[data-theme='rgb'] {
+:root {
   --background-main: #000000;
   --background-secondary: #080808;
   --surface: #101010;
 
+  /* Default accent: Classic White */
   --accent-primary: #ffffff;
-  --accent-secondary: #ffffff;
+  --accent-secondary: #e4e4e7;
   --accent-glow: rgba(255, 255, 255, 0.12);
 
   --text-primary: #ffffff;
@@ -31,6 +26,79 @@
   --theme-font-sans:
     'Inter', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display',
     'Segoe UI', Roboto, sans-serif;
+}
+
+/* ─── Accent Color Palettes ─── */
+/* Fire Red */
+[data-theme='fire'] {
+  --accent-primary: #ff3b2f;
+  --accent-secondary: #ff6b35;
+  --accent-glow: rgba(255, 59, 47, 0.18);
+  --home-glow-color-1: rgba(255, 59, 47, 0.04);
+  --home-glow-color-2: rgba(255, 107, 53, 0.07);
+}
+
+/* Lava Orange */
+[data-theme='lava'] {
+  --accent-primary: #ff6b00;
+  --accent-secondary: #ffae42;
+  --accent-glow: rgba(255, 107, 0, 0.18);
+  --home-glow-color-1: rgba(255, 107, 0, 0.04);
+  --home-glow-color-2: rgba(255, 174, 66, 0.07);
+}
+
+/* Corporate Gold */
+[data-theme='gold'] {
+  --accent-primary: #f5c518;
+  --accent-secondary: #ffe066;
+  --accent-glow: rgba(245, 197, 24, 0.18);
+  --home-glow-color-1: rgba(245, 197, 24, 0.04);
+  --home-glow-color-2: rgba(255, 224, 102, 0.07);
+}
+
+/* Forest Green */
+[data-theme='forest'] {
+  --accent-primary: #22c55e;
+  --accent-secondary: #86efac;
+  --accent-glow: rgba(34, 197, 94, 0.18);
+  --home-glow-color-1: rgba(34, 197, 94, 0.04);
+  --home-glow-color-2: rgba(134, 239, 172, 0.07);
+}
+
+/* Sea Blue (Marine) */
+[data-theme='marine'] {
+  --accent-primary: #38bdf8;
+  --accent-secondary: #7dd3fc;
+  --accent-glow: rgba(56, 189, 248, 0.18);
+  --home-glow-color-1: rgba(56, 189, 248, 0.04);
+  --home-glow-color-2: rgba(125, 211, 252, 0.07);
+}
+
+/* Indigo */
+[data-theme='indigo'] {
+  --accent-primary: #6366f1;
+  --accent-secondary: #a5b4fc;
+  --accent-glow: rgba(99, 102, 241, 0.18);
+  --home-glow-color-1: rgba(99, 102, 241, 0.04);
+  --home-glow-color-2: rgba(165, 180, 252, 0.07);
+}
+
+/* Soft Violet */
+[data-theme='violet'] {
+  --accent-primary: #a855f7;
+  --accent-secondary: #d8b4fe;
+  --accent-glow: rgba(168, 85, 247, 0.18);
+  --home-glow-color-1: rgba(168, 85, 247, 0.04);
+  --home-glow-color-2: rgba(216, 180, 254, 0.07);
+}
+
+/* Classic White (default accent, explicit selector) */
+[data-theme='white'] {
+  --accent-primary: #ffffff;
+  --accent-secondary: #e4e4e7;
+  --accent-glow: rgba(255, 255, 255, 0.12);
+  --home-glow-color-1: rgba(255, 255, 255, 0.03);
+  --home-glow-color-2: rgba(255, 255, 255, 0.06);
 }
 
 .home-radial-glow {
@@ -666,118 +734,26 @@
   border-width: 1px;
 }
 
-/* Default state borders and shadows per theme */
-[data-theme='marine'] .quick-launcher-input-bar {
-  border-color: rgba(143, 180, 255, 0.15) !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-}
-[data-theme='akoustik'] .quick-launcher-input-bar {
-  border-color: rgba(176, 122, 255, 0.15) !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-}
-[data-theme='vertez'] .quick-launcher-input-bar {
-  border-color: rgba(255, 78, 58, 0.15) !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-}
-[data-theme='terno'] .quick-launcher-input-bar {
-  border-color: rgba(255, 255, 255, 0.15) !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
-  background-color: #000000 !important;
-}
-[data-theme='ursula'] .quick-launcher-input-bar {
-  border-color: rgba(56, 142, 60, 0.15) !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-}
-[data-theme='rgb'] .quick-launcher-input-bar {
-  border-color: rgba(255, 255, 255, 0.1) !important;
+/* Default state border uses the accent color for the current palette */
+.quick-launcher-input-bar {
+  border-color: color-mix(in srgb, var(--accent-primary) 18%, transparent) !important;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
 }
 
-/* Active / Focused state styling and animations per theme */
-[data-theme='marine'] .quick-launcher-input-bar.active {
-  animation: marine-border-pulse 3s infinite ease-in-out;
-}
-[data-theme='akoustik'] .quick-launcher-input-bar.active {
-  animation: akoustik-border-pulse 3s infinite ease-in-out;
-}
-[data-theme='vertez'] .quick-launcher-input-bar.active {
-  animation: vertez-lava-pulse 3s infinite ease-in-out;
-}
-[data-theme='terno'] .quick-launcher-input-bar.active {
-  animation: terno-border-pulse 3s infinite ease-in-out;
-  background-color: #000000 !important;
-}
-[data-theme='ursula'] .quick-launcher-input-bar.active {
-  animation: ursula-wind-pulse 3s infinite ease-in-out;
-}
-[data-theme='rgb'] .quick-launcher-input-bar.active {
-  animation: rgb-rainbow-border 4s infinite linear;
+/* Active / Focused state — unified accent pulse */
+.quick-launcher-input-bar.active {
+  animation: accent-border-pulse 3s infinite ease-in-out;
 }
 
-/* Keyframes for the active borders */
-@keyframes marine-border-pulse {
+@keyframes accent-border-pulse {
   0%, 100% {
-    border-color: rgba(143, 180, 255, 0.45);
-    box-shadow: 0 0 16px rgba(143, 180, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    border-color: color-mix(in srgb, var(--accent-primary) 50%, transparent);
+    box-shadow: 0 0 16px color-mix(in srgb, var(--accent-primary) 30%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
   50% {
-    border-color: rgba(120, 224, 194, 0.95);
-    box-shadow: 0 0 28px rgba(120, 224, 194, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    border-color: color-mix(in srgb, var(--accent-secondary) 95%, transparent);
+    box-shadow: 0 0 28px color-mix(in srgb, var(--accent-secondary) 60%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
-}
-
-@keyframes akoustik-border-pulse {
-  0%, 100% {
-    border-color: rgba(176, 122, 255, 0.45);
-    box-shadow: 0 0 16px rgba(176, 122, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  }
-  50% {
-    border-color: rgba(232, 140, 255, 0.95);
-    box-shadow: 0 0 28px rgba(232, 140, 255, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  }
-}
-
-@keyframes vertez-lava-pulse {
-  0%, 100% {
-    border-color: #ff4e3a;
-    box-shadow: 0 0 18px rgba(255, 78, 58, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  }
-  50% {
-    border-color: #ff9f1c;
-    box-shadow: 0 0 32px rgba(255, 159, 28, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  }
-}
-
-@keyframes terno-border-pulse {
-  0%, 100% {
-    border-color: rgba(255, 255, 255, 0.35);
-    box-shadow: 0 0 18px rgba(255, 255, 255, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  }
-  50% {
-    border-color: rgba(255, 255, 255, 0.95);
-    box-shadow: 0 0 32px rgba(255, 255, 255, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.15);
-  }
-}
-
-@keyframes ursula-wind-pulse {
-  0%, 100% {
-    border-color: rgba(56, 142, 60, 0.5);
-    box-shadow: 0 0 16px rgba(56, 142, 60, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  }
-  50% {
-    border-color: rgba(200, 230, 201, 0.95);
-    box-shadow: 0 0 28px rgba(200, 230, 201, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  }
-}
-
-@keyframes rgb-rainbow-border {
-  0% { border-color: #ff0000; box-shadow: 0 0 20px rgba(255, 0, 0, 0.45); }
-  17% { border-color: #ff8800; box-shadow: 0 0 20px rgba(255, 136, 0, 0.45); }
-  33% { border-color: #ffff00; box-shadow: 0 0 20px rgba(255, 255, 0, 0.45); }
-  50% { border-color: #00ff00; box-shadow: 0 0 20px rgba(0, 255, 0, 0.45); }
-  67% { border-color: #0000ff; box-shadow: 0 0 20px rgba(0, 0, 255, 0.45); }
-  83% { border-color: #8800ff; box-shadow: 0 0 20px rgba(136, 0, 255, 0.45); }
-  100% { border-color: #ff0000; box-shadow: 0 0 20px rgba(255, 0, 0, 0.45); }
 }
 
 /* Session Mode Dropdown Styles */

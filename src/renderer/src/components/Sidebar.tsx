@@ -462,7 +462,13 @@ function NavItem({
       )}
     >
       {active && (
-        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 rounded-r-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.4)]" />
+        <span
+          className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 rounded-r-full transition-colors duration-200"
+          style={{
+            backgroundColor: 'var(--accent-primary)',
+            boxShadow: '0 0 10px var(--accent-primary)'
+          }}
+        />
       )}
       <span
         className={clsx(
