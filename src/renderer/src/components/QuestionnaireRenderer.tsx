@@ -33,7 +33,7 @@ interface QuestionnaireRendererProps {
 // --------------------------------------------------------------------------
 // Read-only done-state summary (shown inline in chat after submission)
 // --------------------------------------------------------------------------
-function DoneSummary({
+export function DoneSummary({
   questions,
   submittedResponses,
   sessionId

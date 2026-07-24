@@ -2532,8 +2532,16 @@ export async function executeSystemTool(
       return await computerSaveFile(args.path || args.filePath || '', args.content || '', signal)
     case 'computer_use_append_file':
       return await computerAppendToFile(args.path || args.filePath || '', args.content || '', signal)
-    case 'computer_use_read_file':
-      return await computerReadFile(args.path || args.filePath || '', 1, 200, signal)
+    case 'computer_use_read_file': {
+      const startLine = args.startLine !== undefined ? Number(args.startLine) : 1
+      const limit = args.limit !== undefined ? Number(args.limit) : 200
+      return await computerReadFile(
+        args.path || args.filePath || '',
+        isNaN(startLine) ? 1 : startLine,
+        isNaN(limit) ? 200 : limit,
+        signal
+      )
+    }
     case 'computer_use_edit_file':
       return await computerEditFile(args.path || args.filePath || '', args.startLine || '1', args.endLine || '1', args.content || args.newContent || '', signal)
     case 'computer_use_copy_file':
