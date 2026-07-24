@@ -19,6 +19,7 @@ import { AnimatedStreamingText, StreamContext, useStreamStats } from './Animated
 import type { AppConfig } from '../../../main/config'
 import type { SessionMode } from '../../../shared/types'
 import { FolderChatsPanel } from './FolderChatsPanel'
+import prismIcon from '../../../../resources/icon.png?asset'
 
 interface ChatSession {
   id: string
@@ -255,9 +256,11 @@ export function Sidebar({
       <div className="w-[272px] shrink-0 h-full flex flex-col">
       <div className="flex h-16 shrink-0 items-center justify-between px-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-white/[0.08] to-white/[0.02] border border-white/[0.08] shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] select-none">
-            <span className="text-[12px] font-extrabold text-accent-primary">P</span>
-          </div>
+          <img
+            src={prismIcon}
+            alt="Prism Logo"
+            className="h-8 w-8 rounded-[9px] object-cover select-none border border-white/10 shadow-sm"
+          />
           <h1 className="text-base font-semibold text-text-primary tracking-wide">Prism</h1>
         </div>
         {isOpen && onClose && (

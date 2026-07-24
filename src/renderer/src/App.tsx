@@ -2879,7 +2879,7 @@ function RealApp(): React.JSX.Element {
                   {/* Empty state container (always in DOM, fades out when messages appear) */}
                   <div
                     className={clsx(
-                      'absolute inset-0 flex flex-col items-center justify-center px-4 pb-[8vh] select-none transition-all duration-[800ms] ease-[cubic-bezier(0.25,1,0.5,1)] z-10',
+                      'absolute inset-0 flex flex-col items-center justify-center px-4 pb-[2vh] select-none transition-all duration-[800ms] ease-[cubic-bezier(0.25,1,0.5,1)] z-10',
                       messages.length === 0
                         ? 'opacity-100 scale-100 pointer-events-auto'
                         : 'opacity-0 scale-[0.97] pointer-events-none blur-[6px]'
