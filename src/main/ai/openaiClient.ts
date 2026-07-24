@@ -1,5 +1,5 @@
 import { ProviderConfig, StreamToolCallDelta } from '../../shared/types'
-import { normalizeBaseUrl } from './trustedRegistry'
+import { normalizeBaseUrl, isGoogleHost } from './trustedRegistry'
 import { OpenAiMessage, OpenAiToolDefinition } from './types'
 
 export interface StreamCallbacks {
@@ -55,7 +55,7 @@ export async function streamOpenAiCompletion(
   // Google AI Studio OpenAI-compatible endpoints live under the /openai/ sub-path.
   // Native Gemini endpoints (e.g. /models) use x-goog-api-key, but the OpenAI-compat
   // bridge at /v1beta/openai/... requires Authorization: Bearer like any OpenAI provider.
-  const isGoogleAiStudio = normUrl.includes('generativelanguage.googleapis.com')
+  const isGoogleAiStudio = isGoogleHost(normUrl)
   let endpoint: string
   if (isGoogleAiStudio) {
     endpoint = `${normUrl}/openai/chat/completions`

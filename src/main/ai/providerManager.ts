@@ -2,7 +2,9 @@ import { ProviderConfig, ProviderModel, CompletionType } from '../../shared/type
 import { loadConfig, saveConfig } from '../config'
 import {
   isModelTrusted,
-  normalizeBaseUrl
+  normalizeBaseUrl,
+  isGoogleHost,
+  isAnthropicHost
 } from './trustedRegistry'
 
 export interface FetchModelsResult {
@@ -21,14 +23,14 @@ export async function fetchModelsFromProvider(
     return { success: false, models: [], error: 'Base URL is required' }
   }
 
-  const isGoogle = normUrl.includes('generativelanguage.googleapis.com')
+  const isGoogle = isGoogleHost(normUrl)
   const endpoint = isGoogle ? `${normUrl}/openai/models` : `${normUrl}/models`
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   }
 
-  if (completionType === 'anthropic_messages' || normUrl.includes('anthropic.com')) {
+  if (completionType === 'anthropic_messages' || isAnthropicHost(normUrl)) {
     headers['x-api-key'] = apiKey
     headers['anthropic-version'] = '2023-06-01'
   } else if (apiKey) {

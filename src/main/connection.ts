@@ -1,5 +1,6 @@
 import * as dotenv from 'dotenv'
 import * as path from 'path'
+import { isGoogleHost } from './ai/trustedRegistry'
 
 // Load environment variables from .env (same convention as gemini.ts)
 dotenv.config({ path: path.join(__dirname, '../../.env') })
@@ -97,7 +98,7 @@ export async function testGeminiConnection(_overrideKey?: string): Promise<Conne
     if (activeProvider.completionType === 'anthropic_messages') {
       headers['x-api-key'] = activeProvider.apiKey
       headers['anthropic-version'] = '2023-06-01'
-    } else if (baseUrl.includes('generativelanguage.googleapis.com')) {
+    } else if (isGoogleHost(baseUrl)) {
       headers['x-goog-api-key'] = activeProvider.apiKey
     } else {
       headers['Authorization'] = `Bearer ${activeProvider.apiKey}`

@@ -110,3 +110,26 @@ export function isModelTrusted(modelId: string): boolean {
     return lowerFull === tmLower || baseName === tmLower || lowerFull.endsWith('/' + tmLower)
   })
 }
+
+export function getHostname(urlStr: string): string {
+  if (!urlStr) return ''
+  try {
+    const raw = urlStr.trim()
+    const withProto = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`
+    const parsed = new URL(withProto)
+    return parsed.hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+export function isGoogleHost(urlStr: string): boolean {
+  const host = getHostname(urlStr)
+  return host === 'generativelanguage.googleapis.com' || host.endsWith('.googleapis.com')
+}
+
+export function isAnthropicHost(urlStr: string): boolean {
+  const host = getHostname(urlStr)
+  return host === 'api.anthropic.com' || host === 'anthropic.com' || host.endsWith('.anthropic.com')
+}
+

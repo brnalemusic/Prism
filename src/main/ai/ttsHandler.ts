@@ -1,10 +1,16 @@
 
 import { loadConfig } from '../config'
 import { resolveProviderAndModel } from './providerManager'
-import { normalizeBaseUrl } from './trustedRegistry'
+import { normalizeBaseUrl, isGoogleHost } from './trustedRegistry'
 
 export async function generateTts(text: string): Promise<string> {
-  const cleanText = text.replace(/<[^>]+>/g, '').trim()
+  let cleanText = text
+  let prevText: string
+  do {
+    prevText = cleanText
+    cleanText = cleanText.replace(/<[^>]+>/g, '')
+  } while (cleanText !== prevText)
+  cleanText = cleanText.trim()
   if (!cleanText) return ''
 
   const config = loadConfig()
@@ -16,7 +22,7 @@ export async function generateTts(text: string): Promise<string> {
   }
 
   const normUrl = normalizeBaseUrl(provider.baseUrl)
-  const isGoogle = normUrl.includes('generativelanguage.googleapis.com')
+  const isGoogle = isGoogleHost(normUrl)
   const voice = config.ttsVoice || 'Aoede'
 
   if (isGoogle) {

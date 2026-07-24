@@ -1,6 +1,6 @@
 import { loadConfig } from '../config'
 import { resolveProviderAndModel } from './providerManager'
-import { normalizeBaseUrl } from './trustedRegistry'
+import { normalizeBaseUrl, isGoogleHost, isAnthropicHost } from './trustedRegistry'
 
 export async function transcribeAudio(audioBase64: string): Promise<string> {
   console.log('[MAIN TRANSCRIPTION] Received audio data length:', audioBase64.length)
@@ -13,8 +13,8 @@ export async function transcribeAudio(audioBase64: string): Promise<string> {
   }
 
   const normUrl = normalizeBaseUrl(provider.baseUrl)
-  const isGoogle = normUrl.includes('generativelanguage.googleapis.com')
-  const isAnthropic = provider.completionType === 'anthropic_messages' || normUrl.includes('anthropic.com')
+  const isGoogle = isGoogleHost(normUrl)
+  const isAnthropic = provider.completionType === 'anthropic_messages' || isAnthropicHost(normUrl)
 
   if (isGoogle) {
     try {
