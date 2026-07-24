@@ -14,9 +14,9 @@ export const DEPENDENCIES: Dependency[] = [
     name: 'Node.js',
     description: 'JavaScript runtime required to run local command tools.',
     checkCommand: 'node -v',
-    downloadUrl: 'https://nodejs.org/dist/v20.11.1/node-v20.11.1-x64.msi',
-    downloadFilename: 'node-setup.msi',
-    installCommand: 'msiexec /i "{filepath}" /qn /norestart'
+    downloadUrl: 'https://nodejs.org/dist/v20.11.1/node-v20.11.1-win-x64.zip',
+    downloadFilename: 'node-v20.11.1-win-x64.zip',
+    installCommand: 'extract-zip'
   },
   {
     id: 'git',

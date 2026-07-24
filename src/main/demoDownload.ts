@@ -3,7 +3,7 @@ import { spawn, exec, execFile, execSync } from 'child_process'
 import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
-import { createReadStream, createWriteStream } from 'fs'
+import { createReadStream, createWriteStream, existsSync } from 'fs'
 import { pipeline } from 'stream/promises'
 import { Transform } from 'stream'
 import { DEPENDENCIES } from './dependenciesManifest'
@@ -376,18 +376,36 @@ function refreshEnvPath(): void {
       // Registry key not found
     }
 
-    if (userPath || systemPath) {
-      const expand = (str: string) => {
-        return str.replace(/%([^%]+)%/g, (_, key) => process.env[key] || `%${key}%`)
-      }
-      const expandedUser = expand(userPath)
-      const expandedSystem = expand(systemPath)
-
-      const merged = [expandedUser, expandedSystem].filter(Boolean).join(';')
-      if (merged) {
-        process.env.PATH = merged
-      }
+    const expand = (str: string) => {
+      return str.replace(/%([^%]+)%/g, (_, key) => process.env[key] || `%${key}%`)
     }
+    const expandedUser = expand(userPath)
+    const expandedSystem = expand(systemPath)
+
+    const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local')
+    const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
+    const programFiles = process.env.ProgramFiles || 'C:\\Program Files'
+    const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
+
+    const extraCandidateDirs = [
+      path.join(localAppData, 'Programs', 'nodejs'),
+      path.join(localAppData, 'nodejs'),
+      path.join(programFiles, 'nodejs'),
+      path.join(programFilesX86, 'nodejs'),
+      path.join(appData, 'npm'),
+      path.join(localAppData, 'Programs', 'Git', 'cmd'),
+      path.join(programFiles, 'Git', 'cmd'),
+      path.join(programFilesX86, 'Git', 'cmd')
+    ]
+
+    const existingDirs = extraCandidateDirs.filter((dir) => existsSync(dir))
+
+    const merged = [expandedUser, expandedSystem, ...existingDirs, process.env.PATH || '']
+      .filter(Boolean)
+      .join(';')
+
+    const pathSet = new Set(merged.split(';').map((p) => p.trim()).filter(Boolean))
+    process.env.PATH = Array.from(pathSet).join(';')
   } catch (err) {
     console.error('refreshEnvPath error:', err)
   }
@@ -465,11 +483,152 @@ async function downloadDependencyFile(
   return targetPath
 }
 
+async function installNodeDependency(
+  filePath: string,
+  emitProgress?: (percent: number, message: string, cliOutput?: string) => void
+): Promise<DemoProcessResult> {
+  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local')
+  const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
+  const targetNodeDir = path.join(localAppData, 'Programs', 'nodejs')
+  const npmDir = path.join(appData, 'npm')
+
+  if (filePath.endsWith('.zip')) {
+    emitProgress?.(20, 'Extracting Node.js runtime...')
+    const tempExtractDir = path.join(app.getPath('temp'), `node_extract_${Date.now()}`)
+    await fs.mkdir(tempExtractDir, { recursive: true })
+
+    const psExtractCmd = `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${filePath.replace(/'/g, "''")}' -DestinationPath '${tempExtractDir.replace(/'/g, "''")}' -Force"`
+
+    const extractResult = await new Promise<{ ok: boolean; output: string }>((resolve) => {
+      exec(psExtractCmd, { env: process.env }, (err, stdout, stderr) => {
+        resolve({ ok: !err, output: stdout + stderr })
+      })
+    })
+
+    if (!extractResult.ok) {
+      return {
+        ok: false,
+        output: extractResult.output,
+        error: `Failed to extract Node.js zip archive: ${extractResult.output}`
+      }
+    }
+
+    emitProgress?.(60, 'Configuring Node.js runtime environment...')
+
+    const entries = await fs.readdir(tempExtractDir, { withFileTypes: true })
+    const nodeSubDir = entries.find((e) => e.isDirectory() && e.name.startsWith('node-'))
+    const sourceDir = nodeSubDir ? path.join(tempExtractDir, nodeSubDir.name) : tempExtractDir
+
+    await fs.mkdir(targetNodeDir, { recursive: true })
+    await fs.mkdir(npmDir, { recursive: true })
+
+    const psCopyCmd = `powershell -NoProfile -Command "Copy-Item -Path '${sourceDir.replace(/'/g, "''")}\\*' -Destination '${targetNodeDir.replace(/'/g, "''")}' -Recurse -Force"`
+    await new Promise((resolve) => {
+      exec(psCopyCmd, { env: process.env }, () => resolve(true))
+    })
+
+    await fs.rm(tempExtractDir, { recursive: true, force: true }).catch(() => {})
+
+    emitProgress?.(80, 'Updating system environment PATH...')
+    const psPathCmd = `powershell -NoProfile -Command "$userPath = [Environment]::GetEnvironmentVariable('Path', 'User'); if ($userPath -notlike '*${targetNodeDir}*') { [Environment]::SetEnvironmentVariable('Path', $userPath + ';${targetNodeDir};${npmDir}', 'User') }"`
+    await new Promise((resolve) => {
+      exec(psPathCmd, { env: process.env }, () => resolve(true))
+    })
+
+    refreshEnvPath()
+    const verified = await checkDependencyInstalled({
+      id: 'node',
+      name: 'Node.js',
+      description: '',
+      checkCommand: 'node -v',
+      installCommand: ''
+    })
+
+    if (verified) {
+      emitProgress?.(100, 'Installed Node.js successfully.')
+      return { ok: true, exitCode: 0, output: 'Node.js portable setup completed successfully.' }
+    }
+
+    return {
+      ok: false,
+      output: extractResult.output,
+      error: 'Node.js verification failed after extraction.'
+    }
+  }
+
+  emitProgress?.(20, 'Installing Node.js via MSI...')
+  const msiCmd = `msiexec /i "${filePath}" /qn /norestart`
+  const msiResult = await new Promise<{ exitCode: number | null; output: string }>((resolve) => {
+    let output = ''
+    const child = exec(msiCmd, { env: process.env })
+    child.stdout?.on('data', (c) => (output += c.toString()))
+    child.stderr?.on('data', (c) => (output += c.toString()))
+    child.on('close', (exitCode) => resolve({ exitCode, output }))
+  })
+
+  refreshEnvPath()
+  const msiVerified = await checkDependencyInstalled({
+    id: 'node',
+    name: 'Node.js',
+    description: '',
+    checkCommand: 'node -v',
+    installCommand: ''
+  })
+
+  if (msiResult.exitCode === 0 && msiVerified) {
+    emitProgress?.(100, 'Installed Node.js successfully.')
+    return { ok: true, exitCode: 0, output: msiResult.output }
+  }
+
+  emitProgress?.(40, 'Silent MSI install failed (Error code 1603). Requesting elevation...')
+  const elevatedMsiCmd = `powershell -NoProfile -Command "Start-Process msiexec.exe -ArgumentList '/i \"${filePath.replace(/"/g, '`"')}\" /passive /norestart' -Verb RunAs -Wait"`
+
+  await new Promise((resolve) => {
+    exec(elevatedMsiCmd, { env: process.env }, () => resolve(true))
+  })
+
+  refreshEnvPath()
+  const elevatedVerified = await checkDependencyInstalled({
+    id: 'node',
+    name: 'Node.js',
+    description: '',
+    checkCommand: 'node -v',
+    installCommand: ''
+  })
+
+  if (elevatedVerified) {
+    emitProgress?.(100, 'Installed Node.js successfully.')
+    return { ok: true, exitCode: 0, output: 'Node.js installed via elevated installer.' }
+  }
+
+  emitProgress?.(60, 'MSI install failed. Falling back to portable Node.js zip package...')
+  const zipUrl = 'https://nodejs.org/dist/v20.11.1/node-v20.11.1-win-x64.zip'
+  const tempZipPath = path.join(app.getPath('temp'), 'node-portable.zip')
+
+  const downloadRes = await fetch(zipUrl, { headers: { 'User-Agent': 'Prism-Demo' } })
+  if (!downloadRes.ok) {
+    return {
+      ok: false,
+      output: msiResult.output,
+      error: `MSI failed with code ${msiResult.exitCode} and zip download failed (HTTP ${downloadRes.status}).`
+    }
+  }
+
+  const arrayBuffer = await downloadRes.arrayBuffer()
+  await fs.writeFile(tempZipPath, Buffer.from(arrayBuffer))
+
+  return await installNodeDependency(tempZipPath, emitProgress)
+}
+
 async function installDependency(
   dependency: Dependency,
   filePath?: string,
   emitProgress?: (percent: number, message: string, cliOutput?: string) => void
 ): Promise<DemoProcessResult> {
+  if (dependency.id === 'node' && filePath) {
+    return installNodeDependency(filePath, emitProgress)
+  }
+
   const command = dependency.installCommand.replace('{filepath}', filePath || '')
 
   return new Promise((resolve) => {
