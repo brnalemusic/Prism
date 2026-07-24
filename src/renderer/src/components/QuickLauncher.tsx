@@ -25,7 +25,7 @@ import { ErrorPopup } from './ErrorPopup'
 import { ApplicationInfo, FileSearchResult } from '../../../shared/types'
 import { AppConfig } from '../../../main/config'
 import clsx from 'clsx'
-import { LandingBackgroundEffects } from './LandingBackgroundEffects'
+
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ActionLoader, ToolCall, ToolCallIndicator } from './ActionLoader'
@@ -1240,7 +1240,6 @@ export function QuickLauncher(): React.JSX.Element {
       className="quick-launcher-overlay flex h-screen w-screen flex-col items-center justify-start p-8 pt-[20vh] font-sans relative overflow-hidden"
       onClick={() => window.api.hideLauncher()}
     >
-      <LandingBackgroundEffects theme={activeTheme} />
       {/* Magical live moving border and diagonal glows */}
       {glowState !== 'idle' && (
         <>

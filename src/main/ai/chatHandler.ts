@@ -59,7 +59,10 @@ export function cancelChatMessage(chatId?: string): void {
 
 export function getNativeToolsForOpenAi(target: 'main' | 'launcher' = 'main'): OpenAiToolDefinition[] {
   return toolsManifest
-    .filter((t) => !t.target || t.target === 'both' || t.target === target)
+    .filter((t) => {
+      if (target === 'launcher') return true
+      return !t.target || t.target === 'both' || t.target === target
+    })
     .map((t) => {
       const properties: Record<string, any> = {}
       for (const [key, paramDef] of Object.entries(t.parameters || {})) {

@@ -4,7 +4,7 @@ import { resolveProviderAndModel } from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
 import { OpenAiMessage, StreamToolCallDelta } from './types'
 import { getNativeToolsForOpenAi } from './chatHandler'
-import { executeSystemTool } from '../systemTools'
+import { executeSystemTool, getSystemToolsPrompt } from '../systemTools'
 
 let launcherHistory: OpenAiMessage[] = []
 let launcherAbortController: AbortController | null = null
@@ -41,8 +41,7 @@ export async function handleLauncherChatMessage(
   try {
     const systemPrompt: OpenAiMessage = {
       role: 'system',
-      content:
-        'You are Prism Quick Launcher AI, a fast, concise assistant. Answer directly, clearly, and compactly in clean markdown.'
+      content: getSystemToolsPrompt(model.id, 'launcher')
     }
 
     const launcherTools = getNativeToolsForOpenAi('launcher')
@@ -193,7 +192,13 @@ export async function handleLauncherChatMessage(
                 function: {
                   name: tc.name,
                   arguments: typeof tc.args === 'string' ? tc.args : JSON.stringify(tc.args)
-                }
+                },
+                ...(tc.thoughtSignature
+                  ? {
+                      thought_signature: tc.thoughtSignature,
+                      extra_content: { google: { thought_signature: tc.thoughtSignature } }
+                    }
+                  : {})
               }
             ]
           })

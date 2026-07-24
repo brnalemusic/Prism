@@ -1688,6 +1688,9 @@ function RealApp(): React.JSX.Element {
     []
   )
 
+  const handleSendRef = useRef(handleSend)
+  handleSendRef.current = handleSend
+
   const handleModelChange = useCallback((modelKey: string) => {
     setSelectedModel(modelKey)
     window.api.setModel(modelKey)
@@ -2189,6 +2192,48 @@ function RealApp(): React.JSX.Element {
       }
     })
 
+    const removeOpenMainAppListener = window.api.onOpenMainAppWithInstructions((data) => {
+      const { instructions, model } = data
+
+      if (model) {
+        handleModelChange(model)
+      }
+
+      const targetTabId = activeTabIdRef.current
+      const currentTab = tabsRef.current.find((t) => t.id === targetTabId)
+      if (!currentTab) return
+
+      let chatId = currentTab.chatId
+      if (!chatId) {
+        chatId = Date.now().toString()
+      }
+
+      setTabs((prev) =>
+        prev.map((t) => (t.id === targetTabId ? { ...t, chatId, isProcessing: true } : t))
+      )
+
+      setRunningChats((prev) => ({ ...prev, [chatId!]: true }))
+
+      setTabs((prev) =>
+        prev.map((t) => {
+          if (t.id === targetTabId) {
+            return {
+              ...t,
+              messages: [...t.messages, { role: 'user' as const, content: instructions }],
+              inputText: ''
+            }
+          }
+          return t
+        })
+      )
+
+      window.api.sendChatMessage({
+        message: instructions,
+        chatId,
+        modelKey: model || currentTab.selectedModel
+      })
+    })
+
     return () => {
       removeChatStartListener()
       removeChatChunkListener()
@@ -2200,6 +2245,7 @@ function RealApp(): React.JSX.Element {
       removeToolUpdateListener()
       removeTitleReceivedListener()
       removeTodoUpdateListener()
+      removeOpenMainAppListener()
     }
   }, [])
 

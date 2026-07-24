@@ -2237,13 +2237,7 @@ export function getSystemToolsPrompt(
         }
       }
       if (target === 'launcher') {
-        return (
-          t.name === 'web_search' ||
-          t.name === 'saw_link_from_url' ||
-          t.name === 'open_main_app' ||
-          t.name === 'open_browser_link' ||
-          t.name === 'open_application'
-        )
+        return true
       }
       return !t.target || t.target === 'both' || t.target === target
     })
@@ -2279,18 +2273,22 @@ export function getSystemToolsPrompt(
 
   if (target === 'launcher') {
     return `# Identity & Context
-Role: Prism Mini-Chat (${modelName}), running in the Quick Launcher.
+Role: Prism AI (${modelName}), running in the Quick Launcher (full capabilities).
 Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
 # Rules
-- **Simple Markdown Only:** Respond ONLY using traditional simple Markdown (no HTML/CSS, no Rich Markdown).
+- **Simple Markdown Only:** Respond ONLY using traditional simple Markdown.
 - **Auto-Open:** If an app, link, or path is sent in isolation, IMMEDIATELY open it via open_browser_link or open_application.
-- **Transitions:** For complex tasks (terminal/files/Rich Markdown), immediately call open_main_app with instructions.
-- Models: prism-6-super-fast (default/latency), prism-6-fast-old (simple automation), prism-6-fast (code), prism-6-dragon (research), prism-6-dense (math/debugging).
+- **Transitions:** For long-running or complex tasks, call open_main_app to continue in the main application.
+- **Full Tool Access:** You have access to all tools — terminal, files, browser, search, apps, and more.
 
 # Tool Protocol & Execution
 - **Native Tool Calling**: You have access to native tool calling. Call functions natively when needed. Do NOT write [PRISM_EXECUTE_TOOL] blocks yourself, the system handles function execution natively.
 - **Requirements**: Absolute paths are required for all file operations.
+- **Terminal CLI**: Commands run in user's terminal \`${shellName}\`; use ${shellSyntax} syntax.
+- **Filesystem Safety**: \`computer_use_*\` file tools modify files only at explicit paths.
+- **Persistent Browser**: For browser_* actions (except browser_close) and web_script, call open_browser first and browser_close when done.
+- **Parallelism**: You can call multiple functions natively in parallel to speed up tasks.
 
 Tools:
 ${toolsPrompt}`
@@ -2558,6 +2556,42 @@ export async function executeSystemTool(
       return await openApplication(args.appPath || args.appName || '')
     case 'open_browser_link':
       return await openBrowserLink(args.url || '')
+    case 'open_main_app': {
+      try {
+        const instructions = args.instructions || ''
+        const model = args.model || ''
+        const searchEnabled = args.searchEnabled === 'true'
+
+        const wins = BrowserWindow.getAllWindows()
+        const mainWin = wins.find(
+          (w) => !w.webContents.getURL().includes('#launcher') && !w.webContents.getURL().includes('#subagents') && !w.webContents.getURL().includes('#mini-app')
+        ) || wins[0]
+
+        if (!mainWin) {
+          return 'Error: No main application window found.'
+        }
+
+        if (mainWin.isMinimized()) mainWin.restore()
+        mainWin.show()
+        mainWin.focus()
+
+        // Hide launcher window if visible
+        const launcherWin = wins.find((w) => w.webContents.getURL().includes('#launcher'))
+        if (launcherWin && launcherWin.isVisible()) {
+          launcherWin.hide()
+        }
+
+        mainWin.webContents.send('open-main-app-with-instructions', {
+          instructions,
+          model,
+          searchEnabled
+        })
+
+        return `Opened main application with instructions.${model ? ` Model set to: ${model}.` : ''}`
+      } catch (err) {
+        return `Error opening main app: ${err instanceof Error ? err.message : String(err)}`
+      }
+    }
     case 'search_installed_applications': {
       const files = await searchWorkspaceFiles(args.query || '')
       return files.length > 0
