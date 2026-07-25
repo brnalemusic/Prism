@@ -1316,47 +1316,38 @@ function RealApp(): React.JSX.Element {
 
   /** Opens (or focuses) a browser session viewer tab linked to the given source chat tab. */
   const handleOpenBrowserTab = useCallback((sourceTabId: string) => {
-    const currentTabs = tabsRef.current
-    // Check if a browser tab already exists for this source
-    const existing = currentTabs.find(
-      (t) => t.tabType === 'browser' && t.browserSourceTabId === sourceTabId
-    )
-    if (existing) {
-      // Just show/focus the existing tab without making it the active tab (keep current)
-      setVisibleTabIds((prevVis) => {
-        if (prevVis.includes(existing.id)) return prevVis
-        if (prevVis.length < 4) return [...prevVis, existing.id]
-        return [...prevVis.slice(0, 3), existing.id]
-      })
-      return
-    }
+    setTabs((prevTabs) => {
+      const existing = prevTabs.find(
+        (t) => t.tabType === 'browser' && t.browserSourceTabId === sourceTabId
+      )
+      if (existing) return prevTabs
 
-    // Create new background browser tab
-    const newId = `browser-tab-${Date.now()}`
-    const newTab: TabSession = {
-      id: newId,
-      chatId: undefined,
-      title: 'AI Browser',
-      messages: [],
-      inputText: '',
-      attachedFile: null,
-      sessionMode: 'execution',
-      disciplinePath: '',
-      isProcessing: false,
-      isTodoOpen: false,
-      selectedModel: selectedModelRef.current,
-      isSearchEnabled: false,
-      tabType: 'browser',
-      browserSourceTabId: sourceTabId
-    }
+      const sourceIndex = prevTabs.findIndex((t) => t.id === sourceTabId)
+      const newTab: TabSession = {
+        id: `browser-tab-${sourceTabId}`,
+        chatId: undefined,
+        title: 'AI Browser',
+        messages: [],
+        inputText: '',
+        attachedFile: null,
+        sessionMode: 'execution',
+        disciplinePath: '',
+        isProcessing: false,
+        isTodoOpen: false,
+        selectedModel: selectedModelRef.current,
+        isSearchEnabled: false,
+        tabType: 'browser',
+        browserSourceTabId: sourceTabId
+      }
 
-    setTabs((prevTabs) => [...prevTabs, newTab])
-    // Open in background: add to visibleTabIds but don't change active tab
-    setVisibleTabIds((prevVis) => {
-      if (prevVis.length < 4) return [...prevVis, newId]
-      return [...prevVis.slice(0, 3), newId]
+      const updated = [...prevTabs]
+      if (sourceIndex !== -1) {
+        updated.splice(sourceIndex + 1, 0, newTab)
+      } else {
+        updated.push(newTab)
+      }
+      return updated
     })
-    // Do NOT change activeTabId - tab opens in background
   }, [])
 
   // Auto-open browser session tab instantly as soon as AI triggers a browser session
@@ -2615,6 +2606,8 @@ function RealApp(): React.JSX.Element {
                         ? !!(tabs.find((t) => t.id === tab.browserSourceTabId)?.isProcessing)
                         : Object.values(runningChats).some(Boolean)
                     }
+                    isSplitView={visibleTabs.length > 1}
+                    onCloseSplit={() => handleToggleSplitTab(tab.id)}
                   />
                 ) : (
                 <ChatPane

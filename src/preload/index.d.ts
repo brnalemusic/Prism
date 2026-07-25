@@ -216,6 +216,8 @@ export interface PrismAPI {
   getActiveModels: () => Promise<Array<{ providerId: string; providerName: string; isProviderTrusted: boolean; model: import('../shared/types').ProviderModel; fullKey: string }>>
   onToolCallDelta: (callback: (delta: import('../shared/types').StreamToolCallDelta & { chatId: string }) => void) => () => void
   onBrowserAction: (callback: (action: import('../shared/types').BrowserAction) => void) => () => void
+  onBrowserExecCommand: (callback: (data: { requestId: string; command: any }) => void) => () => void
+  sendBrowserExecResult: (requestId: string, result: any) => void
 }
 
 

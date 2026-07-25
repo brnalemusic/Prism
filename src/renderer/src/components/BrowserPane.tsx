@@ -7,7 +7,8 @@ import {
   ArrowSquareOut,
   ArrowLeft,
   ArrowRight,
-  ArrowClockwise
+  ArrowClockwise,
+  X
 } from '@phosphor-icons/react'
 import type { BrowserAction } from '../../../shared/types'
 
@@ -28,9 +29,17 @@ interface ScriptEntry {
 interface BrowserPaneProps {
   /** Whether the originating chat tab is currently streaming/processing */
   isAiActive: boolean
+  /** Whether this pane is displayed in Split View grid layout */
+  isSplitView?: boolean
+  /** Unsplits this tab pane from Split View without closing the tab */
+  onCloseSplit?: () => void
 }
 
-export const BrowserPane = React.memo(function BrowserPane({ isAiActive }: BrowserPaneProps) {
+export const BrowserPane = React.memo(function BrowserPane({
+  isAiActive,
+  isSplitView,
+  onCloseSplit
+}: BrowserPaneProps) {
   const [currentUrl, setCurrentUrl] = useState<string>('https://google.com')
   const [inputUrl, setInputUrl] = useState<string>('https://google.com')
   const [currentTitle, setCurrentTitle] = useState<string>('')
@@ -47,7 +56,7 @@ export const BrowserPane = React.memo(function BrowserPane({ isAiActive }: Brows
   const terminalBottomRef = useRef<HTMLDivElement>(null)
   const rippleKeyRef = useRef(0)
 
-  // Listen for browser actions from main process Playwright session
+  // Listen for browser actions from main process
   useEffect(() => {
     const removeListener = window.api.onBrowserAction((action: BrowserAction) => {
       if (action.url && action.url !== 'about:blank') {
@@ -85,6 +94,305 @@ export const BrowserPane = React.memo(function BrowserPane({ isAiActive }: Brows
       }
     })
     return () => removeListener()
+  }, [])
+
+  // Listen for AI command execution requests directly on this webview instance
+  useEffect(() => {
+    const removeExecListener = window.api.onBrowserExecCommand(async ({ requestId, command }) => {
+      const webview = webviewRef.current
+      if (!webview) {
+        window.api.sendBrowserExecResult(requestId, 'Error: Webview not mounted')
+        return
+      }
+
+      try {
+        switch (command.type) {
+          case 'open':
+          case 'navigate': {
+            if (command.url) {
+              let target = command.url.trim()
+              if (!/^https?:\/\//i.test(target)) target = 'https://' + target
+              setCurrentUrl(target)
+              setInputUrl(target)
+              await webview.loadURL(target)
+              const title = webview.getTitle() || ''
+              window.api.sendBrowserExecResult(
+                requestId,
+                `Navigated to ${target} successfully. Page title: "${title}"`
+              )
+            } else {
+              window.api.sendBrowserExecResult(
+                requestId,
+                'Browser session active and ready.'
+              )
+            }
+            break
+          }
+
+          case 'click': {
+            const elementId = command.elementId || ''
+            const code = `
+              (() => {
+                const el = document.querySelector('[data-prism-id="${elementId}"]') ||
+                           document.getElementById('${elementId}') ||
+                           document.querySelector('${elementId}')
+                if (!el) return { success: false, error: 'Element data-prism-id="${elementId}" not found on page.' }
+                
+                const rect = el.getBoundingClientRect()
+                el.click()
+                return {
+                  success: true,
+                  url: window.location.href,
+                  title: document.title,
+                  box: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+                  vp: { width: window.innerWidth, height: window.innerHeight }
+                }
+              })()
+            `
+            const res = await webview.executeJavaScript(code)
+            if (res?.success) {
+              if (res.box && res.vp) {
+                rippleKeyRef.current += 1
+                setClickRipple({
+                  x: (res.box.x + res.box.width / 2) / res.vp.width,
+                  y: (res.box.y + res.box.height / 2) / res.vp.height,
+                  key: rippleKeyRef.current
+                })
+                setTimeout(() => setClickRipple(null), 1200)
+              }
+              window.api.sendBrowserExecResult(
+                requestId,
+                `Clicked element "${elementId}" successfully. Page title: "${res.title || ''}"`
+              )
+            } else {
+              window.api.sendBrowserExecResult(
+                requestId,
+                res?.error || `Error clicking element "${elementId}"`
+              )
+            }
+            break
+          }
+
+          case 'type': {
+            const elementId = command.elementId || ''
+            const text = JSON.stringify(command.text || '')
+            const code = `
+              (() => {
+                const el = document.querySelector('[data-prism-id="${elementId}"]') ||
+                           document.getElementById('${elementId}')
+                if (!el) return { success: false, error: 'Element data-prism-id="${elementId}" not found on page.' }
+                el.value = ${text}
+                el.dispatchEvent(new Event('input', { bubbles: true }))
+                el.dispatchEvent(new Event('change', { bubbles: true }))
+                return { success: true }
+              })()
+            `
+            const res = await webview.executeJavaScript(code)
+            if (res?.success) {
+              window.api.sendBrowserExecResult(
+                requestId,
+                `Typed text into element "${elementId}" successfully.`
+              )
+            } else {
+              window.api.sendBrowserExecResult(
+                requestId,
+                res?.error || `Error typing into element "${elementId}"`
+              )
+            }
+            break
+          }
+
+          case 'press': {
+            const key = command.key || 'Enter'
+            const code = `
+              (() => {
+                const active = document.activeElement || document.body
+                active.dispatchEvent(new KeyboardEvent('keydown', { key: '${key}', bubbles: true }))
+                active.dispatchEvent(new KeyboardEvent('keyup', { key: '${key}', bubbles: true }))
+                return true
+              })()
+            `
+            await webview.executeJavaScript(code)
+            window.api.sendBrowserExecResult(requestId, `Pressed key "${key}" successfully.`)
+            break
+          }
+
+          case 'scroll': {
+            const dir = command.direction === 'down' ? 1 : -1
+            const amount = command.amount ? Number(command.amount) : 500
+            const code = `window.scrollBy(0, ${dir * amount})`
+            await webview.executeJavaScript(code)
+            window.api.sendBrowserExecResult(
+              requestId,
+              `Scrolled page ${command.direction} successfully.`
+            )
+            break
+          }
+
+          case 'back': {
+            if (webview.canGoBack()) {
+              webview.goBack()
+              window.api.sendBrowserExecResult(
+                requestId,
+                'Navigated back in browser history successfully.'
+              )
+            } else {
+              window.api.sendBrowserExecResult(requestId, 'Cannot navigate back: no history.')
+            }
+            break
+          }
+
+          case 'script': {
+            const scriptCode = command.script || ''
+            if (command.url) {
+              let target = command.url.trim()
+              if (!/^https?:\/\//i.test(target)) target = 'https://' + target
+              setCurrentUrl(target)
+              setInputUrl(target)
+              await webview.loadURL(target)
+            }
+            const evalCode = `
+              (async () => {
+                try {
+                  const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor
+                  const fn = new AsyncFunction(${JSON.stringify(scriptCode)})
+                  const res = await fn()
+                  if (res !== undefined) return res
+                } catch {}
+                try { return eval(${JSON.stringify(scriptCode)}) } catch (e) { return 'Error: ' + e.message }
+              })()
+            `
+            const scriptRes = await webview.executeJavaScript(evalCode)
+            const resultStr =
+              scriptRes === undefined
+                ? 'undefined (executed successfully)'
+                : typeof scriptRes === 'object'
+                  ? JSON.stringify(scriptRes, null, 2)
+                  : String(scriptRes)
+
+            setScriptLogs((prev) => [
+              ...prev.slice(-49),
+              { script: scriptCode, result: resultStr, timestamp: Date.now() }
+            ])
+            setIsTerminalOpen(true)
+            window.api.sendBrowserExecResult(requestId, resultStr)
+            break
+          }
+
+          case 'snapshot': {
+            const code = `
+              (() => {
+                const interactiveElementsSelector =
+                  'a, button, input, textarea, select, details, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="textbox"], [role="menuitem"], [role="tab"], [role="option"], [contenteditable="true"]'
+                const interactiveEls = Array.from(document.querySelectorAll(interactiveElementsSelector))
+
+                let nextId = 1
+                interactiveEls.forEach((el) => {
+                  const rect = el.getBoundingClientRect()
+                  if (rect.width > 0 && rect.height > 0) {
+                    el.setAttribute('data-prism-id', String(nextId++))
+                  }
+                })
+
+                const isVisible = (el) => {
+                  if (!el.getBoundingClientRect) return false
+                  const rect = el.getBoundingClientRect()
+                  const style = window.getComputedStyle(el)
+                  return (
+                    rect.width > 0 &&
+                    rect.height > 0 &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    style.opacity !== '0'
+                  )
+                }
+
+                const cleanNode = (node) => {
+                  if (node.nodeType === Node.TEXT_NODE) {
+                    const val = node.nodeValue ? node.nodeValue.trim() : ''
+                    return val ? val : ''
+                  }
+                  if (node.nodeType !== Node.ELEMENT_NODE) return ''
+                  const el = node
+                  if (!isVisible(el)) return ''
+
+                  const tagName = el.tagName.toLowerCase()
+                  if (['script', 'style', 'iframe', 'noscript', 'svg', 'path', 'link', 'meta', 'head'].includes(tagName)) return ''
+
+                  const prismId = el.getAttribute('data-prism-id')
+                  const idAttr = prismId ? ' data-prism-id="' + prismId + '"' : ''
+
+                  if (['input', 'textarea', 'select'].includes(tagName)) {
+                    const idStr = el.id ? ' id="' + el.id + '"' : ''
+                    const typeStr = el.getAttribute('type') ? ' type="' + el.getAttribute('type') + '"' : ''
+                    const placeholderStr = el.getAttribute('placeholder') ? ' placeholder="' + el.getAttribute('placeholder') + '"' : ''
+                    const valStr = el.value ? ' value="' + el.value + '"' : ''
+                    return '<' + tagName + idAttr + idStr + typeStr + placeholderStr + valStr + '></' + tagName + '>\\n'
+                  }
+
+                  if (tagName === 'button') {
+                    const idStr = el.id ? ' id="' + el.id + '"' : ''
+                    return '<button' + idAttr + idStr + '>' + (el.innerText ? el.innerText.trim() : '') + '</button>\\n'
+                  }
+
+                  if (tagName === 'a') {
+                    const idStr = el.id ? ' id="' + el.id + '"' : ''
+                    const href = el.getAttribute('href') || ''
+                    return '<a' + idAttr + idStr + ' href="' + href + '">' + (el.innerText ? el.innerText.trim() : href) + '</a>\\n'
+                  }
+
+                  let childrenContent = ''
+                  el.childNodes.forEach((child) => {
+                    childrenContent += cleanNode(child)
+                  })
+                  childrenContent = childrenContent.trim()
+                  if (childrenContent) {
+                    return '<' + tagName + idAttr + '>\\n' + childrenContent + '\\n</' + tagName + '>\\n'
+                  }
+                  return ''
+                }
+
+                return cleanNode(document.body)
+              })()
+            `
+            const domText = await webview.executeJavaScript(code)
+            window.api.sendBrowserExecResult(
+              requestId,
+              typeof domText === 'string' ? domText : JSON.stringify(domText)
+            )
+            break
+          }
+
+          case 'screenshot': {
+            let base64: string | undefined
+            try {
+              if (webview.capturePage) {
+                const image = await webview.capturePage()
+                base64 = image.toJPEG(75).toString('base64')
+              }
+            } catch {}
+            window.api.sendBrowserExecResult(requestId, {
+              result: 'Screenshot captured successfully.',
+              base64
+            })
+            break
+          }
+
+          case 'close': {
+            setSessionClosed(true)
+            window.api.sendBrowserExecResult(requestId, 'Browser session closed.')
+            break
+          }
+
+          default:
+            window.api.sendBrowserExecResult(requestId, `Unknown command: ${command.type}`)
+        }
+      } catch (err: any) {
+        window.api.sendBrowserExecResult(requestId, `Error: ${err?.message || String(err)}`)
+      }
+    })
+
+    return () => removeExecListener()
   }, [])
 
   // Sync webview navigation events with address bar state
@@ -161,7 +469,7 @@ export const BrowserPane = React.memo(function BrowserPane({ isAiActive }: Brows
 
   return (
     <div className="relative flex flex-col h-full w-full overflow-hidden rounded-[14px] bg-[#0a0b0e] select-none">
-      {/* Glow Border around container when AI is active */}
+      {/* Outer Glow Border when AI is active (no solid background fill, page content remains 100% visible) */}
       {isAiActive && (
         <div
           className="absolute inset-0 rounded-[14px] pointer-events-none z-30"
@@ -180,7 +488,6 @@ export const BrowserPane = React.memo(function BrowserPane({ isAiActive }: Brows
               animation: 'prism-border-spin 2.5s linear infinite'
             }}
           />
-          <div className="absolute inset-[1.5px] rounded-[13px] bg-[#0a0b0e]" />
         </div>
       )}
 
@@ -210,7 +517,11 @@ export const BrowserPane = React.memo(function BrowserPane({ isAiActive }: Brows
           </button>
         </div>
 
-        <form onSubmit={handleNavigateSubmit} className="flex-1 flex items-center min-w-0" title={currentTitle || 'Current Page'}>
+        <form
+          onSubmit={handleNavigateSubmit}
+          className="flex-1 flex items-center min-w-0"
+          title={currentTitle || 'Current Page'}
+        >
           <div className="flex items-center gap-2 w-full px-2.5 py-1 rounded-lg bg-white/[0.04] border border-white/[0.06] focus-within:border-accent-primary/50 transition-all">
             <GlobeSimple size={13} className="text-text-secondary shrink-0" />
             <input
@@ -250,6 +561,17 @@ export const BrowserPane = React.memo(function BrowserPane({ isAiActive }: Brows
               size={10}
               className={clsx('transition-transform duration-200', isTerminalOpen && 'rotate-180')}
             />
+          </button>
+        )}
+
+        {/* Unsplit button when in Split View */}
+        {isSplitView && onCloseSplit && (
+          <button
+            onClick={onCloseSplit}
+            title="Leave split view (keep tab open)"
+            className="p-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-white/[0.06] transition-all duration-150 cursor-pointer ml-1"
+          >
+            <X size={13} />
           </button>
         )}
       </div>
@@ -315,7 +637,7 @@ export const BrowserPane = React.memo(function BrowserPane({ isAiActive }: Brows
               </div>
             )}
 
-            {/* Interaction Lock overlay ONLY when AI is active */}
+            {/* Transparent Interaction Lock overlay ONLY when AI is active */}
             {isAiActive && (
               <div className="absolute inset-0 bg-transparent cursor-not-allowed z-20" />
             )}

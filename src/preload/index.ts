@@ -608,6 +608,15 @@ const api = {
       callback(action)
     ipcRenderer.on('browser-action', listener)
     return () => ipcRenderer.removeListener('browser-action', listener)
+  },
+  onBrowserExecCommand: (callback: (data: { requestId: string; command: any }) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: { requestId: string; command: any }): void =>
+      callback(data)
+    ipcRenderer.on('browser-exec-command', listener)
+    return () => ipcRenderer.removeListener('browser-exec-command', listener)
+  },
+  sendBrowserExecResult: (requestId: string, result: any): void => {
+    ipcRenderer.send('browser-exec-result', { requestId, result })
   }
 }
 

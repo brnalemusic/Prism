@@ -128,7 +128,7 @@ function getCompletedDownload(): DownloadCompletionResult | null {
   return null
 }
 
-async function waitForDownloadCompletion(timeoutMs = 10000): Promise<DownloadCompletionResult | null> {
+export async function _waitForDownloadCompletion(timeoutMs = 10000): Promise<DownloadCompletionResult | null> {
   const existingResult = getCompletedDownload()
   if (existingResult) return existingResult
 
@@ -396,7 +396,7 @@ function isHtmlContentType(contentType: string | null): boolean {
   return mime === 'text/html' || mime === 'application/xhtml+xml'
 }
 
-async function getCookieHeaderForUrl(url: string): Promise<string | undefined> {
+export async function _getCookieHeaderForUrl(url: string): Promise<string | undefined> {
   if (!persistentContext) return undefined
 
   const cookies = await persistentContext.cookies(url).catch(() => [])
@@ -404,7 +404,7 @@ async function getCookieHeaderForUrl(url: string): Promise<string | undefined> {
   return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ')
 }
 
-async function getElementDownloadCandidate(
+export async function _getElementDownloadCandidate(
   locator: ReturnType<Page['locator']>
 ): Promise<{ url: string; filename?: string } | null> {
   const candidate = await locator
@@ -431,7 +431,7 @@ async function getElementDownloadCandidate(
   return candidate
 }
 
-async function downloadUrlToDownloads(
+export async function _downloadUrlToDownloads(
   url: string,
   options: { filename?: string; referer?: string; cookieHeader?: string } = {}
 ): Promise<string> {
@@ -1264,7 +1264,7 @@ async function emitBrowserAction(actionData: Omit<BrowserAction, 'timestamp' | '
 
 
 
-function setupBrowserAbortHandler(signal?: AbortSignal): (() => void) | null {
+export function _setupBrowserAbortHandler(signal?: AbortSignal): (() => void) | null {
   if (!signal || signal.aborted) {
     if (signal?.aborted) {
       if (persistentPage && !persistentPage.isClosed()) {
@@ -1286,7 +1286,7 @@ function setupBrowserAbortHandler(signal?: AbortSignal): (() => void) | null {
   }
 }
 
-function resetIdleTimer() {
+export function _resetIdleTimer() {
   if (idleTimer) {
     clearTimeout(idleTimer)
   }
@@ -1299,7 +1299,7 @@ function resetIdleTimer() {
   ) // 5 minutes
 }
 
-async function getOrCreatePersistentPage(): Promise<Page> {
+export async function _getOrCreatePersistentPage(): Promise<Page> {
   if (persistentPage && !persistentPage.isClosed()) {
     return persistentPage
   }
@@ -1346,663 +1346,183 @@ async function getOrCreatePersistentPage(): Promise<Page> {
   return persistentPage
 }
 
-export async function openBrowser(url?: string, signal?: AbortSignal): Promise<string> {
-  emitBrowserAction({ type: 'open', url }).catch(() => {})
-  const cleanup = setupBrowserAbortHandler(signal)
+let isPersistentBrowserActive = false
 
-  try {
-    if (signal?.aborted) throw new Error('AbortError')
-    const page = await getOrCreatePersistentPage()
-    resetIdleTimer()
-    if (url) {
-      const targetUrl = normalizeHttpUrl(url, 'url')
-      await page.goto(targetUrl, {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000
-      })
-      await handleConsentBanners(page)
-      return `Browser session opened and navigated to ${targetUrl} successfully. Current page title: "${await page.title()}"`
-    }
-    return 'Browser session opened successfully and is ready for automation. The browser will automatically close if idle for 5 minutes.'
-  } catch (error) {
-    if (signal?.aborted) throw new Error('AbortError')
-    const message = error instanceof Error ? error.message : String(error)
-    return `Error opening browser: ${message}`
-  } finally {
-    cleanup?.()
-    emitBrowserAction({ type: 'open' }).catch(() => {})
+const activeBrowserCmdResolvers = new Map<string, (result: any) => void>()
+
+ipcMain.on('browser-exec-result', (_event, data: { requestId: string; result: any }) => {
+  const resolver = activeBrowserCmdResolvers.get(data.requestId)
+  if (resolver) {
+    resolver(data.result)
+    activeBrowserCmdResolvers.delete(data.requestId)
   }
+})
+
+export async function sendBrowserCommandToRenderer(
+  command: {
+    type:
+      | 'open'
+      | 'navigate'
+      | 'click'
+      | 'type'
+      | 'press'
+      | 'scroll'
+      | 'back'
+      | 'script'
+      | 'snapshot'
+      | 'screenshot'
+      | 'close'
+    url?: string
+    elementId?: string
+    text?: string
+    key?: string
+    direction?: 'up' | 'down'
+    amount?: string
+    script?: string
+    full?: boolean
+  },
+  signal?: AbortSignal
+): Promise<any> {
+  const wins = BrowserWindow.getAllWindows()
+  const targetWin = wins.find((w) => !w.webContents.getURL().includes('#launcher')) || wins[0]
+  if (!targetWin) {
+    return 'Error: No renderer window available'
+  }
+
+  const requestId = `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      activeBrowserCmdResolvers.delete(requestId)
+      reject(new Error('AbortError'))
+    }
+
+    if (signal) {
+      if (signal.aborted) return reject(new Error('AbortError'))
+      signal.addEventListener('abort', onAbort)
+    }
+
+    const timeout = setTimeout(() => {
+      if (signal) signal.removeEventListener('abort', onAbort)
+      activeBrowserCmdResolvers.delete(requestId)
+      resolve(`Error: Browser action "${command.type}" timed out.`)
+    }, 30000)
+
+    activeBrowserCmdResolvers.set(requestId, (result) => {
+      clearTimeout(timeout)
+      if (signal) signal.removeEventListener('abort', onAbort)
+      resolve(result)
+    })
+
+    targetWin.webContents.send('browser-exec-command', { requestId, command })
+  })
+}
+
+export async function openBrowser(url?: string, signal?: AbortSignal): Promise<string> {
+  isPersistentBrowserActive = true
+  emitBrowserAction({ type: 'open', url }).catch(() => {})
+  const result = await sendBrowserCommandToRenderer({ type: 'open', url }, signal)
+  return typeof result === 'string' ? result : 'Browser session opened successfully.'
 }
 
 export async function browserNavigate(url: string, signal?: AbortSignal): Promise<string> {
-  emitBrowserAction({ type: 'navigate', url }).catch(() => {})
-  const cleanup = setupBrowserAbortHandler(signal)
-
-  try {
-    if (signal?.aborted) throw new Error('AbortError')
-    if (!persistentPage || persistentPage.isClosed()) {
-      return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-    }
-    resetIdleTimer()
-    const targetUrl = normalizeHttpUrl(url, 'url')
-    await persistentPage.goto(targetUrl, {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000
-    })
-    await handleConsentBanners(persistentPage)
-
-    const downloadResult = await waitForDownloadCompletion(8000)
-    if (downloadResult) {
-      return downloadResult.success
-        ? `SUCCESS: Download saved to ${downloadResult.filePath}`
-        : `FAILED: Download error - ${downloadResult.error}`
-    }
-
-    return `Navigated to ${targetUrl} successfully. Current page title: "${await persistentPage.title()}"`
-  } catch (error) {
-    if (signal?.aborted) throw new Error('AbortError')
-    const message = error instanceof Error ? error.message : String(error)
-    return `Error navigating to ${url}: ${message}`
-  } finally {
-    cleanup?.()
-    emitBrowserAction({ type: 'navigate' }).catch(() => {})
+  if (!isPersistentBrowserActive) {
+    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
+  emitBrowserAction({ type: 'navigate', url }).catch(() => {})
+  const result = await sendBrowserCommandToRenderer({ type: 'navigate', url }, signal)
+  return typeof result === 'string' ? result : `Navigated to ${url} successfully.`
 }
 
 export async function browserSnapshot(full?: string, signal?: AbortSignal): Promise<string> {
-  const cleanup = setupBrowserAbortHandler(signal)
-  try {
-    if (signal?.aborted) throw new Error('AbortError')
-    if (!persistentPage || persistentPage.isClosed()) {
-      return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-    }
-    resetIdleTimer()
-    const isFull = full === 'true'
-
-    // Strip target="_blank" before capturing to force all links to open in the current tab
-    await persistentPage
-      .evaluate(() => {
-        document.querySelectorAll('a[target="_blank"]').forEach((a) => a.removeAttribute('target'))
-      })
-      .catch(() => {})
-
-    const dom = await persistentPage.evaluate((isFull) => {
-      // 1. Tag interactive elements
-      const interactiveElementsSelector =
-        'a, button, input, textarea, select, details, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="textbox"], [role="menuitem"], [role="tab"], [role="option"], [contenteditable="true"]'
-      const interactiveEls = Array.from(document.querySelectorAll(interactiveElementsSelector))
-
-      let nextId = 1
-      interactiveEls.forEach((el) => {
-        const rect = el.getBoundingClientRect()
-        if (rect.width > 0 && rect.height > 0) {
-          el.setAttribute('data-prism-id', String(nextId++))
-        }
-      })
-
-      // Helper to check if element is visible
-      const isVisible = (el: HTMLElement) => {
-        if (!el.getBoundingClientRect) return false
-        const rect = el.getBoundingClientRect()
-        const style = window.getComputedStyle(el)
-        return (
-          rect.width > 0 &&
-          rect.height > 0 &&
-          style.display !== 'none' &&
-          style.visibility !== 'hidden' &&
-          style.opacity !== '0'
-        )
-      }
-
-      // Helper to recursively build clean HTML
-      const cleanNode = (node: Node): string => {
-        if (node.nodeType === Node.TEXT_NODE) {
-          const val = node.nodeValue?.trim()
-          return val ? val : ''
-        }
-        if (node.nodeType !== Node.ELEMENT_NODE) {
-          return ''
-        }
-        const el = node as HTMLElement
-        if (!isVisible(el)) return ''
-
-        const tagName = el.tagName.toLowerCase()
-        if (
-          ['script', 'style', 'iframe', 'noscript', 'svg', 'path', 'link', 'meta', 'head'].includes(
-            tagName
-          )
-        ) {
-          return ''
-        }
-
-        const prismId = el.getAttribute('data-prism-id')
-        const idAttr = prismId ? ` data-prism-id="${prismId}"` : ''
-
-        // Format based on tag
-        if (['input', 'textarea', 'select'].includes(tagName)) {
-          const idStr = el.id ? ` id="${el.id}"` : ''
-          const nameStr = el.getAttribute('name') ? ` name="${el.getAttribute('name')}"` : ''
-          const typeStr = el.getAttribute('type') ? ` type="${el.getAttribute('type')}"` : ''
-          const placeholderStr = el.getAttribute('placeholder')
-            ? ` placeholder="${el.getAttribute('placeholder')}"`
-            : ''
-          const valStr = (el as any).value ? ` value="${(el as any).value}"` : ''
-          return `<${tagName}${idAttr}${idStr}${nameStr}${typeStr}${placeholderStr}${valStr}></${tagName}>\n`
-        }
-
-        if (tagName === 'button') {
-          const idStr = el.id ? ` id="${el.id}"` : ''
-          return `<button${idAttr}${idStr}>${el.innerText?.trim() || ''}</button>\n`
-        }
-
-        if (tagName === 'a') {
-          const idStr = el.id ? ` id="${el.id}"` : ''
-          const href = el.getAttribute('href') || ''
-          return `<a${idAttr}${idStr} href="${href}">${el.innerText?.trim() || href}</a>\n`
-        }
-
-        if (tagName === 'img') {
-          const src = el.getAttribute('src') || ''
-          const alt = el.getAttribute('alt') || ''
-          return `<img src="${src}" alt="${alt}">\n`
-        }
-
-        // If not full mode, we skip structural containers that have no direct text and no interactive children
-        if (!isFull) {
-          const text = el.innerText?.trim()
-          const hasInteractiveChildren = el.querySelector('[data-prism-id]') !== null
-          if (!text && !hasInteractiveChildren) {
-            return ''
-          }
-        }
-
-        // Check for headings, paragraphs, list items
-        if (
-          ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'td', 'th', 'summary'].includes(tagName)
-        ) {
-          let childContent = ''
-          el.childNodes.forEach((child) => {
-            childContent += cleanNode(child)
-          })
-          childContent = childContent.trim()
-          return childContent ? `<${tagName}${idAttr}>${childContent}</${tagName}>\n` : ''
-        }
-
-        // Container elements
-        let childrenContent = ''
-        el.childNodes.forEach((child) => {
-          childrenContent += cleanNode(child)
-        })
-        childrenContent = childrenContent.trim()
-        if (childrenContent) {
-          if (
-            !isFull &&
-            !prismId &&
-            [
-              'div',
-              'span',
-              'section',
-              'article',
-              'main',
-              'header',
-              'footer',
-              'aside',
-              'nav'
-            ].includes(tagName)
-          ) {
-            return childrenContent + '\n'
-          }
-          return `<${tagName}${idAttr}>\n${childrenContent}\n</${tagName}>\n`
-        }
-        return ''
-      }
-
-      return cleanNode(document.body)
-    }, isFull)
-
-    const MAX_CONTENT = 30000
-    const result = dom.replace(/\n\s*\n/g, '\n').trim()
-    return result.length > MAX_CONTENT
-      ? result.substring(0, MAX_CONTENT) + '\n... (truncated)'
-      : result
-  } catch (error) {
-    if (signal?.aborted) throw new Error('AbortError')
-    const message = error instanceof Error ? error.message : String(error)
-    return `Error capturing page snapshot: ${message}`
-  } finally {
-    cleanup?.()
+  if (!isPersistentBrowserActive) {
+    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
+  const result = await sendBrowserCommandToRenderer(
+    { type: 'snapshot', full: full === 'true' },
+    signal
+  )
+  return typeof result === 'string' ? result : JSON.stringify(result)
 }
 
 export async function browserClick(elementId: string, signal?: AbortSignal): Promise<string> {
-  const cleanup = setupBrowserAbortHandler(signal)
-  try {
-    if (signal?.aborted) throw new Error('AbortError')
-    if (!persistentPage || persistentPage.isClosed()) {
-      return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-    }
-    resetIdleTimer()
-    const locator = persistentPage.locator(`[data-prism-id="${elementId}"]`).first()
-    const count = await locator.count()
-    if (count === 0) {
-      return `Error: Element with data-prism-id="${elementId}" not found on the page.`
-    }
-
-    const directDownloadCandidate = await getElementDownloadCandidate(locator)
-    let directDownloadError: string | undefined
-
-    if (directDownloadCandidate) {
-      try {
-        const targetPath = await downloadUrlToDownloads(directDownloadCandidate.url, {
-          filename: directDownloadCandidate.filename,
-          referer: persistentPage.url(),
-          cookieHeader: await getCookieHeaderForUrl(directDownloadCandidate.url)
-        })
-        return `SUCCESS: Download saved to ${targetPath}`
-      } catch (err) {
-        directDownloadError = err instanceof Error ? err.message : String(err)
-        console.warn(
-          `browserClick: Direct download failed for element "${elementId}", falling back to browser click...`,
-          err
-        )
-      }
-    }
-
-    // Set up download listener in parallel (5 seconds timeout) on context level to catch all tabs/pages
-    const downloadPromise = persistentContext
-      ? persistentContext.waitForEvent('download', { timeout: 5000 }).catch(() => null)
-      : Promise.resolve(null)
-
-    // Try standard click, then fallback to force click, and finally direct DOM click
-    try {
-      await locator.click({ timeout: 5000 })
-    } catch (clickErr) {
-      console.warn(
-        `browserClick: Standard click failed for element "${elementId}", trying force click...`,
-        clickErr
-      )
-      try {
-        await locator.click({ force: true, timeout: 5000 })
-      } catch (forceErr) {
-        console.warn(
-          `browserClick: Force click failed for element "${elementId}", executing direct DOM click...`,
-          forceErr
-        )
-        await locator.evaluate((el: HTMLElement) => el.click())
-      }
-    }
-
-    const download = await downloadPromise
-    if (download) {
-      const targetPath = await savePlaywrightDownload(download)
-      return `SUCCESS: Download saved to ${targetPath}`
-    }
-
-    if (directDownloadError) {
-      return `FAILED: Download error - ${directDownloadError}`
-    }
-
-    return `No download.`
-  } catch (error) {
-    if (signal?.aborted) throw new Error('AbortError')
-    const message = error instanceof Error ? error.message : String(error)
-    return `Error clicking element "${elementId}": ${message}`
-  } finally {
-    cleanup?.()
-    // Capture element bounding box for click ripple indicator
-    ;(async () => {
-      try {
-        if (persistentPage && !persistentPage.isClosed()) {
-          const locator = persistentPage.locator(`[data-prism-id="${elementId}"]`).first()
-          const box = await locator.boundingBox().catch(() => null)
-          const vp = persistentPage.viewportSize() || { width: 1280, height: 720 }
-          await emitBrowserAction({
-            type: 'click',
-            clickX: box ? (box.x + box.width / 2) / vp.width : undefined,
-            clickY: box ? (box.y + box.height / 2) / vp.height : undefined
-          })
-        }
-      } catch { /* ignore */ }
-    })()
+  if (!isPersistentBrowserActive) {
+    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
+  const result = await sendBrowserCommandToRenderer({ type: 'click', elementId }, signal)
+  return typeof result === 'string' ? result : `Clicked element ${elementId} successfully.`
 }
 
 export async function browserType(elementId: string, text: string, signal?: AbortSignal): Promise<string> {
-  const cleanup = setupBrowserAbortHandler(signal)
-  try {
-    if (signal?.aborted) throw new Error('AbortError')
-    if (!persistentPage || persistentPage.isClosed()) {
-      return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-    }
-    resetIdleTimer()
-    const locator = persistentPage.locator(`[data-prism-id="${elementId}"]`).first()
-    const count = await locator.count()
-    if (count === 0) {
-      return `Error: Element with data-prism-id="${elementId}" not found on the page.`
-    }
-    await locator.fill(text)
-
-    const downloadResult = await waitForDownloadCompletion(5000)
-    if (downloadResult) {
-      return downloadResult.success
-        ? `SUCCESS: Download saved to ${downloadResult.filePath}`
-        : `FAILED: Download error - ${downloadResult.error}`
-    }
-
-    return `Typed text into element with data-prism-id="${elementId}" successfully.`
-  } catch (error) {
-    if (signal?.aborted) throw new Error('AbortError')
-    const message = error instanceof Error ? error.message : String(error)
-    return `Error typing into element "${elementId}": ${message}`
-  } finally {
-    cleanup?.()
-    emitBrowserAction({ type: 'type' }).catch(() => {})
+  if (!isPersistentBrowserActive) {
+    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
+  const result = await sendBrowserCommandToRenderer({ type: 'type', elementId, text }, signal)
+  return typeof result === 'string' ? result : `Typed into element ${elementId} successfully.`
 }
 
 export async function browserPress(key: string, signal?: AbortSignal): Promise<string> {
-  const cleanup = setupBrowserAbortHandler(signal)
-  try {
-    if (signal?.aborted) throw new Error('AbortError')
-    if (!persistentPage || persistentPage.isClosed()) {
-      return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-    }
-    resetIdleTimer()
-    await persistentPage.keyboard.press(key)
-    return `Pressed keyboard key "${key}" successfully.`
-  } catch (error) {
-    if (signal?.aborted) throw new Error('AbortError')
-    const message = error instanceof Error ? error.message : String(error)
-    return `Error pressing key "${key}": ${message}`
-  } finally {
-    cleanup?.()
-    emitBrowserAction({ type: 'press' }).catch(() => {})
+  if (!isPersistentBrowserActive) {
+    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
+  const result = await sendBrowserCommandToRenderer({ type: 'press', key }, signal)
+  return typeof result === 'string' ? result : `Pressed key "${key}" successfully.`
 }
 
 export async function browserScroll(direction: 'up' | 'down', amount?: string, signal?: AbortSignal): Promise<string> {
-  const cleanup = setupBrowserAbortHandler(signal)
-  try {
-    if (signal?.aborted) throw new Error('AbortError')
-    if (!persistentPage || persistentPage.isClosed()) {
-      return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-    }
-    resetIdleTimer()
-    await persistentPage.evaluate(
-      (args) => {
-        const scrollAmount = args.amount ? Number(args.amount) : window.innerHeight * 0.8
-        window.scrollBy(0, args.direction === 'down' ? scrollAmount : -scrollAmount)
-      },
-      { direction, amount }
-    )
-    return `Scrolled page ${direction} successfully.`
-  } catch (error) {
-    if (signal?.aborted) throw new Error('AbortError')
-    const message = error instanceof Error ? error.message : String(error)
-    return `Error scrolling page: ${message}`
-  } finally {
-    cleanup?.()
-    emitBrowserAction({ type: 'scroll' }).catch(() => {})
+  if (!isPersistentBrowserActive) {
+    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
+  const result = await sendBrowserCommandToRenderer({ type: 'scroll', direction, amount }, signal)
+  return typeof result === 'string' ? result : `Scrolled page ${direction} successfully.`
 }
 
 export async function browserBack(signal?: AbortSignal): Promise<string> {
-  const cleanup = setupBrowserAbortHandler(signal)
-  try {
-    if (signal?.aborted) throw new Error('AbortError')
-    if (!persistentPage || persistentPage.isClosed()) {
-      return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-    }
-    resetIdleTimer()
-    await persistentPage.goBack({ waitUntil: 'domcontentloaded', timeout: 15000 })
-    return 'Navigated back in browser history successfully.'
-  } catch (error) {
-    if (signal?.aborted) throw new Error('AbortError')
-    const message = error instanceof Error ? error.message : String(error)
-    return `Error navigating back: ${message}`
-  } finally {
-    cleanup?.()
-    emitBrowserAction({ type: 'back' }).catch(() => {})
+  if (!isPersistentBrowserActive) {
+    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
+  const result = await sendBrowserCommandToRenderer({ type: 'back' }, signal)
+  return typeof result === 'string' ? result : 'Navigated back in browser history successfully.'
 }
 
 export async function browserScreenshot(signal?: AbortSignal): Promise<{ result: string; base64?: string }> {
-  const cleanup = setupBrowserAbortHandler(signal)
-  try {
-    if (signal?.aborted) throw new Error('AbortError')
-    if (!persistentPage || persistentPage.isClosed()) {
-      return {
-        result:
-          'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-      }
+  if (!isPersistentBrowserActive) {
+    return {
+      result:
+        'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
     }
-    resetIdleTimer()
-    const buffer = await persistentPage.screenshot({ type: 'png' })
-    const base64 = buffer.toString('base64')
+  }
+  const res = await sendBrowserCommandToRenderer({ type: 'screenshot' }, signal)
+  if (typeof res === 'object' && res?.base64) {
     return {
       result: 'Screenshot captured successfully and attached to context.',
-      base64
+      base64: res.base64
     }
-  } catch (error) {
-    if (signal?.aborted) throw new Error('AbortError')
-    const message = error instanceof Error ? error.message : String(error)
-    return { result: `Error capturing browser screenshot: ${message}` }
-  } finally {
-    cleanup?.()
-    emitBrowserAction({ type: 'screenshot' }).catch(() => {})
   }
+  return { result: typeof res === 'string' ? res : 'Screenshot captured successfully.' }
 }
 
 export async function closePersistentBrowser(): Promise<string> {
-  if (idleTimer) {
-    clearTimeout(idleTimer)
-    idleTimer = null
-  }
-  if (persistentBrowser) {
-    try {
-      await persistentBrowser.close()
-    } catch (err) {
-      console.warn('Error closing persistent browser:', err)
-    } finally {
-      persistentBrowser = null
-      persistentContext = null
-      persistentPage = null
-      downloadCdpSession = null
-      downloadCdpBrowser = null
-    }
-    return 'Browser session closed successfully.'
-  }
+  isPersistentBrowserActive = false
+  await sendBrowserCommandToRenderer({ type: 'close' }).catch(() => {})
   _browserActionEmitter?.({ type: 'close', timestamp: Date.now() })
-  return 'No active browser session to close.'
+  return 'Browser session closed successfully.'
 }
 
 export async function webScript(url: string, script: string, signal?: AbortSignal): Promise<string> {
-  emitBrowserAction({ type: 'script', url, script }).catch(() => {})
-  const cleanup = setupBrowserAbortHandler(signal)
-
-  let _scriptResult: string | undefined
-  try {
-    if (signal?.aborted) throw new Error('AbortError')
-    const page = await getOrCreatePersistentPage()
-    resetIdleTimer()
-    if (url) {
-      const targetUrl = normalizeHttpUrl(url, 'url')
-      if (page.url() !== targetUrl) {
-        await page.goto(targetUrl, {
-          waitUntil: 'domcontentloaded',
-          timeout: 30000
-        })
-        await handleConsentBanners(page)
-      }
-    }
-    const result = await page.evaluate(async (code) => {
-      try {
-        // Try executing as an async function body first (handles top-level 'return' and 'await')
-        const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
-        const fn = new AsyncFunction(code)
-        const res = await fn()
-        if (res !== undefined) return res
-      } catch {
-        // Fallback to standard eval for direct expressions (e.g. "document.title" or "1 + 1")
-      }
-
-      try {
-        return eval(code)
-      } catch (e) {
-        return `Error evaluating script: ${e instanceof Error ? e.message : String(e)}`
-      }
-    }, script)
-    const scriptResult =
-      result === undefined
-        ? 'undefined (script executed successfully but returned no value)'
-        : typeof result === 'object'
-          ? JSON.stringify(result, null, 2)
-          : String(result)
-
-    _scriptResult = scriptResult
-
-    const downloadResult = await waitForDownloadCompletion(5000)
-    if (downloadResult) {
-      return downloadResult.success
-        ? `SUCCESS: Download saved to ${downloadResult.filePath}`
-        : `FAILED: Download error - ${downloadResult.error}`
-    }
-
-    return scriptResult
-  } catch (error) {
-    if (signal?.aborted) throw new Error('AbortError')
-    const message = error instanceof Error ? error.message : String(error)
-    return `Error executing web script: ${message}`
-  } finally {
-    cleanup?.()
-    emitBrowserAction({ type: 'script', script, scriptResult: _scriptResult }).catch(() => {})
+  if (!isPersistentBrowserActive) {
+    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
+  const result = await sendBrowserCommandToRenderer({ type: 'script', url, script }, signal)
+  return typeof result === 'string' ? result : JSON.stringify(result)
 }
 
 export async function detailedDomPage(url?: string, signal?: AbortSignal): Promise<string> {
-  const cleanup = setupBrowserAbortHandler(signal)
-  try {
-    if (signal?.aborted) throw new Error('AbortError')
-    const page = await getOrCreatePersistentPage()
-    resetIdleTimer()
-    if (url) {
-      const targetUrl = normalizeHttpUrl(url, 'url')
-      if (page.url() !== targetUrl) {
-        await page.goto(targetUrl, {
-          waitUntil: 'domcontentloaded',
-          timeout: 30000
-        })
-        await handleConsentBanners(page)
-      }
-    }
-
-    const dom = await page.evaluate(() => {
-      // 1. Tag interactive elements
-      const interactiveElementsSelector =
-        'a, button, input, textarea, select, details, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="textbox"], [role="menuitem"], [role="tab"], [role="option"], [contenteditable="true"]'
-      const interactiveEls = Array.from(document.querySelectorAll(interactiveElementsSelector))
-
-      let nextId = 1
-      interactiveEls.forEach((el) => {
-        const rect = el.getBoundingClientRect()
-        if (rect.width > 0 && rect.height > 0) {
-          el.setAttribute('data-prism-id', String(nextId++))
-        }
-      })
-
-      const isVisible = (el: HTMLElement) => {
-        if (!el.getBoundingClientRect) return false
-        const rect = el.getBoundingClientRect()
-        const style = window.getComputedStyle(el)
-        return (
-          rect.width > 0 &&
-          rect.height > 0 &&
-          style.display !== 'none' &&
-          style.visibility !== 'hidden' &&
-          style.opacity !== '0'
-        )
-      }
-
-      // Detailed serialization
-      const serializeNode = (node: Node, depth: number = 0): string => {
-        if (node.nodeType === Node.TEXT_NODE) {
-          const text = node.nodeValue?.trim()
-          return text ? `${'  '.repeat(depth)}[TEXT] ${text}\n` : ''
-        }
-        if (node.nodeType !== Node.ELEMENT_NODE) {
-          return ''
-        }
-        const el = node as HTMLElement
-        if (!isVisible(el)) return ''
-
-        const tagName = el.tagName.toLowerCase()
-        if (
-          ['script', 'style', 'iframe', 'noscript', 'svg', 'path', 'link', 'meta', 'head'].includes(
-            tagName
-          )
-        ) {
-          return ''
-        }
-
-        // Collect attributes
-        const attrs: string[] = []
-        if (el.id) attrs.push(`id="${el.id}"`)
-        if (el.className) attrs.push(`class="${el.className}"`)
-        const prismId = el.getAttribute('data-prism-id')
-        if (prismId) attrs.push(`data-prism-id="${prismId}"`)
-
-        // Add specific attributes
-        const attributesToCollect = [
-          'href',
-          'src',
-          'alt',
-          'placeholder',
-          'type',
-          'name',
-          'value',
-          'title',
-          'role'
-        ]
-        for (const attr of attributesToCollect) {
-          const val = el.getAttribute(attr)
-          if (val) attrs.push(`${attr}="${val}"`)
-        }
-
-        const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : ''
-        const indent = '  '.repeat(depth)
-
-        // Leaf interactive elements
-        if (['input', 'img'].includes(tagName)) {
-          return `${indent}<${tagName}${attrStr} />\n`
-        }
-
-        let childContent = ''
-        el.childNodes.forEach((child) => {
-          childContent += serializeNode(child, depth + 1)
-        })
-
-        if (childContent) {
-          return `${indent}<${tagName}${attrStr}>\n${childContent}${indent}</${tagName}>\n`
-        } else {
-          return `${indent}<${tagName}${attrStr}>${el.innerText?.trim() || ''}</${tagName}>\n`
-        }
-      }
-
-      return serializeNode(document.body)
-    })
-
-    const MAX_CONTENT = 40000
-    const result = dom.replace(/\n\s*\n/g, '\n').trim()
-    return result.length > MAX_CONTENT
-      ? result.substring(0, MAX_CONTENT) + '\n... (truncated)'
-      : result
-  } catch (error) {
-    if (signal?.aborted) throw new Error('AbortError')
-    const message = error instanceof Error ? error.message : String(error)
-    return `Error getting detailed DOM: ${message}`
-  } finally {
-    cleanup?.()
+  if (!isPersistentBrowserActive) {
+    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
+  const result = await sendBrowserCommandToRenderer({ type: 'snapshot', url, full: true }, signal)
+  return typeof result === 'string' ? result : JSON.stringify(result)
 }
 
 /**
