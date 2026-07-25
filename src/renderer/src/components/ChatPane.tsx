@@ -262,7 +262,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
 
                 <div className="w-full flex flex-col gap-0">
                   {/* AI Todo card docked above InputBar (landing state) */}
-                  {todo && todo.active && <TodoPanel todo={todo} />}
+                  {todo && <TodoPanel todo={todo} />}
                   {/* Questionnaire wizard card docked above InputBar (landing state) */}
                   {activeQuestionnaire && (
                     <QuestionnaireWizard
@@ -335,7 +335,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
 
             <div className="pointer-events-auto max-w-[800px] mx-auto flex flex-col gap-0">
               {/* AI Todo card docked above InputBar */}
-              {todo && todo.active && <TodoPanel todo={todo} />}
+              {todo && <TodoPanel todo={todo} />}
               {/* Questionnaire wizard card docked above InputBar */}
               {activeQuestionnaire && (
                 <QuestionnaireWizard

@@ -16,7 +16,7 @@ interface TodoPanelProps {
 function TodoPanel({ todo }: TodoPanelProps): React.ReactElement | null {
   const [isExpanded, setIsExpanded] = useState(false)
 
-  if (!todo || !todo.active || todo.tasks.length === 0) return null
+  if (!todo || todo.tasks.length === 0) return null
 
   const total = todo.tasks.length
   const doneCount = todo.tasks.filter((t) => t.status === 'done').length
