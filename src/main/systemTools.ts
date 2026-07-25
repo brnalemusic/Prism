@@ -2505,17 +2505,12 @@ export function buildTodoReminder(chatId?: string): string {
   const pendingCount = todo.tasks.filter((t) => t.status !== 'done').length
   if (pendingCount === 0) return ''
 
-  const statusIcon = (s: string) => {
-    if (s === 'done') return '[DONE]'
-    if (s === 'working') return '[WORKING]'
-    return '[PENDING]'
-  }
+  const working = todo.tasks.find((t) => t.status === 'working')
+  const statusStr = working
+    ? `Current: "${working.title}". (${pendingCount} pending)`
+    : `${pendingCount} tasks remaining.`
 
-  const taskLines = todo.tasks
-    .map((t) => `- ${statusIcon(t.status)} ${t.title}`)
-    .join('\n')
-
-  return `\n\n# Active Todo List\nYou have ${pendingCount} pending tasks:\n${taskLines}\n\nGuide: Use \`edit_todo\` to update task status as you work. Set to "working" when starting a task and "done" when completing it.`
+  return `[Todo Status: ${statusStr}]`
 }
 
 export async function executeSystemTool(
@@ -2704,7 +2699,7 @@ export async function executeSystemTool(
         }
       } catch {}
 
-      return `Todo list created with ${taskTitles.length} tasks. Use edit_todo to update each task's status as you work through them: set to "working" when starting a task and "done" when completing it. All tasks must be completed before finishing.`
+      return `Todo list created with ${taskTitles.length} tasks. ${buildTodoReminder(todoChatId)}`
     }
 
     case 'edit_todo': {
@@ -2758,10 +2753,10 @@ export async function executeSystemTool(
       } catch {}
 
       if (allDone) {
-        return `All tasks completed! The todo list has been concluded.`
+        return `All tasks completed!`
       }
 
-      return `Task "${todo.tasks[taskIndex].title}" updated to "${newStatus}". ${todo.tasks.filter((t) => t.status === 'done').length}/${todo.tasks.length} tasks completed. Continue with the remaining tasks.`
+      return `Task "${todo.tasks[taskIndex].title}" updated to "${newStatus}". ${buildTodoReminder(todoChatId)}`
     }
 
     // Chat history tools

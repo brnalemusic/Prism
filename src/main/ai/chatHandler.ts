@@ -2,7 +2,7 @@ import { IpcMainEvent } from 'electron'
 import * as os from 'os'
 import { SessionMode, AttachedFile, StreamToolCallDelta } from '../../shared/types'
 import { toolsManifest } from '../toolsManifest'
-import { executeSystemTool, getSystemToolsPrompt, setActiveCwd, buildTodoReminder, setCurrentSessionIdForTodo } from '../systemTools'
+import { executeSystemTool, getSystemToolsPrompt, setActiveCwd, setCurrentSessionIdForTodo } from '../systemTools'
 import { loadConfig } from '../config'
 import { saveChatSession, loadChatSession, updateChatSessionTitle } from '../history'
 import { resolveProviderAndModel } from './providerManager'
@@ -237,12 +237,6 @@ export async function handleChatMessage(
       fullPrompt += `\n\n# Active Workflow: ${matchedWorkflow.name}\n${matchedWorkflow.systemInstruction}`
     }
 
-    // Todo reminder: inject active todo state into system prompt
-    const todoReminder = buildTodoReminder(chatId)
-    if (todoReminder) {
-      fullPrompt += todoReminder
-    }
-
     setCurrentSessionIdForTodo(chatId)
 
     const openAiTools = getNativeToolsForOpenAi('main')
@@ -255,16 +249,8 @@ export async function handleChatMessage(
     while (loopCount < maxLoops) {
       loopCount++
 
-      // Update todo reminder on each iteration
-      let iterationPrompt = fullPrompt
-      const currentTodoReminder = buildTodoReminder(chatId)
-      if (currentTodoReminder) {
-        const cleanBase = iterationPrompt.replace(/\n\n# Active Todo List[\s\S]*?(?=\n\n#|$)/, '')
-        iterationPrompt = cleanBase.trim() + currentTodoReminder
-      }
-
       const messagesForApi: OpenAiMessage[] = [
-        { role: 'system', content: iterationPrompt },
+        { role: 'system', content: fullPrompt },
         ...convertHistoryToOpenAi(historyMessages)
       ]
 
@@ -549,7 +535,7 @@ async function generateTitleInBackground(
 ): Promise<void> {
   try {
     console.log(`[Title Generator] Generating title for chat ${chatId} using model ${modelId} via provider ${provider.name || provider.baseUrl}...`)
-    const prompt = `Summarize this user query into a concise 3-5 word title in English. Do not use quotes or punctuation. Query: "${firstMessage}"`
+    const prompt = `Summarize this user query into a concise 3-5 word title in the same language as the query. Do not use quotes or punctuation. Query: "${firstMessage}"`
     const abortController = new AbortController()
 
     const res = await streamOpenAiCompletion(
