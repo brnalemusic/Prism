@@ -1358,6 +1358,21 @@ function RealApp(): React.JSX.Element {
     // Do NOT change activeTabId - tab opens in background
   }, [])
 
+  // Auto-open browser session tab instantly as soon as AI triggers a browser session
+  useEffect(() => {
+    const removeListener = window.api.onBrowserAction((action) => {
+      if (action.type === 'close') return
+      const currentTabs = tabsRef.current
+      const processingTab =
+        currentTabs.find((t) => t.isProcessing) ||
+        currentTabs.find((t) => t.id === activeTabIdRef.current)
+      if (processingTab && processingTab.tabType !== 'browser') {
+        handleOpenBrowserTab(processingTab.id)
+      }
+    })
+    return () => removeListener()
+  }, [handleOpenBrowserTab])
+
 
 
   const handleCloseTab = useCallback((tabId: string) => {

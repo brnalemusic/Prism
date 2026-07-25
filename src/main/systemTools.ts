@@ -1335,7 +1335,9 @@ async function getOrCreatePersistentPage(): Promise<Page> {
 }
 
 export async function openBrowser(url?: string, signal?: AbortSignal): Promise<string> {
+  emitBrowserAction({ type: 'open', url }).catch(() => {})
   const cleanup = setupBrowserAbortHandler(signal)
+
   try {
     if (signal?.aborted) throw new Error('AbortError')
     const page = await getOrCreatePersistentPage()
@@ -1361,7 +1363,9 @@ export async function openBrowser(url?: string, signal?: AbortSignal): Promise<s
 }
 
 export async function browserNavigate(url: string, signal?: AbortSignal): Promise<string> {
+  emitBrowserAction({ type: 'navigate', url }).catch(() => {})
   const cleanup = setupBrowserAbortHandler(signal)
+
   try {
     if (signal?.aborted) throw new Error('AbortError')
     if (!persistentPage || persistentPage.isClosed()) {
@@ -1801,7 +1805,9 @@ export async function closePersistentBrowser(): Promise<string> {
 }
 
 export async function webScript(url: string, script: string, signal?: AbortSignal): Promise<string> {
+  emitBrowserAction({ type: 'script', url, script }).catch(() => {})
   const cleanup = setupBrowserAbortHandler(signal)
+
   let _scriptResult: string | undefined
   try {
     if (signal?.aborted) throw new Error('AbortError')
