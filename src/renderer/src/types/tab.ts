@@ -60,4 +60,8 @@ export interface TabSession {
   selectedModel: string
   isSearchEnabled: boolean
   isTitleStreaming?: boolean
+  /** 'chat' (default) or 'browser' for the AI browser session viewer tab */
+  tabType?: 'chat' | 'browser'
+  /** For browser tabs: the id of the chat tab that opened this browser session */
+  browserSourceTabId?: string
 }

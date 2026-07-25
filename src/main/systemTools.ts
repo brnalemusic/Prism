@@ -5,7 +5,8 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as os from 'os'
 import { toolsManifest } from './toolsManifest'
-import { DownloadProgress, SessionMode, TodoState } from '../shared/types'
+import { BrowserAction, DownloadProgress, SessionMode, TodoState } from '../shared/types'
+
 import { loadConfig, saveConfig, SlashWorkflow } from './config'
 import { searchChatHistory, searchChatMemory, loadChatSession } from './history'
 import {
@@ -1222,6 +1223,43 @@ let persistentContext: BrowserContext | null = null
 let persistentPage: Page | null = null
 let idleTimer: NodeJS.Timeout | null = null
 
+/** Callback set by index.ts to broadcast browser events to the renderer window. */
+let _browserActionEmitter: ((action: BrowserAction) => void) | null = null
+
+export function setBrowserActionEmitter(fn: (action: BrowserAction) => void): void {
+  _browserActionEmitter = fn
+}
+
+/**
+ * Captures the current page screenshot and emits a BrowserAction event to the renderer.
+ * Silently skips if there is no emitter or no active page.
+ */
+async function emitBrowserAction(actionData: Omit<BrowserAction, 'timestamp' | 'screenshot'>): Promise<void> {
+  if (!_browserActionEmitter) return
+  try {
+    let screenshot: string | undefined
+    if (persistentPage && !persistentPage.isClosed()) {
+      const buf = await persistentPage.screenshot({ type: 'jpeg', quality: 60 }).catch(() => null)
+      if (buf) screenshot = buf.toString('base64')
+      const url = persistentPage.url()
+      const title = await persistentPage.title().catch(() => '')
+      _browserActionEmitter({
+        ...actionData,
+        screenshot,
+        url,
+        title,
+        timestamp: Date.now()
+      })
+    } else {
+      _browserActionEmitter({ ...actionData, timestamp: Date.now() })
+    }
+  } catch {
+    // Never let emission errors crash the browser tool
+  }
+}
+
+
+
 function setupBrowserAbortHandler(signal?: AbortSignal): (() => void) | null {
   if (!signal || signal.aborted) {
     if (signal?.aborted) {
@@ -1318,6 +1356,7 @@ export async function openBrowser(url?: string, signal?: AbortSignal): Promise<s
     return `Error opening browser: ${message}`
   } finally {
     cleanup?.()
+    emitBrowserAction({ type: 'open' }).catch(() => {})
   }
 }
 
@@ -1350,6 +1389,7 @@ export async function browserNavigate(url: string, signal?: AbortSignal): Promis
     return `Error navigating to ${url}: ${message}`
   } finally {
     cleanup?.()
+    emitBrowserAction({ type: 'navigate' }).catch(() => {})
   }
 }
 
@@ -1593,6 +1633,21 @@ export async function browserClick(elementId: string, signal?: AbortSignal): Pro
     return `Error clicking element "${elementId}": ${message}`
   } finally {
     cleanup?.()
+    // Capture element bounding box for click ripple indicator
+    ;(async () => {
+      try {
+        if (persistentPage && !persistentPage.isClosed()) {
+          const locator = persistentPage.locator(`[data-prism-id="${elementId}"]`).first()
+          const box = await locator.boundingBox().catch(() => null)
+          const vp = persistentPage.viewportSize() || { width: 1280, height: 720 }
+          await emitBrowserAction({
+            type: 'click',
+            clickX: box ? (box.x + box.width / 2) / vp.width : undefined,
+            clickY: box ? (box.y + box.height / 2) / vp.height : undefined
+          })
+        }
+      } catch { /* ignore */ }
+    })()
   }
 }
 
@@ -1625,6 +1680,7 @@ export async function browserType(elementId: string, text: string, signal?: Abor
     return `Error typing into element "${elementId}": ${message}`
   } finally {
     cleanup?.()
+    emitBrowserAction({ type: 'type' }).catch(() => {})
   }
 }
 
@@ -1644,6 +1700,7 @@ export async function browserPress(key: string, signal?: AbortSignal): Promise<s
     return `Error pressing key "${key}": ${message}`
   } finally {
     cleanup?.()
+    emitBrowserAction({ type: 'press' }).catch(() => {})
   }
 }
 
@@ -1669,6 +1726,7 @@ export async function browserScroll(direction: 'up' | 'down', amount?: string, s
     return `Error scrolling page: ${message}`
   } finally {
     cleanup?.()
+    emitBrowserAction({ type: 'scroll' }).catch(() => {})
   }
 }
 
@@ -1688,6 +1746,7 @@ export async function browserBack(signal?: AbortSignal): Promise<string> {
     return `Error navigating back: ${message}`
   } finally {
     cleanup?.()
+    emitBrowserAction({ type: 'back' }).catch(() => {})
   }
 }
 
@@ -1714,6 +1773,7 @@ export async function browserScreenshot(signal?: AbortSignal): Promise<{ result:
     return { result: `Error capturing browser screenshot: ${message}` }
   } finally {
     cleanup?.()
+    emitBrowserAction({ type: 'screenshot' }).catch(() => {})
   }
 }
 
@@ -1736,11 +1796,13 @@ export async function closePersistentBrowser(): Promise<string> {
     }
     return 'Browser session closed successfully.'
   }
+  _browserActionEmitter?.({ type: 'close', timestamp: Date.now() })
   return 'No active browser session to close.'
 }
 
 export async function webScript(url: string, script: string, signal?: AbortSignal): Promise<string> {
   const cleanup = setupBrowserAbortHandler(signal)
+  let _scriptResult: string | undefined
   try {
     if (signal?.aborted) throw new Error('AbortError')
     const page = await getOrCreatePersistentPage()
@@ -1779,6 +1841,8 @@ export async function webScript(url: string, script: string, signal?: AbortSigna
           ? JSON.stringify(result, null, 2)
           : String(result)
 
+    _scriptResult = scriptResult
+
     const downloadResult = await waitForDownloadCompletion(5000)
     if (downloadResult) {
       return downloadResult.success
@@ -1793,6 +1857,7 @@ export async function webScript(url: string, script: string, signal?: AbortSigna
     return `Error executing web script: ${message}`
   } finally {
     cleanup?.()
+    emitBrowserAction({ type: 'script', script, scriptResult: _scriptResult }).catch(() => {})
   }
 }
 

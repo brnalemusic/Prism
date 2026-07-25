@@ -108,6 +108,36 @@ export interface ProviderConfig {
   models: ProviderModel[]
 }
 
+export type BrowserActionType =
+  | 'open'
+  | 'navigate'
+  | 'click'
+  | 'type'
+  | 'scroll'
+  | 'back'
+  | 'press'
+  | 'script'
+  | 'screenshot'
+  | 'close'
+
+export interface BrowserAction {
+  type: BrowserActionType
+  /** Base64 JPEG screenshot of the current browser view */
+  screenshot?: string
+  /** Normalized [0..1] click/pointer coords relative to browser viewport */
+  clickX?: number
+  clickY?: number
+  /** For 'script' actions: the JS code executed */
+  script?: string
+  /** For 'script' actions: the return value / error */
+  scriptResult?: string
+  /** Current page URL */
+  url?: string
+  /** Current page title */
+  title?: string
+  timestamp: number
+}
+
 export interface StreamToolCallDelta {
   index: number
   id?: string

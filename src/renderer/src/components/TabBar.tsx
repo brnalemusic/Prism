@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { Plus, X, Columns, ChatTeardropText, StopCircle } from '@phosphor-icons/react'
+import { Plus, X, Columns, ChatTeardropText, StopCircle, GlobeSimple } from '@phosphor-icons/react'
 import { ModelSelector } from './ModelSelector'
 import type { TabSession } from '../types/tab'
 
@@ -145,12 +145,21 @@ export const TabBar: React.FC<TabBarProps> = ({
             >
               {/* Status icon / spinner */}
               <div className="flex items-center gap-1 shrink-0">
-                <ChatTeardropText
-                  size={14}
-                  className={clsx(
-                    isActive ? 'text-accent-primary' : isVisible ? 'text-text-secondary' : 'text-text-muted'
-                  )}
-                />
+                {tab.tabType === 'browser' ? (
+                  <GlobeSimple
+                    size={14}
+                    className={clsx(
+                      isActive ? 'text-accent-primary' : isVisible ? 'text-text-secondary' : 'text-text-muted'
+                    )}
+                  />
+                ) : (
+                  <ChatTeardropText
+                    size={14}
+                    className={clsx(
+                      isActive ? 'text-accent-primary' : isVisible ? 'text-text-secondary' : 'text-text-muted'
+                    )}
+                  />
+                )}
                 {tab.isProcessing && (
                   <span className="h-1.5 w-1.5 rounded-full bg-accent-primary animate-pulse" />
                 )}

@@ -42,8 +42,10 @@ import {
   openApplication,
   captureAppScreenshot,
   detectAvailableTerminals,
-  getTodoForChat
+  getTodoForChat,
+  setBrowserActionEmitter
 } from './systemTools'
+
 import {
   initAppScanner,
   registerAppsUpdatedCallback,
@@ -663,6 +665,14 @@ if (!gotTheLock) {
 
     // IPC Handlers
     ipcMain.on('chat-message', handleChatMessage)
+
+    // Register browser session action emitter so the renderer can watch AI browser interactions
+    setBrowserActionEmitter((action) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('browser-action', action)
+      }
+    })
+
     ipcMain.on('set-model', (_event, modelKey) => {
       setChatModel(modelKey)
       mainWindow?.webContents.send('model-changed', modelKey)

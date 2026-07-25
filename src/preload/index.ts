@@ -363,7 +363,9 @@ const api = {
     ipcRenderer.removeAllListeners('window-maximized-change')
     ipcRenderer.removeAllListeners('chat-todo-update')
     ipcRenderer.removeAllListeners('chat-todo-complete')
+    ipcRenderer.removeAllListeners('browser-action')
   },
+
   launcherGetApps: (): Promise<ApplicationInfo[]> => ipcRenderer.invoke('launcher-get-apps'),
   forceRescanApps: (): Promise<ApplicationInfo[]> => ipcRenderer.invoke('force-rescan-apps'),
   onAppsUpdated: (callback: (apps: ApplicationInfo[]) => void): (() => void) => {
@@ -600,6 +602,12 @@ const api = {
     const listener = (_event: IpcRendererEvent, delta: any): void => callback(delta)
     ipcRenderer.on('chat-tool-call-delta', listener)
     return () => ipcRenderer.removeListener('chat-tool-call-delta', listener)
+  },
+  onBrowserAction: (callback: (action: import('../shared/types').BrowserAction) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, action: import('../shared/types').BrowserAction): void =>
+      callback(action)
+    ipcRenderer.on('browser-action', listener)
+    return () => ipcRenderer.removeListener('browser-action', listener)
   }
 }
 

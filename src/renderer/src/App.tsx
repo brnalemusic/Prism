@@ -29,6 +29,7 @@ import { UpdaterView } from './components/UpdaterView'
 import { isShortcutPressed } from './utils'
 import { TabBar } from './components/TabBar'
 import { ChatPane } from './components/ChatPane'
+import { BrowserPane } from './components/BrowserPane'
 import type { TabSession, Message, AttachedFile, StreamingToolCall, ToolCallItem } from './types/tab'
 import {
   StreamContext,
@@ -38,7 +39,8 @@ import {
   CodeBlock
 } from './components/AnimatedStreamingText'
 import clsx from 'clsx'
-import { CaretDown, Quotes, Brain, FilePdf, FilePpt, CheckCircle, XCircle } from '@phosphor-icons/react'
+import { CaretDown, Quotes, Brain, FilePdf, FilePpt, CheckCircle, XCircle, GlobeSimple } from '@phosphor-icons/react'
+
 import { ScreenshotModal } from './components/ScreenshotModal'
 import { YoutubeAppModal } from './components/YoutubeAppModal'
 import { AppConfig, SlashWorkflow } from '../../main/config'
@@ -251,13 +253,29 @@ interface AiMessageProps {
   currentChatId?: string
   handleLoadChat?: (id: string) => void
   markdownComponents: Components
+  onOpenBrowserTab?: () => void
 }
+
+const BROWSER_TOOL_NAMES = new Set([
+  'open_browser',
+  'browser_navigate',
+  'browser_click',
+  'browser_type',
+  'browser_scroll',
+  'browser_back',
+  'browser_press',
+  'web_script',
+  'browser_screenshot',
+  'close_browser',
+  'detailed_dom_page'
+])
 
 const AiMessage = React.memo(function AiMessage({
   msg,
   currentChatId,
   handleLoadChat,
-  markdownComponents
+  markdownComponents,
+  onOpenBrowserTab
 }: AiMessageProps) {
   const streamStats = useStreamStats(msg.content, !!msg.isStreaming)
   const nativeToolCalls = useMemo(
@@ -762,11 +780,22 @@ const AiMessage = React.memo(function AiMessage({
           </div>
         )}
 
-        {/* Copy & TTS buttons */}
-        {!msg.isStreaming && cleanTextForCopy && (
+        {/* Copy & TTS buttons + browser session button */}
+        {!msg.isStreaming && (
           <div className="flex items-center gap-1.5 mt-2 select-none opacity-60 hover:opacity-100 transition-opacity">
-            <CopyMessageButton text={cleanTextForCopy} />
-            <TtsButton text={cleanTextForCopy} />
+            {cleanTextForCopy && <CopyMessageButton text={cleanTextForCopy} />}
+            {cleanTextForCopy && <TtsButton text={cleanTextForCopy} />}
+            {/* Browser session button — shows when message has browser tool calls */}
+            {onOpenBrowserTab && (msg.toolCalls || []).some((tc) => BROWSER_TOOL_NAMES.has(tc.name)) && (
+              <button
+                onClick={onOpenBrowserTab}
+                title="View AI browser session"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-text-primary hover:bg-white/[0.06] transition-all duration-150 cursor-pointer"
+              >
+                <GlobeSimple size={13} />
+                <span>Browser</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -777,11 +806,13 @@ const AiMessage = React.memo(function AiMessage({
 const TabMessagesList = React.memo(function TabMessagesList({
   messages,
   currentChatId,
-  handleLoadChat
+  handleLoadChat,
+  onOpenBrowserTab
 }: {
   messages: Message[]
   currentChatId?: string
   handleLoadChat: (id: string) => void
+  onOpenBrowserTab?: () => void
 }) {
   const markdownComponents = useMemo(
     () => ({
@@ -947,6 +978,7 @@ const TabMessagesList = React.memo(function TabMessagesList({
                   currentChatId={currentChatId}
                   handleLoadChat={handleLoadChat}
                   markdownComponents={markdownComponents}
+                  onOpenBrowserTab={onOpenBrowserTab}
                 />
               )}
             </div>
@@ -1280,6 +1312,53 @@ function RealApp(): React.JSX.Element {
       }
     })
   }, [])
+
+  /** Opens (or focuses) a browser session viewer tab linked to the given source chat tab. */
+  const handleOpenBrowserTab = useCallback((sourceTabId: string) => {
+    const currentTabs = tabsRef.current
+    // Check if a browser tab already exists for this source
+    const existing = currentTabs.find(
+      (t) => t.tabType === 'browser' && t.browserSourceTabId === sourceTabId
+    )
+    if (existing) {
+      // Just show/focus the existing tab without making it the active tab (keep current)
+      setVisibleTabIds((prevVis) => {
+        if (prevVis.includes(existing.id)) return prevVis
+        if (prevVis.length < 4) return [...prevVis, existing.id]
+        return [...prevVis.slice(0, 3), existing.id]
+      })
+      return
+    }
+
+    // Create new background browser tab
+    const newId = `browser-tab-${Date.now()}`
+    const newTab: TabSession = {
+      id: newId,
+      chatId: undefined,
+      title: 'AI Browser',
+      messages: [],
+      inputText: '',
+      attachedFile: null,
+      sessionMode: 'execution',
+      disciplinePath: '',
+      isProcessing: false,
+      isTodoOpen: false,
+      selectedModel: selectedModelRef.current,
+      isSearchEnabled: false,
+      tabType: 'browser',
+      browserSourceTabId: sourceTabId
+    }
+
+    setTabs((prevTabs) => [...prevTabs, newTab])
+    // Open in background: add to visibleTabIds but don't change active tab
+    setVisibleTabIds((prevVis) => {
+      if (prevVis.length < 4) return [...prevVis, newId]
+      return [...prevVis.slice(0, 3), newId]
+    })
+    // Do NOT change activeTabId - tab opens in background
+  }, [])
+
+
 
   const handleCloseTab = useCallback((tabId: string) => {
     setTabs((prevTabs) => {
@@ -2480,6 +2559,16 @@ function RealApp(): React.JSX.Element {
                 key={tab.id}
                 className={clsx('h-full w-full overflow-hidden', getPaneSpanClass(index, visibleTabs.length))}
               >
+                {tab.tabType === 'browser' ? (
+                  <BrowserPane
+                    isAiActive={
+                      // isAiActive = source chat tab is processing, or any chat is processing if no source
+                      tab.browserSourceTabId
+                        ? !!(tabs.find((t) => t.id === tab.browserSourceTabId)?.isProcessing)
+                        : Object.values(runningChats).some(Boolean)
+                    }
+                  />
+                ) : (
                 <ChatPane
                   tab={{ ...tab, selectedModel: selectedModel || tab.selectedModel }}
                   isFocused={tab.id === activeTabId}
@@ -2541,9 +2630,11 @@ function RealApp(): React.JSX.Element {
                       messages={tab.messages}
                       currentChatId={tab.chatId}
                       handleLoadChat={handleLoadChat}
+                      onOpenBrowserTab={() => handleOpenBrowserTab(tab.id)}
                     />
                   }
                 />
+                )}
               </div>
             ))}
           </div>
@@ -2552,6 +2643,7 @@ function RealApp(): React.JSX.Element {
             View coming soon...
           </div>
         )}
+
 
         <DownloadProgressOverlay
           downloads={visibleDownloads}
