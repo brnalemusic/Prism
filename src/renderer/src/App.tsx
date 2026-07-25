@@ -259,6 +259,7 @@ interface AiMessageProps {
 const BROWSER_TOOL_NAMES = new Set([
   'open_browser',
   'browser_navigate',
+  'browser_use_switch_url',
   'browser_click',
   'browser_type',
   'browser_scroll',
@@ -2173,8 +2174,8 @@ function RealApp(): React.JSX.Element {
 
     const removeToolStartListener = window.api.onToolStart((data) => {
       const { chatId } = data
-      setTabs((prev) =>
-        prev.map((tab) => {
+      setTabs((prev) => {
+        let newTabs = prev.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
             const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
@@ -2222,7 +2223,39 @@ function RealApp(): React.JSX.Element {
           }
           return tab
         })
-      )
+
+        // Auto-create non-splitted background AI Browser tab if browser tool starts and tab doesn't exist yet
+        if (BROWSER_TOOL_NAMES.has(data.name)) {
+          const sourceTab = newTabs.find((t) => t.chatId === chatId)
+          if (sourceTab) {
+            const existingBrowserTab = newTabs.find(
+              (t) => t.tabType === 'browser' && t.browserSourceTabId === sourceTab.id
+            )
+            if (!existingBrowserTab) {
+              const newBrowserTab: TabSession = {
+                id: `browser-${sourceTab.id}`,
+                title: 'AI Browser',
+                tabType: 'browser',
+                browserSourceTabId: sourceTab.id,
+                messages: [],
+                inputText: '',
+                attachedFile: null,
+                sessionMode: 'execution',
+                disciplinePath: '',
+                isProcessing: false,
+                isTodoOpen: false,
+                selectedModel: sourceTab.selectedModel,
+                isSearchEnabled: false
+              }
+              const sourceIndex = newTabs.findIndex((t) => t.id === sourceTab.id)
+              newTabs = [...newTabs]
+              newTabs.splice(sourceIndex + 1, 0, newBrowserTab)
+            }
+          }
+        }
+
+        return newTabs
+      })
     })
 
     const removeToolEndListener = window.api.onToolEnd((data) => {

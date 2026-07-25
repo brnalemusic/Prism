@@ -210,7 +210,7 @@ export const BrowserPane = React.memo(function BrowserPane({ isAiActive }: Brows
           </button>
         </div>
 
-        <form onSubmit={handleNavigateSubmit} className="flex-1 flex items-center min-w-0">
+        <form onSubmit={handleNavigateSubmit} className="flex-1 flex items-center min-w-0" title={currentTitle || 'Current Page'}>
           <div className="flex items-center gap-2 w-full px-2.5 py-1 rounded-lg bg-white/[0.04] border border-white/[0.06] focus-within:border-accent-primary/50 transition-all">
             <GlobeSimple size={13} className="text-text-secondary shrink-0" />
             <input
@@ -277,7 +277,7 @@ export const BrowserPane = React.memo(function BrowserPane({ isAiActive }: Brows
               ref={webviewRef}
               src={currentUrl || 'https://google.com'}
               className="w-full h-full border-none bg-white"
-              allowpopups="true"
+              allowpopups={true}
             />
 
             {/* Click Ripple Effect for AI actions */}
