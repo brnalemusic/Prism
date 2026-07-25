@@ -42,6 +42,7 @@ export const BrowserPane = React.memo(function BrowserPane({
 }: BrowserPaneProps) {
   const [currentUrl, setCurrentUrl] = useState<string>('https://google.com')
   const [inputUrl, setInputUrl] = useState<string>('https://google.com')
+  const initialUrlRef = useRef<string>('https://google.com')
   const [currentTitle, setCurrentTitle] = useState<string>('')
   const [sessionClosed, setSessionClosed] = useState(false)
   const [isTerminalOpen, setIsTerminalOpen] = useState(false)
@@ -51,10 +52,11 @@ export const BrowserPane = React.memo(function BrowserPane({
     y: number
     key: number
   } | null>(null)
+  const rippleKeyRef = useRef<number>(0)
 
   const webviewRef = useRef<any>(null)
   const terminalBottomRef = useRef<HTMLDivElement>(null)
-  const rippleKeyRef = useRef(0)
+  const handledRequestIdsRef = useRef<Set<string>>(new Set())
 
   // Listen for browser actions from main process
   useEffect(() => {
@@ -62,9 +64,6 @@ export const BrowserPane = React.memo(function BrowserPane({
       if (action.url && action.url !== 'about:blank') {
         setCurrentUrl(action.url)
         setInputUrl(action.url)
-        if (webviewRef.current && webviewRef.current.getURL() !== action.url) {
-          webviewRef.current.loadURL(action.url).catch(() => {})
-        }
       }
       if (action.title) {
         setCurrentTitle(action.title)
@@ -99,6 +98,13 @@ export const BrowserPane = React.memo(function BrowserPane({
   // Listen for AI command execution requests directly on this webview instance
   useEffect(() => {
     const removeExecListener = window.api.onBrowserExecCommand(async ({ requestId, command }) => {
+      if (handledRequestIdsRef.current.has(requestId)) return
+      handledRequestIdsRef.current.add(requestId)
+      if (handledRequestIdsRef.current.size > 200) {
+        const first = handledRequestIdsRef.current.values().next().value
+        if (first) handledRequestIdsRef.current.delete(first)
+      }
+
       const webview = webviewRef.current
       if (!webview) {
         window.api.sendBrowserExecResult(requestId, 'Error: Webview not mounted')
@@ -114,8 +120,22 @@ export const BrowserPane = React.memo(function BrowserPane({
               if (!/^https?:\/\//i.test(target)) target = 'https://' + target
               setCurrentUrl(target)
               setInputUrl(target)
-              await webview.loadURL(target)
-              const title = webview.getTitle() || ''
+              try {
+                if (webview.getURL && webview.getURL() !== target) {
+                  await webview.loadURL(target)
+                }
+              } catch (loadErr: any) {
+                if (
+                  loadErr?.code === 'ERR_ABORTED' ||
+                  loadErr?.errno === -3 ||
+                  String(loadErr).includes('ERR_ABORTED')
+                ) {
+                  console.log('webview.loadURL superseded in-flight load (ERR_ABORTED -3)')
+                } else {
+                  throw loadErr
+                }
+              }
+              const title = webview.getTitle ? webview.getTitle() || '' : ''
               window.api.sendBrowserExecResult(
                 requestId,
                 `Navigated to ${target} successfully. Page title: "${title}"`
@@ -412,14 +432,23 @@ export const BrowserPane = React.memo(function BrowserPane({
       if (e.title) setCurrentTitle(e.title)
     }
 
+    const handleFailLoad = (e: any) => {
+      if (e.errorCode === -3 || e.errorDescription === 'ERR_ABORTED') {
+        return
+      }
+      console.warn('Webview load warning:', e.errorCode, e.errorDescription, e.validatedURL)
+    }
+
     webview.addEventListener('did-navigate', handleNavigate)
     webview.addEventListener('did-navigate-in-page', handleNavigate)
     webview.addEventListener('page-title-updated', handleTitle)
+    webview.addEventListener('did-fail-load', handleFailLoad)
 
     return () => {
       webview.removeEventListener('did-navigate', handleNavigate)
       webview.removeEventListener('did-navigate-in-page', handleNavigate)
       webview.removeEventListener('page-title-updated', handleTitle)
+      webview.removeEventListener('did-fail-load', handleFailLoad)
     }
   }, [])
 
@@ -468,27 +497,24 @@ export const BrowserPane = React.memo(function BrowserPane({
   }, [currentUrl])
 
   return (
-    <div className="relative flex flex-col h-full w-full overflow-hidden rounded-[14px] bg-[#0a0b0e] select-none">
-      {/* Outer Glow Border when AI is active (no solid background fill, page content remains 100% visible) */}
+    <div
+      onPointerDown={() => window.api.resetBrowserIdle()}
+      onKeyDown={() => window.api.resetBrowserIdle()}
+      className="relative flex flex-col h-full w-full overflow-hidden rounded-[14px] bg-[#0a0b0e] select-none"
+    >
+      {/* Outer Glow Border ring when AI is active (center is 100% masked/transparent) */}
       {isAiActive && (
         <div
-          className="absolute inset-0 rounded-[14px] pointer-events-none z-30"
+          className="absolute inset-0 rounded-[14px] pointer-events-none z-30 p-[2px] shadow-[0_0_18px_rgba(168,85,247,0.4)]"
           style={{
-            border: '1.5px solid transparent',
-            backgroundClip: 'padding-box',
-            boxShadow: '0 0 0 1.5px transparent'
+            background:
+              'linear-gradient(var(--prism-angle, 0deg), #a855f7, #3b82f6, #06b6d4, #10b981, #f59e0b, #ef4444, #a855f7)',
+            WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+            WebkitMaskComposite: 'xor',
+            maskComposite: 'exclude',
+            animation: 'prism-border-spin 2.5s linear infinite'
           }}
-        >
-          <div
-            className="absolute inset-[-1.5px] rounded-[14px]"
-            style={{
-              background:
-                'linear-gradient(var(--prism-angle, 0deg), #a855f7, #3b82f6, #06b6d4, #10b981, #f59e0b, #ef4444, #a855f7)',
-              zIndex: -1,
-              animation: 'prism-border-spin 2.5s linear infinite'
-            }}
-          />
-        </div>
+        />
       )}
 
       {/* Browser Controls Header */}
@@ -496,40 +522,51 @@ export const BrowserPane = React.memo(function BrowserPane({
         <div className="flex items-center gap-1">
           <button
             onClick={handleGoBack}
+            disabled={isAiActive}
             title="Back"
-            className="p-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-white/[0.06] transition-all cursor-pointer"
+            className="p-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-white/[0.06] disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer"
           >
             <ArrowLeft size={13} />
           </button>
           <button
             onClick={handleGoForward}
+            disabled={isAiActive}
             title="Forward"
-            className="p-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-white/[0.06] transition-all cursor-pointer"
+            className="p-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-white/[0.06] disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer"
           >
             <ArrowRight size={13} />
           </button>
           <button
             onClick={handleReload}
+            disabled={isAiActive}
             title="Reload"
-            className="p-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-white/[0.06] transition-all cursor-pointer"
+            className="p-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-white/[0.06] disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer"
           >
             <ArrowClockwise size={13} />
           </button>
         </div>
 
         <form
-          onSubmit={handleNavigateSubmit}
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (isAiActive) return
+            handleNavigateSubmit(e)
+          }}
           className="flex-1 flex items-center min-w-0"
-          title={currentTitle || 'Current Page'}
+          title={isAiActive ? 'Navigation is locked while AI is controlling browser' : (currentTitle || 'Current Page')}
         >
-          <div className="flex items-center gap-2 w-full px-2.5 py-1 rounded-lg bg-white/[0.04] border border-white/[0.06] focus-within:border-accent-primary/50 transition-all">
+          <div className={clsx(
+            "flex items-center gap-2 w-full px-2.5 py-1 rounded-lg border transition-all",
+            isAiActive ? "bg-white/[0.02] border-white/[0.03] opacity-60 cursor-not-allowed" : "bg-white/[0.04] border-white/[0.06] focus-within:border-accent-primary/50"
+          )}>
             <GlobeSimple size={13} className="text-text-secondary shrink-0" />
             <input
               type="text"
               value={inputUrl}
+              disabled={isAiActive}
               onChange={(e) => setInputUrl(e.target.value)}
               placeholder="Enter URL..."
-              className="w-full bg-transparent text-[12px] text-text-primary placeholder:text-text-secondary/40 font-mono focus:outline-none"
+              className="w-full bg-transparent text-[12px] text-text-primary placeholder:text-text-secondary/40 font-mono focus:outline-none disabled:cursor-not-allowed"
             />
           </div>
         </form>
@@ -537,8 +574,9 @@ export const BrowserPane = React.memo(function BrowserPane({
         {currentUrl && (
           <button
             onClick={handleOpenInSystemBrowser}
+            disabled={isAiActive}
             title="Open in system browser"
-            className="p-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-white/[0.06] transition-all duration-150 cursor-pointer"
+            className="p-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-white/[0.06] disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 cursor-pointer"
           >
             <ArrowSquareOut size={13} />
           </button>
@@ -597,7 +635,8 @@ export const BrowserPane = React.memo(function BrowserPane({
           <div className="relative w-full h-full">
             <webview
               ref={webviewRef}
-              src={currentUrl || 'https://google.com'}
+              src={initialUrlRef.current}
+              partition="persist:prism-ai-browser"
               className="w-full h-full border-none bg-white"
               allowpopups={true}
             />

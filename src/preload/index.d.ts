@@ -218,6 +218,9 @@ export interface PrismAPI {
   onBrowserAction: (callback: (action: import('../shared/types').BrowserAction) => void) => () => void
   onBrowserExecCommand: (callback: (data: { requestId: string; command: any }) => void) => () => void
   sendBrowserExecResult: (requestId: string, result: any) => void
+  openBrowser: (url?: string) => Promise<string>
+  closeBrowser: () => Promise<string>
+  resetBrowserIdle: () => void
 }
 
 

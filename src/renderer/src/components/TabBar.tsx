@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { Plus, X, Columns, ChatTeardropText, StopCircle, GlobeSimple } from '@phosphor-icons/react'
+import { Plus, X, Columns, ChatTeardropText, StopCircle, GlobeSimple, CaretDown, SquaresFour } from '@phosphor-icons/react'
 import { ModelSelector } from './ModelSelector'
 import type { TabSession } from '../types/tab'
 
@@ -13,7 +13,9 @@ interface TabBarProps {
   onModelChange: (modelKey: string) => void
   onSelectTab: (id: string) => void
   onCloseTab: (id: string) => void
+  onCloseAllTabs: () => void
   onNewTab: () => void
+  onOpenBrowserTab: () => void
   onToggleSplitTab: (id: string) => void
   onStopAgent: (id: string) => void
   onReorderTabs?: (sourceTabId: string, targetTabId: string) => void
@@ -33,7 +35,9 @@ export const TabBar: React.FC<TabBarProps> = ({
   onModelChange,
   onSelectTab,
   onCloseTab,
+  onCloseAllTabs,
   onNewTab,
+  onOpenBrowserTab,
   onToggleSplitTab,
   onStopAgent,
   onReorderTabs
@@ -43,17 +47,32 @@ export const TabBar: React.FC<TabBarProps> = ({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null)
-  const [isPlusAnimating, setIsPlusAnimating] = useState<boolean>(false)
+  const [isPlusMenuOpen, setIsPlusMenuOpen] = useState<boolean>(false)
+  const [plusMenuPos, setPlusMenuPos] = useState<{ x: number; y: number } | null>(null)
+
   const menuRef = useRef<HTMLDivElement>(null)
+  const plusMenuRef = useRef<HTMLDivElement>(null)
+  const plusBtnGroupRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent): void => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setContextMenu(null)
       }
+      if (
+        plusMenuRef.current &&
+        !plusMenuRef.current.contains(e.target as Node) &&
+        plusBtnGroupRef.current &&
+        !plusBtnGroupRef.current.contains(e.target as Node)
+      ) {
+        setIsPlusMenuOpen(false)
+      }
     }
     const handleKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setContextMenu(null)
+      if (e.key === 'Escape') {
+        setContextMenu(null)
+        setIsPlusMenuOpen(false)
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     window.addEventListener('keydown', handleKeyDown)
@@ -73,11 +92,25 @@ export const TabBar: React.FC<TabBarProps> = ({
     })
   }
 
+  const togglePlusMenu = (e: React.MouseEvent): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (isPlusMenuOpen) {
+      setIsPlusMenuOpen(false)
+    } else {
+      const targetElem = plusBtnGroupRef.current || (e.currentTarget as HTMLElement)
+      const rect = targetElem.getBoundingClientRect()
+      setPlusMenuPos({
+        x: rect.left,
+        y: rect.bottom + 6
+      })
+      setIsPlusMenuOpen(true)
+    }
+  }
+
   const handleNewTabClick = (): void => {
     if (isMaxTabs) return
-    setIsPlusAnimating(true)
     onNewTab()
-    setTimeout(() => setIsPlusAnimating(false), 300)
   }
 
   const contextTab = contextMenu ? tabs.find((t) => t.id === contextMenu.tabId) : null
@@ -186,22 +219,39 @@ export const TabBar: React.FC<TabBarProps> = ({
           )
         })}
 
-        {/* Plus (+) Button */}
-        <button
-          type="button"
-          onClick={handleNewTabClick}
-          disabled={isMaxTabs}
-          title={isMaxTabs ? 'Maximum 10 tabs reached' : 'New tab'}
-          className={clsx(
-            'flex h-8 w-8 items-center justify-center rounded-xl border border-white/[0.06] transition-all duration-300 shrink-0 cursor-pointer',
-            isPlusAnimating ? 'rotate-90 scale-90 border-accent-primary/50 text-accent-primary bg-accent-primary/10' : '',
-            isMaxTabs
-              ? 'opacity-30 cursor-not-allowed text-text-muted bg-transparent border-transparent'
-              : 'bg-white/[0.02] text-text-secondary hover:bg-white/[0.07] hover:text-text-primary active:scale-95'
-          )}
-        >
-          <Plus size={14} className={clsx('transition-transform duration-300', isPlusAnimating && 'rotate-90')} />
-        </button>
+        {/* Attached Plus (+) & Dropdown Button Group */}
+        <div ref={plusBtnGroupRef} className="shrink-0 flex items-center">
+          <div className="flex items-center rounded-xl border border-white/[0.06] bg-white/[0.02] transition-all duration-200 hover:border-white/[0.12] overflow-hidden">
+            {/* Left Button: Plus (+) */}
+            <button
+              type="button"
+              onClick={handleNewTabClick}
+              onContextMenu={togglePlusMenu}
+              disabled={isMaxTabs}
+              title={isMaxTabs ? 'Maximum 10 tabs reached' : 'New tab'}
+              className={clsx(
+                'flex h-8 px-2.5 items-center justify-center transition-all duration-200 cursor-pointer text-text-secondary hover:bg-white/[0.07] hover:text-text-primary active:scale-95 border-r border-white/[0.06]',
+                isMaxTabs && 'opacity-30 cursor-not-allowed hover:bg-transparent text-text-muted'
+              )}
+            >
+              <Plus size={14} />
+            </button>
+
+            {/* Right Button: CaretDown Dropdown Toggle */}
+            <button
+              type="button"
+              onClick={togglePlusMenu}
+              onContextMenu={togglePlusMenu}
+              title="More options"
+              className={clsx(
+                'flex h-8 px-1.5 items-center justify-center transition-all duration-200 cursor-pointer text-text-secondary hover:bg-white/[0.07] hover:text-text-primary active:scale-95',
+                isPlusMenuOpen && 'bg-white/[0.08] text-text-primary'
+              )}
+            >
+              <CaretDown size={12} className={clsx('transition-transform duration-200', isPlusMenuOpen && 'rotate-180')} />
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Model Selector Dropdown */}
@@ -213,7 +263,64 @@ export const TabBar: React.FC<TabBarProps> = ({
         />
       </div>
 
-      {/* Custom Right-Click Context Menu rendered via Portal at top level */}
+      {/* Plus / New Options Dropdown Menu (Rendered at top-level via Portal) */}
+      {isPlusMenuOpen && plusMenuPos && createPortal(
+        <div
+          ref={plusMenuRef}
+          className="fixed z-[99999] w-44 rounded-2xl border border-white/[0.12] bg-surface/95 backdrop-blur-2xl shadow-2xl p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
+          style={{
+            left: `${Math.min(plusMenuPos.x, window.innerWidth - 180)}px`,
+            top: `${Math.min(plusMenuPos.y, window.innerHeight - 120)}px`
+          }}
+        >
+          {/* New tab */}
+          <button
+            type="button"
+            disabled={isMaxTabs}
+            onClick={() => {
+              handleNewTabClick()
+              setIsPlusMenuOpen(false)
+            }}
+            className={clsx(
+              'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full cursor-pointer',
+              isMaxTabs
+                ? 'opacity-40 cursor-not-allowed text-text-muted'
+                : 'text-text-secondary hover:bg-white/[0.08] hover:text-text-primary'
+            )}
+          >
+            <Plus size={14} className="text-accent-primary shrink-0" />
+            <span>New tab</span>
+          </button>
+
+          {/* AI Browser */}
+          <button
+            type="button"
+            disabled={tabs.some((t) => t.tabType === 'browser')}
+            onClick={() => {
+              if (!tabs.some((t) => t.tabType === 'browser')) {
+                onOpenBrowserTab()
+              }
+              setIsPlusMenuOpen(false)
+            }}
+            title={tabs.some((t) => t.tabType === 'browser') ? 'An AI Browser tab is already open' : 'AI Browser'}
+            className={clsx(
+              'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full',
+              tabs.some((t) => t.tabType === 'browser')
+                ? 'opacity-40 cursor-not-allowed text-text-muted'
+                : 'text-text-secondary hover:bg-white/[0.08] hover:text-text-primary cursor-pointer'
+            )}
+          >
+            <GlobeSimple size={14} className="text-accent-primary shrink-0" />
+            <span className="flex-1">AI Browser</span>
+            {tabs.some((t) => t.tabType === 'browser') && (
+              <span className="text-[10px] opacity-60 font-normal">Active</span>
+            )}
+          </button>
+        </div>,
+        document.body
+      )}
+
+      {/* Custom Right-Click Context Menu for Tabs (Rendered via Portal) */}
       {contextMenu && contextTab && createPortal(
         <div
           ref={menuRef}
@@ -275,9 +382,23 @@ export const TabBar: React.FC<TabBarProps> = ({
             <X size={14} className="shrink-0" />
             <span>Close tab</span>
           </button>
+
+          {/* Close All Tabs */}
+          <button
+            type="button"
+            onClick={() => {
+              onCloseAllTabs()
+              setContextMenu(null)
+            }}
+            className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium text-status-error hover:bg-status-error/10 transition-colors w-full cursor-pointer"
+          >
+            <SquaresFour size={14} className="shrink-0" />
+            <span>Close all tabs</span>
+          </button>
         </div>,
         document.body
       )}
     </div>
   )
 }
+

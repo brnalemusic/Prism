@@ -10,6 +10,7 @@ import {
   nativeImage,
   desktopCapturer,
   dialog,
+  session,
   type NativeImage
 } from 'electron'
 import { join, dirname } from 'path'
@@ -43,7 +44,11 @@ import {
   captureAppScreenshot,
   detectAvailableTerminals,
   getTodoForChat,
-  setBrowserActionEmitter
+  setBrowserActionEmitter,
+  openBrowser,
+  closePersistentBrowser,
+  _resetIdleTimer,
+  setupSessionDownloadHandler
 } from './systemTools'
 
 import {
@@ -632,6 +637,10 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     electronApp.setAppUserModelId(IS_DEMO ? 'com.prism.demo.app' : 'com.prism.app')
 
+    // Attach automatic download event handlers to Electron sessions
+    setupSessionDownloadHandler(session.defaultSession)
+    setupSessionDownloadHandler(session.fromPartition('persist:prism-ai-browser'))
+
     // Set working directory to user home directory in production/packaged mode
     if (app.isPackaged) {
       try {
@@ -672,6 +681,18 @@ if (!gotTheLock) {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('browser-action', action)
       }
+    })
+
+    ipcMain.handle('open-browser', (_event, url?: string) => {
+      return openBrowser(url)
+    })
+
+    ipcMain.handle('close-browser', () => {
+      return closePersistentBrowser()
+    })
+
+    ipcMain.on('reset-browser-idle', () => {
+      _resetIdleTimer()
     })
 
     ipcMain.on('set-model', (_event, modelKey) => {

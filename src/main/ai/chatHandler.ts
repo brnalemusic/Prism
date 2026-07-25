@@ -462,6 +462,12 @@ export async function handleChatMessage(
             chatId
           })
 
+          // Remove the executed tag from history to prevent polluting the context or output
+          const cleanedReplyText = currentReplyText.replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g, '').trim()
+          if (cleanedReplyText) {
+            accumulatedReplyText = accumulatedReplyText ? accumulatedReplyText + '\n\n' + cleanedReplyText : cleanedReplyText
+          }
+
           historyMessages.push({
             role: 'user',
             content: `Tool Execution Result for ${toolName}:\n${toolOutput}`

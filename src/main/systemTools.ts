@@ -128,7 +128,75 @@ function getCompletedDownload(): DownloadCompletionResult | null {
   return null
 }
 
-export async function _waitForDownloadCompletion(timeoutMs = 10000): Promise<DownloadCompletionResult | null> {
+export function setupSessionDownloadHandler(targetSession: Electron.Session): void {
+  targetSession.on('will-download', (_event, item) => {
+    const downloadsFolder = getDownloadsFolder()
+    const filename = normalizeDownloadFilename(item.getFilename())
+    const targetPath = path.join(downloadsFolder, filename)
+    const id = resolveDownloadProgressId(item.getURL(), filename, createDownloadId('electron-download'))
+    const totalBytes = item.getTotalBytes()
+
+    item.setSavePath(targetPath)
+
+    updateTrackedDownload(id, {
+      filename,
+      url: item.getURL(),
+      targetPath,
+      receivedBytes: item.getReceivedBytes(),
+      totalBytes: totalBytes > 0 ? totalBytes : undefined,
+      status: 'downloading'
+    })
+
+    item.on('updated', (_event, state) => {
+      if (state === 'interrupted') {
+        updateTrackedDownload(id, {
+          filename,
+          url: item.getURL(),
+          targetPath,
+          receivedBytes: item.getReceivedBytes(),
+          totalBytes: totalBytes > 0 ? totalBytes : undefined,
+          status: 'failed',
+          error: 'Download interrupted'
+        })
+      } else if (state === 'progressing') {
+        updateTrackedDownload(id, {
+          filename,
+          url: item.getURL(),
+          targetPath,
+          receivedBytes: item.getReceivedBytes(),
+          totalBytes: totalBytes > 0 ? totalBytes : undefined,
+          status: 'downloading'
+        })
+      }
+    })
+
+    item.once('done', (_event, state) => {
+      if (state === 'completed') {
+        updateTrackedDownload(id, {
+          filename,
+          url: item.getURL(),
+          targetPath,
+          receivedBytes: item.getReceivedBytes(),
+          totalBytes: totalBytes > 0 ? totalBytes : undefined,
+          percent: 100,
+          status: 'completed'
+        })
+      } else {
+        updateTrackedDownload(id, {
+          filename,
+          url: item.getURL(),
+          targetPath,
+          receivedBytes: item.getReceivedBytes(),
+          totalBytes: totalBytes > 0 ? totalBytes : undefined,
+          status: 'failed',
+          error: `Download ${state}`
+        })
+      }
+    })
+  })
+}
+
+export async function waitForDownloadCompletion(timeoutMs = 4000): Promise<DownloadCompletionResult | null> {
   const existingResult = getCompletedDownload()
   if (existingResult) return existingResult
 
@@ -146,6 +214,46 @@ export async function _waitForDownloadCompletion(timeoutMs = 10000): Promise<Dow
 
     downloadCompleteListeners.push(onComplete)
   })
+}
+
+export async function waitForDownloadOrActionResult(
+  actionPromise: Promise<string>,
+  maxDownloadTimeoutMs = 120000
+): Promise<string> {
+  const startTime = Date.now() - 2500
+  const actionResult = await actionPromise
+
+  const findActiveDownload = () => {
+    for (const progress of trackedDownloads.values()) {
+      if (consumedDownloadResults.has(progress.id)) continue
+      if (progress.startedAt >= startTime) {
+        return progress
+      }
+    }
+    return null
+  }
+
+  let activeDownload = findActiveDownload()
+  if (!activeDownload) {
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 250))
+      activeDownload = findActiveDownload()
+      if (activeDownload) break
+    }
+  }
+
+  if (!activeDownload) {
+    return actionResult
+  }
+
+  const downloadResult = await waitForDownloadCompletion(maxDownloadTimeoutMs)
+  if (downloadResult) {
+    return downloadResult.success
+      ? `SUCCESS: Download saved to ${downloadResult.filePath}`
+      : `FAILED: Download error - ${downloadResult.error}`
+  }
+
+  return actionResult
 }
 
 function updateTrackedDownload(
@@ -1292,11 +1400,11 @@ export function _resetIdleTimer() {
   }
   idleTimer = setTimeout(
     async () => {
-      console.log('Browser persistent session idle for 5 minutes, closing automatically...')
+      console.log('Browser persistent session idle for 105 minutes, closing automatically...')
       await closePersistentBrowser()
     },
-    5 * 60 * 1000
-  ) // 5 minutes
+    105 * 60 * 1000
+  ) // 105 minutes
 }
 
 export async function _getOrCreatePersistentPage(): Promise<Page> {
@@ -1392,8 +1500,17 @@ export async function sendBrowserCommandToRenderer(
   const requestId = `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
   return new Promise((resolve, reject) => {
-    const onAbort = () => {
+    let sendInterval: NodeJS.Timeout | undefined
+
+    const cleanup = () => {
+      if (sendInterval) clearInterval(sendInterval)
+      clearTimeout(timeout)
+      if (signal) signal.removeEventListener('abort', onAbort)
       activeBrowserCmdResolvers.delete(requestId)
+    }
+
+    const onAbort = () => {
+      cleanup()
       reject(new Error('AbortError'))
     }
 
@@ -1403,22 +1520,40 @@ export async function sendBrowserCommandToRenderer(
     }
 
     const timeout = setTimeout(() => {
-      if (signal) signal.removeEventListener('abort', onAbort)
-      activeBrowserCmdResolvers.delete(requestId)
+      cleanup()
       resolve(`Error: Browser action "${command.type}" timed out.`)
     }, 30000)
 
     activeBrowserCmdResolvers.set(requestId, (result) => {
-      clearTimeout(timeout)
-      if (signal) signal.removeEventListener('abort', onAbort)
+      cleanup()
       resolve(result)
     })
+
+    sendInterval = setInterval(() => {
+      if (!activeBrowserCmdResolvers.has(requestId)) {
+        if (sendInterval) clearInterval(sendInterval)
+        return
+      }
+      const currentWins = BrowserWindow.getAllWindows()
+      const win = currentWins.find((w) => !w.webContents.getURL().includes('#launcher')) || currentWins[0]
+      if (win) {
+        win.webContents.send('browser-exec-command', { requestId, command })
+      }
+    }, 250)
 
     targetWin.webContents.send('browser-exec-command', { requestId, command })
   })
 }
 
 export async function openBrowser(url?: string, signal?: AbortSignal): Promise<string> {
+  if (isPersistentBrowserActive) {
+    if (url) {
+      emitBrowserAction({ type: 'navigate', url }).catch(() => {})
+      await sendBrowserCommandToRenderer({ type: 'navigate', url }, signal)
+      return `Browser session is already open and active. Navigated to: ${url}`
+    }
+    return 'Browser session is already open and active.'
+  }
   isPersistentBrowserActive = true
   emitBrowserAction({ type: 'open', url }).catch(() => {})
   const result = await sendBrowserCommandToRenderer({ type: 'open', url }, signal)
@@ -1430,8 +1565,9 @@ export async function browserNavigate(url: string, signal?: AbortSignal): Promis
     return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
   emitBrowserAction({ type: 'navigate', url }).catch(() => {})
-  const result = await sendBrowserCommandToRenderer({ type: 'navigate', url }, signal)
-  return typeof result === 'string' ? result : `Navigated to ${url} successfully.`
+  return waitForDownloadOrActionResult(
+    sendBrowserCommandToRenderer({ type: 'navigate', url }, signal)
+  )
 }
 
 export async function browserSnapshot(full?: string, signal?: AbortSignal): Promise<string> {
@@ -1449,16 +1585,18 @@ export async function browserClick(elementId: string, signal?: AbortSignal): Pro
   if (!isPersistentBrowserActive) {
     return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
-  const result = await sendBrowserCommandToRenderer({ type: 'click', elementId }, signal)
-  return typeof result === 'string' ? result : `Clicked element ${elementId} successfully.`
+  return waitForDownloadOrActionResult(
+    sendBrowserCommandToRenderer({ type: 'click', elementId }, signal)
+  )
 }
 
 export async function browserType(elementId: string, text: string, signal?: AbortSignal): Promise<string> {
   if (!isPersistentBrowserActive) {
     return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
-  const result = await sendBrowserCommandToRenderer({ type: 'type', elementId, text }, signal)
-  return typeof result === 'string' ? result : `Typed into element ${elementId} successfully.`
+  return waitForDownloadOrActionResult(
+    sendBrowserCommandToRenderer({ type: 'type', elementId, text }, signal)
+  )
 }
 
 export async function browserPress(key: string, signal?: AbortSignal): Promise<string> {
@@ -1513,8 +1651,9 @@ export async function webScript(url: string, script: string, signal?: AbortSigna
   if (!isPersistentBrowserActive) {
     return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
-  const result = await sendBrowserCommandToRenderer({ type: 'script', url, script }, signal)
-  return typeof result === 'string' ? result : JSON.stringify(result)
+  return waitForDownloadOrActionResult(
+    sendBrowserCommandToRenderer({ type: 'script', url, script }, signal)
+  )
 }
 
 export async function detailedDomPage(url?: string, signal?: AbortSignal): Promise<string> {
@@ -1904,7 +2043,7 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | 
 - **Requirements**: Absolute paths are required for all file operations.
 - **Terminal CLI**: Commands run in user's terminal \`${shellName}\`; use ${shellSyntax} syntax.
 - **Filesystem Safety**: \`computer_use_*\` file tools modify files only at explicit paths.
-- **Persistent Browser**: For browser_* actions (except browser_close) and web_script, call open_browser first and browser_close when done.
+- **Shared Browser**: AI and user share the browser session. Call open_browser first before browser_* tools.
 - **Parallelism**: You can call multiple functions natively in parallel to speed up tasks.
 
 Tools:
@@ -1959,7 +2098,7 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | 
 - **Requirements**: Absolute paths are required for all file operations.
 - **Terminal CLI**: Commands run in user's terminal \`${shellName}\`; use ${shellSyntax} syntax.
 - **Filesystem Safety**: \`computer_use_*\` file tools modify files only at explicit paths (no filesystem roots or protected system paths).
-- **Persistent Browser**: For browser_* actions (except browser_close) and web_script, call open_browser first and browser_close when done.
+- **Shared Browser**: AI and user share the browser session. Call open_browser first before browser_* tools (browser_close is optional).
 ${parallelRule}
 
 # Prism Internal Knowledge
@@ -2250,7 +2389,7 @@ export async function executeSystemTool(
       return screenshotResult.result
     }
     case 'browser_close':
-      return await closePersistentBrowser()
+      return 'Error: AI cannot close the browser session. Closing is managed directly by the user when closing the browser tab.'
 
     // Web scripting & DOM
     case 'web_script':

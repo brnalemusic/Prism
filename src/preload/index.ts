@@ -617,7 +617,10 @@ const api = {
   },
   sendBrowserExecResult: (requestId: string, result: any): void => {
     ipcRenderer.send('browser-exec-result', { requestId, result })
-  }
+  },
+  openBrowser: (url?: string): Promise<string> => ipcRenderer.invoke('open-browser', url),
+  closeBrowser: (): Promise<string> => ipcRenderer.invoke('close-browser'),
+  resetBrowserIdle: (): void => ipcRenderer.send('reset-browser-idle')
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

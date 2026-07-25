@@ -1315,16 +1315,22 @@ function RealApp(): React.JSX.Element {
   }, [])
 
   /** Opens (or focuses) a browser session viewer tab linked to the given source chat tab. */
-  const handleOpenBrowserTab = useCallback((sourceTabId: string) => {
-    setTabs((prevTabs) => {
-      const existing = prevTabs.find(
-        (t) => t.tabType === 'browser' && t.browserSourceTabId === sourceTabId
-      )
-      if (existing) return prevTabs
+  const handleOpenBrowserTab = useCallback((sourceTabId?: string) => {
+    setActiveView('chat')
+    window.api.openBrowser().catch(() => {})
 
-      const sourceIndex = prevTabs.findIndex((t) => t.id === sourceTabId)
+    setTabs((prevTabs) => {
+      const existing = prevTabs.find((t) => t.tabType === 'browser')
+      if (existing) {
+        setActiveTabId(existing.id)
+        setVisibleTabIds((prevVis) => (prevVis.includes(existing.id) ? prevVis : [existing.id]))
+        return prevTabs
+      }
+
+      const sourceIndex = sourceTabId ? prevTabs.findIndex((t) => t.id === sourceTabId) : -1
+      const newTabId = `browser-tab-${Date.now()}`
       const newTab: TabSession = {
-        id: `browser-tab-${sourceTabId}`,
+        id: newTabId,
         chatId: undefined,
         title: 'AI Browser',
         messages: [],
@@ -1346,6 +1352,14 @@ function RealApp(): React.JSX.Element {
       } else {
         updated.push(newTab)
       }
+
+      setActiveTabId(newTabId)
+      setVisibleTabIds((prevVis) => {
+        if (prevVis.length <= 1) return [newTabId]
+        if (prevVis.length < 4) return [...prevVis, newTabId]
+        return prevVis
+      })
+
       return updated
     })
   }, [])
@@ -1367,8 +1381,20 @@ function RealApp(): React.JSX.Element {
 
 
 
+  const pendingBrowserCloseRef = useRef<boolean>(false)
+
   const handleCloseTab = useCallback((tabId: string) => {
     setTabs((prevTabs) => {
+      const closedTab = prevTabs.find((t) => t.id === tabId)
+      if (closedTab?.tabType === 'browser') {
+        const isAnyProcessing = prevTabs.some((t) => t.isProcessing)
+        if (isAnyProcessing) {
+          pendingBrowserCloseRef.current = true
+        } else {
+          window.api.closeBrowser().catch(() => {})
+        }
+      }
+
       if (prevTabs.length <= 1) {
         return [
           {
@@ -1412,16 +1438,68 @@ function RealApp(): React.JSX.Element {
     })
   }, [])
 
+  const handleCloseAllTabs = useCallback(() => {
+    setTabs((prevTabs) => {
+      const hasBrowserTab = prevTabs.some((t) => t.tabType === 'browser')
+      if (hasBrowserTab) {
+        const isAnyProcessing = prevTabs.some((t) => t.isProcessing)
+        if (isAnyProcessing) {
+          pendingBrowserCloseRef.current = true
+        } else {
+          window.api.closeBrowser().catch(() => {})
+        }
+      }
+      return prevTabs
+    })
+
+    const newId = `tab-${Date.now()}`
+    const freshTab: TabSession = {
+      id: newId,
+      chatId: undefined,
+      title: 'New Chat',
+      messages: [],
+      inputText: '',
+      attachedFile: null,
+      sessionMode: 'execution',
+      disciplinePath: '',
+      isProcessing: false,
+      isTodoOpen: false,
+      selectedModel: selectedModelRef.current,
+      isSearchEnabled: false
+    }
+    setTabs([freshTab])
+    setActiveTabId(newId)
+    setVisibleTabIds([newId])
+  }, [])
+
+  // Close browser session when pending once all AI processing completes
+  useEffect(() => {
+    const isAnyProcessing = tabs.some((t) => t.isProcessing)
+    if (!isAnyProcessing && pendingBrowserCloseRef.current) {
+      pendingBrowserCloseRef.current = false
+      window.api.closeBrowser().catch(() => {})
+    }
+  }, [tabs])
+
   const handleToggleSplitTab = useCallback((tabId: string) => {
     setVisibleTabIds((prevVis) => {
       if (prevVis.includes(tabId)) {
         if (prevVis.length > 1) {
-          return prevVis.filter((id) => id !== tabId)
+          const nextVis = prevVis.filter((id) => id !== tabId)
+          if (activeTabIdRef.current === tabId) {
+            const nextActive = nextVis[nextVis.length - 1] || nextVis[0]
+            if (nextActive) {
+              setActiveTabId(nextActive)
+            }
+          }
+          return nextVis
         }
         return prevVis
       } else {
         if (prevVis.length < 4) {
-          return [...prevVis, tabId]
+          const nextVis = [...prevVis, tabId]
+          setActiveTabId(tabId)
+          return nextVis
         }
         return prevVis
       }
@@ -2579,7 +2657,9 @@ function RealApp(): React.JSX.Element {
           onModelChange={handleModelChange}
           onSelectTab={handleSelectTab}
           onCloseTab={handleCloseTab}
+          onCloseAllTabs={handleCloseAllTabs}
           onNewTab={handleNewChat}
+          onOpenBrowserTab={() => handleOpenBrowserTab(activeTabId)}
           onToggleSplitTab={handleToggleSplitTab}
           onStopAgent={(tabId) => {
             const targetTab = tabs.find((t) => t.id === tabId)
@@ -2590,94 +2670,106 @@ function RealApp(): React.JSX.Element {
           onReorderTabs={handleReorderTabs}
         />
 
-        {/* Main Grid View for Visible Tab Panes */}
+        {/* Main Grid View for Tab Panes */}
         {activeView === 'chat' ? (
           <div className={clsx('grid flex-1 w-full h-full p-2.5 gap-2.5 overflow-hidden', gridLayoutClass)}>
-            {visibleTabs.map((tab, index) => (
-              <div
-                key={tab.id}
-                className={clsx('h-full w-full overflow-hidden', getPaneSpanClass(index, visibleTabs.length))}
-              >
-                {tab.tabType === 'browser' ? (
-                  <BrowserPane
-                    isAiActive={
-                      // isAiActive = source chat tab is processing, or any chat is processing if no source
-                      tab.browserSourceTabId
-                        ? !!(tabs.find((t) => t.id === tab.browserSourceTabId)?.isProcessing)
-                        : Object.values(runningChats).some(Boolean)
-                    }
-                    isSplitView={visibleTabs.length > 1}
-                    onCloseSplit={() => handleToggleSplitTab(tab.id)}
-                  />
-                ) : (
-                <ChatPane
-                  tab={{ ...tab, selectedModel: selectedModel || tab.selectedModel }}
-                  isFocused={tab.id === activeTabId}
-                  isSplitView={visibleTabs.length > 1}
-                  todo={tab.chatId ? chatTodos[tab.chatId] || null : null}
-                  config={config}
-                  isKeyMissing={isKeyMissing}
-                  isOnline={isOnline}
-                  onFocus={handleSelectTab}
-                  onCloseTab={handleCloseTab}
-                  onToggleSplitTab={handleToggleSplitTab}
-                  onSwapSplitTabs={handleSwapSplitTabs}
-                  onSend={(text, file, overrideModel, overrideMode, forceYoutube) => {
-                    handleSend(text, file, overrideModel, overrideMode, forceYoutube)
-                  }}
-                  onCancel={() => {
-                    if (tab.chatId) {
-                      window.api.cancelChat(tab.chatId)
-                    }
-                  }}
-                  onModelChange={handleModelChange}
-                  onReasoningLevelChange={(model, level) => {
-                    handleReasoningLevelChange(model, level)
-                  }}
-                  onModeChange={(mode) => {
-                    setTabs((prev) =>
-                      prev.map((t) => (t.id === tab.id ? { ...t, sessionMode: mode } : t))
-                    )
-                  }}
-                  onSelectFolder={async () => {
-                    const selected = await window.api.selectFolder()
-                    if (selected) {
-                      setTabs((prev) =>
-                        prev.map((t) =>
-                          t.id === tab.id
-                            ? { ...t, disciplinePath: selected, sessionMode: 'discipline' }
-                            : t
-                        )
-                      )
-                      window.api.setSessionMode('discipline', selected)
-                    }
-                  }}
-                  onUpdateTabInput={(id, text) => {
-                    setTabs((prev) =>
-                      prev.map((t) => (t.id === id ? { ...t, inputText: text } : t))
-                    )
-                  }}
-                  onUpdateTabFile={(id, file) => {
-                    setTabs((prev) =>
-                      prev.map((t) => (t.id === id ? { ...t, attachedFile: file } : t))
-                    )
-                  }}
-                  onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
-                  onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
-                  activeWorkflow={activeWorkflow}
-                  setActiveWorkflow={setActiveWorkflow}
-                  renderedMessages={
-                    <TabMessagesList
-                      messages={tab.messages}
-                      currentChatId={tab.chatId}
-                      handleLoadChat={handleLoadChat}
-                      onOpenBrowserTab={() => handleOpenBrowserTab(tab.id)}
+            {tabs.map((tab) => {
+              const visibleIndex = visibleTabs.findIndex((vt) => vt.id === tab.id)
+              const isVisible = visibleIndex !== -1
+
+              if (!isVisible && tab.tabType !== 'browser') {
+                return null
+              }
+
+              return (
+                <div
+                  key={tab.id}
+                  className={clsx(
+                    'h-full w-full overflow-hidden',
+                    isVisible ? getPaneSpanClass(visibleIndex, visibleTabs.length) : 'hidden'
+                  )}
+                  aria-hidden={!isVisible}
+                >
+                  {tab.tabType === 'browser' ? (
+                    <BrowserPane
+                      isAiActive={
+                        tab.browserSourceTabId
+                          ? !!(tabs.find((t) => t.id === tab.browserSourceTabId)?.isProcessing)
+                          : Object.values(runningChats).some(Boolean)
+                      }
+                      isSplitView={visibleTabs.length > 1}
+                      onCloseSplit={() => handleToggleSplitTab(tab.id)}
                     />
-                  }
-                />
-                )}
-              </div>
-            ))}
+                  ) : (
+                    <ChatPane
+                      tab={{ ...tab, selectedModel: selectedModel || tab.selectedModel }}
+                      isFocused={tab.id === activeTabId}
+                      isSplitView={visibleTabs.length > 1}
+                      todo={tab.chatId ? chatTodos[tab.chatId] || null : null}
+                      config={config}
+                      isKeyMissing={isKeyMissing}
+                      isOnline={isOnline}
+                      onFocus={handleSelectTab}
+                      onCloseTab={handleCloseTab}
+                      onToggleSplitTab={handleToggleSplitTab}
+                      onSwapSplitTabs={handleSwapSplitTabs}
+                      onSend={(text, file, overrideModel, overrideMode, forceYoutube) => {
+                        handleSend(text, file, overrideModel, overrideMode, forceYoutube)
+                      }}
+                      onCancel={() => {
+                        if (tab.chatId) {
+                          window.api.cancelChat(tab.chatId)
+                        }
+                      }}
+                      onModelChange={handleModelChange}
+                      onReasoningLevelChange={(model, level) => {
+                        handleReasoningLevelChange(model, level)
+                      }}
+                      onModeChange={(mode) => {
+                        setTabs((prev) =>
+                          prev.map((t) => (t.id === tab.id ? { ...t, sessionMode: mode } : t))
+                        )
+                      }}
+                      onSelectFolder={async () => {
+                        const selected = await window.api.selectFolder()
+                        if (selected) {
+                          setTabs((prev) =>
+                            prev.map((t) =>
+                              t.id === tab.id
+                                ? { ...t, disciplinePath: selected, sessionMode: 'discipline' }
+                                : t
+                            )
+                          )
+                          window.api.setSessionMode('discipline', selected)
+                        }
+                      }}
+                      onUpdateTabInput={(id, text) => {
+                        setTabs((prev) =>
+                          prev.map((t) => (t.id === id ? { ...t, inputText: text } : t))
+                        )
+                      }}
+                      onUpdateTabFile={(id, file) => {
+                        setTabs((prev) =>
+                          prev.map((t) => (t.id === id ? { ...t, attachedFile: file } : t))
+                        )
+                      }}
+                      onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
+                      onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
+                      activeWorkflow={activeWorkflow}
+                      setActiveWorkflow={setActiveWorkflow}
+                      renderedMessages={
+                        <TabMessagesList
+                          messages={tab.messages}
+                          currentChatId={tab.chatId}
+                          handleLoadChat={handleLoadChat}
+                          onOpenBrowserTab={() => handleOpenBrowserTab(tab.id)}
+                        />
+                      }
+                    />
+                  )}
+                </div>
+              )
+            })}
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center text-text-secondary">

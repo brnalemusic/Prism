@@ -193,7 +193,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'open_browser',
-    description: 'Open persistent browser session.',
+    description: 'Shared live browser session (AI & user). User can interact simultaneously.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"open_browser","url":"URL"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       url: 'Optional: Initial URL to open.'
@@ -267,12 +267,6 @@ export const toolsManifest: ToolDefinition[] = [
     name: 'browser_screenshot',
     description: 'Take browser screenshot.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_screenshot"}[/PRISM_EXECUTE_TOOL]',
-    parameters: {}
-  },
-  {
-    name: 'browser_close',
-    description: 'Close persistent browser session.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_close"}[/PRISM_EXECUTE_TOOL]',
     parameters: {}
   },
   {
