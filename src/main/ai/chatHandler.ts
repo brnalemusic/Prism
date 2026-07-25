@@ -367,7 +367,7 @@ export async function handleChatMessage(
 
       const assistantMessage: OpenAiMessage & { reasoning_content?: string; thinking_duration?: number } = {
         role: 'assistant',
-        content: streamResult.toolCalls.length > 0 ? (iterContent || null) : (accumulatedReplyText || iterContent || null),
+        content: streamResult.toolCalls.length > 0 ? (iterContent || '') : (accumulatedReplyText || iterContent || ''),
         ...(accumulatedReasoningText || iterThoughts ? { reasoning_content: accumulatedReasoningText || iterThoughts } : {}),
         ...(iterThinkingDuration !== undefined ? { thinking_duration: iterThinkingDuration } : {})
       }
@@ -531,12 +531,10 @@ function convertHistoryToOpenAi(history: any[]): OpenAiMessage[] {
           content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
         }
       }
-      const hasToolCalls = Array.isArray(m.tool_calls) && m.tool_calls.length > 0
       const content = m.content ?? (m.parts ? m.parts.map((p: any) => p.text || '').join('\n') : null)
       return {
         role: m.role === 'model' ? 'assistant' : m.role,
-        // Preserve null for assistant messages with tool_calls (required by some APIs like Google AI Studio)
-        content: hasToolCalls && (content === null || content === '') ? null : (content || ''),
+        content: content || '',
         tool_calls: m.tool_calls
       }
     })

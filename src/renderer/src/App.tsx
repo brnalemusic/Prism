@@ -2492,16 +2492,6 @@ function RealApp(): React.JSX.Element {
                   onCloseTab={handleCloseTab}
                   onToggleSplitTab={handleToggleSplitTab}
                   onSwapSplitTabs={handleSwapSplitTabs}
-                  onToggleTodo={(id) => {
-                    setTabs((prev) =>
-                      prev.map((t) => (t.id === id ? { ...t, isTodoOpen: !t.isTodoOpen } : t))
-                    )
-                  }}
-                  onCloseTodo={(id) => {
-                    setTabs((prev) =>
-                      prev.map((t) => (t.id === id ? { ...t, isTodoOpen: false } : t))
-                    )
-                  }}
                   onSend={(text, file, overrideModel, overrideMode, forceYoutube) => {
                     handleSend(text, file, overrideModel, overrideMode, forceYoutube)
                   }}

@@ -19,8 +19,6 @@ interface ChatPaneProps {
   onFocus: (id: string) => void
   onCloseTab: (id: string) => void
   onToggleSplitTab: (id: string) => void
-  onToggleTodo: (id: string) => void
-  onCloseTodo: (id: string) => void
   onSend: (text: string, file?: TabSession['attachedFile'], overrideModel?: string, overrideSessionMode?: TabSession['sessionMode'], forceYoutube?: boolean) => void
   onCancel: () => void
   onModelChange: (model: string) => void
@@ -48,8 +46,6 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
   onFocus,
   onCloseTab,
   onToggleSplitTab,
-  onToggleTodo,
-  onCloseTodo,
   onSend,
   onCancel,
   onModelChange,
@@ -265,6 +261,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
                 </div>
 
                 <div className="w-full flex flex-col gap-0">
+                  {/* AI Todo card docked above InputBar (landing state) */}
+                  {todo && todo.active && <TodoPanel todo={todo} />}
                   {/* Questionnaire wizard card docked above InputBar (landing state) */}
                   {activeQuestionnaire && (
                     <QuestionnaireWizard
@@ -336,6 +334,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
             )}
 
             <div className="pointer-events-auto max-w-[800px] mx-auto flex flex-col gap-0">
+              {/* AI Todo card docked above InputBar */}
+              {todo && todo.active && <TodoPanel todo={todo} />}
               {/* Questionnaire wizard card docked above InputBar */}
               {activeQuestionnaire && (
                 <QuestionnaireWizard
@@ -375,14 +375,6 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
             </div>
           </div>
         )}
-
-        {/* Tab-Scoped Todo Drawer */}
-        <TodoPanel
-          todo={todo}
-          isOpen={tab.isTodoOpen}
-          onToggle={() => onToggleTodo(tab.id)}
-          onClose={() => onCloseTodo(tab.id)}
-        />
       </div>
     </div>
   )
