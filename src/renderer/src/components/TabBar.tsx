@@ -16,6 +16,7 @@ interface TabBarProps {
   onNewTab: () => void
   onToggleSplitTab: (id: string) => void
   onStopAgent: (id: string) => void
+  onReorderTabs?: (sourceTabId: string, targetTabId: string) => void
 }
 
 interface ContextMenuState {
@@ -34,11 +35,15 @@ export const TabBar: React.FC<TabBarProps> = ({
   onCloseTab,
   onNewTab,
   onToggleSplitTab,
-  onStopAgent
+  onStopAgent,
+  onReorderTabs
 }) => {
   const isMaxTabs = tabs.length >= 10
   const visibleCount = visibleTabIds.length
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
+  const [dragOverTabId, setDragOverTabId] = useState<string | null>(null)
+  const [isPlusAnimating, setIsPlusAnimating] = useState<boolean>(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -68,6 +73,13 @@ export const TabBar: React.FC<TabBarProps> = ({
     })
   }
 
+  const handleNewTabClick = (): void => {
+    if (isMaxTabs) return
+    setIsPlusAnimating(true)
+    onNewTab()
+    setTimeout(() => setIsPlusAnimating(false), 300)
+  }
+
   const contextTab = contextMenu ? tabs.find((t) => t.id === contextMenu.tabId) : null
   const isContextTabVisible = contextMenu ? visibleTabIds.includes(contextMenu.tabId) : false
 
@@ -78,19 +90,57 @@ export const TabBar: React.FC<TabBarProps> = ({
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId
           const isVisible = visibleTabIds.includes(tab.id)
+          const isDragging = tab.id === draggedTabId
+          const isDragOver = tab.id === dragOverTabId
 
           return (
             <div
               key={tab.id}
+              draggable
               onClick={() => onSelectTab(tab.id)}
               onContextMenu={(e) => handleContextMenu(e, tab.id)}
+              onDragStart={(e) => {
+                e.dataTransfer.setData('text/prism-tab-id', tab.id)
+                e.dataTransfer.effectAllowed = 'move'
+                setDraggedTabId(tab.id)
+              }}
+              onDragEnd={() => {
+                setDraggedTabId(null)
+                setDragOverTabId(null)
+              }}
+              onDragOver={(e) => {
+                if (e.dataTransfer.types.includes('text/prism-tab-id')) {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  if (draggedTabId && draggedTabId !== tab.id && dragOverTabId !== tab.id) {
+                    setDragOverTabId(tab.id)
+                  }
+                }
+              }}
+              onDragLeave={(e) => {
+                if (e.currentTarget.contains(e.relatedTarget as Node)) return
+                if (dragOverTabId === tab.id) setDragOverTabId(null)
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                setDragOverTabId(null)
+                const sourceId = e.dataTransfer.getData('text/prism-tab-id')
+                if (sourceId && sourceId !== tab.id && onReorderTabs) {
+                  onReorderTabs(sourceId, tab.id)
+                }
+                setDraggedTabId(null)
+              }}
               className={clsx(
-                'group relative flex h-8 items-center gap-2 rounded-xl px-2.5 text-xs font-medium transition-all duration-200 cursor-pointer shrink flex-1 min-w-[80px] max-w-[170px] border',
-                isActive
-                  ? 'bg-white/[0.08] text-text-primary border-accent-primary/40 shadow-sm'
-                  : isVisible
-                    ? 'bg-white/[0.04] text-text-secondary hover:bg-white/[0.06] border-white/[0.08]'
-                    : 'bg-transparent text-text-muted hover:bg-white/[0.025] hover:text-text-secondary border-transparent'
+                'group relative flex h-8 items-center gap-2 rounded-xl px-2.5 text-xs font-medium transition-all duration-200 cursor-pointer shrink flex-1 min-w-[80px] max-w-[170px] border animate-tab-appear',
+                isDragging
+                  ? 'opacity-30 scale-95 border-dashed border-accent-primary/40 bg-white/[0.02]'
+                  : isDragOver
+                    ? 'bg-accent-primary/15 border-accent-primary text-text-primary shadow-[0_0_12px_rgba(255,255,255,0.15)] scale-[1.03] z-10'
+                    : isActive
+                      ? 'bg-white/[0.08] text-text-primary border-accent-primary/40 shadow-sm'
+                      : isVisible
+                        ? 'bg-white/[0.04] text-text-secondary hover:bg-white/[0.06] border-white/[0.08]'
+                        : 'bg-transparent text-text-muted hover:bg-white/[0.025] hover:text-text-secondary border-transparent'
               )}
             >
               {/* Status icon / spinner */}
@@ -130,17 +180,18 @@ export const TabBar: React.FC<TabBarProps> = ({
         {/* Plus (+) Button */}
         <button
           type="button"
-          onClick={onNewTab}
+          onClick={handleNewTabClick}
           disabled={isMaxTabs}
           title={isMaxTabs ? 'Maximum 10 tabs reached' : 'New tab'}
           className={clsx(
-            'flex h-8 w-8 items-center justify-center rounded-xl border border-white/[0.06] transition-all duration-200 shrink-0 cursor-pointer',
+            'flex h-8 w-8 items-center justify-center rounded-xl border border-white/[0.06] transition-all duration-300 shrink-0 cursor-pointer',
+            isPlusAnimating ? 'rotate-90 scale-90 border-accent-primary/50 text-accent-primary bg-accent-primary/10' : '',
             isMaxTabs
               ? 'opacity-30 cursor-not-allowed text-text-muted bg-transparent border-transparent'
               : 'bg-white/[0.02] text-text-secondary hover:bg-white/[0.07] hover:text-text-primary active:scale-95'
           )}
         >
-          <Plus size={14} />
+          <Plus size={14} className={clsx('transition-transform duration-300', isPlusAnimating && 'rotate-90')} />
         </button>
       </div>
 

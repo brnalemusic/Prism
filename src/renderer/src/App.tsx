@@ -1342,6 +1342,33 @@ function RealApp(): React.JSX.Element {
     })
   }, [])
 
+  const handleReorderTabs = useCallback((sourceId: string, targetId: string) => {
+    setTabs((prevTabs) => {
+      const sourceIdx = prevTabs.findIndex((t) => t.id === sourceId)
+      const targetIdx = prevTabs.findIndex((t) => t.id === targetId)
+      if (sourceIdx === -1 || targetIdx === -1 || sourceIdx === targetIdx) return prevTabs
+
+      const updated = [...prevTabs]
+      const [movedTab] = updated.splice(sourceIdx, 1)
+      updated.splice(targetIdx, 0, movedTab)
+      return updated
+    })
+  }, [])
+
+  const handleSwapSplitTabs = useCallback((sourceId: string, targetId: string) => {
+    setVisibleTabIds((prevVis) => {
+      const sourceIdx = prevVis.indexOf(sourceId)
+      const targetIdx = prevVis.indexOf(targetId)
+      if (sourceIdx === -1 || targetIdx === -1 || sourceIdx === targetIdx) return prevVis
+
+      const updated = [...prevVis]
+      const temp = updated[sourceIdx]
+      updated[sourceIdx] = updated[targetIdx]
+      updated[targetIdx] = temp
+      return updated
+    })
+  }, [])
+
   const handleSelectTab = useCallback((tabId: string) => {
     setActiveView('chat')
     setActiveTabId(tabId)
@@ -2442,6 +2469,7 @@ function RealApp(): React.JSX.Element {
               window.api.cancelChat(targetTab.chatId)
             }
           }}
+          onReorderTabs={handleReorderTabs}
         />
 
         {/* Main Grid View for Visible Tab Panes */}
@@ -2463,6 +2491,7 @@ function RealApp(): React.JSX.Element {
                   onFocus={handleSelectTab}
                   onCloseTab={handleCloseTab}
                   onToggleSplitTab={handleToggleSplitTab}
+                  onSwapSplitTabs={handleSwapSplitTabs}
                   onToggleTodo={(id) => {
                     setTabs((prev) =>
                       prev.map((t) => (t.id === id ? { ...t, isTodoOpen: !t.isTodoOpen } : t))

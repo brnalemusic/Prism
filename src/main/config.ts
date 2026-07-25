@@ -31,7 +31,7 @@ export interface AppConfig {
   username?: string
   appVersion?: string
   ttsVoice: string
-  theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb'
+  theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb' | 'fire' | 'lava' | 'gold' | 'forest' | 'indigo' | 'violet' | 'white'
   zoomFactor: number
   terminalShell?: string
   workflows?: SlashWorkflow[]
@@ -94,7 +94,7 @@ const DEFAULT_CONFIG: AppConfig = {
 }
 
 const VALID_VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'])
-const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno', 'ursula', 'rgb'])
+const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno', 'ursula', 'rgb', 'fire', 'lava', 'gold', 'forest', 'indigo', 'violet', 'white'])
 const VALID_SESSION_MODES = new Set(['conversation', 'execution', 'discipline'])
 
 function tryDecryptKey(key?: string): string {
@@ -212,7 +212,7 @@ function normalizeConfig(config: AppConfig): AppConfig {
     searchModel: typeof config.searchModel === 'string' ? config.searchModel : '',
     ttsVoice: VALID_VOICES.has(config.ttsVoice) ? config.ttsVoice : DEFAULT_CONFIG.ttsVoice,
     theme: VALID_THEMES.has(config.theme)
-      ? (config.theme as 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb')
+      ? (config.theme as AppConfig['theme'])
       : DEFAULT_CONFIG.theme,
     zoomFactor:
       config.zoomFactor !== undefined &&

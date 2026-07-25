@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react'
 import clsx from 'clsx'
-import { CaretDown, ChatTeardropText, Columns, X } from '@phosphor-icons/react'
+import { CaretDown, ChatTeardropText, Columns, X, ArrowsLeftRight, DotsSixVertical } from '@phosphor-icons/react'
 import { InputBar, InputBarHandle } from './InputBar'
 import TodoPanel from './TodoPanel'
 import { QuestionnaireWizard } from './QuestionnaireRenderer'
@@ -34,6 +34,7 @@ interface ChatPaneProps {
   activeWorkflow: SlashWorkflow | null
   setActiveWorkflow: (wf: SlashWorkflow | null) => void
   renderedMessages: React.ReactNode
+  onSwapSplitTabs?: (sourceTabId: string, targetTabId: string) => void
 }
 
 export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
@@ -61,9 +62,12 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
   onOpenYoutubeModal,
   activeWorkflow,
   setActiveWorkflow,
-  renderedMessages
+  renderedMessages,
+  onSwapSplitTabs
 }) => {
   const inputBarRef = useRef<InputBarHandle>(null)
+  const [isDraggingSplit, setIsDraggingSplit] = useState(false)
+  const [isDragTargetSplit, setIsDragTargetSplit] = useState(false)
 
   // Find the active to_ask tool call from the latest AI message (status running or writing)
   const activeQuestionnaire = useMemo(() => {
@@ -138,24 +142,59 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
   return (
     <div
       onClick={() => onFocus(tab.id)}
+      onDragOver={(e) => {
+        if (isSplitView && e.dataTransfer.types.includes('text/prism-split-tab-id')) {
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'move'
+          if (!isDragTargetSplit) {
+            setIsDragTargetSplit(true)
+          }
+        }
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node)) return
+        setIsDragTargetSplit(false)
+      }}
+      onDrop={(e) => {
+        if (!isSplitView) return
+        e.preventDefault()
+        setIsDragTargetSplit(false)
+        const sourceId = e.dataTransfer.getData('text/prism-split-tab-id')
+        if (sourceId && sourceId !== tab.id && onSwapSplitTabs) {
+          onSwapSplitTabs(sourceId, tab.id)
+        }
+      }}
       className={clsx(
         'relative flex h-full w-full flex-col overflow-hidden bg-background-main/60 transition-all duration-200 rounded-xl border',
-        isFocused
-          ? 'border-accent-primary/50 shadow-[0_0_20px_rgba(255,255,255,0.03)] ring-1 ring-accent-primary/30'
-          : 'border-white/[0.06] hover:border-white/[0.12]'
+        isDraggingSplit && 'opacity-40 scale-[0.99] border-dashed border-accent-primary/50',
+        isDragTargetSplit
+          ? 'border-accent-primary shadow-[0_0_25px_rgba(255,255,255,0.12)] ring-2 ring-accent-primary/60 scale-[1.005]'
+          : isFocused
+            ? 'border-accent-primary/50 shadow-[0_0_20px_rgba(255,255,255,0.03)] ring-1 ring-accent-primary/30'
+            : 'border-white/[0.06] hover:border-white/[0.12]'
       )}
     >
       {/* Pane Sub-Header (Only visible in Split View) */}
       {isSplitView && (
         <div
+          draggable
+          onDragStart={(e) => {
+            e.stopPropagation()
+            e.dataTransfer.setData('text/prism-split-tab-id', tab.id)
+            e.dataTransfer.effectAllowed = 'move'
+            setIsDraggingSplit(true)
+          }}
+          onDragEnd={() => setIsDraggingSplit(false)}
           className={clsx(
-            'flex h-8 w-full items-center justify-between border-b px-3 text-xs select-none backdrop-blur-md shrink-0',
+            'flex h-8 w-full items-center justify-between border-b px-3 text-xs select-none backdrop-blur-md shrink-0 cursor-grab active:cursor-grabbing transition-colors',
             isFocused
               ? 'bg-accent-primary/10 border-accent-primary/30 text-text-primary'
-              : 'bg-white/[0.02] border-white/[0.05] text-text-secondary'
+              : 'bg-white/[0.02] border-white/[0.05] text-text-secondary hover:bg-white/[0.05]'
           )}
+          title="Drag to swap split view window"
         >
           <div className="flex items-center gap-2 truncate">
+            <DotsSixVertical size={14} className="text-text-muted hover:text-text-primary shrink-0" />
             <ChatTeardropText
               size={14}
               className={isFocused ? 'text-accent-primary' : 'text-text-muted'}
@@ -166,7 +205,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
             )}
           </div>
 
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
               onClick={(e) => {
@@ -190,6 +229,18 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
               <X size={12} />
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Swap drop target overlay */}
+      {isDragTargetSplit && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-accent-primary/10 border-2 border-dashed border-accent-primary/60 backdrop-blur-md rounded-xl animate-drop-target pointer-events-none transition-all duration-200">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-surface/90 border border-white/20 shadow-2xl mb-2 text-accent-primary animate-bounce">
+            <ArrowsLeftRight size={24} />
+          </div>
+          <span className="text-xs font-semibold text-text-primary bg-background-secondary/90 px-3 py-1.5 rounded-xl border border-white/10 shadow-lg tracking-wide">
+            Swap window
+          </span>
         </div>
       )}
 
