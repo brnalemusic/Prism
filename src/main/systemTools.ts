@@ -1147,11 +1147,12 @@ export async function openBrowserLink(url: string): Promise<string> {
  * 4. Playwright default Chromium
  * 5. Programmatic install of Playwright Chromium
  */
-async function launchBrowser(): Promise<Browser> {
+async function launchBrowser(headless: boolean = true): Promise<Browser> {
   const launchOptions = {
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu']
+    headless,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
   }
+
 
   // 1. Google Chrome
   try {
@@ -1239,7 +1240,10 @@ async function emitBrowserAction(actionData: Omit<BrowserAction, 'timestamp' | '
   try {
     let screenshot: string | undefined
     if (persistentPage && !persistentPage.isClosed()) {
-      const buf = await persistentPage.screenshot({ type: 'jpeg', quality: 60 }).catch(() => null)
+      let buf = await persistentPage.screenshot({ type: 'jpeg', quality: 70, timeout: 3000 }).catch(() => null)
+      if (!buf) {
+        buf = await persistentPage.screenshot({ type: 'png', timeout: 3000 }).catch(() => null)
+      }
       if (buf) screenshot = buf.toString('base64')
       const url = persistentPage.url()
       const title = await persistentPage.title().catch(() => '')
@@ -1253,8 +1257,8 @@ async function emitBrowserAction(actionData: Omit<BrowserAction, 'timestamp' | '
     } else {
       _browserActionEmitter({ ...actionData, timestamp: Date.now() })
     }
-  } catch {
-    // Never let emission errors crash the browser tool
+  } catch (err) {
+    console.warn('emitBrowserAction error:', err)
   }
 }
 
@@ -1319,6 +1323,14 @@ async function getOrCreatePersistentPage(): Promise<Page> {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
     ;(window as any).chrome = { runtime: {} }
   })
+
+  // Auto-broadcast screenshot whenever page loads or navigates
+  const triggerAutoScreenshot = () => {
+    emitBrowserAction({ type: 'navigate' }).catch(() => {})
+  }
+  persistentPage.on('domcontentloaded', triggerAutoScreenshot)
+  persistentPage.on('load', triggerAutoScreenshot)
+  persistentPage.on('framenavigated', triggerAutoScreenshot)
 
   // Set up automatic background download handler on context level to catch downloads from all tabs/redirects
   persistentContext.on('download', async (download) => {
@@ -2695,6 +2707,12 @@ export async function executeSystemTool(
       return await openBrowser(args.url, signal)
     case 'browser_navigate':
       return await browserNavigate(args.url || '', signal)
+    case 'browser_use_switch_url': {
+      if (!persistentPage || persistentPage.isClosed()) {
+        return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
+      }
+      return await browserNavigate(args.url || '', signal)
+    }
     case 'browser_snapshot':
       return await browserSnapshot(args.full, signal)
     case 'browser_click':

@@ -208,6 +208,14 @@ export const toolsManifest: ToolDefinition[] = [
     }
   },
   {
+    name: 'browser_use_switch_url',
+    description: 'Switch the active browser session URL to a new target page. Only works if an active browser session exists.',
+    usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_use_switch_url","url":"URL"}[/PRISM_EXECUTE_TOOL]',
+    parameters: {
+      url: 'Target URL to switch to.'
+    }
+  },
+  {
     name: 'browser_snapshot',
     description: 'Get semantic DOM snapshot.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_snapshot","full":"false"}[/PRISM_EXECUTE_TOOL]',
