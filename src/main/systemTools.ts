@@ -1755,15 +1755,29 @@ export async function webScript(url: string, script: string, signal?: AbortSigna
         await handleConsentBanners(page)
       }
     }
-    const result = await page.evaluate((code) => {
+    const result = await page.evaluate(async (code) => {
+      try {
+        // Try executing as an async function body first (handles top-level 'return' and 'await')
+        const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
+        const fn = new AsyncFunction(code)
+        const res = await fn()
+        if (res !== undefined) return res
+      } catch {
+        // Fallback to standard eval for direct expressions (e.g. "document.title" or "1 + 1")
+      }
+
       try {
         return eval(code)
       } catch (e) {
-        const fn = new Function(code)
-        return fn()
+        return `Error evaluating script: ${e instanceof Error ? e.message : String(e)}`
       }
     }, script)
-    const scriptResult = typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)
+    const scriptResult =
+      result === undefined
+        ? 'undefined (script executed successfully but returned no value)'
+        : typeof result === 'object'
+          ? JSON.stringify(result, null, 2)
+          : String(result)
 
     const downloadResult = await waitForDownloadCompletion(5000)
     if (downloadResult) {
@@ -2501,7 +2515,7 @@ export function buildTodoReminder(chatId?: string): string {
     .map((t) => `- ${statusIcon(t.status)} ${t.title}`)
     .join('\n')
 
-  return `\n\n# Active Todo List\nYou have ${pendingCount} pending tasks:\n${taskLines}\n\nIMPORTANT: Use \`edit_todo\` to update task status as you work. Set to "working" when you start a task and "done" when you complete it. You MUST complete ALL tasks in the todo list before responding to the user. Do NOT proceed without finishing all tasks.`
+  return `\n\n# Active Todo List\nYou have ${pendingCount} pending tasks:\n${taskLines}\n\nGuide: Use \`edit_todo\` to update task status as you work. Set to "working" when starting a task and "done" when completing it.`
 }
 
 export async function executeSystemTool(
@@ -2744,7 +2758,6 @@ export async function executeSystemTool(
       } catch {}
 
       if (allDone) {
-        sessionTodos.delete(todoChatId)
         return `All tasks completed! The todo list has been concluded.`
       }
 

@@ -271,7 +271,7 @@ export const toolsManifest: ToolDefinition[] = [
     name: 'web_script',
     description: 'Execute JavaScript on page. You will be called back when download is finished.',
     usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"web_script","url":"URL","script":"return document.title"}[/PRISM_EXECUTE_TOOL]',
+      '[PRISM_EXECUTE_TOOL]{"type":"web_script","url":"URL","script":"return document.title;"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       url: 'Optional: URL to load.',
       script: 'JavaScript code to execute.'
