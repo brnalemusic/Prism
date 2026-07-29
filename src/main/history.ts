@@ -87,12 +87,14 @@ export function listChatSessions(): Omit<ChatSession, 'messages'>[] {
         const filePath = path.join(CHATS_DIR, file)
         const data = fs.readFileSync(filePath, 'utf-8')
         const session: ChatSession = JSON.parse(data)
+        const effectiveDisciplinePath =
+          session.sessionMode === 'discipline' ? session.disciplinePath || '' : ''
         return {
           id: session.id,
           title: session.title,
           lastUpdated: session.lastUpdated,
           sessionMode: session.sessionMode,
-          disciplinePath: session.disciplinePath,
+          disciplinePath: effectiveDisciplinePath,
           model: session.model
         }
       })
@@ -115,7 +117,11 @@ export function loadChatSession(id: string): ChatSession | null {
   try {
     if (fs.existsSync(filePath)) {
       const data = fs.readFileSync(filePath, 'utf-8')
-      return JSON.parse(data)
+      const session: ChatSession = JSON.parse(data)
+      if (session.sessionMode !== 'discipline' && session.disciplinePath) {
+        session.disciplinePath = ''
+      }
+      return session
     }
     return null
   } catch (error) {
@@ -203,6 +209,10 @@ export function saveChatSession(
           sessionTitle = text.substring(0, 40) + (text.length > 40 ? '...' : '')
         }
       }
+    }
+
+    if (existingMode !== 'discipline') {
+      existingPath = ''
     }
 
     const filteredMessages = messages.filter((msg) => {

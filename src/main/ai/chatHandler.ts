@@ -137,13 +137,18 @@ export async function handleChatMessage(
   if (sessionMode) {
     currentSessionMode = sessionMode
   }
-  if (currentSessionMode === 'discipline' && disciplinePath) {
-    currentDisciplinePath = disciplinePath
-    setActiveCwd(disciplinePath)
-  } else if (currentSessionMode === 'execution') {
-    setActiveCwd(os.homedir())
+  if (currentSessionMode === 'discipline') {
+    if (disciplinePath) {
+      currentDisciplinePath = disciplinePath
+      setActiveCwd(disciplinePath)
+    }
   } else {
-    setActiveCwd(process.cwd())
+    currentDisciplinePath = ''
+    if (currentSessionMode === 'execution') {
+      setActiveCwd(os.homedir())
+    } else {
+      setActiveCwd(process.cwd())
+    }
   }
 
   // Load chat session from disk if existing

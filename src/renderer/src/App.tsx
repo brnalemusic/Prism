@@ -1302,6 +1302,7 @@ function RealApp(): React.JSX.Element {
       isSearchEnabled: false
     }
 
+    window.api.setSessionMode('execution', '')
     setTabs((prevTabs) => [...prevTabs, newTab])
     setActiveTabId(newId)
     setVisibleTabIds((prevVis) => {
@@ -1537,6 +1538,13 @@ function RealApp(): React.JSX.Element {
   const handleSelectTab = useCallback((tabId: string) => {
     setActiveView('chat')
     setActiveTabId(tabId)
+    const targetTab = tabsRef.current.find((t) => t.id === tabId)
+    if (targetTab) {
+      window.api.setSessionMode(
+        targetTab.sessionMode,
+        targetTab.sessionMode === 'discipline' ? targetTab.disciplinePath : ''
+      )
+    }
     setVisibleTabIds((prevVis) => {
       if (!prevVis.includes(tabId)) {
         if (prevVis.length <= 1) {
@@ -1769,6 +1777,9 @@ function RealApp(): React.JSX.Element {
       const chats = await window.api.getChats()
       const historyItem = chats.find((item) => item.id === chatId)
       const title = historyItem?.title || 'Chat'
+      const loadedMode: SessionMode = historyItem?.sessionMode || 'execution'
+      const loadedDisciplinePath: string =
+        loadedMode === 'discipline' ? historyItem?.disciplinePath || '' : ''
 
       setTabs((prevTabs) =>
         prevTabs.map((t) => {
@@ -1777,12 +1788,16 @@ function RealApp(): React.JSX.Element {
               ...t,
               chatId,
               title,
-              messages
+              messages,
+              sessionMode: loadedMode,
+              disciplinePath: loadedDisciplinePath
             }
           }
           return t
         })
       )
+
+      window.api.setSessionMode(loadedMode, loadedDisciplinePath)
 
       const todo = await window.api.getTodoForChat(chatId)
       if (todo) {
@@ -2731,9 +2746,15 @@ function RealApp(): React.JSX.Element {
                         handleReasoningLevelChange(model, level)
                       }}
                       onModeChange={(mode) => {
+                        const newDisciplinePath = mode === 'discipline' ? tab.disciplinePath : ''
                         setTabs((prev) =>
-                          prev.map((t) => (t.id === tab.id ? { ...t, sessionMode: mode } : t))
+                          prev.map((t) =>
+                            t.id === tab.id
+                              ? { ...t, sessionMode: mode, disciplinePath: newDisciplinePath }
+                              : t
+                          )
                         )
+                        window.api.setSessionMode(mode, newDisciplinePath)
                       }}
                       onSelectFolder={async () => {
                         const selected = await window.api.selectFolder()
