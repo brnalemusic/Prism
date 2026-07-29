@@ -193,7 +193,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'open_browser',
-    description: 'Shared live browser session (AI & user). User can interact simultaneously.',
+    description: 'Shared live browser session (AI & user). Only one session exists at a time. If already active, do not call again; call browser_snapshot directly to view page content.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"open_browser","url":"URL"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       url: 'Optional: Initial URL to open.'
@@ -207,14 +207,7 @@ export const toolsManifest: ToolDefinition[] = [
       url: 'Target URL to load.'
     }
   },
-  {
-    name: 'browser_use_switch_url',
-    description: 'Switch the active browser session URL to a new target page. Only works if an active browser session exists.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_use_switch_url","url":"URL"}[/PRISM_EXECUTE_TOOL]',
-    parameters: {
-      url: 'Target URL to switch to.'
-    }
-  },
+
   {
     name: 'browser_snapshot',
     description: 'Get semantic DOM snapshot.',

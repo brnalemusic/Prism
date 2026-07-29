@@ -1550,14 +1550,14 @@ export async function openBrowser(url?: string, signal?: AbortSignal): Promise<s
     if (url) {
       emitBrowserAction({ type: 'navigate', url }).catch(() => {})
       await sendBrowserCommandToRenderer({ type: 'navigate', url }, signal)
-      return `Browser session is already open and active. Navigated to: ${url}`
+      return `Browser session is already open and active. Navigated to: ${url}. Do NOT call open_browser again. To inspect or read the current page content, immediately use browser_snapshot (or detailed_dom_page or browser_screenshot).`
     }
-    return 'Browser session is already open and active.'
+    return 'Browser session is already open and active. Do NOT call open_browser again. To inspect or read the currently open browser page content, immediately use browser_snapshot (or detailed_dom_page or browser_screenshot).'
   }
   isPersistentBrowserActive = true
   emitBrowserAction({ type: 'open', url }).catch(() => {})
   const result = await sendBrowserCommandToRenderer({ type: 'open', url }, signal)
-  return typeof result === 'string' ? result : 'Browser session opened successfully.'
+  return typeof result === 'string' ? result : 'Browser session opened successfully. Use browser_snapshot or detailed_dom_page to inspect page content.'
 }
 
 export async function browserNavigate(url: string, signal?: AbortSignal): Promise<string> {
@@ -2043,7 +2043,7 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | 
 - **Requirements**: Absolute paths are required for all file operations.
 - **Terminal CLI**: Commands run in user's terminal \`${shellName}\`; use ${shellSyntax} syntax.
 - **Filesystem Safety**: \`computer_use_*\` file tools modify files only at explicit paths.
-- **Shared Browser**: AI and user share the browser session. Call open_browser first before browser_* tools.
+- **Shared Browser**: AI and user share a SINGLE live browser session. Only ONE browser session can exist at a time. If an AI Browser session is already open or active (or if open_browser was already called), do NOT call open_browser again; instead, immediately inspect the active browser page content using browser_snapshot or detailed_dom_page.
 - **Parallelism**: You can call multiple functions natively in parallel to speed up tasks.
 
 Tools:
@@ -2098,7 +2098,7 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | 
 - **Requirements**: Absolute paths are required for all file operations.
 - **Terminal CLI**: Commands run in user's terminal \`${shellName}\`; use ${shellSyntax} syntax.
 - **Filesystem Safety**: \`computer_use_*\` file tools modify files only at explicit paths (no filesystem roots or protected system paths).
-- **Shared Browser**: AI and user share the browser session. Call open_browser first before browser_* tools (browser_close is optional).
+- **Shared Browser**: AI and user share a SINGLE live browser session. Only ONE browser session can exist at a time. If an AI Browser session is already open or active (or if open_browser was already called), do NOT call open_browser again; instead, immediately inspect the active browser page content using browser_snapshot or detailed_dom_page.
 ${parallelRule}
 
 # Prism Internal Knowledge
@@ -2366,12 +2366,7 @@ export async function executeSystemTool(
       return await openBrowser(args.url, signal)
     case 'browser_navigate':
       return await browserNavigate(args.url || '', signal)
-    case 'browser_use_switch_url': {
-      if (!persistentPage || persistentPage.isClosed()) {
-        return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-      }
-      return await browserNavigate(args.url || '', signal)
-    }
+
     case 'browser_snapshot':
       return await browserSnapshot(args.full, signal)
     case 'browser_click':

@@ -259,7 +259,6 @@ interface AiMessageProps {
 const BROWSER_TOOL_NAMES = new Set([
   'open_browser',
   'browser_navigate',
-  'browser_use_switch_url',
   'browser_click',
   'browser_type',
   'browser_scroll',
@@ -267,7 +266,9 @@ const BROWSER_TOOL_NAMES = new Set([
   'browser_press',
   'web_script',
   'browser_screenshot',
+  'browser_snapshot',
   'close_browser',
+  'browser_close',
   'detailed_dom_page'
 ])
 
@@ -2293,14 +2294,18 @@ function RealApp(): React.JSX.Element {
           return tab
         })
 
-        // Auto-create non-splitted background AI Browser tab if browser tool starts and tab doesn't exist yet
+        // Auto-create non-splitted background AI Browser tab if browser tool starts and no browser tab exists yet
         if (BROWSER_TOOL_NAMES.has(data.name)) {
           const sourceTab = newTabs.find((t) => t.chatId === chatId)
           if (sourceTab) {
             const existingBrowserTab = newTabs.find(
-              (t) => t.tabType === 'browser' && t.browserSourceTabId === sourceTab.id
+              (t) => t.tabType === 'browser'
             )
-            if (!existingBrowserTab) {
+            if (existingBrowserTab) {
+              if (existingBrowserTab.browserSourceTabId !== sourceTab.id) {
+                existingBrowserTab.browserSourceTabId = sourceTab.id
+              }
+            } else {
               const newBrowserTab: TabSession = {
                 id: `browser-${sourceTab.id}`,
                 title: 'AI Browser',
