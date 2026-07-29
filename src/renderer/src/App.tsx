@@ -518,7 +518,7 @@ const AiMessage = React.memo(function AiMessage({
 
   return (
     <StreamContext.Provider value={streamStats}>
-      <div className="flex flex-col w-full gap-3">
+      <div className="flex flex-col w-full gap-1.5">
         {groupedItems.map((gItem, gIdx) => {
           if ('items' in gItem) {
             const group = gItem as { type: 'grouped_web_searches'; items: PartItem[] }
@@ -658,7 +658,7 @@ const AiMessage = React.memo(function AiMessage({
           return (
             <div
               key={`text-${item.partIndex}`}
-              className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
+              className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
             >
               <ReactMarkdown
                 remarkPlugins={[
@@ -784,7 +784,7 @@ const AiMessage = React.memo(function AiMessage({
 
         {/* Copy & TTS buttons + browser session button */}
         {!msg.isStreaming && (
-          <div className="flex items-center gap-1.5 mt-2 select-none opacity-60 hover:opacity-100 transition-opacity">
+          <div className="flex items-center gap-1.5 mt-0.5 select-none opacity-60 hover:opacity-100 transition-opacity">
             {cleanTextForCopy && <CopyMessageButton text={cleanTextForCopy} />}
             {cleanTextForCopy && <TtsButton text={cleanTextForCopy} />}
             {/* Browser session button — shows when message has browser tool calls */}
@@ -886,10 +886,10 @@ const TabMessagesList = React.memo(function TabMessagesList({
         return (
           <div
             key={i}
-            className="w-full flex flex-col items-start px-4 py-5 transition-all duration-700 animate-message"
+            className="w-full flex flex-col items-start px-4 py-3.5 transition-all duration-700 animate-message"
           >
             {hasThoughtBlock && (
-              <div className="w-full mb-3 select-none">
+              <div className="w-full mb-1.5 select-none">
                 <details className="group w-full select-none">
                   <summary className="inline-flex items-center gap-2 cursor-pointer text-sm font-semibold text-text-primary hover:text-white transition-colors duration-150 py-1 select-none list-none [&::-webkit-details-marker]:hidden">
                     <Brain
