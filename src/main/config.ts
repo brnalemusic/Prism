@@ -46,6 +46,7 @@ export interface AppConfig {
   openaiModelId?: string
   openaiModelName?: string
   defaultModel?: string
+  licenseKey?: string
 }
 
 const DEFAULT_CONFIG: AppConfig = {

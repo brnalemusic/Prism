@@ -15,7 +15,7 @@ export function LicenseView({ accepted, onAcceptedChange }: LicenseViewProps): R
             <FileText size={14} className="text-text-secondary" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold text-text-primary">GPL-3.0 License</div>
+            <div className="text-sm font-semibold text-text-primary">Prism License 1.0</div>
             <div className="text-[11px] text-text-muted">Prism + PrismCLI — click to read</div>
           </div>
           <CaretDown
@@ -37,7 +37,7 @@ export function LicenseView({ accepted, onAcceptedChange }: LicenseViewProps): R
           onChange={(event) => onAcceptedChange(event.target.checked)}
           className="h-4 w-4 accent-accent-secondary"
         />
-        <span>I accept the GPL-3.0 license terms for Prism and PrismCLI.</span>
+        <span>I accept the Prism License 1.0 terms for Prism and PrismCLI.</span>
       </label>
     </div>
   )

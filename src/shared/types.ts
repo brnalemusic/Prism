@@ -160,5 +160,24 @@ export interface ArtifactState {
   chatId: string
 }
 
+export interface LicenseInfo {
+  id: string
+  licensee: string
+  email: string
+  type: 'ENTERPRISE' | string
+  seats: number
+  issuedAt: string
+  expiresAt: string
+  isActivated: boolean
+  key?: string
+}
+
+export interface ActivationResult {
+  success: boolean
+  info?: LicenseInfo
+  error?: string
+}
+
+
 
 

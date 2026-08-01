@@ -226,6 +226,9 @@ export interface PrismAPI {
   openBrowser: (url?: string) => Promise<string>
   closeBrowser: () => Promise<string>
   resetBrowserIdle: () => void
+  activateLicense: (key: string) => Promise<import('../shared/types').ActivationResult>
+  deactivateLicense: () => Promise<boolean>
+  getLicenseInfo: () => Promise<import('../shared/types').LicenseInfo | null>
 }
 
 

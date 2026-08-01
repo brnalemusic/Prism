@@ -23,6 +23,7 @@ import {
   ChatTeardropText,
   Camera,
   YoutubeLogo,
+  Certificate,
   X
 } from '@phosphor-icons/react'
 import { ShortcutRecorder } from './ShortcutRecorder'
@@ -44,6 +45,7 @@ type SectionId =
   | 'voice'
   | 'workflows'
   | 'system'
+  | 'license'
   | 'about'
 
 interface NavSection {
@@ -155,6 +157,50 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
   const [easterEggClicks, setEasterEggClicks] = useState(0)
   const [lastClickTimestamp, setLastClickTimestamp] = useState(0)
   const [isEasterEggOpen, setIsEasterEggOpen] = useState(false)
+
+  // --- License Management State ---
+  const [licenseInfo, setLicenseInfo] = useState<import('../../../shared/types').LicenseInfo | null>(null)
+  const [inputLicenseKey, setInputLicenseKey] = useState('')
+  const [activating, setActivating] = useState(false)
+  const [licenseError, setLicenseError] = useState<string | null>(null)
+  const [licenseSuccess, setLicenseSuccess] = useState<string | null>(null)
+
+  useEffect(() => {
+    window.api.getLicenseInfo().then((info) => setLicenseInfo(info)).catch(() => setLicenseInfo(null))
+  }, [config?.licenseKey])
+
+  const handleActivateLicense = async (): Promise<void> => {
+    if (!inputLicenseKey.trim()) return
+    setActivating(true)
+    setLicenseError(null)
+    setLicenseSuccess(null)
+    try {
+      const res = await window.api.activateLicense(inputLicenseKey)
+      if (res.success && res.info) {
+        setLicenseInfo(res.info)
+        setLicenseSuccess(`Successfully activated Enterprise License for ${res.info.licensee}!`)
+        setInputLicenseKey('')
+      } else {
+        setLicenseError(res.error || 'Invalid license key.')
+      }
+    } catch (err: any) {
+      setLicenseError(err?.message || 'Failed to activate license key.')
+    } finally {
+      setActivating(false)
+    }
+  }
+
+  const handleDeactivateLicense = async (): Promise<void> => {
+    try {
+      const ok = await window.api.deactivateLicense()
+      if (ok) {
+        setLicenseInfo(null)
+        setLicenseSuccess('Enterprise License deactivated.')
+      }
+    } catch {
+      setLicenseError('Failed to deactivate license.')
+    }
+  }
 
   const handleVersionClick = (): void => {
     const now = Date.now()
@@ -322,6 +368,7 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
     { id: 'voice', label: 'Voice', icon: <Volume2 size={18} weight="bold" /> },
     { id: 'workflows', label: 'Workflows', icon: <Lightning size={18} weight="bold" /> },
     { id: 'system', label: 'System', icon: <Monitor size={18} weight="bold" /> },
+    { id: 'license', label: 'License', icon: <Certificate size={18} weight="bold" /> },
     { id: 'about', label: 'About', icon: <Info size={18} weight="bold" /> }
   ]
 
@@ -997,7 +1044,111 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
     </div>
   )
 
+  const renderLicense = (): React.JSX.Element => (
+    <div className="space-y-6 animate-soft-pop">
+      <SectionHeader
+        title="Enterprise License"
+        subtitle="Manage your Prism Enterprise license key and commercial activation status."
+      />
 
+      {licenseInfo?.isActivated ? (
+        <div className="flex flex-col gap-4 rounded-[20px] border border-accent-primary/30 bg-accent-primary/[0.04] p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
+                <Certificate size={22} weight="bold" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-bold text-text-primary">{licenseInfo.licensee}</span>
+                  <span className="font-mono text-[10px] font-bold tracking-widest text-accent-primary bg-accent-primary/15 border border-accent-primary/30 px-2 py-0.5 rounded-full uppercase">
+                    {licenseInfo.type}
+                  </span>
+                </div>
+                <span className="text-xs text-text-secondary">{licenseInfo.email}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={handleDeactivateLicense}
+              className="px-3.5 py-2 text-xs font-semibold text-status-error bg-status-error/10 hover:bg-status-error/20 border border-status-error/20 rounded-xl transition-all cursor-pointer"
+            >
+              Deactivate License
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-white/[0.06] pt-4 mt-1">
+            <div className="flex flex-col">
+              <span className="text-[11px] font-medium text-text-muted">License ID</span>
+              <span className="text-xs font-mono font-semibold text-text-primary mt-0.5">{licenseInfo.id}</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[11px] font-medium text-text-muted">Seats Authorized</span>
+              <span className="text-xs font-semibold text-text-primary mt-0.5">{licenseInfo.seats} Seat(s)</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[11px] font-medium text-text-muted">Expiration Date</span>
+              <span className="text-xs font-semibold text-text-primary mt-0.5">
+                {new Date(licenseInfo.expiresAt).toLocaleDateString()}
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-5">
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-bold text-text-primary">Activate Enterprise Key</span>
+            <span className="text-xs text-text-secondary/70">
+              Paste your PRISM-ENTERPRISE key below to unlock commercial Enterprise mode.
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <textarea
+              value={inputLicenseKey}
+              onChange={(e) => setInputLicenseKey(e.target.value)}
+              placeholder="Paste PRISM-ENTERPRISE.eyJ... key here"
+              rows={3}
+              className="w-full rounded-xl border border-white/[0.1] bg-black/40 p-3 font-mono text-xs text-text-primary placeholder:text-text-muted/40 focus:border-accent-primary focus:outline-none transition-colors custom-scrollbar"
+            />
+
+            {licenseError && (
+              <span className="text-xs font-medium text-status-error flex items-center gap-1.5 mt-1">
+                <Warning size={14} />
+                {licenseError}
+              </span>
+            )}
+
+            {licenseSuccess && (
+              <span className="text-xs font-medium text-status-success flex items-center gap-1.5 mt-1">
+                <Check size={14} />
+                {licenseSuccess}
+              </span>
+            )}
+
+            <div className="flex items-center justify-between mt-2">
+              <a
+                href="https://github.com/brnalemusic"
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-accent-primary hover:underline"
+              >
+                Need a commercial license? Contact Breno Alexandrē
+              </a>
+
+              <button
+                onClick={handleActivateLicense}
+                disabled={activating || !inputLicenseKey.trim()}
+                className="px-4 py-2 text-xs font-semibold text-white bg-accent-primary hover:bg-accent-primary/90 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-all cursor-pointer shadow-sm"
+              >
+                {activating ? 'Validating Key...' : 'Activate Enterprise'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 
   const handleEditWorkflow = (w: SlashWorkflow): void => {
     setEditingWorkflow(w)
@@ -1341,6 +1492,8 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
         return renderWorkflows()
       case 'system':
         return renderSystem()
+      case 'license':
+        return renderLicense()
       case 'about':
         return renderAbout()
     }

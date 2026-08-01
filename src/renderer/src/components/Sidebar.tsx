@@ -223,6 +223,16 @@ export function Sidebar({
     return computedGroups
   }, [chats])
 
+  const [licenseInfo, setLicenseInfo] = useState<import('../../../shared/types').LicenseInfo | null>(null)
+
+  useEffect(() => {
+    if (config?.licenseKey) {
+      window.api.getLicenseInfo().then((info) => setLicenseInfo(info)).catch(() => setLicenseInfo(null))
+    } else {
+      setLicenseInfo(null)
+    }
+  }, [config?.licenseKey])
+
   return (
     <aside
       className={clsx(
@@ -241,9 +251,23 @@ export function Sidebar({
             <img
               src={prismIcon}
               alt="Prism Logo"
-              className="h-7 w-7 rounded-[8px] object-cover border border-white/10 shadow-sm"
+              className="h-7 w-7 rounded-[8px] object-cover border border-white/10 shadow-sm self-center"
             />
-            <h1 className="text-sm font-semibold text-text-primary tracking-wide">Prism</h1>
+            <div className="flex items-baseline gap-1.5 min-w-0">
+              <h1 className="text-sm font-semibold text-text-primary tracking-wide">Prism</h1>
+              {licenseInfo?.isActivated && (
+                <span
+                  className="font-mono text-[9.5px] font-bold tracking-[0.18em] uppercase opacity-95 transition-all duration-300 select-none"
+                  style={{
+                    color: 'var(--accent-primary)',
+                    textShadow: '0 0 10px var(--accent-primary)'
+                  }}
+                  title={`Activated for ${licenseInfo.licensee} (${licenseInfo.email})`}
+                >
+                  {licenseInfo.type || 'ENTERPRISE'}
+                </span>
+              )}
+            </div>
           </div>
           {isOpen && onClose && (
             <button

@@ -644,7 +644,12 @@ const api = {
   },
   openBrowser: (url?: string): Promise<string> => ipcRenderer.invoke('open-browser', url),
   closeBrowser: (): Promise<string> => ipcRenderer.invoke('close-browser'),
-  resetBrowserIdle: (): void => ipcRenderer.send('reset-browser-idle')
+  resetBrowserIdle: (): void => ipcRenderer.send('reset-browser-idle'),
+  activateLicense: (key: string): Promise<import('../shared/types').ActivationResult> =>
+    ipcRenderer.invoke('activate-license', key),
+  deactivateLicense: (): Promise<boolean> => ipcRenderer.invoke('deactivate-license'),
+  getLicenseInfo: (): Promise<import('../shared/types').LicenseInfo | null> =>
+    ipcRenderer.invoke('get-license-info')
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

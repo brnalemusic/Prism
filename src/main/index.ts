@@ -58,6 +58,7 @@ import {
   getAppsList
 } from './appScanner'
 import { loadConfig, saveConfig, AppConfig } from './config'
+import { activateLicenseKey, deactivateLicense, getLicenseInfo, startLicenseExpirationMonitor } from './license'
 import { toolsManifest } from './toolsManifest'
 import { listChatSessions, loadChatSession, deleteChatSession, searchChatsOffline } from './history'
 import {
@@ -644,6 +645,13 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     electronApp.setAppUserModelId(IS_DEMO ? 'com.prism.demo.app' : 'com.prism.app')
 
+    // Start real-time license expiration monitor
+    startLicenseExpirationMonitor(() => {
+      currentConfig = loadConfig()
+      mainWindow?.webContents.send('config-changed', currentConfig)
+      launcherWindow?.webContents.send('config-changed', currentConfig)
+    })
+
     // Attach automatic download event handlers to Electron sessions
     setupSessionDownloadHandler(session.defaultSession)
     setupSessionDownloadHandler(session.fromPartition('persist:prism-ai-browser'))
@@ -994,6 +1002,30 @@ if (!gotTheLock) {
         mode: currentConfig.sessionMode,
         disciplinePath: currentConfig.disciplinePath
       }
+    })
+
+    ipcMain.handle('activate-license', (_event, key: string) => {
+      const result = activateLicenseKey(key)
+      if (result.success) {
+        currentConfig = loadConfig()
+        mainWindow?.webContents.send('config-changed', currentConfig)
+        launcherWindow?.webContents.send('config-changed', currentConfig)
+      }
+      return result
+    })
+
+    ipcMain.handle('deactivate-license', () => {
+      const success = deactivateLicense()
+      if (success) {
+        currentConfig = loadConfig()
+        mainWindow?.webContents.send('config-changed', currentConfig)
+        launcherWindow?.webContents.send('config-changed', currentConfig)
+      }
+      return success
+    })
+
+    ipcMain.handle('get-license-info', () => {
+      return getLicenseInfo()
     })
 
     ipcMain.on('set-session-mode', (_event, { mode, disciplinePath }) => {
