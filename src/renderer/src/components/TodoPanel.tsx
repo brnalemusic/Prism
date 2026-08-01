@@ -8,7 +8,6 @@ import {
   CaretDown,
   FilePdf,
   FilePpt,
-  Eye,
   FolderOpen,
   ArrowSquareOut
 } from '@phosphor-icons/react'
@@ -276,17 +275,6 @@ function TodoPanel({
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (onSelectArtifact) onSelectArtifact(art.id)
-                          }}
-                          className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-text-primary bg-accent-primary/20 hover:bg-accent-primary/30 border border-accent-primary/40 rounded-lg transition-colors cursor-pointer"
-                          title={art.type === 'pptx' ? 'Open dedicated Presentation previewer' : 'Open dedicated PDF previewer'}
-                        >
-                          <Eye size={13} weight="bold" />
-                          <span>Preview</span>
-                        </button>
                         <button
                           type="button"
                           onClick={() => handleOpenFile(art.path)}

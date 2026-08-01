@@ -3077,142 +3077,147 @@ async function compileHtmlToPptx(html: string, outputPath: string): Promise<void
   const dir = path.dirname(outputPath)
   await fs.mkdir(dir, { recursive: true })
 
-  let rawSlides: string[] = []
+  let win: BrowserWindow | null = null
 
-  if (/<(div|section)[^>]*class=["'][^"']*slide[^"']*["']/i.test(html)) {
-    const slideMatches = html.match(/<(div|section)[^>]*class=["'][^"']*slide[^"']*["'][^>]*>([\s\S]*?)<\/\1>/gi)
-    if (slideMatches && slideMatches.length > 0) {
-      rawSlides = slideMatches
-    }
-  } else if (/<section[^>]*>[\s\S]*?<\/section>/i.test(html)) {
-    const sectionMatches = html.match(/<section[^>]*>([\s\S]*?)<\/section>/gi)
-    if (sectionMatches && sectionMatches.length > 0) {
-      rawSlides = sectionMatches
-    }
-  } else if (/<hr[^>]*>/i.test(html)) {
-    rawSlides = html.split(/<hr[^>]*>/i)
-  }
-
-  if (rawSlides.length === 0) {
-    rawSlides = [html]
-  }
-
-  for (const slideHtml of rawSlides) {
-    const slide = pptx.addSlide()
-
-    const bgMatch = slideHtml.match(/background(?:-color)?\s*:\s*([^;"]+)/i)
-    if (bgMatch) {
-      const bgVal = bgMatch[1].trim()
-      const hexColor = parseCssColorToHex(bgVal)
-      if (hexColor) {
-        slide.background = { color: hexColor }
+  try {
+    win = new BrowserWindow({
+      width: 1920,
+      height: 1080,
+      show: false,
+      frame: false,
+      useContentSize: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true
       }
-    }
+    })
 
-    const titles: string[] = []
-    const hMatches = slideHtml.match(/<h[1-2][^>]*>([\s\S]*?)<\/h[1-2]>/gi)
-    if (hMatches) {
-      hMatches.forEach((m) => {
-        const text = cleanHtmlTags(m)
-        if (text) titles.push(text)
-      })
-    }
+    const encodedHtml = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
+    await win.loadURL(encodedHtml)
 
-    const subtitles: string[] = []
-    const subMatches = slideHtml.match(/<h[3-4][^>]*>([\s\S]*?)<\/h[3-4]>/gi)
-    if (subMatches) {
-      subMatches.forEach((m) => {
-        const text = cleanHtmlTags(m)
-        if (text) subtitles.push(text)
-      })
-    }
+    // Wait brief moment for layout & styles to compute
+    await new Promise((r) => setTimeout(r, 600))
 
-    const paragraphs: string[] = []
-    const pMatches = slideHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gi)
-    if (pMatches) {
-      pMatches.forEach((m) => {
-        const text = cleanHtmlTags(m)
-        if (text) paragraphs.push(text)
-      })
-    }
+    const slideCount: number = await win.webContents.executeJavaScript(`
+      (() => {
+        let slides = Array.from(document.querySelectorAll('.slide, section, .page, [data-slide]'));
+        if (slides.length === 0) {
+          const bodyChildren = Array.from(document.body.children).filter(
+            el => el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE' && el.tagName !== 'LINK'
+          );
+          if (bodyChildren.length > 1 && bodyChildren.every(el => el.getBoundingClientRect().height > 80)) {
+            slides = bodyChildren;
+          } else {
+            slides = [document.body];
+          }
+        }
+        return slides.length;
+      })()
+    `)
 
-    const listItems: string[] = []
-    const liMatches = slideHtml.match(/<li[^>]*>([\s\S]*?)<\/li>/gi)
-    if (liMatches) {
-      liMatches.forEach((m) => {
-        const text = cleanHtmlTags(m)
-        if (text) listItems.push(text)
-      })
-    }
+    const totalSlides = Math.max(1, slideCount)
 
-    let currentY = 0.8
-    if (titles.length > 0) {
-      titles.forEach((t) => {
-        slide.addText(t, {
-          x: 0.8,
-          y: currentY,
-          w: 8.4,
-          h: 1.0,
-          fontSize: 28,
-          bold: true,
-          color: '333333',
-          fontFace: 'Arial'
+    for (let i = 0; i < totalSlides; i++) {
+      const slideInfo = await win.webContents.executeJavaScript(`
+        ((slideIndex) => {
+          let styleEl = document.getElementById('prism-pptx-export-style');
+          if (!styleEl) {
+            styleEl = document.createElement('style');
+            styleEl.id = 'prism-pptx-export-style';
+            document.head.appendChild(styleEl);
+          }
+          styleEl.innerHTML = \`
+            html, body {
+              width: 1920px !important;
+              height: 1080px !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              overflow: hidden !important;
+            }
+          \`;
+
+          let slides = Array.from(document.querySelectorAll('.slide, section, .page, [data-slide]'));
+          if (slides.length === 0) {
+            const bodyChildren = Array.from(document.body.children).filter(
+              el => el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE' && el.tagName !== 'LINK'
+            );
+            if (bodyChildren.length > 1 && bodyChildren.every(el => el.getBoundingClientRect().height > 80)) {
+              slides = bodyChildren;
+            } else {
+              slides = [document.body];
+            }
+          }
+
+          slides.forEach((s, idx) => {
+            if (!s.dataset.origDisplay) {
+              s.dataset.origDisplay = window.getComputedStyle(s).display || 'block';
+            }
+            if (idx === slideIndex) {
+              s.style.display = s.dataset.origDisplay === 'none' ? 'block' : s.dataset.origDisplay;
+              s.style.visibility = 'visible';
+              s.style.width = '100vw';
+              s.style.height = '100vh';
+              s.style.boxSizing = 'border-box';
+              s.style.margin = '0';
+            } else {
+              s.style.display = 'none';
+              s.style.visibility = 'hidden';
+            }
+          });
+
+          const currentSlide = slides[slideIndex] || document.body;
+          const rect = currentSlide.getBoundingClientRect();
+          const cs = window.getComputedStyle(currentSlide);
+          return {
+            x: Math.max(0, Math.floor(rect.left)),
+            y: Math.max(0, Math.floor(rect.top)),
+            width: Math.min(1920, Math.ceil(rect.width)),
+            height: Math.min(1080, Math.ceil(rect.height)),
+            bg: cs.backgroundColor || ''
+          };
+        })(${i})
+      `)
+
+      await new Promise((r) => setTimeout(r, 100))
+
+      let image: Electron.NativeImage
+      if (slideInfo && slideInfo.width > 200 && slideInfo.height > 200) {
+        image = await win.webContents.capturePage({
+          x: slideInfo.x,
+          y: slideInfo.y,
+          width: slideInfo.width,
+          height: slideInfo.height
         })
-        currentY += 1.1
-      })
-    }
-
-    if (subtitles.length > 0) {
-      subtitles.forEach((st) => {
-        slide.addText(st, {
-          x: 0.8,
-          y: currentY,
-          w: 8.4,
-          h: 0.6,
-          fontSize: 20,
-          bold: true,
-          color: '555555',
-          fontFace: 'Arial'
-        })
-        currentY += 0.7
-      })
-    }
-
-    if (listItems.length > 0) {
-      const formattedItems = listItems.map((item) => ({ text: item, options: { bullet: true, fontSize: 16 } }))
-      slide.addText(formattedItems, {
-        x: 0.8,
-        y: currentY,
-        w: 8.4,
-        h: Math.min(3.5, listItems.length * 0.5 + 0.4),
-        fontFace: 'Arial',
-        color: '444444'
-      })
-      currentY += Math.min(3.5, listItems.length * 0.5 + 0.4)
-    } else if (paragraphs.length > 0) {
-      const pText = paragraphs.join('\n\n')
-      slide.addText(pText, {
-        x: 0.8,
-        y: currentY,
-        w: 8.4,
-        h: 3.2,
-        fontSize: 16,
-        color: '444444',
-        fontFace: 'Arial'
-      })
-    } else if (titles.length === 0 && subtitles.length === 0) {
-      const plainText = cleanHtmlTags(slideHtml)
-      if (plainText) {
-        slide.addText(plainText, {
-          x: 0.8,
-          y: 1.0,
-          w: 8.4,
-          h: 4.5,
-          fontSize: 18,
-          color: '333333',
-          fontFace: 'Arial'
-        })
+      } else {
+        image = await win.webContents.capturePage()
       }
+
+      const pngBuffer = image.toPNG()
+
+      const pptxSlide = pptx.addSlide()
+
+      if (slideInfo && slideInfo.bg) {
+        const hexBg = parseCssColorToHex(slideInfo.bg)
+        if (hexBg) {
+          pptxSlide.background = { color: hexBg }
+        }
+      }
+
+      const base64Image = `data:image/png;base64,${pngBuffer.toString('base64')}`
+      pptxSlide.addImage({
+        data: base64Image,
+        x: 0,
+        y: 0,
+        w: 10,
+        h: 5.625
+      })
+    }
+  } catch (err) {
+    console.error('Error in BrowserWindow PPTX compilation, using fallback:', err)
+    await compileHtmlToPptxFallback(html, pptx)
+  } finally {
+    if (win && !win.isDestroyed()) {
+      win.destroy()
     }
   }
 
@@ -3220,8 +3225,44 @@ async function compileHtmlToPptx(html: string, outputPath: string): Promise<void
   await fs.writeFile(outputPath, buffer)
 }
 
+async function compileHtmlToPptxFallback(html: string, pptx: PptxGenJS): Promise<void> {
+  const cleanHtml = html.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '')
+  let rawSlides: string[] = []
+
+  const slideMatches = cleanHtml.match(/<(div|section)[^>]*>([\s\S]*?)<\/\1>/gi)
+  if (slideMatches && slideMatches.length > 0) {
+    rawSlides = slideMatches
+  } else {
+    rawSlides = [cleanHtml]
+  }
+
+  for (const slideHtml of rawSlides) {
+    const slide = pptx.addSlide()
+    const text = cleanHtmlTags(slideHtml)
+    if (text) {
+      slide.addText(text, {
+        x: 0.8,
+        y: 1.0,
+        w: 8.4,
+        h: 4.5,
+        fontSize: 18,
+        color: '333333',
+        fontFace: 'Arial'
+      })
+    }
+  }
+}
+
 function cleanHtmlTags(str: string): string {
-  return str.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim()
+  return str
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .trim()
 }
 
 function parseCssColorToHex(colorStr: string): string | null {

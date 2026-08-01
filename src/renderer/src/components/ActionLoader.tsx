@@ -1586,7 +1586,6 @@ export function ActionLoader({ toolCall, mode = 'compact', writingArgs, onSelect
             filename={filename}
             path={filePath}
             toolName={toolCall.name}
-            onPreview={onSelectArtifact}
           />
         )}
       </div>
@@ -1618,7 +1617,6 @@ export function ActionLoader({ toolCall, mode = 'compact', writingArgs, onSelect
             filename={filename}
             path={filePath}
             toolName={toolCall.name}
-            onPreview={onSelectArtifact}
           />
         )}
       </div>

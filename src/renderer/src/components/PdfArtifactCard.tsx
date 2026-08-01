@@ -1,20 +1,18 @@
 import React, { useState } from 'react'
-import { FilePdf, FolderOpen, ArrowSquareOut, Copy, Check, Eye } from '@phosphor-icons/react'
+import { FilePdf, FolderOpen, ArrowSquareOut, Copy, Check } from '@phosphor-icons/react'
 
 interface PdfArtifactCardProps {
   id?: string
   filename?: string
   path?: string
   toolName?: 'write_pdf' | 'edit_pdf'
-  onPreview?: (id: string) => void
 }
 
 export const PdfArtifactCard: React.FC<PdfArtifactCardProps> = ({
   id,
   filename = 'document.pdf',
   path,
-  toolName = 'write_pdf',
-  onPreview
+  toolName = 'write_pdf'
 }) => {
   const [copied, setCopied] = useState(false)
 
@@ -59,20 +57,6 @@ export const PdfArtifactCard: React.FC<PdfArtifactCardProps> = ({
               {toolName === 'edit_pdf' ? 'PDF Artifact updated' : 'PDF Artifact generated'}
             </span>
           </div>
-        </div>
-
-        <div className="flex items-center gap-1.5 shrink-0">
-          {id && onPreview && (
-            <button
-              type="button"
-              onClick={() => onPreview(id)}
-              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-text-primary bg-accent-primary/20 hover:bg-accent-primary/30 border border-accent-primary/40 rounded-lg transition-colors cursor-pointer"
-              title="Preview artifact in side panel"
-            >
-              <Eye size={13} weight="bold" />
-              <span>Preview</span>
-            </button>
-          )}
         </div>
       </div>
 

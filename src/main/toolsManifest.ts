@@ -457,7 +457,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'write_pdf',
-    description: 'Generate a PDF document artifact from HTML and CSS code tailored for an A4 paper layout. The PDF will be saved as an artifact in the current conversation and previewable inside Prism.',
+    description: 'Generate a PDF document artifact from HTML and CSS code tailored for an A4 paper layout. The PDF will be saved as an artifact in the current conversation.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"write_pdf","filename":"report.pdf","html":"<!DOCTYPE html><html><head><style>@page { size: A4; margin: 20mm; }</style></head><body><h1>Title</h1></body></html>"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       filename: 'Optional filename for the PDF (e.g. "report.pdf"). If omitted, a default name will be assigned.',
@@ -478,7 +478,7 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'write_pptx',
-    description: 'Generate a PowerPoint (.pptx) presentation artifact from HTML and CSS code formatted for a 16:9 presentation slide layout. The presentation is compiled into a native, fully editable .pptx file, saved as an artifact in the current conversation and previewable inside Prism.',
+    description: 'Generate a PowerPoint (.pptx) presentation artifact from HTML and CSS code formatted for a 16:9 presentation slide layout. The presentation is compiled into a native, fully editable .pptx file, saved as an artifact in the current conversation.',
     usage: '[PRISM_EXECUTE_TOOL]{"type":"write_pptx","filename":"presentation.pptx","html":"<!DOCTYPE html><html><head><style>.slide { width: 100%; height: 100vh; background: #0f172a; color: white; padding: 40px; }</style></head><body><div class=\"slide\"><h1>Slide Title</h1><p>Slide content</p></div></body></html>"}[/PRISM_EXECUTE_TOOL]',
     parameters: {
       filename: 'Optional filename for the PowerPoint presentation (e.g. "presentation.pptx"). If omitted, a default name will be assigned.',

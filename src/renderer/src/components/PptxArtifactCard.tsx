@@ -1,20 +1,18 @@
 import React, { useState } from 'react'
-import { FilePpt, FolderOpen, ArrowSquareOut, Copy, Check, Eye } from '@phosphor-icons/react'
+import { FilePpt, FolderOpen, ArrowSquareOut, Copy, Check } from '@phosphor-icons/react'
 
 interface PptxArtifactCardProps {
   id?: string
   filename?: string
   path?: string
   toolName?: 'write_pptx' | 'edit_pptx'
-  onPreview?: (id: string) => void
 }
 
 export const PptxArtifactCard: React.FC<PptxArtifactCardProps> = ({
   id,
   filename = 'presentation.pptx',
   path,
-  toolName = 'write_pptx',
-  onPreview
+  toolName = 'write_pptx'
 }) => {
   const [copied, setCopied] = useState(false)
 
@@ -59,20 +57,6 @@ export const PptxArtifactCard: React.FC<PptxArtifactCardProps> = ({
               {toolName === 'edit_pptx' ? 'Presentation Artifact updated' : 'Presentation Artifact generated'}
             </span>
           </div>
-        </div>
-
-        <div className="flex items-center gap-1.5 shrink-0">
-          {id && onPreview && (
-            <button
-              type="button"
-              onClick={() => onPreview(id)}
-              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-text-primary bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-lg transition-colors cursor-pointer"
-              title="Preview artifact in side panel"
-            >
-              <Eye size={13} weight="bold" />
-              <span>Preview</span>
-            </button>
-          )}
         </div>
       </div>
 
