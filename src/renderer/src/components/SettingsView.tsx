@@ -24,9 +24,14 @@ import {
   Camera,
   YoutubeLogo,
   Certificate,
+  Eye,
+  EyeSlash,
+  CircleNotch,
+  Clock,
   X
 } from '@phosphor-icons/react'
 import { ShortcutRecorder } from './ShortcutRecorder'
+import { EnterpriseActivationModal } from './EnterpriseActivationModal'
 import clsx from 'clsx'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
 
@@ -158,12 +163,60 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
   const [lastClickTimestamp, setLastClickTimestamp] = useState(0)
   const [isEasterEggOpen, setIsEasterEggOpen] = useState(false)
 
+function useLicenseCountdown(expiresAt?: string): string {
+  const [timeLeft, setTimeLeft] = useState('')
+
+  useEffect(() => {
+    if (!expiresAt) {
+      setTimeLeft('')
+      return
+    }
+
+    const update = () => {
+      const now = Date.now()
+      const expiry = new Date(expiresAt).getTime()
+      const diff = expiry - now
+
+      if (diff <= 0) {
+        setTimeLeft('Expired')
+        return
+      }
+
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000)
+
+      const pad = (n: number) => String(n).padStart(2, '0')
+
+      if (days > 0) {
+        setTimeLeft(`${days}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`)
+      } else if (hours > 0) {
+        setTimeLeft(`${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`)
+      } else {
+        setTimeLeft(`${pad(minutes)}m ${pad(seconds)}s`)
+      }
+    }
+
+    update()
+    const timer = setInterval(update, 1000)
+    return () => clearInterval(timer)
+  }, [expiresAt])
+
+  return timeLeft
+}
+
   // --- License Management State ---
   const [licenseInfo, setLicenseInfo] = useState<import('../../../shared/types').LicenseInfo | null>(null)
   const [inputLicenseKey, setInputLicenseKey] = useState('')
+  const [showKeyText, setShowKeyText] = useState(false)
   const [activating, setActivating] = useState(false)
+  const [activationStepMessage, setActivationStepMessage] = useState('Initializing verification...')
   const [licenseError, setLicenseError] = useState<string | null>(null)
   const [licenseSuccess, setLicenseSuccess] = useState<string | null>(null)
+  const [isActivationModalOpen, setIsActivationModalOpen] = useState(false)
+
+  const countdownText = useLicenseCountdown(licenseInfo?.expiresAt)
 
   useEffect(() => {
     window.api.getLicenseInfo().then((info) => setLicenseInfo(info)).catch(() => setLicenseInfo(null))
@@ -174,12 +227,23 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
     setActivating(true)
     setLicenseError(null)
     setLicenseSuccess(null)
+
     try {
+      setActivationStepMessage('Connecting to Prism Licensing Engine...')
+      await new Promise((r) => setTimeout(r, 500))
+
+      setActivationStepMessage('Verifying Cryptographic Ed25519 Signature...')
+      await new Promise((r) => setTimeout(r, 600))
+
+      setActivationStepMessage('Validating Enterprise License Entitlements...')
       const res = await window.api.activateLicense(inputLicenseKey)
+      await new Promise((r) => setTimeout(r, 500))
+
       if (res.success && res.info) {
         setLicenseInfo(res.info)
         setLicenseSuccess(`Successfully activated Enterprise License for ${res.info.licensee}!`)
         setInputLicenseKey('')
+        setIsActivationModalOpen(true)
       } else {
         setLicenseError(res.error || 'Invalid license key.')
       }
@@ -1069,12 +1133,20 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
               </div>
             </div>
 
-            <button
-              onClick={handleDeactivateLicense}
-              className="px-3.5 py-2 text-xs font-semibold text-status-error bg-status-error/10 hover:bg-status-error/20 border border-status-error/20 rounded-xl transition-all cursor-pointer"
-            >
-              Deactivate License
-            </button>
+            <div className="flex items-center gap-3">
+              {countdownText && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent-primary/10 border border-accent-primary/25 text-accent-primary text-xs font-mono font-bold">
+                  <Clock size={14} className="animate-pulse" />
+                  <span>{countdownText}</span>
+                </div>
+              )}
+              <button
+                onClick={handleDeactivateLicense}
+                className="px-3.5 py-2 text-xs font-semibold text-status-error bg-status-error/10 hover:bg-status-error/20 border border-status-error/20 rounded-xl transition-all cursor-pointer"
+              >
+                Deactivate License
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-white/[0.06] pt-4 mt-1">
@@ -1089,13 +1161,27 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
             <div className="flex flex-col">
               <span className="text-[11px] font-medium text-text-muted">Expiration Date</span>
               <span className="text-xs font-semibold text-text-primary mt-0.5">
-                {new Date(licenseInfo.expiresAt).toLocaleDateString()}
+                {new Date(licenseInfo.expiresAt).toLocaleDateString()} ({new Date(licenseInfo.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
               </span>
             </div>
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-5">
+        <div className="relative flex flex-col gap-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-5 overflow-hidden">
+          {activating && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/85 backdrop-blur-md animate-soft-pop p-6 text-center">
+              <CircleNotch size={28} className="animate-spin text-accent-primary" />
+              <div className="flex flex-col items-center gap-1">
+                <span className="font-mono text-xs font-bold tracking-wider text-text-primary uppercase">
+                  Prism Enterprise Licensing
+                </span>
+                <span className="text-xs font-medium text-accent-primary animate-pulse">
+                  {activationStepMessage}
+                </span>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col gap-1">
             <span className="text-sm font-bold text-text-primary">Activate Enterprise Key</span>
             <span className="text-xs text-text-secondary/70">
@@ -1104,13 +1190,24 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
           </div>
 
           <div className="flex flex-col gap-2">
-            <textarea
-              value={inputLicenseKey}
-              onChange={(e) => setInputLicenseKey(e.target.value)}
-              placeholder="Paste PRISM-ENTERPRISE.eyJ... key here"
-              rows={3}
-              className="w-full rounded-xl border border-white/[0.1] bg-black/40 p-3 font-mono text-xs text-text-primary placeholder:text-text-muted/40 focus:border-accent-primary focus:outline-none transition-colors custom-scrollbar"
-            />
+            <div className="relative w-full">
+              <textarea
+                value={inputLicenseKey}
+                onChange={(e) => setInputLicenseKey(e.target.value)}
+                placeholder="Paste PRISM-ENTERPRISE key here"
+                rows={3}
+                style={{ WebkitTextSecurity: showKeyText ? 'none' : 'disc' } as any}
+                className="w-full rounded-xl border border-white/[0.1] bg-black/40 p-3 pr-10 font-mono text-xs text-text-primary placeholder:text-text-muted/40 focus:border-accent-primary focus:outline-none transition-colors custom-scrollbar"
+              />
+              <button
+                type="button"
+                onClick={() => setShowKeyText(!showKeyText)}
+                className="absolute right-3 top-3 text-text-muted hover:text-text-primary transition-colors cursor-pointer p-1 rounded-md hover:bg-white/5"
+                title={showKeyText ? 'Hide License Key' : 'Reveal License Key'}
+              >
+                {showKeyText ? <EyeSlash size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
 
             {licenseError && (
               <span className="text-xs font-medium text-status-error flex items-center gap-1.5 mt-1">
@@ -1139,13 +1236,22 @@ export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.E
               <button
                 onClick={handleActivateLicense}
                 disabled={activating || !inputLicenseKey.trim()}
-                className="px-4 py-2 text-xs font-semibold text-white bg-accent-primary hover:bg-accent-primary/90 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-all cursor-pointer shadow-sm"
+                className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-accent-primary hover:bg-accent-primary/90 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-all cursor-pointer shadow-sm"
               >
-                {activating ? 'Validating Key...' : 'Activate Enterprise'}
+                {activating && <CircleNotch size={14} className="animate-spin" />}
+                <span>{activating ? 'Validating...' : 'Activate Enterprise'}</span>
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Confirmation Modal via React Portal */}
+      {isActivationModalOpen && licenseInfo && (
+        <EnterpriseActivationModal
+          licenseInfo={licenseInfo}
+          onClose={() => setIsActivationModalOpen(false)}
+        />
       )}
     </div>
   )

@@ -226,12 +226,31 @@ export function Sidebar({
   const [licenseInfo, setLicenseInfo] = useState<import('../../../shared/types').LicenseInfo | null>(null)
 
   useEffect(() => {
-    if (config?.licenseKey) {
-      window.api.getLicenseInfo().then((info) => setLicenseInfo(info)).catch(() => setLicenseInfo(null))
-    } else {
-      setLicenseInfo(null)
+    const updateLicense = () => {
+      window.api
+        .getLicenseInfo()
+        .then((info) => {
+          if (info && info.isActivated) {
+            setLicenseInfo(info)
+          } else {
+            setLicenseInfo(null)
+          }
+        })
+        .catch(() => setLicenseInfo(null))
     }
-  }, [config?.licenseKey])
+    updateLicense()
+
+    const removeConfigListener = window.api.onConfigChanged(() => {
+      updateLicense()
+    })
+
+    const timer = setInterval(updateLicense, 1000)
+
+    return () => {
+      removeConfigListener()
+      clearInterval(timer)
+    }
+  }, [])
 
   return (
     <aside
