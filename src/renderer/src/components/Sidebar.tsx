@@ -19,6 +19,7 @@ import { AnimatedStreamingText, StreamContext, useStreamStats } from './Animated
 import type { AppConfig } from '../../../main/config'
 import type { SessionMode } from '../../../shared/types'
 import { FolderChatsPanel } from './FolderChatsPanel'
+import { UserAccountCard } from './UserAccountCard'
 import prismIcon from '../../../../resources/icon.png?asset'
 
 interface ChatSession {
@@ -42,6 +43,9 @@ interface SidebarProps {
   onOpenSearch?: () => void
   onOpenSettings?: () => void
   onClose?: () => void
+  authUser?: import('../../../shared/types').UserProfile | null
+  onOpenAuth?: () => void
+  onOpenProfile?: () => void
 }
 
 interface StreamTitleWrapperProps {
@@ -77,7 +81,10 @@ export function Sidebar({
   config,
   onOpenSearch,
   onOpenSettings,
-  onClose
+  onClose,
+  authUser,
+  onOpenAuth,
+  onOpenProfile
 }: SidebarProps): React.JSX.Element {
   const [chats, setChats] = useState<ChatSession[]>([])
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
@@ -438,6 +445,11 @@ export function Sidebar({
 
         {/* Footer */}
         <div className="mt-auto p-3 shrink-0 border-t border-white/[0.03] bg-black/20">
+          <UserAccountCard
+            user={authUser || null}
+            onOpenAuth={onOpenAuth || (() => {})}
+            onOpenProfile={onOpenProfile || (() => {})}
+          />
           <NavItem
             icon={<Gear size={16} weight="bold" />}
             label="Settings"

@@ -46,8 +46,10 @@ import { CaretDown, Quotes, Brain, FilePdf, FilePpt, CheckCircle, XCircle, Globe
 
 import { ScreenshotModal } from './components/ScreenshotModal'
 import { YoutubeAppModal } from './components/YoutubeAppModal'
+import { AuthModal } from './components/AuthModal'
+import { UserProfileModal } from './components/UserProfileModal'
 import { AppConfig, SlashWorkflow } from '../../main/config'
-import type { DownloadProgress, SessionMode, TodoState } from '../../shared/types'
+import type { DownloadProgress, SessionMode, TodoState, UserProfile } from '../../shared/types'
 import { IS_DEMO } from '../../shared/demo'
 
 interface HastNode {
@@ -1096,6 +1098,22 @@ function RealApp(): React.JSX.Element {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [chatTodos, setChatTodos] = useState<Record<string, TodoState>>({})
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
+
+  // Auth State
+  const [authUser, setAuthUser] = useState<UserProfile | null>(null)
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
+
+  useEffect(() => {
+    if (window.api?.getAuthUser) {
+      window.api
+        .getAuthUser()
+        .then((user) => {
+          if (user) setAuthUser(user)
+        })
+        .catch((err) => console.error('[Auth] Initial getAuthUser failed:', err))
+    }
+  }, [])
 
   // Global Selected Model State
   const [selectedModel, setSelectedModel] = useState<string>('')
@@ -2686,6 +2704,9 @@ function RealApp(): React.JSX.Element {
         onOpenSearch={() => {
           setIsSearchModalOpen(true)
         }}
+        authUser={authUser}
+        onOpenAuth={() => setIsAuthModalOpen(true)}
+        onOpenProfile={() => setIsProfileModalOpen(true)}
       />
     )
   }, [
@@ -2695,7 +2716,8 @@ function RealApp(): React.JSX.Element {
     handleNewChat,
     activeTab.chatId,
     runningChats,
-    config
+    config,
+    authUser
   ])
 
   // Grid layout class based on visible tab count (1, 2, 3, 4)
@@ -3010,6 +3032,22 @@ function RealApp(): React.JSX.Element {
           </span>
         </div>
       )}
+
+      {/* Auth & Profile Modals */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={(user) => {
+          setAuthUser(user)
+        }}
+      />
+      <UserProfileModal
+        isOpen={isProfileModalOpen}
+        user={authUser}
+        onClose={() => setIsProfileModalOpen(false)}
+        onLoggedOut={() => setAuthUser(null)}
+        onProfileUpdated={(updated) => setAuthUser(updated)}
+      />
     </div>
   )
 }

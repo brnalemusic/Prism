@@ -229,6 +229,14 @@ export interface PrismAPI {
   activateLicense: (key: string) => Promise<import('../shared/types').ActivationResult>
   deactivateLicense: () => Promise<boolean>
   getLicenseInfo: () => Promise<import('../shared/types').LicenseInfo | null>
+  authLogin: (data: import('../shared/types').LoginData) => Promise<import('../shared/types').AuthResponse>
+  authSignUp: (data: import('../shared/types').SignUpData) => Promise<import('../shared/types').AuthResponse>
+  authLogout: () => Promise<boolean>
+  getAuthUser: () => Promise<import('../shared/types').UserProfile | null>
+  authResetPassword: (email: string) => Promise<{ success: boolean; error?: string }>
+  authUpdateProfile: (
+    updates: Partial<import('../shared/types').UserProfile>
+  ) => Promise<import('../shared/types').AuthResponse>
 }
 
 

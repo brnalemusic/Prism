@@ -649,7 +649,19 @@ const api = {
     ipcRenderer.invoke('activate-license', key),
   deactivateLicense: (): Promise<boolean> => ipcRenderer.invoke('deactivate-license'),
   getLicenseInfo: (): Promise<import('../shared/types').LicenseInfo | null> =>
-    ipcRenderer.invoke('get-license-info')
+    ipcRenderer.invoke('get-license-info'),
+  authLogin: (data: import('../shared/types').LoginData): Promise<import('../shared/types').AuthResponse> =>
+    ipcRenderer.invoke('auth-login', data),
+  authSignUp: (data: import('../shared/types').SignUpData): Promise<import('../shared/types').AuthResponse> =>
+    ipcRenderer.invoke('auth-signup', data),
+  authLogout: (): Promise<boolean> => ipcRenderer.invoke('auth-logout'),
+  getAuthUser: (): Promise<import('../shared/types').UserProfile | null> =>
+    ipcRenderer.invoke('auth-get-user'),
+  authResetPassword: (email: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('auth-reset-password', email),
+  authUpdateProfile: (
+    updates: Partial<import('../shared/types').UserProfile>
+  ): Promise<import('../shared/types').AuthResponse> => ipcRenderer.invoke('auth-update-profile', updates)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

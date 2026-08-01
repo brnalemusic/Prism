@@ -72,6 +72,15 @@ import { IS_DEMO } from '../shared/demo'
 
 import { initAutoUpdater } from './updater'
 import { registerDemoDownloadHandlers } from './demoDownload'
+import {
+  initializeAuthSession,
+  authSignUp,
+  authLogin,
+  authLogout,
+  getCurrentAuthUser,
+  authResetPassword,
+  authUpdateProfile
+} from './supabaseAuth'
 
 const APP_DATA_DIR_NAME = IS_DEMO ? 'PrismDemo' : 'PrismDesktop'
 const WINDOW_STATE_FILE = join(
@@ -1028,6 +1037,31 @@ if (!gotTheLock) {
       return getLicenseInfo()
     })
 
+    // Supabase Auth IPC Handlers
+    ipcMain.handle('auth-login', async (_event, data) => {
+      return await authLogin(data)
+    })
+
+    ipcMain.handle('auth-signup', async (_event, data) => {
+      return await authSignUp(data)
+    })
+
+    ipcMain.handle('auth-logout', async () => {
+      return await authLogout()
+    })
+
+    ipcMain.handle('auth-get-user', async () => {
+      return await getCurrentAuthUser()
+    })
+
+    ipcMain.handle('auth-reset-password', async (_event, email: string) => {
+      return await authResetPassword(email)
+    })
+
+    ipcMain.handle('auth-update-profile', async (_event, updates) => {
+      return await authUpdateProfile(updates)
+    })
+
     ipcMain.on('set-session-mode', (_event, { mode, disciplinePath }) => {
       currentConfig.sessionMode = mode
       if (disciplinePath !== undefined) {
@@ -1056,6 +1090,11 @@ if (!gotTheLock) {
       // Notify both windows
       mainWindow?.webContents.send('config-changed', config)
       launcherWindow?.webContents.send('config-changed', config)
+    })
+
+    // Initialize Supabase Auth Session (Restores encrypted session token)
+    initializeAuthSession().catch((err) => {
+      console.error('[Auth] Error restoring session on launch:', err)
     })
 
     if (IS_DEMO) {

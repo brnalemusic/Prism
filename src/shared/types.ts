@@ -178,6 +178,43 @@ export interface ActivationResult {
   error?: string
 }
 
+export interface UserProfile {
+  id: string
+  email: string
+  fullName: string
+  companyName: string
+  accountType: 'individual' | 'enterprise' | 'company' | string
+  avatarUrl?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface AuthState {
+  isAuthenticated: boolean
+  user: UserProfile | null
+  token?: string
+}
+
+export interface AuthResponse {
+  success: boolean
+  user?: UserProfile
+  error?: string
+}
+
+export interface SignUpData {
+  email: string
+  password: string
+  fullName: string
+  companyName?: string
+  accountType?: 'individual' | 'enterprise' | 'company'
+}
+
+export interface LoginData {
+  email: string
+  password: string
+}
+
+
 
 
 
