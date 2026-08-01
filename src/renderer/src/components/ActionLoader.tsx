@@ -27,7 +27,7 @@ const TOOL_LABELS: Record<string, string> = {
   execute_terminal_command: 'Running terminal command',
   run_command: 'Running terminal command',
   create_mini_app: 'Creating mini app',
-  write_pdf: 'Generating PDF artifact',
+  write_pdf: 'Creating PDF',
   edit_pdf: 'Updating PDF artifact',
   computer_use_create_file: 'Creating file',
   computer_use_edit_file: 'Editing file',

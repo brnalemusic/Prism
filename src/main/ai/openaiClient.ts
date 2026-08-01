@@ -22,21 +22,26 @@ export interface StreamResult {
 
 export function sanitizeOpenAiMessages(messages: OpenAiMessage[]): OpenAiMessage[] {
   return messages.map((m) => {
+    let cleanContent: any = m.content
+    if (cleanContent === undefined || cleanContent === null) {
+      cleanContent = m.tool_calls && m.tool_calls.length > 0 ? null : ''
+    } else if (typeof cleanContent === 'string' && cleanContent.trim() === '' && m.tool_calls && m.tool_calls.length > 0) {
+      cleanContent = null
+    }
+
     const cleanMsg: OpenAiMessage = {
       role: m.role,
-      content: m.content === null || m.content === undefined ? '' : m.content
+      content: cleanContent
     }
     if (m.name) cleanMsg.name = m.name
-    if (m.tool_calls) {
+    if (m.tool_calls && m.tool_calls.length > 0) {
       cleanMsg.tool_calls = m.tool_calls.map((tc) => ({
         id: tc.id || `call_${Date.now()}`,
         type: 'function',
         function: {
           name: tc.function?.name || '',
           arguments: typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {})
-        },
-        ...(tc.thought_signature ? { thought_signature: tc.thought_signature } : {}),
-        ...(tc.extra_content ? { extra_content: tc.extra_content } : {})
+        }
       }))
     }
     if (m.tool_call_id) cleanMsg.tool_call_id = m.tool_call_id

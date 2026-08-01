@@ -72,20 +72,15 @@ export function getNativeToolsForOpenAi(target: 'main' | 'launcher' = 'main'): O
           properties[key] = paramDef
         }
       }
-      const hasParams = Object.keys(properties).length > 0
       return {
         type: 'function',
         function: {
           name: t.name,
           description: t.description,
-          ...(hasParams
-            ? {
-                parameters: {
-                  type: 'object',
-                  properties
-                }
-              }
-            : {})
+          parameters: {
+            type: 'object',
+            properties
+          }
         }
       }
     })
