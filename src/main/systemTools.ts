@@ -4,6 +4,7 @@ import { shell, desktopCapturer, app, BrowserWindow, ipcMain } from 'electron'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as os from 'os'
+import PptxGenJS from 'pptxgenjs'
 import { toolsManifest } from './toolsManifest'
 import { BrowserAction, DownloadProgress, SessionMode, TodoState, ArtifactItem } from '../shared/types'
 
@@ -2966,9 +2967,280 @@ export async function executeSystemTool(
       }
     }
 
+    case 'write_pptx': {
+      try {
+        const html = (args.html || '').toString().trim()
+        if (!html) {
+          return 'Error: HTML+CSS content is required to generate a PowerPoint presentation.'
+        }
+        let filename = (args.filename || 'presentation.pptx').toString().trim()
+        filename = path.basename(filename)
+        if (!filename.toLowerCase().endsWith('.pptx')) {
+          filename += '.pptx'
+        }
+
+        const targetChatId = chatId || _currentSessionIdForTodo || 'default'
+        const artifactsBaseDir = path.join(app.getPath('documents'), '.prismartifacts')
+        const cleanChatFolder = targetChatId.replace(/[^a-zA-Z0-9-]/g, '') || 'default'
+        const chatDir = path.join(artifactsBaseDir, cleanChatFolder)
+        await fs.mkdir(chatDir, { recursive: true })
+
+        const id = generateArtifact6DigitId()
+        const targetPath = path.join(chatDir, filename)
+
+        await compileHtmlToPptx(html, targetPath)
+
+        const artifact: ArtifactItem = {
+          id,
+          type: 'pptx',
+          filename,
+          path: targetPath,
+          htmlContent: html,
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        }
+
+        saveChatArtifact(targetChatId, artifact)
+        broadcastArtifactsUpdate(targetChatId)
+
+        return `PowerPoint presentation generated successfully!\nID: ${id}\nFilename: ${filename}\nSaved at: ${targetPath}`
+      } catch (err) {
+        return `Error generating PowerPoint presentation: ${err instanceof Error ? err.message : String(err)}`
+      }
+    }
+
+    case 'edit_pptx': {
+      try {
+        const html = (args.html || '').toString().trim()
+        if (!html) {
+          return 'Error: HTML+CSS content is required to update a PowerPoint presentation.'
+        }
+
+        const targetChatId = chatId || _currentSessionIdForTodo || 'default'
+        const existingArtifacts = getChatArtifacts(targetChatId)
+
+        const targetId = (args.id || '').toString().trim()
+        const targetPathArg = (args.path || '').toString().trim()
+
+        let targetArtifact = existingArtifacts.find(
+          (a) =>
+            (targetId && a.id === targetId) ||
+            (targetPathArg && path.normalize(a.path).toLowerCase() === path.normalize(targetPathArg).toLowerCase())
+        )
+
+        let targetPath = ''
+        let artifactId = ''
+        let filename = ''
+
+        if (targetArtifact) {
+          targetPath = targetArtifact.path
+          artifactId = targetArtifact.id
+          filename = targetArtifact.filename
+        } else if (targetPathArg) {
+          targetPath = targetPathArg
+          filename = path.basename(targetPath)
+          artifactId = generateArtifact6DigitId()
+        } else {
+          return `Error: Artifact not found with ID "${targetId}". Please specify a valid artifact ID from the conversation or a valid file PATH.`
+        }
+
+        await compileHtmlToPptx(html, targetPath)
+
+        const updatedArtifact: ArtifactItem = {
+          id: artifactId,
+          type: 'pptx',
+          filename,
+          path: targetPath,
+          htmlContent: html,
+          createdAt: targetArtifact ? targetArtifact.createdAt : Date.now(),
+          updatedAt: Date.now()
+        }
+
+        saveChatArtifact(targetChatId, updatedArtifact)
+        broadcastArtifactsUpdate(targetChatId)
+
+        return `PowerPoint presentation artifact updated successfully!\nID: ${artifactId}\nFilename: ${filename}\nSaved at: ${targetPath}`
+      } catch (err) {
+        return `Error updating PowerPoint presentation: ${err instanceof Error ? err.message : String(err)}`
+      }
+    }
+
     default:
       return `Tool "${toolName}" is registered but not yet wired in the executor. Args received: ${JSON.stringify(args)}`
   }
+}
+
+async function compileHtmlToPptx(html: string, outputPath: string): Promise<void> {
+  const pptx = new PptxGenJS()
+  pptx.layout = 'LAYOUT_16x9'
+
+  const dir = path.dirname(outputPath)
+  await fs.mkdir(dir, { recursive: true })
+
+  let rawSlides: string[] = []
+
+  if (/<(div|section)[^>]*class=["'][^"']*slide[^"']*["']/i.test(html)) {
+    const slideMatches = html.match(/<(div|section)[^>]*class=["'][^"']*slide[^"']*["'][^>]*>([\s\S]*?)<\/\1>/gi)
+    if (slideMatches && slideMatches.length > 0) {
+      rawSlides = slideMatches
+    }
+  } else if (/<section[^>]*>[\s\S]*?<\/section>/i.test(html)) {
+    const sectionMatches = html.match(/<section[^>]*>([\s\S]*?)<\/section>/gi)
+    if (sectionMatches && sectionMatches.length > 0) {
+      rawSlides = sectionMatches
+    }
+  } else if (/<hr[^>]*>/i.test(html)) {
+    rawSlides = html.split(/<hr[^>]*>/i)
+  }
+
+  if (rawSlides.length === 0) {
+    rawSlides = [html]
+  }
+
+  for (const slideHtml of rawSlides) {
+    const slide = pptx.addSlide()
+
+    const bgMatch = slideHtml.match(/background(?:-color)?\s*:\s*([^;"]+)/i)
+    if (bgMatch) {
+      const bgVal = bgMatch[1].trim()
+      const hexColor = parseCssColorToHex(bgVal)
+      if (hexColor) {
+        slide.background = { color: hexColor }
+      }
+    }
+
+    const titles: string[] = []
+    const hMatches = slideHtml.match(/<h[1-2][^>]*>([\s\S]*?)<\/h[1-2]>/gi)
+    if (hMatches) {
+      hMatches.forEach((m) => {
+        const text = cleanHtmlTags(m)
+        if (text) titles.push(text)
+      })
+    }
+
+    const subtitles: string[] = []
+    const subMatches = slideHtml.match(/<h[3-4][^>]*>([\s\S]*?)<\/h[3-4]>/gi)
+    if (subMatches) {
+      subMatches.forEach((m) => {
+        const text = cleanHtmlTags(m)
+        if (text) subtitles.push(text)
+      })
+    }
+
+    const paragraphs: string[] = []
+    const pMatches = slideHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gi)
+    if (pMatches) {
+      pMatches.forEach((m) => {
+        const text = cleanHtmlTags(m)
+        if (text) paragraphs.push(text)
+      })
+    }
+
+    const listItems: string[] = []
+    const liMatches = slideHtml.match(/<li[^>]*>([\s\S]*?)<\/li>/gi)
+    if (liMatches) {
+      liMatches.forEach((m) => {
+        const text = cleanHtmlTags(m)
+        if (text) listItems.push(text)
+      })
+    }
+
+    let currentY = 0.8
+    if (titles.length > 0) {
+      titles.forEach((t) => {
+        slide.addText(t, {
+          x: 0.8,
+          y: currentY,
+          w: 8.4,
+          h: 1.0,
+          fontSize: 28,
+          bold: true,
+          color: '333333',
+          fontFace: 'Arial'
+        })
+        currentY += 1.1
+      })
+    }
+
+    if (subtitles.length > 0) {
+      subtitles.forEach((st) => {
+        slide.addText(st, {
+          x: 0.8,
+          y: currentY,
+          w: 8.4,
+          h: 0.6,
+          fontSize: 20,
+          bold: true,
+          color: '555555',
+          fontFace: 'Arial'
+        })
+        currentY += 0.7
+      })
+    }
+
+    if (listItems.length > 0) {
+      const formattedItems = listItems.map((item) => ({ text: item, options: { bullet: true, fontSize: 16 } }))
+      slide.addText(formattedItems, {
+        x: 0.8,
+        y: currentY,
+        w: 8.4,
+        h: Math.min(3.5, listItems.length * 0.5 + 0.4),
+        fontFace: 'Arial',
+        color: '444444'
+      })
+      currentY += Math.min(3.5, listItems.length * 0.5 + 0.4)
+    } else if (paragraphs.length > 0) {
+      const pText = paragraphs.join('\n\n')
+      slide.addText(pText, {
+        x: 0.8,
+        y: currentY,
+        w: 8.4,
+        h: 3.2,
+        fontSize: 16,
+        color: '444444',
+        fontFace: 'Arial'
+      })
+    } else if (titles.length === 0 && subtitles.length === 0) {
+      const plainText = cleanHtmlTags(slideHtml)
+      if (plainText) {
+        slide.addText(plainText, {
+          x: 0.8,
+          y: 1.0,
+          w: 8.4,
+          h: 4.5,
+          fontSize: 18,
+          color: '333333',
+          fontFace: 'Arial'
+        })
+      }
+    }
+  }
+
+  const buffer = (await pptx.write({ outputType: 'nodebuffer' })) as Buffer
+  await fs.writeFile(outputPath, buffer)
+}
+
+function cleanHtmlTags(str: string): string {
+  return str.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim()
+}
+
+function parseCssColorToHex(colorStr: string): string | null {
+  const hexMatch = colorStr.match(/#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})/)
+  if (hexMatch) {
+    let hex = hexMatch[1]
+    if (hex.length === 3) {
+      hex = hex.split('').map((c) => c + c).join('')
+    }
+    return hex
+  }
+  const rgbMatch = colorStr.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/)
+  if (rgbMatch) {
+    const r = parseInt(rgbMatch[1], 10).toString(16).padStart(2, '0')
+    const g = parseInt(rgbMatch[2], 10).toString(16).padStart(2, '0')
+    const b = parseInt(rgbMatch[3], 10).toString(16).padStart(2, '0')
+    return `${r}${g}${b}`
+  }
+  return null
 }
 
 async function compileHtmlToPdf(html: string, outputPath: string): Promise<void> {

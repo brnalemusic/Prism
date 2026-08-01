@@ -24,6 +24,8 @@ import { MalformedToolCallWarning } from './components/MalformedToolCallWarning'
 import { RenderChatHistory } from './components/RenderChatHistory'
 import { PdfArtifactCard } from './components/PdfArtifactCard'
 import { PdfViewerModal } from './components/PdfViewerModal'
+import { PptxArtifactCard } from './components/PptxArtifactCard'
+import { PptxViewerModal } from './components/PptxViewerModal'
 import { TtsButton } from './components/TtsButton'
 import { CopyMessageButton } from './components/CopyMessageButton'
 import { DemoApp } from './components/demo/DemoApp'
@@ -615,6 +617,34 @@ const AiMessage = React.memo(function AiMessage({
 
                   return (
                     <PdfArtifactCard
+                      key={`tc-${item.partIndex}`}
+                      id={artifactId}
+                      filename={filename}
+                      path={filePath}
+                      toolName={tc.name}
+                      onPreview={onSelectArtifact}
+                    />
+                  )
+                }
+                if (tc.name === 'write_pptx' || tc.name === 'edit_pptx') {
+                  const resText = tc.result || ''
+                  const idMatch =
+                    resText.match(/ID:\s*(#?\d{6})/i) ||
+                    (tc.args?.id ? [null, String(tc.args.id)] : null)
+                  const artifactId = idMatch ? idMatch[1].replace('#', '') : undefined
+
+                  const pathMatch =
+                    resText.match(/(?:Saved at|File path):\s*(.+)/i) ||
+                    (tc.args?.path ? [null, String(tc.args.path)] : null)
+                  const filePath = pathMatch ? pathMatch[1].trim() : (tc.args?.path as string | undefined)
+
+                  const filename =
+                    (tc.args?.filename as string) ||
+                    (filePath ? filePath.split(/[\\/]/).pop() : undefined) ||
+                    'presentation.pptx'
+
+                  return (
+                    <PptxArtifactCard
                       key={`tc-${item.partIndex}`}
                       id={artifactId}
                       filename={filename}
@@ -2902,10 +2932,19 @@ function RealApp(): React.JSX.Element {
       <PdfViewerModal
         artifact={
           activeTab.selectedArtifactId
-            ? (activeTab.artifacts || []).find((a) => a.id === activeTab.selectedArtifactId) || null
+            ? (activeTab.artifacts || []).find((a) => a.id === activeTab.selectedArtifactId && a.type !== 'pptx') || null
             : null
         }
-        isOpen={!!(activeTab.selectedArtifactId && (activeTab.artifacts || []).some((a) => a.id === activeTab.selectedArtifactId))}
+        isOpen={!!(activeTab.selectedArtifactId && (activeTab.artifacts || []).some((a) => a.id === activeTab.selectedArtifactId && a.type !== 'pptx'))}
+        onClose={() => handleSelectArtifact(activeTab.id, null)}
+      />
+      <PptxViewerModal
+        artifact={
+          activeTab.selectedArtifactId
+            ? (activeTab.artifacts || []).find((a) => a.id === activeTab.selectedArtifactId && a.type === 'pptx') || null
+            : null
+        }
+        isOpen={!!(activeTab.selectedArtifactId && (activeTab.artifacts || []).some((a) => a.id === activeTab.selectedArtifactId && a.type === 'pptx'))}
         onClose={() => handleSelectArtifact(activeTab.id, null)}
       />
       {floatingMenu && (

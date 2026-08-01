@@ -19,6 +19,7 @@ import {
 } from '@phosphor-icons/react'
 import { MiniAppRenderer } from './MiniAppRenderer'
 import { PdfArtifactCard } from './PdfArtifactCard'
+import { PptxArtifactCard } from './PptxArtifactCard'
 
 // Tool labels mapping for simplified display
 const TOOL_LABELS: Record<string, string> = {
@@ -29,6 +30,8 @@ const TOOL_LABELS: Record<string, string> = {
   create_mini_app: 'Creating mini app',
   write_pdf: 'Creating PDF',
   edit_pdf: 'Updating PDF artifact',
+  write_pptx: 'Creating PowerPoint presentation',
+  edit_pptx: 'Updating PowerPoint presentation',
   computer_use_create_file: 'Creating file',
   computer_use_edit_file: 'Editing file',
   replace_file_content: 'Editing file',
@@ -1579,6 +1582,38 @@ export function ActionLoader({ toolCall, mode = 'compact', writingArgs, onSelect
         )}
         {isDone && (
           <PdfArtifactCard
+            id={artifactId}
+            filename={filename}
+            path={filePath}
+            toolName={toolCall.name}
+            onPreview={onSelectArtifact}
+          />
+        )}
+      </div>
+    )
+  }
+
+  if (toolCall.name === 'write_pptx' || toolCall.name === 'edit_pptx') {
+    const isDone = toolCall.status === 'done'
+    const resText = toolCall.result || ''
+
+    const idMatch = resText.match(/ID:\s*(#?\d{6})/i) || (toolCall.args.id ? [null, String(toolCall.args.id)] : null)
+    const artifactId = idMatch ? idMatch[1].replace('#', '') : undefined
+
+    const pathMatch = resText.match(/(?:Saved at|File path):\s*(.+)/i) || (toolCall.args.path ? [null, String(toolCall.args.path)] : null)
+    const filePath = pathMatch ? pathMatch[1].trim() : (toolCall.args.path as string | undefined)
+
+    const filename = (toolCall.args.filename as string) || (filePath ? filePath.split(/[\\/]/).pop() : undefined) || 'presentation.pptx'
+
+    return (
+      <div className="w-full flex flex-col gap-2 my-2 select-none">
+        {mode === 'full' ? (
+          <FullActionLoader toolCall={toolCall} writingArgs={writingArgs} />
+        ) : (
+          <CompactActionLoader toolCall={toolCall} writingArgs={writingArgs} />
+        )}
+        {isDone && (
+          <PptxArtifactCard
             id={artifactId}
             filename={filename}
             path={filePath}

@@ -35,14 +35,32 @@ export function sanitizeOpenAiMessages(messages: OpenAiMessage[]): OpenAiMessage
     }
     if (m.name) cleanMsg.name = m.name
     if (m.tool_calls && m.tool_calls.length > 0) {
-      cleanMsg.tool_calls = m.tool_calls.map((tc) => ({
-        id: tc.id || `call_${Date.now()}`,
-        type: 'function',
-        function: {
-          name: tc.function?.name || '',
-          arguments: typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {})
+      cleanMsg.tool_calls = m.tool_calls.map((tc) => {
+        const tcAny = tc as any
+        const thoughtSig =
+          tc.thought_signature ||
+          tc.extra_content?.google?.thought_signature ||
+          tcAny.thoughtSignature ||
+          tcAny.extra_content?.thought_signature
+
+        const cleanTc: any = {
+          id: tc.id || `call_${Date.now()}`,
+          type: 'function',
+          function: {
+            name: tc.function?.name || '',
+            arguments: typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {})
+          }
         }
-      }))
+
+        if (thoughtSig) {
+          cleanTc.thought_signature = thoughtSig
+          cleanTc.extra_content = tc.extra_content || { google: { thought_signature: thoughtSig } }
+        } else if (tc.extra_content) {
+          cleanTc.extra_content = tc.extra_content
+        }
+
+        return cleanTc
+      })
     }
     if (m.tool_call_id) cleanMsg.tool_call_id = m.tool_call_id
     return cleanMsg
@@ -196,7 +214,15 @@ export async function streamOpenAiCompletion(
                 // Also check the top-level field in case the API changes in the future.
                 const sig =
                   tcDelta.extra_content?.google?.thought_signature ||
-                  tcDelta.thought_signature
+                  tcDelta.thought_signature ||
+                  tcDelta.extra_fields?.thought_signature ||
+                  tcDelta.function?.thought_signature ||
+                  delta.extra_content?.google?.thought_signature ||
+                  delta.thought_signature ||
+                  choice?.extra_content?.google?.thought_signature ||
+                  choice?.thought_signature ||
+                  parsed?.extra_content?.google?.thought_signature ||
+                  parsed?.thought_signature
                 if (sig) {
                   existing.thoughtSignature = sig
                 }
@@ -441,7 +467,7 @@ async function streamOpenAiResponses(
   let fullText = ''
   let fullReasoning = ''
   let finishReason = ''
-  const toolCallsMap = new Map<number, { id: string; name: string; args: string }>()
+  const toolCallsMap = new Map<number, { id: string; name: string; args: string; thoughtSignature?: string }>()
   let currentToolIdx = 0
 
   try {
@@ -539,6 +565,21 @@ async function streamOpenAiResponses(
                 if (tcDelta.id && !existing.id) existing.id = tcDelta.id
                 if ((tcDelta.function?.name || tcDelta.name) && !existing.name) {
                   existing.name = tcDelta.function?.name || tcDelta.name
+                }
+
+                const sig =
+                  tcDelta.extra_content?.google?.thought_signature ||
+                  tcDelta.thought_signature ||
+                  tcDelta.extra_fields?.thought_signature ||
+                  tcDelta.function?.thought_signature ||
+                  delta.extra_content?.google?.thought_signature ||
+                  delta.thought_signature ||
+                  choice?.extra_content?.google?.thought_signature ||
+                  choice?.thought_signature ||
+                  parsed?.extra_content?.google?.thought_signature ||
+                  parsed?.thought_signature
+                if (sig) {
+                  existing.thoughtSignature = sig
                 }
 
                 const argsChunk = tcDelta.function?.arguments || tcDelta.arguments || ''

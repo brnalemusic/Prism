@@ -475,6 +475,27 @@ export const toolsManifest: ToolDefinition[] = [
       html: 'Required: Complete updated HTML and CSS code formatted for A4 page layout.'
     },
     target: 'main'
+  },
+  {
+    name: 'write_pptx',
+    description: 'Generate a PowerPoint (.pptx) presentation artifact from HTML and CSS code formatted for a 16:9 presentation slide layout. The presentation is compiled into a native, fully editable .pptx file, saved as an artifact in the current conversation and previewable inside Prism.',
+    usage: '[PRISM_EXECUTE_TOOL]{"type":"write_pptx","filename":"presentation.pptx","html":"<!DOCTYPE html><html><head><style>.slide { width: 100%; height: 100vh; background: #0f172a; color: white; padding: 40px; }</style></head><body><div class=\"slide\"><h1>Slide Title</h1><p>Slide content</p></div></body></html>"}[/PRISM_EXECUTE_TOOL]',
+    parameters: {
+      filename: 'Optional filename for the PowerPoint presentation (e.g. "presentation.pptx"). If omitted, a default name will be assigned.',
+      html: 'Required: Complete HTML and CSS code formatted for 16:9 slide layout (including slide containers, colors, typography, tables, and images).'
+    },
+    target: 'main'
+  },
+  {
+    name: 'edit_pptx',
+    description: 'Edit an existing PowerPoint (.pptx) presentation artifact by passing its 6-digit ID (from the current conversation) or full file PATH, along with updated HTML+CSS slide content.',
+    usage: '[PRISM_EXECUTE_TOOL]{"type":"edit_pptx","id":"938210","html":"<!DOCTYPE html><html>...</html>"}[/PRISM_EXECUTE_TOOL]',
+    parameters: {
+      id: 'Optional 6-digit string ID of an existing PowerPoint artifact in the current conversation.',
+      path: 'Optional full file PATH of an existing .pptx file to edit and overwrite.',
+      html: 'Required: Complete updated HTML and CSS code formatted for 16:9 presentation slide layout.'
+    },
+    target: 'main'
   }
 ]
 

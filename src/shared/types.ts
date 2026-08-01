@@ -147,7 +147,7 @@ export interface StreamToolCallDelta {
 
 export interface ArtifactItem {
   id: string
-  type: 'pdf'
+  type: 'pdf' | 'pptx'
   filename: string
   path: string
   htmlContent: string

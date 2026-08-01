@@ -7,6 +7,7 @@ import {
   CheckCircle,
   CaretDown,
   FilePdf,
+  FilePpt,
   Eye,
   FolderOpen,
   ArrowSquareOut
@@ -251,8 +252,13 @@ function TodoPanel({
                       className="flex items-center justify-between p-3 rounded-xl border border-white/[0.05] bg-white/[0.015] hover:bg-white/[0.04] transition-all group"
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/15 text-red-400 shrink-0">
-                          <FilePdf size={16} weight="bold" />
+                        <div
+                          className={clsx(
+                            'flex h-8 w-8 items-center justify-center rounded-lg shrink-0',
+                            art.type === 'pptx' ? 'bg-orange-500/15 text-orange-400' : 'bg-red-500/15 text-red-400'
+                          )}
+                        >
+                          {art.type === 'pptx' ? <FilePpt size={16} weight="bold" /> : <FilePdf size={16} weight="bold" />}
                         </div>
                         <div className="flex flex-col min-w-0">
                           <div className="flex items-center gap-2">
@@ -276,7 +282,7 @@ function TodoPanel({
                             if (onSelectArtifact) onSelectArtifact(art.id)
                           }}
                           className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-text-primary bg-accent-primary/20 hover:bg-accent-primary/30 border border-accent-primary/40 rounded-lg transition-colors cursor-pointer"
-                          title="Open dedicated PDF previewer"
+                          title={art.type === 'pptx' ? 'Open dedicated Presentation previewer' : 'Open dedicated PDF previewer'}
                         >
                           <Eye size={13} weight="bold" />
                           <span>Preview</span>
@@ -285,7 +291,7 @@ function TodoPanel({
                           type="button"
                           onClick={() => handleOpenFile(art.path)}
                           className="p-1.5 text-text-muted hover:text-text-primary rounded-lg hover:bg-white/[0.08] transition-colors cursor-pointer"
-                          title="Open PDF"
+                          title={art.type === 'pptx' ? 'Open Presentation' : 'Open PDF'}
                         >
                           <ArrowSquareOut size={14} />
                         </button>
