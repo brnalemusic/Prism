@@ -96,7 +96,6 @@ interface ActionLoaderProps {
   toolCall: ToolCall
   mode?: 'compact' | 'full'
   writingArgs?: Record<string, unknown>
-  onSelectArtifact?: (id: string) => void
 }
 
 const phaseColorCodes = {
@@ -1516,7 +1515,7 @@ function BrowserSessionSeparator({
   )
 }
 
-export function ActionLoader({ toolCall, mode = 'compact', writingArgs, onSelectArtifact }: ActionLoaderProps): React.JSX.Element {
+export function ActionLoader({ toolCall, mode = 'compact', writingArgs }: ActionLoaderProps): React.JSX.Element {
   const isRunning = toolCall.status === 'running' || toolCall.status === 'writing'
 
   if (toolCall.name === 'open_browser') {

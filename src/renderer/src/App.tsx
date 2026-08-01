@@ -256,7 +256,6 @@ interface AiMessageProps {
   handleLoadChat?: (id: string) => void
   markdownComponents: Components
   onOpenBrowserTab?: () => void
-  onSelectArtifact?: (id: string) => void
 }
 
 const BROWSER_TOOL_NAMES = new Set([
@@ -280,8 +279,7 @@ const AiMessage = React.memo(function AiMessage({
   currentChatId,
   handleLoadChat,
   markdownComponents,
-  onOpenBrowserTab,
-  onSelectArtifact
+  onOpenBrowserTab
 }: AiMessageProps) {
   const streamStats = useStreamStats(msg.content, !!msg.isStreaming)
   const nativeToolCalls = useMemo(
@@ -867,14 +865,12 @@ const TabMessagesList = React.memo(function TabMessagesList({
   messages,
   currentChatId,
   handleLoadChat,
-  onOpenBrowserTab,
-  onSelectArtifact
+  onOpenBrowserTab
 }: {
   messages: Message[]
   currentChatId?: string
   handleLoadChat: (id: string) => void
   onOpenBrowserTab?: () => void
-  onSelectArtifact?: (id: string) => void
 }) {
   const markdownComponents = useMemo(
     () => ({
@@ -1041,7 +1037,6 @@ const TabMessagesList = React.memo(function TabMessagesList({
                   handleLoadChat={handleLoadChat}
                   markdownComponents={markdownComponents}
                   onOpenBrowserTab={onOpenBrowserTab}
-                  onSelectArtifact={onSelectArtifact}
                 />
               )}
             </div>
@@ -1876,12 +1871,6 @@ function RealApp(): React.JSX.Element {
     } catch (e) {
       console.error('Failed to load chat:', e)
     }
-  }, [])
-
-  const handleSelectArtifact = useCallback((tabId: string, artifactId: string | null) => {
-    setTabs((prevTabs) =>
-      prevTabs.map((t) => (t.id === tabId ? { ...t, selectedArtifactId: artifactId } : t))
-    )
   }, [])
 
   useEffect(() => {
@@ -2870,14 +2859,12 @@ function RealApp(): React.JSX.Element {
                       onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
                       activeWorkflow={activeWorkflow}
                       setActiveWorkflow={setActiveWorkflow}
-                      onSelectArtifact={handleSelectArtifact}
                       renderedMessages={
                         <TabMessagesList
                           messages={tab.messages}
                           currentChatId={tab.chatId}
                           handleLoadChat={handleLoadChat}
                           onOpenBrowserTab={() => handleOpenBrowserTab(tab.id)}
-                          onSelectArtifact={(id) => handleSelectArtifact(tab.id, id)}
                         />
                       }
                     />

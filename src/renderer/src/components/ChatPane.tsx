@@ -33,7 +33,6 @@ interface ChatPaneProps {
   setActiveWorkflow: (wf: SlashWorkflow | null) => void
   renderedMessages: React.ReactNode
   onSwapSplitTabs?: (sourceTabId: string, targetTabId: string) => void
-  onSelectArtifact?: (tabId: string, artifactId: string | null) => void
 }
 
 export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
@@ -60,8 +59,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
   activeWorkflow,
   setActiveWorkflow,
   renderedMessages,
-  onSwapSplitTabs,
-  onSelectArtifact
+  onSwapSplitTabs
 }) => {
   const inputBarRef = useRef<InputBarHandle>(null)
   const [isDraggingSplit, setIsDraggingSplit] = useState(false)
@@ -267,8 +265,6 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
                   <TodoPanel
                     todo={todo}
                     artifacts={tab.artifacts}
-                    selectedArtifactId={tab.selectedArtifactId}
-                    onSelectArtifact={(id) => onSelectArtifact?.(tab.id, id)}
                   />
                   {/* Questionnaire wizard card docked above InputBar (landing state) */}
                   {activeQuestionnaire && (
@@ -345,8 +341,6 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
               <TodoPanel
                 todo={todo}
                 artifacts={tab.artifacts}
-                selectedArtifactId={tab.selectedArtifactId}
-                onSelectArtifact={(id) => onSelectArtifact?.(tab.id, id)}
               />
               {/* Questionnaire wizard card docked above InputBar */}
               {activeQuestionnaire && (

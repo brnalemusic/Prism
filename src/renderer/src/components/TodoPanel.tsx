@@ -16,14 +16,11 @@ import type { TodoState, ArtifactItem } from '../../../shared/types'
 interface TodoPanelProps {
   todo?: TodoState | null
   artifacts?: ArtifactItem[]
-  selectedArtifactId?: string | null
-  onSelectArtifact?: (id: string | null) => void
 }
 
 function TodoPanel({
   todo,
-  artifacts = [],
-  onSelectArtifact
+  artifacts = []
 }: TodoPanelProps): React.ReactElement | null {
   const hasTodo = !!(todo && todo.tasks.length > 0)
   const hasArtifacts = artifacts.length > 0
