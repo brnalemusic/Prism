@@ -245,6 +245,7 @@ export async function handleChatMessage(
     let loopCount = 0
     let accumulatedReplyText = ''
     let accumulatedReasoningText = ''
+    let accumulatedThinkingDuration = 0
 
     while (loopCount < maxLoops) {
       loopCount++
@@ -338,6 +339,12 @@ export async function handleChatMessage(
         ? Math.max(1, Math.round(((thinkingEnd || Date.now()) - thinkingStart) / 1000))
         : undefined
 
+      if (iterThinkingDuration !== undefined) {
+        accumulatedThinkingDuration += iterThinkingDuration
+      }
+
+      const turnThinkingDuration = accumulatedThinkingDuration > 0 ? accumulatedThinkingDuration : iterThinkingDuration
+
       currentReplyText = streamResult.text || currentReplyText
       currentReasoningText = streamResult.reasoning || currentReasoningText
 
@@ -355,7 +362,7 @@ export async function handleChatMessage(
         role: 'assistant',
         content: streamResult.toolCalls.length > 0 ? (iterContent || '') : (accumulatedReplyText || iterContent || ''),
         ...(accumulatedReasoningText || iterThoughts ? { reasoning_content: accumulatedReasoningText || iterThoughts } : {}),
-        ...(iterThinkingDuration !== undefined ? { thinking_duration: iterThinkingDuration } : {})
+        ...(turnThinkingDuration !== undefined ? { thinking_duration: turnThinkingDuration } : {})
       }
 
       if (streamResult.toolCalls.length > 0) {
@@ -492,7 +499,7 @@ export async function handleChatMessage(
         finalResponse: accumulatedReplyText,
         rawText: accumulatedReplyText,
         isThinking: false,
-        thinkingDuration: iterThinkingDuration,
+        thinkingDuration: turnThinkingDuration,
         chatId
       })
       break

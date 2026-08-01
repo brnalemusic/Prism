@@ -1661,6 +1661,34 @@ function RealApp(): React.JSX.Element {
         return undefined
       }
 
+      const combineThoughts = (existing?: string, incoming?: string): string | undefined => {
+        if (!incoming || incoming.trim() === '') return existing
+        if (!existing || existing.trim() === '') return incoming
+        const trimmedExisting = existing.trim()
+        const trimmedIncoming = incoming.trim()
+        if (trimmedIncoming === trimmedExisting) return existing
+        if (trimmedIncoming.startsWith(trimmedExisting)) return incoming
+        if (trimmedExisting.includes(trimmedIncoming)) return existing
+        return `${existing}\n\n${incoming}`
+      }
+
+      const combineContent = (existing?: string, incoming?: string): string => {
+        if (!incoming || incoming.trim() === '') return existing || ''
+        if (!existing || existing.trim() === '') return incoming
+        const trimmedExisting = existing.trim()
+        const trimmedIncoming = incoming.trim()
+        if (trimmedIncoming === trimmedExisting) return existing
+        if (trimmedIncoming.startsWith(trimmedExisting)) return incoming
+        if (trimmedExisting.includes(trimmedIncoming)) return existing
+        return `${existing}\n\n${incoming}`
+      }
+
+      const combineThinkingDuration = (existing?: number, incoming?: number): number | undefined => {
+        if (existing === undefined) return incoming
+        if (incoming === undefined) return existing
+        return Math.max(existing, incoming)
+      }
+
       const messages: Message[] = []
 
       for (let i = 0; i < rawContent.length; i++) {
@@ -1752,6 +1780,13 @@ function RealApp(): React.JSX.Element {
         // 4. Assistant / AI Message
         if (role === 'assistant' || role === 'model' || role === 'ai') {
           const thoughts = extractThoughts(c)
+          const thinkingDuration =
+            typeof c.thinking_duration === 'number'
+              ? c.thinking_duration
+              : typeof c.thinkingDuration === 'number'
+                ? c.thinkingDuration
+                : undefined
+
           const rawToolCalls = c.tool_calls || c.toolCalls || []
 
           const toolCalls: (ToolCallItem & { id?: string })[] = rawToolCalls.map((tc: any) => {
@@ -1819,14 +1854,44 @@ function RealApp(): React.JSX.Element {
             }
           }
 
-          messages.push({
-            role: 'ai',
-            content: rawText,
-            thoughts,
-            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-            isStreaming: false,
-            isThinking: false
-          })
+          const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null
+          if (lastMsg && lastMsg.role === 'ai') {
+            // Merge into existing AI message for this prompt turn
+            lastMsg.content = combineContent(lastMsg.content, rawText)
+            lastMsg.thoughts = combineThoughts(lastMsg.thoughts, thoughts)
+            lastMsg.thinkingDuration = combineThinkingDuration(
+              lastMsg.thinkingDuration,
+              thinkingDuration
+            )
+            if (toolCalls.length > 0) {
+              if (!lastMsg.toolCalls) {
+                lastMsg.toolCalls = toolCalls
+              } else {
+                for (const tc of toolCalls) {
+                  const exists = lastMsg.toolCalls.some(
+                    (existingTc) =>
+                      (tc.id && existingTc.id === tc.id) ||
+                      (existingTc.name === tc.name &&
+                        JSON.stringify(existingTc.args) === JSON.stringify(tc.args))
+                  )
+                  if (!exists) {
+                    lastMsg.toolCalls.push(tc)
+                  }
+                }
+              }
+            }
+          } else {
+            // Create new AI message for this prompt turn
+            messages.push({
+              role: 'ai',
+              content: rawText,
+              thoughts,
+              thinkingDuration,
+              toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+              isStreaming: false,
+              isThinking: false
+            })
+          }
         }
       }
 

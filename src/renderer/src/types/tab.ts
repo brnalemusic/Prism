@@ -17,6 +17,7 @@ export interface StreamingToolCall {
 }
 
 export interface ToolCallItem {
+  id?: string
   name: string
   args: Record<string, unknown>
   result?: string
