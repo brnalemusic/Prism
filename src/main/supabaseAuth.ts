@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient, Session } from '@supabase/supabase-js'
+import { createClient, SupabaseClient, Session, User } from '@supabase/supabase-js'
 import { safeStorage, app } from 'electron'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -82,13 +82,47 @@ function loadSessionSecurely(): Session | null {
 }
 
 /**
+ * Ensures there is an active session in the Supabase client memory.
+ * Restores from encrypted disk storage if missing or expired.
+ */
+async function ensureActiveSession(): Promise<{ session: Session | null; user: User | null }> {
+  const client = getSupabaseClient()
+
+  try {
+    // Check in-memory session first
+    const { data: currentData } = await client.auth.getSession()
+    if (currentData?.session?.user) {
+      return { session: currentData.session, user: currentData.session.user }
+    }
+
+    // Try loading saved session from disk
+    const savedSession = loadSessionSecurely()
+    if (savedSession?.refresh_token) {
+      const { data: refreshRes, error } = await client.auth.setSession({
+        access_token: savedSession.access_token,
+        refresh_token: savedSession.refresh_token
+      })
+
+      if (!error && refreshRes?.session && refreshRes?.user) {
+        saveSessionSecurely(refreshRes.session)
+        return { session: refreshRes.session, user: refreshRes.user }
+      }
+    }
+  } catch (err) {
+    console.error('[Auth] Error ensuring active session:', err)
+  }
+
+  return { session: null, user: null }
+}
+
+/**
  * Formats Supabase user & profile data into UserProfile
  */
-async function buildUserProfile(user: any): Promise<UserProfile> {
+async function buildUserProfile(user: User): Promise<UserProfile> {
   const client = getSupabaseClient()
   let fullName = user.user_metadata?.full_name || ''
   let companyName = user.user_metadata?.company_name || ''
-  let accountType = user.user_metadata?.account_type || 'individual'
+  let accountType = user.user_metadata?.account_type || (companyName ? 'enterprise' : 'individual')
   let avatarUrl = user.user_metadata?.avatar_url || ''
 
   try {
@@ -122,31 +156,9 @@ async function buildUserProfile(user: any): Promise<UserProfile> {
  * Initializes and restores session on main process boot up
  */
 export async function initializeAuthSession(): Promise<UserProfile | null> {
-  const savedSession = loadSessionSecurely()
-  if (!savedSession || !savedSession.refresh_token) {
-    return null
-  }
-
-  const client = getSupabaseClient()
-  try {
-    const { data, error } = await client.auth.setSession({
-      access_token: savedSession.access_token,
-      refresh_token: savedSession.refresh_token
-    })
-
-    if (error || !data.session || !data.user) {
-      console.warn('[Auth] Saved session invalid or expired:', error?.message)
-      saveSessionSecurely(null)
-      return null
-    }
-
-    saveSessionSecurely(data.session)
-    return await buildUserProfile(data.user)
-  } catch (err) {
-    console.error('[Auth] Error restoring session:', err)
-    saveSessionSecurely(null)
-    return null
-  }
+  const { user } = await ensureActiveSession()
+  if (!user) return null
+  return await buildUserProfile(user)
 }
 
 /**
@@ -260,12 +272,11 @@ export async function authLogout(): Promise<boolean> {
  * Gets currently logged-in user profile
  */
 export async function getCurrentAuthUser(): Promise<UserProfile | null> {
-  const client = getSupabaseClient()
-  const { data } = await client.auth.getUser()
-  if (!data || !data.user) {
+  const { user } = await ensureActiveSession()
+  if (!user) {
     return null
   }
-  return await buildUserProfile(data.user)
+  return await buildUserProfile(user)
 }
 
 /**
@@ -289,29 +300,50 @@ export async function authResetPassword(email: string): Promise<{ success: boole
  */
 export async function authUpdateProfile(updates: Partial<UserProfile>): Promise<AuthResponse> {
   const client = getSupabaseClient()
-  const { data: userRes } = await client.auth.getUser()
-  if (!userRes || !userRes.user) {
+  let { user } = await ensureActiveSession()
+
+  if (!user) {
     return { success: false, error: 'User is not authenticated.' }
   }
 
-  const userId = userRes.user.id
+  const userId = user.id
   try {
+    // 1. Update public.profiles table
     const profileUpdates: Record<string, any> = {
+      id: userId,
+      email: user.email || '',
       updated_at: new Date().toISOString()
     }
     if (updates.fullName !== undefined) profileUpdates.full_name = updates.fullName
     if (updates.companyName !== undefined) profileUpdates.company_name = updates.companyName
     if (updates.accountType !== undefined) profileUpdates.account_type = updates.accountType
 
-    const { error } = await client.from('profiles').update(profileUpdates).eq('id', userId)
+    const { error: profileErr } = await client.from('profiles').upsert(profileUpdates)
 
-    if (error) {
-      return { success: false, error: error.message }
+    if (profileErr) {
+      console.error('[Auth] Profile table update error:', profileErr)
+      return { success: false, error: profileErr.message }
     }
 
-    const updatedUser = await buildUserProfile(userRes.user)
+    // 2. Also sync auth user_metadata
+    const userMetaUpdates: Record<string, any> = {}
+    if (updates.fullName !== undefined) userMetaUpdates.full_name = updates.fullName
+    if (updates.companyName !== undefined) userMetaUpdates.company_name = updates.companyName
+    if (updates.accountType !== undefined) userMetaUpdates.account_type = updates.accountType
+
+    if (Object.keys(userMetaUpdates).length > 0) {
+      const { data: updatedAuthUser } = await client.auth.updateUser({
+        data: userMetaUpdates
+      })
+      if (updatedAuthUser?.user) {
+        user = updatedAuthUser.user
+      }
+    }
+
+    const updatedUser = await buildUserProfile(user)
     return { success: true, user: updatedUser }
   } catch (err: any) {
+    console.error('[Auth] Unexpected error updating profile:', err)
     return { success: false, error: err?.message || 'Failed to update profile.' }
   }
 }

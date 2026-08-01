@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   X,
@@ -33,6 +33,13 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [isEditing, setIsEditing] = useState(false)
   const [fullName, setFullName] = useState(user?.fullName || '')
   const [companyName, setCompanyName] = useState(user?.companyName || '')
+
+  useEffect(() => {
+    if (user) {
+      setFullName(user.fullName || '')
+      setCompanyName(user.companyName || '')
+    }
+  }, [user])
 
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)

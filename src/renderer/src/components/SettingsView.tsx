@@ -1195,9 +1195,9 @@ function useLicenseCountdown(expiresAt?: string): string {
                 value={inputLicenseKey}
                 onChange={(e) => setInputLicenseKey(e.target.value)}
                 placeholder="Paste PRISM-ENTERPRISE key here"
-                rows={3}
+                rows={6}
                 style={{ WebkitTextSecurity: showKeyText ? 'none' : 'disc' } as any}
-                className="w-full rounded-xl border border-white/[0.1] bg-black/40 p-3 pr-10 font-mono text-xs text-text-primary placeholder:text-text-muted/40 focus:border-accent-primary focus:outline-none transition-colors custom-scrollbar"
+                className="w-full rounded-xl border border-white/[0.1] bg-black/40 p-3 pr-10 font-mono text-xs text-text-primary placeholder:text-text-muted/40 focus:border-accent-primary focus:outline-none transition-colors custom-scrollbar min-h-[160px]"
               />
               <button
                 type="button"
