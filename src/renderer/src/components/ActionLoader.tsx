@@ -30,8 +30,8 @@ const TOOL_LABELS: Record<string, string> = {
   create_mini_app: 'Creating mini app',
   write_pdf: 'Creating PDF',
   edit_pdf: 'Updating PDF artifact',
-  write_pptx: 'Creating PowerPoint presentation',
-  edit_pptx: 'Updating PowerPoint presentation',
+  write_pptx: 'Creating Presentation',
+  edit_pptx: 'Updating Presentation',
   computer_use_create_file: 'Creating file',
   computer_use_edit_file: 'Editing file',
   replace_file_content: 'Editing file',
@@ -415,6 +415,10 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
   } else if (toolCall.name === 'internal_docs_read') {
     displayTitle = 'Reading Documentation'
     displayDetail = getStringArg(toolCall.args, 'filename') || 'Loading documentation file.'
+    tone = 'search'
+  } else if (toolCall.name === 'internal_docs_search') {
+    displayTitle = 'Searching Knowledge Base'
+    displayDetail = getStringArg(toolCall.args, 'query') ? `Searching for "${getStringArg(toolCall.args, 'query')}"` : 'Searching internal documentation.'
     tone = 'search'
   } else if (
     toolCall.name.startsWith('browser_') ||

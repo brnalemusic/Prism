@@ -78,7 +78,7 @@ const DEFAULT_CONFIG: AppConfig = {
       name: 'Search',
       description: 'Perform deep web research on a topic',
       systemInstruction:
-        "You are running in Web Search Mode. Your goal is to conduct deep, comprehensive research on the user's query. Use the web_search tool to find relevant information. Analyze search results carefully, verify facts across multiple sources, and present a structured, clear summary of the findings with references.",
+        'Deep web research mode. Use web_search to find information, verify facts across sources, and output a structured summary with references.',
       toolConstraints: ['web_search', 'saw_link_from_url', 'open_browser_link']
     },
     {
@@ -87,7 +87,7 @@ const DEFAULT_CONFIG: AppConfig = {
       name: 'Summarizer',
       description: 'Create a structured summary of the text and check for errors',
       systemInstruction:
-        "You are running in Summarize Mode. Your goal is to analyze the user's input text, extract the key points, organize them in a clean structure, check for spelling, grammar, or factual errors, and output a concise, professional summary.",
+        'Summarize mode. Analyze input, extract key points, organize cleanly, fix errors, and output a concise summary.',
       toolConstraints: []
     }
   ]

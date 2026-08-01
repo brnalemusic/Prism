@@ -2,6 +2,7 @@ import { exec, execFile } from 'child_process'
 import { shell, desktopCapturer, app, BrowserWindow, ipcMain } from 'electron'
 
 import * as fs from 'fs/promises'
+import * as fssync from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import PptxGenJS from 'pptxgenjs'
@@ -32,6 +33,26 @@ function getDownloadsFolder(): string {
   } catch (err) {
     return path.join(os.homedir(), 'Downloads')
   }
+}
+
+function getDocsPath(): string {
+  const candidatePaths = [
+    path.join(process.resourcesPath, 'docs'),
+    path.join(process.resourcesPath, 'resources', 'docs'),
+    path.join(app.getAppPath(), 'resources', 'docs'),
+    path.join(__dirname, '../../resources/docs'),
+    path.join(process.cwd(), 'resources', 'docs')
+  ]
+
+  for (const candidate of candidatePaths) {
+    if (fssync.existsSync(candidate)) {
+      return candidate
+    }
+  }
+
+  return !app.isPackaged
+    ? path.join(__dirname, '../../resources/docs')
+    : path.join(process.resourcesPath, 'docs')
 }
 
 let downloadSequence = 0
@@ -1970,7 +1991,7 @@ export async function webSearchContinuous(
 export function getSystemToolsPrompt(
   modelKey: string,
   target: 'main' | 'subagent' | 'both' | 'launcher' = 'main',
-  allowedTools?: string[],
+  _allowedTools?: string[],
   sessionMode: SessionMode = 'execution',
   disciplinePath?: string
 ): string {
@@ -1985,26 +2006,6 @@ export function getSystemToolsPrompt(
   const shellSyntax = getShellSyntaxSummary(shellName)
   const name = 'Prism AI'
   const modelName = modelKey || 'AI Assistant'
-
-  const toolsPrompt = toolsManifest
-    .filter((t) => {
-      if (allowedTools && allowedTools.length > 0) {
-        if (!allowedTools.includes(t.name)) {
-          return false
-        }
-      }
-      if (target === 'launcher') {
-        return true
-      }
-      return !t.target || t.target === 'both' || t.target === target
-    })
-    .map((t) => {
-      const p = Object.entries(t.parameters)
-        .map(([k, d]) => `${k}:${typeof d === 'string' ? d : d.description || d.type}`)
-        .join(',')
-      return `${t.name}: ${t.description} | ${t.usage}${p ? ` | ${p}` : ''}`
-    })
-    .join('\n')
 
   const username = os.userInfo().username
   const platform = process.platform
@@ -2030,87 +2031,51 @@ export function getSystemToolsPrompt(
 
   if (target === 'launcher') {
     return `# Identity & Context
-Role: Prism AI (${modelName}), running in the Quick Launcher (full capabilities).
+Role: Prism AI (${modelName}) in Quick Launcher.
 Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
 # Rules
-- **Simple Markdown Only:** Respond ONLY using traditional simple Markdown.
-- **Auto-Open:** If an app, link, or path is sent in isolation, IMMEDIATELY open it via open_browser_link or open_application.
-- **Transitions:** For long-running or complex tasks, call open_main_app to continue in the main application.
-- **Full Tool Access:** You have access to all tools — terminal, files, browser, search, apps, and more.
-
-# Tool Protocol & Execution
-- **Native Tool Calling**: You have access to native tool calling. Call functions natively when needed. Do NOT write [PRISM_EXECUTE_TOOL] blocks yourself, the system handles function execution natively.
-- **Requirements**: Absolute paths are required for all file operations.
-- **Terminal CLI**: Commands run in user's terminal \`${shellName}\`; use ${shellSyntax} syntax.
-- **Filesystem Safety**: \`computer_use_*\` file tools modify files only at explicit paths.
-- **Shared Browser**: AI and user share a SINGLE live browser session. Only ONE browser session can exist at a time. If an AI Browser session is already open or active (or if open_browser was already called), do NOT call open_browser again; instead, immediately inspect the active browser page content using browser_snapshot or detailed_dom_page.
-- **Parallelism**: You can call multiple functions natively in parallel to speed up tasks.
-
-Tools:
-${toolsPrompt}`
+- Use simple Markdown.
+- **Auto-Open:** If an app, link, or path is sent alone, open it via open_browser_link or open_application.
+- **Transitions:** For complex/long tasks, call open_main_app.
+- Natively invoke tools in parallel when applicable. Absolute paths required for file tools. Commands run in \`${shellName}\` (${shellSyntax}). Shared single browser session.`
   }
 
   if (sessionMode === 'conversation' && target === 'main') {
     return `# Identity & Context
-Role: ${name} (${modelName}), running in Conversation Mode.
+Role: ${name} (${modelName}) in Conversation Mode.
 Context: ${date} | ${platform} | Home: ${homeDir} | CWD: ${cwd}
 
 # Rules
-- **Conversation Mode**: You are running in Conversation Mode. You do NOT have access to any tools. Do NOT attempt to perform any tool/function calls. Reply to the user using text/Markdown.
-- Match user's language. Be direct, factual, and concise.
-- Simple Markdown: Use standard Markdown for all replies.`
+- Conversation Mode: No tool access. Reply using text/Markdown.
+- Match user language. Be direct, factual, and concise.`
   }
-
-  const parallelRule =
-    '- Parallelism: You can call multiple functions natively in parallel to speed up tasks.'
 
   const disciplineRule =
     sessionMode === 'discipline' && disciplinePath
-      ? `\n- **Discipline Mode**: You are operating in Discipline Mode. All operations and commands run directly in: ${disciplinePath}. Perform modifications relative to this path.`
+      ? `\n- **Discipline Mode**: Operations/commands run in ${disciplinePath}. Modify relative to this path.`
       : ''
 
   return `# Identity & Context
-Role: ${name} (${modelName}), a concise, tool-capable desktop assistant.
+Role: ${name} (${modelName}), Desktop AI Assistant.
 Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
-# Visual & Interaction Protocol
-1. **Simple Markdown (95% of replies):** Use for answers, code, and explanations. NEVER wrap standard text in HTML/CSS.
-2. **Rich Markdown (HTML/CSS):** Use for cards, in-app designs, or when showing something visually within the message itself. You MUST write the HTML/CSS code directly inside the message Markdown (without wrapping it in code blocks like \`\`\`html) so that the application renders it inline directly to the user.
-3. **Mini Apps:** You have access to the \`create_mini_app\` native tool. Use it ONLY for interactive, stateful widgets (calculators, dashboards, forms, games). Do NOT write raw HTML/CSS/JS in text or use text-based XML markers for mini-apps; instead, call the \`create_mini_app\` tool natively with the appropriate parameters.
-
-# Operating Rules
-- Match user's language. Be direct, factual, and concise; prefer action over commentary.${disciplineRule}
-- **Auto-Open:** If an app, link, or path is sent in isolation, IMMEDIATELY open it via open_browser_link, open_application, or relevant tool.
-- Preserve file indentation exactly.
-- Do not expose thoughts/reasoning; provide conclusions and evidence.
-- Never invent tool results, paths, or citations.
-
-
-# Search Protocols
-1. **Active Search:** Search using web_search and read page contents using saw_link_from_url. Do not rely solely on snippets.
-2. **Deep Research (If enabled):**
-   - Step 1: Search for context.
-   - Step 2: Present a Research Plan and explicitly ask user if they approve. Stop generation immediately.
-   - Step 3 (After approval): Run at least 10 search/read iterations.
-   - Step 4: Output a dense Markdown report.
-# Tool Protocol & Execution
-- **Native Tool Calling**: You have access to native tool calling. Call functions natively when needed. Do NOT write [PRISM_EXECUTE_TOOL] blocks yourself, the system handles function execution natively.
-- **Requirements**: Absolute paths are required for all file operations.
-- **Terminal CLI**: Commands run in user's terminal \`${shellName}\`; use ${shellSyntax} syntax.
-- **Filesystem Safety**: \`computer_use_*\` file tools modify files only at explicit paths (no filesystem roots or protected system paths).
-- **Shared Browser**: AI and user share a SINGLE live browser session. Only ONE browser session can exist at a time. If an AI Browser session is already open or active (or if open_browser was already called), do NOT call open_browser again; instead, immediately inspect the active browser page content using browser_snapshot or detailed_dom_page.
-${parallelRule}
-
-# Prism Internal Knowledge
-For Prism-specific questions (features, themes, shortcuts, architecture), you MUST use \`internal_docs_list\` and \`internal_docs_read\`. Do NOT hallucinate facts.
-
-# Dynamic Surveys (to_ask)
-Use to_ask for structured user preferences/feedback. Blocks execution.
-Schema: {"session_id": "UUID", "questions": [{"id": "q1", "type": "multiple-choice | essay", "title": "Category", "prompt": "Prompt text", "options": [{"value": "val", "label": "Label"}], "placeholder": "Text"}]}
-
-Tools:
-${toolsPrompt}`
+# Rules & Protocols
+- Match user language. Be direct, factual, and concise.${disciplineRule}
+- **Auto-Open:** If an app, link, or path is sent alone, open it immediately via relevant tool.
+- **Formatting:**
+  1. Simple Markdown for standard text/code.
+  2. Inline HTML/CSS inside Markdown for rich visual cards/designs (render directly, do not block-wrap in \`\`\`html).
+  3. Call \`create_mini_app\` tool for interactive widgets/games.
+- **Execution & Tools:**
+  - Absolute paths required for file operations.
+  - Commands run in \`${shellName}\` (${shellSyntax}).
+  - Shared single live browser session. If active, inspect via browser_snapshot or detailed_dom_page. Do not re-open.
+  - Parallel native tool calls allowed.
+  - Do not invent tool results, paths, or citations.
+- **Search:** Use web_search and saw_link_from_url. For Deep Research: 1. Search context, 2. Present plan & await user approval, 3. 10+ iterations, 4. Output Markdown report.
+- **Prism Docs:** Use internal_docs_list, internal_docs_read, internal_docs_search for Prism system queries.
+- **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}`
 }
 
 /**
@@ -2638,14 +2603,11 @@ export async function executeSystemTool(
     // Internal docs
     case 'internal_docs_list': {
       try {
-        const isDev = !app.isPackaged
-        const docsPath = isDev
-          ? path.join(__dirname, '../../resources/docs')
-          : path.join(process.resourcesPath, 'docs')
+        const docsPath = getDocsPath()
 
         try {
           const files = await fs.readdir(docsPath)
-          const mdFiles = files.filter((f) => f.endsWith('.md'))
+          const mdFiles = files.filter((f) => f.endsWith('.md')).sort()
           if (mdFiles.length === 0) return 'No internal documentation found.'
           return `Available internal documentation files:\n${mdFiles.map((f) => `- ${f}`).join('\n')}`
         } catch (e: any) {
@@ -2658,10 +2620,7 @@ export async function executeSystemTool(
     }
     case 'internal_docs_read': {
       try {
-        const isDev = !app.isPackaged
-        const docsPath = isDev
-          ? path.join(__dirname, '../../resources/docs')
-          : path.join(process.resourcesPath, 'docs')
+        const docsPath = getDocsPath()
 
         const filename = args.filename
         if (!filename || !filename.endsWith('.md')) {
@@ -2678,6 +2637,54 @@ export async function executeSystemTool(
         }
       } catch (error) {
         return `Error reading doc: ${error instanceof Error ? error.message : String(error)}`
+      }
+    }
+    case 'internal_docs_search': {
+      try {
+        const docsPath = getDocsPath()
+        const query = (args.query || '').toString().trim()
+        if (!query) {
+          return 'Error: Search query is required for internal_docs_search.'
+        }
+
+        const files = await fs.readdir(docsPath)
+        const mdFiles = files.filter((f) => f.endsWith('.md')).sort()
+        if (mdFiles.length === 0) return 'No internal documentation files found to search.'
+
+        const matches: { filename: string; lineNumber: number; content: string }[] = []
+        const queryLower = query.toLowerCase()
+
+        for (const file of mdFiles) {
+          const filePath = path.join(docsPath, file)
+          try {
+            const content = await fs.readFile(filePath, 'utf-8')
+            const lines = content.split('\n')
+            lines.forEach((line, idx) => {
+              if (line.toLowerCase().includes(queryLower)) {
+                matches.push({
+                  filename: file,
+                  lineNumber: idx + 1,
+                  content: line.trim()
+                })
+              }
+            })
+          } catch {
+            // ignore unreadable files
+          }
+        }
+
+        if (matches.length === 0) {
+          return `No documentation snippets found matching query "${query}".`
+        }
+
+        const formatted = matches
+          .slice(0, 30)
+          .map((m) => `[${m.filename}:${m.lineNumber}] ${m.content}`)
+          .join('\n')
+
+        return `Found ${matches.length} matching documentation snippet(s) for "${query}":\n${formatted}`
+      } catch (error) {
+        return `Error searching docs: ${error instanceof Error ? error.message : String(error)}`
       }
     }
 

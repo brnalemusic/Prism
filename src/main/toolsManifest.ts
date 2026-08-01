@@ -18,25 +18,24 @@ export const toolsManifest: ToolDefinition[] = [
   {
     name: 'execute_terminal_command',
     description: 'Run shell command in user terminal.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"execute_terminal_command","command":"CMD"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"command":"CMD"}',
     parameters: {
-      command: 'Shell command using the configured terminal syntax.'
+      command: 'Shell command to execute.'
     }
   },
   {
     name: 'computer_use_create_file',
     description: 'Create file with content.',
-    usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"computer_use_create_file","path":"PATH","content":"TXT"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"path":"PATH","content":"TXT"}',
     parameters: {
       path: 'Absolute file path.',
-      content: 'Initial text.'
+      content: 'File content.'
     }
   },
   {
     name: 'computer_use_create_directory',
     description: 'Create directory.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"computer_use_create_directory","path":"PATH"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"path":"PATH"}',
     parameters: {
       path: 'Absolute directory path.'
     }
@@ -44,7 +43,7 @@ export const toolsManifest: ToolDefinition[] = [
   {
     name: 'computer_use_remove_file',
     description: 'Delete file.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"computer_use_remove_file","path":"PATH"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"path":"PATH"}',
     parameters: {
       path: 'Absolute file path.'
     }
@@ -52,7 +51,7 @@ export const toolsManifest: ToolDefinition[] = [
   {
     name: 'computer_use_remove_directory',
     description: 'Delete directory.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"computer_use_remove_directory","path":"PATH"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"path":"PATH"}',
     parameters: {
       path: 'Absolute directory path.'
     }
@@ -60,7 +59,7 @@ export const toolsManifest: ToolDefinition[] = [
   {
     name: 'computer_use_save_file',
     description: 'Save file content.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"computer_use_save_file","path":"PATH","content":"TXT"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"path":"PATH","content":"TXT"}',
     parameters: {
       path: 'Absolute file path.',
       content: 'Full file content.'
@@ -69,8 +68,7 @@ export const toolsManifest: ToolDefinition[] = [
   {
     name: 'computer_use_append_file',
     description: 'Append text to file.',
-    usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"computer_use_append_file","path":"PATH","content":"TXT"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"path":"PATH","content":"TXT"}',
     parameters: {
       path: 'Absolute file path.',
       content: 'Text to append.'
@@ -79,8 +77,7 @@ export const toolsManifest: ToolDefinition[] = [
   {
     name: 'computer_use_edit_file',
     description: 'Edit line range in file.',
-    usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"computer_use_edit_file","path":"PATH","startLine":1,"endLine":5,"newContent":"TXT"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"path":"PATH","startLine":1,"endLine":5,"newContent":"TXT"}',
     parameters: {
       path: 'Absolute file path.',
       startLine: 'Start line (1-based).',
@@ -91,29 +88,27 @@ export const toolsManifest: ToolDefinition[] = [
   {
     name: 'computer_use_copy_file',
     description: 'Copy file or directory.',
-    usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"computer_use_copy_file","sourcePath":"S","destinationPath":"D","overwrite":"false"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"sourcePath":"S","destinationPath":"D","overwrite":"false"}',
     parameters: {
       sourcePath: 'Source path.',
       destinationPath: 'Destination path.',
-      overwrite: 'true|false (default false).'
+      overwrite: 'true|false'
     }
   },
   {
     name: 'computer_use_move_file',
-    description: 'Move or rename file/dir.',
-    usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"computer_use_move_file","sourcePath":"S","destinationPath":"D","overwrite":"false"}[/PRISM_EXECUTE_TOOL]',
+    description: 'Move or rename file/directory.',
+    usage: '{"sourcePath":"S","destinationPath":"D","overwrite":"false"}',
     parameters: {
       sourcePath: 'Source path.',
       destinationPath: 'Destination path.',
-      overwrite: 'true|false (default false).'
+      overwrite: 'true|false'
     }
   },
   {
     name: 'computer_use_get_file_info',
     description: 'Get file or directory metadata.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"computer_use_get_file_info","path":"PATH"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"path":"PATH"}',
     parameters: {
       path: 'Absolute path.'
     }
@@ -121,7 +116,7 @@ export const toolsManifest: ToolDefinition[] = [
   {
     name: 'computer_use_list_directory',
     description: 'List directory contents.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"computer_use_list_directory","path":"PATH"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"path":"PATH"}',
     parameters: {
       path: 'Absolute directory path.'
     }
@@ -129,27 +124,25 @@ export const toolsManifest: ToolDefinition[] = [
   {
     name: 'computer_use_read_file',
     description: 'Read file content.',
-    usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"computer_use_read_file","path":"PATH","startLine":130,"limit":50}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"path":"PATH","startLine":1,"limit":50}',
     parameters: {
       path: 'Absolute file path.',
-      startLine: 'Starting line number (1-based index) to read from.',
-      limit:
-        'Optional: Number of lines to read starting from startLine (defaults to 200, maximum 500).'
+      startLine: '1-based start line.',
+      limit: 'Line count (default 200, max 500).'
     }
   },
   {
     name: 'search_installed_applications',
     description: 'Search installed applications.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"search_installed_applications","query":"fl"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"query":"app"}',
     parameters: {
-      query: 'Search term to match app names (e.g. "fl", "steam", "chrome")'
+      query: 'App search term.'
     }
   },
   {
     name: 'open_application',
     description: 'Open application from path.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"open_application","appPath":"EXE_PATH"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"appPath":"PATH"}',
     parameters: {
       appPath: 'Path to .exe.'
     }
@@ -157,223 +150,225 @@ export const toolsManifest: ToolDefinition[] = [
   {
     name: 'web_search',
     description: 'Search Google for live information.',
-    usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"web_search","searches":[{"title":"Finding common errors with X","query":"X not working windows"},{"title":"Searching on how to update X","query":"how to update X"}]}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"searches":[{"title":"Action","query":"keywords"}]}',
     parameters: {
       searches: {
         type: 'array',
         items: {
           type: 'object',
           properties: {
-            title: { type: 'string', description: 'A concise human-friendly action phrase shown to the user' },
-            query: { type: 'string', description: 'The actual keywords sent to Google' }
+            title: { type: 'string', description: 'Concise UI action title.' },
+            query: { type: 'string', description: 'Google search keywords.' }
           },
           required: ['title', 'query']
         },
-        description:
-          'Array of search objects. Each object must have "title" (a concise human-friendly action phrase shown to the user, e.g. "Finding common errors with...", never raw query syntax) and "query" (the actual keywords sent to Google). Use multiple entries when the task benefits from exploring several angles; one entry is valid for focused lookups.'
+        description: 'Search query objects with title and query.'
       }
     }
   },
   {
     name: 'saw_link_from_url',
     description: 'Read text content from URL.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"saw_link_from_url","url":"URL"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"url":"URL"}',
     parameters: {
-      url: 'Target URL to read.'
+      url: 'Target URL.'
     }
   },
   {
     name: 'open_browser_link',
     description: 'Open URL in system browser.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"open_browser_link","url":"URL"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"url":"URL"}',
     parameters: {
       url: 'Target URL.'
     }
   },
   {
     name: 'open_browser',
-    description: 'Shared live browser session (AI & user). Only one session exists at a time. If already active, do not call again; call browser_snapshot directly to view page content.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"open_browser","url":"URL"}[/PRISM_EXECUTE_TOOL]',
+    description: 'Open/attach live browser session. Do not re-open if active; call browser_snapshot.',
+    usage: '{"url":"URL"}',
     parameters: {
-      url: 'Optional: Initial URL to open.'
+      url: 'Initial URL.'
     }
   },
   {
     name: 'browser_navigate',
-    description: 'Navigate browser to URL. You will be called back when download is finished.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_navigate","url":"URL"}[/PRISM_EXECUTE_TOOL]',
+    description: 'Navigate browser to URL.',
+    usage: '{"url":"URL"}',
     parameters: {
-      url: 'Target URL to load.'
+      url: 'Target URL.'
     }
   },
-
   {
     name: 'browser_snapshot',
     description: 'Get semantic DOM snapshot.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_snapshot","full":"false"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"full":"false"}',
     parameters: {
-      full: 'Optional: "true"|"false" (default "false").'
+      full: '"true"|"false"'
     }
   },
   {
     name: 'browser_click',
-    description: 'Click element on page by ID. You will be called back when download is finished.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_click","elementId":"1"}[/PRISM_EXECUTE_TOOL]',
+    description: 'Click element on page by ID.',
+    usage: '{"elementId":"1"}',
     parameters: {
-      elementId: 'The reference ID from the snapshot.'
+      elementId: 'Element ID from snapshot.'
     }
   },
   {
     name: 'browser_type',
-    description: 'Type text into element by ID. You will be called back when download is finished.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_type","elementId":"2","text":"hello"}[/PRISM_EXECUTE_TOOL]',
+    description: 'Type text into element by ID.',
+    usage: '{"elementId":"1","text":"txt"}',
     parameters: {
-      elementId: 'The reference ID from the snapshot.',
-      text: 'Text to input.'
+      elementId: 'Element ID from snapshot.',
+      text: 'Text to type.'
     }
   },
   {
     name: 'browser_press',
     description: 'Press key on active page.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_press","key":"Enter"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"key":"Enter"}',
     parameters: {
-      key: 'The key name to press.'
+      key: 'Key name.'
     }
   },
   {
     name: 'browser_scroll',
     description: 'Scroll active page view.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_scroll","direction":"down","amount":"300"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"direction":"down","amount":"300"}',
     parameters: {
-      direction: '"up"|"down".',
-      amount: 'Optional: pixels to scroll.'
+      direction: '"up"|"down"',
+      amount: 'Pixels to scroll.'
     }
   },
   {
     name: 'browser_back',
     description: 'Go back in browser history.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_back"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{}',
     parameters: {}
   },
   {
     name: 'browser_screenshot',
     description: 'Take browser screenshot.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"browser_screenshot"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{}',
     parameters: {}
   },
   {
     name: 'web_script',
-    description: 'Execute JavaScript on page. You will be called back when download is finished.',
-    usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"web_script","url":"URL","script":"return document.title;"}[/PRISM_EXECUTE_TOOL]',
+    description: 'Execute JavaScript on page.',
+    usage: '{"script":"code"}',
     parameters: {
-      url: 'Optional: URL to load.',
-      script: 'JavaScript code to execute.'
+      url: 'Target URL.',
+      script: 'JavaScript code.'
     }
   },
   {
     name: 'detailed_dom_page',
     description: 'Get detailed HTML DOM tree.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"detailed_dom_page","url":"URL"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"url":"URL"}',
     parameters: {
-      url: 'Optional: URL to read DOM from.'
+      url: 'Target URL.'
     }
   },
   {
     name: 'search_chat_history',
     description: 'Search past conversations by keywords.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"search_chat_history","query":"K1, K2"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"query":"keywords"}',
     parameters: {
-      query: 'Comma-separated keywords.'
+      query: 'Search keywords.'
     }
   },
   {
     name: 'open_main_app',
     description: 'Open main application window.',
-    usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"open_main_app","instructions":"TXT","model":"MODEL_KEY"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"instructions":"TXT","model":"KEY"}',
     parameters: {
       instructions: 'Target instructions.',
-      model: 'Model key (super-fast|fast|dragon|dense).',
-      searchEnabled: 'Optional: "true"|"false".'
+      model: 'Model key.',
+      searchEnabled: '"true"|"false"'
     },
     target: 'launcher'
   },
   {
     name: 'computer_use_see_screen',
     description: 'Take screenshot of screen/app.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"computer_use_see_screen","appName":"Name"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"appName":"Name"}',
     parameters: {
-      appName: 'App window name or "Entire Screen".'
+      appName: 'Window name or "Entire Screen".'
     }
   },
   {
     name: 'configure_prism',
     description: 'Change application settings.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"configure_prism","username":"Alice"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"username":"Name"}',
     parameters: {
-      launcherShortcut: 'Optional: Launcher hotkey.',
-      modelSelectionShortcut: 'Optional: Model picker hotkey.',
-      screenshotShortcut: 'Optional: Screenshot hotkey.',
-      newChatShortcut: 'Optional: Start new chat hotkey.',
-      dictationShortcut: 'Optional: Voice dictation toggle hotkey.',
-      webSearchShortcut: 'Optional: Toggle search mode hotkey.',
-      youtubeModeShortcut: 'Optional: Toggle YouTube mode hotkey.',
-      lastSelectedChatModel: 'Optional: Main chat model key.',
-      defaultModel: 'Optional: Main chat model key (alias for lastSelectedChatModel).',
-      searchModel: 'Optional: Web search model key.',
-      quickLauncherModel: 'Optional: Quick launcher model key.',
-      sttModel: 'Optional: Dictation/STT model key.',
-      minimizeToTray: 'Optional: "true"|"false".',
-      autoLaunch: 'Optional: "true"|"false".',
-      quickLauncherMode: 'Optional: simple|advanced.',
-      username: 'Optional: User name.',
-      ttsVoice: 'Optional: Aoede|Puck|Charon|Kore|Fenrir.',
-      terminalShell: 'Optional: Shell executable or path (e.g. powershell.exe, cmd.exe, pwsh.exe).',
-      zoomFactor:
-        'Optional: Interface zoom factor as a number between 0.5 and 3.0 (e.g., 1.0 for 100%, 1.25 for 125%).'
+      launcherShortcut: 'Launcher hotkey.',
+      modelSelectionShortcut: 'Model picker hotkey.',
+      screenshotShortcut: 'Screenshot hotkey.',
+      newChatShortcut: 'Start new chat hotkey.',
+      dictationShortcut: 'Voice dictation hotkey.',
+      webSearchShortcut: 'Search mode hotkey.',
+      youtubeModeShortcut: 'YouTube mode hotkey.',
+      lastSelectedChatModel: 'Main chat model key.',
+      defaultModel: 'Main chat model key alias.',
+      searchModel: 'Web search model key.',
+      quickLauncherModel: 'Quick launcher model key.',
+      sttModel: 'Dictation model key.',
+      minimizeToTray: '"true"|"false"',
+      autoLaunch: '"true"|"false"',
+      quickLauncherMode: 'simple|advanced',
+      username: 'User name.',
+      ttsVoice: 'Aoede|Puck|Charon|Kore|Fenrir',
+      terminalShell: 'Shell executable or path.',
+      zoomFactor: 'Zoom factor (0.5 - 3.0).'
     }
   },
   {
     name: 'internal_docs_list',
-    description: 'List all available internal documentation files about Prism.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"internal_docs_list"}[/PRISM_EXECUTE_TOOL]',
+    description: 'List Prism internal documentation files.',
+    usage: '{}',
     parameters: {}
   },
   {
     name: 'internal_docs_read',
-    description: 'Read the contents of a specific internal documentation file.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"internal_docs_read","filename":"01_prism_creator.md"}[/PRISM_EXECUTE_TOOL]',
+    description: 'Read internal documentation file.',
+    usage: '{"filename":"doc.md"}',
     parameters: {
-      filename: 'The exact filename to read from the docs list.'
+      filename: 'Doc filename.'
+    }
+  },
+  {
+    name: 'internal_docs_search',
+    description: 'Search across internal documentation.',
+    usage: '{"query":"keywords"}',
+    parameters: {
+      query: 'Search query.'
     }
   },
   {
     name: 'to_ask',
     description: 'Render UI questionnaire.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"to_ask","session_id":"UUID","questions":[]}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"session_id":"UUID","questions":[]}',
     parameters: {
       session_id: 'Unique UUID.',
       questions: {
         type: 'array',
         items: { type: 'object' },
-        description: 'JSON array of question objects (id, type, title, prompt).'
+        description: 'Array of question objects (id, type, title, prompt).'
       }
     }
   },
   {
     name: 'render_chat_history',
     description: 'Show chat session in UI.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"render_chat_history","query":"chat_ID.json"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"query":"ID"}',
     parameters: {
-      query: 'Filename or session ID.'
+      query: 'Session ID or filename.'
     }
   },
   {
     name: 'search_chat_memory',
     description: 'Search chat memory.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"search_chat_memory","query":"K1"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"query":"keywords"}',
     parameters: {
       query: 'Keywords.'
     }
@@ -381,53 +376,49 @@ export const toolsManifest: ToolDefinition[] = [
   {
     name: 'not_found_chat_history',
     description: 'Trigger when chat history not found.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"not_found_chat_history"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{}',
     parameters: {}
   },
   {
     name: 'list_workflows',
-    description: 'Get all configured custom slash command workflows in Prism.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"list_workflows"}[/PRISM_EXECUTE_TOOL]',
+    description: 'Get configured custom workflows.',
+    usage: '{}',
     parameters: {},
     target: 'main'
   },
   {
     name: 'save_workflow',
-    description: 'Create a new workflow or update an existing one in Prism.',
-    usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"save_workflow","command":"/code","name":"Coder","description":"Coding mode","systemInstruction":"Be a code assistant.","toolConstraints":"execute_terminal_command,computer_use_edit_file"}[/PRISM_EXECUTE_TOOL]',
+    description: 'Create or update custom workflow.',
+    usage: '{"command":"/cmd","name":"Name","systemInstruction":"Prompt"}',
     parameters: {
-      command: 'Required: Slash command starting with "/" and containing no spaces.',
-      name: 'Required: Name of the workflow.',
-      systemInstruction: 'Required: Guidelines and instructions for this workflow.',
-      description: 'Optional: Brief description.',
-      id: 'Optional: Unique ID of workflow to edit. If omitted, will update existing matching command or create new.',
-      toolConstraints:
-        'Optional: Comma-separated list of allowed tool names, or empty/omitted to allow all tools.'
+      command: 'Slash command starting with "/".',
+      name: 'Workflow name.',
+      systemInstruction: 'System prompt instructions.',
+      description: 'Brief description.',
+      id: 'Workflow ID.',
+      toolConstraints: 'Comma-separated allowed tool names.'
     },
     target: 'main'
   },
   {
     name: 'delete_workflow',
-    description: 'Delete a custom workflow in Prism by command or ID.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"delete_workflow","command":"/code"}[/PRISM_EXECUTE_TOOL]',
+    description: 'Delete custom workflow by command or ID.',
+    usage: '{"command":"/cmd"}',
     parameters: {
-      command: 'Optional: The command of the workflow to delete (e.g., "/code"), or its unique ID.',
-      id: 'Optional: Alternative to command: the unique ID of the workflow to delete.'
+      command: 'Slash command to delete.',
+      id: 'Workflow ID to delete.'
     },
     target: 'main'
   },
   {
     name: 'create_todo',
     description: 'Create todo list.',
-    usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"create_todo","tasks":["Research API documentation","Implement GET endpoint","Test the route"]}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"tasks":["Task 1","Task 2"]}',
     parameters: {
       tasks: {
         type: 'array',
         items: { type: 'string' },
-        description:
-          'Array of strings with 2 to 30 tasks. Each task must be a concise and actionable description of a step.'
+        description: 'Actionable task strings (2-30).'
       }
     },
     target: 'main'
@@ -435,65 +426,64 @@ export const toolsManifest: ToolDefinition[] = [
   {
     name: 'edit_todo',
     description: 'Update task status.',
-    usage:
-      '[PRISM_EXECUTE_TOOL]{"type":"edit_todo","id":"task-1","status":"working"}[/PRISM_EXECUTE_TOOL]',
+    usage: '{"id":"task-0","status":"done"}',
     parameters: {
-      id: 'The ID of the task to be updated (e.g.: "task-0", "task-1").',
-      status: 'New status: "working" (started the task) or "done" (completed the task).'
+      id: 'Task ID (e.g. task-0).',
+      status: '"working"|"done"'
     },
     target: 'main'
   },
   {
     name: 'create_mini_app',
-    description: 'Create an interactive, stateful web-based widget/game/application (Mini-App). This tool MUST be called natively when the user asks for a mini-app, interactive widget, dashboard, calculator, game, or custom visual application.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"create_mini_app","title":"Name","html":"HTML","css":"CSS","js":"JS"}[/PRISM_EXECUTE_TOOL]',
+    description: 'Create interactive web widget/game/app (Mini-App).',
+    usage: '{"title":"Name","html":"HTML","css":"CSS","js":"JS"}',
     parameters: {
-      title: 'Title of the mini-app.',
-      html: 'HTML structure. Clean HTML only (no script/style tags, as they are separate parameters). Use semantic HTML, inputs, buttons, and custom IDs for interactive elements.',
-      css: 'CSS styling for the mini-app. Use modern, premium, and beautiful CSS. Avoid basic layouts. Include transitions, responsive structure, and custom variables matching the design.',
-      js: 'JavaScript logic for interactivity. Must query DOM elements by their IDs or classes, handle events, and maintain state. No external CDN imports unless required.'
+      title: 'Mini-app title.',
+      html: 'Clean HTML structure (no script/style tags).',
+      css: 'Modern responsive CSS styling.',
+      js: 'Interactive JS logic operating on element IDs.'
     },
     target: 'main'
   },
   {
     name: 'write_pdf',
-    description: 'Generate a PDF document artifact from HTML and CSS code tailored for an A4 paper layout. The PDF will be saved as an artifact in the current conversation.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"write_pdf","filename":"report.pdf","html":"<!DOCTYPE html><html><head><style>@page { size: A4; margin: 20mm; }</style></head><body><h1>Title</h1></body></html>"}[/PRISM_EXECUTE_TOOL]',
+    description: 'Generate PDF artifact from A4 HTML/CSS.',
+    usage: '{"filename":"doc.pdf","html":"HTML"}',
     parameters: {
-      filename: 'Optional filename for the PDF (e.g. "report.pdf"). If omitted, a default name will be assigned.',
-      html: 'Required: Complete HTML and CSS code formatted for A4 page layout (including styling, colors, typography, tables/images).'
+      filename: 'PDF filename.',
+      html: 'A4 HTML and CSS layout content.'
     },
     target: 'main'
   },
   {
     name: 'edit_pdf',
-    description: 'Edit an existing PDF document artifact by passing its 6-digit ID (from the current conversation) or full file PATH, along with updated HTML+CSS content.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"edit_pdf","id":"849201","html":"<!DOCTYPE html><html>...</html>"}[/PRISM_EXECUTE_TOOL]',
+    description: 'Edit existing PDF artifact.',
+    usage: '{"id":"123456","html":"HTML"}',
     parameters: {
-      id: 'Optional 6-digit string ID of an existing PDF artifact in the current conversation.',
-      path: 'Optional full file PATH of an existing PDF file to edit and overwrite.',
-      html: 'Required: Complete updated HTML and CSS code formatted for A4 page layout.'
+      id: '6-digit PDF artifact ID.',
+      path: 'Full file path to edit.',
+      html: 'Updated A4 HTML and CSS content.'
     },
     target: 'main'
   },
   {
     name: 'write_pptx',
-    description: 'Generate a PowerPoint (.pptx) presentation artifact from HTML and CSS code formatted for a 16:9 presentation slide layout. The presentation is compiled into a native, fully editable .pptx file, saved as an artifact in the current conversation.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"write_pptx","filename":"presentation.pptx","html":"<!DOCTYPE html><html><head><style>.slide { width: 100%; height: 100vh; background: #0f172a; color: white; padding: 40px; }</style></head><body><div class=\"slide\"><h1>Slide Title</h1><p>Slide content</p></div></body></html>"}[/PRISM_EXECUTE_TOOL]',
+    description: 'Generate PowerPoint presentation artifact from 16:9 HTML/CSS.',
+    usage: '{"filename":"pres.pptx","html":"HTML"}',
     parameters: {
-      filename: 'Optional filename for the PowerPoint presentation (e.g. "presentation.pptx"). If omitted, a default name will be assigned.',
-      html: 'Required: Complete HTML and CSS code formatted for 16:9 slide layout (including slide containers, colors, typography, tables, and images).'
+      filename: 'PowerPoint filename.',
+      html: '16:9 slide HTML and CSS layout content.'
     },
     target: 'main'
   },
   {
     name: 'edit_pptx',
-    description: 'Edit an existing PowerPoint (.pptx) presentation artifact by passing its 6-digit ID (from the current conversation) or full file PATH, along with updated HTML+CSS slide content.',
-    usage: '[PRISM_EXECUTE_TOOL]{"type":"edit_pptx","id":"938210","html":"<!DOCTYPE html><html>...</html>"}[/PRISM_EXECUTE_TOOL]',
+    description: 'Edit existing PowerPoint artifact.',
+    usage: '{"id":"123456","html":"HTML"}',
     parameters: {
-      id: 'Optional 6-digit string ID of an existing PowerPoint artifact in the current conversation.',
-      path: 'Optional full file PATH of an existing .pptx file to edit and overwrite.',
-      html: 'Required: Complete updated HTML and CSS code formatted for 16:9 presentation slide layout.'
+      id: '6-digit PowerPoint artifact ID.',
+      path: 'Full file path to edit.',
+      html: 'Updated 16:9 slide HTML and CSS content.'
     },
     target: 'main'
   }

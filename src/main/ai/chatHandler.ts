@@ -541,7 +541,7 @@ async function generateTitleInBackground(
 ): Promise<void> {
   try {
     console.log(`[Title Generator] Generating title for chat ${chatId} using model ${modelId} via provider ${provider.name || provider.baseUrl}...`)
-    const prompt = `Summarize this user query into a concise 3-5 word title in the same language as the query. Do not use quotes or punctuation. Query: "${firstMessage}"`
+    const prompt = `Summarize query into concise 3-5 word title in same language. No quotes or punctuation: "${firstMessage}"`
     const abortController = new AbortController()
 
     const res = await streamOpenAiCompletion(

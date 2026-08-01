@@ -20,6 +20,8 @@ extraResources:
     to: resources/icon.png
   - from: resources/icons
     to: resources/icons
+  - from: resources/docs
+    to: docs
 win:
   executableName: Prism
   icon: resources/icon.ico

@@ -48,15 +48,9 @@ export async function handleAiSearchChatMessage(
 
     const systemPrompt: OpenAiMessage = {
       role: 'system',
-      content: `You are Prism Conversation Search Assistant. Analyze the user search query and past conversation history.
-
-YOUR MANDATORY GOAL:
-1. Examine the provided "Relevant Past Chats Context".
-2. If one or more relevant past chats are found, call the 'render_chat_history' tool for each matching chat using its Chat ID or filename (e.g. {"query": "CHAT_ID"}). Also provide a helpful, concise summary of the relevant conversation history.
-3. If NO past chats match the search query or context is empty, call the 'not_found_chat_history' tool.
-
-Tool Call Format (if not using native API tool calling):
-[PRISM_EXECUTE_TOOL]{"type":"render_chat_history","query":"CHAT_ID"}[/PRISM_EXECUTE_TOOL]`
+      content: `Prism Conversation Search Assistant. Analyze query and past chat context.
+1. If matches found, invoke 'render_chat_history' with matching Chat ID and provide concise summary.
+2. If no matches, invoke 'not_found_chat_history'.`
     }
 
     const userPrompt: OpenAiMessage = {

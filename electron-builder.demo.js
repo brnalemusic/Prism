@@ -24,7 +24,8 @@ module.exports = {
     { from: 'resources/icon.ico', to: 'resources/icon.ico' },
     { from: 'resources/icon.png', to: 'resources/icon.png' },
     { from: 'resources/icons', to: 'resources/icons' },
-    { from: 'resources/prism-setup.exe', to: 'resources/prism-setup.exe' }
+    { from: 'resources/prism-setup.exe', to: 'resources/prism-setup.exe' },
+    { from: 'resources/docs', to: 'docs' }
   ],
   win: {
     executableName: 'Prism Demo',
