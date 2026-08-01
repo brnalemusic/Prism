@@ -81,6 +81,11 @@ import {
   authResetPassword,
   authUpdateProfile
 } from './supabaseAuth'
+import {
+  fetchSubscriptionPlans,
+  createStripeCheckoutSession,
+  verifyAndActivatePayment
+} from './licensePayment'
 
 const APP_DATA_DIR_NAME = IS_DEMO ? 'PrismDemo' : 'PrismDesktop'
 const WINDOW_STATE_FILE = join(
@@ -1035,6 +1040,24 @@ if (!gotTheLock) {
 
     ipcMain.handle('get-license-info', () => {
       return getLicenseInfo()
+    })
+
+    ipcMain.handle('get-subscription-plans', async () => {
+      return await fetchSubscriptionPlans()
+    })
+
+    ipcMain.handle('create-checkout-session', async (_event, planId: string, email?: string) => {
+      return await createStripeCheckoutSession(planId, email)
+    })
+
+    ipcMain.handle('verify-and-activate-payment', async (_event, planId: string, email: string, company?: string) => {
+      const res = await verifyAndActivatePayment(planId, email, company)
+      if (res.success) {
+        currentConfig = loadConfig()
+        mainWindow?.webContents.send('config-changed', currentConfig)
+        launcherWindow?.webContents.send('config-changed', currentConfig)
+      }
+      return res
     })
 
     // Supabase Auth IPC Handlers

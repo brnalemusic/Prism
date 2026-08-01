@@ -214,6 +214,26 @@ export interface LoginData {
   password: string
 }
 
+export interface SubscriptionPlan {
+  id: string
+  name: string
+  description: string
+  priceUsd: number
+  billingInterval: 'month' | 'year' | 'decade' | string
+  durationDays: number
+  seats: number
+  badge?: string
+  isActive: boolean
+}
+
+export interface CheckoutSessionResult {
+  success: boolean
+  checkoutUrl?: string
+  sessionId?: string
+  error?: string
+}
+
+
 
 
 

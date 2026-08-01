@@ -661,7 +661,20 @@ const api = {
     ipcRenderer.invoke('auth-reset-password', email),
   authUpdateProfile: (
     updates: Partial<import('../shared/types').UserProfile>
-  ): Promise<import('../shared/types').AuthResponse> => ipcRenderer.invoke('auth-update-profile', updates)
+  ): Promise<import('../shared/types').AuthResponse> => ipcRenderer.invoke('auth-update-profile', updates),
+  getSubscriptionPlans: (): Promise<import('../shared/types').SubscriptionPlan[]> =>
+    ipcRenderer.invoke('get-subscription-plans'),
+  createCheckoutSession: (
+    planId: string,
+    email?: string
+  ): Promise<import('../shared/types').CheckoutSessionResult> =>
+    ipcRenderer.invoke('create-checkout-session', planId, email),
+  verifyAndActivatePayment: (
+    planId: string,
+    email: string,
+    company?: string
+  ): Promise<{ success: boolean; licenseKey?: string; error?: string }> =>
+    ipcRenderer.invoke('verify-and-activate-payment', planId, email, company)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

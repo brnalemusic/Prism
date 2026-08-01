@@ -237,6 +237,16 @@ export interface PrismAPI {
   authUpdateProfile: (
     updates: Partial<import('../shared/types').UserProfile>
   ) => Promise<import('../shared/types').AuthResponse>
+  getSubscriptionPlans: () => Promise<import('../shared/types').SubscriptionPlan[]>
+  createCheckoutSession: (
+    planId: string,
+    email?: string
+  ) => Promise<import('../shared/types').CheckoutSessionResult>
+  verifyAndActivatePayment: (
+    planId: string,
+    email: string,
+    company?: string
+  ) => Promise<{ success: boolean; licenseKey?: string; error?: string }>
 }
 
 
