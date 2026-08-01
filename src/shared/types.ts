@@ -145,4 +145,20 @@ export interface StreamToolCallDelta {
   argsDelta: string
 }
 
+export interface ArtifactItem {
+  id: string
+  type: 'pdf'
+  filename: string
+  path: string
+  htmlContent: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ArtifactState {
+  artifacts: ArtifactItem[]
+  chatId: string
+}
+
+
 

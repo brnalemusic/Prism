@@ -210,6 +210,10 @@ export interface PrismAPI {
   onTodoUpdate: (callback: (data: TodoState) => void) => () => void
   onTodoComplete: (callback: (data: { chatId: string }) => void) => () => void
   getTodoForChat: (chatId: string) => Promise<TodoState | null>
+  onArtifactsUpdate: (callback: (data: { chatId: string; artifacts: import('../shared/types').ArtifactItem[] }) => void) => () => void
+  getArtifactsForChat: (chatId: string) => Promise<import('../shared/types').ArtifactItem[]>
+  openArtifactFile: (filePath: string) => Promise<void>
+  showArtifactInFolder: (filePath: string) => Promise<void>
   getProviders: () => Promise<import('../shared/types').ProviderConfig[]>
   saveProviders: (providers: import('../shared/types').ProviderConfig[]) => Promise<boolean>
   fetchProviderModels: (params: { baseUrl: string; apiKey: string; completionType: import('../shared/types').CompletionType }) => Promise<{ success: boolean; models: import('../shared/types').ProviderModel[]; error?: string }>

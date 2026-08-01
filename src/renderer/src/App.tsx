@@ -22,6 +22,8 @@ import { DownloadProgressOverlay } from './components/DownloadProgressOverlay'
 import { QuestionnaireRenderer } from './components/QuestionnaireRenderer'
 import { MalformedToolCallWarning } from './components/MalformedToolCallWarning'
 import { RenderChatHistory } from './components/RenderChatHistory'
+import { PdfArtifactCard } from './components/PdfArtifactCard'
+import { PdfViewerModal } from './components/PdfViewerModal'
 import { TtsButton } from './components/TtsButton'
 import { CopyMessageButton } from './components/CopyMessageButton'
 import { DemoApp } from './components/demo/DemoApp'
@@ -254,6 +256,7 @@ interface AiMessageProps {
   handleLoadChat?: (id: string) => void
   markdownComponents: Components
   onOpenBrowserTab?: () => void
+  onSelectArtifact?: (id: string) => void
 }
 
 const BROWSER_TOOL_NAMES = new Set([
@@ -277,7 +280,8 @@ const AiMessage = React.memo(function AiMessage({
   currentChatId,
   handleLoadChat,
   markdownComponents,
-  onOpenBrowserTab
+  onOpenBrowserTab,
+  onSelectArtifact
 }: AiMessageProps) {
   const streamStats = useStreamStats(msg.content, !!msg.isStreaming)
   const nativeToolCalls = useMemo(
@@ -592,6 +596,34 @@ const AiMessage = React.memo(function AiMessage({
                     />
                   )
                 }
+                if (tc.name === 'write_pdf' || tc.name === 'edit_pdf') {
+                  const resText = tc.result || ''
+                  const idMatch =
+                    resText.match(/ID:\s*(#?\d{6})/i) ||
+                    (tc.args?.id ? [null, String(tc.args.id)] : null)
+                  const artifactId = idMatch ? idMatch[1].replace('#', '') : undefined
+
+                  const pathMatch =
+                    resText.match(/(?:Saved at|File path):\s*(.+)/i) ||
+                    (tc.args?.path ? [null, String(tc.args.path)] : null)
+                  const filePath = pathMatch ? pathMatch[1].trim() : (tc.args?.path as string | undefined)
+
+                  const filename =
+                    (tc.args?.filename as string) ||
+                    (filePath ? filePath.split(/[\\/]/).pop() : undefined) ||
+                    'document.pdf'
+
+                  return (
+                    <PdfArtifactCard
+                      key={`tc-${item.partIndex}`}
+                      id={artifactId}
+                      filename={filename}
+                      path={filePath}
+                      toolName={tc.name}
+                      onPreview={onSelectArtifact}
+                    />
+                  )
+                }
                 if (!shouldShowInlineTool(tc.status, item.partIndex)) {
                   return null
                 }
@@ -809,12 +841,14 @@ const TabMessagesList = React.memo(function TabMessagesList({
   messages,
   currentChatId,
   handleLoadChat,
-  onOpenBrowserTab
+  onOpenBrowserTab,
+  onSelectArtifact
 }: {
   messages: Message[]
   currentChatId?: string
   handleLoadChat: (id: string) => void
   onOpenBrowserTab?: () => void
+  onSelectArtifact?: (id: string) => void
 }) {
   const markdownComponents = useMemo(
     () => ({
@@ -981,6 +1015,7 @@ const TabMessagesList = React.memo(function TabMessagesList({
                   handleLoadChat={handleLoadChat}
                   markdownComponents={markdownComponents}
                   onOpenBrowserTab={onOpenBrowserTab}
+                  onSelectArtifact={onSelectArtifact}
                 />
               )}
             </div>
@@ -1803,9 +1838,35 @@ function RealApp(): React.JSX.Element {
       if (todo) {
         setChatTodos((prev) => ({ ...prev, [chatId]: todo }))
       }
+
+      if (window.api?.getArtifactsForChat) {
+        const artifacts = await window.api.getArtifactsForChat(chatId)
+        if (artifacts && artifacts.length > 0) {
+          setTabs((prevTabs) =>
+            prevTabs.map((t) => (t.id === activeTabIdRef.current ? { ...t, artifacts } : t))
+          )
+        }
+      }
     } catch (e) {
       console.error('Failed to load chat:', e)
     }
+  }, [])
+
+  const handleSelectArtifact = useCallback((tabId: string, artifactId: string | null) => {
+    setTabs((prevTabs) =>
+      prevTabs.map((t) => (t.id === tabId ? { ...t, selectedArtifactId: artifactId } : t))
+    )
+  }, [])
+
+  useEffect(() => {
+    if (!window.api?.onArtifactsUpdate) {
+      return
+    }
+    return window.api.onArtifactsUpdate(({ chatId, artifacts }) => {
+      setTabs((prevTabs) =>
+        prevTabs.map((t) => (t.chatId === chatId ? { ...t, artifacts } : t))
+      )
+    })
   }, [])
 
   // Sending message logic for active tab
@@ -2783,12 +2844,14 @@ function RealApp(): React.JSX.Element {
                       onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
                       activeWorkflow={activeWorkflow}
                       setActiveWorkflow={setActiveWorkflow}
+                      onSelectArtifact={handleSelectArtifact}
                       renderedMessages={
                         <TabMessagesList
                           messages={tab.messages}
                           currentChatId={tab.chatId}
                           handleLoadChat={handleLoadChat}
                           onOpenBrowserTab={() => handleOpenBrowserTab(tab.id)}
+                          onSelectArtifact={(id) => handleSelectArtifact(tab.id, id)}
                         />
                       }
                     />
@@ -2835,6 +2898,15 @@ function RealApp(): React.JSX.Element {
           }
           handleSend(msg, undefined, undefined, undefined, true)
         }}
+      />
+      <PdfViewerModal
+        artifact={
+          activeTab.selectedArtifactId
+            ? (activeTab.artifacts || []).find((a) => a.id === activeTab.selectedArtifactId) || null
+            : null
+        }
+        isOpen={!!(activeTab.selectedArtifactId && (activeTab.artifacts || []).some((a) => a.id === activeTab.selectedArtifactId))}
+        onClose={() => handleSelectArtifact(activeTab.id, null)}
       />
       {floatingMenu && (
         <div

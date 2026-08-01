@@ -586,6 +586,25 @@ const api = {
   getTodoForChat: (chatId: string): Promise<TodoState | null> => {
     return ipcRenderer.invoke('get-todo-for-chat', chatId)
   },
+  onArtifactsUpdate: (
+    callback: (data: { chatId: string; artifacts: import('../shared/types').ArtifactItem[] }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: { chatId: string; artifacts: import('../shared/types').ArtifactItem[] }
+    ): void => callback(data)
+    ipcRenderer.on('chat-artifacts-update', listener)
+    return () => ipcRenderer.removeListener('chat-artifacts-update', listener)
+  },
+  getArtifactsForChat: (chatId: string): Promise<import('../shared/types').ArtifactItem[]> => {
+    return ipcRenderer.invoke('get-chat-artifacts', chatId)
+  },
+  openArtifactFile: (filePath: string): Promise<void> => {
+    return ipcRenderer.invoke('open-artifact-file', filePath)
+  },
+  showArtifactInFolder: (filePath: string): Promise<void> => {
+    return ipcRenderer.invoke('show-artifact-in-folder', filePath)
+  },
   getProviders: (): Promise<any> => {
     return ipcRenderer.invoke('get-providers')
   },

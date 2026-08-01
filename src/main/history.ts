@@ -2,7 +2,7 @@ import { app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { Content } from '@google/genai'
-import { SessionMode } from '../shared/types'
+import { SessionMode, ArtifactItem } from '../shared/types'
 
 export interface ChatSession {
   id: string
@@ -12,6 +12,7 @@ export interface ChatSession {
   sessionMode?: SessionMode
   disciplinePath?: string
   model?: string
+  artifacts?: ArtifactItem[]
 }
 
 const CHATS_DIR = path.join(
@@ -225,6 +226,16 @@ export function saveChatSession(
 
     const messagesToSave = sanitizeMessagesForSaving(filteredMessages)
 
+    let existingArtifacts: ArtifactItem[] | undefined = undefined
+    if (fs.existsSync(filePath)) {
+      try {
+        const existingData = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
+        existingArtifacts = existingData.artifacts
+      } catch {
+        /* ignore parse errors */
+      }
+    }
+
     const session: ChatSession = {
       id,
       title: sessionTitle !== undefined ? sessionTitle : 'New Conversation',
@@ -232,7 +243,8 @@ export function saveChatSession(
       messages: messagesToSave,
       sessionMode: existingMode,
       disciplinePath: existingPath,
-      model: existingModel
+      model: existingModel,
+      artifacts: existingArtifacts
     }
 
     fs.writeFileSync(filePath, JSON.stringify(session, null, 2))
@@ -240,6 +252,52 @@ export function saveChatSession(
   } catch (error) {
     console.error(`Failed to save chat session ${id}:`, error)
     return false
+  }
+}
+
+/**
+ * Gets all artifacts stored in a chat session.
+ */
+export function getChatArtifacts(id: string): ArtifactItem[] {
+  const session = loadChatSession(id)
+  return session?.artifacts || []
+}
+
+/**
+ * Saves or updates an artifact in a chat session.
+ */
+export function saveChatArtifact(id: string, artifact: ArtifactItem): ChatSession | null {
+  ensureChatsDir()
+  const cleanId = sanitizeId(id)
+  if (!cleanId) return null
+  const filePath = path.join(CHATS_DIR, `chat_${cleanId}.json`)
+  try {
+    let session: ChatSession
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath, 'utf-8')
+      session = JSON.parse(data)
+    } else {
+      session = {
+        id,
+        title: 'New Conversation',
+        lastUpdated: Date.now(),
+        messages: []
+      }
+    }
+    const artifacts = session.artifacts || []
+    const existingIndex = artifacts.findIndex((a) => a.id === artifact.id || a.path === artifact.path)
+    if (existingIndex >= 0) {
+      artifacts[existingIndex] = artifact
+    } else {
+      artifacts.push(artifact)
+    }
+    session.artifacts = artifacts
+    session.lastUpdated = Date.now()
+    fs.writeFileSync(filePath, JSON.stringify(session, null, 2))
+    return session
+  } catch (err) {
+    console.error(`Failed to save artifact for session ${id}:`, err)
+    return null
   }
 }
 

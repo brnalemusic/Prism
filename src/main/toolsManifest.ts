@@ -454,6 +454,27 @@ export const toolsManifest: ToolDefinition[] = [
       js: 'JavaScript logic for interactivity. Must query DOM elements by their IDs or classes, handle events, and maintain state. No external CDN imports unless required.'
     },
     target: 'main'
+  },
+  {
+    name: 'write_pdf',
+    description: 'Generate a PDF document artifact from HTML and CSS code tailored for an A4 paper layout. The PDF will be saved as an artifact in the current conversation and previewable inside Prism.',
+    usage: '[PRISM_EXECUTE_TOOL]{"type":"write_pdf","filename":"report.pdf","html":"<!DOCTYPE html><html><head><style>@page { size: A4; margin: 20mm; }</style></head><body><h1>Title</h1></body></html>"}[/PRISM_EXECUTE_TOOL]',
+    parameters: {
+      filename: 'Optional filename for the PDF (e.g. "report.pdf"). If omitted, a default name will be assigned.',
+      html: 'Required: Complete HTML and CSS code formatted for A4 page layout (including styling, colors, typography, tables/images).'
+    },
+    target: 'main'
+  },
+  {
+    name: 'edit_pdf',
+    description: 'Edit an existing PDF document artifact by passing its 6-digit ID (from the current conversation) or full file PATH, along with updated HTML+CSS content.',
+    usage: '[PRISM_EXECUTE_TOOL]{"type":"edit_pdf","id":"849201","html":"<!DOCTYPE html><html>...</html>"}[/PRISM_EXECUTE_TOOL]',
+    parameters: {
+      id: 'Optional 6-digit string ID of an existing PDF artifact in the current conversation.',
+      path: 'Optional full file PATH of an existing PDF file to edit and overwrite.',
+      html: 'Required: Complete updated HTML and CSS code formatted for A4 page layout.'
+    },
+    target: 'main'
   }
 ]
 

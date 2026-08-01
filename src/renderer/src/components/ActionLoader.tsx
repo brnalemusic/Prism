@@ -18,6 +18,7 @@ import {
   FileCode
 } from '@phosphor-icons/react'
 import { MiniAppRenderer } from './MiniAppRenderer'
+import { PdfArtifactCard } from './PdfArtifactCard'
 
 // Tool labels mapping for simplified display
 const TOOL_LABELS: Record<string, string> = {
@@ -26,6 +27,8 @@ const TOOL_LABELS: Record<string, string> = {
   execute_terminal_command: 'Running terminal command',
   run_command: 'Running terminal command',
   create_mini_app: 'Creating mini app',
+  write_pdf: 'Generating PDF artifact',
+  edit_pdf: 'Updating PDF artifact',
   computer_use_create_file: 'Creating file',
   computer_use_edit_file: 'Editing file',
   replace_file_content: 'Editing file',
@@ -90,6 +93,7 @@ interface ActionLoaderProps {
   toolCall: ToolCall
   mode?: 'compact' | 'full'
   writingArgs?: Record<string, unknown>
+  onSelectArtifact?: (id: string) => void
 }
 
 const phaseColorCodes = {
@@ -1509,7 +1513,7 @@ function BrowserSessionSeparator({
   )
 }
 
-export function ActionLoader({ toolCall, mode = 'compact', writingArgs }: ActionLoaderProps): React.JSX.Element {
+export function ActionLoader({ toolCall, mode = 'compact', writingArgs, onSelectArtifact }: ActionLoaderProps): React.JSX.Element {
   const isRunning = toolCall.status === 'running' || toolCall.status === 'writing'
 
   if (toolCall.name === 'open_browser') {
@@ -1549,6 +1553,38 @@ export function ActionLoader({ toolCall, mode = 'compact', writingArgs }: Action
               js={js}
             />
           </div>
+        )}
+      </div>
+    )
+  }
+
+  if (toolCall.name === 'write_pdf' || toolCall.name === 'edit_pdf') {
+    const isDone = toolCall.status === 'done'
+    const resText = toolCall.result || ''
+
+    const idMatch = resText.match(/ID:\s*(#?\d{6})/i) || (toolCall.args.id ? [null, String(toolCall.args.id)] : null)
+    const artifactId = idMatch ? idMatch[1].replace('#', '') : undefined
+
+    const pathMatch = resText.match(/(?:Saved at|File path):\s*(.+)/i) || (toolCall.args.path ? [null, String(toolCall.args.path)] : null)
+    const filePath = pathMatch ? pathMatch[1].trim() : (toolCall.args.path as string | undefined)
+
+    const filename = (toolCall.args.filename as string) || (filePath ? filePath.split(/[\\/]/).pop() : undefined) || 'document.pdf'
+
+    return (
+      <div className="w-full flex flex-col gap-2 my-2 select-none">
+        {mode === 'full' ? (
+          <FullActionLoader toolCall={toolCall} writingArgs={writingArgs} />
+        ) : (
+          <CompactActionLoader toolCall={toolCall} writingArgs={writingArgs} />
+        )}
+        {isDone && (
+          <PdfArtifactCard
+            id={artifactId}
+            filename={filename}
+            path={filePath}
+            toolName={toolCall.name}
+            onPreview={onSelectArtifact}
+          />
         )}
       </div>
     )

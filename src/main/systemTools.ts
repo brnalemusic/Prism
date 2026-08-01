@@ -5,10 +5,10 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as os from 'os'
 import { toolsManifest } from './toolsManifest'
-import { BrowserAction, DownloadProgress, SessionMode, TodoState } from '../shared/types'
+import { BrowserAction, DownloadProgress, SessionMode, TodoState, ArtifactItem } from '../shared/types'
 
 import { loadConfig, saveConfig, SlashWorkflow } from './config'
-import { searchChatHistory, searchChatMemory, loadChatSession } from './history'
+import { searchChatHistory, searchChatMemory, loadChatSession, getChatArtifacts, saveChatArtifact } from './history'
 import {
   chromium,
   type Browser,
@@ -2868,8 +2868,154 @@ export async function executeSystemTool(
     case 'create_mini_app':
       return 'Mini App created successfully.'
 
+    case 'write_pdf': {
+      try {
+        const html = (args.html || '').toString().trim()
+        if (!html) {
+          return 'Error: HTML+CSS content is required to generate a PDF.'
+        }
+        let filename = (args.filename || 'document.pdf').toString().trim()
+        filename = path.basename(filename)
+        if (!filename.toLowerCase().endsWith('.pdf')) {
+          filename += '.pdf'
+        }
+
+        const targetChatId = chatId || _currentSessionIdForTodo || 'default'
+        const artifactsBaseDir = path.join(app.getPath('documents'), '.prismartifacts')
+        const cleanChatFolder = targetChatId.replace(/[^a-zA-Z0-9-]/g, '') || 'default'
+        const chatDir = path.join(artifactsBaseDir, cleanChatFolder)
+        await fs.mkdir(chatDir, { recursive: true })
+
+        const id = generateArtifact6DigitId()
+        const targetPath = path.join(chatDir, filename)
+
+        await compileHtmlToPdf(html, targetPath)
+
+        const artifact: ArtifactItem = {
+          id,
+          type: 'pdf',
+          filename,
+          path: targetPath,
+          htmlContent: html,
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        }
+
+        saveChatArtifact(targetChatId, artifact)
+        broadcastArtifactsUpdate(targetChatId)
+
+        return `PDF generated successfully!\nID: ${id}\nFilename: ${filename}\nSaved at: ${targetPath}`
+      } catch (err) {
+        return `Error generating PDF: ${err instanceof Error ? err.message : String(err)}`
+      }
+    }
+
+    case 'edit_pdf': {
+      try {
+        const html = (args.html || '').toString().trim()
+        if (!html) {
+          return 'Error: HTML+CSS content is required to update a PDF.'
+        }
+
+        const targetChatId = chatId || _currentSessionIdForTodo || 'default'
+        const existingArtifacts = getChatArtifacts(targetChatId)
+
+        const targetId = (args.id || '').toString().trim()
+        const targetPathArg = (args.path || '').toString().trim()
+
+        let targetArtifact = existingArtifacts.find(
+          (a) =>
+            (targetId && a.id === targetId) ||
+            (targetPathArg && path.normalize(a.path).toLowerCase() === path.normalize(targetPathArg).toLowerCase())
+        )
+
+        let targetPath = ''
+        let artifactId = ''
+        let filename = ''
+
+        if (targetArtifact) {
+          targetPath = targetArtifact.path
+          artifactId = targetArtifact.id
+          filename = targetArtifact.filename
+        } else if (targetPathArg) {
+          targetPath = targetPathArg
+          filename = path.basename(targetPath)
+          artifactId = generateArtifact6DigitId()
+        } else {
+          return `Error: Artifact not found with ID "${targetId}". Please specify a valid artifact ID from the conversation or a valid file PATH.`
+        }
+
+        await compileHtmlToPdf(html, targetPath)
+
+        const updatedArtifact: ArtifactItem = {
+          id: artifactId,
+          type: 'pdf',
+          filename,
+          path: targetPath,
+          htmlContent: html,
+          createdAt: targetArtifact ? targetArtifact.createdAt : Date.now(),
+          updatedAt: Date.now()
+        }
+
+        saveChatArtifact(targetChatId, updatedArtifact)
+        broadcastArtifactsUpdate(targetChatId)
+
+        return `PDF artifact updated successfully!\nID: ${artifactId}\nFilename: ${filename}\nSaved at: ${targetPath}`
+      } catch (err) {
+        return `Error updating PDF: ${err instanceof Error ? err.message : String(err)}`
+      }
+    }
+
     default:
       return `Tool "${toolName}" is registered but not yet wired in the executor. Args received: ${JSON.stringify(args)}`
+  }
+}
+
+async function compileHtmlToPdf(html: string, outputPath: string): Promise<void> {
+  const win = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  })
+
+  try {
+    const encodedHtml = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
+    await win.loadURL(encodedHtml)
+
+    const dir = path.dirname(outputPath)
+    await fs.mkdir(dir, { recursive: true })
+
+    const pdfBuffer = await win.webContents.printToPDF({
+      printBackground: true,
+      pageSize: 'A4',
+      preferCSSPageSize: true
+    })
+
+    await fs.writeFile(outputPath, pdfBuffer)
+  } finally {
+    if (!win.isDestroyed()) {
+      win.destroy()
+    }
+  }
+}
+
+function generateArtifact6DigitId(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString()
+}
+
+function broadcastArtifactsUpdate(targetChatId: string): void {
+  const artifacts = getChatArtifacts(targetChatId)
+  const wins = BrowserWindow.getAllWindows()
+  for (const win of wins) {
+    if (
+      !win.isDestroyed() &&
+      !win.webContents.getURL().includes('#launcher') &&
+      !win.webContents.getURL().includes('#subagents')
+    ) {
+      win.webContents.send('chat-artifacts-update', { chatId: targetChatId, artifacts })
+    }
   }
 }
 
@@ -2886,3 +3032,19 @@ ipcMain.on(
     }
   }
 )
+
+ipcMain.handle('get-chat-artifacts', (_event, chatId: string) => {
+  if (!chatId) return []
+  return getChatArtifacts(chatId)
+})
+
+ipcMain.handle('open-artifact-file', async (_event, filePath: string) => {
+  if (!filePath) return
+  await shell.openPath(filePath)
+})
+
+ipcMain.handle('show-artifact-in-folder', async (_event, filePath: string) => {
+  if (!filePath) return
+  shell.showItemInFolder(filePath)
+})
+

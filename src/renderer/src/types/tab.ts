@@ -1,4 +1,4 @@
-import type { SessionMode } from '../../../shared/types'
+import type { SessionMode, ArtifactItem } from '../../../shared/types'
 
 export interface AttachedFile {
   name: string
@@ -64,4 +64,6 @@ export interface TabSession {
   tabType?: 'chat' | 'browser'
   /** For browser tabs: the id of the chat tab that opened this browser session */
   browserSourceTabId?: string
+  artifacts?: ArtifactItem[]
+  selectedArtifactId?: string | null
 }

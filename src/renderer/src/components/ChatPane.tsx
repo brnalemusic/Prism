@@ -33,6 +33,7 @@ interface ChatPaneProps {
   setActiveWorkflow: (wf: SlashWorkflow | null) => void
   renderedMessages: React.ReactNode
   onSwapSplitTabs?: (sourceTabId: string, targetTabId: string) => void
+  onSelectArtifact?: (tabId: string, artifactId: string | null) => void
 }
 
 export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
@@ -59,7 +60,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
   activeWorkflow,
   setActiveWorkflow,
   renderedMessages,
-  onSwapSplitTabs
+  onSwapSplitTabs,
+  onSelectArtifact
 }) => {
   const inputBarRef = useRef<InputBarHandle>(null)
   const [isDraggingSplit, setIsDraggingSplit] = useState(false)
@@ -261,8 +263,13 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
                 </div>
 
                 <div className="w-full flex flex-col gap-0">
-                  {/* AI Todo card docked above InputBar (landing state) */}
-                  {todo && <TodoPanel todo={todo} />}
+                  {/* AI Todo & Artifacts panel docked above InputBar (landing state) */}
+                  <TodoPanel
+                    todo={todo}
+                    artifacts={tab.artifacts}
+                    selectedArtifactId={tab.selectedArtifactId}
+                    onSelectArtifact={(id) => onSelectArtifact?.(tab.id, id)}
+                  />
                   {/* Questionnaire wizard card docked above InputBar (landing state) */}
                   {activeQuestionnaire && (
                     <QuestionnaireWizard
@@ -334,8 +341,13 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
             )}
 
             <div className="pointer-events-auto max-w-[800px] mx-auto flex flex-col gap-0">
-              {/* AI Todo card docked above InputBar */}
-              {todo && <TodoPanel todo={todo} />}
+              {/* AI Todo & Artifacts panel docked above InputBar */}
+              <TodoPanel
+                todo={todo}
+                artifacts={tab.artifacts}
+                selectedArtifactId={tab.selectedArtifactId}
+                onSelectArtifact={(id) => onSelectArtifact?.(tab.id, id)}
+              />
               {/* Questionnaire wizard card docked above InputBar */}
               {activeQuestionnaire && (
                 <QuestionnaireWizard
