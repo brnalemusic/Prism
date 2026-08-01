@@ -290,6 +290,11 @@ const api = {
     ipcRenderer.on('window-maximized-change', listener)
     return () => ipcRenderer.removeListener('window-maximized-change', listener)
   },
+  onCloseTabShortcut: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('close-tab-shortcut', listener)
+    return () => ipcRenderer.removeListener('close-tab-shortcut', listener)
+  },
   closeApp: (): void => ipcRenderer.send('close-app'),
   openMiniAppWindow: (data: MiniAppData): void => ipcRenderer.send('open-mini-app-window', data),
   closeMiniAppWindow: (id: string): void => ipcRenderer.send('close-mini-app-window', id),

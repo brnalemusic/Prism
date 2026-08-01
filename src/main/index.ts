@@ -433,6 +433,13 @@ function createWindow(): void {
     }
   })
 
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && (input.control || input.meta) && input.key.toLowerCase() === 'w') {
+      event.preventDefault()
+      mainWindow?.webContents.send('close-tab-shortcut')
+    }
+  })
+
   let normalBounds = {
     width: windowState.width,
     height: windowState.height,

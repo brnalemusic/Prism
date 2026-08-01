@@ -13,7 +13,7 @@ interface TabBarProps {
   onModelChange: (modelKey: string) => void
   onSelectTab: (id: string) => void
   onCloseTab: (id: string) => void
-  onCloseAllTabs: () => void
+  onCloseOtherTabs: (keepTabId: string) => void
   onNewTab: () => void
   onOpenBrowserTab: () => void
   onToggleSplitTab: (id: string) => void
@@ -35,7 +35,7 @@ export const TabBar: React.FC<TabBarProps> = ({
   onModelChange,
   onSelectTab,
   onCloseTab,
-  onCloseAllTabs,
+  onCloseOtherTabs,
   onNewTab,
   onOpenBrowserTab,
   onToggleSplitTab,
@@ -383,17 +383,23 @@ export const TabBar: React.FC<TabBarProps> = ({
             <span>Close tab</span>
           </button>
 
-          {/* Close All Tabs */}
+          {/* Close Other Tabs */}
           <button
             type="button"
+            disabled={tabs.length <= 1}
             onClick={() => {
-              onCloseAllTabs()
+              onCloseOtherTabs(contextTab.id)
               setContextMenu(null)
             }}
-            className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium text-status-error hover:bg-status-error/10 transition-colors w-full cursor-pointer"
+            className={clsx(
+              'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full cursor-pointer',
+              tabs.length <= 1
+                ? 'opacity-40 cursor-not-allowed text-text-muted'
+                : 'text-status-error hover:bg-status-error/10'
+            )}
           >
             <SquaresFour size={14} className="shrink-0" />
-            <span>Close all tabs</span>
+            <span>Close other tabs</span>
           </button>
         </div>,
         document.body

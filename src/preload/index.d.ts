@@ -99,6 +99,7 @@ export interface PrismAPI {
   maximizeApp: () => void
   isMaximized: () => Promise<boolean>
   onMaximizedChange: (callback: (isMaximized: boolean) => void) => () => void
+  onCloseTabShortcut: (callback: () => void) => () => void
   closeApp: () => void
   openMiniAppWindow: (data: MiniAppData) => void
   closeMiniAppWindow: (id: string) => void

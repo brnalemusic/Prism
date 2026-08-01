@@ -447,17 +447,17 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'write_pdf',
-    description: 'Generate PDF artifact from A4 HTML/CSS.',
+    description: 'Generate PDF artifact from A4 HTML/CSS. PDF rules: @page A4 15mm margins, cover page 297mm + page-break-after, single-page TOC (no item page breaks), break-inside:avoid on cards/tables, curated fonts/colors.',
     usage: '{"filename":"doc.pdf","html":"HTML"}',
     parameters: {
       filename: 'PDF filename.',
-      html: 'A4 HTML and CSS layout content.'
+      html: 'A4 HTML/CSS with cover, single-page TOC, break-inside:avoid on cards, and clean typography.'
     },
     target: 'main'
   },
   {
     name: 'edit_pdf',
-    description: 'Edit existing PDF artifact.',
+    description: 'Edit existing PDF artifact from updated A4 HTML/CSS (cover 297mm, break-inside:avoid, single-page TOC).',
     usage: '{"id":"123456","html":"HTML"}',
     parameters: {
       id: '6-digit PDF artifact ID.',
@@ -468,17 +468,17 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'write_pptx',
-    description: 'Generate PowerPoint presentation artifact from 16:9 HTML/CSS.',
+    description: 'Generate 16:9 PowerPoint presentation artifact from HTML/CSS. Each slide MUST be <div class="slide"> (1920x1080px, padding 60px 80px, overflow hidden, page-break-after: always). Use grid cards & high visual impact.',
     usage: '{"filename":"pres.pptx","html":"HTML"}',
     parameters: {
       filename: 'PowerPoint filename.',
-      html: '16:9 slide HTML and CSS layout content.'
+      html: '16:9 slide HTML and CSS layout content with <div class="slide"> wrappers.'
     },
     target: 'main'
   },
   {
     name: 'edit_pptx',
-    description: 'Edit existing PowerPoint artifact.',
+    description: 'Edit existing PowerPoint artifact from updated 16:9 slide HTML/CSS (<div class="slide"> 1920x1080px wrappers).',
     usage: '{"id":"123456","html":"HTML"}',
     parameters: {
       id: '6-digit PowerPoint artifact ID.',

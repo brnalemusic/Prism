@@ -32,6 +32,7 @@ import { isShortcutPressed } from './utils'
 import { TabBar } from './components/TabBar'
 import { ChatPane } from './components/ChatPane'
 import { BrowserPane } from './components/BrowserPane'
+import { EmptyTabState } from './components/EmptyTabState'
 import type { TabSession, Message, AttachedFile, StreamingToolCall, ToolCallItem } from './types/tab'
 import {
   StreamContext,
@@ -1453,32 +1454,13 @@ function RealApp(): React.JSX.Element {
         }
       }
 
-      if (prevTabs.length <= 1) {
-        return [
-          {
-            id: prevTabs[0].id,
-            chatId: undefined,
-            title: 'New Chat',
-            messages: [],
-            inputText: '',
-            attachedFile: null,
-            sessionMode: 'execution',
-            disciplinePath: '',
-            isProcessing: false,
-            isTodoOpen: false,
-            selectedModel: selectedModelRef.current,
-            isSearchEnabled: false
-          }
-        ]
-      }
-
       const nextTabs = prevTabs.filter((t) => t.id !== tabId)
 
       setActiveTabId((prevActive) => {
         if (prevActive === tabId) {
           const closedIdx = prevTabs.findIndex((t) => t.id === tabId)
           const newActive = nextTabs[Math.max(0, closedIdx - 1)] || nextTabs[0]
-          return newActive.id
+          return newActive ? newActive.id : ''
         }
         return prevActive
       })
@@ -1496,38 +1478,24 @@ function RealApp(): React.JSX.Element {
     })
   }, [])
 
-  const handleCloseAllTabs = useCallback(() => {
+  const handleCloseOtherTabs = useCallback((keepTabId: string) => {
     setTabs((prevTabs) => {
-      const hasBrowserTab = prevTabs.some((t) => t.tabType === 'browser')
-      if (hasBrowserTab) {
-        const isAnyProcessing = prevTabs.some((t) => t.isProcessing)
-        if (isAnyProcessing) {
+      const closedTabs = prevTabs.filter((t) => t.id !== keepTabId)
+      const hasClosedBrowserTab = closedTabs.some((t) => t.tabType === 'browser')
+      if (hasClosedBrowserTab) {
+        const isAnyRemainingProcessing = prevTabs
+          .filter((t) => t.id === keepTabId)
+          .some((t) => t.isProcessing)
+        if (isAnyRemainingProcessing) {
           pendingBrowserCloseRef.current = true
         } else {
           window.api.closeBrowser().catch(() => {})
         }
       }
-      return prevTabs
+      return prevTabs.filter((t) => t.id === keepTabId)
     })
-
-    const newId = `tab-${Date.now()}`
-    const freshTab: TabSession = {
-      id: newId,
-      chatId: undefined,
-      title: 'New Chat',
-      messages: [],
-      inputText: '',
-      attachedFile: null,
-      sessionMode: 'execution',
-      disciplinePath: '',
-      isProcessing: false,
-      isTodoOpen: false,
-      selectedModel: selectedModelRef.current,
-      isSearchEnabled: false
-    }
-    setTabs([freshTab])
-    setActiveTabId(newId)
-    setVisibleTabIds([newId])
+    setActiveTabId(keepTabId)
+    setVisibleTabIds([keepTabId])
   }, [])
 
   // Close browser session when pending once all AI processing completes
@@ -1902,8 +1870,28 @@ function RealApp(): React.JSX.Element {
       const loadedDisciplinePath: string =
         loadedMode === 'discipline' ? historyItem?.disciplinePath || '' : ''
 
-      setTabs((prevTabs) =>
-        prevTabs.map((t) => {
+      setTabs((prevTabs) => {
+        if (prevTabs.length === 0) {
+          const newId = `tab-${Date.now()}`
+          const newTab: TabSession = {
+            id: newId,
+            chatId,
+            title,
+            messages,
+            inputText: '',
+            attachedFile: null,
+            sessionMode: loadedMode,
+            disciplinePath: loadedDisciplinePath,
+            isProcessing: false,
+            isTodoOpen: false,
+            selectedModel: selectedModelRef.current,
+            isSearchEnabled: false
+          }
+          setActiveTabId(newId)
+          setVisibleTabIds([newId])
+          return [newTab]
+        }
+        return prevTabs.map((t) => {
           if (t.id === activeTabIdRef.current) {
             return {
               ...t,
@@ -1916,7 +1904,7 @@ function RealApp(): React.JSX.Element {
           }
           return t
         })
-      )
+      })
 
       window.api.setSessionMode(loadedMode, loadedDisciplinePath)
 
@@ -2065,7 +2053,7 @@ function RealApp(): React.JSX.Element {
     }
   }, [config])
 
-  // Keyboard shortcut listener for new chat / new tab
+  // Keyboard shortcut listener for new chat / new tab & close tab
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
       if (e.repeat) return
@@ -2073,13 +2061,31 @@ function RealApp(): React.JSX.Element {
       if (isShortcutPressed(e, shortcutStr)) {
         e.preventDefault()
         handleNewChat()
+        return
+      }
+      if (isShortcutPressed(e, 'CmdOrCtrl+W') || isShortcutPressed(e, 'Ctrl+W')) {
+        e.preventDefault()
+        if (activeTabIdRef.current) {
+          handleCloseTab(activeTabIdRef.current)
+        }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [handleNewChat, config?.newChatShortcut])
+  }, [handleNewChat, handleCloseTab, config?.newChatShortcut])
+
+  // IPC Event Listener for close tab shortcut (Ctrl+W / Cmd+W from main process)
+  useEffect(() => {
+    if (!window.api?.onCloseTabShortcut) return
+    const removeListener = window.api.onCloseTabShortcut(() => {
+      if (activeTabIdRef.current) {
+        handleCloseTab(activeTabIdRef.current)
+      }
+    })
+    return () => removeListener()
+  }, [handleCloseTab])
 
   // IPC Event Listeners for background stream updates
   useEffect(() => {
@@ -2769,7 +2775,10 @@ function RealApp(): React.JSX.Element {
           configLoaded={config !== null}
         />
       )}
-      <TitleBar title={activeTab.title || undefined} isStreaming={activeTab.isTitleStreaming} />
+      <TitleBar
+        title={tabs.length > 0 ? activeTab.title || undefined : undefined}
+        isStreaming={tabs.length > 0 ? activeTab.isTitleStreaming : false}
+      />
       <ApiKeyModal
         isOpen={isApiKeyModalOpen}
         onClose={() => setIsApiKeyModalOpen(false)}
@@ -2818,7 +2827,7 @@ function RealApp(): React.JSX.Element {
           onModelChange={handleModelChange}
           onSelectTab={handleSelectTab}
           onCloseTab={handleCloseTab}
-          onCloseAllTabs={handleCloseAllTabs}
+          onCloseOtherTabs={handleCloseOtherTabs}
           onNewTab={handleNewChat}
           onOpenBrowserTab={() => handleOpenBrowserTab(activeTabId)}
           onToggleSplitTab={handleToggleSplitTab}
@@ -2833,7 +2842,10 @@ function RealApp(): React.JSX.Element {
 
         {/* Main Grid View for Tab Panes */}
         {activeView === 'chat' ? (
-          <div className={clsx('grid flex-1 w-full h-full p-2.5 gap-2.5 overflow-hidden', gridLayoutClass)}>
+          tabs.length === 0 ? (
+            <EmptyTabState onNewTab={handleNewChat} />
+          ) : (
+            <div className={clsx('grid flex-1 w-full h-full p-2.5 gap-2.5 overflow-hidden', gridLayoutClass)}>
             {tabs.map((tab) => {
               const visibleIndex = visibleTabs.findIndex((vt) => vt.id === tab.id)
               const isVisible = visibleIndex !== -1
@@ -2938,7 +2950,8 @@ function RealApp(): React.JSX.Element {
               )
             })}
           </div>
-        ) : (
+        )
+      ) : (
           <div className="flex-1 flex items-center justify-center text-text-secondary">
             View coming soon...
           </div>
