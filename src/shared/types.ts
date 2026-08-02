@@ -185,6 +185,7 @@ export interface UserProfile {
   fullName: string
   companyName: string
   accountType: 'individual' | 'enterprise' | 'company' | string
+  emailConfirmed?: boolean
   avatarUrl?: string
   createdAt?: string
   updatedAt?: string

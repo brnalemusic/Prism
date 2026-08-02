@@ -166,7 +166,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               {user.fullName || 'Prism User'}
             </h2>
             <p className="text-xs text-text-secondary truncate">{user.email}</p>
-            <div className="mt-1 flex items-center gap-2">
+            <div className="mt-1 flex items-center gap-2 flex-wrap">
               <span
                 className={`font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
                   isEnterprise
@@ -175,6 +175,16 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 }`}
               >
                 {isEnterprise ? 'ENTERPRISE ACCOUNT' : 'INDIVIDUAL ACCOUNT'}
+              </span>
+
+              <span
+                className={`font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                  user.emailConfirmed
+                    ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-400'
+                    : 'border-amber-500/40 bg-amber-500/15 text-amber-400'
+                }`}
+              >
+                {user.emailConfirmed ? 'EMAIL VERIFIED' : 'EMAIL UNVERIFIED'}
               </span>
             </div>
           </div>
@@ -197,60 +207,98 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
         {/* Prism Cloud AI Quota Card */}
         {!isEditing && (
-          <div className="rounded-2xl border border-accent-primary/20 bg-accent-primary/[0.04] p-4 space-y-3.5">
-            <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-white">
-                <Sparkle size={16} className="text-accent-primary" weight="fill" />
-                <span>Prism Cloud Quota</span>
-              </div>
-            </div>
-
-            {/* 5-Hour Window Progress Bar */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-[11px]">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-text-secondary font-medium">5-Hour Quota</span>
-                  {aiUsage && aiUsage.percentage5h < 100 && aiUsage.reset5hSeconds !== undefined && (
-                    <span className="text-[10px] font-mono text-text-muted/60 select-none">
-                      • {formatResetTime(aiUsage.reset5hSeconds)}
-                    </span>
-                  )}
+          user.emailConfirmed ? (
+            <div className="rounded-2xl border border-accent-primary/20 bg-accent-primary/[0.04] p-4 space-y-3.5">
+              <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
+                <div className="flex items-center gap-2 text-xs font-bold text-white">
+                  <Sparkle size={16} className="text-accent-primary" weight="fill" />
+                  <span>Prism Cloud Quota</span>
                 </div>
-                <span className="font-mono text-[11px] font-bold text-white">
-                  {aiUsage ? `${aiUsage.percentage5h}% Remaining` : '100% Remaining'}
-                </span>
               </div>
-              <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-accent-primary to-cyan-400 rounded-full transition-all duration-500"
-                  style={{ width: `${aiUsage ? aiUsage.percentage5h : 100}%` }}
-                />
-              </div>
-            </div>
 
-            {/* Weekly Window Progress Bar */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-[11px]">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-text-secondary font-medium">Weekly Quota</span>
-                  {aiUsage && aiUsage.percentage1w < 100 && aiUsage.reset1wSeconds !== undefined && (
-                    <span className="text-[10px] font-mono text-text-muted/60 select-none">
-                      • {formatResetTime(aiUsage.reset1wSeconds)}
-                    </span>
-                  )}
+              {/* 5-Hour Window Progress Bar */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px]">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-text-secondary font-medium">5-Hour Quota</span>
+                    {aiUsage && aiUsage.percentage5h < 100 && aiUsage.reset5hSeconds !== undefined && (
+                      <span className="text-[10px] font-mono text-text-muted/60 select-none">
+                        • {formatResetTime(aiUsage.reset5hSeconds)}
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-mono text-[11px] font-bold text-white">
+                    {aiUsage ? `${aiUsage.percentage5h}% Remaining` : '100% Remaining'}
+                  </span>
                 </div>
-                <span className="font-mono text-[11px] font-bold text-white">
-                  {aiUsage ? `${aiUsage.percentage1w}% Remaining` : '100% Remaining'}
-                </span>
+                <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-accent-primary to-cyan-400 rounded-full transition-all duration-500"
+                    style={{ width: `${aiUsage ? aiUsage.percentage5h : 100}%` }}
+                  />
+                </div>
               </div>
-              <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-purple-500 to-accent-primary rounded-full transition-all duration-500"
-                  style={{ width: `${aiUsage ? aiUsage.percentage1w : 100}%` }}
-                />
+
+              {/* Weekly Window Progress Bar */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px]">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-text-secondary font-medium">Weekly Quota</span>
+                    {aiUsage && aiUsage.percentage1w < 100 && aiUsage.reset1wSeconds !== undefined && (
+                      <span className="text-[10px] font-mono text-text-muted/60 select-none">
+                        • {formatResetTime(aiUsage.reset1wSeconds)}
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-mono text-[11px] font-bold text-white">
+                    {aiUsage ? `${aiUsage.percentage1w}% Remaining` : '100% Remaining'}
+                  </span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-purple-500 to-accent-primary rounded-full transition-all duration-500"
+                    style={{ width: `${aiUsage ? aiUsage.percentage1w : 100}%` }}
+                  />
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/[0.06] p-4 space-y-2.5 text-xs text-amber-200">
+              <div className="flex items-center justify-between border-b border-amber-500/20 pb-2">
+                <div className="flex items-center gap-2 font-bold text-white">
+                  <WarningCircle size={18} className="text-amber-400" weight="fill" />
+                  <span>Prism Cloud Models Locked</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                Email verification is required to unlock Prism Cloud free AI models. Check your email inbox or click below to resend the verification link.
+              </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  setErrorMsg(null)
+                  setSuccessMsg(null)
+                  setLoading(true)
+                  try {
+                    const res = await window.api.authResendConfirmation(user.email)
+                    setLoading(false)
+                    if (res.success) {
+                      setSuccessMsg('Verification email sent! Check your inbox.')
+                    } else {
+                      setErrorMsg(res.error || 'Failed to send verification email.')
+                    }
+                  } catch (err: any) {
+                    setLoading(false)
+                    setErrorMsg(err?.message || 'Failed to send verification email.')
+                  }
+                }}
+                disabled={loading}
+                className="w-full py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 font-semibold text-xs transition-all cursor-pointer disabled:opacity-50"
+              >
+                {loading ? <CircleNotch size={16} className="animate-spin mx-auto" /> : 'Resend Verification Email'}
+              </button>
+            </div>
+          )
         )}
 
         {/* Details or Edit Form */}

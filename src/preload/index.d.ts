@@ -240,6 +240,10 @@ export interface PrismAPI {
     updates: Partial<import('../shared/types').UserProfile>
   ) => Promise<import('../shared/types').AuthResponse>
   getUserAiUsage: () => Promise<import('../shared/types').UserAiUsageStatus | null>
+  authResendConfirmation: (email: string) => Promise<{ success: boolean; error?: string }>
+  onAuthSessionUpdated: (
+    callback: (user: import('../shared/types').UserProfile | null) => void
+  ) => () => void
   getSubscriptionPlans: () => Promise<import('../shared/types').SubscriptionPlan[]>
   createCheckoutSession: (
     planId: string,

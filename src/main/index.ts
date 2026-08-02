@@ -82,7 +82,9 @@ import {
   getCurrentAuthUser,
   authResetPassword,
   authUpdateProfile,
-  getUserAiUsage
+  getUserAiUsage,
+  authResendConfirmationEmail,
+  handleDeepLinkAuth
 } from './supabaseAuth'
 import {
   fetchSubscriptionPlans,
@@ -645,13 +647,49 @@ if (process.argv.includes('--install-playwright-browsers')) {
   })
 }
 
+// Register 'prism://' custom protocol scheme for email verification and OAuth callbacks
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('prism', process.execPath, [join(__dirname, '../../')])
+  }
+} else {
+  app.setAsDefaultProtocolClient('prism')
+}
+
+async function processDeepLinkUrl(urlStr: string): Promise<void> {
+  if (!urlStr || !urlStr.startsWith('prism://')) return
+  console.log('[Auth] Processing deep link URL:', urlStr)
+  const updatedUser = await handleDeepLinkAuth(urlStr)
+  if (updatedUser) {
+    currentConfig = loadConfig()
+    mainWindow?.webContents.send('auth-session-updated', updatedUser)
+    mainWindow?.webContents.send('config-changed', currentConfig)
+    launcherWindow?.webContents.send('config-changed', currentConfig)
+
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
+  }
+}
+
+app.on('open-url', (event, urlStr) => {
+  event.preventDefault()
+  processDeepLinkUrl(urlStr).catch((err) => console.error('[Auth] Failed to process open-url:', err))
+})
+
 const gotTheLock = app.requestSingleInstanceLock()
 
 if (!gotTheLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, commandLine) => {
     console.log('Second instance event received')
+    const deepLink = commandLine.find((arg) => arg.startsWith('prism://'))
+    if (deepLink) {
+      processDeepLinkUrl(deepLink).catch((err) => console.error('[Auth] Failed to process deep link:', err))
+    }
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
@@ -667,6 +705,12 @@ if (!gotTheLock) {
 
   app.whenReady().then(() => {
     electronApp.setAppUserModelId(IS_DEMO ? 'com.prism.demo.app' : 'com.prism.app')
+
+    // Check if app was launched via deep link URL (Windows / Linux process.argv)
+    const initialDeepLink = process.argv.find((arg) => arg.startsWith('prism://'))
+    if (initialDeepLink) {
+      processDeepLinkUrl(initialDeepLink).catch((err) => console.error('[Auth] Failed to process initial deep link:', err))
+    }
 
     // Start real-time license expiration monitor
     startLicenseExpirationMonitor(() => {
@@ -1124,6 +1168,10 @@ if (!gotTheLock) {
 
     ipcMain.handle('auth-get-ai-usage', async () => {
       return await getUserAiUsage()
+    })
+
+    ipcMain.handle('auth-resend-confirmation', async (_event, email: string) => {
+      return await authResendConfirmationEmail(email)
     })
 
     ipcMain.on('set-session-mode', (_event, { mode, disciplinePath }) => {

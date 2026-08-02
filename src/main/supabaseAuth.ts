@@ -20,6 +20,15 @@ function getSupabaseClient(): SupabaseClient {
         detectSessionInUrl: false
       }
     })
+
+    // Listen to token refresh and auth events to automatically keep session saved on disk
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        saveSessionSecurely(session)
+      } else if (event === 'SIGNED_OUT') {
+        saveSessionSecurely(null)
+      }
+    })
   }
   return supabase
 }
@@ -125,6 +134,7 @@ async function buildUserProfile(user: User): Promise<UserProfile> {
   let companyName = user.user_metadata?.company_name || ''
   let accountType = user.user_metadata?.account_type || 'individual'
   let avatarUrl = user.user_metadata?.avatar_url || ''
+  const emailConfirmed = !!(user.email_confirmed_at || user.confirmed_at)
 
   try {
     const { data: profile } = await client
@@ -149,6 +159,7 @@ async function buildUserProfile(user: User): Promise<UserProfile> {
     fullName,
     companyName,
     accountType,
+    emailConfirmed,
     avatarUrl
   }
 }
@@ -175,6 +186,7 @@ export async function authSignUp(data: SignUpData): Promise<AuthResponse> {
       email: data.email.trim(),
       password: data.password,
       options: {
+        emailRedirectTo: 'prism://auth-callback',
         data: {
           full_name: data.fullName.trim(),
           company_name: (data.companyName || '').trim(),
@@ -291,12 +303,103 @@ export async function getCurrentAuthUser(): Promise<UserProfile | null> {
 }
 
 /**
+ * Fast check if user email is verified
+ */
+export async function isUserEmailVerified(): Promise<boolean> {
+  try {
+    const { user } = await ensureActiveSession()
+    if (!user) return false
+    return !!(user.email_confirmed_at || user.confirmed_at)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Resends confirmation email for unverified user account
+ */
+export async function authResendConfirmationEmail(email: string): Promise<{ success: boolean; error?: string }> {
+  const client = getSupabaseClient()
+  try {
+    const { error } = await client.auth.resend({
+      type: 'signup',
+      email: email.trim(),
+      options: {
+        emailRedirectTo: 'prism://auth-callback'
+      }
+    })
+    if (error) {
+      return { success: false, error: error.message }
+    }
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to resend verification email.' }
+  }
+}
+
+/**
+ * Handles incoming deep link URL (e.g. prism://auth-callback#access_token=... or ?token_hash=...)
+ */
+export async function handleDeepLinkAuth(urlStr: string): Promise<UserProfile | null> {
+  const client = getSupabaseClient()
+  try {
+    let accessToken = ''
+    let refreshToken = ''
+    let tokenHash = ''
+    let type = ''
+
+    if (urlStr.includes('#')) {
+      const hashPart = urlStr.split('#')[1]
+      const params = new URLSearchParams(hashPart)
+      accessToken = params.get('access_token') || ''
+      refreshToken = params.get('refresh_token') || ''
+    }
+
+    if (urlStr.includes('?')) {
+      const queryPart = urlStr.split('?')[1].split('#')[0]
+      const params = new URLSearchParams(queryPart)
+      if (!accessToken) accessToken = params.get('access_token') || ''
+      if (!refreshToken) refreshToken = params.get('refresh_token') || ''
+      tokenHash = params.get('token_hash') || params.get('token') || ''
+      type = params.get('type') || 'signup'
+    }
+
+    if (accessToken && refreshToken) {
+      const { data, error } = await client.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken
+      })
+      if (!error && data.session && data.user) {
+        saveSessionSecurely(data.session)
+        syncLocalLicenseWithSupabase(data.session.access_token).catch(() => {})
+        return await buildUserProfile(data.user)
+      }
+    } else if (tokenHash) {
+      const { data, error } = await client.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: (type as any) || 'signup'
+      })
+      if (!error && data.session && data.user) {
+        saveSessionSecurely(data.session)
+        syncLocalLicenseWithSupabase(data.session.access_token).catch(() => {})
+        return await buildUserProfile(data.user)
+      }
+    }
+  } catch (err) {
+    console.error('[Auth] Error handling deep link auth:', err)
+  }
+  return null
+}
+
+/**
  * Requests password reset email
  */
 export async function authResetPassword(email: string): Promise<{ success: boolean; error?: string }> {
   const client = getSupabaseClient()
   try {
-    const { error } = await client.auth.resetPasswordForEmail(email.trim())
+    const { error } = await client.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: 'prism://auth-callback'
+    })
     if (error) {
       return { success: false, error: error.message }
     }
@@ -356,6 +459,19 @@ export async function authUpdateProfile(updates: Partial<UserProfile>): Promise<
   } catch (err: any) {
     console.error('[Auth] Unexpected error updating profile:', err)
     return { success: false, error: err?.message || 'Failed to update profile.' }
+  }
+}
+
+/**
+ * Synchronously check if the logged-in user email is verified
+ */
+export function isUserEmailVerifiedSync(): boolean {
+  try {
+    const session = loadSessionSecurely()
+    if (!session || !session.user) return false
+    return !!(session.user.email_confirmed_at || session.user.confirmed_at)
+  } catch {
+    return false
   }
 }
 

@@ -77,6 +77,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
     }
   }
 
+  const handleResendConfirmation = async () => {
+    if (!email) {
+      setErrorMsg('Please enter your email address to resend verification link.')
+      return
+    }
+    setErrorMsg(null)
+    setSuccessMsg(null)
+    setLoading(true)
+    try {
+      const res = await window.api.authResendConfirmation(email)
+      setLoading(false)
+      if (res.success) {
+        setSuccessMsg('Verification link sent! Check your email inbox to confirm your account.')
+      } else {
+        setErrorMsg(res.error || 'Failed to send verification email. Please check your email address.')
+      }
+    } catch (err: any) {
+      setLoading(false)
+      setErrorMsg(err?.message || 'Failed to send verification email.')
+    }
+  }
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
     resetForm()
@@ -108,7 +130,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       }
 
       onAuthSuccess(res.user)
-      onClose()
+      if (!res.user.emailConfirmed) {
+        setSuccessMsg('Account created! A verification link has been sent to your email. You can verify anytime to unlock Prism Cloud AI models.')
+      } else {
+        onClose()
+      }
     } catch (err: any) {
       setLoading(false)
       setErrorMsg(err?.message || 'An unexpected error occurred during registration.')
@@ -175,7 +201,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
           <div className="space-y-0.5">
             <span className="font-bold text-white block">Unlock Free AI Access</span>
             <p className="text-[11px] text-blue-200/80 leading-snug">
-              Sign in or create an account to instantly unlock free AI models powered by Prism Cloud!
+              Sign in and verify your email to unlock free AI models powered by Prism Cloud (available for all verified accounts)!
             </p>
           </div>
         </div>
@@ -208,9 +234,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
 
         {/* Status Banners */}
         {errorMsg && (
-          <div className="flex items-start gap-2.5 rounded-xl border border-status-error/30 bg-status-error/10 p-3 text-xs text-status-error animate-soft-pop">
-            <WarningCircle size={18} weight="fill" className="shrink-0 mt-0.5" />
-            <span className="leading-tight">{errorMsg}</span>
+          <div className="flex flex-col gap-2 rounded-xl border border-status-error/30 bg-status-error/10 p-3 text-xs text-status-error animate-soft-pop">
+            <div className="flex items-start gap-2.5">
+              <WarningCircle size={18} weight="fill" className="shrink-0 mt-0.5" />
+              <span className="leading-tight">{errorMsg}</span>
+            </div>
+            {email && (
+              <button
+                type="button"
+                onClick={handleResendConfirmation}
+                className="self-end text-[11px] font-semibold text-accent-primary hover:underline cursor-pointer pt-1"
+              >
+                Resend Verification Email
+              </button>
+            )}
           </div>
         )}
 

@@ -1,6 +1,6 @@
 import { ProviderConfig, ProviderModel, CompletionType } from '../../shared/types'
 import { loadConfig, saveConfig } from '../config'
-import { isUserAuthenticated } from '../supabaseAuth'
+import { isUserAuthenticated, isUserEmailVerifiedSync } from '../supabaseAuth'
 import {
   isModelTrusted,
   normalizeBaseUrl,
@@ -114,7 +114,8 @@ export function getAllProviders(): ProviderConfig[] {
       models: Array.isArray(p?.models) ? p.models : []
     }))
 
-  if (isUserAuthenticated()) {
+  // Prism Cloud is ONLY accessible to users with a VERIFIED email address
+  if (isUserAuthenticated() && isUserEmailVerifiedSync()) {
     providers.unshift(PRISM_PROVIDER)
   }
   return providers

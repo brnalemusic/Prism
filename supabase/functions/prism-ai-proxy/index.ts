@@ -27,12 +27,23 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-    // 1. Verify user JWT token
+    // 1. Verify user JWT token & email confirmation
     const { data: userData, error: userErr } = await supabase.auth.getUser(jwt)
     if (userErr || !userData?.user) {
       return new Response(
         JSON.stringify({ error: 'Invalid or expired session. Please log in again.' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    const isEmailConfirmed = !!(userData.user.email_confirmed_at || userData.user.confirmed_at)
+    if (!isEmailConfirmed) {
+      return new Response(
+        JSON.stringify({
+          error: 'Email verification required to access Prism Cloud models. Please check your inbox and verify your email address.',
+          emailUnverified: true
+        }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 

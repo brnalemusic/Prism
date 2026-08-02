@@ -1119,6 +1119,14 @@ function RealApp(): React.JSX.Element {
         })
         .catch((err) => console.error('[Auth] Initial getAuthUser failed:', err))
     }
+
+    if (window.api?.onAuthSessionUpdated) {
+      const unsub = window.api.onAuthSessionUpdated((user) => {
+        setAuthUser(user)
+      })
+      return unsub
+    }
+    return () => {}
   }, [])
 
   const isKeyMissing = useMemo(() => {

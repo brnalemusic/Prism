@@ -668,6 +668,18 @@ const api = {
   ): Promise<import('../shared/types').AuthResponse> => ipcRenderer.invoke('auth-update-profile', updates),
   getUserAiUsage: (): Promise<import('../shared/types').UserAiUsageStatus | null> =>
     ipcRenderer.invoke('auth-get-ai-usage'),
+  authResendConfirmation: (email: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('auth-resend-confirmation', email),
+  onAuthSessionUpdated: (
+    callback: (user: import('../shared/types').UserProfile | null) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      user: import('../shared/types').UserProfile | null
+    ): void => callback(user)
+    ipcRenderer.on('auth-session-updated', listener)
+    return () => ipcRenderer.removeListener('auth-session-updated', listener)
+  },
   getSubscriptionPlans: (): Promise<import('../shared/types').SubscriptionPlan[]> =>
     ipcRenderer.invoke('get-subscription-plans'),
   createCheckoutSession: (
