@@ -127,3 +127,68 @@ export function startLicenseExpirationMonitor(onExpired: () => void): () => void
   return () => clearInterval(interval)
 }
 
+const SUPABASE_URL = 'https://jfqyqkkdmoqdpejzxdhd.supabase.co'
+const SUPABASE_ANON_KEY = 'sb_publishable_WcCSfH1dSXUzHDjlQGk2kw_4TQcAt4Q'
+const EDGE_BASE = `${SUPABASE_URL}/functions/v1`
+
+/**
+ * Syncs the currently active local Enterprise key with Supabase for the logged-in user session.
+ */
+export async function syncLocalLicenseWithSupabase(accessToken: string): Promise<boolean> {
+  const licenseInfo = getLicenseInfo()
+  if (!licenseInfo || !licenseInfo.key) return false
+
+  try {
+    const res = await fetch(`${EDGE_BASE}/activate-local-license`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({ license_key: licenseInfo.key })
+    })
+
+    const data = await res.json()
+    if (!res.ok || !data.success) {
+      console.warn('[LicenseSync] Failed to sync local license with Supabase:', data?.error)
+      return false
+    }
+
+    console.log('[LicenseSync] Successfully synced local Enterprise license with Supabase account.')
+    return true
+  } catch (err) {
+    console.error('[LicenseSync] Network error syncing local license:', err)
+    return false
+  }
+}
+
+/**
+ * Revokes the online Enterprise status for the logged-in user session when they log out or deactivate.
+ */
+export async function revokeLocalLicenseFromSupabase(accessToken: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${EDGE_BASE}/deactivate-local-license`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${accessToken}`
+      }
+    })
+
+    const data = await res.json()
+    if (!res.ok || !data.success) {
+      console.warn('[LicenseSync] Failed to revoke online enterprise status:', data?.error)
+      return false
+    }
+
+    console.log('[LicenseSync] Successfully revoked online enterprise status.')
+    return true
+  } catch (err) {
+    console.error('[LicenseSync] Network error revoking online license status:', err)
+    return false
+  }
+}
+
+

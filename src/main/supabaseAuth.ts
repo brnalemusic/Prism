@@ -3,6 +3,7 @@ import { safeStorage, app } from 'electron'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { UserProfile, AuthResponse, SignUpData, LoginData, UserAiUsageStatus } from '../shared/types'
+import { syncLocalLicenseWithSupabase, revokeLocalLicenseFromSupabase } from './license'
 
 // Supabase Configuration for Prism Agent Project
 const SUPABASE_URL = 'https://jfqyqkkdmoqdpejzxdhd.supabase.co'
@@ -156,8 +157,11 @@ async function buildUserProfile(user: User): Promise<UserProfile> {
  * Initializes and restores session on main process boot up
  */
 export async function initializeAuthSession(): Promise<UserProfile | null> {
-  const { user } = await ensureActiveSession()
+  const { session, user } = await ensureActiveSession()
   if (!user) return null
+  if (session?.access_token) {
+    syncLocalLicenseWithSupabase(session.access_token).catch(() => {})
+  }
   return await buildUserProfile(user)
 }
 
@@ -189,6 +193,7 @@ export async function authSignUp(data: SignUpData): Promise<AuthResponse> {
 
     if (authRes.session) {
       saveSessionSecurely(authRes.session)
+      syncLocalLicenseWithSupabase(authRes.session.access_token).catch(() => {})
     }
 
     const userProfile = await buildUserProfile(authRes.user)
@@ -238,6 +243,7 @@ export async function authLogin(data: LoginData): Promise<AuthResponse> {
     }
 
     saveSessionSecurely(authRes.session)
+    syncLocalLicenseWithSupabase(authRes.session.access_token).catch(() => {})
     const userProfile = await buildUserProfile(authRes.user)
 
     return {
@@ -258,6 +264,10 @@ export async function authLogin(data: LoginData): Promise<AuthResponse> {
 export async function authLogout(): Promise<boolean> {
   const client = getSupabaseClient()
   try {
+    const token = await getAuthAccessToken()
+    if (token) {
+      await revokeLocalLicenseFromSupabase(token).catch(() => {})
+    }
     await client.auth.signOut()
     saveSessionSecurely(null)
     return true
@@ -267,6 +277,7 @@ export async function authLogout(): Promise<boolean> {
     return true
   }
 }
+
 
 /**
  * Gets currently logged-in user profile

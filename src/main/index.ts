@@ -59,7 +59,8 @@ import {
   getAppsList
 } from './appScanner'
 import { loadConfig, saveConfig, AppConfig } from './config'
-import { activateLicenseKey, deactivateLicense, getLicenseInfo, startLicenseExpirationMonitor } from './license'
+import { activateLicenseKey, deactivateLicense, getLicenseInfo, startLicenseExpirationMonitor, syncLocalLicenseWithSupabase, revokeLocalLicenseFromSupabase } from './license'
+import { getAuthAccessToken } from './supabaseAuth'
 import { toolsManifest } from './toolsManifest'
 import { listChatSessions, loadChatSession, deleteChatSession, searchChatsOffline } from './history'
 import {
@@ -1041,17 +1042,26 @@ if (!gotTheLock) {
       }
     })
 
-    ipcMain.handle('activate-license', (_event, key: string) => {
+    ipcMain.handle('activate-license', async (_event, key: string) => {
       const result = activateLicenseKey(key)
       if (result.success) {
         currentConfig = loadConfig()
         mainWindow?.webContents.send('config-changed', currentConfig)
         launcherWindow?.webContents.send('config-changed', currentConfig)
+
+        const token = await getAuthAccessToken()
+        if (token) {
+          await syncLocalLicenseWithSupabase(token).catch(() => {})
+        }
       }
       return result
     })
 
-    ipcMain.handle('deactivate-license', () => {
+    ipcMain.handle('deactivate-license', async () => {
+      const token = await getAuthAccessToken()
+      if (token) {
+        await revokeLocalLicenseFromSupabase(token).catch(() => {})
+      }
       const success = deactivateLicense()
       if (success) {
         currentConfig = loadConfig()
