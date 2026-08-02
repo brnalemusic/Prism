@@ -157,6 +157,8 @@ let launcherWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 let cachedApps: ApplicationInfo[] = []
+// Stored so we can clear it in will-quit to prevent lingering timers
+let connectivityIntervalId: ReturnType<typeof setInterval> | null = null
 
 const miniAppWindows = new Map<string, BrowserWindow>()
 const miniAppDataMap = new Map<
@@ -446,7 +448,9 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      webviewTag: true
+      webviewTag: true,
+      // Disable spellcheck to reduce background Chromium memory overhead
+      spellcheck: false
     }
   })
 
@@ -550,7 +554,9 @@ function createLauncherWindow(): void {
       : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      // Disable spellcheck to reduce background Chromium memory overhead
+      spellcheck: false
     }
   })
 
@@ -960,7 +966,8 @@ if (!gotTheLock) {
     })
 
     ipcMain.handle('save-config', (_event, config: Partial<AppConfig>) => {
-      const success = saveConfig(config)
+      // Pass currentConfig to avoid saveConfig re-reading the disk unnecessarily
+      const success = saveConfig(config, currentConfig)
       if (success) {
         currentConfig = loadConfig()
         if (!IS_DEMO) registerGlobalShortcuts()
@@ -1168,17 +1175,34 @@ if (!gotTheLock) {
     updateNativeIcons()
 
     // ── Connectivity monitor ──────────────────────────────────────────────────
-    // Polls for internet connectivity every 5 seconds and pushes state changes
-    // to the renderer via IPC. Uses a lightweight fetch (no Gemini API call)
-    // so it's safe to run frequently without side effects.
+    // Polls for internet connectivity and pushes state changes to the renderer.
+    // Interval adapts: 5s when offline (fast recovery detection), 15s when
+    // online (stable connection requires less frequent checks).
     let lastConnectivityState: boolean | null = null
-    setInterval(async () => {
+    const checkConnectivity = async (): Promise<void> => {
       const online = await checkInternetConnectivity()
       if (online !== lastConnectivityState) {
         lastConnectivityState = online
         mainWindow?.webContents.send('connectivity-changed', online)
       }
-    }, 5000)
+    }
+
+    // Start with a 5s interval; adjust dynamically based on state
+    const startConnectivityPoller = (): void => {
+      if (connectivityIntervalId) clearInterval(connectivityIntervalId)
+      const intervalMs = lastConnectivityState === false ? 5000 : 15000
+      connectivityIntervalId = setInterval(async () => {
+        const prevState = lastConnectivityState
+        await checkConnectivity()
+        // Restart with new interval if state changed (offline→online or vice versa)
+        if (lastConnectivityState !== prevState) {
+          startConnectivityPoller()
+        }
+      }, intervalMs)
+    }
+
+    // Run once immediately to get the initial state, then start polling
+    checkConnectivity().then(() => startConnectivityPoller())
 
     app.on('activate', function () {
       if (BrowserWindow.getAllWindows().length === 0) {
@@ -1202,5 +1226,10 @@ if (!gotTheLock) {
   app.on('will-quit', () => {
     globalShortcut.unregisterAll()
     stopKeepAlive()
+    // Clean up connectivity poller to prevent lingering timers after quit
+    if (connectivityIntervalId) {
+      clearInterval(connectivityIntervalId)
+      connectivityIntervalId = null
+    }
   })
 }

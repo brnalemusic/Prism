@@ -239,8 +239,34 @@ export function loadConfig(): AppConfig {
       return DEFAULT_CONFIG
     }
 
-    const data = fs.readFileSync(CONFIG_FILE, 'utf-8')
-    const parsedConfig = JSON.parse(data)
+    let data: string
+    try {
+      data = fs.readFileSync(CONFIG_FILE, 'utf-8')
+    } catch (readErr) {
+      console.error('[Config] Failed to read config file:', readErr)
+      return DEFAULT_CONFIG
+    }
+
+    let parsedConfig: any
+    try {
+      parsedConfig = JSON.parse(data)
+    } catch (parseErr) {
+      // Config file is corrupted — back it up and start fresh
+      console.error('[Config] Config file is corrupted. Backing up and resetting to defaults.', parseErr)
+      const backupPath = CONFIG_FILE + `.corrupted.${Date.now()}.bak`
+      try {
+        fs.copyFileSync(CONFIG_FILE, backupPath)
+        console.log(`[Config] Corrupted config backed up to: ${backupPath}`)
+      } catch (backupErr) {
+        console.error('[Config] Failed to back up corrupted config:', backupErr)
+      }
+      try {
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(DEFAULT_CONFIG, null, 2))
+      } catch (writeErr) {
+        console.error('[Config] Failed to write default config:', writeErr)
+      }
+      return DEFAULT_CONFIG
+    }
 
     // One-time clean reset for v8.0.0 migration
     if (!parsedConfig.hasResetV8Keys) {
@@ -284,13 +310,22 @@ export function loadConfig(): AppConfig {
   }
 }
 
-export function saveConfig(config: Partial<AppConfig>): boolean {
+/**
+ * Saves a partial config by merging with the current on-disk config.
+ *
+ * @param config  The fields to save.
+ * @param currentConfig  Optional: pass the already-loaded config to avoid
+ *   reading the config file from disk again (eliminates a redundant
+ *   read + safeStorage decrypt on every save call).
+ */
+export function saveConfig(config: Partial<AppConfig>, currentConfig?: AppConfig): boolean {
   try {
     if (!fs.existsSync(CONFIG_DIR)) {
       fs.mkdirSync(CONFIG_DIR, { recursive: true })
     }
 
-    const existingConfig = loadConfig()
+    // Use the caller-supplied config snapshot to avoid a redundant disk read
+    const existingConfig = currentConfig ?? loadConfig()
     const mergedConfig = { ...existingConfig, ...config }
     const configToSave = normalizeConfig(mergedConfig)
 

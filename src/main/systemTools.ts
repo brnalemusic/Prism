@@ -68,6 +68,8 @@ type DownloadCompletionResult =
   | { success: true; filePath: string; filename: string }
   | { success: false; error: string }
 
+// Max concurrent download-complete listeners to prevent unbounded array growth
+const MAX_DOWNLOAD_LISTENERS = 50
 let downloadCompleteListeners: Array<(id: string, result: DownloadCompletionResult) => void> = []
 const DIRECT_DOWNLOAD_EXTENSIONS = new Set([
   '.7z',
@@ -228,12 +230,19 @@ export async function waitForDownloadCompletion(timeoutMs = 4000): Promise<Downl
       resolve(getCompletedDownload())
     }, timeoutMs)
 
-    const onComplete = (id: string, result: DownloadCompletionResult) => {
+    const onComplete = (id: string, result: DownloadCompletionResult): void => {
+      // Auto-remove from listeners array to prevent stale closure accumulation
+      downloadCompleteListeners = downloadCompleteListeners.filter((fn) => fn !== onComplete)
       clearTimeout(timer)
       consumedDownloadResults.add(id)
       resolve(result)
     }
 
+    // Guard against runaway growth — evict oldest listener if at capacity
+    if (downloadCompleteListeners.length >= MAX_DOWNLOAD_LISTENERS) {
+      console.warn(`[Download] Listener cap (${MAX_DOWNLOAD_LISTENERS}) reached, evicting oldest listener`)
+      downloadCompleteListeners.shift()
+    }
     downloadCompleteListeners.push(onComplete)
   })
 }

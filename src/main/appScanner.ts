@@ -22,9 +22,12 @@ interface RawExeEntry {
 }
 
 const CACHE_VERSION = 2
-const MAX_CONCURRENT_SCANS = 4
+// Reduced from 4 → 2 to prevent startup RAM spikes (each scan spawns a PowerShell process)
+const MAX_CONCURRENT_SCANS = 2
 const MIN_EXE_SIZE_BYTES = 100 * 1024
 const SCAN_TIMEOUT_MS = 60_000
+// Startup delay before background scan — lets the app fully load before hitting the disk
+const STARTUP_SCAN_DELAY_MS = 10_000
 
 const EXCLUDED_ROOT_DIRS = new Set([
   'windows', 'winxsx', '$recycle.bin', 'programdata', 'recovery',
@@ -169,7 +172,8 @@ async function scanDirectory(dirPath: string): Promise<ApplicationInfo[]> {
   const psCommand = `Get-ChildItem -Path '${dirPath}' -Recurse -Filter *.exe -File -ErrorAction SilentlyContinue -Depth 6 | Select-Object FullName, Length | ConvertTo-Json -Compress`
 
   return new Promise((resolve) => {
-    execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', psCommand], { maxBuffer: 50 * 1024 * 1024, timeout: SCAN_TIMEOUT_MS }, (_err, stdout) => {
+    // Buffer reduced from 50MB → 20MB to halve peak memory usage per process
+    execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', psCommand], { maxBuffer: 20 * 1024 * 1024, timeout: SCAN_TIMEOUT_MS }, (_err, stdout) => {
       if (!stdout?.trim()) {
         resolve([])
         return
@@ -346,14 +350,18 @@ export async function initAppScanner(): Promise<void> {
     allApps = deduplicateApps(cachedDirs.flatMap((cd) => cd.apps))
     console.log(`appScanner: Loaded ${allApps.length} apps from cache (age: ${Math.round((Date.now() - lastScanTime) / 60000)}min)`)
   } else {
-    console.log('appScanner: No cache found, performing initial scan...')
+    console.log('appScanner: No cache found — background scan scheduled in 10s...')
   }
 
   if (appsUpdatedCallback) {
     try { appsUpdatedCallback(allApps) } catch (e) { console.error(e) }
   }
 
-  backgroundSmartScan()
+  // Delay the background scan so the app can finish initializing before
+  // spawning PowerShell processes that spike memory usage on startup.
+  setTimeout(() => {
+    backgroundSmartScan()
+  }, STARTUP_SCAN_DELAY_MS)
 }
 
 export async function forceRescan(): Promise<ApplicationInfo[]> {

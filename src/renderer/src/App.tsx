@@ -2138,6 +2138,11 @@ function RealApp(): React.JSX.Element {
     return () => removeListener()
   }, [handleCloseTab])
 
+  // Refs used to batch rapid onChatChunk events into a single React re-render
+  // per animation frame, preventing excessive GC pressure during heavy streaming.
+  const pendingChunkRef = useRef<Parameters<Parameters<typeof window.api.onChatChunk>[0]>[0] | null>(null)
+  const rafIdRef = useRef<number | null>(null)
+
   // IPC Event Listeners for background stream updates
   useEffect(() => {
     const removeChatStartListener = window.api.onChatStart((data) => {
@@ -2167,7 +2172,7 @@ function RealApp(): React.JSX.Element {
       )
     })
 
-    const removeChatChunkListener = window.api.onChatChunk((data) => {
+    const flushChunk = (data: Parameters<Parameters<typeof window.api.onChatChunk>[0]>[0]): void => {
       const {
         chatId,
         thoughts,
@@ -2232,9 +2237,42 @@ function RealApp(): React.JSX.Element {
           return tab
         })
       )
+    }
+
+    // Batch rapid chunk events into a single state update per animation frame.
+    // During fast streaming, multiple IPC events fire per frame; batching ensures
+    // we only pay the React re-render cost once per frame.
+    const removeChatChunkListener = window.api.onChatChunk((data) => {
+      // Always keep the latest chunk (most complete state) as pending
+      pendingChunkRef.current = data
+
+      // Schedule a flush if one isn't already pending
+      if (rafIdRef.current === null) {
+        rafIdRef.current = requestAnimationFrame(() => {
+          rafIdRef.current = null
+          const pendingData = pendingChunkRef.current
+          if (pendingData) {
+            pendingChunkRef.current = null
+            flushChunk(pendingData)
+          }
+        })
+      }
     })
 
+
     const removeChatEndListener = window.api.onChatEnd((data) => {
+      // Flush any pending chunk before processing end-of-stream,
+      // then cancel the RAF so a stale chunk can't overwrite the final state.
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = null
+      }
+      const pendingData = pendingChunkRef.current
+      if (pendingData) {
+        pendingChunkRef.current = null
+        flushChunk(pendingData)
+      }
+
       const { chatId, thoughts, finalResponse, thinkingDuration: eventDuration } = data
       setRunningChats((prev) => {
         const next = { ...prev }
@@ -2690,6 +2728,12 @@ function RealApp(): React.JSX.Element {
     })
 
     return () => {
+      // Cancel any pending RAF to avoid stale state updates after cleanup
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = null
+      }
+      pendingChunkRef.current = null
       removeChatStartListener()
       removeChatChunkListener()
       removeChatEndListener()

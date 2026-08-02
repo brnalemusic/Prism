@@ -12,8 +12,7 @@ import {
   EnvelopeSimple,
   PencilSimple,
   Check,
-  Sparkle,
-  Clock
+  Sparkle
 } from '@phosphor-icons/react'
 import type { UserProfile, UserAiUsageStatus } from '../../../shared/types'
 
@@ -213,9 +212,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 <div className="flex items-center gap-1.5">
                   <span className="text-text-secondary font-medium">5-Hour Quota</span>
                   {aiUsage && aiUsage.percentage5h < 100 && aiUsage.reset5hSeconds !== undefined && (
-                    <span className="text-[10px] text-accent-primary font-mono flex items-center gap-1 bg-accent-primary/10 px-1.5 py-0.5 rounded-full border border-accent-primary/20">
-                      <Clock size={10} weight="bold" />
-                      {formatResetTime(aiUsage.reset5hSeconds)}
+                    <span className="text-[10px] font-mono text-text-muted/60 select-none">
+                      • {formatResetTime(aiUsage.reset5hSeconds)}
                     </span>
                   )}
                 </div>
@@ -237,9 +235,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 <div className="flex items-center gap-1.5">
                   <span className="text-text-secondary font-medium">Weekly Quota</span>
                   {aiUsage && aiUsage.percentage1w < 100 && aiUsage.reset1wSeconds !== undefined && (
-                    <span className="text-[10px] text-purple-400 font-mono flex items-center gap-1 bg-purple-500/10 px-1.5 py-0.5 rounded-full border border-purple-500/20">
-                      <Clock size={10} weight="bold" />
-                      {formatResetTime(aiUsage.reset1wSeconds)}
+                    <span className="text-[10px] font-mono text-text-muted/60 select-none">
+                      • {formatResetTime(aiUsage.reset1wSeconds)}
                     </span>
                   )}
                 </div>
