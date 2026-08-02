@@ -126,6 +126,35 @@ async function ensureActiveSession(): Promise<{ session: Session | null; user: U
 }
 
 /**
+ * Ensures user profile row exists in public.profiles table
+ */
+async function ensureProfileRow(user: User): Promise<void> {
+  const client = getSupabaseClient()
+  try {
+    const fullName = user.user_metadata?.full_name || ''
+    const companyName = user.user_metadata?.company_name || ''
+    const accountType = user.user_metadata?.account_type || (companyName ? 'enterprise' : 'individual')
+
+    const { error } = await client.from('profiles').upsert({
+      id: user.id,
+      email: user.email || '',
+      full_name: fullName,
+      company_name: companyName,
+      account_type: accountType,
+      updated_at: new Date().toISOString()
+    })
+
+    if (error) {
+      console.warn('[Auth] ensureProfileRow upsert warning:', error.message)
+    } else {
+      console.log('[Auth] Profile row successfully synced for user:', user.id)
+    }
+  } catch (err) {
+    console.warn('[Auth] ensureProfileRow unexpected error:', err)
+  }
+}
+
+/**
  * Formats Supabase user & profile data into UserProfile
  */
 async function buildUserProfile(user: User): Promise<UserProfile> {
@@ -148,6 +177,9 @@ async function buildUserProfile(user: User): Promise<UserProfile> {
       if (profile.company_name) companyName = profile.company_name
       if (profile.account_type) accountType = profile.account_type
       if (profile.avatar_url) avatarUrl = profile.avatar_url
+    } else {
+      // Row is missing in public.profiles table -> try creating/upserting it
+      await ensureProfileRow(user)
     }
   } catch (e) {
     console.warn('[Auth] Could not fetch profile table row:', e)
@@ -172,6 +204,7 @@ export async function initializeAuthSession(): Promise<UserProfile | null> {
   if (!user) return null
   if (session?.access_token) {
     syncLocalLicenseWithSupabase(session.access_token).catch(() => {})
+    await ensureProfileRow(user)
   }
   return await buildUserProfile(user)
 }
@@ -208,20 +241,9 @@ export async function authSignUp(data: SignUpData): Promise<AuthResponse> {
       syncLocalLicenseWithSupabase(authRes.session.access_token).catch(() => {})
     }
 
+    // Ensure profile entry exists in public.profiles table
+    await ensureProfileRow(authRes.user)
     const userProfile = await buildUserProfile(authRes.user)
-
-    // Ensure profile entry exists in public.profiles
-    try {
-      await client.from('profiles').upsert({
-        id: authRes.user.id,
-        email: userProfile.email,
-        full_name: userProfile.fullName,
-        company_name: userProfile.companyName,
-        account_type: userProfile.accountType
-      })
-    } catch (upsertErr) {
-      console.warn('[Auth] Upsert profile warning:', upsertErr)
-    }
 
     return {
       success: true,
@@ -256,6 +278,7 @@ export async function authLogin(data: LoginData): Promise<AuthResponse> {
 
     saveSessionSecurely(authRes.session)
     syncLocalLicenseWithSupabase(authRes.session.access_token).catch(() => {})
+    await ensureProfileRow(authRes.user)
     const userProfile = await buildUserProfile(authRes.user)
 
     return {
@@ -372,6 +395,7 @@ export async function handleDeepLinkAuth(urlStr: string): Promise<UserProfile | 
       if (!error && data.session && data.user) {
         saveSessionSecurely(data.session)
         syncLocalLicenseWithSupabase(data.session.access_token).catch(() => {})
+        await ensureProfileRow(data.user)
         return await buildUserProfile(data.user)
       }
     } else if (tokenHash) {
@@ -382,6 +406,7 @@ export async function handleDeepLinkAuth(urlStr: string): Promise<UserProfile | 
       if (!error && data.session && data.user) {
         saveSessionSecurely(data.session)
         syncLocalLicenseWithSupabase(data.session.access_token).catch(() => {})
+        await ensureProfileRow(data.user)
         return await buildUserProfile(data.user)
       }
     }
