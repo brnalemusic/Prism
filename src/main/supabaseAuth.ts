@@ -129,6 +129,13 @@ async function ensureActiveSession(): Promise<{ session: Session | null; user: U
  * Ensures user profile row exists in public.profiles table
  */
 async function ensureProfileRow(user: User): Promise<void> {
+  const { session } = await ensureActiveSession()
+  if (!session?.access_token) {
+    // Session is not authenticated yet (e.g. pending email confirmation).
+    // Database trigger `on_auth_user_created` handles the initial profile row creation in Supabase Postgres.
+    return
+  }
+
   const client = getSupabaseClient()
   try {
     const fullName = user.user_metadata?.full_name || ''
@@ -563,9 +570,104 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
       console.error('[Auth] RPC get_user_ai_usage_status error:', error)
     }
   } catch (err) {
-    console.error('[Auth] Unexpected error fetching user AI usage:', err)
+    console.error('[Auth] Error fetching user AI usage status:', err)
   }
 
   return null
 }
 
+/**
+ * Sends account deletion OTP verification code to user's email
+ */
+export async function authRequestDeleteAccountOtp(): Promise<{ success: boolean; error?: string }> {
+  const { user } = await ensureActiveSession()
+  if (!user || !user.email) {
+    return { success: false, error: 'No active authenticated user session found.' }
+  }
+
+  const client = getSupabaseClient()
+  try {
+    const { error } = await client.auth.signInWithOtp({
+      email: user.email.trim(),
+      options: {
+        shouldCreateUser: false
+      }
+    })
+
+    if (error) {
+      console.warn('[Auth] signInWithOtp error, trying resetPasswordForEmail fallback:', error.message)
+      const { error: fallbackErr } = await client.auth.resetPasswordForEmail(user.email.trim())
+      if (fallbackErr) {
+        return { success: false, error: fallbackErr.message }
+      }
+    }
+
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to send confirmation code.' }
+  }
+}
+
+/**
+ * Verifies email OTP code and permanently deletes caller's account
+ */
+export async function authConfirmDeleteAccount(otpCode: string): Promise<{ success: boolean; error?: string }> {
+  const { session, user } = await ensureActiveSession()
+  if (!user || !session?.access_token || !user.email) {
+    return { success: false, error: 'No active authenticated user session found.' }
+  }
+
+  if (!otpCode || !otpCode.trim()) {
+    return { success: false, error: 'Confirmation code is required.' }
+  }
+
+  const client = getSupabaseClient()
+  try {
+    const code = otpCode.trim()
+    let verified = false
+
+    const { data: verifyEmailRes, error: verifyEmailErr } = await client.auth.verifyOtp({
+      email: user.email,
+      token: code,
+      type: 'email'
+    })
+
+    if (!verifyEmailErr && verifyEmailRes?.user) {
+      verified = true
+    } else {
+      const { data: verifyRecRes, error: verifyRecErr } = await client.auth.verifyOtp({
+        email: user.email,
+        token: code,
+        type: 'recovery'
+      })
+      if (!verifyRecErr && verifyRecRes?.user) {
+        verified = true
+      }
+    }
+
+    if (!verified) {
+      return { success: false, error: 'Invalid or expired confirmation code. Please check your email and try again.' }
+    }
+
+    const activeAccessToken = (await getAuthAccessToken()) || session.access_token
+
+    const { data: fnData, error: fnErr } = await client.functions.invoke('delete-account', {
+      headers: {
+        Authorization: `Bearer ${activeAccessToken}`
+      }
+    })
+
+    if (fnErr || (fnData && !fnData.success)) {
+      const msg = fnErr?.message || fnData?.error || 'Failed to delete account on server.'
+      return { success: false, error: msg }
+    }
+
+    await authLogout()
+    saveSessionSecurely(null)
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('[Auth] Error confirming account deletion:', err)
+    return { success: false, error: err?.message || 'Failed to complete account deletion.' }
+  }
+}

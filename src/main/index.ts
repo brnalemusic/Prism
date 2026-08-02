@@ -60,7 +60,6 @@ import {
 } from './appScanner'
 import { loadConfig, saveConfig, AppConfig } from './config'
 import { activateLicenseKey, deactivateLicense, getLicenseInfo, startLicenseExpirationMonitor, syncLocalLicenseWithSupabase, revokeLocalLicenseFromSupabase } from './license'
-import { getAuthAccessToken } from './supabaseAuth'
 import { toolsManifest } from './toolsManifest'
 import { listChatSessions, loadChatSession, deleteChatSession, searchChatsOffline } from './history'
 import {
@@ -98,7 +97,10 @@ import {
   authUpdateProfile,
   getUserAiUsage,
   authResendConfirmationEmail,
-  handleDeepLinkAuth
+  handleDeepLinkAuth,
+  getAuthAccessToken,
+  authRequestDeleteAccountOtp,
+  authConfirmDeleteAccount
 } from './supabaseAuth'
 import {
   fetchSubscriptionPlans,
@@ -1188,6 +1190,22 @@ if (!gotTheLock) {
 
     ipcMain.handle('auth-resend-confirmation', async (_event, email: string) => {
       return await authResendConfirmationEmail(email)
+    })
+
+    ipcMain.handle('auth-request-delete-otp', async () => {
+      return await authRequestDeleteAccountOtp()
+    })
+
+    ipcMain.handle('auth-confirm-delete-account', async (_event, otpCode: string) => {
+      const res = await authConfirmDeleteAccount(otpCode)
+      if (res.success) {
+        currentConfig = loadConfig()
+        safeSend(mainWindow, 'auth-session-updated', null)
+        safeSend(launcherWindow, 'auth-session-updated', null)
+        safeSend(mainWindow, 'config-changed', currentConfig)
+        safeSend(launcherWindow, 'config-changed', currentConfig)
+      }
+      return res
     })
 
     ipcMain.on('set-session-mode', (_event, { mode, disciplinePath }) => {
