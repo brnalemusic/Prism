@@ -52,9 +52,14 @@ serve(async (req) => {
     }
 
     if (!usageResult?.allowed) {
+      // Use server-returned limits in the message — never hardcoded values
+      const max5h = usageResult?.max_5h ?? '?'
+      const max7d = usageResult?.max_7d ?? '?'
+      const tier  = usageResult?.tier ?? 'free'
+
       const reasonMsg = usageResult?.reason === '5h_limit_exceeded'
-        ? 'Prism Provider quota limit reached (30 requests per 5 hours). Please try again later.'
-        : 'Prism Provider weekly quota limit reached (240 requests per 1 week). Please try again later.'
+        ? `Prism Provider quota limit reached (${max5h} requests per 5 hours for ${tier} tier). Please try again later.`
+        : `Prism Provider weekly quota limit reached (${max7d} requests per 7 days for ${tier} tier). Please try again later.`
 
       return new Response(
         JSON.stringify({ error: reasonMsg, limitExceeded: true, usage: usageResult }),
