@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Trash, WarningCircle, CheckCircle, CircleNotch, EnvelopeSimple, PaperPlaneRight } from '@phosphor-icons/react'
+import { X, Trash, WarningCircle, CheckCircle, CircleNotch, EnvelopeSimple, PaperPlaneRight, Key } from '@phosphor-icons/react'
 import type { UserProfile } from '../../../shared/types'
 
 interface DeleteAccountModalProps {
@@ -16,7 +16,9 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({
   onClose,
   onAccountDeleted
 }) => {
+  const [confirmMode, setConfirmMode] = useState<'email' | 'password'>('email')
   const [confirmEmail, setConfirmEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [otpCode, setOtpCode] = useState('')
   const [step, setStep] = useState<'request' | 'sent'>('request')
   const [loading, setLoading] = useState(false)
@@ -43,13 +45,25 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({
       setLoading(false)
       if (res.success) {
         setStep('sent')
-        setSuccessMsg(`Confirmation email sent to ${user.email}! Open your email and click the confirmation link or enter the code below to permanently delete your account.`)
+        setSuccessMsg(`Confirmation email sent to ${user.email}! Open your email and click the confirmation link to permanently delete your account.`)
       } else {
-        setErrorMsg(res.error || 'Failed to send confirmation email. Please try again.')
+        const err = res.error || 'Failed to send confirmation email.'
+        if (err.toLowerCase().includes('rate limit')) {
+          setErrorMsg('Supabase email limit reached (too many emails sent recently). Confirm account deletion with your password below:')
+          setConfirmMode('password')
+        } else {
+          setErrorMsg(err)
+        }
       }
     } catch (err: any) {
       setLoading(false)
-      setErrorMsg(err?.message || 'Failed to send confirmation email.')
+      const errMsg = err?.message || 'Failed to send confirmation email.'
+      if (errMsg.toLowerCase().includes('rate limit')) {
+        setErrorMsg('Supabase email limit reached. Confirm account deletion with your password below:')
+        setConfirmMode('password')
+      } else {
+        setErrorMsg(errMsg)
+      }
     }
   }
 
@@ -79,9 +93,37 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({
     }
   }
 
+  const handleConfirmWithPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!password.trim()) {
+      setErrorMsg('Please enter your account password.')
+      return
+    }
+
+    setErrorMsg(null)
+    setSuccessMsg(null)
+    setLoading(true)
+
+    try {
+      const res = await window.api.authConfirmDeleteAccountWithPassword(password)
+      setLoading(false)
+      if (res.success) {
+        onAccountDeleted()
+        onClose()
+      } else {
+        setErrorMsg(res.error || 'Failed to delete account. Incorrect password.')
+      }
+    } catch (err: any) {
+      setLoading(false)
+      setErrorMsg(err?.message || 'Failed to delete account.')
+    }
+  }
+
   const handleCloseModal = () => {
     setConfirmEmail('')
+    setPassword('')
     setOtpCode('')
+    setConfirmMode('email')
     setStep('request')
     setErrorMsg(null)
     setSuccessMsg(null)
@@ -137,8 +179,36 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({
           </p>
         </div>
 
-        {/* Step 1: Type Email to Request Confirmation */}
+        {/* Confirmation Method Tabs */}
         {step === 'request' && (
+          <div className="flex w-full rounded-xl bg-white/[0.04] p-1 border border-white/[0.06] select-none text-xs">
+            <button
+              type="button"
+              onClick={() => { setConfirmMode('email'); setErrorMsg(null); }}
+              className={`flex-1 py-1.5 font-semibold rounded-lg transition-all cursor-pointer ${
+                confirmMode === 'email'
+                  ? 'bg-red-600/80 text-white shadow-md'
+                  : 'text-text-secondary hover:text-white'
+              }`}
+            >
+              Confirm via Email
+            </button>
+            <button
+              type="button"
+              onClick={() => { setConfirmMode('password'); setErrorMsg(null); }}
+              className={`flex-1 py-1.5 font-semibold rounded-lg transition-all cursor-pointer ${
+                confirmMode === 'password'
+                  ? 'bg-red-600/80 text-white shadow-md'
+                  : 'text-text-secondary hover:text-white'
+              }`}
+            >
+              Confirm via Password
+            </button>
+          </div>
+        )}
+
+        {/* Mode 1: Confirm via Email Link */}
+        {step === 'request' && confirmMode === 'email' && (
           <form onSubmit={handleRequestEmail} className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
@@ -177,6 +247,53 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({
                   <>
                     <PaperPlaneRight size={15} weight="bold" />
                     <span>Send Deletion Link</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Mode 2: Confirm via Account Password */}
+        {step === 'request' && confirmMode === 'password' && (
+          <form onSubmit={handleConfirmWithPassword} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
+                Enter your account password to confirm deletion:
+              </label>
+              <div className="relative">
+                <Key size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted" />
+                <input
+                  type="password"
+                  placeholder="Account password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-black/40 py-2.5 pl-10 pr-3 text-xs text-white placeholder:text-text-muted/40 focus:border-red-500 focus:outline-none transition-all"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={handleCloseModal}
+                className="flex-1 py-2.5 text-xs font-semibold text-text-secondary hover:text-white bg-white/[0.05] hover:bg-white/[0.1] rounded-xl transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={loading || !password.trim()}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-md"
+              >
+                {loading ? (
+                  <CircleNotch size={16} className="animate-spin" />
+                ) : (
+                  <>
+                    <Trash size={15} weight="bold" />
+                    <span>Permanently Delete</span>
                   </>
                 )}
               </button>

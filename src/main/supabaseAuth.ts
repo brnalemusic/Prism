@@ -236,6 +236,29 @@ export async function authSignUp(data: SignUpData): Promise<AuthResponse> {
     })
 
     if (error) {
+      const isRateLimit = error.message.toLowerCase().includes('rate limit')
+      if (isRateLimit) {
+        // Attempt to log in the user in case Supabase created the user before rate limiting email dispatch
+        const { data: loginRes } = await client.auth.signInWithPassword({
+          email: data.email.trim(),
+          password: data.password
+        })
+
+        if (loginRes?.user && loginRes?.session) {
+          saveSessionSecurely(loginRes.session)
+          syncLocalLicenseWithSupabase(loginRes.session.access_token).catch(() => {})
+          await ensureProfileRow(loginRes.user)
+          const userProfile = await buildUserProfile(loginRes.user)
+          return {
+            success: true,
+            user: userProfile
+          }
+        }
+        return {
+          success: false,
+          error: 'The email verification service is currently busy due to rate limits. Please try again in a few minutes.'
+        }
+      }
       return { success: false, error: error.message }
     }
 
@@ -682,6 +705,50 @@ export async function authConfirmDeleteAccount(otpCode: string): Promise<{ succe
     return { success: true }
   } catch (err: any) {
     console.error('[Auth] Error confirming account deletion:', err)
+    return { success: false, error: err?.message || 'Failed to complete account deletion.' }
+  }
+}
+
+/**
+ * Verifies account password and permanently deletes caller's account
+ */
+export async function authConfirmDeleteAccountWithPassword(password: string): Promise<{ success: boolean; error?: string }> {
+  const { user } = await ensureActiveSession()
+  if (!user || !user.email) {
+    return { success: false, error: 'No active authenticated user session found.' }
+  }
+
+  if (!password || !password.trim()) {
+    return { success: false, error: 'Account password is required.' }
+  }
+
+  const client = getSupabaseClient()
+  try {
+    const { data: authRes, error: authErr } = await client.auth.signInWithPassword({
+      email: user.email,
+      password: password
+    })
+
+    if (authErr || !authRes.session) {
+      return { success: false, error: 'Incorrect password. Please enter your account password to confirm.' }
+    }
+
+    const token = authRes.session.access_token
+    const { data: fnData, error: fnErr } = await client.functions.invoke('delete-account', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+
+    if (fnErr || (fnData && !fnData.success)) {
+      const msg = fnErr?.message || fnData?.error || 'Failed to delete account on server.'
+      return { success: false, error: msg }
+    }
+
+    await authLogout()
+    saveSessionSecurely(null)
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('[Auth] Error confirming account deletion with password:', err)
     return { success: false, error: err?.message || 'Failed to complete account deletion.' }
   }
 }

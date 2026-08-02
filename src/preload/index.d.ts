@@ -243,6 +243,7 @@ export interface PrismAPI {
   authResendConfirmation: (email: string) => Promise<{ success: boolean; error?: string }>
   authRequestDeleteAccountEmail: (email: string) => Promise<{ success: boolean; error?: string }>
   authConfirmDeleteAccount: (otpCode: string) => Promise<{ success: boolean; error?: string }>
+  authConfirmDeleteAccountWithPassword: (password: string) => Promise<{ success: boolean; error?: string }>
   onAuthSessionUpdated: (
     callback: (user: import('../shared/types').UserProfile | null) => void
   ) => () => void

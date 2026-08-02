@@ -23,6 +23,15 @@ interface AuthModalProps {
 
 type AuthTab = 'signin' | 'signup' | 'forgot'
 
+function formatAuthErrorMessage(rawError?: string | null): string {
+  if (!rawError) return 'An unexpected error occurred.'
+  const lower = rawError.toLowerCase()
+  if (lower.includes('rate limit') || lower.includes('email_rate_limit')) {
+    return 'The email verification service is currently busy due to rate limits. Please try again in a few minutes.'
+  }
+  return rawError
+}
+
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess }) => {
   const [tab, setTab] = useState<AuthTab>('signin')
 
@@ -37,12 +46,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const [showResendEmail, setShowResendEmail] = useState(false)
 
   if (!isOpen) return null
 
   const resetForm = () => {
     setErrorMsg(null)
     setSuccessMsg(null)
+    setShowResendEmail(false)
   }
 
   const handleTabSwitch = (newTab: AuthTab) => {
@@ -65,7 +76,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       setLoading(false)
 
       if (!res.success || !res.user) {
-        setErrorMsg(res.error || 'Failed to sign in. Please check your credentials.')
+        setErrorMsg(formatAuthErrorMessage(res.error || 'Failed to sign in. Please check your credentials.'))
         return
       }
 
@@ -73,7 +84,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       onClose()
     } catch (err: any) {
       setLoading(false)
-      setErrorMsg(err?.message || 'An unexpected error occurred.')
+      setErrorMsg(formatAuthErrorMessage(err?.message))
     }
   }
 
@@ -91,11 +102,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       if (res.success) {
         setSuccessMsg('Verification link sent! Check your email inbox to confirm your account.')
       } else {
-        setErrorMsg(res.error || 'Failed to send verification email. Please check your email address.')
+        setErrorMsg(formatAuthErrorMessage(res.error || 'Failed to send verification email. Please check your email address.'))
       }
     } catch (err: any) {
       setLoading(false)
-      setErrorMsg(err?.message || 'Failed to send verification email.')
+      setErrorMsg(formatAuthErrorMessage(err?.message))
     }
   }
 
@@ -125,19 +136,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       setLoading(false)
 
       if (!res.success || !res.user) {
-        setErrorMsg(res.error || 'Registration failed. Please try again.')
+        setErrorMsg(formatAuthErrorMessage(res.error || 'Registration failed. Please try again.'))
         return
       }
 
       onAuthSuccess(res.user)
       if (!res.user.emailConfirmed) {
-        setSuccessMsg('Account created! A verification link has been sent to your email. You can verify anytime to unlock Prism Cloud AI models.')
+        setSuccessMsg('Account created! The email verification service is currently busy. You are logged in and can verify your email anytime later to unlock Prism Cloud AI models.')
       } else {
         onClose()
       }
     } catch (err: any) {
       setLoading(false)
-      setErrorMsg(err?.message || 'An unexpected error occurred during registration.')
+      setErrorMsg(formatAuthErrorMessage(err?.message))
     }
   }
 
@@ -156,14 +167,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       setLoading(false)
 
       if (!res.success) {
-        setErrorMsg(res.error || 'Could not process password reset.')
+        setErrorMsg(formatAuthErrorMessage(res.error || 'Could not process password reset.'))
         return
       }
 
       setSuccessMsg('Password reset link sent! Check your email inbox.')
     } catch (err: any) {
       setLoading(false)
-      setErrorMsg(err?.message || 'An unexpected error occurred.')
+      setErrorMsg(formatAuthErrorMessage(err?.message))
     }
   }
 
@@ -239,7 +250,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
               <WarningCircle size={18} weight="fill" className="shrink-0 mt-0.5" />
               <span className="leading-tight">{errorMsg}</span>
             </div>
-            {email && (
+            {showResendEmail && email && (
               <button
                 type="button"
                 onClick={handleResendConfirmation}

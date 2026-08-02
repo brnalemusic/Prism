@@ -674,6 +674,8 @@ const api = {
     ipcRenderer.invoke('auth-request-delete-email', email),
   authConfirmDeleteAccount: (otpCode: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('auth-confirm-delete-account', otpCode),
+  authConfirmDeleteAccountWithPassword: (password: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('auth-confirm-delete-password', password),
   onAuthSessionUpdated: (
     callback: (user: import('../shared/types').UserProfile | null) => void
   ): (() => void) => {

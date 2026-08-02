@@ -100,7 +100,8 @@ import {
   handleDeepLinkAuth,
   getAuthAccessToken,
   authRequestDeleteAccountEmail,
-  authConfirmDeleteAccount
+  authConfirmDeleteAccount,
+  authConfirmDeleteAccountWithPassword
 } from './supabaseAuth'
 import {
   fetchSubscriptionPlans,
@@ -1198,6 +1199,18 @@ if (!gotTheLock) {
 
     ipcMain.handle('auth-confirm-delete-account', async (_event, otpCode: string) => {
       const res = await authConfirmDeleteAccount(otpCode)
+      if (res.success) {
+        currentConfig = loadConfig()
+        safeSend(mainWindow, 'auth-session-updated', null)
+        safeSend(launcherWindow, 'auth-session-updated', null)
+        safeSend(mainWindow, 'config-changed', currentConfig)
+        safeSend(launcherWindow, 'config-changed', currentConfig)
+      }
+      return res
+    })
+
+    ipcMain.handle('auth-confirm-delete-password', async (_event, password: string) => {
+      const res = await authConfirmDeleteAccountWithPassword(password)
       if (res.success) {
         currentConfig = loadConfig()
         safeSend(mainWindow, 'auth-session-updated', null)
