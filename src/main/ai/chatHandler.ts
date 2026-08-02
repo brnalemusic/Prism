@@ -135,6 +135,7 @@ export async function handleChatMessage(
         sessionMode?: SessionMode
         disciplinePath?: string
         modelKey?: string
+        reasoningLevel?: string
       }
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
@@ -254,6 +255,23 @@ export async function handleChatMessage(
   try {
     // Workflow matching: check if the user's message starts with a slash command
     const config = loadConfig()
+    const cleanModelId = model.id.startsWith('prism_provider:')
+      ? model.id.replace('prism_provider:', '')
+      : model.id
+    const cleanSelectedKey = currentSelectedChatModel.startsWith('prism_provider:')
+      ? currentSelectedChatModel.replace('prism_provider:', '')
+      : currentSelectedChatModel
+
+    const configLevel =
+      config.modelReasoningLevels?.[currentSelectedChatModel] ||
+      config.modelReasoningLevels?.[cleanSelectedKey] ||
+      config.modelReasoningLevels?.[model.id] ||
+      config.modelReasoningLevels?.[cleanModelId]
+
+    const dataLevel = typeof data === 'object' ? data.reasoningLevel : undefined
+    const reasoningLevel =
+      dataLevel && dataLevel !== 'off' ? dataLevel : configLevel || dataLevel || 'off'
+
     const firstMsgText = userText.trim()
     const matchedWorkflow = config.workflows?.find((w) =>
       firstMsgText.toLowerCase().startsWith(w.command.toLowerCase())
@@ -361,7 +379,8 @@ export async function handleChatMessage(
               ...delta
             })
           }
-        }
+        },
+        reasoningLevel
       )
 
       console.log(`[Main Chat] Stream generation completed. Total chunks: ${chunkCount}`)

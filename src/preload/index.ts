@@ -140,6 +140,7 @@ const api = {
     sessionMode?: SessionMode
     disciplinePath?: string
     modelKey?: string
+    reasoningLevel?: string
   }): void => ipcRenderer.send('chat-message', data),
   setModel: (modelKey: string): void => ipcRenderer.send('set-model', modelKey),
   clearChat: (): void => ipcRenderer.send('clear-chat'),

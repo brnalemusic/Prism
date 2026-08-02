@@ -282,7 +282,11 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
                     disabled={tab.isProcessing || isKeyMissing || !isOnline}
                     selectedModel={tab.selectedModel}
                     onModelChange={onModelChange}
-                    reasoningLevel={config?.modelReasoningLevels?.[tab.selectedModel] || 'off'}
+                    reasoningLevel={
+                      config?.modelReasoningLevels?.[tab.selectedModel] ||
+                      config?.modelReasoningLevels?.[tab.selectedModel.replace('prism_provider:', '')] ||
+                      'off'
+                    }
                     onReasoningLevelChange={(level) => onReasoningLevelChange(tab.selectedModel, level)}
                     text={tab.inputText}
                     setText={handleSetTextInputBar}
@@ -358,7 +362,11 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
                 disabled={tab.isProcessing || isKeyMissing || !isOnline}
                 selectedModel={tab.selectedModel}
                 onModelChange={onModelChange}
-                reasoningLevel={config?.modelReasoningLevels?.[tab.selectedModel] || 'off'}
+                reasoningLevel={
+                  config?.modelReasoningLevels?.[tab.selectedModel] ||
+                  config?.modelReasoningLevels?.[tab.selectedModel.replace('prism_provider:', '')] ||
+                  'off'
+                }
                 onReasoningLevelChange={(level) => onReasoningLevelChange(tab.selectedModel, level)}
                 text={tab.inputText}
                 setText={handleSetTextInputBar}

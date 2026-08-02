@@ -6,10 +6,9 @@ import {
   Key,
   X,
   ArrowRight,
-  User,
-  WarningCircle
+  User
 } from '@phosphor-icons/react'
-import type { UserAiUsageStatus } from '../../shared/types'
+import type { UserAiUsageStatus } from '../../../shared/types'
 
 interface QuotaExceededModalProps {
   isOpen: boolean

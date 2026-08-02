@@ -2077,7 +2077,8 @@ function RealApp(): React.JSX.Element {
           (overrideSessionMode || currentTab.sessionMode) === 'discipline'
             ? currentTab.disciplinePath
             : '',
-        modelKey: overrideModel || currentTab.selectedModel
+        modelKey: overrideModel || currentTab.selectedModel,
+        reasoningLevel: getReasoningLevelForModel(overrideModel || currentTab.selectedModel)
       })
 
       setQuotedText(null)
@@ -2096,14 +2097,25 @@ function RealApp(): React.JSX.Element {
     window.api.saveConfig({ lastSelectedChatModel: modelKey })
   }, [])
 
+  const getReasoningLevelForModel = useCallback((modelKey: string) => {
+    if (!config?.modelReasoningLevels) return 'off'
+    const cleanKey = modelKey.replace('prism_provider:', '')
+    return (
+      config.modelReasoningLevels[modelKey] ||
+      config.modelReasoningLevels[cleanKey] ||
+      'off'
+    )
+  }, [config])
+
   const handleReasoningLevelChange = useCallback(async (modelKey: string, level: string) => {
-    if (config) {
-      const updatedLevels = {
-        ...(config.modelReasoningLevels || {}),
-        [modelKey]: level
-      }
-      await window.api.saveConfig({ modelReasoningLevels: updatedLevels })
+    const cleanKey = modelKey.replace('prism_provider:', '')
+    const updatedLevels = {
+      ...(config?.modelReasoningLevels || {}),
+      [modelKey]: level,
+      [cleanKey]: level
     }
+    setConfig((prev) => (prev ? { ...prev, modelReasoningLevels: updatedLevels } : prev))
+    await window.api.saveConfig({ modelReasoningLevels: updatedLevels })
   }, [config])
 
   // Keyboard shortcut listener for new chat / new tab & close tab
@@ -2726,7 +2738,8 @@ function RealApp(): React.JSX.Element {
       window.api.sendChatMessage({
         message: instructions,
         chatId,
-        modelKey: model || currentTab.selectedModel
+        modelKey: model || currentTab.selectedModel,
+        reasoningLevel: getReasoningLevelForModel(model || currentTab.selectedModel)
       })
     })
 

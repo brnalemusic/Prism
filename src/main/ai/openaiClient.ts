@@ -74,7 +74,8 @@ export async function streamOpenAiCompletion(
   messages: OpenAiMessage[],
   tools: OpenAiToolDefinition[],
   signal: AbortSignal,
-  callbacks: StreamCallbacks
+  callbacks: StreamCallbacks,
+  reasoningLevel?: string
 ): Promise<StreamResult> {
   const normUrl = normalizeBaseUrl(provider.baseUrl)
   const completionType = provider.completionType || 'chat_completions'
@@ -114,8 +115,7 @@ export async function streamOpenAiCompletion(
     }
   }
 
-  console.log(`[Main Chat] Calling ${modelId} with [${provider.name || provider.baseUrl}] (${messages.length} messages, ${tools?.length || 0} tools)`)
-
+  console.log(`[Main Chat] Calling ${modelId} with [${provider.name || provider.baseUrl}] (${messages.length} messages, ${tools?.length || 0} tools, reasoningLevel: ${reasoningLevel || 'off'})`)
 
   const bodyPayload: any = {
     model: modelId,
@@ -126,6 +126,36 @@ export async function streamOpenAiCompletion(
   if (tools && tools.length > 0) {
     bodyPayload.tools = tools
     bodyPayload.tool_choice = 'auto'
+  }
+
+  if (reasoningLevel) {
+    const thinkingLevelMap: Record<string, string> = {
+      off: 'minimal',
+      low: 'low',
+      medium: 'medium',
+      high: 'high'
+    }
+    const levelValue = thinkingLevelMap[reasoningLevel] || reasoningLevel
+
+    bodyPayload.reasoning_effort = levelValue
+    bodyPayload.thinking_config = {
+      thinking_level: levelValue,
+      include_thoughts: reasoningLevel !== 'off'
+    }
+    bodyPayload.google = {
+      thinking_config: {
+        thinking_level: levelValue,
+        include_thoughts: reasoningLevel !== 'off'
+      }
+    }
+    bodyPayload.extra_body = {
+      google: {
+        thinking_config: {
+          thinking_level: levelValue,
+          include_thoughts: reasoningLevel !== 'off'
+        }
+      }
+    }
   }
 
 
@@ -216,7 +246,15 @@ export async function streamOpenAiCompletion(
             }
 
             // Reasoning stream
-            const reasoningChunk = delta.reasoning_content || delta.reasoning || delta.thinking || ''
+            const reasoningChunk =
+              delta.reasoning_content ||
+              delta.reasoning ||
+              delta.thinking ||
+              delta.thought ||
+              delta.extra_content?.google?.thought ||
+              choice.reasoning_content ||
+              parsed.reasoning ||
+              ''
             if (reasoningChunk) {
               fullReasoning += reasoningChunk
               callbacks.onReasoningDelta(reasoningChunk)

@@ -27,22 +27,22 @@ export interface ThinkingLevelOption {
   name: string
 }
 
+export function isPrismCloudGeminiModel(modelId: string): boolean {
+  if (!modelId) return false
+  const cleanId = modelId.startsWith('prism_provider:') ? modelId.replace('prism_provider:', '') : modelId
+  return (
+    cleanId === 'gemini-3.1-flash-lite' ||
+    cleanId === 'models/gemini-3-flash-preview' ||
+    cleanId === 'gemini-3-flash-preview'
+  )
+}
+
 /**
  * Returns available thinking levels for a given model.
- * Based on official NVIDIA NIM and Gemini API documentation.
- *
- * Gemini 3/3.1/3.5: ThinkingLevel enum minimal/low/medium/high (no "max");
- *   "minimal" is exposed as "Off" (budget 0 disables thinking).
- * DeepSeek V4: reasoning_effort accepts none, high, max
- * GPT-OSS: reasoning_effort accepts low, medium, high (no off/none)
- * MiniMax M3: chat_template_kwargs {"thinking_mode": "enabled"/"disabled"/"adaptive"}
- * GLM-5.2, Step 3.7: no reasoning parameters exposed via NIM API
+ * Thinking levels are supported strictly for Prism Cloud Gemini 3 / 3.1 models.
  */
 export function getThinkingLevelsForModel(modelId: string): ThinkingLevelOption[] {
-  // Gemini models use thinkingBudget (mapped from levels).
-  // Valid ThinkingLevel enum: minimal, low, medium, high (no "max").
-  // "Minimal" is exposed to the user as "Off" (budget 0 disables thinking).
-  if (modelId.includes('gemini')) {
+  if (isPrismCloudGeminiModel(modelId)) {
     return [
       { id: 'off', name: 'Off' },
       { id: 'low', name: 'Low' },
@@ -51,34 +51,6 @@ export function getThinkingLevelsForModel(modelId: string): ThinkingLevelOption[
     ]
   }
 
-  // DeepSeek V4 Flash/Pro: reasoning_effort accepts none, high, max
-  if (modelId === 'deepseek-ai/deepseek-v4-flash' || modelId === 'deepseek-ai/deepseek-v4-pro') {
-    return [
-      { id: 'off', name: 'Off' },
-      { id: 'high', name: 'High' },
-      { id: 'max', name: 'Max' }
-    ]
-  }
-
-  // GPT-OSS 120B: reasoning_effort accepts low, medium, high (NO "off"/"none")
-  // The API does not support disabling reasoning, so no Off option
-  if (modelId === 'openai/gpt-oss-120b') {
-    return [
-      { id: 'low', name: 'Low' },
-      { id: 'medium', name: 'Medium' },
-      { id: 'high', name: 'High' }
-    ]
-  }
-
-  // MiniMax M3: chat_template_kwargs {"thinking_mode": "enabled"/"disabled"/"adaptive"}
-  if (modelId === 'minimaxai/minimax-m3') {
-    return [
-      { id: 'off', name: 'Off' },
-      { id: 'enabled', name: 'Enabled' },
-      { id: 'adaptive', name: 'Adaptive' }
-    ]
-  }
-
-  // GLM-5.2, Step 3.7 Flash: no reasoning parameters in NIM API
   return []
 }
+
