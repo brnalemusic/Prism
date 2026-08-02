@@ -670,8 +670,8 @@ const api = {
     ipcRenderer.invoke('auth-get-ai-usage'),
   authResendConfirmation: (email: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('auth-resend-confirmation', email),
-  authRequestDeleteAccountOtp: (): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('auth-request-delete-otp'),
+  authRequestDeleteAccountEmail: (email: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('auth-request-delete-email', email),
   authConfirmDeleteAccount: (otpCode: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('auth-confirm-delete-account', otpCode),
   onAuthSessionUpdated: (

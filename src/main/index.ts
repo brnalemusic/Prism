@@ -99,7 +99,7 @@ import {
   authResendConfirmationEmail,
   handleDeepLinkAuth,
   getAuthAccessToken,
-  authRequestDeleteAccountOtp,
+  authRequestDeleteAccountEmail,
   authConfirmDeleteAccount
 } from './supabaseAuth'
 import {
@@ -1192,8 +1192,8 @@ if (!gotTheLock) {
       return await authResendConfirmationEmail(email)
     })
 
-    ipcMain.handle('auth-request-delete-otp', async () => {
-      return await authRequestDeleteAccountOtp()
+    ipcMain.handle('auth-request-delete-email', async (_event, email: string) => {
+      return await authRequestDeleteAccountEmail(email)
     })
 
     ipcMain.handle('auth-confirm-delete-account', async (_event, otpCode: string) => {

@@ -15,6 +15,7 @@ import {
   Sparkle,
   Trash
 } from '@phosphor-icons/react'
+import { DeleteAccountModal } from './DeleteAccountModal'
 import type { UserProfile, UserAiUsageStatus } from '../../../shared/types'
 
 interface UserProfileModalProps {
@@ -51,6 +52,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [fullName, setFullName] = useState(user?.fullName || '')
   const [companyName, setCompanyName] = useState(user?.companyName || '')
   const [aiUsage, setAiUsage] = useState<UserAiUsageStatus | null>(null)
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -72,61 +74,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
-
-  const [isDeletingAccount, setIsDeletingAccount] = useState(false)
-  const [deleteStep, setDeleteStep] = useState<'initial' | 'sent_otp'>('initial')
-  const [deleteOtpCode, setDeleteOtpCode] = useState('')
-  const [deleteLoading, setDeleteLoading] = useState(false)
-
-  const handleRequestDeleteOtp = async () => {
-    setErrorMsg(null)
-    setSuccessMsg(null)
-    setDeleteLoading(true)
-    try {
-      const res = await window.api.authRequestDeleteAccountOtp()
-      setDeleteLoading(false)
-      if (res.success) {
-        setDeleteStep('sent_otp')
-        setSuccessMsg(`Confirmation code sent to ${user?.email || 'your email'}! Please check your email inbox.`)
-      } else {
-        setErrorMsg(res.error || 'Failed to send confirmation code.')
-      }
-    } catch (err: any) {
-      setDeleteLoading(false)
-      setErrorMsg(err?.message || 'Failed to send confirmation code.')
-    }
-  }
-
-  const handleConfirmDeleteAccount = async () => {
-    if (!deleteOtpCode.trim()) {
-      setErrorMsg('Please enter the confirmation code sent to your email.')
-      return
-    }
-    setErrorMsg(null)
-    setSuccessMsg(null)
-    setDeleteLoading(true)
-    try {
-      const res = await window.api.authConfirmDeleteAccount(deleteOtpCode.trim())
-      setDeleteLoading(false)
-      if (res.success) {
-        onLoggedOut()
-        onClose()
-      } else {
-        setErrorMsg(res.error || 'Failed to delete account. Invalid code or session.')
-      }
-    } catch (err: any) {
-      setDeleteLoading(false)
-      setErrorMsg(err?.message || 'Failed to delete account.')
-    }
-  }
-
-  const handleCancelDelete = () => {
-    setIsDeletingAccount(false)
-    setDeleteStep('initial')
-    setDeleteOtpCode('')
-    setErrorMsg(null)
-    setSuccessMsg(null)
-  }
 
   if (!isOpen || !user) return null
 
@@ -447,93 +394,26 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           </form>
         )}
 
-        {/* Account Deletion Danger Zone */}
-        {isDeletingAccount && (
-          <div className="rounded-2xl border border-red-500/30 bg-red-500/[0.06] p-4 space-y-3 animate-soft-pop">
-            <div className="flex items-center gap-2 text-xs font-bold text-red-400 border-b border-red-500/20 pb-2">
-              <Trash size={16} weight="fill" />
-              <span>Permanently Delete Account</span>
-            </div>
-            <p className="text-[11px] text-red-200/90 leading-relaxed">
-              This will permanently delete your account, profile data, and subscription access. This action cannot be undone.
-            </p>
-
-            {deleteStep === 'initial' ? (
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={handleCancelDelete}
-                  className="flex-1 py-2 text-xs font-medium text-text-muted bg-white/[0.04] hover:bg-white/[0.08] rounded-xl transition-all cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleRequestDeleteOtp}
-                  disabled={deleteLoading}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-all cursor-pointer disabled:opacity-50"
-                >
-                  {deleteLoading ? <CircleNotch size={15} className="animate-spin" /> : 'Send Code to Email'}
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2.5 pt-1">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-red-200/80">
-                    Enter confirmation code sent to {user.email}:
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Enter code"
-                    value={deleteOtpCode}
-                    onChange={(e) => setDeleteOtpCode(e.target.value)}
-                    className="w-full rounded-xl border border-red-500/30 bg-black/60 py-2 px-3 text-xs text-white focus:border-red-500 focus:outline-none font-mono"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleCancelDelete}
-                    className="flex-1 py-2 text-xs font-medium text-text-muted bg-white/[0.04] hover:bg-white/[0.08] rounded-xl transition-all cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleConfirmDeleteAccount}
-                    disabled={deleteLoading || !deleteOtpCode.trim()}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    {deleteLoading ? <CircleNotch size={15} className="animate-spin" /> : 'Confirm Deletion'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Footer actions */}
         <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between">
           <div className="flex items-center gap-2">
             <button
               onClick={handleSignOut}
-              disabled={loading || deleteLoading}
+              disabled={loading}
               className="flex items-center gap-1.5 py-2 px-3 text-xs font-semibold text-status-error hover:bg-status-error/10 rounded-xl transition-all cursor-pointer"
             >
               <SignOut size={16} />
               <span>Sign Out</span>
             </button>
 
-            {!isDeletingAccount && (
-              <button
-                onClick={() => setIsDeletingAccount(true)}
-                disabled={loading || deleteLoading}
-                className="flex items-center gap-1.5 py-2 px-3 text-xs font-semibold text-red-400 hover:bg-red-500/10 rounded-xl transition-all cursor-pointer"
-              >
-                <Trash size={15} />
-                <span>Delete Account</span>
-              </button>
-            )}
+            <button
+              onClick={() => setIsDeleteModalOpen(true)}
+              disabled={loading}
+              className="flex items-center gap-1.5 py-2 px-3 text-xs font-semibold text-red-400 hover:bg-red-500/10 rounded-xl transition-all cursor-pointer"
+            >
+              <Trash size={15} />
+              <span>Delete Account</span>
+            </button>
           </div>
 
           <button
@@ -543,6 +423,17 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             Close
           </button>
         </div>
+
+        {/* Separate Delete Account Modal */}
+        <DeleteAccountModal
+          isOpen={isDeleteModalOpen}
+          user={user}
+          onClose={() => setIsDeleteModalOpen(false)}
+          onAccountDeleted={() => {
+            onLoggedOut()
+            onClose()
+          }}
+        />
       </div>
     </div>,
     document.body

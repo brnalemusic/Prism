@@ -394,28 +394,55 @@ export async function handleDeepLinkAuth(urlStr: string): Promise<UserProfile | 
       type = params.get('type') || 'signup'
     }
 
+    const isDeleteAction = urlStr.includes('action=delete-account') || urlStr.includes('delete-account')
+
+    let activeUser: User | null = null
+    let activeSessionToken: string | null = null
+
     if (accessToken && refreshToken) {
       const { data, error } = await client.auth.setSession({
         access_token: accessToken,
         refresh_token: refreshToken
       })
       if (!error && data.session && data.user) {
+        activeUser = data.user
+        activeSessionToken = data.session.access_token
         saveSessionSecurely(data.session)
-        syncLocalLicenseWithSupabase(data.session.access_token).catch(() => {})
-        await ensureProfileRow(data.user)
-        return await buildUserProfile(data.user)
       }
     } else if (tokenHash) {
       const { data, error } = await client.auth.verifyOtp({
         token_hash: tokenHash,
-        type: (type as any) || 'signup'
+        type: (type as any) || 'recovery'
       })
       if (!error && data.session && data.user) {
+        activeUser = data.user
+        activeSessionToken = data.session.access_token
         saveSessionSecurely(data.session)
-        syncLocalLicenseWithSupabase(data.session.access_token).catch(() => {})
-        await ensureProfileRow(data.user)
-        return await buildUserProfile(data.user)
       }
+    }
+
+    if (activeUser && isDeleteAction) {
+      console.log('[Auth] Deep link triggered account deletion for user:', activeUser.id)
+      const token = activeSessionToken || (await getAuthAccessToken())
+      if (token) {
+        const { data: fnData, error: fnErr } = await client.functions.invoke('delete-account', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        if (fnErr || (fnData && !fnData.success)) {
+          console.error('[Auth] Error executing delete-account function via deep link:', fnErr || fnData?.error)
+        } else {
+          console.log('[Auth] Account successfully deleted via email confirmation link!')
+        }
+      }
+      await authLogout()
+      saveSessionSecurely(null)
+      return null
+    }
+
+    if (activeUser) {
+      syncLocalLicenseWithSupabase(activeSessionToken!).catch(() => {})
+      await ensureProfileRow(activeUser)
+      return await buildUserProfile(activeUser)
     }
   } catch (err) {
     console.error('[Auth] Error handling deep link auth:', err)
@@ -577,34 +604,21 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
 }
 
 /**
- * Sends account deletion OTP verification code to user's email
+ * Sends account deletion confirmation email with prism://auth-callback?action=delete-account redirect URL
  */
-export async function authRequestDeleteAccountOtp(): Promise<{ success: boolean; error?: string }> {
-  const { user } = await ensureActiveSession()
-  if (!user || !user.email) {
-    return { success: false, error: 'No active authenticated user session found.' }
-  }
-
+export async function authRequestDeleteAccountEmail(email: string): Promise<{ success: boolean; error?: string }> {
   const client = getSupabaseClient()
   try {
-    const { error } = await client.auth.signInWithOtp({
-      email: user.email.trim(),
-      options: {
-        shouldCreateUser: false
-      }
+    const { error } = await client.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: 'prism://auth-callback?action=delete-account'
     })
 
     if (error) {
-      console.warn('[Auth] signInWithOtp error, trying resetPasswordForEmail fallback:', error.message)
-      const { error: fallbackErr } = await client.auth.resetPasswordForEmail(user.email.trim())
-      if (fallbackErr) {
-        return { success: false, error: fallbackErr.message }
-      }
+      return { success: false, error: error.message }
     }
-
     return { success: true }
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Failed to send confirmation code.' }
+    return { success: false, error: err?.message || 'Failed to send account deletion email.' }
   }
 }
 
