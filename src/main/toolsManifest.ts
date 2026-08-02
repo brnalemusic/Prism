@@ -447,22 +447,22 @@ export const toolsManifest: ToolDefinition[] = [
   },
   {
     name: 'write_pdf',
-    description: 'Generate PDF artifact from A4 HTML/CSS. PDF rules: @page A4 15mm margins, cover page 297mm + page-break-after, single-page TOC (no item page breaks), break-inside:avoid on cards/tables, curated fonts/colors.',
+    description: 'Generate a PDF artifact from HTML/CSS.',
     usage: '{"filename":"doc.pdf","html":"HTML"}',
     parameters: {
       filename: 'PDF filename.',
-      html: 'A4 HTML/CSS with cover, single-page TOC, break-inside:avoid on cards, and clean typography.'
+      html: 'A4 HTML/CSS content.'
     },
     target: 'main'
   },
   {
     name: 'edit_pdf',
-    description: 'Edit existing PDF artifact from updated A4 HTML/CSS (cover 297mm, break-inside:avoid, single-page TOC).',
+    description: 'Edit an existing PDF artifact with updated HTML/CSS.',
     usage: '{"id":"123456","html":"HTML"}',
     parameters: {
       id: '6-digit PDF artifact ID.',
       path: 'Full file path to edit.',
-      html: 'Updated A4 HTML and CSS content.'
+      html: 'Updated HTML/CSS content.'
     },
     target: 'main'
   },

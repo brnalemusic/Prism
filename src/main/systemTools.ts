@@ -2077,7 +2077,7 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | 
   2. Inline HTML/CSS inside Markdown for rich visual cards/designs (render directly, do not block-wrap in \`\`\`html).
   3. Call \`create_mini_app\` tool for interactive widgets/games.
 - **PDF & PPTX Best Practices:**
-  - **PDF (A4):** \`@page { size: A4; margin: 15mm 20mm; }\`. Cover (\`.cover\`): \`height: 297mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; box-sizing: border-box;\`. Keep TOC/Sumário in 1 single container; NEVER use \`page-break-after\` on TOC items or lines. Use \`break-inside: avoid\` on cards/tables/code. Use Google Fonts (Inter/Outfit), clean H1(24pt)/H2(18pt)/Body(10pt) scale, 1.5 line-height, subtle borders.
+  - **PDF (A4):** \`@page { size: A4; margin: 0; }\`. Cover (\`.cover\`): \`width: 210mm; height: 297mm; box-sizing: border-box; padding: 20mm; overflow: hidden; page-break-after: always; break-after: page;\`. Inner pages (\`.page\`): \`padding: 15mm 20mm; box-sizing: border-box;\`. Single-container TOC (no item breaks). Cards/tables/code: \`break-inside: avoid;\`.
   - **PPTX (16:9 1920x1080):** Wrap each slide in \`<div class="slide">\` with \`width: 1920px; height: 1080px; padding: 60px 80px; box-sizing: border-box; overflow: hidden; page-break-after: always; position: relative;\`. 1 concept/slide, 2-3 column CSS grid, bold card callouts, high contrast typography.
 - **Execution & Tools:**
   - Absolute paths required for file operations.
