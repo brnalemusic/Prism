@@ -222,6 +222,24 @@ export async function initializeAuthSession(): Promise<UserProfile | null> {
 export async function authSignUp(data: SignUpData): Promise<AuthResponse> {
   const client = getSupabaseClient()
   try {
+    // 1. If account was already registered during a previous attempt, attempt direct login
+    const { data: directLoginRes } = await client.auth.signInWithPassword({
+      email: data.email.trim(),
+      password: data.password
+    })
+
+    if (directLoginRes?.user && directLoginRes?.session) {
+      saveSessionSecurely(directLoginRes.session)
+      syncLocalLicenseWithSupabase(directLoginRes.session.access_token).catch(() => {})
+      await ensureProfileRow(directLoginRes.user)
+      const userProfile = await buildUserProfile(directLoginRes.user)
+      return {
+        success: true,
+        user: userProfile
+      }
+    }
+
+    // 2. Otherwise attempt standard signUp
     const { data: authRes, error } = await client.auth.signUp({
       email: data.email.trim(),
       password: data.password,
@@ -236,38 +254,55 @@ export async function authSignUp(data: SignUpData): Promise<AuthResponse> {
     })
 
     if (error) {
-      const isRateLimit = error.message.toLowerCase().includes('rate limit')
-      if (isRateLimit) {
-        console.warn('[Auth] Standard signup rate limited by email dispatch. Invoking admin-signup Edge Function fallback...')
-        const { data: fnData, error: fnErr } = await client.functions.invoke('admin-signup', {
-          body: {
-            email: data.email.trim(),
-            password: data.password,
-            fullName: data.fullName.trim(),
-            companyName: (data.companyName || '').trim(),
-            accountType: data.accountType || (data.companyName ? 'enterprise' : 'individual')
-          }
+      const isAlreadyRegistered =
+        error.message.toLowerCase().includes('already') ||
+        error.message.toLowerCase().includes('registered') ||
+        error.message.toLowerCase().includes('exists')
+
+      if (isAlreadyRegistered) {
+        return {
+          success: false,
+          error: 'An account with this email already exists. Please switch to Sign In.'
+        }
+      }
+
+      console.warn('[Auth] Standard signup failed or rate limited by email dispatch. Invoking admin-signup Edge Function fallback...')
+      const { data: fnData, error: fnErr } = await client.functions.invoke('admin-signup', {
+        body: {
+          email: data.email.trim(),
+          password: data.password,
+          fullName: data.fullName.trim(),
+          companyName: (data.companyName || '').trim(),
+          accountType: data.accountType || (data.companyName ? 'enterprise' : 'individual')
+        }
+      })
+
+      if (fnData?.isAlreadyRegistered) {
+        return {
+          success: false,
+          error: 'An account with this email already exists. Please switch to Sign In.'
+        }
+      }
+
+      if (!fnErr && fnData?.success) {
+        console.log('[Auth] Admin signup created account successfully! Signing in...')
+        const { data: loginRes } = await client.auth.signInWithPassword({
+          email: data.email.trim(),
+          password: data.password
         })
 
-        if (!fnErr && fnData?.success) {
-          console.log('[Auth] Admin signup created account successfully! Signing in...')
-          const { data: loginRes } = await client.auth.signInWithPassword({
-            email: data.email.trim(),
-            password: data.password
-          })
-
-          if (loginRes?.user && loginRes?.session) {
-            saveSessionSecurely(loginRes.session)
-            syncLocalLicenseWithSupabase(loginRes.session.access_token).catch(() => {})
-            await ensureProfileRow(loginRes.user)
-            const userProfile = await buildUserProfile(loginRes.user)
-            return {
-              success: true,
-              user: userProfile
-            }
+        if (loginRes?.user && loginRes?.session) {
+          saveSessionSecurely(loginRes.session)
+          syncLocalLicenseWithSupabase(loginRes.session.access_token).catch(() => {})
+          await ensureProfileRow(loginRes.user)
+          const userProfile = await buildUserProfile(loginRes.user)
+          return {
+            success: true,
+            user: userProfile
           }
         }
       }
+
       return { success: false, error: error.message }
     }
 
@@ -302,10 +337,26 @@ export async function authSignUp(data: SignUpData): Promise<AuthResponse> {
 export async function authLogin(data: LoginData): Promise<AuthResponse> {
   const client = getSupabaseClient()
   try {
-    const { data: authRes, error } = await client.auth.signInWithPassword({
+    let { data: authRes, error } = await client.auth.signInWithPassword({
       email: data.email.trim(),
       password: data.password
     })
+
+    if (error && error.message.toLowerCase().includes('not confirmed')) {
+      console.warn('[Auth] Login returned "Email not confirmed". Invoking admin-signup to unblock user...')
+      await client.functions.invoke('admin-signup', {
+        body: {
+          action: 'confirm-unconfirmed-user',
+          email: data.email.trim()
+        }
+      })
+      const retryRes = await client.auth.signInWithPassword({
+        email: data.email.trim(),
+        password: data.password
+      })
+      authRes = retryRes.data
+      error = retryRes.error
+    }
 
     if (error) {
       return { success: false, error: error.message }

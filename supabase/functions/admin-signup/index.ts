@@ -12,11 +12,11 @@ serve(async (req) => {
   }
 
   try {
-    const { email, password, fullName, companyName, accountType } = await req.json()
+    const { action, email, password, fullName, companyName, accountType } = await req.json()
 
-    if (!email || !password) {
+    if (!email) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Email and password are required.' }),
+        JSON.stringify({ success: false, error: 'Email is required.' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       )
     }
@@ -38,10 +38,30 @@ serve(async (req) => {
       },
     })
 
+    // Action 1: Confirm user in auth.users so Supabase Auth never blocks login with "Email not confirmed"
+    if (action === 'confirm-unconfirmed-user') {
+      const { data: usersData, error: listErr } = await supabaseAdmin.auth.admin.listUsers()
+      if (!listErr && usersData?.users) {
+        const targetUser = usersData.users.find(u => u.email?.toLowerCase() === email.trim().toLowerCase())
+        if (targetUser) {
+          await supabaseAdmin.auth.admin.updateUserById(targetUser.id, { email_confirm: true })
+          return new Response(
+            JSON.stringify({ success: true }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+          )
+        }
+      }
+      return new Response(
+        JSON.stringify({ success: false, error: 'User not found.' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
+      )
+    }
+
+    // Action 2: Standard Admin Create User (sets email_confirm: true so login is never blocked)
     const { data: newUser, error: createErr } = await supabaseAdmin.auth.admin.createUser({
       email: email.trim(),
       password: password,
-      email_confirm: false,
+      email_confirm: true,
       user_metadata: {
         full_name: (fullName || '').trim(),
         company_name: (companyName || '').trim(),
@@ -50,6 +70,19 @@ serve(async (req) => {
     })
 
     if (createErr) {
+      const isAlreadyRegistered = createErr.message.toLowerCase().includes('already') || createErr.message.toLowerCase().includes('exists')
+      if (isAlreadyRegistered) {
+        // Ensure user is email_confirmed in auth.users so they can sign in freely
+        const { data: usersData } = await supabaseAdmin.auth.admin.listUsers()
+        const targetUser = usersData?.users?.find(u => u.email?.toLowerCase() === email.trim().toLowerCase())
+        if (targetUser) {
+          await supabaseAdmin.auth.admin.updateUserById(targetUser.id, { email_confirm: true })
+        }
+        return new Response(
+          JSON.stringify({ success: false, isAlreadyRegistered: true, error: 'An account with this email already exists. Please sign in.' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+        )
+      }
       return new Response(
         JSON.stringify({ success: false, error: createErr.message }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
