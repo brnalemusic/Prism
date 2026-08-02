@@ -132,34 +132,16 @@ export async function streamOpenAiCompletion(
     bodyPayload.tool_choice = 'auto'
   }
 
-  if (reasoningLevel) {
+  if (reasoningLevel && reasoningLevel !== 'off') {
+    // Map Prism reasoning levels to Google OpenAI-compat reasoning_effort values.
+    // Valid values: 'none' | 'low' | 'medium' | 'high'
     const thinkingLevelMap: Record<string, string> = {
-      off: 'minimal',
-      low: 'low',
+      low:    'low',
       medium: 'medium',
-      high: 'high'
+      high:   'high'
     }
     const levelValue = thinkingLevelMap[reasoningLevel] || reasoningLevel
-
     bodyPayload.reasoning_effort = levelValue
-    bodyPayload.thinking_config = {
-      thinking_level: levelValue,
-      include_thoughts: reasoningLevel !== 'off'
-    }
-    bodyPayload.google = {
-      thinking_config: {
-        thinking_level: levelValue,
-        include_thoughts: reasoningLevel !== 'off'
-      }
-    }
-    bodyPayload.extra_body = {
-      google: {
-        thinking_config: {
-          thinking_level: levelValue,
-          include_thoughts: reasoningLevel !== 'off'
-        }
-      }
-    }
   }
 
 

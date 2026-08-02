@@ -120,6 +120,14 @@ serve(async (req) => {
     let modelId = bodyPayload.model || 'models/gemini-3-flash-preview'
     bodyPayload.model = modelId
 
+    // Strip fields that are invalid on Google's OpenAI-compat endpoint.
+    // The client sends these for reasoning/thinking support, but the endpoint
+    // rejects them with INVALID_ARGUMENT — causing all keys to fail regardless
+    // of rate limits. Only `reasoning_effort` follows the OpenAI spec and is kept.
+    delete bodyPayload.thinking_config
+    delete bodyPayload.google
+    delete bodyPayload.extra_body
+
     // 5. Target endpoint
     const targetEndpoint = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
 
