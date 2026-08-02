@@ -14,6 +14,7 @@ import { QuickLauncher } from './components/QuickLauncher'
 import { TitleBar } from './components/TitleBar'
 import { SettingsView } from './components/SettingsView'
 import { ApiKeyModal } from './components/ApiKeyModal'
+import { ProviderLockScreen } from './components/ProviderLockScreen'
 import { SearchModal } from './components/SearchModal'
 import { MiniAppRenderer } from './components/MiniAppRenderer'
 import { Spinner } from './components/Spinner'
@@ -48,6 +49,7 @@ import { ScreenshotModal } from './components/ScreenshotModal'
 import { YoutubeAppModal } from './components/YoutubeAppModal'
 import { AuthModal } from './components/AuthModal'
 import { UserProfileModal } from './components/UserProfileModal'
+import { OnboardingLicenseModal } from './components/OnboardingLicenseModal'
 import { AppConfig, SlashWorkflow } from '../../main/config'
 import type { DownloadProgress, SessionMode, TodoState, UserProfile } from '../../shared/types'
 import { IS_DEMO } from '../../shared/demo'
@@ -1103,6 +1105,8 @@ function RealApp(): React.JSX.Element {
   const [authUser, setAuthUser] = useState<UserProfile | null>(null)
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
+  const [isOnboardingLicenseModalOpen, setIsOnboardingLicenseModalOpen] = useState(false)
+  const [isProviderLockOpen, setIsProviderLockOpen] = useState(false)
 
   useEffect(() => {
     if (window.api?.getAuthUser) {
@@ -1114,6 +1118,27 @@ function RealApp(): React.JSX.Element {
         .catch((err) => console.error('[Auth] Initial getAuthUser failed:', err))
     }
   }, [])
+
+  const isKeyMissing = useMemo(() => {
+    if (authUser) return false
+    if (!config?.providers) return true
+    return !config.providers.some(
+      (p) => p && p.apiKey && p.apiKey.trim() !== '' && Array.isArray(p.models) && p.models.some((m) => m && m.enabled)
+    )
+  }, [config, authUser])
+
+  const hasTriggeredOnboardingRef = useRef(false)
+  useEffect(() => {
+    if (!bootComplete || config === null) return
+    if (isKeyMissing) {
+      if (!hasTriggeredOnboardingRef.current) {
+        hasTriggeredOnboardingRef.current = true
+        setIsAuthModalOpen(true)
+      }
+    } else {
+      setIsProviderLockOpen(false)
+    }
+  }, [bootComplete, isKeyMissing, config])
 
   // Global Selected Model State
   const [selectedModel, setSelectedModel] = useState<string>('')
@@ -1330,8 +1355,25 @@ function RealApp(): React.JSX.Element {
           )
         }
       }
+      try {
+        const licInfo = await window.api.getLicenseInfo()
+        if (!licInfo?.isActivated && !cfg?.suppressLicenseModal) {
+          setIsOnboardingLicenseModalOpen(true)
+        }
+      } catch (err) {
+        console.error('[LicenseCheck] Failed to check license on startup:', err)
+      }
     }
     init()
+
+    const removeConfigListener = window.api.onConfigChanged((cfg) => {
+      if (cfg) {
+        setConfig(cfg)
+      }
+    })
+    return () => {
+      removeConfigListener()
+    }
   }, [])
 
   useEffect(() => {
@@ -2049,25 +2091,16 @@ function RealApp(): React.JSX.Element {
     setSelectedModel(modelKey)
     window.api.setModel(modelKey)
     setTabs((prev) => prev.map((t) => ({ ...t, selectedModel: modelKey })))
-    setConfig((prev) => {
-      if (!prev) return prev
-      const next = { ...prev, lastSelectedChatModel: modelKey }
-      window.api.saveConfig(next)
-      return next
-    })
+    window.api.saveConfig({ lastSelectedChatModel: modelKey })
   }, [])
 
   const handleReasoningLevelChange = useCallback(async (modelKey: string, level: string) => {
     if (config) {
-      const nextConfig = {
-        ...config,
-        modelReasoningLevels: {
-          ...config.modelReasoningLevels,
-          [modelKey]: level
-        }
+      const updatedLevels = {
+        ...(config.modelReasoningLevels || {}),
+        [modelKey]: level
       }
-      setConfig(nextConfig)
-      await window.api.saveConfig(nextConfig)
+      await window.api.saveConfig({ modelReasoningLevels: updatedLevels })
     }
   }, [config])
 
@@ -2340,16 +2373,30 @@ function RealApp(): React.JSX.Element {
                 content: 'Request timed out: IA stopped responding for over 30 seconds.'
               })
             } else {
-              const apiErrorMatch = error.match(/^API_KEY_ERROR:(\d{3}):(.+)$/)
+              const lowerErr = error.toLowerCase()
+              const isQuotaExceeded =
+                lowerErr.includes('quota') ||
+                lowerErr.includes('limit reached') ||
+                lowerErr.includes('429') ||
+                lowerErr.includes('rate limit')
+
               let separatorContent: string
-              if (apiErrorMatch) {
-                separatorContent = `API key error: ${apiErrorMatch[1]} ${apiErrorMatch[2]}`
+              if (isQuotaExceeded) {
+                separatorContent =
+                  'Prism Provider Quota Exceeded: Your Prism Provider request limit has been reached. Please wait for the reset window or switch to a custom API key in Settings.'
+              } else if (error.startsWith('API Error') || error.startsWith('Provider API Error') || lowerErr.includes('prism provider')) {
+                separatorContent = error
               } else {
-                const httpMatch = error.match(/(\d{3})\s+(.*)/)
-                if (httpMatch) {
-                  separatorContent = `API key error: ${httpMatch[1]} ${httpMatch[2].trim()}`
+                const apiErrorMatch = error.match(/^API_KEY_ERROR:(\d{3}):(.+)$/)
+                if (apiErrorMatch) {
+                  separatorContent = `API key error: ${apiErrorMatch[1]} ${apiErrorMatch[2]}`
                 } else {
-                  separatorContent = `API key error: 500 Internal Server Error`
+                  const httpMatch = error.match(/(\d{3})\s+(.*)/)
+                  if (httpMatch) {
+                    separatorContent = `API Error: ${httpMatch[1]} ${httpMatch[2].trim()}`
+                  } else {
+                    separatorContent = error || 'Error communicating with AI provider.'
+                  }
                 }
               }
               newMessages.push({
@@ -2657,23 +2704,6 @@ function RealApp(): React.JSX.Element {
     }
   }, [])
 
-  const [hasActiveProviders, setHasActiveProviders] = useState<boolean>(true)
-
-  useEffect(() => {
-    const checkProviders = async () => {
-      try {
-        const providers = await window.api.getProviders()
-        const active = (providers || []).some((p) => p.apiKey && p.models.some((m) => m.enabled))
-        setHasActiveProviders(active)
-      } catch {
-        setHasActiveProviders(false)
-      }
-    }
-    checkProviders()
-  }, [config])
-
-  const isKeyMissing = !hasActiveProviders
-
   const visibleDownloads = useMemo(
     () =>
       Object.values(downloads)
@@ -2801,12 +2831,6 @@ function RealApp(): React.JSX.Element {
         title={tabs.length > 0 ? activeTab.title || undefined : undefined}
         isStreaming={tabs.length > 0 ? activeTab.isTitleStreaming : false}
       />
-      <ApiKeyModal
-        isOpen={isApiKeyModalOpen}
-        onClose={() => setIsApiKeyModalOpen(false)}
-        onSave={() => setIsApiKeyModalOpen(false)}
-        initialValue={''}
-      />
       <SearchModal
         isOpen={isSearchModalOpen}
         onClose={() => setIsSearchModalOpen(false)}
@@ -2819,7 +2843,8 @@ function RealApp(): React.JSX.Element {
             onClick={() => setIsSettingsModalOpen(false)}
           />
           <div className="m-auto relative w-full max-w-5xl h-[92vh] sm:h-[85vh] overflow-hidden rounded-[24px] sm:rounded-[30px] border border-white/[0.12] bg-surface shadow-2xl flex flex-col z-10">
-            <SettingsView onClose={() => setIsSettingsModalOpen(false)} />
+            <SettingsView onClose={() => setIsSettingsModalOpen(false)} onOpenAuthModal={() => setIsAuthModalOpen(true)} />
+
           </div>
         </div>
       )}
@@ -3036,9 +3061,16 @@ function RealApp(): React.JSX.Element {
       {/* Auth & Profile Modals */}
       <AuthModal
         isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
+        onClose={() => {
+          setIsAuthModalOpen(false)
+          if (isKeyMissing) {
+            setIsApiKeyModalOpen(true)
+          }
+        }}
         onAuthSuccess={(user) => {
           setAuthUser(user)
+          setIsAuthModalOpen(false)
+          setIsProviderLockOpen(false)
         }}
       />
       <UserProfileModal
@@ -3047,6 +3079,44 @@ function RealApp(): React.JSX.Element {
         onClose={() => setIsProfileModalOpen(false)}
         onLoggedOut={() => setAuthUser(null)}
         onProfileUpdated={(updated) => setAuthUser(updated)}
+      />
+
+      <ApiKeyModal
+        isOpen={isApiKeyModalOpen}
+        onClose={() => {
+          setIsApiKeyModalOpen(false)
+          if (isKeyMissing) {
+            setIsProviderLockOpen(true)
+          }
+        }}
+        onSave={() => {
+          setIsApiKeyModalOpen(false)
+          setIsProviderLockOpen(false)
+        }}
+        initialValue={''}
+      />
+
+      {/* Mandatory Provider Lock Screen Fallback */}
+      {isProviderLockOpen && isKeyMissing && (
+        <ProviderLockScreen
+          onOpenAuth={() => {
+            setIsProviderLockOpen(false)
+            setIsAuthModalOpen(true)
+          }}
+          onOpenWizard={() => {
+            setIsProviderLockOpen(false)
+            setIsApiKeyModalOpen(true)
+          }}
+        />
+      )}
+
+      {/* Onboarding License Modal (Startup Prompt) */}
+      <OnboardingLicenseModal
+        isOpen={isOnboardingLicenseModalOpen}
+        onClose={() => setIsOnboardingLicenseModalOpen(false)}
+        authUser={authUser}
+        config={config}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
       />
     </div>
   )

@@ -65,6 +65,8 @@ export const TRUSTED_MODELS_LIST: string[] = [
   'qwen3.6-27b',
   'step-3.7-flash',
   'glm-5.2',
+  'gemini-3-flash',
+  'gemini-3.1-flash-lite',
   'gemini-3.6-flash',
   'gemini-3.5-flash-lite',
   'gemini-3.1-pro',

@@ -111,7 +111,7 @@ export interface PrismAPI {
   getOpenWindows: () => Promise<Array<{ id: string; name: string; thumbnail: string }>>
   captureWindow: (sourceId: string) => Promise<string>
   getConfig: () => Promise<AppConfig>
-  saveConfig: (config: AppConfig) => Promise<boolean>
+  saveConfig: (config: Partial<AppConfig>) => Promise<boolean>
   selectFolder: () => Promise<string | null>
   setSessionMode: (mode: SessionMode, disciplinePath?: string) => void
   getSessionMode: () => Promise<{ mode: SessionMode; disciplinePath?: string }>
@@ -217,6 +217,7 @@ export interface PrismAPI {
   showArtifactInFolder: (filePath: string) => Promise<void>
   getProviders: () => Promise<import('../shared/types').ProviderConfig[]>
   saveProviders: (providers: import('../shared/types').ProviderConfig[]) => Promise<boolean>
+  deleteProvider: (providerId: string) => Promise<boolean>
   fetchProviderModels: (params: { baseUrl: string; apiKey: string; completionType: import('../shared/types').CompletionType }) => Promise<{ success: boolean; models: import('../shared/types').ProviderModel[]; error?: string }>
   getActiveModels: () => Promise<Array<{ providerId: string; providerName: string; isProviderTrusted: boolean; model: import('../shared/types').ProviderModel; fullKey: string }>>
   onToolCallDelta: (callback: (delta: import('../shared/types').StreamToolCallDelta & { chatId: string }) => void) => () => void
@@ -237,6 +238,7 @@ export interface PrismAPI {
   authUpdateProfile: (
     updates: Partial<import('../shared/types').UserProfile>
   ) => Promise<import('../shared/types').AuthResponse>
+  getUserAiUsage: () => Promise<import('../shared/types').UserAiUsageStatus | null>
   getSubscriptionPlans: () => Promise<import('../shared/types').SubscriptionPlan[]>
   createCheckoutSession: (
     planId: string,
@@ -244,6 +246,7 @@ export interface PrismAPI {
   ) => Promise<import('../shared/types').CheckoutSessionResult>
   verifyAndActivatePayment: (
     planId: string,
+    sessionId: string,
     email: string,
     company?: string
   ) => Promise<{ success: boolean; licenseKey?: string; error?: string }>

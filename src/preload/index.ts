@@ -317,7 +317,7 @@ const api = {
   captureWindow: (sourceId: string): Promise<string> =>
     ipcRenderer.invoke('capture-window', sourceId),
   getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('get-config'),
-  saveConfig: (config: AppConfig): Promise<boolean> => ipcRenderer.invoke('save-config', config),
+  saveConfig: (config: Partial<AppConfig>): Promise<boolean> => ipcRenderer.invoke('save-config', config),
   selectFolder: (): Promise<string | null> => ipcRenderer.invoke('select-folder'),
   setSessionMode: (mode: SessionMode, disciplinePath?: string): void =>
     ipcRenderer.send('set-session-mode', { mode, disciplinePath }),
@@ -616,6 +616,9 @@ const api = {
   saveProviders: (providers: any): Promise<boolean> => {
     return ipcRenderer.invoke('save-providers', providers)
   },
+  deleteProvider: (providerId: string): Promise<boolean> => {
+    return ipcRenderer.invoke('delete-provider', providerId)
+  },
   fetchProviderModels: (params: any): Promise<any> => {
     return ipcRenderer.invoke('fetch-provider-models', params)
   },
@@ -662,6 +665,8 @@ const api = {
   authUpdateProfile: (
     updates: Partial<import('../shared/types').UserProfile>
   ): Promise<import('../shared/types').AuthResponse> => ipcRenderer.invoke('auth-update-profile', updates),
+  getUserAiUsage: (): Promise<import('../shared/types').UserAiUsageStatus | null> =>
+    ipcRenderer.invoke('auth-get-ai-usage'),
   getSubscriptionPlans: (): Promise<import('../shared/types').SubscriptionPlan[]> =>
     ipcRenderer.invoke('get-subscription-plans'),
   createCheckoutSession: (
@@ -671,10 +676,11 @@ const api = {
     ipcRenderer.invoke('create-checkout-session', planId, email),
   verifyAndActivatePayment: (
     planId: string,
+    sessionId: string,
     email: string,
     company?: string
   ): Promise<{ success: boolean; licenseKey?: string; error?: string }> =>
-    ipcRenderer.invoke('verify-and-activate-payment', planId, email, company)
+    ipcRenderer.invoke('verify-and-activate-payment', planId, sessionId, email, company)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

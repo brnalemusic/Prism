@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import {
   FloppyDisk as Save,
   Keyboard,
@@ -28,6 +29,10 @@ import {
   EyeSlash,
   CircleNotch,
   Clock,
+  CreditCard,
+  Sparkle,
+  ArrowSquareOut,
+  CheckCircle,
   X
 } from '@phosphor-icons/react'
 import { ShortcutRecorder } from './ShortcutRecorder'
@@ -115,7 +120,7 @@ function formatToolName(name: string): string {
     .join(' ')
 }
 
-export function SettingsView({ onClose }: { onClose?: () => void }): React.JSX.Element {
+export function SettingsView({ onClose, onOpenAuthModal }: { onClose?: () => void; onOpenAuthModal?: () => void }): React.JSX.Element {
   const [config, setConfig] = useState<Config>({
     providers: [],
     launcherShortcut: 'CommandOrControl+Space',
@@ -215,12 +220,152 @@ function useLicenseCountdown(expiresAt?: string): string {
   const [licenseError, setLicenseError] = useState<string | null>(null)
   const [licenseSuccess, setLicenseSuccess] = useState<string | null>(null)
   const [isActivationModalOpen, setIsActivationModalOpen] = useState(false)
+  // Stripe-specific loading state — rendered as a global portal modal, separate from the offline card
+  const [stripeVerifying, setStripeVerifying] = useState(false)
+  const [stripeVerifyMessage, setStripeVerifyMessage] = useState('Contacting payment server...')
+
+  // --- Dynamic License Plans & Stripe Checkout State ---
+  const [authUser, setAuthUser] = useState<import('../../../shared/types').UserProfile | null>(null)
+  const [plans, setPlans] = useState<import('../../../shared/types').SubscriptionPlan[]>([])
+  const [isLoadingPlans, setIsLoadingPlans] = useState(false)
+  const [checkoutLoadingPlanId, setCheckoutLoadingPlanId] = useState<string | null>(null)
+  // Maps planId -> Stripe session_id after a real checkout is opened
+  const [pendingSessionIds, setPendingSessionIds] = useState<Record<string, string>>({})
+  const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null)
+
+  const settingsPollRef = useRef<NodeJS.Timeout | null>(null)
+
+  const stopSettingsPolling = (): void => {
+    if (settingsPollRef.current) {
+      clearInterval(settingsPollRef.current)
+      settingsPollRef.current = null
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      stopSettingsPolling()
+    }
+  }, [])
 
   const countdownText = useLicenseCountdown(licenseInfo?.expiresAt)
 
   useEffect(() => {
+    window.api.getAuthUser().then((u) => setAuthUser(u)).catch(() => setAuthUser(null))
+  }, [])
+
+  useEffect(() => {
     window.api.getLicenseInfo().then((info) => setLicenseInfo(info)).catch(() => setLicenseInfo(null))
   }, [config?.licenseKey])
+
+  useEffect(() => {
+    if (activeSection === 'license') {
+      setIsLoadingPlans(true)
+      window.api
+        .getSubscriptionPlans()
+        .then((fetchedPlans) => setPlans(fetchedPlans))
+        .catch((err) => console.error('Failed to load subscription plans from Supabase:', err))
+        .finally(() => setIsLoadingPlans(false))
+    }
+  }, [activeSection])
+
+  const handleBuyPlan = async (plan: import('../../../shared/types').SubscriptionPlan): Promise<void> => {
+    setCheckoutLoadingPlanId(plan.id)
+    setLicenseError(null)
+    setCheckoutMessage(null)
+    setStripeVerifying(true)
+    setStripeVerifyMessage(`Initializing Stripe Checkout for ${plan.name}...`)
+
+    try {
+      const email = authUser?.email || ''
+      const company = authUser?.companyName || authUser?.fullName || 'Enterprise Licensee'
+      const res = await window.api.createCheckoutSession(plan.id, email)
+
+      if (res.success && res.checkoutUrl && res.sessionId) {
+        setPendingSessionIds((prev) => ({ ...prev, [plan.id]: res.sessionId! }))
+        window.open(res.checkoutUrl, '_blank')
+        setStripeVerifyMessage('Checkout opened in your browser. Waiting for payment completion...')
+
+        // Start automatic global polling every 2 seconds
+        stopSettingsPolling()
+        settingsPollRef.current = setInterval(async () => {
+          try {
+            const verifyRes = await window.api.verifyAndActivatePayment(
+              plan.id,
+              res.sessionId!,
+              email || 'customer@prism.app',
+              company
+            )
+
+            if (verifyRes.success) {
+              stopSettingsPolling()
+              setStripeVerifyMessage('Payment Confirmed! Enterprise License Activated.')
+
+              const info = await window.api.getLicenseInfo()
+              if (info) setLicenseInfo(info)
+
+              setTimeout(() => {
+                setStripeVerifying(false)
+                setIsActivationModalOpen(true)
+              }, 1500)
+            }
+          } catch (pollErr) {
+            console.warn('[SettingsStripePolling] Retrying verify step...', pollErr)
+          }
+        }, 2000)
+      } else {
+        stopSettingsPolling()
+        setStripeVerifying(false)
+        setLicenseError(res.error || 'Failed to launch Stripe Checkout.')
+      }
+    } catch (err: any) {
+      stopSettingsPolling()
+      setStripeVerifying(false)
+      setLicenseError(err?.message || 'Error initializing checkout.')
+    } finally {
+      setCheckoutLoadingPlanId(null)
+    }
+  }
+
+  const handleVerifyAndActivate = async (plan: import('../../../shared/types').SubscriptionPlan): Promise<void> => {
+    const sessionId = pendingSessionIds[plan.id]
+    if (!sessionId) {
+      setLicenseError('No Stripe payment session found. Please click "Buy via Stripe" first and complete checkout.')
+      return
+    }
+
+    setStripeVerifying(true)
+    setStripeVerifyMessage('Contacting Stripe to verify payment...')
+    setLicenseError(null)
+
+    try {
+      const email = authUser?.email || 'customer@prism.app'
+      const company = authUser?.companyName || authUser?.fullName || 'Enterprise Licensee'
+
+      setStripeVerifyMessage('Verifying payment status on Stripe...')
+      const res = await window.api.verifyAndActivatePayment(plan.id, sessionId, email, company)
+
+      if (res.success) {
+        setPendingSessionIds((prev) => {
+          const next = { ...prev }
+          delete next[plan.id]
+          return next
+        })
+        setCheckoutMessage(null)
+        const info = await window.api.getLicenseInfo()
+        if (info) {
+          setLicenseInfo(info)
+          setIsActivationModalOpen(true)
+        }
+      } else {
+        setLicenseError(res.error || 'Payment verification failed. Please ensure checkout was completed.')
+      }
+    } catch (err: any) {
+      setLicenseError(err?.message || 'Error confirming payment.')
+    } finally {
+      setStripeVerifying(false)
+    }
+  }
 
   const handleActivateLicense = async (): Promise<void> => {
     if (!inputLicenseKey.trim()) return
@@ -694,6 +839,7 @@ function useLicenseCountdown(expiresAt?: string): string {
                   onClick={() => {
                     setConfig({ ...config, theme: id })
                     document.documentElement.setAttribute('data-theme', id)
+                    window.api.saveConfig({ theme: id })
                   }}
                   className="group flex flex-col items-center gap-2 focus:outline-none"
                 >
@@ -1167,80 +1313,216 @@ function useLicenseCountdown(expiresAt?: string): string {
           </div>
         </div>
       ) : (
-        <div className="relative flex flex-col gap-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-5 overflow-hidden">
-          {activating && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/85 backdrop-blur-md animate-soft-pop p-6 text-center">
-              <CircleNotch size={28} className="animate-spin text-accent-primary" />
-              <div className="flex flex-col items-center gap-1">
-                <span className="font-mono text-xs font-bold tracking-wider text-text-primary uppercase">
-                  Prism Enterprise Licensing
+        <div className="flex flex-col gap-6">
+          {/* Dynamic Commercial Plans Grid (Fetched from Supabase) */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-bold text-text-primary flex items-center gap-2">
+                  <Sparkle size={16} className="text-accent-primary animate-pulse" />
+                  Commercial Enterprise Plans
                 </span>
-                <span className="text-xs font-medium text-accent-primary animate-pulse">
-                  {activationStepMessage}
+                <span className="text-xs text-text-secondary/70">
+                  Select an Enterprise plan below. All prices and terms are fetched live from Supabase.
                 </span>
               </div>
             </div>
-          )}
 
-          <div className="flex flex-col gap-1">
-            <span className="text-sm font-bold text-text-primary">Activate Enterprise Key</span>
-            <span className="text-xs text-text-secondary/70">
-              Paste your PRISM-ENTERPRISE key below to unlock commercial Enterprise mode.
-            </span>
+            {isLoadingPlans ? (
+              <div className="flex items-center justify-center p-8 border border-white/[0.08] bg-white/[0.02] rounded-[20px]">
+                <CircleNotch size={24} className="animate-spin text-accent-primary" />
+                <span className="text-xs text-text-secondary ml-3">Loading live pricing from Supabase...</span>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {plans.map((plan) => {
+                  const isPopular = plan.badge === 'Best Value' || plan.id === 'enterprise_yearly'
+                  const isLoadingThis = checkoutLoadingPlanId === plan.id
+                  const hasPendingSession = !!pendingSessionIds[plan.id]
+
+                  return (
+                    <div
+                      key={plan.id}
+                      className={clsx(
+                        'relative flex flex-col justify-between p-5 rounded-[20px] border transition-all duration-200',
+                        isPopular
+                          ? 'border-accent-primary/40 bg-accent-primary/[0.05] shadow-lg shadow-accent-primary/5'
+                          : 'border-white/[0.08] bg-white/[0.035] hover:border-white/[0.15]'
+                      )}
+                    >
+                      {plan.badge && (
+                        <div className="absolute -top-3 right-4 px-2.5 py-0.5 rounded-full bg-accent-primary text-[10px] font-mono font-bold uppercase tracking-wider text-white shadow-sm">
+                          {plan.badge}
+                        </div>
+                      )}
+
+                      <div className="flex flex-col gap-2">
+                        <span className="text-sm font-bold text-text-primary">{plan.name}</span>
+                        <p className="text-xs text-text-secondary/80 leading-relaxed min-h-[36px]">
+                          {plan.description}
+                        </p>
+
+                        <div className="flex items-baseline gap-1 my-2">
+                          <span className="text-2xl font-extrabold text-text-primary font-mono">
+                            ${plan.priceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                          <span className="text-xs text-text-muted font-medium">
+                            / {plan.billingInterval}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2 pt-3 border-t border-white/[0.06] mt-3">
+                        {authUser ? (
+                          <>
+                            {/* Buy via Stripe — only for authenticated users */}
+                            <button
+                              onClick={() => handleBuyPlan(plan)}
+                              disabled={isLoadingThis || hasPendingSession}
+                              className={clsx(
+                                'w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all shadow-sm',
+                                hasPendingSession
+                                  ? 'opacity-40 cursor-not-allowed bg-white/5 border border-white/10 text-text-muted'
+                                  : isPopular
+                                  ? 'bg-accent-primary hover:bg-accent-primary/90 text-white cursor-pointer'
+                                  : 'bg-white/10 hover:bg-white/15 text-text-primary border border-white/10 cursor-pointer'
+                              )}
+                              title={hasPendingSession ? 'Payment session already opened — verify below' : undefined}
+                            >
+                              {isLoadingThis ? (
+                                <CircleNotch size={15} className="animate-spin" />
+                              ) : (
+                                <CreditCard size={15} />
+                              )}
+                              <span>{isLoadingThis ? 'Opening Checkout...' : hasPendingSession ? 'Checkout Opened' : 'Buy via Stripe'}</span>
+                            </button>
+
+                            {/* Verify & Activate — only enabled after a real session exists */}
+                            <button
+                              onClick={() => handleVerifyAndActivate(plan)}
+                              disabled={!hasPendingSession || stripeVerifying}
+                              className={clsx(
+                                'w-full flex items-center justify-center gap-1.5 text-[11px] font-semibold py-1.5 rounded-lg transition-all',
+                                hasPendingSession && !stripeVerifying
+                                  ? 'text-status-success hover:text-status-success/80 cursor-pointer bg-status-success/10 hover:bg-status-success/15'
+                                  : 'text-text-muted opacity-40 cursor-not-allowed'
+                              )}
+                              title={!hasPendingSession ? 'Complete Stripe checkout first' : 'Verify payment and activate license'}
+                            >
+                              <CheckCircle size={13} />
+                              Verify & Activate Plan
+                            </button>
+                          </>
+                        ) : (
+                          // Not logged in — prompt to sign in
+                          <div className="flex flex-col items-center gap-1.5 py-2">
+                            <span className="text-[11px] text-text-muted text-center leading-relaxed">
+                              Sign in to your Prism account to purchase a plan.
+                            </span>
+                            <button
+                              onClick={onOpenAuthModal}
+                              className="text-[11px] font-semibold text-accent-primary hover:underline cursor-pointer"
+                            >
+                              Sign In / Create Account →
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
-          <div className="flex flex-col gap-2">
-            <div className="relative w-full">
-              <textarea
-                value={inputLicenseKey}
-                onChange={(e) => setInputLicenseKey(e.target.value)}
-                placeholder="Paste PRISM-ENTERPRISE key here"
-                rows={6}
-                style={{ WebkitTextSecurity: showKeyText ? 'none' : 'disc' } as any}
-                className="w-full rounded-xl border border-white/[0.1] bg-black/40 p-3 pr-10 font-mono text-xs text-text-primary placeholder:text-text-muted/40 focus:border-accent-primary focus:outline-none transition-colors custom-scrollbar min-h-[160px]"
-              />
-              <button
-                type="button"
-                onClick={() => setShowKeyText(!showKeyText)}
-                className="absolute right-3 top-3 text-text-muted hover:text-text-primary transition-colors cursor-pointer p-1 rounded-md hover:bg-white/5"
-                title={showKeyText ? 'Hide License Key' : 'Reveal License Key'}
-              >
-                {showKeyText ? <EyeSlash size={16} /> : <Eye size={16} />}
-              </button>
+          {/* Checkout Status Banner */}
+          {checkoutMessage && (
+            <div className="flex flex-col gap-2 p-4 rounded-xl border border-accent-primary/30 bg-accent-primary/[0.08] text-xs animate-soft-pop">
+              <div className="flex items-center gap-2 text-accent-primary font-semibold">
+                <ArrowSquareOut size={16} />
+                <span>Stripe Checkout Session Active</span>
+              </div>
+              <p className="text-text-secondary">{checkoutMessage}</p>
+            </div>
+          )}
+
+          {/* Manual Offline Key Activation Card */}
+          <div className="relative flex flex-col gap-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-5 overflow-hidden mt-2">
+            {/* Loading overlay ONLY for offline key activation — not for Stripe */}
+            {activating && (
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/85 backdrop-blur-md animate-soft-pop p-6 text-center">
+                <CircleNotch size={28} className="animate-spin text-accent-primary" />
+                <div className="flex flex-col items-center gap-1">
+                  <span className="font-mono text-xs font-bold tracking-wider text-text-primary uppercase">
+                    Prism Enterprise Licensing
+                  </span>
+                  <span className="text-xs font-medium text-accent-primary animate-pulse">
+                    {activationStepMessage}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-bold text-text-primary">Already have a License Key?</span>
+              <span className="text-xs text-text-secondary/70">
+                Paste your PRISM-ENTERPRISE key below to activate offline or custom licenses.
+              </span>
             </div>
 
-            {licenseError && (
-              <span className="text-xs font-medium text-status-error flex items-center gap-1.5 mt-1">
-                <Warning size={14} />
-                {licenseError}
-              </span>
-            )}
+            <div className="flex flex-col gap-2">
+              <div className="relative w-full">
+                <textarea
+                  value={inputLicenseKey}
+                  onChange={(e) => setInputLicenseKey(e.target.value)}
+                  placeholder="Paste PRISM-ENTERPRISE key here"
+                  rows={4}
+                  style={{ WebkitTextSecurity: showKeyText ? 'none' : 'disc' } as any}
+                  className="w-full rounded-xl border border-white/[0.1] bg-black/40 p-3 pr-10 font-mono text-xs text-text-primary placeholder:text-text-muted/40 focus:border-accent-primary focus:outline-none transition-colors custom-scrollbar min-h-[110px]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKeyText(!showKeyText)}
+                  className="absolute right-3 top-3 text-text-muted hover:text-text-primary transition-colors cursor-pointer p-1 rounded-md hover:bg-white/5"
+                  title={showKeyText ? 'Hide License Key' : 'Reveal License Key'}
+                >
+                  {showKeyText ? <EyeSlash size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
 
-            {licenseSuccess && (
-              <span className="text-xs font-medium text-status-success flex items-center gap-1.5 mt-1">
-                <Check size={14} />
-                {licenseSuccess}
-              </span>
-            )}
+              {licenseError && (
+                <span className="text-xs font-medium text-status-error flex items-center gap-1.5 mt-1">
+                  <Warning size={14} />
+                  {licenseError}
+                </span>
+              )}
 
-            <div className="flex items-center justify-between mt-2">
-              <a
-                href="https://github.com/brnalemusic"
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs text-accent-primary hover:underline"
-              >
-                Need a commercial license? Contact Breno Alexandrē
-              </a>
+              {licenseSuccess && (
+                <span className="text-xs font-medium text-status-success flex items-center gap-1.5 mt-1">
+                  <Check size={14} />
+                  {licenseSuccess}
+                </span>
+              )}
 
-              <button
-                onClick={handleActivateLicense}
-                disabled={activating || !inputLicenseKey.trim()}
-                className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-accent-primary hover:bg-accent-primary/90 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-all cursor-pointer shadow-sm"
-              >
-                {activating && <CircleNotch size={14} className="animate-spin" />}
-                <span>{activating ? 'Validating...' : 'Activate Enterprise'}</span>
-              </button>
+              <div className="flex items-center justify-between mt-2">
+                <a
+                  href="https://github.com/brnalemusic"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-accent-primary hover:underline"
+                >
+                  Need a commercial license? Contact Breno Alexandrē
+                </a>
+
+                <button
+                  onClick={handleActivateLicense}
+                  disabled={activating || !inputLicenseKey.trim()}
+                  className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-accent-primary hover:bg-accent-primary/90 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-all cursor-pointer shadow-sm"
+                >
+                  {activating && <CircleNotch size={14} className="animate-spin" />}
+                  <span>{activating ? 'Validating...' : 'Activate Key'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1253,6 +1535,43 @@ function useLicenseCountdown(expiresAt?: string): string {
           onClose={() => setIsActivationModalOpen(false)}
         />
       )}
+
+      {/* Stripe Payment Verification Modal — global portal */}
+      {stripeVerifying && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-xl animate-soft-pop p-4">
+          <div className="flex flex-col items-center gap-5 px-8 py-8 rounded-[28px] border border-white/[0.1] bg-[#0f1015]/95 shadow-[0_30px_80px_-10px_rgba(0,0,0,0.9)] text-center max-w-sm w-full">
+            <div className="relative">
+              <div className="h-14 w-14 rounded-2xl bg-[#635BFF]/15 border border-[#635BFF]/25 flex items-center justify-center">
+                <CircleNotch size={28} className="animate-spin text-[#635BFF]" />
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="font-mono text-[11px] font-bold tracking-widest text-[#635BFF] uppercase">
+                Stripe Automatic Verification
+              </span>
+              <span className="text-sm font-semibold text-text-primary">
+                {stripeVerifyMessage}
+              </span>
+              <span className="text-[11px] text-text-secondary/60 leading-relaxed">
+                Checking payment status automatically every 2 seconds. Keep your browser window open.
+              </span>
+            </div>
+
+            <button
+              onClick={() => {
+                stopSettingsPolling()
+                setStripeVerifying(false)
+              }}
+              className="text-xs font-medium text-text-muted hover:text-text-primary transition-colors mt-1 cursor-pointer"
+            >
+              Cancel / Close Waiting Window
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+
+
     </div>
   )
 
@@ -1333,7 +1652,7 @@ function useLicenseCountdown(expiresAt?: string): string {
     setConfig(updatedConfig)
 
     // Auto persist to disk
-    window.api.saveConfig(updatedConfig)
+    window.api.saveConfig({ workflows: updatedWorkflows })
 
     setEditingWorkflow(null)
     setIsAddingWorkflow(false)
@@ -1343,7 +1662,7 @@ function useLicenseCountdown(expiresAt?: string): string {
     const updatedWorkflows = (config.workflows || []).filter((w) => w.id !== id)
     const updatedConfig = { ...config, workflows: updatedWorkflows }
     setConfig(updatedConfig)
-    window.api.saveConfig(updatedConfig)
+    window.api.saveConfig({ workflows: updatedWorkflows })
   }
 
   const renderWorkflows = (): React.JSX.Element => {

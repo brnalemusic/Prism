@@ -10,7 +10,8 @@ import {
   CircleNotch,
   CheckCircle,
   WarningCircle,
-  ShieldCheck
+  ShieldCheck,
+  Sparkle
 } from '@phosphor-icons/react'
 import type { UserProfile } from '../../../shared/types'
 
@@ -166,6 +167,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
             {tab === 'signup' && 'Create your Prism account for personal or company access.'}
             {tab === 'forgot' && 'Reset your account password.'}
           </p>
+        </div>
+
+        {/* Free AI Highlight Banner */}
+        <div className="flex items-start gap-3 rounded-2xl border border-blue-500/30 bg-blue-500/10 p-3.5 text-xs text-blue-300">
+          <Sparkle size={20} weight="fill" className="shrink-0 text-blue-400 mt-0.5" />
+          <div className="space-y-0.5">
+            <span className="font-bold text-white block">Unlock Free AI Access</span>
+            <p className="text-[11px] text-blue-200/80 leading-snug">
+              Sign in or create an account to instantly unlock free AI models powered by Prism Cloud!
+            </p>
+          </div>
         </div>
 
         {/* Navigation Tabs (SignIn vs SignUp) */}

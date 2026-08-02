@@ -35,6 +35,7 @@ import {
   getChatModel,
   getAllProviders,
   saveProviders,
+  deleteProvider,
   fetchModelsFromProvider,
   getActiveModels
 } from './ai'
@@ -79,7 +80,8 @@ import {
   authLogout,
   getCurrentAuthUser,
   authResetPassword,
-  authUpdateProfile
+  authUpdateProfile,
+  getUserAiUsage
 } from './supabaseAuth'
 import {
   fetchSubscriptionPlans,
@@ -726,8 +728,12 @@ if (!gotTheLock) {
 
     ipcMain.on('set-model', (_event, modelKey) => {
       setChatModel(modelKey)
+      saveConfig({ lastSelectedChatModel: modelKey })
+      currentConfig = loadConfig()
       mainWindow?.webContents.send('model-changed', modelKey)
       launcherWindow?.webContents.send('model-changed', modelKey)
+      mainWindow?.webContents.send('config-changed', currentConfig)
+      launcherWindow?.webContents.send('config-changed', currentConfig)
     })
     ipcMain.on('set-think-mode', (_event, val) => {
       mainWindow?.webContents.send('think-mode-changed', val)
@@ -953,7 +959,7 @@ if (!gotTheLock) {
       }
     })
 
-    ipcMain.handle('save-config', (_event, config: AppConfig) => {
+    ipcMain.handle('save-config', (_event, config: Partial<AppConfig>) => {
       const success = saveConfig(config)
       if (success) {
         currentConfig = loadConfig()
@@ -976,6 +982,16 @@ if (!gotTheLock) {
 
     ipcMain.handle('save-providers', (_event, providers: any) => {
       const success = saveProviders(providers)
+      if (success) {
+        currentConfig = loadConfig()
+        mainWindow?.webContents.send('config-changed', currentConfig)
+        launcherWindow?.webContents.send('config-changed', currentConfig)
+      }
+      return success
+    })
+
+    ipcMain.handle('delete-provider', (_event, providerId: string) => {
+      const success = deleteProvider(providerId)
       if (success) {
         currentConfig = loadConfig()
         mainWindow?.webContents.send('config-changed', currentConfig)
@@ -1050,8 +1066,11 @@ if (!gotTheLock) {
       return await createStripeCheckoutSession(planId, email)
     })
 
-    ipcMain.handle('verify-and-activate-payment', async (_event, planId: string, email: string, company?: string) => {
-      const res = await verifyAndActivatePayment(planId, email, company)
+    ipcMain.handle('verify-and-activate-payment', async (_event, planId: string, sessionId: string, email: string, company?: string) => {
+      if (!sessionId) {
+        return { success: false, error: 'No Stripe session ID provided. Please complete checkout first.' }
+      }
+      const res = await verifyAndActivatePayment(planId, sessionId, email, company)
       if (res.success) {
         currentConfig = loadConfig()
         mainWindow?.webContents.send('config-changed', currentConfig)
@@ -1059,6 +1078,7 @@ if (!gotTheLock) {
       }
       return res
     })
+
 
     // Supabase Auth IPC Handlers
     ipcMain.handle('auth-login', async (_event, data) => {
@@ -1083,6 +1103,10 @@ if (!gotTheLock) {
 
     ipcMain.handle('auth-update-profile', async (_event, updates) => {
       return await authUpdateProfile(updates)
+    })
+
+    ipcMain.handle('auth-get-ai-usage', async () => {
+      return await getUserAiUsage()
     })
 
     ipcMain.on('set-session-mode', (_event, { mode, disciplinePath }) => {

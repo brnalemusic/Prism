@@ -790,6 +790,9 @@ export function QuickLauncher(): React.JSX.Element {
   useEffect(() => {
     window.api.getConfig().then((cfg) => {
       setConfig(cfg)
+      if (cfg.theme) {
+        document.documentElement.setAttribute('data-theme', cfg.theme)
+      }
       if (cfg.modelSelectionShortcut) {
         setShortcut(cfg.modelSelectionShortcut)
       }
@@ -812,6 +815,9 @@ export function QuickLauncher(): React.JSX.Element {
 
     const removeConfigListener = window.api.onConfigChanged((cfg) => {
       setConfig(cfg)
+      if (cfg.theme) {
+        document.documentElement.setAttribute('data-theme', cfg.theme)
+      }
       if (cfg.modelSelectionShortcut) {
         setShortcut(cfg.modelSelectionShortcut)
       }

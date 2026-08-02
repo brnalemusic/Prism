@@ -105,6 +105,7 @@ export interface ProviderConfig {
   apiKey: string
   completionType: CompletionType
   isTrusted: boolean
+  isOfficial?: boolean
   models: ProviderModel[]
 }
 
@@ -232,6 +233,25 @@ export interface CheckoutSessionResult {
   sessionId?: string
   error?: string
 }
+
+export interface PaymentVerificationResult {
+  success: boolean
+  licenseKey?: string
+  error?: string
+}
+
+export interface UserAiUsageStatus {
+  percentageRemaining: number
+  percentage5h: number
+  percentage1w: number
+  count5h: number
+  count1w: number
+  remaining5h: number
+  remaining1w: number
+  reset5hSeconds?: number
+  reset1wSeconds?: number
+}
+
 
 
 

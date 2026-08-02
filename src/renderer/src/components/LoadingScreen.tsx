@@ -100,8 +100,16 @@ export function LoadingScreen({
       if (!active) return
 
       if (keyMissing) {
-        setBootState('needs-key')
-        setShowKeyModal(true)
+        setBootState('ready')
+        setTimeout(() => {
+          if (!isMounted.current) return
+          setVisible(false)
+          setTimeout(() => {
+            if (isMounted.current) {
+              onCompleteRef.current()
+            }
+          }, 400)
+        }, 300)
         return
       }
 

@@ -11,9 +11,11 @@ import {
   CircleNotch,
   EnvelopeSimple,
   PencilSimple,
-  Check
+  Check,
+  Sparkle,
+  Clock
 } from '@phosphor-icons/react'
-import type { UserProfile } from '../../../shared/types'
+import type { UserProfile, UserAiUsageStatus } from '../../../shared/types'
 
 interface UserProfileModalProps {
   isOpen: boolean
@@ -21,6 +23,21 @@ interface UserProfileModalProps {
   onClose: () => void
   onLoggedOut: () => void
   onProfileUpdated: (user: UserProfile) => void
+}
+
+function formatResetTime(seconds?: number): string {
+  if (!seconds || seconds <= 0) return 'Resets soon'
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+
+  if (days > 0) {
+    return `Resets in ${days}d ${hours}h`
+  }
+  if (hours > 0) {
+    return `Resets in ${hours}h ${minutes}m`
+  }
+  return `Resets in ${minutes}m`
 }
 
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({
@@ -33,6 +50,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [isEditing, setIsEditing] = useState(false)
   const [fullName, setFullName] = useState(user?.fullName || '')
   const [companyName, setCompanyName] = useState(user?.companyName || '')
+  const [aiUsage, setAiUsage] = useState<UserAiUsageStatus | null>(null)
 
   useEffect(() => {
     if (user) {
@@ -40,6 +58,16 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       setCompanyName(user.companyName || '')
     }
   }, [user])
+
+  useEffect(() => {
+    if (isOpen && user) {
+      window.api.getUserAiUsage()
+        .then((usage) => {
+          if (usage) setAiUsage(usage)
+        })
+        .catch((err) => console.error('Failed to load AI usage:', err))
+    }
+  }, [isOpen, user])
 
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
@@ -166,6 +194,66 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           <div className="flex items-start gap-2.5 rounded-xl border border-status-success/30 bg-status-success/10 p-3 text-xs text-status-success animate-soft-pop">
             <CheckCircle size={18} weight="fill" className="shrink-0 mt-0.5" />
             <span className="leading-tight">{successMsg}</span>
+          </div>
+        )}
+
+        {/* Prism Provider AI Quota Card */}
+        {!isEditing && (
+          <div className="rounded-2xl border border-accent-primary/20 bg-accent-primary/[0.04] p-4 space-y-3.5">
+            <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-white">
+                <Sparkle size={16} className="text-accent-primary" weight="fill" />
+                <span>Prism Provider Quota</span>
+              </div>
+            </div>
+
+            {/* 5-Hour Window Progress Bar */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[11px]">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-text-secondary font-medium">5-Hour Quota</span>
+                  {aiUsage && aiUsage.percentage5h < 100 && aiUsage.reset5hSeconds !== undefined && (
+                    <span className="text-[10px] text-accent-primary font-mono flex items-center gap-1 bg-accent-primary/10 px-1.5 py-0.5 rounded-full border border-accent-primary/20">
+                      <Clock size={10} weight="bold" />
+                      {formatResetTime(aiUsage.reset5hSeconds)}
+                    </span>
+                  )}
+                </div>
+                <span className="font-mono text-[11px] font-bold text-white">
+                  {aiUsage ? `${aiUsage.percentage5h}% Remaining` : '100% Remaining'}
+                </span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-accent-primary to-cyan-400 rounded-full transition-all duration-500"
+                  style={{ width: `${aiUsage ? aiUsage.percentage5h : 100}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Weekly Window Progress Bar */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[11px]">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-text-secondary font-medium">Weekly Quota</span>
+                  {aiUsage && aiUsage.percentage1w < 100 && aiUsage.reset1wSeconds !== undefined && (
+                    <span className="text-[10px] text-purple-400 font-mono flex items-center gap-1 bg-purple-500/10 px-1.5 py-0.5 rounded-full border border-purple-500/20">
+                      <Clock size={10} weight="bold" />
+                      {formatResetTime(aiUsage.reset1wSeconds)}
+                    </span>
+                  )}
+                </div>
+                <span className="font-mono text-[11px] font-bold text-white">
+                  {aiUsage ? `${aiUsage.percentage1w}% Remaining` : '100% Remaining'}
+                </span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-purple-500 to-accent-primary rounded-full transition-all duration-500"
+                  style={{ width: `${aiUsage ? aiUsage.percentage1w : 100}%` }}
+                />
+              </div>
+            </div>
           </div>
         )}
 

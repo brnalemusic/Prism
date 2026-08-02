@@ -47,9 +47,13 @@ export interface AppConfig {
   openaiModelName?: string
   defaultModel?: string
   licenseKey?: string
+  suppressLicenseModal?: boolean
+  hasResetV8Keys?: boolean
 }
 
 const DEFAULT_CONFIG: AppConfig = {
+  hasResetV8Keys: false,
+  suppressLicenseModal: false,
   launcherShortcut: 'CommandOrControl+Space',
   modelSelectionShortcut: 'CommandOrControl+M',
   screenshotShortcut: 'Ctrl+Alt+Space',
@@ -115,9 +119,14 @@ function tryDecryptKey(key?: string): string {
 }
 
 export function synthesizeLegacyProviders(config: Partial<AppConfig>): ProviderConfig[] {
+  // If v8 migration has already taken place or providers array is defined, legacy synthesis is bypassed
+  if (config.hasResetV8Keys || Array.isArray(config.providers)) {
+    return []
+  }
+
   const synthesized: ProviderConfig[] = []
 
-  const legacyGemini = tryDecryptKey(config.userGeminiKey) || process.env.GEMINI_API_KEY
+  const legacyGemini = tryDecryptKey(config.userGeminiKey)
   if (legacyGemini && legacyGemini.trim() !== '') {
     const defaultModel = config.defaultModel || config.lastSelectedChatModel || 'gemini-3.6-flash'
     synthesized.push({
@@ -170,35 +179,17 @@ export function synthesizeLegacyProviders(config: Partial<AppConfig>): ProviderC
 }
 
 function normalizeConfig(config: AppConfig): AppConfig {
-  let providers = Array.isArray(config.providers) ? [...config.providers] : []
-
-  const hasActiveProvider = providers.some(
-    (p) => p && p.apiKey && p.apiKey.trim() !== '' && Array.isArray(p.models) && p.models.some((m) => m && m.enabled)
-  )
-
-  if (!hasActiveProvider) {
-    const synthesized = synthesizeLegacyProviders(config)
-    for (const syn of synthesized) {
-      const existingIdx = providers.findIndex((p) => p.id === syn.id || p.baseUrl === syn.baseUrl)
-      if (existingIdx >= 0) {
-        if (!providers[existingIdx].apiKey || providers[existingIdx].apiKey.trim() === '') {
-          providers[existingIdx] = {
-            ...providers[existingIdx],
-            apiKey: syn.apiKey,
-            models:
-              providers[existingIdx].models && providers[existingIdx].models.length > 0
-                ? providers[existingIdx].models
-                : syn.models
-          }
-        }
-      } else {
-        providers.push(syn)
-      }
-    }
-  }
+  const providers = Array.isArray(config.providers) ? [...config.providers] : []
 
   return {
     ...config,
+    userGeminiKey: '',
+    userNvidiaNimKey: '',
+    userOpenaiKey: '',
+    openaiBaseUrl: undefined,
+    openaiModelId: undefined,
+    openaiModelName: undefined,
+    hasResetV8Keys: true,
     launcherShortcut: config.launcherShortcut || DEFAULT_CONFIG.launcherShortcut,
     modelSelectionShortcut: config.modelSelectionShortcut || DEFAULT_CONFIG.modelSelectionShortcut,
     screenshotShortcut: config.screenshotShortcut || DEFAULT_CONFIG.screenshotShortcut,
@@ -250,6 +241,23 @@ export function loadConfig(): AppConfig {
 
     const data = fs.readFileSync(CONFIG_FILE, 'utf-8')
     const parsedConfig = JSON.parse(data)
+
+    // One-time clean reset for v8.0.0 migration
+    if (!parsedConfig.hasResetV8Keys) {
+      console.log('[Config] Upgrading to v8.0.0 fresh start. Cleaning legacy keys and custom providers once...')
+      parsedConfig.providers = []
+      parsedConfig.userGeminiKey = ''
+      parsedConfig.userNvidiaNimKey = ''
+      parsedConfig.userOpenaiKey = ''
+      parsedConfig.lastSelectedChatModel = ''
+      parsedConfig.hasResetV8Keys = true
+      try {
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(parsedConfig, null, 2))
+      } catch (e) {
+        console.error('Failed to save v8 reset config:', e)
+      }
+    }
+
     const config = normalizeConfig({ ...DEFAULT_CONFIG, ...parsedConfig })
 
     // Decrypt API keys inside providers if safeStorage was used

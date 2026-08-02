@@ -1,6 +1,7 @@
 import { ProviderConfig, StreamToolCallDelta } from '../../shared/types'
 import { normalizeBaseUrl, isGoogleHost } from './trustedRegistry'
 import { OpenAiMessage, OpenAiToolDefinition } from './types'
+import { getAuthAccessToken } from '../supabaseAuth'
 
 export interface StreamCallbacks {
   onTextDelta: (text: string) => void
@@ -86,25 +87,35 @@ export async function streamOpenAiCompletion(
     return streamAnthropicMessages(provider, normUrl, modelId, messages, tools, signal, callbacks)
   }
 
-  // Google AI Studio OpenAI-compatible endpoints live under the /openai/ sub-path.
-  // Native Gemini endpoints (e.g. /models) use x-goog-api-key, but the OpenAI-compat
-  // bridge at /v1beta/openai/... requires Authorization: Bearer like any OpenAI provider.
   const isGoogleAiStudio = isGoogleHost(normUrl)
+  const isPrismProvider = provider.id === 'prism_provider' || provider.baseUrl.includes('prism-ai-proxy')
   let endpoint: string
-  if (isGoogleAiStudio) {
-    endpoint = `${normUrl}/openai/chat/completions`
-  } else {
-    endpoint = `${normUrl}/chat/completions`
-  }
-
-  console.log(`[Main Chat] Calling ${modelId} with [${provider.name || provider.baseUrl}] (${messages.length} messages, ${tools?.length || 0} tools)`)
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   }
-  if (provider.apiKey) {
-    headers['Authorization'] = `Bearer ${provider.apiKey}`
+
+  if (isPrismProvider) {
+    endpoint = provider.baseUrl
+    const userToken = await getAuthAccessToken()
+    if (!userToken) {
+      throw new Error('Please log in to your Prism account to access Prism Provider models.')
+    }
+    headers['Authorization'] = `Bearer ${userToken}`
+  } else {
+    if (isGoogleAiStudio) {
+      endpoint = `${normUrl}/openai/chat/completions`
+    } else {
+      endpoint = `${normUrl}/chat/completions`
+    }
+
+    if (provider.apiKey) {
+      headers['Authorization'] = `Bearer ${provider.apiKey}`
+    }
   }
+
+  console.log(`[Main Chat] Calling ${modelId} with [${provider.name || provider.baseUrl}] (${messages.length} messages, ${tools?.length || 0} tools)`)
+
 
   const bodyPayload: any = {
     model: modelId,
@@ -127,10 +138,15 @@ export async function streamOpenAiCompletion(
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '')
-    console.error(`[AI Client] API Error ${response.status} (${response.statusText}) from ${endpoint}`)
-    console.error(`[AI Client] Response body: ${errorText}`)
-    console.error(`[AI Client] Request model: ${modelId}, messages count: ${messages.length}, tools count: ${tools?.length || 0}`)
-    throw new Error(`API Error ${response.status} (${response.statusText}): ${errorText}`)
+    let detail = errorText
+    try {
+      const parsed = JSON.parse(errorText)
+      if (parsed.error) {
+        detail = typeof parsed.error === 'string' ? parsed.error : JSON.stringify(parsed.error)
+      }
+    } catch {}
+    console.error(`[AI Client] API Error ${response.status} (${response.statusText}) from ${endpoint}: ${detail}`)
+    throw new Error(`API Error ${response.status}: ${detail}`)
   }
 
   if (!response.body) {

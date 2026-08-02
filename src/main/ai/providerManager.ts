@@ -1,5 +1,6 @@
 import { ProviderConfig, ProviderModel, CompletionType } from '../../shared/types'
 import { loadConfig, saveConfig } from '../config'
+import { isUserAuthenticated } from '../supabaseAuth'
 import {
   isModelTrusted,
   normalizeBaseUrl,
@@ -81,18 +82,42 @@ export async function fetchModelsFromProvider(
   }
 }
 
+export const PRISM_PROVIDER_ID = 'prism_provider'
+
+export const PRISM_PROVIDER: ProviderConfig = {
+  id: PRISM_PROVIDER_ID,
+  name: 'Prism Provider',
+  baseUrl: 'https://jfqyqkkdmoqdpejzxdhd.supabase.co/functions/v1/prism-ai-proxy',
+  apiKey: 'prism_account_auth',
+  completionType: 'chat_completions',
+  isTrusted: true,
+  isOfficial: true,
+  models: [
+    { id: 'gemini-3.1-flash-lite', name: 'gemini-3.1-flash-lite', enabled: true, isTrusted: true },
+    { id: 'gemini-3-flash', name: 'gemini-3-flash', enabled: true, isTrusted: true }
+  ]
+}
+
 export function getAllProviders(): ProviderConfig[] {
   const config = loadConfig()
   const rawProviders = Array.isArray(config.providers) ? config.providers : []
-  return rawProviders.map((p) => ({
-    id: p?.id || `provider_${Math.random()}`,
-    name: p?.name || 'Unnamed Provider',
-    baseUrl: p?.baseUrl || '',
-    apiKey: p?.apiKey || '',
-    completionType: p?.completionType || 'chat_completions',
-    isTrusted: !!p?.isTrusted,
-    models: Array.isArray(p?.models) ? p.models : []
-  }))
+  const providers: ProviderConfig[] = rawProviders
+    .filter((p) => p && p.id !== PRISM_PROVIDER_ID)
+    .map((p) => ({
+      id: p?.id || `provider_${Math.random()}`,
+      name: p?.name || 'Unnamed Provider',
+      baseUrl: p?.baseUrl || '',
+      apiKey: p?.apiKey || '',
+      completionType: p?.completionType || 'chat_completions',
+      isTrusted: !!p?.isTrusted,
+      isOfficial: !!p?.isOfficial,
+      models: Array.isArray(p?.models) ? p.models : []
+    }))
+
+  if (isUserAuthenticated()) {
+    providers.unshift(PRISM_PROVIDER)
+  }
+  return providers
 }
 
 export function getActiveModels(): Array<{
@@ -172,6 +197,70 @@ export function resolveProviderAndModel(fullKey?: string): {
 
 export function saveProviders(providers: ProviderConfig[]): boolean {
   const config = loadConfig()
-  config.providers = providers
+  config.providers = (providers || []).filter((p) => p && p.id !== PRISM_PROVIDER_ID)
+  config.userGeminiKey = ''
+  config.userNvidiaNimKey = ''
+  config.userOpenaiKey = ''
   return saveConfig(config)
+}
+
+export function deleteProvider(providerId: string): boolean {
+  const config = loadConfig()
+  const currentProviders = Array.isArray(config.providers) ? config.providers : []
+
+  const target = currentProviders.find((p) => p && p.id === providerId)
+  const targetName = target?.name?.toLowerCase() || ''
+  const targetBaseUrl = target?.baseUrl?.toLowerCase() || ''
+
+  const updatedProviders = currentProviders.filter((p) => {
+    if (!p) return false
+    if (p.id === providerId) return false
+
+    // Supreme deletion: match target by ID, name, or endpoint (especially Google AI Studio / Gemini)
+    if (
+      providerId === 'google-gemini' ||
+      targetName.includes('google') ||
+      targetBaseUrl.includes('googleapis')
+    ) {
+      if (
+        p.id === 'google-gemini' ||
+        p.name?.toLowerCase().includes('google') ||
+        p.baseUrl?.toLowerCase().includes('googleapis')
+      ) {
+        return false
+      }
+    }
+
+    if (
+      providerId === 'openai' ||
+      targetName.includes('openai') ||
+      targetBaseUrl.includes('api.openai.com')
+    ) {
+      if (
+        p.id === 'openai' ||
+        p.name?.toLowerCase().includes('openai') ||
+        p.baseUrl?.toLowerCase().includes('api.openai.com')
+      ) {
+        return false
+      }
+    }
+
+    if (
+      providerId === 'nvidia-nim' ||
+      targetName.includes('nvidia') ||
+      targetBaseUrl.includes('nvidia.com')
+    ) {
+      if (
+        p.id === 'nvidia-nim' ||
+        p.name?.toLowerCase().includes('nvidia') ||
+        p.baseUrl?.toLowerCase().includes('nvidia.com')
+      ) {
+        return false
+      }
+    }
+
+    return true
+  })
+
+  return saveProviders(updatedProviders)
 }

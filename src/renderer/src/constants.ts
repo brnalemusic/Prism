@@ -16,7 +16,6 @@ export const MODELS: Model[] = [
   { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash-Lite', category: 'gemini' },
   { id: 'gemini-3-flash', name: 'Gemini 3 Flash', category: 'gemini' },
   { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', category: 'gemini' },
-  { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', category: 'gemini' },
   { id: 'z-ai/glm-5.2', name: 'GLM-5.2', category: 'nvidia-nim' },
   { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', category: 'nvidia-nim' },
   { id: 'minimaxai/minimax-m3', name: 'MiniMax M3', category: 'nvidia-nim' },

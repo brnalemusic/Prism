@@ -45,8 +45,17 @@ export function setConnectionApiKey(_key: string): void {
  * test and as the keep-alive heartbeat.
  */
 import { loadConfig } from './config'
+import { getCurrentAuthUser, getAuthAccessToken } from './supabaseAuth'
 
 export async function testGeminiConnection(_overrideKey?: string): Promise<ConnectionTestResult> {
+  // Check if user is logged in via Supabase Auth
+  const authUser = await getCurrentAuthUser()
+  const authJwt = await getAuthAccessToken()
+  if (authUser && authJwt) {
+    // Prism Account is logged in! Prism Provider is active.
+    return { ok: true }
+  }
+
   const config = loadConfig()
   let providers = config.providers || []
 
@@ -57,28 +66,21 @@ export async function testGeminiConnection(_overrideKey?: string): Promise<Conne
     }
   }
 
-  let activeProvider = providers.find((p) => p.apiKey && p.apiKey.trim() !== '' && p.models.some((m) => m.enabled))
+  let activeProvider = providers.find(
+    (p) => p.apiKey && p.apiKey.trim() !== '' && Array.isArray(p.models) && p.models.some((m) => m && m.enabled)
+  )
 
   if (!activeProvider || !activeProvider.apiKey) {
-    const fallbackKey =
-      (_overrideKey && _overrideKey.trim() !== '' ? _overrideKey : undefined) ||
-      (config as any).userGeminiKey ||
-      process.env.GEMINI_API_KEY
-
-    if (fallbackKey && fallbackKey.trim() !== '') {
-      const defaultModel = (config as any).defaultModel || config.lastSelectedChatModel || 'gemini-3.6-flash'
+    if (_overrideKey && _overrideKey.trim() !== '') {
+      const defaultModel = config.lastSelectedChatModel || 'gemini-3.6-flash'
       activeProvider = {
-        id: 'google-gemini',
-        name: 'Google AI Studio',
+        id: 'override-provider',
+        name: 'Custom Endpoint',
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-        apiKey: fallbackKey.trim(),
+        apiKey: _overrideKey.trim(),
         completionType: 'chat_completions',
         isTrusted: true,
-        models: [
-          { id: defaultModel, name: defaultModel, enabled: true, isTrusted: true },
-          { id: 'gemini-3.5-flash-lite', name: 'gemini-3.5-flash-lite', enabled: true, isTrusted: true },
-          { id: 'gemini-3.1-pro', name: 'gemini-3.1-pro', enabled: true, isTrusted: true }
-        ]
+        models: [{ id: defaultModel, name: defaultModel, enabled: true, isTrusted: true }]
       }
     }
   }
@@ -87,7 +89,7 @@ export async function testGeminiConnection(_overrideKey?: string): Promise<Conne
     return {
       ok: false,
       errorType: 'invalid-key',
-      message: 'No active API provider configured. Please add an API provider.'
+      message: 'No active API provider or account login found.'
     }
   }
 

@@ -1,24 +1,26 @@
 import { createClient } from '@supabase/supabase-js'
-import type { SubscriptionPlan, CheckoutSessionResult } from '../shared/types'
+import type { SubscriptionPlan, CheckoutSessionResult, PaymentVerificationResult } from '../shared/types'
 import { activateLicenseKey } from './license'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
+// ---------------------------------------------------------------------------
+// Supabase client (anon key only — safe to ship in the binary)
+// ---------------------------------------------------------------------------
 const SUPABASE_URL = 'https://jfqyqkkdmoqdpejzxdhd.supabase.co'
 const SUPABASE_ANON_KEY = 'sb_publishable_WcCSfH1dSXUzHDjlQGk2kw_4TQcAt4Q'
 
-// Stripe Secret Key configuration (or test fallback key)
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || 'sk_test_51S1BWKPGkaZjt2jI_placeholder'
+// Edge Function base URL (same Supabase project)
+const EDGE_BASE = `${SUPABASE_URL}/functions/v1`
 
 function getSupabaseClient() {
   return createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 }
 
-/**
- * Fetches all active subscription plans dynamically from Supabase database.
- * No hardcoded prices are used in Prism UI.
- */
+// ---------------------------------------------------------------------------
+// Fetch active subscription plans from Supabase DB
+// ---------------------------------------------------------------------------
 export async function fetchSubscriptionPlans(): Promise<SubscriptionPlan[]> {
   const client = getSupabaseClient()
   try {
@@ -28,12 +30,8 @@ export async function fetchSubscriptionPlans(): Promise<SubscriptionPlan[]> {
       .eq('is_active', true)
       .order('price_usd', { ascending: true })
 
-    if (error) {
+    if (error || !data || data.length === 0) {
       console.error('[LicensePayment] Error fetching plans from Supabase:', error)
-      return getFallbackPlans()
-    }
-
-    if (!data || data.length === 0) {
       return getFallbackPlans()
     }
 
@@ -46,7 +44,7 @@ export async function fetchSubscriptionPlans(): Promise<SubscriptionPlan[]> {
       durationDays: parseInt(item.duration_days, 10) || 30,
       seats: parseInt(item.seats, 10) || 1,
       badge: item.badge || undefined,
-      isActive: item.is_active ?? true
+      isActive: item.is_active ?? true,
     }))
   } catch (err) {
     console.error('[LicensePayment] Unexpected error fetching plans:', err)
@@ -54,9 +52,6 @@ export async function fetchSubscriptionPlans(): Promise<SubscriptionPlan[]> {
   }
 }
 
-/**
- * Fallback seed plans if network is unreachable on first boot
- */
 function getFallbackPlans(): SubscriptionPlan[] {
   return [
     {
@@ -68,7 +63,7 @@ function getFallbackPlans(): SubscriptionPlan[] {
       durationDays: 30,
       seats: 1,
       badge: 'Monthly',
-      isActive: true
+      isActive: true,
     },
     {
       id: 'enterprise_yearly',
@@ -79,7 +74,7 @@ function getFallbackPlans(): SubscriptionPlan[] {
       durationDays: 365,
       seats: 1,
       badge: 'Best Value',
-      isActive: true
+      isActive: true,
     },
     {
       id: 'enterprise_decade',
@@ -90,92 +85,54 @@ function getFallbackPlans(): SubscriptionPlan[] {
       durationDays: 3650,
       seats: 1,
       badge: 'Decade Pass',
-      isActive: true
-    }
+      isActive: true,
+    },
   ]
 }
 
-/**
- * Creates a Stripe Checkout session using dynamic price from Supabase plan.
- */
+// ---------------------------------------------------------------------------
+// Create a real Stripe Checkout Session via Supabase Edge Function.
+// NOTE: No Stripe secret key exists in this file — it lives exclusively
+//       in the Supabase Edge Function environment (server-side).
+// ---------------------------------------------------------------------------
 export async function createStripeCheckoutSession(
   planId: string,
   userEmail?: string
 ): Promise<CheckoutSessionResult> {
   try {
-    // 1. Fetch exact current price and plan details from Supabase
-    const plans = await fetchSubscriptionPlans()
-    const targetPlan = plans.find((p) => p.id === planId)
-
-    if (!targetPlan) {
-      return { success: false, error: 'Subscription plan not found in database.' }
-    }
-
-    const unitAmountCents = Math.round(targetPlan.priceUsd * 100)
-
-    // 2. Call Stripe API to create Checkout Session
-    const params = new URLSearchParams()
-    params.append('mode', 'payment')
-    params.append('success_url', `https://prism-app.com/payment-success?session_id={CHECKOUT_SESSION_ID}&plan=${targetPlan.id}`)
-    params.append('cancel_url', 'https://prism-app.com/payment-cancel')
-    params.append('line_items[0][price_data][currency]', 'usd')
-    params.append('line_items[0][price_data][unit_amount]', unitAmountCents.toString())
-    params.append('line_items[0][price_data][product_data][name]', `Prism ${targetPlan.name}`)
-    params.append('line_items[0][price_data][product_data][description]', targetPlan.description)
-    params.append('line_items[0][quantity]', '1')
-    params.append('metadata[plan_id]', targetPlan.id)
-    params.append('metadata[duration_days]', targetPlan.durationDays.toString())
-
-    if (userEmail && userEmail.trim()) {
-      params.append('customer_email', userEmail.trim())
-    }
-
-    const stripeRes = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+    const res = await fetch(`${EDGE_BASE}/create-checkout-session`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
-        'Content-Type': 'application/x-www-form-urlencoded'
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
       },
-      body: params.toString()
+      body: JSON.stringify({ plan_id: planId, email: userEmail ?? '' }),
     })
 
-    const sessionData: any = await stripeRes.json()
+    const data = await res.json()
 
-    if (!stripeRes.ok || !sessionData.url) {
-      console.warn('[LicensePayment] Stripe REST API response:', sessionData)
-      // Fallback checkout link simulation for testing/demo
-      const fallbackUrl = `https://checkout.stripe.com/pay/prism_${targetPlan.id}_${Date.now()}`
-      return {
-        success: true,
-        checkoutUrl: fallbackUrl,
-        sessionId: `cs_test_${Date.now()}`
-      }
+    if (!res.ok || !data.url) {
+      console.error('[LicensePayment] Edge Function error:', data)
+      return { success: false, error: data.error ?? 'Failed to create Stripe Checkout session.' }
     }
 
     return {
       success: true,
-      checkoutUrl: sessionData.url,
-      sessionId: sessionData.id
+      checkoutUrl: data.url,
+      sessionId: data.session_id,
     }
   } catch (err: any) {
-    console.error('[LicensePayment] Error creating Stripe Checkout Session:', err)
-    return {
-      success: false,
-      error: err?.message || 'Failed to initialize Stripe payment session.'
-    }
+    console.error('[LicensePayment] Network error creating session:', err)
+    return { success: false, error: err?.message ?? 'Network error contacting payment server.' }
   }
 }
 
-/**
- * Generates an Ed25519 signed license key for a given plan duration
- */
-export function generateSignedLicenseKey(
-  licensee: string,
-  email: string,
-  durationDays: number,
-  seats: number = 1,
-  type: string = 'ENTERPRISE'
-): string {
+// ---------------------------------------------------------------------------
+// Sign the license payload with the local Ed25519 private key.
+// The Edge Function returns the raw payload; we sign it here so the
+// private key never leaves the machine and is never sent over the network.
+// ---------------------------------------------------------------------------
+function signPayload(payloadBase64: string): string {
   const KEYS_DIR = path.join(__dirname, '..', '..', 'scripts', 'license-keys')
   const PRIVATE_KEY_PATH = path.join(KEYS_DIR, 'private_key.pem')
 
@@ -184,78 +141,74 @@ export function generateSignedLicenseKey(
     privateKeyPem = fs.readFileSync(PRIVATE_KEY_PATH, 'utf8')
   }
 
-  // Fallback Ed25519 key if PEM not on disk
+  // Generate a temporary ephemeral key if the static PEM is missing
   if (!privateKeyPem) {
     const keypair = crypto.generateKeyPairSync('ed25519', {
       privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-      publicKeyEncoding: { type: 'spki', format: 'pem' }
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
     })
     privateKeyPem = keypair.privateKey
   }
 
-  const now = new Date()
-  const expiryDate = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000)
-
-  const payload = {
-    id: `PRISM-${crypto.randomBytes(6).toString('hex').toUpperCase()}`,
-    licensee,
-    email,
-    type,
-    seats,
-    issuedAt: now.toISOString(),
-    expiresAt: expiryDate.toISOString()
-  }
-
-  const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString('base64url')
   const signatureBuffer = crypto.sign(null, Buffer.from(payloadBase64), privateKeyPem)
-  const signatureBase64 = signatureBuffer.toString('base64url')
-
-  return `PRISM-${type}.${payloadBase64}.${signatureBase64}`
+  return signatureBuffer.toString('base64url')
 }
 
-/**
- * Verifies payment completion and activates license
- */
+// ---------------------------------------------------------------------------
+// Verify that the Stripe Checkout Session was paid, then activate a license.
+// The verification happens server-side in the Edge Function — this function
+// only calls the Edge Function and, on success, activates the key locally.
+// ---------------------------------------------------------------------------
 export async function verifyAndActivatePayment(
   planId: string,
+  sessionId: string,
   userEmail: string,
   companyName?: string
-): Promise<{ success: boolean; licenseKey?: string; error?: string }> {
+): Promise<PaymentVerificationResult> {
   try {
-    const plans = await fetchSubscriptionPlans()
-    const targetPlan = plans.find((p) => p.id === planId)
-    if (!targetPlan) {
-      return { success: false, error: 'Target plan not found.' }
+    // 1. Call the Edge Function — it verifies payment_status === 'paid' with Stripe
+    const res = await fetch(`${EDGE_BASE}/verify-payment`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({
+        session_id: sessionId,
+        plan_id: planId,
+        email: userEmail,
+        company_name: companyName ?? '',
+      }),
+    })
+
+    const data = await res.json()
+
+    if (!res.ok || !data.success) {
+      console.error('[LicensePayment] Edge Function verify-payment error:', data)
+      return { success: false, error: data.error ?? 'Payment verification failed.' }
     }
 
-    const licensee = companyName || userEmail.split('@')[0] || 'Prism Customer'
-    const key = generateSignedLicenseKey(licensee, userEmail, targetPlan.durationDays, targetPlan.seats)
+    // 2. Sign the payload locally with the Ed25519 key
+    const payloadBase64 = data.payload
+      ? Buffer.from(JSON.stringify(data.payload)).toString('base64url')
+      : ''
 
-    // Store in Supabase user_licenses table
-    const client = getSupabaseClient()
-    try {
-      await client.from('user_licenses').insert({
-        plan_id: targetPlan.id,
-        license_key: key,
-        status: 'active',
-        issued_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + targetPlan.durationDays * 24 * 60 * 60 * 1000).toISOString()
-      })
-    } catch (dbErr) {
-      console.warn('[LicensePayment] Warning saving license row to Supabase:', dbErr)
+    if (!payloadBase64) {
+      return { success: false, error: 'Invalid license payload returned by server.' }
     }
 
-    // Activate locally in Prism
-    const activation = activateLicenseKey(key)
+    const signature = signPayload(payloadBase64)
+    const licenseKey = `PRISM-ENTERPRISE.${payloadBase64}.${signature}`
+
+    // 3. Activate the license locally in Prism
+    const activation = activateLicenseKey(licenseKey)
     if (!activation.success) {
-      return { success: false, error: activation.error || 'Failed to activate generated key.' }
+      return { success: false, error: activation.error ?? 'Failed to activate generated license.' }
     }
 
-    return {
-      success: true,
-      licenseKey: key
-    }
+    return { success: true, licenseKey }
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Payment verification failed.' }
+    console.error('[LicensePayment] verifyAndActivatePayment error:', err)
+    return { success: false, error: err?.message ?? 'Payment verification failed.' }
   }
 }
