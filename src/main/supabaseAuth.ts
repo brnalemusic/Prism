@@ -238,25 +238,34 @@ export async function authSignUp(data: SignUpData): Promise<AuthResponse> {
     if (error) {
       const isRateLimit = error.message.toLowerCase().includes('rate limit')
       if (isRateLimit) {
-        // Attempt to log in the user in case Supabase created the user before rate limiting email dispatch
-        const { data: loginRes } = await client.auth.signInWithPassword({
-          email: data.email.trim(),
-          password: data.password
+        console.warn('[Auth] Standard signup rate limited by email dispatch. Invoking admin-signup Edge Function fallback...')
+        const { data: fnData, error: fnErr } = await client.functions.invoke('admin-signup', {
+          body: {
+            email: data.email.trim(),
+            password: data.password,
+            fullName: data.fullName.trim(),
+            companyName: (data.companyName || '').trim(),
+            accountType: data.accountType || (data.companyName ? 'enterprise' : 'individual')
+          }
         })
 
-        if (loginRes?.user && loginRes?.session) {
-          saveSessionSecurely(loginRes.session)
-          syncLocalLicenseWithSupabase(loginRes.session.access_token).catch(() => {})
-          await ensureProfileRow(loginRes.user)
-          const userProfile = await buildUserProfile(loginRes.user)
-          return {
-            success: true,
-            user: userProfile
+        if (!fnErr && fnData?.success) {
+          console.log('[Auth] Admin signup created account successfully! Signing in...')
+          const { data: loginRes } = await client.auth.signInWithPassword({
+            email: data.email.trim(),
+            password: data.password
+          })
+
+          if (loginRes?.user && loginRes?.session) {
+            saveSessionSecurely(loginRes.session)
+            syncLocalLicenseWithSupabase(loginRes.session.access_token).catch(() => {})
+            await ensureProfileRow(loginRes.user)
+            const userProfile = await buildUserProfile(loginRes.user)
+            return {
+              success: true,
+              user: userProfile
+            }
           }
-        }
-        return {
-          success: false,
-          error: 'The email verification service is currently busy due to rate limits. Please try again in a few minutes.'
         }
       }
       return { success: false, error: error.message }
