@@ -52,7 +52,7 @@ export async function testGeminiConnection(_overrideKey?: string): Promise<Conne
   const authUser = await getCurrentAuthUser()
   const authJwt = await getAuthAccessToken()
   if (authUser && authJwt) {
-    // Prism Account is logged in! Prism Provider is active.
+    // Prism Account is logged in! Prism Cloud is active.
     return { ok: true }
   }
 

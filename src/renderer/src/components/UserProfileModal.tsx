@@ -196,13 +196,13 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           </div>
         )}
 
-        {/* Prism Provider AI Quota Card */}
+        {/* Prism Cloud AI Quota Card */}
         {!isEditing && (
           <div className="rounded-2xl border border-accent-primary/20 bg-accent-primary/[0.04] p-4 space-y-3.5">
             <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
               <div className="flex items-center gap-2 text-xs font-bold text-white">
                 <Sparkle size={16} className="text-accent-primary" weight="fill" />
-                <span>Prism Provider Quota</span>
+                <span>Prism Cloud Quota</span>
               </div>
             </div>
 

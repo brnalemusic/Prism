@@ -20,7 +20,7 @@ serve(async (req) => {
 
     if (!jwt) {
       return new Response(
-        JSON.stringify({ error: 'Authentication required to access Prism Provider models.' }),
+        JSON.stringify({ error: 'Authentication required to access Prism Cloud models.' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -58,8 +58,8 @@ serve(async (req) => {
       const tier  = usageResult?.tier ?? 'free'
 
       const reasonMsg = usageResult?.reason === '5h_limit_exceeded'
-        ? `Prism Provider quota limit reached (${max5h} requests per 5 hours for ${tier} tier). Please try again later.`
-        : `Prism Provider weekly quota limit reached (${max7d} requests per 7 days for ${tier} tier). Please try again later.`
+        ? `Prism Cloud quota limit reached (${max5h} requests per 5 hours for ${tier} tier). Please try again later.`
+        : `Prism Cloud weekly quota limit reached (${max7d} requests per 7 days for ${tier} tier). Please try again later.`
 
       return new Response(
         JSON.stringify({ error: reasonMsg, limitExceeded: true, usage: usageResult }),
@@ -76,7 +76,7 @@ serve(async (req) => {
     if (keysErr || !keys || keys.length === 0) {
       console.error('[prism-ai-proxy] Error retrieving API keys:', keysErr)
       return new Response(
-        JSON.stringify({ error: 'Prism Provider service is currently unavailable. No API key found.' }),
+        JSON.stringify({ error: 'Prism Cloud service is currently unavailable. No API key found.' }),
         { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -89,7 +89,7 @@ serve(async (req) => {
     const bodyPayload = await req.json()
 
     // Pass through exact model requested by user
-    let modelId = bodyPayload.model || 'gemini-3-flash'
+    let modelId = bodyPayload.model || 'models/gemini-3-flash-preview'
     bodyPayload.model = modelId
 
     // 5. Target endpoint

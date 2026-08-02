@@ -99,7 +99,7 @@ export async function streamOpenAiCompletion(
     endpoint = provider.baseUrl
     const userToken = await getAuthAccessToken()
     if (!userToken) {
-      throw new Error('Please log in to your Prism account to access Prism Provider models.')
+      throw new Error('Please log in to your Prism account to access Prism Cloud models.')
     }
     headers['Authorization'] = `Bearer ${userToken}`
   } else {

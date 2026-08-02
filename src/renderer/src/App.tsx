@@ -2421,8 +2421,8 @@ function RealApp(): React.JSX.Element {
               let separatorContent: string
               if (isQuotaExceeded) {
                 separatorContent =
-                  'Prism Provider Quota Exceeded: Your Prism Provider request limit has been reached. Please wait for the reset window or switch to a custom API key in Settings.'
-              } else if (error.startsWith('API Error') || error.startsWith('Provider API Error') || lowerErr.includes('prism provider')) {
+                  'Prism Cloud Quota Exceeded: Your Prism Cloud request limit has been reached. Please wait for the reset window or switch to a custom API key in Settings.'
+              } else if (error.startsWith('API Error') || error.startsWith('Provider API Error') || lowerErr.includes('prism provider') || lowerErr.includes('prism cloud')) {
                 separatorContent = error
               } else {
                 const apiErrorMatch = error.match(/^API_KEY_ERROR:(\d{3}):(.+)$/)

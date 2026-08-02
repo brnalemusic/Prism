@@ -14,7 +14,7 @@ export const MODELS: Model[] = [
   { id: 'deepseek-ai/deepseek-v4-flash', name: 'Deepseek V4 Flash', category: 'nvidia-nim' },
   { id: 'deepseek-ai/deepseek-v4-pro', name: 'Deepseek V4 Pro', category: 'nvidia-nim' },
   { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash-Lite', category: 'gemini' },
-  { id: 'gemini-3-flash', name: 'Gemini 3 Flash', category: 'gemini' },
+  { id: 'models/gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', category: 'gemini' },
   { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', category: 'gemini' },
   { id: 'z-ai/glm-5.2', name: 'GLM-5.2', category: 'nvidia-nim' },
   { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', category: 'nvidia-nim' },
@@ -42,8 +42,7 @@ export function getThinkingLevelsForModel(modelId: string): ThinkingLevelOption[
   // Gemini models use thinkingBudget (mapped from levels).
   // Valid ThinkingLevel enum: minimal, low, medium, high (no "max").
   // "Minimal" is exposed to the user as "Off" (budget 0 disables thinking).
-  const geminiModels = ['gemini-3-flash', 'gemini-3.1-pro', 'gemini-3.5-flash']
-  if (geminiModels.includes(modelId)) {
+  if (modelId.includes('gemini')) {
     return [
       { id: 'off', name: 'Off' },
       { id: 'low', name: 'Low' },

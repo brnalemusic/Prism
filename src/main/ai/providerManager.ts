@@ -86,7 +86,7 @@ export const PRISM_PROVIDER_ID = 'prism_provider'
 
 export const PRISM_PROVIDER: ProviderConfig = {
   id: PRISM_PROVIDER_ID,
-  name: 'Prism Provider',
+  name: 'Prism Cloud',
   baseUrl: 'https://jfqyqkkdmoqdpejzxdhd.supabase.co/functions/v1/prism-ai-proxy',
   apiKey: 'prism_account_auth',
   completionType: 'chat_completions',
@@ -94,7 +94,7 @@ export const PRISM_PROVIDER: ProviderConfig = {
   isOfficial: true,
   models: [
     { id: 'gemini-3.1-flash-lite', name: 'gemini-3.1-flash-lite', enabled: true, isTrusted: true },
-    { id: 'gemini-3-flash', name: 'gemini-3-flash', enabled: true, isTrusted: true }
+    { id: 'models/gemini-3-flash-preview', name: 'models/gemini-3-flash-preview', enabled: true, isTrusted: true }
   ]
 }
 
