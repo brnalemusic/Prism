@@ -49,6 +49,7 @@ import { ScreenshotModal } from './components/ScreenshotModal'
 import { YoutubeAppModal } from './components/YoutubeAppModal'
 import { AuthModal } from './components/AuthModal'
 import { UserProfileModal } from './components/UserProfileModal'
+import { QuotaExceededModal } from './components/QuotaExceededModal'
 import { OnboardingLicenseModal } from './components/OnboardingLicenseModal'
 import { AppConfig, SlashWorkflow } from '../../main/config'
 import type { DownloadProgress, SessionMode, TodoState, UserProfile } from '../../shared/types'
@@ -1105,6 +1106,7 @@ function RealApp(): React.JSX.Element {
   const [authUser, setAuthUser] = useState<UserProfile | null>(null)
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
+  const [isQuotaModalOpen, setIsQuotaModalOpen] = useState(false)
   const [isOnboardingLicenseModalOpen, setIsOnboardingLicenseModalOpen] = useState(false)
   const [isProviderLockOpen, setIsProviderLockOpen] = useState(false)
 
@@ -2420,6 +2422,7 @@ function RealApp(): React.JSX.Element {
 
               let separatorContent: string
               if (isQuotaExceeded) {
+                setIsQuotaModalOpen(true)
                 separatorContent =
                   'Prism Cloud Quota Exceeded: Your Prism Cloud request limit has been reached. Please wait for the reset window or switch to a custom API key in Settings.'
               } else if (error.startsWith('API Error') || error.startsWith('Provider API Error') || lowerErr.includes('prism provider') || lowerErr.includes('prism cloud')) {
@@ -3123,6 +3126,19 @@ function RealApp(): React.JSX.Element {
         onClose={() => setIsProfileModalOpen(false)}
         onLoggedOut={() => setAuthUser(null)}
         onProfileUpdated={(updated) => setAuthUser(updated)}
+      />
+
+      <QuotaExceededModal
+        isOpen={isQuotaModalOpen}
+        onClose={() => setIsQuotaModalOpen(false)}
+        onOpenSettings={() => {
+          setIsQuotaModalOpen(false)
+          setIsSettingsModalOpen(true)
+        }}
+        onOpenProfile={() => {
+          setIsQuotaModalOpen(false)
+          setIsProfileModalOpen(true)
+        }}
       />
 
       <ApiKeyModal
