@@ -610,7 +610,9 @@ async function generateTitleInBackground(
       [{ role: 'user', content: prompt }],
       [],
       abortController.signal,
-      { onTextDelta: () => {}, onReasoningDelta: () => {}, onToolCallDelta: () => {} }
+      { onTextDelta: () => {}, onReasoningDelta: () => {}, onToolCallDelta: () => {} },
+      undefined, // no reasoning level for title generation
+      { skipUsageIncrement: true }
     )
 
     let title = res.text.replace(/["']/g, '').trim()

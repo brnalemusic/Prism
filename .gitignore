@@ -34,6 +34,7 @@ scratch/
 .dream*.json
 electron.vite.config.*.mjs
 import*.py
+supabase/.temp
 
 # License Security & Keys
 scripts/license-keys/

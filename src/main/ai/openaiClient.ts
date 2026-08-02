@@ -75,7 +75,8 @@ export async function streamOpenAiCompletion(
   tools: OpenAiToolDefinition[],
   signal: AbortSignal,
   callbacks: StreamCallbacks,
-  reasoningLevel?: string
+  reasoningLevel?: string,
+  options?: { skipUsageIncrement?: boolean }
 ): Promise<StreamResult> {
   const normUrl = normalizeBaseUrl(provider.baseUrl)
   const completionType = provider.completionType || 'chat_completions'
@@ -103,6 +104,9 @@ export async function streamOpenAiCompletion(
       throw new Error('Please log in to your Prism account to access Prism Cloud models.')
     }
     headers['Authorization'] = `Bearer ${userToken}`
+    if (options?.skipUsageIncrement) {
+      headers['X-Prism-Skip-Increment'] = 'true'
+    }
   } else {
     if (isGoogleAiStudio) {
       endpoint = `${normUrl}/openai/chat/completions`
@@ -180,7 +184,7 @@ export async function streamOpenAiCompletion(
           const innerMsg = providerMsgMatch[1].trim()
           // Check for known error conditions and give friendly messages
           if (innerMsg.toLowerCase().includes('all api keys exhausted')) {
-            detail = 'Prism Cloud is temporarily unavailable (API quota exceeded). Please try again later or use your own API key.'
+            detail = 'Prism Cloud servers are temporarily overloaded. Please try again in a few minutes or use your own API key.'
           } else {
             // Try to extract the innermost message from nested JSON
             try {
@@ -200,6 +204,17 @@ export async function streamOpenAiCompletion(
         }
       }
     } catch {}
+
+    // Handle server overload (503) — all API keys exhausted on the server side
+    if (response.status === 503) {
+      try {
+        const parsed = JSON.parse(errorText)
+        if (parsed?.serverOverloaded) {
+          detail = 'Prism Cloud servers are temporarily overloaded. Please try again in a few minutes or use your own API key.'
+        }
+      } catch {}
+    }
+
     console.error(`[AI Client] API Error ${response.status} (${response.statusText}) from ${endpoint}: ${detail}`)
     throw new Error(`API Error ${response.status}: ${detail}`)
   }
