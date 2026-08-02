@@ -142,7 +142,32 @@ export async function streamOpenAiCompletion(
     try {
       const parsed = JSON.parse(errorText)
       if (parsed.error) {
-        detail = typeof parsed.error === 'string' ? parsed.error : JSON.stringify(parsed.error)
+        const rawErr = typeof parsed.error === 'string' ? parsed.error : JSON.stringify(parsed.error)
+        // Unwrap nested provider error messages (e.g. "Provider API Error 400: ..."
+        // that contain a JSON blob with the original upstream error)
+        const providerMsgMatch = rawErr.match(/Provider API Error \d+:\s*(.+)/)
+        if (providerMsgMatch) {
+          const innerMsg = providerMsgMatch[1].trim()
+          // Check for known error conditions and give friendly messages
+          if (innerMsg.toLowerCase().includes('all api keys exhausted')) {
+            detail = 'Prism Cloud is temporarily unavailable (API quota exceeded). Please try again later or use your own API key.'
+          } else {
+            // Try to extract the innermost message from nested JSON
+            try {
+              const innerParsed = JSON.parse(innerMsg)
+              const innerError = innerParsed?.[0]?.error || innerParsed?.error
+              if (innerError?.message) {
+                detail = innerError.message
+              } else {
+                detail = innerMsg
+              }
+            } catch {
+              detail = innerMsg
+            }
+          }
+        } else {
+          detail = rawErr
+        }
       }
     } catch {}
     console.error(`[AI Client] API Error ${response.status} (${response.statusText}) from ${endpoint}: ${detail}`)

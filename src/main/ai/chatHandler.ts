@@ -57,6 +57,40 @@ export function cancelChatMessage(chatId?: string): void {
   }
 }
 
+/**
+ * Recursively sanitizes a JSON schema object for compatibility with the
+ * Gemini function-calling API (via OpenAI-compat layer).
+ *
+ * Gemini is stricter than OpenAI about schemas and returns INVALID_ARGUMENT for:
+ *  - `type: 'object'` nodes that are missing a `properties` field
+ *  - `additionalProperties` (not supported in Gemini function schemas)
+ */
+function sanitizeToolSchema(schema: Record<string, any>): Record<string, any> {
+  const result: Record<string, any> = {}
+
+  for (const [key, value] of Object.entries(schema)) {
+    // Strip additionalProperties — Gemini rejects it with INVALID_ARGUMENT
+    if (key === 'additionalProperties') continue
+
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      result[key] = sanitizeToolSchema(value)
+    } else if (Array.isArray(value)) {
+      result[key] = value.map((item) =>
+        item && typeof item === 'object' ? sanitizeToolSchema(item) : item
+      )
+    } else {
+      result[key] = value
+    }
+  }
+
+  // Gemini requires `properties` to be present when `type` is `object`
+  if (result.type === 'object' && !result.properties) {
+    result.properties = {}
+  }
+
+  return result
+}
+
 export function getNativeToolsForOpenAi(target: 'main' | 'launcher' = 'main'): OpenAiToolDefinition[] {
   return toolsManifest
     .filter((t) => {
@@ -77,10 +111,10 @@ export function getNativeToolsForOpenAi(target: 'main' | 'launcher' = 'main'): O
         function: {
           name: t.name,
           description: t.description,
-          parameters: {
+          parameters: sanitizeToolSchema({
             type: 'object',
             properties
-          }
+          })
         }
       }
     })
