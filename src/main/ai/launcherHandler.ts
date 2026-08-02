@@ -5,6 +5,7 @@ import { streamOpenAiCompletion } from './openaiClient'
 import { OpenAiMessage, StreamToolCallDelta } from './types'
 import { getNativeToolsForOpenAi } from './chatHandler'
 import { executeSystemTool, getSystemToolsPrompt } from '../systemTools'
+import { safeSend } from '../safeSend'
 
 let launcherHistory: OpenAiMessage[] = []
 let launcherAbortController: AbortController | null = null
@@ -31,12 +32,12 @@ export async function handleLauncherChatMessage(
   const { provider, model } = resolveProviderAndModel(modelSelection)
 
   if (!provider || !provider.apiKey || !model) {
-    window.webContents.send('launcher-reply-error', { error: 'No active AI Provider configured' })
+    safeSend(window, 'launcher-reply-error', { error: 'No active AI Provider configured' })
     return
   }
 
   launcherHistory.push({ role: 'user', content: message })
-  window.webContents.send('launcher-reply-start')
+  safeSend(window, 'launcher-reply-start')
 
   try {
     const systemPrompt: OpenAiMessage = {
@@ -86,7 +87,7 @@ export async function handleLauncherChatMessage(
             const combinedReasoning = fullReasoning ? fullReasoning + '\n\n' + currentReasoning : currentReasoning
             const { thoughts, content } = parseThoughtAndContent(combinedText, combinedReasoning)
 
-            window.webContents.send('launcher-reply-chunk', {
+            safeSend(window, 'launcher-reply-chunk', {
               thoughts,
               finalResponse: content,
               isThinking: !!thoughts && !content,
@@ -100,7 +101,7 @@ export async function handleLauncherChatMessage(
             const combinedReasoning = fullReasoning ? fullReasoning + '\n\n' + currentReasoning : currentReasoning
             const { thoughts, content } = parseThoughtAndContent(combinedText, combinedReasoning)
 
-            window.webContents.send('launcher-reply-chunk', {
+            safeSend(window, 'launcher-reply-chunk', {
               thoughts,
               finalResponse: content,
               isThinking: true,
@@ -131,7 +132,7 @@ export async function handleLauncherChatMessage(
             const combinedReasoning = fullReasoning ? fullReasoning + '\n\n' + currentReasoning : currentReasoning
             const { thoughts, content } = parseThoughtAndContent(combinedText, combinedReasoning)
 
-            window.webContents.send('launcher-reply-chunk', {
+            safeSend(window, 'launcher-reply-chunk', {
               thoughts,
               finalResponse: content,
               isThinking: false,
@@ -164,7 +165,7 @@ export async function handleLauncherChatMessage(
             parsedArgs = {}
           }
 
-          window.webContents.send('launcher-tool-start', {
+          safeSend(window, 'launcher-tool-start', {
             name: tc.name,
             args: parsedArgs
           })
@@ -177,7 +178,7 @@ export async function handleLauncherChatMessage(
             toolOutput = `Error: ${err.message || String(err)}`
           }
 
-          window.webContents.send('launcher-tool-end', {
+          safeSend(window, 'launcher-tool-end', {
             name: tc.name,
             result: toolOutput
           })
@@ -215,18 +216,17 @@ export async function handleLauncherChatMessage(
       }
     }
 
-    window.webContents.send('launcher-reply-end', {
+    safeSend(window, 'launcher-reply-end', {
       thoughts: fullReasoning,
       finalResponse: fullText
     })
   } catch (error: any) {
     if (launcherAbortController?.signal.aborted) {
-      window.webContents.send('launcher-reply-error', { error: 'Request cancelled' })
+      safeSend(window, 'launcher-reply-error', { error: 'Request cancelled' })
     } else {
-      window.webContents.send('launcher-reply-error', { error: error.message || String(error) })
+      safeSend(window, 'launcher-reply-error', { error: error.message || String(error) })
     }
   } finally {
     launcherAbortController = null
   }
 }
-

@@ -8,6 +8,7 @@ import { saveChatSession, loadChatSession, updateChatSessionTitle } from '../his
 import { resolveProviderAndModel } from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
 import { ActiveRun, OpenAiMessage, OpenAiToolDefinition } from './types'
+import { safeSend } from '../safeSend'
 
 export const activeRuns = new Map<string, ActiveRun>()
 export const lastScreenshots = new Map<string, string>()
@@ -154,7 +155,7 @@ export async function handleChatMessage(
   const { provider, model } = resolveProviderAndModel(currentSelectedChatModel)
 
   if (!provider || !provider.apiKey || !model) {
-    event.sender.send('chat-reply-error', { error: 'API_KEY_ERROR:401:API Key or Active Model Missing', chatId })
+    safeSend(event.sender, 'chat-reply-error', { error: 'API_KEY_ERROR:401:API Key or Active Model Missing', chatId })
     return
   }
 
@@ -228,7 +229,7 @@ export async function handleChatMessage(
       currentDisciplinePath,
       currentSelectedChatModel
     )
-    event.sender.send('chat-session-created', { id: chatId })
+    safeSend(event.sender, 'chat-session-created', { id: chatId })
     // Background title generator
     generateTitleInBackground(event, provider, model.id, message, chatId)
   } else {
@@ -242,7 +243,7 @@ export async function handleChatMessage(
     )
   }
 
-  event.sender.send('chat-reply-start', { chatId })
+  safeSend(event.sender, 'chat-reply-start', { chatId })
 
   const abortController = new AbortController()
   activeRuns.set(chatId, {
@@ -344,7 +345,7 @@ export async function handleChatMessage(
             const combinedText = accumulatedReplyText ? accumulatedReplyText + '\n\n' + currentReplyText : currentReplyText
             const combinedReasoning = accumulatedReasoningText ? accumulatedReasoningText + '\n\n' + currentReasoningText : currentReasoningText
             const { thoughts, content } = parseThoughtAndContent(combinedText, combinedReasoning)
-            event.sender.send('chat-reply-chunk', {
+            safeSend(event.sender, 'chat-reply-chunk', {
               chatId,
               thoughts,
               finalResponse: content,
@@ -361,7 +362,7 @@ export async function handleChatMessage(
             const combinedText = accumulatedReplyText ? accumulatedReplyText + '\n\n' + currentReplyText : currentReplyText
             const combinedReasoning = accumulatedReasoningText ? accumulatedReasoningText + '\n\n' + currentReasoningText : currentReasoningText
             const { thoughts, content } = parseThoughtAndContent(combinedText, combinedReasoning)
-            event.sender.send('chat-reply-chunk', {
+            safeSend(event.sender, 'chat-reply-chunk', {
               chatId,
               thoughts,
               finalResponse: content,
@@ -374,7 +375,7 @@ export async function handleChatMessage(
               thinkingEnd = Date.now()
             }
             // Real-time tool streaming to UI!
-            event.sender.send('chat-tool-call-delta', {
+            safeSend(event.sender, 'chat-tool-call-delta', {
               chatId,
               ...delta
             })
@@ -458,7 +459,7 @@ export async function handleChatMessage(
             parsedArgs = { raw: tc.args }
           }
 
-          event.sender.send('chat-tool-start', {
+          safeSend(event.sender, 'chat-tool-start', {
             name: tc.name,
             args: parsedArgs,
             timestamp: Date.now(),
@@ -472,7 +473,7 @@ export async function handleChatMessage(
             toolOutput = `Error executing tool ${tc.name}: ${err.message}`
           }
 
-          event.sender.send('chat-tool-end', {
+          safeSend(event.sender, 'chat-tool-end', {
             name: tc.name,
             result: toolOutput,
             chatId
@@ -507,7 +508,7 @@ export async function handleChatMessage(
           delete toolData.type
           delete toolData.name
 
-          event.sender.send('chat-tool-start', {
+          safeSend(event.sender, 'chat-tool-start', {
             name: toolName,
             args: toolData,
             timestamp: Date.now(),
@@ -516,7 +517,7 @@ export async function handleChatMessage(
 
           const toolOutput = await executeSystemTool(toolName, toolData, event, provider.apiKey, abortController.signal, chatId)
 
-          event.sender.send('chat-tool-end', {
+          safeSend(event.sender, 'chat-tool-end', {
             name: toolName,
             result: toolOutput,
             chatId
@@ -547,7 +548,7 @@ export async function handleChatMessage(
       }
 
       // No tool calls, finish
-      event.sender.send('chat-reply-end', {
+      safeSend(event.sender, 'chat-reply-end', {
         thoughts: accumulatedReasoningText,
         finalResponse: accumulatedReplyText,
         rawText: accumulatedReplyText,
@@ -559,12 +560,12 @@ export async function handleChatMessage(
     }
   } catch (error: any) {
     if (abortController.signal.aborted || error.name === 'AbortError') {
-      event.sender.send('chat-reply-error', { error: 'Message cancelled by user', chatId })
+      safeSend(event.sender, 'chat-reply-error', { error: 'Message cancelled by user', chatId })
     } else {
       console.error(`[Main Chat] Error in handleChatMessage for chat ${chatId}:`, error)
       console.error(`[Main Chat] Error name: ${error.name}, message: ${error.message}`)
       if (error.stack) console.error(`[Main Chat] Stack: ${error.stack}`)
-      event.sender.send('chat-reply-error', { error: error.message || String(error), chatId })
+      safeSend(event.sender, 'chat-reply-error', { error: error.message || String(error), chatId })
     }
   } finally {
     activeRuns.delete(chatId)
@@ -620,9 +621,9 @@ async function generateTitleInBackground(
 
     console.log(`[Title Generator] Generated title for chat ${chatId}: "${title}"`)
     updateChatSessionTitle(chatId, title)
-    event.sender.send('chat-title-received', { id: chatId, title })
+    safeSend(event.sender, 'chat-title-received', { id: chatId, title })
   } catch {
     updateChatSessionTitle(chatId, 'New Conversation')
-    event.sender.send('chat-title-received', { id: chatId, title: 'New Conversation' })
+    safeSend(event.sender, 'chat-title-received', { id: chatId, title: 'New Conversation' })
   }
 }

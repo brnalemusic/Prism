@@ -4,6 +4,7 @@ import { join } from 'path'
 import { spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as https from 'https'
+import { safeSend } from './safeSend'
 
 /** Escapes all RegExp special characters in a string. */
 function escapeRegExp(s: string): string {
@@ -422,9 +423,7 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
     }
 
     updaterState.status = 'downloading'
-    if (updaterWindow && !updaterWindow.isDestroyed()) {
-      updaterWindow.webContents.send('updater-state', updaterState)
-    }
+    safeSend(updaterWindow, 'updater-state', updaterState)
 
     const tempDir = app.getPath('temp')
     const fileName =
@@ -437,25 +436,19 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
         const percent = totalSize > 0 ? Math.round((transferred / totalSize) * 100) : 0
         updaterState.status = 'downloading'
         updaterState.progress = { percent, speed, transferred, total: totalSize }
-        if (updaterWindow && !updaterWindow.isDestroyed()) {
-          updaterWindow.webContents.send('updater-state', { ...updaterState })
-        }
+        safeSend(updaterWindow, 'updater-state', { ...updaterState })
       })
 
       downloadedFile = destPath
       updaterState.status = 'downloaded'
       updaterState.progress = { percent: 100, speed: 0, transferred: totalSize, total: totalSize }
-      if (updaterWindow && !updaterWindow.isDestroyed()) {
-        updaterWindow.webContents.send('updater-state', { ...updaterState })
-      }
+      safeSend(updaterWindow, 'updater-state', { ...updaterState })
       console.log(`[Auto-Updater] Download complete: ${destPath}`)
     } catch (err: any) {
       console.error('[Auto-Updater] Download failed:', err)
       updaterState.status = 'error'
       updaterState.error = err?.message || String(err)
-      if (updaterWindow && !updaterWindow.isDestroyed()) {
-        updaterWindow.webContents.send('updater-state', { ...updaterState })
-      }
+      safeSend(updaterWindow, 'updater-state', { ...updaterState })
     }
   })
 

@@ -6,6 +6,7 @@ import * as path from 'path'
 import { createReadStream, createWriteStream, existsSync } from 'fs'
 import { pipeline } from 'stream/promises'
 import { Transform } from 'stream'
+import { safeSend } from './safeSend'
 import { DEPENDENCIES } from './dependenciesManifest'
 import type {
   DemoDownloadResult,
@@ -26,17 +27,13 @@ function emitDemoProgress(progress: Omit<DemoInstallProgress, 'updatedAt'>): voi
   }
 
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.webContents.send('demo-install-progress', payload)
-    }
+    safeSend(win, 'demo-install-progress', payload)
   }
 }
 
 function emitDownloadProgress(progress: DownloadProgress): void {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.webContents.send('download-progress', progress)
-    }
+    safeSend(win, 'download-progress', progress)
   }
 }
 
@@ -788,7 +785,7 @@ export function registerDemoDownloadHandlers(): void {
         msg: string,
         cliOutput?: string
       ): void => {
-        event.sender.send('demo-dependency-progress', {
+        safeSend(event.sender, 'demo-dependency-progress', {
           dependencyId: dependency.id,
           status,
           percent,

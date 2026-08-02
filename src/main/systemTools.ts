@@ -26,6 +26,7 @@ import {
   getShellSyntaxSummary,
   runGuardedTerminalCommand
 } from './localCommandSandbox'
+import { safeSend } from './safeSend'
 
 function getDownloadsFolder(): string {
   try {
@@ -114,9 +115,7 @@ function getDownloadKey(url: string | undefined, filename: string): string {
 
 function emitDownloadProgress(progress: DownloadProgress): void {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.webContents.send('download-progress', progress)
-    }
+    safeSend(win, 'download-progress', progress)
   }
 }
 
@@ -1568,11 +1567,11 @@ export async function sendBrowserCommandToRenderer(
       const currentWins = BrowserWindow.getAllWindows()
       const win = currentWins.find((w) => !w.webContents.getURL().includes('#launcher')) || currentWins[0]
       if (win) {
-        win.webContents.send('browser-exec-command', { requestId, command })
+        safeSend(win, 'browser-exec-command', { requestId, command })
       }
     }, 250)
 
-    targetWin.webContents.send('browser-exec-command', { requestId, command })
+    safeSend(targetWin, 'browser-exec-command', { requestId, command })
   })
 }
 
@@ -2325,7 +2324,7 @@ export async function executeSystemTool(
           launcherWin.hide()
         }
 
-        mainWin.webContents.send('open-main-app-with-instructions', {
+        safeSend(mainWin, 'open-main-app-with-instructions', {
           instructions,
           model,
           searchEnabled
@@ -2443,7 +2442,7 @@ export async function executeSystemTool(
         const wins = BrowserWindow.getAllWindows()
         for (const win of wins) {
           if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
-            win.webContents.send('chat-todo-update', todo)
+            safeSend(win, 'chat-todo-update', todo)
           }
         }
       } catch {}
@@ -2542,13 +2541,13 @@ export async function executeSystemTool(
         const wins = BrowserWindow.getAllWindows()
         for (const win of wins) {
           if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
-            win.webContents.send('chat-todo-update', todo)
+            safeSend(win, 'chat-todo-update', todo)
           }
         }
         if (allDone) {
           for (const win of wins) {
             if (!win.webContents.getURL().includes('#launcher')) {
-              win.webContents.send('chat-todo-complete', { chatId: todoChatId })
+              safeSend(win, 'chat-todo-complete', { chatId: todoChatId })
             }
           }
         }
@@ -2804,7 +2803,7 @@ export async function executeSystemTool(
           const wins = BrowserWindow.getAllWindows()
           for (const win of wins) {
             if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
-              win.webContents.send('show-questionnaire', {
+              safeSend(win, 'show-questionnaire', {
                 sessionId,
                 questions: args.questions || []
               })
@@ -3423,11 +3422,10 @@ function broadcastArtifactsUpdate(targetChatId: string): void {
   const wins = BrowserWindow.getAllWindows()
   for (const win of wins) {
     if (
-      !win.isDestroyed() &&
       !win.webContents.getURL().includes('#launcher') &&
       !win.webContents.getURL().includes('#subagents')
     ) {
-      win.webContents.send('chat-artifacts-update', { chatId: targetChatId, artifacts })
+      safeSend(win, 'chat-artifacts-update', { chatId: targetChatId, artifacts })
     }
   }
 }

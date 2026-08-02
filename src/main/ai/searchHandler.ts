@@ -6,6 +6,7 @@ import { streamOpenAiCompletion } from './openaiClient'
 import { OpenAiMessage, StreamToolCallDelta } from './types'
 import { getNativeToolsForOpenAi } from './chatHandler'
 import { executeSystemTool } from '../systemTools'
+import { safeSend } from '../safeSend'
 
 let searchAbortController: AbortController | null = null
 
@@ -28,11 +29,11 @@ export async function handleAiSearchChatMessage(
   const { provider, model } = resolveProviderAndModel(modelSelection)
 
   if (!provider || !provider.apiKey || !model) {
-    event.sender.send('ai-search-reply-error', { error: 'No active AI Provider configured for search' })
+    safeSend(event.sender, 'ai-search-reply-error', { error: 'No active AI Provider configured for search' })
     return
   }
 
-  event.sender.send('ai-search-reply-start')
+  safeSend(event.sender, 'ai-search-reply-start')
 
   try {
     const offlineData = searchChatsOffline(query)
@@ -80,7 +81,7 @@ export async function handleAiSearchChatMessage(
 
     const sendChunk = () => {
       const { thoughts, content } = parseThoughtAndContent(fullText, fullReasoning)
-      event.sender.send('ai-search-reply-chunk', {
+      safeSend(event.sender, 'ai-search-reply-chunk', {
         thoughts,
         finalResponse: content,
         isThinking: !!thoughts && !content,
@@ -129,9 +130,9 @@ export async function handleAiSearchChatMessage(
           parsedArgs = { query: tc.args }
         }
 
-        event.sender.send('ai-search-tool-start', { name: tc.name, args: parsedArgs })
+        safeSend(event.sender, 'ai-search-tool-start', { name: tc.name, args: parsedArgs })
         const toolOutput = await executeSystemTool(tc.name, parsedArgs)
-        event.sender.send('ai-search-tool-end', { name: tc.name, result: String(toolOutput) })
+        safeSend(event.sender, 'ai-search-tool-end', { name: tc.name, result: String(toolOutput) })
 
         const toolJson = JSON.stringify({ type: tc.name, ...parsedArgs })
         const toolMarkup = `\n[PRISM_EXECUTE_TOOL]${toolJson}[/PRISM_EXECUTE_TOOL]\n`
@@ -156,8 +157,8 @@ export async function handleAiSearchChatMessage(
         for (const res of topResults) {
           const toolJson = JSON.stringify({ type: 'render_chat_history', query: res.id })
           fullText += `\n[PRISM_EXECUTE_TOOL]${toolJson}[/PRISM_EXECUTE_TOOL]\n`
-          event.sender.send('ai-search-tool-start', { name: 'render_chat_history', args: { query: res.id } })
-          event.sender.send('ai-search-tool-end', {
+          safeSend(event.sender, 'ai-search-tool-start', { name: 'render_chat_history', args: { query: res.id } })
+          safeSend(event.sender, 'ai-search-tool-end', {
             name: 'render_chat_history',
             result: `Successfully rendered chat history for ${res.id}`
           })
@@ -165,8 +166,8 @@ export async function handleAiSearchChatMessage(
       } else {
         const toolJson = JSON.stringify({ type: 'not_found_chat_history' })
         fullText += `\n[PRISM_EXECUTE_TOOL]${toolJson}[/PRISM_EXECUTE_TOOL]\n`
-        event.sender.send('ai-search-tool-start', { name: 'not_found_chat_history', args: {} })
-        event.sender.send('ai-search-tool-end', {
+        safeSend(event.sender, 'ai-search-tool-start', { name: 'not_found_chat_history', args: {} })
+        safeSend(event.sender, 'ai-search-tool-end', {
           name: 'not_found_chat_history',
           result: 'No matching chat history found'
         })
@@ -175,7 +176,7 @@ export async function handleAiSearchChatMessage(
 
     const { thoughts, content } = parseThoughtAndContent(fullText, fullReasoning)
 
-    event.sender.send('ai-search-reply-end', {
+    safeSend(event.sender, 'ai-search-reply-end', {
       thoughts,
       finalResponse: content,
       offlineResults: offlineData.results
@@ -183,10 +184,10 @@ export async function handleAiSearchChatMessage(
   } catch (error: any) {
     if (searchAbortController?.signal.aborted) {
       console.log('[AI SEARCH DEBUG MAIN] Search aborted before main loop')
-      event.sender.send('ai-search-reply-error', { error: 'Search cancelled' })
+      safeSend(event.sender, 'ai-search-reply-error', { error: 'Search cancelled' })
     } else {
       console.error('AI Search Error:', error)
-      event.sender.send('ai-search-reply-error', { error: error.message || String(error) })
+      safeSend(event.sender, 'ai-search-reply-error', { error: error.message || String(error) })
     }
   } finally {
     searchAbortController = null

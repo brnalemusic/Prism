@@ -71,6 +71,20 @@ import {
 } from './connection'
 import { ApplicationInfo } from '../shared/types'
 import { IS_DEMO } from '../shared/demo'
+import { safeSend } from './safeSend'
+
+if (process.platform === 'win32') {
+  try {
+    if (process.env.TEMP && fs.existsSync(process.env.TEMP)) {
+      process.env.TEMP = fs.realpathSync.native(process.env.TEMP)
+    }
+    if (process.env.TMP && fs.existsSync(process.env.TMP)) {
+      process.env.TMP = fs.realpathSync.native(process.env.TMP)
+    }
+  } catch (e) {
+    console.warn('[Startup] Failed to resolve long paths for TEMP/TMP:', e)
+  }
+}
 
 import { initAutoUpdater } from './updater'
 import { registerDemoDownloadHandlers } from './demoDownload'
@@ -302,7 +316,7 @@ function createMiniAppWindow(
     console.log('[MiniApp] Window closed')
     miniAppWindows.delete(id)
     miniAppDataMap.delete(id)
-    mainWindow?.webContents.send('mini-app-window-closed', id)
+    safeSend(mainWindow, 'mini-app-window-closed', id)
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -338,7 +352,7 @@ function createTray(): void {
       label: 'Settings',
       click: (): void => {
         mainWindow?.show()
-        mainWindow?.webContents.send('open-settings')
+        safeSend(mainWindow, 'open-settings')
       }
     },
     { type: 'separator' },
@@ -380,13 +394,13 @@ async function handleScreenshotShortcut(): Promise<void> {
     const primaryDisplay = screen.getPrimaryDisplay()
     launcherWindow.setBounds(primaryDisplay.bounds)
     // Send screenshot-shortcut-triggered to display border glows instantly
-    launcherWindow.webContents.send('screenshot-shortcut-triggered')
+    safeSend(launcherWindow, 'screenshot-shortcut-triggered')
     launcherWindow.show()
     launcherWindow.focus()
-    launcherWindow.webContents.send('launcher-focus')
+    safeSend(launcherWindow, 'launcher-focus')
 
     if (capture.base64) {
-      launcherWindow.webContents.send('screenshot-captured', capture.base64)
+      safeSend(launcherWindow, 'screenshot-captured', capture.base64)
     }
   }
 }
@@ -460,7 +474,7 @@ function createWindow(): void {
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown' && (input.control || input.meta) && input.key.toLowerCase() === 'w') {
       event.preventDefault()
-      mainWindow?.webContents.send('close-tab-shortcut')
+      safeSend(mainWindow, 'close-tab-shortcut')
     }
   })
 
@@ -570,11 +584,15 @@ function createLauncherWindow(): void {
   })
 
   launcherWindow.on('show', () => {
-    launcherWindow?.webContents.send('launcher-focus')
+    safeSend(launcherWindow, 'launcher-focus')
   })
 
   launcherWindow.on('focus', () => {
-    launcherWindow?.webContents.send('launcher-focus')
+    safeSend(launcherWindow, 'launcher-focus')
+  })
+
+  launcherWindow.on('closed', () => {
+    launcherWindow = null
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -594,7 +612,7 @@ function toggleLauncher(): void {
     launcherWindow.setBounds(primaryDisplay.bounds)
     launcherWindow.show()
     launcherWindow.focus()
-    launcherWindow.webContents.send('launcher-focus')
+    safeSend(launcherWindow, 'launcher-focus')
   }
 }
 
@@ -715,8 +733,8 @@ if (!gotTheLock) {
     // Start real-time license expiration monitor
     startLicenseExpirationMonitor(() => {
       currentConfig = loadConfig()
-      mainWindow?.webContents.send('config-changed', currentConfig)
-      launcherWindow?.webContents.send('config-changed', currentConfig)
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
     })
 
     // Attach automatic download event handlers to Electron sessions
@@ -748,10 +766,10 @@ if (!gotTheLock) {
     app.on('browser-window-created', (_, window) => {
       optimizer.watchWindowShortcuts(window, { zoom: true })
       window.on('maximize', () => {
-        window.webContents.send('window-maximized-change', true)
+        safeSend(window, 'window-maximized-change', true)
       })
       window.on('unmaximize', () => {
-        window.webContents.send('window-maximized-change', false)
+        safeSend(window, 'window-maximized-change', false)
       })
     })
 
@@ -760,9 +778,7 @@ if (!gotTheLock) {
 
     // Register browser session action emitter so the renderer can watch AI browser interactions
     setBrowserActionEmitter((action) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('browser-action', action)
-      }
+      safeSend(mainWindow, 'browser-action', action)
     })
 
     ipcMain.handle('open-browser', (_event, url?: string) => {
@@ -781,18 +797,18 @@ if (!gotTheLock) {
       setChatModel(modelKey)
       saveConfig({ lastSelectedChatModel: modelKey })
       currentConfig = loadConfig()
-      mainWindow?.webContents.send('model-changed', modelKey)
-      launcherWindow?.webContents.send('model-changed', modelKey)
-      mainWindow?.webContents.send('config-changed', currentConfig)
-      launcherWindow?.webContents.send('config-changed', currentConfig)
+      safeSend(mainWindow, 'model-changed', modelKey)
+      safeSend(launcherWindow, 'model-changed', modelKey)
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
     })
     ipcMain.on('set-think-mode', (_event, val) => {
-      mainWindow?.webContents.send('think-mode-changed', val)
-      launcherWindow?.webContents.send('think-mode-changed', val)
+      safeSend(mainWindow, 'think-mode-changed', val)
+      safeSend(launcherWindow, 'think-mode-changed', val)
     })
     ipcMain.on('set-search-enabled', (_event, val) => {
-      mainWindow?.webContents.send('search-enabled-changed', val)
-      launcherWindow?.webContents.send('search-enabled-changed', val)
+      safeSend(mainWindow, 'search-enabled-changed', val)
+      safeSend(launcherWindow, 'search-enabled-changed', val)
     })
 
     ipcMain.on('clear-chat', () => initGemini())
@@ -892,7 +908,7 @@ if (!gotTheLock) {
         if (mainWindow.isMinimized()) mainWindow.restore()
         mainWindow.show()
         mainWindow.focus()
-        mainWindow.webContents.send('launcher-message', data)
+        safeSend(mainWindow, 'launcher-message', data)
       }
     })
 
@@ -1018,8 +1034,8 @@ if (!gotTheLock) {
         if (!IS_DEMO) registerGlobalShortcuts()
         updateNativeIcons()
         // Notify windows with merged config
-        mainWindow?.webContents.send('config-changed', currentConfig)
-        launcherWindow?.webContents.send('config-changed', currentConfig)
+        safeSend(mainWindow, 'config-changed', currentConfig)
+        safeSend(launcherWindow, 'config-changed', currentConfig)
       }
       return success
     })
@@ -1036,8 +1052,8 @@ if (!gotTheLock) {
       const success = saveProviders(providers)
       if (success) {
         currentConfig = loadConfig()
-        mainWindow?.webContents.send('config-changed', currentConfig)
-        launcherWindow?.webContents.send('config-changed', currentConfig)
+        safeSend(mainWindow, 'config-changed', currentConfig)
+        safeSend(launcherWindow, 'config-changed', currentConfig)
       }
       return success
     })
@@ -1046,8 +1062,8 @@ if (!gotTheLock) {
       const success = deleteProvider(providerId)
       if (success) {
         currentConfig = loadConfig()
-        mainWindow?.webContents.send('config-changed', currentConfig)
-        launcherWindow?.webContents.send('config-changed', currentConfig)
+        safeSend(mainWindow, 'config-changed', currentConfig)
+        safeSend(launcherWindow, 'config-changed', currentConfig)
       }
       return success
     })
@@ -1090,8 +1106,8 @@ if (!gotTheLock) {
       const result = activateLicenseKey(key)
       if (result.success) {
         currentConfig = loadConfig()
-        mainWindow?.webContents.send('config-changed', currentConfig)
-        launcherWindow?.webContents.send('config-changed', currentConfig)
+        safeSend(mainWindow, 'config-changed', currentConfig)
+        safeSend(launcherWindow, 'config-changed', currentConfig)
 
         const token = await getAuthAccessToken()
         if (token) {
@@ -1109,8 +1125,8 @@ if (!gotTheLock) {
       const success = deactivateLicense()
       if (success) {
         currentConfig = loadConfig()
-        mainWindow?.webContents.send('config-changed', currentConfig)
-        launcherWindow?.webContents.send('config-changed', currentConfig)
+        safeSend(mainWindow, 'config-changed', currentConfig)
+        safeSend(launcherWindow, 'config-changed', currentConfig)
       }
       return success
     })
@@ -1134,8 +1150,8 @@ if (!gotTheLock) {
       const res = await verifyAndActivatePayment(planId, sessionId, email, company)
       if (res.success) {
         currentConfig = loadConfig()
-        mainWindow?.webContents.send('config-changed', currentConfig)
-        launcherWindow?.webContents.send('config-changed', currentConfig)
+        safeSend(mainWindow, 'config-changed', currentConfig)
+        safeSend(launcherWindow, 'config-changed', currentConfig)
       }
       return res
     })
@@ -1183,8 +1199,8 @@ if (!gotTheLock) {
       setSessionMode(mode, disciplinePath)
 
       // Notify windows of config-changed to keep states synchronized
-      mainWindow?.webContents.send('config-changed', currentConfig)
-      launcherWindow?.webContents.send('config-changed', currentConfig)
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
     })
 
 
@@ -1200,8 +1216,8 @@ if (!gotTheLock) {
       }
       updateNativeIcons()
       // Notify both windows
-      mainWindow?.webContents.send('config-changed', config)
-      launcherWindow?.webContents.send('config-changed', config)
+      safeSend(mainWindow, 'config-changed', config)
+      safeSend(launcherWindow, 'config-changed', config)
     })
 
     // Initialize Supabase Auth Session (Restores encrypted session token)
@@ -1216,7 +1232,7 @@ if (!gotTheLock) {
 
       registerAppsUpdatedCallback((apps) => {
         cachedApps = apps
-        launcherWindow?.webContents.send('launcher-apps-updated', cachedApps)
+        safeSend(launcherWindow, 'launcher-apps-updated', cachedApps)
       })
 
       initAppScanner().catch((e) => {
@@ -1241,7 +1257,7 @@ if (!gotTheLock) {
       const online = await checkInternetConnectivity()
       if (online !== lastConnectivityState) {
         lastConnectivityState = online
-        mainWindow?.webContents.send('connectivity-changed', online)
+        safeSend(mainWindow, 'connectivity-changed', online)
       }
     }
 
