@@ -222,7 +222,6 @@ function useLicenseCountdown(expiresAt?: string): string {
   const [isActivationModalOpen, setIsActivationModalOpen] = useState(false)
   // Stripe-specific loading state — rendered as a global portal modal, separate from the offline card
   const [stripeVerifying, setStripeVerifying] = useState(false)
-  const [stripeVerifyMessage, setStripeVerifyMessage] = useState('Contacting payment server...')
 
   // --- Dynamic License Plans & Stripe Checkout State ---
   const [authUser, setAuthUser] = useState<import('../../../shared/types').UserProfile | null>(null)
@@ -274,7 +273,6 @@ function useLicenseCountdown(expiresAt?: string): string {
     setLicenseError(null)
     setCheckoutMessage(null)
     setStripeVerifying(true)
-    setStripeVerifyMessage(`Initializing Stripe Checkout for ${plan.name}...`)
 
     try {
       const email = authUser?.email || ''
@@ -284,7 +282,6 @@ function useLicenseCountdown(expiresAt?: string): string {
       if (res.success && res.checkoutUrl && res.sessionId) {
         setPendingSessionIds((prev) => ({ ...prev, [plan.id]: res.sessionId! }))
         window.open(res.checkoutUrl, '_blank')
-        setStripeVerifyMessage('Checkout opened in your browser. Waiting for payment completion...')
 
         // Start automatic global polling every 2 seconds
         stopSettingsPolling()
@@ -299,7 +296,6 @@ function useLicenseCountdown(expiresAt?: string): string {
 
             if (verifyRes.success) {
               stopSettingsPolling()
-              setStripeVerifyMessage('Payment Confirmed! Enterprise License Activated.')
 
               const info = await window.api.getLicenseInfo()
               if (info) setLicenseInfo(info)
@@ -335,14 +331,12 @@ function useLicenseCountdown(expiresAt?: string): string {
     }
 
     setStripeVerifying(true)
-    setStripeVerifyMessage('Contacting Stripe to verify payment...')
     setLicenseError(null)
 
     try {
       const email = authUser?.email || 'customer@prism.app'
       const company = authUser?.companyName || authUser?.fullName || 'Enterprise Licensee'
 
-      setStripeVerifyMessage('Verifying payment status on Stripe...')
       const res = await window.api.verifyAndActivatePayment(plan.id, sessionId, email, company)
 
       if (res.success) {
@@ -1538,23 +1532,19 @@ function useLicenseCountdown(expiresAt?: string): string {
 
       {/* Stripe Payment Verification Modal — global portal */}
       {stripeVerifying && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-xl animate-soft-pop p-4">
-          <div className="flex flex-col items-center gap-5 px-8 py-8 rounded-[28px] border border-white/[0.1] bg-[#0f1015]/95 shadow-[0_30px_80px_-10px_rgba(0,0,0,0.9)] text-center max-w-sm w-full">
-            <div className="relative">
-              <div className="h-14 w-14 rounded-2xl bg-[#635BFF]/15 border border-[#635BFF]/25 flex items-center justify-center">
-                <CircleNotch size={28} className="animate-spin text-[#635BFF]" />
-              </div>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-xl animate-fade-in p-4">
+          <div className="flex flex-col items-center gap-5 p-8 rounded-[28px] border border-white/10 bg-[#0c0d14]/95 shadow-[0_30px_90px_-10px_rgba(0,0,0,0.95)] text-center max-w-sm w-full animate-soft-pop">
+            <div className="w-14 h-14 rounded-2xl bg-accent-primary/15 border border-accent-primary/30 flex items-center justify-center">
+              <CircleNotch size={28} className="animate-spin text-accent-primary" />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <span className="font-mono text-[11px] font-bold tracking-widest text-[#635BFF] uppercase">
-                Stripe Automatic Verification
-              </span>
-              <span className="text-sm font-semibold text-text-primary">
-                {stripeVerifyMessage}
-              </span>
-              <span className="text-[11px] text-text-secondary/60 leading-relaxed">
-                Checking payment status automatically every 2 seconds. Keep your browser window open.
-              </span>
+
+            <div className="flex flex-col gap-2">
+              <h3 className="text-lg font-bold text-text-primary">
+                Completing Checkout
+              </h3>
+              <p className="text-xs text-text-secondary/80 leading-relaxed max-w-xs">
+                Please complete your payment in the browser window.
+              </p>
             </div>
 
             <button
@@ -1562,9 +1552,9 @@ function useLicenseCountdown(expiresAt?: string): string {
                 stopSettingsPolling()
                 setStripeVerifying(false)
               }}
-              className="text-xs font-medium text-text-muted hover:text-text-primary transition-colors mt-1 cursor-pointer"
+              className="text-xs font-medium text-text-muted hover:text-text-primary transition-colors py-1 cursor-pointer"
             >
-              Cancel / Close Waiting Window
+              Cancel
             </button>
           </div>
         </div>,

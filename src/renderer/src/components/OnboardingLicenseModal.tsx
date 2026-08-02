@@ -8,7 +8,6 @@ import {
   User,
   Check,
   X,
-  ArrowSquareOut,
   Sparkle
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
@@ -41,8 +40,6 @@ export function OnboardingLicenseModal({
   // Stripe automated verification & polling state
   const [stripeVerifying, setStripeVerifying] = useState(false)
   const [stripeVerifyStep, setStripeVerifyStep] = useState<'opening' | 'polling' | 'success' | 'error'>('opening')
-  const [stripeVerifyMessage, setStripeVerifyMessage] = useState('')
-  const [activePlanName, setActivePlanName] = useState('')
   
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -72,10 +69,8 @@ export function OnboardingLicenseModal({
   const startPaymentFlowAndPolling = async (plan: SubscriptionPlan): Promise<void> => {
     setCheckoutLoadingPlanId(plan.id)
     setLicenseError(null)
-    setActivePlanName(plan.name)
     setStripeVerifying(true)
     setStripeVerifyStep('opening')
-    setStripeVerifyMessage(`Initializing Stripe Checkout for ${plan.name}...`)
 
     try {
       const email = authUser?.email || ''
@@ -88,7 +83,6 @@ export function OnboardingLicenseModal({
         window.open(res.checkoutUrl, '_blank')
 
         setStripeVerifyStep('polling')
-        setStripeVerifyMessage('Checkout opened in your browser. Waiting for payment completion...')
 
         // Start global polling every 2 seconds
         stopPolling()
@@ -104,7 +98,6 @@ export function OnboardingLicenseModal({
             if (verifyRes.success) {
               stopPolling()
               setStripeVerifyStep('success')
-              setStripeVerifyMessage('Payment Confirmed! Enterprise License Activated.')
 
               setTimeout(() => {
                 setStripeVerifying(false)
@@ -300,47 +293,30 @@ export function OnboardingLicenseModal({
 
       {/* Global Automated Payment Verification Portal Overlay */}
       {stripeVerifying && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 backdrop-blur-2xl animate-fade-in p-4">
-          <div className="flex flex-col items-center gap-6 p-8 sm:p-10 rounded-[32px] border border-white/10 bg-[#0a0b12]/95 shadow-[0_30px_90px_-10px_rgba(0,0,0,0.95)] text-center max-w-md w-full animate-soft-pop">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-xl animate-fade-in p-4">
+          <div className="flex flex-col items-center gap-5 p-8 rounded-[28px] border border-white/10 bg-[#0c0d14]/95 shadow-[0_30px_90px_-10px_rgba(0,0,0,0.95)] text-center max-w-sm w-full animate-soft-pop">
             {/* Animated Indicator */}
             {stripeVerifyStep === 'success' ? (
-              <div className="w-16 h-16 rounded-2xl bg-status-success/15 border border-status-success/30 flex items-center justify-center text-status-success animate-bounce">
-                <CheckCircle size={36} weight="fill" />
+              <div className="w-14 h-14 rounded-2xl bg-status-success/15 border border-status-success/30 flex items-center justify-center text-status-success animate-bounce">
+                <CheckCircle size={32} weight="fill" />
               </div>
             ) : (
-              <div className="relative flex items-center justify-center">
-                <div className="w-16 h-16 rounded-2xl bg-[#635BFF]/15 border border-[#635BFF]/30 flex items-center justify-center">
-                  <CircleNotch size={32} className="animate-spin text-[#635BFF]" />
-                </div>
+              <div className="w-14 h-14 rounded-2xl bg-accent-primary/15 border border-accent-primary/30 flex items-center justify-center">
+                <CircleNotch size={28} className="animate-spin text-accent-primary" />
               </div>
             )}
 
             <div className="flex flex-col gap-2">
-              <span className="font-mono text-[11px] font-bold tracking-widest text-[#635BFF] uppercase">
-                {stripeVerifyStep === 'success' ? 'Subscription Active' : 'Stripe Automatic Verification'}
-              </span>
-
               <h3 className="text-lg font-bold text-text-primary">
-                {stripeVerifyStep === 'success'
-                  ? 'Payment Verified Successfully!'
-                  : `Waiting for ${activePlanName} Payment...`}
+                {stripeVerifyStep === 'success' ? 'Payment Confirmed!' : 'Completing Checkout'}
               </h3>
 
               <p className="text-xs text-text-secondary/80 leading-relaxed max-w-xs">
-                {stripeVerifyMessage ||
-                  (stripeVerifyStep === 'success'
-                    ? 'Your Enterprise license has been issued and applied automatically.'
-                    : 'Please complete your checkout in the browser window. Prism is automatically checking your payment status every 2 seconds.')}
+                {stripeVerifyStep === 'success'
+                  ? 'Your Enterprise license has been activated.'
+                  : 'Please complete your payment in the browser window.'}
               </p>
             </div>
-
-            {/* Browser Reminder Badge */}
-            {stripeVerifyStep !== 'success' && (
-              <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-[11px] text-text-secondary">
-                <ArrowSquareOut size={14} className="text-[#635BFF]" />
-                <span>Keep your browser window open during checkout</span>
-              </div>
-            )}
 
             {/* Cancel Button */}
             {stripeVerifyStep !== 'success' && (
@@ -348,7 +324,7 @@ export function OnboardingLicenseModal({
                 onClick={handleCancelWaiting}
                 className="text-xs font-medium text-text-muted hover:text-text-primary transition-colors py-1 cursor-pointer"
               >
-                Cancel / Close Waiting Window
+                Cancel
               </button>
             )}
           </div>
