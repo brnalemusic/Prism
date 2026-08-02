@@ -10,7 +10,7 @@ import { toolsManifest } from './toolsManifest'
 import { BrowserAction, DownloadProgress, SessionMode, TodoState, ArtifactItem } from '../shared/types'
 
 import { loadConfig, saveConfig, SlashWorkflow } from './config'
-import { searchChatHistory, searchChatMemory, loadChatSession, getChatArtifacts, saveChatArtifact } from './history'
+import { searchChatHistory, searchChatMemory, loadChatSession, getChatArtifacts, saveChatArtifact, saveChatTodo } from './history'
 import {
   chromium,
   type Browser,
@@ -2211,16 +2211,28 @@ export async function captureAppScreenshot(
 export const sessionTodos = new Map<string, TodoState>()
 
 export function getTodoForChat(chatId: string): TodoState | null {
-  return sessionTodos.get(chatId) || null
+  if (sessionTodos.has(chatId)) {
+    return sessionTodos.get(chatId) || null
+  }
+  if (!chatId) return null
+  const session = loadChatSession(chatId)
+  if (session && session.todo) {
+    sessionTodos.set(chatId, session.todo)
+    return session.todo
+  }
+  return null
 }
 
 let _currentSessionIdForTodo = ''
 export function setCurrentSessionIdForTodo(id: string): void {
-  _currentSessionIdForTodo = id
+  if (id) {
+    _currentSessionIdForTodo = id
+  }
 }
 
 export function buildTodoReminder(chatId?: string): string {
-  const todo = sessionTodos.get(chatId || _currentSessionIdForTodo)
+  const targetId = chatId || _currentSessionIdForTodo
+  const todo = getTodoForChat(targetId)
   if (!todo || !todo.active) return ''
   const pendingCount = todo.tasks.filter((t) => t.status !== 'done').length
   if (pendingCount === 0) return ''
@@ -2241,6 +2253,9 @@ export async function executeSystemTool(
   signal?: AbortSignal,
   chatId?: string
 ): Promise<string> {
+  if (chatId) {
+    _currentSessionIdForTodo = chatId
+  }
   switch (toolName) {
     // Terminal
     case 'execute_terminal_command':
@@ -2377,22 +2392,32 @@ export async function executeSystemTool(
     }
 
     // Todo system
-    case 'create_todo': {
-      const tasksInput = args.tasks
+    case 'create_todo':
+    case 'create_todos':
+    case 'add_todo': {
+      const tasksInput = args.tasks || args.todo || args.items || args.steps || args.task
       let taskTitles: string[] = []
       if (typeof tasksInput === 'string') {
         try {
           const parsed = JSON.parse(tasksInput)
           if (Array.isArray(parsed)) taskTitles = parsed.map(String)
+          else taskTitles = [tasksInput]
         } catch {
-          taskTitles = [tasksInput]
+          if (tasksInput.includes('\n')) {
+            taskTitles = tasksInput
+              .split('\n')
+              .map((s) => s.replace(/^[-*\d.\s]+/, '').trim())
+              .filter(Boolean)
+          } else {
+            taskTitles = [tasksInput]
+          }
         }
       } else if (Array.isArray(tasksInput)) {
         taskTitles = tasksInput.map(String)
       }
 
-      if (taskTitles.length < 2) {
-        return 'Error: create_todo requires at least 2 tasks. Please define a more detailed plan with at least 2 steps.'
+      if (taskTitles.length < 1) {
+        return 'Error: create_todo requires at least 1 task. Please define a list of steps.'
       }
       if (taskTitles.length > 30) {
         taskTitles = taskTitles.slice(0, 30)
@@ -2410,6 +2435,9 @@ export async function executeSystemTool(
         chatId: todoChatId
       }
       sessionTodos.set(todoChatId, todo)
+      if (todoChatId) {
+        saveChatTodo(todoChatId, todo)
+      }
 
       try {
         const wins = BrowserWindow.getAllWindows()
@@ -2423,28 +2451,76 @@ export async function executeSystemTool(
       return `Todo list created with ${taskTitles.length} tasks. ${buildTodoReminder(todoChatId)}`
     }
 
-    case 'edit_todo': {
+    case 'edit_todo':
+    case 'update_todo':
+    case 'edit_todos':
+    case 'update_todos':
+    case 'mark_todo':
+    case 'complete_todo': {
       const todoChatId = chatId || _currentSessionIdForTodo
-      const todo = sessionTodos.get(todoChatId)
+      let todo = getTodoForChat(todoChatId)
       if (!todo || !todo.active) {
         return 'Error: No active todo list. Create one first with create_todo.'
       }
 
-      const taskId = (args.id || '').toString().trim()
-      const newStatus = (args.status || '').toString().trim() as 'working' | 'done'
-
-      if (!taskId) return 'Error: Task ID is required (e.g. "task-0", "task-1").'
-      if (newStatus !== 'working' && newStatus !== 'done') {
-        return 'Error: Status must be "working" or "done".'
+      const rawId = (args.id || args.taskId || args.task_id || args.index || args.title || args.task || '').toString().trim()
+      let rawStatus = (args.status || '').toString().trim().toLowerCase()
+      if (!rawStatus) {
+        if (args.completed === true || args.done === true) rawStatus = 'done'
+        else if (args.working === true || args.inProgress === true) rawStatus = 'working'
       }
 
-      const taskIndex = todo.tasks.findIndex((t) => t.id === taskId)
+      let newStatus: 'working' | 'done' = 'working'
+      if (['done', 'completed', 'finished', 'complete'].includes(rawStatus)) {
+        newStatus = 'done'
+      } else if (['working', 'in_progress', 'in-progress', 'wip', 'active'].includes(rawStatus)) {
+        newStatus = 'working'
+      } else if (['pending', 'todo', 'reset'].includes(rawStatus)) {
+        // Fallback for status
+        newStatus = 'working'
+      }
+
+      if (!rawId) return 'Error: Task ID or title is required (e.g. "task-0", "task-1").'
+
+      let taskIndex = todo.tasks.findIndex((t) => t.id.toLowerCase() === rawId.toLowerCase())
+
       if (taskIndex === -1) {
-        return `Error: Task "${taskId}" not found. Available tasks: ${todo.tasks.map((t) => `${t.id} (${t.title})`).join(', ')}`
+        // Try matching number index, e.g. "0" -> task-0, "1" -> task-0 or task-1
+        if (/^\d+$/.test(rawId)) {
+          const num = parseInt(rawId, 10)
+          if (num >= 0 && num < todo.tasks.length) {
+            taskIndex = num
+          } else if (num >= 1 && num <= todo.tasks.length) {
+            taskIndex = num - 1
+          }
+        }
+      }
+
+      if (taskIndex === -1) {
+        // Try matching task-X format if passed like "task 0" or "task_0"
+        const taskMatch = rawId.match(/^task[_\s-]?(\d+)$/i)
+        if (taskMatch) {
+          const num = parseInt(taskMatch[1], 10)
+          if (num >= 0 && num < todo.tasks.length) {
+            taskIndex = num
+          }
+        }
+      }
+
+      if (taskIndex === -1) {
+        // Try matching by title (exact or substring)
+        const lowerRaw = rawId.toLowerCase()
+        taskIndex = todo.tasks.findIndex(
+          (t) => t.title.toLowerCase().includes(lowerRaw) || lowerRaw.includes(t.title.toLowerCase())
+        )
+      }
+
+      if (taskIndex === -1) {
+        return `Error: Task "${rawId}" not found. Available tasks: ${todo.tasks.map((t) => `${t.id} (${t.title})`).join(', ')}`
       }
 
       if (todo.tasks[taskIndex].status === 'done' && newStatus === 'done') {
-        return `Task "${taskId}" (${todo.tasks[taskIndex].title}) is already marked as done.`
+        return `Task "${rawId}" (${todo.tasks[taskIndex].title}) is already marked as done.`
       }
 
       todo.tasks[taskIndex] = {
@@ -2455,6 +2531,11 @@ export async function executeSystemTool(
       const allDone = todo.tasks.every((t) => t.status === 'done')
       if (allDone) {
         todo.active = false
+      }
+
+      sessionTodos.set(todoChatId, todo)
+      if (todoChatId) {
+        saveChatTodo(todoChatId, todo)
       }
 
       try {

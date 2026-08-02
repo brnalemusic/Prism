@@ -2,7 +2,7 @@ import { app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { Content } from '@google/genai'
-import { SessionMode, ArtifactItem } from '../shared/types'
+import { SessionMode, ArtifactItem, TodoState } from '../shared/types'
 
 export interface ChatSession {
   id: string
@@ -13,6 +13,7 @@ export interface ChatSession {
   disciplinePath?: string
   model?: string
   artifacts?: ArtifactItem[]
+  todo?: TodoState | null
 }
 
 const CHATS_DIR = path.join(
@@ -227,10 +228,12 @@ export function saveChatSession(
     const messagesToSave = sanitizeMessagesForSaving(filteredMessages)
 
     let existingArtifacts: ArtifactItem[] | undefined = undefined
+    let existingTodo: TodoState | null | undefined = undefined
     if (fs.existsSync(filePath)) {
       try {
         const existingData = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
         existingArtifacts = existingData.artifacts
+        existingTodo = existingData.todo
       } catch {
         /* ignore parse errors */
       }
@@ -244,13 +247,38 @@ export function saveChatSession(
       sessionMode: existingMode,
       disciplinePath: existingPath,
       model: existingModel,
-      artifacts: existingArtifacts
+      artifacts: existingArtifacts,
+      todo: existingTodo
     }
 
     fs.writeFileSync(filePath, JSON.stringify(session, null, 2))
     return true
   } catch (error) {
     console.error(`Failed to save chat session ${id}:`, error)
+    return false
+  }
+}
+
+/**
+ * Saves or updates a chat session todo state.
+ */
+export function saveChatTodo(id: string, todo: TodoState): boolean {
+  ensureChatsDir()
+  const cleanId = sanitizeId(id)
+  if (!cleanId) return false
+  const filePath = path.join(CHATS_DIR, `chat_${cleanId}.json`)
+  try {
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath, 'utf-8')
+      const session: ChatSession = JSON.parse(data)
+      session.todo = todo
+      session.lastUpdated = Date.now()
+      fs.writeFileSync(filePath, JSON.stringify(session, null, 2))
+      return true
+    }
+    return false
+  } catch (error) {
+    console.error(`Failed to save chat todo ${id}:`, error)
     return false
   }
 }
