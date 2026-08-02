@@ -76,8 +76,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
   const isEnterprise =
     user.accountType === 'enterprise' ||
-    user.accountType === 'company' ||
-    Boolean(user.companyName)
+    user.accountType === 'company'
 
   const initials = user.fullName
     ? user.fullName

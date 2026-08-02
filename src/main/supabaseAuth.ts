@@ -122,7 +122,7 @@ async function buildUserProfile(user: User): Promise<UserProfile> {
   const client = getSupabaseClient()
   let fullName = user.user_metadata?.full_name || ''
   let companyName = user.user_metadata?.company_name || ''
-  let accountType = user.user_metadata?.account_type || (companyName ? 'enterprise' : 'individual')
+  let accountType = user.user_metadata?.account_type || 'individual'
   let avatarUrl = user.user_metadata?.avatar_url || ''
 
   try {
@@ -368,6 +368,7 @@ export async function getAuthAccessToken(): Promise<string | null> {
   return session?.access_token || null
 }
 
+
 /**
  * Gets current AI quota usage status for the logged-in user
  */
@@ -377,62 +378,42 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
 
   const client = getSupabaseClient()
   try {
-    const { data: usage, error } = await client
-      .from('user_ai_usage')
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle()
+    const { data: rpcData, error } = await client.rpc('get_user_ai_usage_status', {
+      p_user_id: user.id
+    })
 
-    if (error) {
-      console.error('[Auth] Error fetching user AI usage:', error)
+    if (!error && rpcData) {
+      const max5h = rpcData.max_5h || 20
+      const max1w = rpcData.max_1w || 120
+      const count5h = rpcData.count_5h ?? 0
+      const count1w = rpcData.count_1w ?? 0
+      const remaining5h = rpcData.remaining_5h ?? Math.max(0, max5h - count5h)
+      const remaining1w = rpcData.remaining_1w ?? Math.max(0, max1w - count1w)
+
+      const percentage5h = Math.round((remaining5h / max5h) * 100)
+      const percentage1w = Math.round((remaining1w / max1w) * 100)
+      const percentageRemaining = Math.min(percentage5h, percentage1w)
+
+      return {
+        percentageRemaining,
+        percentage5h,
+        percentage1w,
+        count5h,
+        count1w,
+        remaining5h,
+        remaining1w,
+        reset5hSeconds: rpcData.reset_5h_seconds ?? 0,
+        reset1wSeconds: rpcData.reset_1w_seconds ?? 0
+      }
     }
 
-    const count5h = usage?.count_5h ?? 0
-    const count1w = usage?.count_1w ?? 0
-
-    const now = new Date().getTime()
-    const window5hStart = usage?.window_5h_start ? new Date(usage.window_5h_start).getTime() : 0
-    const window1wStart = usage?.window_1w_start ? new Date(usage.window_1w_start).getTime() : 0
-
-    const is5hExpired = !usage || (now - window5hStart >= 5 * 60 * 60 * 1000)
-    const is1wExpired = !usage || (now - window1wStart >= 7 * 24 * 60 * 60 * 1000)
-
-    const effective5hCount = is5hExpired ? 0 : count5h
-    const effective1wCount = is1wExpired ? 0 : count1w
-
-    const remaining5h = Math.max(0, 30 - effective5hCount)
-    const remaining1w = Math.max(0, 240 - effective1wCount)
-
-    const percentage5h = Math.round((remaining5h / 30) * 100)
-    const percentage1w = Math.round((remaining1w / 240) * 100)
-
-    const percentageRemaining = Math.min(percentage5h, percentage1w)
-
-    const reset5hMs = window5hStart && !is5hExpired ? Math.max(0, (window5hStart + 5 * 60 * 60 * 1000) - now) : 0
-    const reset1wMs = window1wStart && !is1wExpired ? Math.max(0, (window1wStart + 7 * 24 * 60 * 60 * 1000) - now) : 0
-
-    return {
-      percentageRemaining,
-      percentage5h,
-      percentage1w,
-      count5h: effective5hCount,
-      count1w: effective1wCount,
-      remaining5h,
-      remaining1w,
-      reset5hSeconds: Math.floor(reset5hMs / 1000),
-      reset1wSeconds: Math.floor(reset1wMs / 1000)
+    if (error) {
+      console.error('[Auth] RPC get_user_ai_usage_status error:', error)
     }
   } catch (err) {
     console.error('[Auth] Unexpected error fetching user AI usage:', err)
-    return {
-      percentageRemaining: 100,
-      percentage5h: 100,
-      percentage1w: 100,
-      count5h: 0,
-      count1w: 0,
-      remaining5h: 30,
-      remaining1w: 240
-    }
   }
+
+  return null
 }
 
