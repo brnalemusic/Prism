@@ -3325,7 +3325,7 @@ async function compileHtmlToPptx(html: string, outputPath: string): Promise<void
 }
 
 async function compileHtmlToPptxFallback(html: string, pptx: PptxGenJS): Promise<void> {
-  const cleanHtml = html.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '')
+  const cleanHtml = html.replace(/<style[\s\S]*?<\/style\s*>/gi, '').replace(/<script[\s\S]*?<\/script\s*>/gi, '')
   let rawSlides: string[] = []
 
   const slideMatches = cleanHtml.match(/<(div|section)[^>]*>([\s\S]*?)<\/\1>/gi)
@@ -3354,13 +3354,13 @@ async function compileHtmlToPptxFallback(html: string, pptx: PptxGenJS): Promise
 
 function cleanHtmlTags(str: string): string {
   return str
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style\s*>/gi, '')
+    .replace(/<script[\s\S]*?<\/script\s*>/gi, '')
     .replace(/<[^>]*>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
     .trim()
 }
 

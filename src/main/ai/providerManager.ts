@@ -235,12 +235,12 @@ export function deleteProvider(providerId: string): boolean {
     if (
       providerId === 'openai' ||
       targetName.includes('openai') ||
-      targetBaseUrl.includes('api.openai.com')
+      (() => { try { return new URL(targetBaseUrl).hostname === 'api.openai.com' } catch { return false } })()
     ) {
       if (
         p.id === 'openai' ||
         p.name?.toLowerCase().includes('openai') ||
-        p.baseUrl?.toLowerCase().includes('api.openai.com')
+        (() => { try { return new URL((p.baseUrl || '').toLowerCase()).hostname === 'api.openai.com' } catch { return false } })()
       ) {
         return false
       }
@@ -249,12 +249,12 @@ export function deleteProvider(providerId: string): boolean {
     if (
       providerId === 'nvidia-nim' ||
       targetName.includes('nvidia') ||
-      targetBaseUrl.includes('nvidia.com')
+      (() => { try { const h = new URL(targetBaseUrl).hostname; return h === 'nvidia.com' || h.endsWith('.nvidia.com') } catch { return false } })()
     ) {
       if (
         p.id === 'nvidia-nim' ||
         p.name?.toLowerCase().includes('nvidia') ||
-        p.baseUrl?.toLowerCase().includes('nvidia.com')
+        (() => { try { const h = new URL((p.baseUrl || '').toLowerCase()).hostname; return h === 'nvidia.com' || h.endsWith('.nvidia.com') } catch { return false } })()
       ) {
         return false
       }
