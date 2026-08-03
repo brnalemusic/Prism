@@ -141,11 +141,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       }
 
       onAuthSuccess(res.user)
-      if (!res.user.emailConfirmed) {
-        setSuccessMsg('Account created! The email verification service is currently busy. You are logged in and can verify your email anytime later to unlock Prism Cloud AI models.')
-      } else {
-        onClose()
-      }
+      onClose()
     } catch (err: any) {
       setLoading(false)
       setErrorMsg(formatAuthErrorMessage(err?.message))
@@ -212,7 +208,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
           <div className="space-y-0.5">
             <span className="font-bold text-white block">Unlock Free AI Access</span>
             <p className="text-[11px] text-blue-200/80 leading-snug">
-              Sign in and verify your email to unlock free AI models powered by Prism Cloud (available for all verified accounts)!
+              Sign in or create an account to unlock free AI models powered by Prism Cloud!
             </p>
           </div>
         </div>

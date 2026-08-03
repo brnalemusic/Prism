@@ -170,7 +170,7 @@ async function buildUserProfile(user: User): Promise<UserProfile> {
   let companyName = user.user_metadata?.company_name || ''
   let accountType = user.user_metadata?.account_type || 'individual'
   let avatarUrl = user.user_metadata?.avatar_url || ''
-  const emailConfirmed = !!(user.email_confirmed_at || user.confirmed_at)
+  const emailConfirmed = true
 
   try {
     const { data: profile } = await client

@@ -180,14 +180,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 {isEnterprise ? 'ENTERPRISE ACCOUNT' : 'INDIVIDUAL ACCOUNT'}
               </span>
 
-              <span
-                className={`font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                  user.emailConfirmed
-                    ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-400'
-                    : 'border-amber-500/40 bg-amber-500/15 text-amber-400'
-                }`}
-              >
-                {user.emailConfirmed ? 'EMAIL VERIFIED' : 'EMAIL UNVERIFIED'}
+              <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-400">
+                ACCOUNT ACTIVE
               </span>
             </div>
           </div>
@@ -210,7 +204,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
         {/* Prism Cloud AI Quota Card */}
         {!isEditing && (
-          user.emailConfirmed ? (
             <div className="rounded-2xl border border-accent-primary/20 bg-accent-primary/[0.04] p-4 space-y-3.5">
               <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
                 <div className="flex items-center gap-2 text-xs font-bold text-white">
@@ -265,43 +258,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 </div>
               </div>
             </div>
-          ) : (
-            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/[0.06] p-4 space-y-2.5 text-xs text-amber-200">
-              <div className="flex items-center justify-between border-b border-amber-500/20 pb-2">
-                <div className="flex items-center gap-2 font-bold text-white">
-                  <WarningCircle size={18} className="text-amber-400" weight="fill" />
-                  <span>Prism Cloud Models Locked</span>
-                </div>
-              </div>
-              <p className="text-[11px] text-amber-200/90 leading-relaxed">
-                Email verification is required to unlock Prism Cloud free AI models. Check your email inbox or click below to resend the verification link.
-              </p>
-              <button
-                type="button"
-                onClick={async () => {
-                  setErrorMsg(null)
-                  setSuccessMsg(null)
-                  setLoading(true)
-                  try {
-                    const res = await window.api.authResendConfirmation(user.email)
-                    setLoading(false)
-                    if (res.success) {
-                      setSuccessMsg('Verification email sent! Check your inbox.')
-                    } else {
-                      setErrorMsg(res.error || 'Failed to send verification email.')
-                    }
-                  } catch (err: any) {
-                    setLoading(false)
-                    setErrorMsg(err?.message || 'Failed to send verification email.')
-                  }
-                }}
-                disabled={loading}
-                className="w-full py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 font-semibold text-xs transition-all cursor-pointer disabled:opacity-50"
-              >
-                {loading ? <CircleNotch size={16} className="animate-spin mx-auto" /> : 'Resend Verification Email'}
-              </button>
-            </div>
-          )
         )}
 
         {/* Details or Edit Form */}

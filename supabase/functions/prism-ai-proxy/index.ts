@@ -36,17 +36,6 @@ serve(async (req) => {
       )
     }
 
-    const isEmailConfirmed = !!(userData.user.email_confirmed_at || userData.user.confirmed_at)
-    if (!isEmailConfirmed) {
-      return new Response(
-        JSON.stringify({
-          error: 'Email verification required to access Prism Cloud models. Please check your inbox and verify your email address.',
-          emailUnverified: true
-        }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
     const userId = userData.user.id
 
     // 2. Check rate limit — skip increment for non-billable requests (e.g. title generation)
