@@ -3324,8 +3324,17 @@ async function compileHtmlToPptx(html: string, outputPath: string): Promise<void
   await fs.writeFile(outputPath, buffer)
 }
 
+function removeUnsafeHtmlBlocks(html: string): string {
+  let previous: string
+  do {
+    previous = html
+    html = html.replace(/<style[\s\S]*?<\/style[^>]*>/gi, '').replace(/<script[\s\S]*?<\/script[^>]*>/gi, '')
+  } while (html !== previous)
+  return html
+}
+
 async function compileHtmlToPptxFallback(html: string, pptx: PptxGenJS): Promise<void> {
-  const cleanHtml = html.replace(/<style[\s\S]*?<\/style\s*>/gi, '').replace(/<script[\s\S]*?<\/script\s*>/gi, '')
+  const cleanHtml = removeUnsafeHtmlBlocks(html)
   let rawSlides: string[] = []
 
   const slideMatches = cleanHtml.match(/<(div|section)[^>]*>([\s\S]*?)<\/\1>/gi)
@@ -3353,9 +3362,7 @@ async function compileHtmlToPptxFallback(html: string, pptx: PptxGenJS): Promise
 }
 
 function cleanHtmlTags(str: string): string {
-  return str
-    .replace(/<style[\s\S]*?<\/style\s*>/gi, '')
-    .replace(/<script[\s\S]*?<\/script\s*>/gi, '')
+  return removeUnsafeHtmlBlocks(str)
     .replace(/<[^>]*>/g, '')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
