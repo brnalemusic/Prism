@@ -3326,12 +3326,36 @@ async function compileHtmlToPptx(html: string, outputPath: string): Promise<void
 }
 
 function removeUnsafeHtmlBlocks(html: string): string {
-  let previous: string
-  do {
-    previous = html
-    html = html.replace(/<style[\s\S]*?<\/style[^>]*>/gi, '').replace(/<script[\s\S]*?<\/script[^>]*>/gi, '')
-  } while (html !== previous)
-  return html
+  const lowerHtml = html.toLowerCase()
+  let result = ''
+  let cursor = 0
+
+  while (cursor < html.length) {
+    const styleStart = lowerHtml.indexOf('<style', cursor)
+    const scriptStart = lowerHtml.indexOf('<script', cursor)
+    const blockStart =
+      styleStart === -1
+        ? scriptStart
+        : scriptStart === -1
+          ? styleStart
+          : Math.min(styleStart, scriptStart)
+
+    if (blockStart === -1) {
+      result += html.slice(cursor)
+      break
+    }
+
+    result += html.slice(cursor, blockStart)
+    const blockName = styleStart !== -1 && blockStart === styleStart ? 'style' : 'script'
+    const blockEnd = lowerHtml.indexOf(`</${blockName}`, blockStart + blockName.length + 1)
+    if (blockEnd === -1) break
+
+    const closingTagEnd = html.indexOf('>', blockEnd + blockName.length + 2)
+    if (closingTagEnd === -1) break
+    cursor = closingTagEnd + 1
+  }
+
+  return result
 }
 
 async function compileHtmlToPptxFallback(html: string, pptx: PptxGenJS): Promise<void> {
@@ -3363,13 +3387,15 @@ async function compileHtmlToPptxFallback(html: string, pptx: PptxGenJS): Promise
 }
 
 function cleanHtmlTags(str: string): string {
-  return removeUnsafeHtmlBlocks(str)
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/<[^>]*>/g, '')
+  let clean = removeUnsafeHtmlBlocks(str)
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
-    .trim()
+
+  // Remove tag delimiters instead of matching complete tags. This prevents
+  // malformed or nested input from reconstructing an HTML element. Angle
+  // brackets encoded as entities intentionally remain encoded in the output.
+  clean = clean.replace(/[<>]/g, '')
+  return clean.trim()
 }
 
 function parseCssColorToHex(colorStr: string): string | null {
