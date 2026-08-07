@@ -30,7 +30,12 @@ import { getChatModel, activeRuns } from './ai/chatHandler'
 import { runToolOrchestration } from './ai/toolOrchestrator'
 import { OpenAiMessage } from './ai/types'
 import { getSystemToolsPrompt, setCurrentSessionIdForTodo } from './systemTools'
-import { getOpenAiToolDefinitions } from './toolRuntime'
+import {
+  executeValidatedTool,
+  getGeminiFunctionDeclarations,
+  getOpenAiToolDefinitions,
+  ToolLoopGuard
+} from './toolRuntime'
 import { normalizePrismThinkingLevel } from './ai/prismThinking'
 import { streamOpenAiCompletion } from './ai/openaiClient'
 import { is } from '@electron-toolkit/utils'
@@ -52,6 +57,9 @@ let voiceInputByteCount = 0
 let voiceOutputChunkCount = 0
 let voiceOutputByteCount = 0
 let voiceOutputTurnActive = false
+let activeVoiceHistory: VoiceHistoryState | null = null
+let activeLiveToolLoopGuard: ToolLoopGuard | null = null
+let activeLiveAbortController: AbortController | null = null
 
 const VOICE_SILENCE_FLUSH_MS = 800
 const VOICE_GATE_START_RMS = 0.02
@@ -60,6 +68,15 @@ const VOICE_GATE_HANGOVER_MS = 450
 
 let voiceGateOpen = false
 let voiceGateLastSpeechAt = 0
+
+interface VoiceHistoryState {
+  chatId: string
+  title: string
+  modelName: string
+  messages: OpenAiMessage[]
+  activeUserMessageIndex: number | null
+  activeAssistantMessageIndex: number | null
+}
 
 const activeDmSessions: Map<string, string> = new Map()
 
@@ -133,6 +150,168 @@ function isVoiceLeaveCommand(text: string): boolean {
     normalized.includes('leave call') ||
     normalized.includes('disconnect from call')
   )
+}
+
+function mergeVoiceTranscript(current: string, incoming: string): string {
+  const next = incoming.trim()
+  if (!current) return next
+  if (!next || current === next || current.includes(next)) return current
+  if (next.startsWith(current)) return next
+  if (current.endsWith(next)) return current
+  return `${current} ${next}`.replace(/\s+/g, ' ').trim()
+}
+
+function persistVoiceHistory(): void {
+  const history = activeVoiceHistory
+  if (!history) return
+  saveChatSession(
+    history.chatId,
+    history.messages,
+    history.title,
+    'execution',
+    '',
+    history.modelName,
+    true
+  )
+}
+
+function appendVoiceTranscript(role: 'user' | 'assistant', text: string): void {
+  const history = activeVoiceHistory
+  const transcript = text.trim()
+  if (!history || !transcript) return
+
+  const indexKey = role === 'user' ? 'activeUserMessageIndex' : 'activeAssistantMessageIndex'
+  const activeIndex = history[indexKey]
+  const activeMessage = activeIndex === null ? undefined : history.messages[activeIndex]
+
+  if (activeMessage && typeof activeMessage.content === 'string') {
+    activeMessage.content = mergeVoiceTranscript(activeMessage.content, transcript)
+  } else {
+    if (role === 'assistant') history.activeUserMessageIndex = null
+    history.messages.push({ role, content: transcript })
+    history[indexKey] = history.messages.length - 1
+  }
+
+  persistVoiceHistory()
+}
+
+function recordLiveToolCall(callId: string, name: string, args: Record<string, unknown>): void {
+  const history = activeVoiceHistory
+  if (!history) return
+
+  history.activeUserMessageIndex = null
+  history.activeAssistantMessageIndex = null
+  history.messages.push({
+    role: 'assistant',
+    content: null,
+    tool_calls: [
+      {
+        id: callId,
+        type: 'function',
+        function: { name, arguments: JSON.stringify(args) }
+      }
+    ]
+  })
+  persistVoiceHistory()
+}
+
+function recordLiveToolResult(
+  callId: string,
+  name: string,
+  args: Record<string, unknown>,
+  modelContent: string,
+  envelope: import('./toolRuntime').ToolResultEnvelope
+): void {
+  const history = activeVoiceHistory
+  if (!history) return
+
+  history.messages.push({
+    role: 'tool',
+    tool_call_id: callId,
+    name,
+    content: modelContent,
+    tool_metadata: {
+      originalArguments: args,
+      validatedArguments: args,
+      result: envelope
+    }
+  })
+  persistVoiceHistory()
+}
+
+async function executeLiveToolCalls(
+  functionCalls: Array<{ id?: string; name?: string; args?: Record<string, unknown> }>,
+  session: any,
+  apiKey: string
+): Promise<void> {
+  const history = activeVoiceHistory
+  if (!history || functionCalls.length === 0) return
+
+  const abortController = new AbortController()
+  activeLiveAbortController = abortController
+  const loopGuard = activeLiveToolLoopGuard || new ToolLoopGuard()
+  activeLiveToolLoopGuard = loopGuard
+  const functionResponses: Array<{ id: string; name: string; response: Record<string, unknown> }> =
+    []
+
+  for (const functionCall of functionCalls) {
+    const callId = functionCall.id || `live_call_${Date.now()}_${functionResponses.length}`
+    const name = functionCall.name || 'unknown_tool'
+    const args = functionCall.args || {}
+    recordLiveToolCall(callId, name, args)
+
+    const execution = await executeValidatedTool(
+      name,
+      args,
+      {
+        event: null,
+        apiKey,
+        signal: abortController.signal,
+        chatId: history.chatId,
+        onStart: (validatedArgs) => {
+          broadcastIpc('chat-tool-start', {
+            callId,
+            name,
+            args: validatedArgs,
+            timestamp: Date.now(),
+            chatId: history.chatId
+          })
+        }
+      },
+      loopGuard
+    )
+
+    recordLiveToolResult(callId, name, execution.args, execution.modelContent, execution.envelope)
+    broadcastIpc('chat-tool-end', {
+      callId,
+      name,
+      result: execution.modelContent,
+      chatId: history.chatId
+    })
+
+    functionResponses.push({
+      id: callId,
+      name,
+      response: execution.envelope.ok
+        ? { result: execution.envelope.output }
+        : { error: execution.envelope.error.message, details: execution.envelope.error.details }
+    })
+  }
+
+  if (activeLiveSession !== session || abortController.signal.aborted) {
+    if (activeLiveAbortController === abortController) activeLiveAbortController = null
+    return
+  }
+  try {
+    session.sendToolResponse({ functionResponses })
+    console.log(
+      `[Discord Gateway] Returned ${functionResponses.length} tool result(s) to Gemini Live.`
+    )
+  } catch (error) {
+    console.error('[Discord Gateway] Failed to return Live tool results:', error)
+  } finally {
+    if (activeLiveAbortController === abortController) activeLiveAbortController = null
+  }
 }
 
 function logVoiceAudioStats(): void {
@@ -250,6 +429,11 @@ function cleanupVoiceResources(): boolean {
 
   const liveSession = activeLiveSession
   activeLiveSession = null
+  activeLiveAbortController?.abort()
+  activeLiveAbortController = null
+  persistVoiceHistory()
+  activeVoiceHistory = null
+  activeLiveToolLoopGuard = null
   if (liveSession) {
     try {
       liveSession.close()
@@ -323,6 +507,19 @@ async function startLiveVoiceSession(
   statusMsg: Message
 ): Promise<boolean> {
   const normalizedModelName = normalizeLiveModelId(modelName)
+  const voiceChatId = `discord-voice-${guild.id}-${voiceChannel.id}-${Date.now()}`
+  activeVoiceHistory = {
+    chatId: voiceChatId,
+    title: `Voice Call - ${voiceChannel.name}`,
+    modelName: normalizedModelName,
+    messages: [],
+    activeUserMessageIndex: null,
+    activeAssistantMessageIndex: null
+  }
+  activeLiveToolLoopGuard = new ToolLoopGuard()
+  persistVoiceHistory()
+  broadcastIpc('chat-session-created', { id: voiceChatId })
+  setCurrentSessionIdForTodo(voiceChatId)
   let aiSession: any = null
 
   // Step 1: Connect to Gemini Live API FIRST
@@ -336,11 +533,31 @@ async function startLiveVoiceSession(
       model: normalizedModelName,
       config: {
         responseModalities: [Modality.AUDIO],
-        inputAudioTranscription: {}
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
+        systemInstruction:
+          `${getSystemToolsPrompt(normalizedModelName, 'main', undefined, 'execution', '')}\n\n` +
+          '# Discord Voice Gateway\n' +
+          'You are speaking with the user through Discord voice. Use the available tools whenever they are needed. ' +
+          'When you use a tool, wait for its result before answering. Keep spoken answers concise and clear.',
+        tools: [{ functionDeclarations: getGeminiFunctionDeclarations() }]
       },
       callbacks: {
         onmessage: (msg: any) => {
           const serverContent = msg?.serverContent
+          if (msg?.toolCallCancellation?.ids?.length) {
+            console.log('[Discord Gateway] Gemini cancelled pending Live tool calls.')
+            activeLiveAbortController?.abort()
+          }
+
+          const functionCalls = msg?.toolCall?.functionCalls
+          if (Array.isArray(functionCalls) && functionCalls.length > 0) {
+            console.log(
+              `[Discord Gateway] Gemini requested ${functionCalls.length} Live tool call(s).`
+            )
+            void executeLiveToolCalls(functionCalls, aiSession, apiKey)
+          }
+
           if (serverContent?.interrupted) {
             console.log('[Discord Gateway] Gemini interrupted its current audio response.')
             createVoiceAudioOutput()
@@ -353,12 +570,18 @@ async function startLiveVoiceSession(
           const inputTranscript = serverContent?.inputTranscription?.text
           if (typeof inputTranscript === 'string' && inputTranscript.trim()) {
             console.log(`[Discord Gateway] Input transcription: ${inputTranscript.trim()}`)
+            appendVoiceTranscript('user', inputTranscript)
             if (isVoiceLeaveCommand(inputTranscript)) {
               console.log('[Discord Gateway] Voice leave command detected from transcription.')
               cleanupVoiceResources()
               void statusMsg.edit('✅ *Left the voice channel by voice command.*').catch(() => {})
               return
             }
+          }
+
+          const outputTranscript = serverContent?.outputTranscription?.text
+          if (typeof outputTranscript === 'string' && outputTranscript.trim()) {
+            appendVoiceTranscript('assistant', outputTranscript)
           }
 
           const parts = serverContent?.modelTurn?.parts || []
@@ -382,7 +605,13 @@ async function startLiveVoiceSession(
             }
           }
 
-          if (serverContent?.turnComplete) voiceOutputTurnActive = false
+          if (serverContent?.turnComplete) {
+            voiceOutputTurnActive = false
+            if (activeVoiceHistory) {
+              activeVoiceHistory.activeUserMessageIndex = null
+              activeVoiceHistory.activeAssistantMessageIndex = null
+            }
+          }
         },
         onclose: () => {
           console.log('[Discord Gateway] Live session closed')
