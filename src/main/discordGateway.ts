@@ -297,12 +297,23 @@ async function handleDiscordMessage(message: Message): Promise<void> {
         console.log(`[Discord Gateway] Joined voice channel in ${message.guild!.name}`)
         message.reply('Joined voice channel!')
         
-        // Start Live Session
-        const providerConfig = currentConfig?.providers?.find(p => p.id === 'google')
-        if (providerConfig?.apiKey) {
-          startLiveVoiceSession(connection, message.author.id, realtimeModel, providerConfig.apiKey)
+        // Start Live Session - dynamically resolve provider for the selected voice/chat model
+        const modelToUse =
+          currentConfig?.discordGatewayModel ||
+          currentConfig?.defaultModel ||
+          currentConfig?.lastSelectedChatModel ||
+          getChatModel() ||
+          realtimeModel
+
+        const { provider: activeProvider } = resolveProviderAndModel(modelToUse)
+        const apiKey = activeProvider?.apiKey
+
+        if (apiKey && apiKey !== 'prism_account_auth') {
+          startLiveVoiceSession(connection, message.author.id, realtimeModel, apiKey)
         } else {
-          message.reply('Cannot start voice session: No Google API key found in Prism Settings.')
+          message.reply(
+            `Cannot start voice session: No valid API key found for provider "${activeProvider?.name || 'Active Provider'}" in Prism Settings.`
+          )
         }
       })
 
