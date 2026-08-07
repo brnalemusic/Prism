@@ -1,15 +1,47 @@
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { ProviderConfig, ProviderModel, CompletionType } from '../../../shared/types'
-import { CheckCircle, Warning, MagnifyingGlass, Check, X, ArrowRight, ArrowLeft } from '@phosphor-icons/react'
+import {
+  CheckCircle,
+  Warning,
+  MagnifyingGlass,
+  Check,
+  X,
+  ArrowRight,
+  ArrowLeft
+} from '@phosphor-icons/react'
 
-export const TRUSTED_PROVIDERS_META: Array<{ baseUrl: string; name: string; completionType: CompletionType }> = [
-  { baseUrl: 'https://generativelanguage.googleapis.com/v1beta', name: 'Google AI Studio', completionType: 'chat_completions' },
-  { baseUrl: 'https://integrate.api.nvidia.com/v1', name: 'NVIDIA NIM', completionType: 'chat_completions' },
+export const TRUSTED_PROVIDERS_META: Array<{
+  baseUrl: string
+  name: string
+  completionType: CompletionType
+}> = [
+  {
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    name: 'Google AI Studio',
+    completionType: 'gemini_native'
+  },
+  {
+    baseUrl: 'https://integrate.api.nvidia.com/v1',
+    name: 'NVIDIA NIM',
+    completionType: 'chat_completions'
+  },
   { baseUrl: 'https://api.openai.com/v1', name: 'OpenAI GPT', completionType: 'chat_completions' },
-  { baseUrl: 'https://api.anthropic.com/v1', name: 'Anthropic Claude', completionType: 'anthropic_messages' },
-  { baseUrl: 'https://openrouter.ai/api/v1', name: 'OpenRouter', completionType: 'chat_completions' },
-  { baseUrl: 'https://api.groq.com/openai/v1', name: 'GroqCloud', completionType: 'chat_completions' },
+  {
+    baseUrl: 'https://api.anthropic.com/v1',
+    name: 'Anthropic Claude',
+    completionType: 'anthropic_messages'
+  },
+  {
+    baseUrl: 'https://openrouter.ai/api/v1',
+    name: 'OpenRouter',
+    completionType: 'chat_completions'
+  },
+  {
+    baseUrl: 'https://api.groq.com/openai/v1',
+    name: 'GroqCloud',
+    completionType: 'chat_completions'
+  },
   { baseUrl: 'https://api.cerebras.ai/v1', name: 'Cerebras AI', completionType: 'chat_completions' }
 ]
 
@@ -94,9 +126,7 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
   }
 
   const handleToggleModel = (id: string) => {
-    setModels((prev) =>
-      (prev || []).map((m) => (m.id === id ? { ...m, enabled: !m.enabled } : m))
-    )
+    setModels((prev) => (prev || []).map((m) => (m.id === id ? { ...m, enabled: !m.enabled } : m)))
   }
 
   const handleSave = () => {
@@ -215,7 +245,9 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
                 <div className="p-3 rounded-xl bg-status-success/15 border border-status-success/30 text-status-success text-xs flex items-center gap-2">
                   <CheckCircle size={16} weight="fill" className="shrink-0" />
                   <span>
-                    Recognized trusted endpoint for <strong className="font-bold text-text-primary">{trustedMeta?.name}</strong>. Provider name is locked.
+                    Recognized trusted endpoint for{' '}
+                    <strong className="font-bold text-text-primary">{trustedMeta?.name}</strong>.
+                    Provider name is locked.
                   </span>
                 </div>
               )}
@@ -240,9 +272,7 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
 
           {step === 3 && (
             <div className="space-y-3.5">
-              <label className="block text-xs font-semibold text-text-primary">
-                Provider Name
-              </label>
+              <label className="block text-xs font-semibold text-text-primary">Provider Name</label>
               <input
                 type="text"
                 value={name}
@@ -261,9 +291,26 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
               </label>
               <div className="grid grid-cols-1 gap-2.5">
                 {[
-                  { type: 'chat_completions', label: 'Chat Completions (/chat/completions)', desc: 'Standard OpenAI format, supported by 95%+ of providers.' },
-                  { type: 'responses', label: 'Responses API (/responses)', desc: 'OpenAI Responses API format.' },
-                  { type: 'anthropic_messages', label: 'Anthropic Messages (/v1/messages)', desc: 'Anthropic Claude API format.' }
+                  {
+                    type: 'chat_completions',
+                    label: 'Chat Completions (/chat/completions)',
+                    desc: 'Standard OpenAI format, supported by 95%+ of providers.'
+                  },
+                  {
+                    type: 'responses',
+                    label: 'Responses API (/responses)',
+                    desc: 'OpenAI Responses API format.'
+                  },
+                  {
+                    type: 'anthropic_messages',
+                    label: 'Anthropic Messages (/v1/messages)',
+                    desc: 'Anthropic Claude API format.'
+                  },
+                  {
+                    type: 'gemini_native',
+                    label: 'Gemini Native (GenerateContent)',
+                    desc: 'Native Google Gemini API format.'
+                  }
                 ].map((item) => (
                   <div
                     key={item.type}
@@ -287,7 +334,9 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <h4 className="text-xs font-bold text-text-primary">Active Models</h4>
-                  <p className="text-[11px] text-text-muted">Discovered {models.length} models from endpoint.</p>
+                  <p className="text-[11px] text-text-muted">
+                    Discovered {models.length} models from endpoint.
+                  </p>
                 </div>
                 <button
                   onClick={handleFetchModels}
@@ -306,7 +355,10 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
 
               {models.length > 0 && (
                 <div className="relative">
-                  <MagnifyingGlass size={16} className="absolute left-3.5 top-3.5 text-text-muted" />
+                  <MagnifyingGlass
+                    size={16}
+                    className="absolute left-3.5 top-3.5 text-text-muted"
+                  />
                   <input
                     type="text"
                     value={searchQuery}
@@ -320,7 +372,9 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
               <div className="max-h-56 sm:max-h-64 overflow-y-auto space-y-2 pr-1">
                 {filteredModels.length === 0 ? (
                   <div className="text-center py-8 text-text-muted text-xs border border-dashed border-white/[0.1] rounded-2xl">
-                    {models.length === 0 ? 'Click "Fetch /models" to discover endpoint models.' : 'No models match your search.'}
+                    {models.length === 0
+                      ? 'Click "Fetch /models" to discover endpoint models.'
+                      : 'No models match your search.'}
                   </div>
                 ) : (
                   filteredModels.map((m) => (
@@ -334,13 +388,19 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${m.enabled ? 'bg-text-primary border-text-primary text-black' : 'border-white/20'}`}>
+                        <div
+                          className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${m.enabled ? 'bg-text-primary border-text-primary text-black' : 'border-white/20'}`}
+                        >
                           {m.enabled && <Check size={12} weight="bold" />}
                         </div>
                         <div className="min-w-0">
-                          <div className="text-xs font-mono font-semibold text-text-primary truncate">{m.id}</div>
+                          <div className="text-xs font-mono font-semibold text-text-primary truncate">
+                            {m.id}
+                          </div>
                           {m.isTrusted && (
-                            <span className="text-[10px] text-status-success font-medium">Trusted by Prism (Enabled by Default)</span>
+                            <span className="text-[10px] text-status-success font-medium">
+                              Trusted by Prism (Enabled by Default)
+                            </span>
                           )}
                         </div>
                       </div>

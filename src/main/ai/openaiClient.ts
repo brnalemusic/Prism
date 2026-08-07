@@ -105,6 +105,7 @@ export async function streamOpenAiCompletion(
   const completionType = provider.completionType || 'chat_completions'
 
   if (
+    completionType === 'gemini_native' ||
     provider.id === 'prism_provider' ||
     provider.baseUrl.includes('prism-ai-proxy') ||
     isGoogleHost(normUrl)

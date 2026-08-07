@@ -31,7 +31,20 @@ export interface AppConfig {
   username?: string
   appVersion?: string
   ttsVoice: string
-  theme: 'marine' | 'vertez' | 'akoustik' | 'terno' | 'ursula' | 'rgb' | 'fire' | 'lava' | 'gold' | 'forest' | 'indigo' | 'violet' | 'white'
+  theme:
+    | 'marine'
+    | 'vertez'
+    | 'akoustik'
+    | 'terno'
+    | 'ursula'
+    | 'rgb'
+    | 'fire'
+    | 'lava'
+    | 'gold'
+    | 'forest'
+    | 'indigo'
+    | 'violet'
+    | 'white'
   zoomFactor: number
   terminalShell?: string
   workflows?: SlashWorkflow[]
@@ -99,7 +112,21 @@ const DEFAULT_CONFIG: AppConfig = {
 }
 
 const VALID_VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'])
-const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno', 'ursula', 'rgb', 'fire', 'lava', 'gold', 'forest', 'indigo', 'violet', 'white'])
+const VALID_THEMES = new Set([
+  'marine',
+  'vertez',
+  'akoustik',
+  'terno',
+  'ursula',
+  'rgb',
+  'fire',
+  'lava',
+  'gold',
+  'forest',
+  'indigo',
+  'violet',
+  'white'
+])
 const VALID_SESSION_MODES = new Set(['conversation', 'execution', 'discipline'])
 const VALID_PRISM_THINKING_LEVELS = new Set(['minimal', 'low', 'medium', 'high'])
 const PRISM_CLOUD_MODEL_IDS = new Set([
@@ -156,11 +183,16 @@ export function synthesizeLegacyProviders(config: Partial<AppConfig>): ProviderC
       name: 'Google AI Studio',
       baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
       apiKey: legacyGemini.trim(),
-      completionType: 'chat_completions',
+      completionType: 'gemini_native',
       isTrusted: true,
       models: [
         { id: defaultModel, name: defaultModel, enabled: true, isTrusted: true },
-        { id: 'gemini-3.5-flash-lite', name: 'gemini-3.5-flash-lite', enabled: true, isTrusted: true },
+        {
+          id: 'gemini-3.5-flash-lite',
+          name: 'gemini-3.5-flash-lite',
+          enabled: true,
+          isTrusted: true
+        },
         { id: 'gemini-3.1-pro', name: 'gemini-3.1-pro', enabled: true, isTrusted: true }
       ]
     })
@@ -176,7 +208,12 @@ export function synthesizeLegacyProviders(config: Partial<AppConfig>): ProviderC
       completionType: 'chat_completions',
       isTrusted: true,
       models: [
-        { id: 'meta/llama-3.3-70b-instruct', name: 'meta/llama-3.3-70b-instruct', enabled: true, isTrusted: true }
+        {
+          id: 'meta/llama-3.3-70b-instruct',
+          name: 'meta/llama-3.3-70b-instruct',
+          enabled: true,
+          isTrusted: true
+        }
       ]
     })
   }
@@ -220,9 +257,11 @@ function normalizeConfig(config: AppConfig): AppConfig {
     webSearchShortcut: config.webSearchShortcut || DEFAULT_CONFIG.webSearchShortcut,
     youtubeModeShortcut: config.youtubeModeShortcut || DEFAULT_CONFIG.youtubeModeShortcut,
     providers,
-    lastSelectedChatModel: typeof config.lastSelectedChatModel === 'string' ? config.lastSelectedChatModel : '',
+    lastSelectedChatModel:
+      typeof config.lastSelectedChatModel === 'string' ? config.lastSelectedChatModel : '',
     sttModel: typeof config.sttModel === 'string' ? config.sttModel : '',
-    quickLauncherModel: typeof config.quickLauncherModel === 'string' ? config.quickLauncherModel : '',
+    quickLauncherModel:
+      typeof config.quickLauncherModel === 'string' ? config.quickLauncherModel : '',
     searchModel: typeof config.searchModel === 'string' ? config.searchModel : '',
     ttsVoice: VALID_VOICES.has(config.ttsVoice) ? config.ttsVoice : DEFAULT_CONFIG.ttsVoice,
     theme: VALID_THEMES.has(config.theme)
@@ -238,8 +277,13 @@ function normalizeConfig(config: AppConfig): AppConfig {
     terminalShell: config.terminalShell || DEFAULT_CONFIG.terminalShell,
     workflows: Array.isArray(config.workflows) ? config.workflows : DEFAULT_CONFIG.workflows,
     rgbThemeExpiry: config.rgbThemeExpiry,
-    sessionMode: VALID_SESSION_MODES.has(config.sessionMode) ? config.sessionMode : DEFAULT_CONFIG.sessionMode,
-    disciplinePath: typeof config.disciplinePath === 'string' ? config.disciplinePath : DEFAULT_CONFIG.disciplinePath,
+    sessionMode: VALID_SESSION_MODES.has(config.sessionMode)
+      ? config.sessionMode
+      : DEFAULT_CONFIG.sessionMode,
+    disciplinePath:
+      typeof config.disciplinePath === 'string'
+        ? config.disciplinePath
+        : DEFAULT_CONFIG.disciplinePath,
     modelReasoningLevels: normalizeReasoningLevels(config.modelReasoningLevels)
   }
 }
@@ -274,7 +318,10 @@ export function loadConfig(): AppConfig {
       parsedConfig = JSON.parse(data)
     } catch (parseErr) {
       // Config file is corrupted — back it up and start fresh
-      console.error('[Config] Config file is corrupted. Backing up and resetting to defaults.', parseErr)
+      console.error(
+        '[Config] Config file is corrupted. Backing up and resetting to defaults.',
+        parseErr
+      )
       const backupPath = CONFIG_FILE + `.corrupted.${Date.now()}.bak`
       try {
         fs.copyFileSync(CONFIG_FILE, backupPath)
@@ -292,7 +339,9 @@ export function loadConfig(): AppConfig {
 
     // One-time clean reset for v8.0.0 migration
     if (!parsedConfig.hasResetV8Keys) {
-      console.log('[Config] Upgrading to v8.0.0 fresh start. Cleaning legacy keys and custom providers once...')
+      console.log(
+        '[Config] Upgrading to v8.0.0 fresh start. Cleaning legacy keys and custom providers once...'
+      )
       parsedConfig.providers = []
       parsedConfig.userGeminiKey = ''
       parsedConfig.userNvidiaNimKey = ''
@@ -322,7 +371,10 @@ export function loadConfig(): AppConfig {
           )
         )
       } catch (migrationError) {
-        console.error('[Config] Failed to persist Prism Cloud thinking-level migration:', migrationError)
+        console.error(
+          '[Config] Failed to persist Prism Cloud thinking-level migration:',
+          migrationError
+        )
       }
     }
 
@@ -401,4 +453,3 @@ export function saveConfig(config: Partial<AppConfig>, currentConfig?: AppConfig
     return false
   }
 }
-

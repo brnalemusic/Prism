@@ -1,12 +1,7 @@
 import { ProviderConfig, ProviderModel, CompletionType } from '../../shared/types'
 import { loadConfig, saveConfig } from '../config'
 import { isUserAuthenticated, isUserEmailVerifiedSync } from '../supabaseAuth'
-import {
-  isModelTrusted,
-  normalizeBaseUrl,
-  isGoogleHost,
-  isAnthropicHost
-} from './trustedRegistry'
+import { isModelTrusted, normalizeBaseUrl, isGoogleHost, isAnthropicHost } from './trustedRegistry'
 
 export interface FetchModelsResult {
   success: boolean
@@ -25,13 +20,16 @@ export async function fetchModelsFromProvider(
   }
 
   const isGoogle = isGoogleHost(normUrl)
-  const endpoint = isGoogle ? `${normUrl}/openai/models` : `${normUrl}/models`
+  const googleBaseUrl = normUrl.replace(/\/openai$/, '')
+  const endpoint = isGoogle ? `${googleBaseUrl}/models` : `${normUrl}/models`
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   }
 
-  if (completionType === 'anthropic_messages' || isAnthropicHost(normUrl)) {
+  if (isGoogle) {
+    headers['x-goog-api-key'] = apiKey
+  } else if (completionType === 'anthropic_messages' || isAnthropicHost(normUrl)) {
     headers['x-api-key'] = apiKey
     headers['anthropic-version'] = '2023-06-01'
   } else if (apiKey) {
@@ -57,9 +55,13 @@ export async function fetchModelsFromProvider(
     let modelList: string[] = []
 
     if (Array.isArray(data.data)) {
-      modelList = data.data.map((m: any) => (typeof m === 'string' ? m : m.id || m.name)).filter(Boolean)
+      modelList = data.data
+        .map((m: any) => (typeof m === 'string' ? m : m.id || m.name))
+        .filter(Boolean)
     } else if (Array.isArray(data.models)) {
-      modelList = data.models.map((m: any) => (typeof m === 'string' ? m : m.id || m.name)).filter(Boolean)
+      modelList = data.models
+        .map((m: any) => (typeof m === 'string' ? m : m.id || m.name))
+        .filter(Boolean)
     } else if (Array.isArray(data)) {
       modelList = data.map((m: any) => (typeof m === 'string' ? m : m.id || m.name)).filter(Boolean)
     }
@@ -89,12 +91,17 @@ export const PRISM_PROVIDER: ProviderConfig = {
   name: 'Prism Cloud',
   baseUrl: 'https://jfqyqkkdmoqdpejzxdhd.supabase.co/functions/v1/prism-ai-proxy',
   apiKey: 'prism_account_auth',
-  completionType: 'chat_completions',
+  completionType: 'gemini_native',
   isTrusted: true,
   isOfficial: true,
   models: [
     { id: 'gemini-3.1-flash-lite', name: 'gemini-3.1-flash-lite', enabled: true, isTrusted: true },
-    { id: 'models/gemini-3-flash-preview', name: 'models/gemini-3-flash-preview', enabled: true, isTrusted: true }
+    {
+      id: 'models/gemini-3-flash-preview',
+      name: 'models/gemini-3-flash-preview',
+      enabled: true,
+      isTrusted: true
+    }
   ]
 }
 
@@ -108,7 +115,9 @@ export function getAllProviders(): ProviderConfig[] {
       name: p?.name || 'Unnamed Provider',
       baseUrl: p?.baseUrl || '',
       apiKey: p?.apiKey || '',
-      completionType: p?.completionType || 'chat_completions',
+      completionType: isGoogleHost(p?.baseUrl || '')
+        ? 'gemini_native'
+        : p?.completionType || 'chat_completions',
       isTrusted: !!p?.isTrusted,
       isOfficial: !!p?.isOfficial,
       models: Array.isArray(p?.models) ? p.models : []
@@ -235,12 +244,24 @@ export function deleteProvider(providerId: string): boolean {
     if (
       providerId === 'openai' ||
       targetName.includes('openai') ||
-      (() => { try { return new URL(targetBaseUrl).hostname === 'api.openai.com' } catch { return false } })()
+      (() => {
+        try {
+          return new URL(targetBaseUrl).hostname === 'api.openai.com'
+        } catch {
+          return false
+        }
+      })()
     ) {
       if (
         p.id === 'openai' ||
         p.name?.toLowerCase().includes('openai') ||
-        (() => { try { return new URL((p.baseUrl || '').toLowerCase()).hostname === 'api.openai.com' } catch { return false } })()
+        (() => {
+          try {
+            return new URL((p.baseUrl || '').toLowerCase()).hostname === 'api.openai.com'
+          } catch {
+            return false
+          }
+        })()
       ) {
         return false
       }
@@ -249,12 +270,26 @@ export function deleteProvider(providerId: string): boolean {
     if (
       providerId === 'nvidia-nim' ||
       targetName.includes('nvidia') ||
-      (() => { try { const h = new URL(targetBaseUrl).hostname; return h === 'nvidia.com' || h.endsWith('.nvidia.com') } catch { return false } })()
+      (() => {
+        try {
+          const h = new URL(targetBaseUrl).hostname
+          return h === 'nvidia.com' || h.endsWith('.nvidia.com')
+        } catch {
+          return false
+        }
+      })()
     ) {
       if (
         p.id === 'nvidia-nim' ||
         p.name?.toLowerCase().includes('nvidia') ||
-        (() => { try { const h = new URL((p.baseUrl || '').toLowerCase()).hostname; return h === 'nvidia.com' || h.endsWith('.nvidia.com') } catch { return false } })()
+        (() => {
+          try {
+            const h = new URL((p.baseUrl || '').toLowerCase()).hostname
+            return h === 'nvidia.com' || h.endsWith('.nvidia.com')
+          } catch {
+            return false
+          }
+        })()
       ) {
         return false
       }

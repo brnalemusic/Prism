@@ -9,7 +9,7 @@ import { streamOpenAiCompletion } from './openaiClient'
 import { ActiveRun, OpenAiMessage, OpenAiToolDefinition } from './types'
 import { safeSend } from '../safeSend'
 import { getOpenAiToolDefinitions } from '../toolRuntime'
-import { normalizePrismThinkingLevel } from './geminiClient'
+import { normalizePrismThinkingLevel } from './prismThinking'
 import { runToolOrchestration } from './toolOrchestrator'
 
 export const activeRuns = new Map<string, ActiveRun>()

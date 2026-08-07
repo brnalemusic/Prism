@@ -1,14 +1,16 @@
+import { CompletionType } from '../../shared/types'
+
 export interface TrustedProviderMeta {
   baseUrl: string
   name: string
-  completionType: 'chat_completions' | 'responses' | 'anthropic_messages'
+  completionType: CompletionType
 }
 
 export const TRUSTED_PROVIDERS: TrustedProviderMeta[] = [
   {
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     name: 'Google AI Studio',
-    completionType: 'chat_completions'
+    completionType: 'gemini_native'
   },
   {
     baseUrl: 'https://integrate.api.nvidia.com/v1',
@@ -117,7 +119,8 @@ export function getHostname(urlStr: string): string {
   if (!urlStr) return ''
   try {
     const raw = urlStr.trim()
-    const withProto = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`
+    const withProto =
+      raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`
     const parsed = new URL(withProto)
     return parsed.hostname.toLowerCase()
   } catch {
@@ -134,4 +137,3 @@ export function isAnthropicHost(urlStr: string): boolean {
   const host = getHostname(urlStr)
   return host === 'api.anthropic.com' || host === 'anthropic.com' || host.endsWith('.anthropic.com')
 }
-

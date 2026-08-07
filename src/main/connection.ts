@@ -62,12 +62,18 @@ export async function testGeminiConnection(_overrideKey?: string): Promise<Conne
   if (_overrideKey && _overrideKey.trim() !== '') {
     const existingIdx = providers.findIndex((p) => p.apiKey && p.apiKey.trim() !== '')
     if (existingIdx >= 0) {
-      providers = providers.map((p, idx) => (idx === existingIdx ? { ...p, apiKey: _overrideKey.trim() } : p))
+      providers = providers.map((p, idx) =>
+        idx === existingIdx ? { ...p, apiKey: _overrideKey.trim() } : p
+      )
     }
   }
 
   let activeProvider = providers.find(
-    (p) => p.apiKey && p.apiKey.trim() !== '' && Array.isArray(p.models) && p.models.some((m) => m && m.enabled)
+    (p) =>
+      p.apiKey &&
+      p.apiKey.trim() !== '' &&
+      Array.isArray(p.models) &&
+      p.models.some((m) => m && m.enabled)
   )
 
   if (!activeProvider || !activeProvider.apiKey) {
@@ -78,7 +84,7 @@ export async function testGeminiConnection(_overrideKey?: string): Promise<Conne
         name: 'Custom Endpoint',
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
         apiKey: _overrideKey.trim(),
-        completionType: 'chat_completions',
+        completionType: 'gemini_native',
         isTrusted: true,
         models: [{ id: defaultModel, name: defaultModel, enabled: true, isTrusted: true }]
       }

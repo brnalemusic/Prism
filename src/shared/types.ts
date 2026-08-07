@@ -92,7 +92,11 @@ export interface TodoState {
   chatId?: string
 }
 
-export type CompletionType = 'chat_completions' | 'responses' | 'anthropic_messages'
+export type CompletionType =
+  | 'chat_completions'
+  | 'responses'
+  | 'anthropic_messages'
+  | 'gemini_native'
 
 export interface ProviderModel {
   id: string
@@ -255,10 +259,3 @@ export interface UserAiUsageStatus {
   reset5hSeconds?: number
   reset1wSeconds?: number
 }
-
-
-
-
-
-
-

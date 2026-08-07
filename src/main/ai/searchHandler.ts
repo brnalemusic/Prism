@@ -128,10 +128,10 @@ export async function handleAiSearchChatMessage(event: IpcMainEvent, query: stri
 
     // Safety fallback: if AI didn't emit render_chat_history or not_found_chat_history, ensure UI displays results or not found state
     const hasRenderChatInText = orchestration.executedTools.some(
-      (call) => call.name === 'render_chat_history'
+      (call) => call.name === 'render_chat_history' && call.envelope.ok
     )
     const hasNotFoundChatInText = orchestration.executedTools.some(
-      (call) => call.name === 'not_found_chat_history'
+      (call) => call.name === 'not_found_chat_history' && call.envelope.ok
     )
 
     if (!hasRenderChatInText && !hasNotFoundChatInText) {

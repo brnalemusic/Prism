@@ -7,7 +7,8 @@ const PRISM_CLOUD_MODELS = new Set(['gemini-3.1-flash-lite', 'gemini-3-flash-pre
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-prism-skip-increment, x-goog-api-key, x-goog-api-client',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type, x-prism-skip-increment, x-goog-api-key, x-goog-api-client'
 }
 
 serve(async (req) => {
@@ -44,16 +45,19 @@ serve(async (req) => {
 
     if (skipIncrement) {
       // Read-only quota check: verify user is within limits without incrementing
-      const { data: statusResult, error: statusErr } = await supabase.rpc('get_user_ai_usage_status', {
-        p_user_id: userId
-      })
+      const { data: statusResult, error: statusErr } = await supabase.rpc(
+        'get_user_ai_usage_status',
+        {
+          p_user_id: userId
+        }
+      )
 
       if (statusErr) {
         console.error('[prism-ai-proxy] RPC usage status check error:', statusErr)
-        return new Response(
-          JSON.stringify({ error: 'Failed to verify account status.' }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        )
+        return new Response(JSON.stringify({ error: 'Failed to verify account status.' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
       }
 
       // Block non-billable requests too when user has zero quota remaining
@@ -67,27 +71,31 @@ serve(async (req) => {
       }
     } else {
       // Normal billable request: check AND increment usage counter
-      const { data: usageResult, error: usageErr } = await supabase.rpc('check_and_increment_ai_usage', {
-        p_user_id: userId
-      })
+      const { data: usageResult, error: usageErr } = await supabase.rpc(
+        'check_and_increment_ai_usage',
+        {
+          p_user_id: userId
+        }
+      )
 
       if (usageErr) {
         console.error('[prism-ai-proxy] RPC usage check error:', usageErr)
-        return new Response(
-          JSON.stringify({ error: 'Failed to process account rate limit.' }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        )
+        return new Response(JSON.stringify({ error: 'Failed to process account rate limit.' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
       }
 
       if (!usageResult?.allowed) {
         // Use server-returned limits in the message — never hardcoded values
         const max5h = usageResult?.max_5h ?? '?'
         const max7d = usageResult?.max_7d ?? '?'
-        const tier  = usageResult?.tier ?? 'free'
+        const tier = usageResult?.tier ?? 'free'
 
-        const reasonMsg = usageResult?.reason === '5h_limit_exceeded'
-          ? `Prism Cloud quota limit reached (${max5h} requests per 5 hours for ${tier} tier). Please try again later.`
-          : `Prism Cloud weekly quota limit reached (${max7d} requests per 7 days for ${tier} tier). Please try again later.`
+        const reasonMsg =
+          usageResult?.reason === '5h_limit_exceeded'
+            ? `Prism Cloud quota limit reached (${max5h} requests per 5 hours for ${tier} tier). Please try again later.`
+            : `Prism Cloud weekly quota limit reached (${max7d} requests per 7 days for ${tier} tier). Please try again later.`
 
         return new Response(
           JSON.stringify({ error: reasonMsg, limitExceeded: true, usage: usageResult }),
@@ -105,7 +113,9 @@ serve(async (req) => {
     if (keysErr || !keys || keys.length === 0) {
       console.error('[prism-ai-proxy] Error retrieving API keys:', keysErr)
       return new Response(
-        JSON.stringify({ error: 'Prism Cloud service is currently unavailable. No API key found.' }),
+        JSON.stringify({
+          error: 'Prism Cloud service is currently unavailable. No API key found.'
+        }),
         { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -131,10 +141,10 @@ serve(async (req) => {
 
     const rawModelId = nativeRoute[1].replace(/^models\//, '')
     if (!/^[a-zA-Z0-9._/-]+$/.test(rawModelId) || rawModelId.includes('..')) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid Gemini model identifier.' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return new Response(JSON.stringify({ error: 'Invalid Gemini model identifier.' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
     }
     if (!PRISM_CLOUD_MODELS.has(rawModelId)) {
       return new Response(
@@ -146,7 +156,6 @@ serve(async (req) => {
     const streamQuery = action === 'streamGenerateContent' ? '?alt=sse' : ''
     const targetEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${rawModelId}:${action}${streamQuery}`
 
-    let lastErrorStatus = 500
     let lastErrorText = ''
     let keyIndex = 0
     const failureDetails: Array<{ index: number; status: number; reason: string }> = []
@@ -173,53 +182,70 @@ serve(async (req) => {
               ...corsHeaders,
               'Content-Type': geminiRes.headers.get('Content-Type') || 'text/event-stream',
               'Cache-Control': 'no-cache',
-              'Connection': 'keep-alive'
+              Connection: 'keep-alive'
             }
           })
         }
 
         // Key returned error (e.g. 429 rate limit or 500) -> Log full error body and fallback
-        lastErrorStatus = geminiRes.status
         lastErrorText = await geminiRes.text().catch(() => '')
-        const truncatedBody = lastErrorText.length > 500 ? lastErrorText.slice(0, 500) + '...' : lastErrorText
-        console.warn(`[prism-ai-proxy] Key ${keyIndex}/${shuffledKeys.length} failed | Status: ${geminiRes.status} | Body: ${truncatedBody}`)
+        const truncatedBody =
+          lastErrorText.length > 500 ? lastErrorText.slice(0, 500) + '...' : lastErrorText
+        console.warn(
+          `[prism-ai-proxy] Key ${keyIndex}/${shuffledKeys.length} failed | Status: ${geminiRes.status} | Body: ${truncatedBody}`
+        )
         failureDetails.push({ index: keyIndex, status: geminiRes.status, reason: truncatedBody })
 
         // Invalid native payloads are deterministic and must be returned to the
         // client so the tool loop can correct them. Rotating keys cannot help.
         if (geminiRes.status >= 400 && geminiRes.status < 500 && geminiRes.status !== 429) {
-          return new Response(lastErrorText || JSON.stringify({ error: 'Invalid Gemini request.' }), {
-            status: geminiRes.status,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          })
+          return new Response(
+            lastErrorText || JSON.stringify({ error: 'Invalid Gemini request.' }),
+            {
+              status: geminiRes.status,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            }
+          )
         }
       } catch (fetchErr: any) {
-        console.warn(`[prism-ai-proxy] Key ${keyIndex}/${shuffledKeys.length} network error: ${fetchErr?.message}`)
-        failureDetails.push({ index: keyIndex, status: 0, reason: fetchErr?.message || 'Network error' })
+        console.warn(
+          `[prism-ai-proxy] Key ${keyIndex}/${shuffledKeys.length} network error: ${fetchErr?.message}`
+        )
+        failureDetails.push({
+          index: keyIndex,
+          status: 0,
+          reason: fetchErr?.message || 'Network error'
+        })
         lastErrorText = fetchErr?.message || 'Network fetch error'
       }
     }
 
     // All keys exhausted — log detailed failure breakdown
-    const statusCounts = failureDetails.reduce((acc, d) => {
-      acc[d.status] = (acc[d.status] || 0) + 1
-      return acc
-    }, {} as Record<number, number>)
-    console.error(`[prism-ai-proxy] ALL ${shuffledKeys.length} keys failed | Model: ${rawModelId} | Breakdown: ${JSON.stringify(statusCounts)}`)
+    const statusCounts = failureDetails.reduce(
+      (acc, d) => {
+        acc[d.status] = (acc[d.status] || 0) + 1
+        return acc
+      },
+      {} as Record<number, number>
+    )
+    console.error(
+      `[prism-ai-proxy] ALL ${shuffledKeys.length} keys failed | Model: ${rawModelId} | Breakdown: ${JSON.stringify(statusCounts)}`
+    )
     console.error(`[prism-ai-proxy] Last error body: ${lastErrorText.slice(0, 1000)}`)
 
     return new Response(
       JSON.stringify({
-        error: 'Prism Cloud servers are temporarily overloaded. Please try again in a few minutes or use your own API key.',
+        error:
+          'Prism Cloud servers are temporarily overloaded. Please try again in a few minutes or use your own API key.',
         serverOverloaded: true
       }),
       { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   } catch (err: any) {
     console.error('[prism-ai-proxy] Unexpected error:', err)
-    return new Response(
-      JSON.stringify({ error: err?.message || 'Internal proxy server error.' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    return new Response(JSON.stringify({ error: err?.message || 'Internal proxy server error.' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
   }
 })
