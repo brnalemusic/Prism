@@ -1187,6 +1187,44 @@ function useLicenseCountdown(expiresAt?: string): string {
             checked={config.autoLaunch}
             onChange={() => setConfig({ ...config, autoLaunch: !config.autoLaunch })}
           />
+
+          {/* Discord Gateway */}
+          <div className="pt-4 mt-4 border-t border-white/[0.04] space-y-3">
+            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+              Discord Gateway
+            </h3>
+            <ToggleRow
+              title="Enable Discord Gateway"
+              description="Connect Prism to a Discord bot to respond to chat and voice requests."
+              checked={config.discordGatewayEnabled ?? false}
+              onChange={() => setConfig({ ...config, discordGatewayEnabled: !config.discordGatewayEnabled })}
+            />
+            {config.discordGatewayEnabled && (
+              <div className="space-y-4 pt-2">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-sm font-medium text-text-primary">Bot Token</span>
+                  <input
+                    type="password"
+                    value={config.discordBotToken || ''}
+                    onChange={(e) => setConfig({ ...config, discordBotToken: e.target.value })}
+                    placeholder="Enter your Discord Bot Token..."
+                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:border-accent-primary/50"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-sm font-medium text-text-primary">Voice Model</span>
+                  <input
+                    type="text"
+                    value={config.discordGatewayModel || 'models/gemini-3.1-flash-live-preview'}
+                    onChange={(e) => setConfig({ ...config, discordGatewayModel: e.target.value })}
+                    placeholder="e.g. models/gemini-3.1-flash-live-preview"
+                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:border-accent-primary/50"
+                  />
+                  <span className="text-[11px] text-text-secondary/70 mt-1 block">Used for the /join command. Ensure this model supports realtime streaming (Live API).</span>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

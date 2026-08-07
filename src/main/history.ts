@@ -14,6 +14,7 @@ export interface ChatSession {
   model?: string
   artifacts?: ArtifactItem[]
   todo?: TodoState | null
+  isDiscord?: boolean
 }
 
 const CHATS_DIR = path.join(
@@ -93,7 +94,8 @@ export function listChatSessions(): Omit<ChatSession, 'messages'>[] {
           lastUpdated: session.lastUpdated,
           sessionMode: session.sessionMode,
           disciplinePath: effectiveDisciplinePath,
-          model: session.model
+          model: session.model,
+          isDiscord: session.isDiscord
         }
       })
       .sort((a, b) => b.lastUpdated - a.lastUpdated)
@@ -158,7 +160,8 @@ export function saveChatSession(
   title?: string,
   sessionMode?: SessionMode,
   disciplinePath?: string,
-  model?: string
+  model?: string,
+  isDiscord?: boolean
 ): boolean {
   ensureChatsDir()
   const cleanId = sanitizeId(id)
@@ -196,6 +199,9 @@ export function saveChatSession(
           }
           if (existingModel === undefined) {
             existingModel = existingData.model
+          }
+          if (isDiscord === undefined) {
+            isDiscord = existingData.isDiscord
           }
         } catch {
           /* ignore parse errors */
@@ -249,7 +255,8 @@ export function saveChatSession(
       disciplinePath: existingPath,
       model: existingModel,
       artifacts: existingArtifacts,
-      todo: existingTodo
+      todo: existingTodo,
+      isDiscord
     }
 
     fs.writeFileSync(filePath, JSON.stringify(session, null, 2))

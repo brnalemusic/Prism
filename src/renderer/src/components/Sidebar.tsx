@@ -70,6 +70,19 @@ const getFolderBasename = (fullPath: string): string => {
   return parts[parts.length - 1] || fullPath
 }
 
+const DiscordIcon = ({ size = 16, className = '' }: { size?: number; className?: string }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 256 199"
+    width={size}
+    height={size}
+    fill="currentColor"
+    className={className}
+  >
+    <path d="M216.856 16.597A208.502 208.502 0 0 0 164.042 0c-2.275 4.113-4.933 9.645-6.766 14.046-19.692-2.961-39.203-2.961-58.533 0-1.832-4.4-4.55-9.933-6.846-14.046a207.809 207.809 0 0 0-52.855 16.638C5.618 67.147-3.443 116.4 1.087 164.956c22.169 16.555 43.653 26.612 64.775 33.193A161.094 161.094 0 0 0 79.735 175.3a136.413 136.413 0 0 1-21.846-10.632 108.636 108.636 0 0 0 5.356-4.237c42.122 19.702 87.89 19.702 129.51 0a131.6 131.6 0 0 0 5.356 4.237 136.075 136.075 0 0 1-21.887 10.632 156.776 156.776 0 0 0 13.873 22.846c21.122-6.58 42.605-16.638 64.774-33.193 5.485-57.818-10.985-107.031-48.423-148.358zM85.474 135.04c-11.832 0-21.606-10.793-21.606-24.088 0-13.296 9.57-24.088 21.606-24.088 12.036 0 21.809 10.954 21.606 24.088 0 13.295-9.57 24.088-21.606 24.088zm85.05 0c-11.833 0-21.607-10.793-21.607-24.088 0-13.296 9.57-24.088 21.607-24.088 12.036 0 21.81 10.954 21.607 24.088 0 13.295-9.773 24.088-21.607 24.088z" />
+  </svg>
+)
+
 export function Sidebar({
   activeView,
   onViewChange,
@@ -192,6 +205,7 @@ export function Sidebar({
     id: string
     name: string
     isGeneral: boolean
+    isDiscord?: boolean
     chats: ChatSession[]
     lastUpdated: number
   }
@@ -201,7 +215,12 @@ export function Sidebar({
     const groupsMap = new Map<string, ChatSession[]>()
     chats.forEach((chat) => {
       const pathKey = chat.disciplinePath ? chat.disciplinePath.trim() : ''
-      if (pathKey) {
+      if (chat.isDiscord) {
+        if (!groupsMap.has('__discord__')) {
+          groupsMap.set('__discord__', [])
+        }
+        groupsMap.get('__discord__')!.push(chat)
+      } else if (pathKey) {
         if (!groupsMap.has(pathKey)) {
           groupsMap.set(pathKey, [])
         }
@@ -218,12 +237,14 @@ export function Sidebar({
     groupsMap.forEach((groupChats, pathKey) => {
       groupChats.sort((a, b) => b.lastUpdated - a.lastUpdated)
       const isGeneral = pathKey === '__general__'
+      const isDiscord = pathKey === '__discord__'
       const mostRecentChat = groupChats[0]
       const lastUpdated = mostRecentChat ? mostRecentChat.lastUpdated : 0
       computedGroups.push({
         id: pathKey,
-        name: isGeneral ? 'General' : getFolderBasename(pathKey),
+        name: isDiscord ? 'Discord' : (isGeneral ? 'General' : getFolderBasename(pathKey)),
         isGeneral,
+        isDiscord,
         chats: groupChats,
         lastUpdated
       })
@@ -351,7 +372,7 @@ export function Sidebar({
             ) : (
               groups.map((group) => {
                 const isCollapsed = collapsedGroups[group.id] || false
-                const Icon = group.isGeneral ? Lightning : Folder
+                const Icon = group.isDiscord ? DiscordIcon : (group.isGeneral ? Lightning : Folder)
                 const CaretIcon = isCollapsed ? CaretRight : CaretDown
                 const visibleChats = group.chats.slice(0, 5)
 
@@ -365,11 +386,12 @@ export function Sidebar({
                       <CaretIcon size={11} weight="bold" className="text-text-muted/60 transition-transform duration-200" />
                       <Icon
                         size={13}
-                        weight="bold"
+                        weight={group.isDiscord ? undefined : "bold"}
                         className={clsx(
-                          group.isGeneral
+                          group.isDiscord ? 'text-white/80' : 
+                          (group.isGeneral
                             ? 'text-white/80'
-                            : 'text-text-muted group-hover/btn:text-text-secondary'
+                            : 'text-text-muted group-hover/btn:text-text-secondary')
                         )}
                       />
                       <span className="truncate flex-1 text-xs">{group.name}</span>

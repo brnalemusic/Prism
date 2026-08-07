@@ -62,6 +62,9 @@ export interface AppConfig {
   licenseKey?: string
   suppressLicenseModal?: boolean
   hasResetV8Keys?: boolean
+  discordBotToken?: string
+  discordGatewayEnabled?: boolean
+  discordGatewayModel?: string
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -263,6 +266,9 @@ function normalizeConfig(config: AppConfig): AppConfig {
     quickLauncherModel:
       typeof config.quickLauncherModel === 'string' ? config.quickLauncherModel : '',
     searchModel: typeof config.searchModel === 'string' ? config.searchModel : '',
+    discordBotToken: typeof config.discordBotToken === 'string' ? config.discordBotToken : '',
+    discordGatewayEnabled: typeof config.discordGatewayEnabled === 'boolean' ? config.discordGatewayEnabled : false,
+    discordGatewayModel: typeof config.discordGatewayModel === 'string' ? config.discordGatewayModel : '',
     ttsVoice: VALID_VOICES.has(config.ttsVoice) ? config.ttsVoice : DEFAULT_CONFIG.ttsVoice,
     theme: VALID_THEMES.has(config.theme)
       ? (config.theme as AppConfig['theme'])

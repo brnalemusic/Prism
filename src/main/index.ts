@@ -62,6 +62,7 @@ import { loadConfig, saveConfig, AppConfig } from './config'
 import { activateLicenseKey, deactivateLicense, getLicenseInfo, startLicenseExpirationMonitor, syncLocalLicenseWithSupabase, revokeLocalLicenseFromSupabase } from './license'
 import { toolsManifest } from './toolsManifest'
 import { listChatSessions, loadChatSession, deleteChatSession, searchChatsOffline } from './history'
+import { startDiscordGateway } from './discordGateway'
 import {
   testGeminiConnection,
   markConnectionActive,
@@ -779,6 +780,7 @@ if (!gotTheLock) {
 
     // Load config after app is ready
     currentConfig = loadConfig()
+    startDiscordGateway(currentConfig)
 
     // Enforce auto-launch state based on loaded configuration
     if (!IS_DEMO) {
@@ -1060,6 +1062,7 @@ if (!gotTheLock) {
         currentConfig = loadConfig()
         if (!IS_DEMO) registerGlobalShortcuts()
         updateNativeIcons()
+        startDiscordGateway(currentConfig)
         // Notify windows with merged config
         safeSend(mainWindow, 'config-changed', currentConfig)
         safeSend(launcherWindow, 'config-changed', currentConfig)

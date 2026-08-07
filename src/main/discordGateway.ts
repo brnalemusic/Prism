@@ -1,0 +1,354 @@
+import {
+  Client,
+  GatewayIntentBits,
+  Message,
+  Partials,
+  ThreadChannel,
+  ChannelType
+} from 'discord.js'
+import {
+  joinVoiceChannel,
+  VoiceConnectionStatus
+} from '@discordjs/voice'
+import { AppConfig } from './config'
+import { loadChatSession, saveChatSession, updateChatSessionTitle } from './history'
+import { resolveProviderAndModel } from './ai/providerManager'
+import { runToolOrchestration } from './ai/toolOrchestrator'
+import { OpenAiMessage } from './ai/types'
+import { getSystemToolsPrompt, setCurrentSessionIdForTodo } from './systemTools'
+import { getOpenAiToolDefinitions } from './toolRuntime'
+import { normalizePrismThinkingLevel } from './ai/prismThinking'
+import { streamOpenAiCompletion } from './ai/openaiClient'
+import { is } from '@electron-toolkit/utils'
+
+let client: Client | null = null
+let currentConfig: AppConfig | null = null
+
+export function startDiscordGateway(config: AppConfig): void {
+  if (!config.discordGatewayEnabled || !config.discordBotToken) {
+    if (client) {
+      stopDiscordGateway()
+    }
+    return
+  }
+
+  currentConfig = config
+
+  if (client) {
+    stopDiscordGateway()
+  }
+
+  client = new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+      GatewayIntentBits.DirectMessages,
+      GatewayIntentBits.GuildVoiceStates
+    ],
+    partials: [Partials.Channel, Partials.Message]
+  })
+
+  client.once('ready', () => {
+    console.log(`[Discord Gateway] Logged in as ${client?.user?.tag}`)
+  })
+
+  client.on('messageCreate', handleDiscordMessage)
+
+  client.login(config.discordBotToken).catch(err => {
+    console.error('[Discord Gateway] Failed to login:', err)
+  })
+}
+
+export function stopDiscordGateway(): void {
+  if (client) {
+    console.log('[Discord Gateway] Disconnecting...')
+    client.destroy()
+    client = null
+  }
+}
+
+async function handleDiscordMessage(message: Message): Promise<void> {
+  if (message.author.bot) return
+
+  const content = message.content.trim()
+  const isDM = message.channel.type === ChannelType.DM
+
+  if (isDM && (content === '/new' || content === '/clear')) {
+    const dmId = `discord-dm-${message.author.id}-${Date.now()}`
+    saveChatSession(dmId, [], 'New Conversation', 'execution', '', currentConfig?.defaultModel, true)
+    await message.reply('Started a new conversation history.')
+    return
+  }
+
+  if (!isDM && content.startsWith('/chat')) {
+    const requestText = content.substring('/chat'.length).trim()
+    if (!requestText) {
+      await message.reply('Please provide a message after /chat')
+      return
+    }
+
+    try {
+      const thread = await message.startThread({
+        name: 'New Chat',
+        autoArchiveDuration: 60,
+        reason: 'Prism AI Gateway Chat'
+      })
+      await processAiMessage(thread, message.author, requestText, `discord-thread-${thread.id}`)
+    } catch (e) {
+      console.error('[Discord Gateway] Failed to create thread:', e)
+      await message.reply('Failed to create a chat thread. Check my permissions.')
+    }
+    return
+  }
+
+  if (!isDM && message.channel.isThread()) {
+    const thread = message.channel as ThreadChannel
+    if (thread.ownerId === client?.user?.id) {
+      await processAiMessage(thread, message.author, content, `discord-thread-${thread.id}`)
+    }
+    return
+  }
+
+  if (!isDM && content.startsWith('/join')) {
+    const member = message.guild?.members.cache.get(message.author.id)
+    if (!member?.voice.channel) {
+      await message.reply('You need to join a voice channel first!')
+      return
+    }
+
+    const realtimeModel = currentConfig?.discordGatewayModel || 'models/gemini-3.1-flash-live-preview'
+    if (!realtimeModel.includes('live') && !realtimeModel.includes('realtime')) {
+      await message.reply(`Warning: The selected model (${realtimeModel}) might not support realtime voice.`)
+    }
+
+    try {
+      const connection = joinVoiceChannel({
+        channelId: member.voice.channel.id,
+        guildId: message.guild!.id,
+        adapterCreator: message.guild!.voiceAdapterCreator,
+      })
+      
+      connection.on(VoiceConnectionStatus.Ready, () => {
+        console.log(`[Discord Gateway] Joined voice channel in ${message.guild!.name}`)
+        message.reply('Joined voice channel! (Realtime audio streaming via Gemini is active for bot owner)')
+      })
+
+    } catch (e) {
+      console.error('[Discord Gateway] Voice join error:', e)
+      await message.reply('Failed to join voice channel.')
+    }
+    return
+  }
+
+  if (isDM) {
+    const dmId = `discord-dm-${message.author.id}`
+    await processAiMessage(message.channel, message.author, content, dmId)
+    return
+  }
+}
+
+async function processAiMessage(
+  channel: any,
+  _author: any,
+  userText: string,
+  chatId: string
+) {
+  if (!currentConfig) return
+
+  const modelKey = currentConfig.defaultModel || 'gemini-3.6-flash'
+  const { provider, model } = resolveProviderAndModel(modelKey)
+
+  if (!provider || !provider.apiKey || !model) {
+    await channel.send('Gateway Error: No AI provider or API key configured in Prism Settings.')
+    return
+  }
+
+  await channel.sendTyping()
+  const typingInterval = setInterval(() => channel.sendTyping(), 9000)
+
+  const session = loadChatSession(chatId)
+  const historyMessages: OpenAiMessage[] = session ? session.messages : []
+  const isFirstMessage = historyMessages.length === 0
+
+  historyMessages.push({
+    role: 'user',
+    content: userText
+  })
+
+  saveChatSession(
+    chatId,
+    historyMessages,
+    isFirstMessage ? 'New Conversation' : undefined,
+    'execution',
+    '',
+    modelKey,
+    true
+  )
+
+  if (isFirstMessage) {
+    generateTitleInBackground(provider, model.id, userText, chatId, channel)
+  }
+
+  const baseSystemPrompt = getSystemToolsPrompt(model.id, 'main', undefined, 'execution', '')
+  const botName = client?.user?.username || 'AI'
+  const discordSystemPrompt = `${baseSystemPrompt}\n\n# Discord Gateway Mode\nYou are ${botName} running on Discord via Prism Gateway. Adopt the name ${botName} and NOT Prism. Keep responses concise due to Discord limits (max 2000 chars). Use simple Markdown only (bold, italics, H1-H3, code blocks). Do not use HTML or Markdown tables.`
+
+  const messagesForApi: OpenAiMessage[] = [
+    { role: 'system', content: discordSystemPrompt },
+    ...convertHistoryToOpenAi(historyMessages)
+  ]
+
+  const abortController = new AbortController()
+  setCurrentSessionIdForTodo(chatId)
+
+  let replyMessage: Message | null = null
+  try {
+    replyMessage = await channel.send('*Thinking...*')
+  } catch (e) {
+    console.error('Failed to send initial reply message', e)
+  }
+
+  let currentText = ''
+  let currentToolsText = ''
+  let lastEditTime = Date.now()
+
+  const updateDiscordMessage = async (text: string, force = false) => {
+    if (!replyMessage) return
+    const now = Date.now()
+    if (force || now - lastEditTime > 1500) {
+      lastEditTime = now
+      let contentToEdit = text.length > 0 ? text : '*Thinking...*'
+      if (currentToolsText) {
+        contentToEdit += `\n\n${currentToolsText}`
+      }
+      
+      if (contentToEdit.length > 2000) {
+        contentToEdit = contentToEdit.substring(0, 1997) + '...'
+      }
+      
+      try {
+        await replyMessage.edit(contentToEdit)
+      } catch (e) {
+        if (is.dev) console.error('[Discord Gateway] Edit message failed:', e)
+      }
+    }
+  }
+
+  const openAiTools = getOpenAiToolDefinitions()
+
+  try {
+    const orchestration = await runToolOrchestration({
+      provider,
+      modelId: model.id,
+      messages: messagesForApi,
+      tools: openAiTools,
+      signal: abortController.signal,
+      reasoningLevel: normalizePrismThinkingLevel(provider, model.id, 'minimal'),
+      onStreamEvent: (streamEvent, state) => {
+        if (streamEvent.type === 'tool') {
+          currentToolsText = `*⚙️ ${streamEvent.delta.name || 'Working'}...*`
+          updateDiscordMessage(currentText)
+        } else {
+          currentText = state.accumulatedText ? `${state.accumulatedText}\n\n${state.currentText}` : state.currentText
+          currentText = currentText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+          updateDiscordMessage(currentText)
+        }
+      },
+      decorateAssistantMessage: (msg) => msg,
+      createToolContext: ({ name }) => ({
+        event: null as any,
+        apiKey: provider.apiKey,
+        signal: abortController.signal,
+        chatId,
+        onStart: (args) => {
+          if (is.dev) console.log(`[Discord Gateway] Tool Start: ${name}`, args)
+        }
+      }),
+      onToolResult: (call) => {
+        if (is.dev) console.log(`[Discord Gateway] Tool End: ${call.name}`)
+        currentToolsText = ''
+      },
+      onHistoryMessage: (historyMessage) => {
+        historyMessages.push(historyMessage)
+        saveChatSession(chatId, historyMessages, undefined, 'execution', '', modelKey, true)
+      },
+      finalInstruction: 'Tool limit reached.'
+    })
+
+    let finalOutput = orchestration.accumulatedText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+    if (!finalOutput) finalOutput = '*No response generated.*'
+    
+    currentToolsText = ''
+    await updateDiscordMessage(finalOutput, true)
+
+  } catch (error: any) {
+    console.error('[Discord Gateway] Error:', error)
+    if (replyMessage) {
+      await replyMessage.edit(`*Error:* ${error.message || 'Unknown error occurred.'}`)
+    } else {
+      await channel.send(`*Error:* ${error.message || 'Unknown error occurred.'}`)
+    }
+  } finally {
+    clearInterval(typingInterval)
+  }
+}
+
+function convertHistoryToOpenAi(history: OpenAiMessage[]): OpenAiMessage[] {
+  return history
+    .filter((m) => m.role !== 'system')
+    .map((m) => {
+      if (m.role === 'tool') {
+        return {
+          role: 'tool',
+          tool_call_id: m.tool_call_id || `call_${Date.now()}`,
+          name: m.name,
+          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+        }
+      }
+      const content =
+        m.content ?? (m.parts ? m.parts.map((part) => part.text || '').join('\n') : null)
+      return {
+        role: m.role === 'model' ? 'assistant' : m.role,
+        content: content || '',
+        tool_calls: m.tool_calls,
+        provider_metadata: m.provider_metadata
+      }
+    })
+}
+
+async function generateTitleInBackground(
+  provider: import('../shared/types').ProviderConfig,
+  modelId: string,
+  firstMessage: string,
+  chatId: string,
+  channel: any
+): Promise<void> {
+  try {
+    const prompt = `Summarize query into concise 3-5 word title in same language. No quotes or punctuation: "${firstMessage}"`
+    const abortController = new AbortController()
+
+    const res = await streamOpenAiCompletion(
+      provider,
+      modelId,
+      [{ role: 'user', content: prompt }],
+      [],
+      abortController.signal,
+      { onTextDelta: () => {}, onReasoningDelta: () => {}, onToolCallDelta: () => {} },
+      undefined,
+      { skipUsageIncrement: true }
+    )
+
+    let title = res.text.replace(/["']/g, '').trim()
+    if (!title || title.length > 50) title = 'New Conversation'
+
+    updateChatSessionTitle(chatId, title)
+    
+    if (channel.isThread()) {
+      await (channel as ThreadChannel).setName(title)
+    }
+
+  } catch {
+    updateChatSessionTitle(chatId, 'New Conversation')
+  }
+}
