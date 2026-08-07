@@ -12,8 +12,7 @@ import {
   EndBehaviorType,
   createAudioPlayer,
   createAudioResource,
-  StreamType,
-  VoiceConnection
+  StreamType
 } from '@discordjs/voice'
 import { GoogleGenAI, Modality } from '@google/genai'
 import prism from 'prism-media'
@@ -83,25 +82,33 @@ function upsample16kMonoTo48kStereo(pcm16k: Buffer): Buffer {
 }
 
 async function startLiveVoiceSession(
-  connection: VoiceConnection,
+  guild: any,
+  voiceChannel: any,
   memberId: string,
   modelName: string,
-  apiKey: string
-) {
+  apiKey: string,
+  statusMsg: Message
+): Promise<boolean> {
+  let aiSession: any = null
+  let speakerStream: PassThrough | null = null
+
+  // Step 1: Connect to Gemini Live API FIRST
   try {
+    console.log(`[Discord Gateway] Connecting to Gemini Live API (${modelName})...`)
     const ai = new GoogleGenAI({ apiKey })
-    
-    const speakerStream = new PassThrough()
+
+    speakerStream = new PassThrough()
     activeAudioPlayer = createAudioPlayer()
-    
-    // Play speaker stream to Discord
     const resource = createAudioResource(speakerStream, { inputType: StreamType.Raw })
     activeAudioPlayer.play(resource)
-    connection.subscribe(activeAudioPlayer)
 
-    const session = await ai.live.connect({
+    activeAudioPlayer.on('error', (err: any) => {
+      console.error('[Discord Gateway] Audio player error:', err)
+    })
+
+    aiSession = await ai.live.connect({
       model: modelName,
-      config: { 
+      config: {
         responseModalities: [Modality.AUDIO]
       },
       callbacks: {
@@ -112,47 +119,147 @@ async function startLiveVoiceSession(
               if (part.inlineData?.data) {
                 const pcm16kBuffer = Buffer.from(part.inlineData.data, 'base64')
                 const pcm48kBuffer = upsample16kMonoTo48kStereo(pcm16kBuffer)
-                speakerStream.write(pcm48kBuffer)
+                if (speakerStream && !speakerStream.destroyed) {
+                  speakerStream.write(pcm48kBuffer)
+                }
               }
             }
           }
         },
         onclose: () => {
           console.log('[Discord Gateway] Live session closed')
-          speakerStream.end()
+          if (speakerStream && !speakerStream.destroyed) {
+            speakerStream.end()
+          }
+        },
+        onerror: (err: any) => {
+          console.error('[Discord Gateway] Live session error:', err)
         }
       }
     })
 
-    activeLiveSession = session
+    activeLiveSession = aiSession
+    console.log('[Discord Gateway] Gemini Live Session connected successfully.')
+  } catch (e: any) {
+    const errorText = e?.message || String(e)
+    console.error('[Discord Gateway] Gemini Live API connection failed:', errorText)
+    await statusMsg.edit(`❌ *Failed to connect to AI Live API:* ${errorText}`)
+    if (speakerStream) speakerStream.destroy()
+    return false
+  }
 
-    // Capture Discord Audio
+  // Step 2: Now that AI Live session is 100% working, join Discord voice channel
+  try {
+    await statusMsg.edit('⌛ *AI Live API Connected! Joining Discord voice channel...*')
+    console.log(`[Discord Gateway] Joining voice channel ${voiceChannel.name} (${voiceChannel.id})...`)
+
+    const connection = joinVoiceChannel({
+      channelId: voiceChannel.id,
+      guildId: guild.id,
+      adapterCreator: guild.voiceAdapterCreator,
+      selfDeaf: false,
+      selfMute: false
+    })
+
+    connection.on('error', (err: any) => {
+      console.error('[Discord Gateway] Voice connection error:', err)
+    })
+
+    connection.subscribe(activeAudioPlayer)
+
+    // Wait for VoiceConnectionStatus.Ready
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Voice connection timed out after 15 seconds.'))
+      }, 15000)
+
+      connection.once(VoiceConnectionStatus.Ready, () => {
+        clearTimeout(timeout)
+        resolve()
+      })
+
+      connection.once(VoiceConnectionStatus.Disconnected, () => {
+        clearTimeout(timeout)
+        reject(new Error('Voice connection disconnected.'))
+      })
+
+      connection.once(VoiceConnectionStatus.Destroyed, () => {
+        clearTimeout(timeout)
+        reject(new Error('Voice connection destroyed.'))
+      })
+    })
+
+    // Step 3: Capture Discord Audio & Stream to Gemini
     const receiver = connection.receiver
     const audioStream = receiver.subscribe(memberId, {
       end: {
-        behavior: EndBehaviorType.Manual,
-      }
-    })
-    
-    const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 })
-    
-    audioStream.pipe(decoder).on('data', (pcm48kChunk: Buffer) => {
-      if (activeLiveSession) {
-        const pcm16kChunk = downsample48kStereoTo16kMono(pcm48kChunk)
-        activeLiveSession.send({
-          realtimeInput: {
-            mediaChunks: [{
-              mimeType: 'audio/pcm;rate=16000',
-              data: pcm16kChunk.toString('base64')
-            }]
-          }
-        })
+        behavior: EndBehaviorType.Manual
       }
     })
 
-    console.log('[Discord Gateway] Gemini Live Session connected.')
-  } catch (e) {
-    console.error('[Discord Gateway] Live API connect error:', e)
+    const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 })
+
+    audioStream.on('error', (err: any) => {
+      console.error('[Discord Gateway] AudioStream error:', err)
+    })
+
+    decoder.on('error', (err: any) => {
+      console.error('[Discord Gateway] Opus Decoder error:', err)
+    })
+
+    audioStream.pipe(decoder).on('data', (pcm48kChunk: Buffer) => {
+      try {
+        if (activeLiveSession) {
+          const pcm16kChunk = downsample48kStereoTo16kMono(pcm48kChunk)
+          const base64Data = pcm16kChunk.toString('base64')
+
+          if (typeof activeLiveSession.sendRealtimeInput === 'function') {
+            activeLiveSession.sendRealtimeInput([
+              {
+                mimeType: 'audio/pcm;rate=16000',
+                data: base64Data
+              }
+            ])
+          } else if (typeof activeLiveSession.send === 'function') {
+            activeLiveSession.send({
+              realtimeInput: {
+                mediaChunks: [
+                  {
+                    mimeType: 'audio/pcm;rate=16000',
+                    data: base64Data
+                  }
+                ]
+              }
+            })
+          }
+        }
+      } catch (err) {
+        console.error('[Discord Gateway] Error sending audio chunk to Gemini Live:', err)
+      }
+    })
+
+    console.log(`[Discord Gateway] Voice session 100% active in channel ${voiceChannel.name}`)
+    await statusMsg.edit(`✅ *Connected to voice channel "${voiceChannel.name}"! Speak now.*`)
+    return true
+  } catch (e: any) {
+    const errorText = e?.message || String(e)
+    console.error('[Discord Gateway] Voice join error:', errorText)
+    await statusMsg.edit(`❌ *Failed to join voice channel:* ${errorText}`)
+
+    if (activeLiveSession) {
+      try {
+        activeLiveSession.close()
+      } catch {}
+      activeLiveSession = null
+    }
+    if (activeAudioPlayer) {
+      try {
+        activeAudioPlayer.stop()
+      } catch {}
+      activeAudioPlayer = null
+    }
+    leaveDiscordVoiceChannel()
+    return false
   }
 }
 
@@ -199,7 +306,7 @@ export function startDiscordGateway(config: AppConfig): void {
 
   client.on('messageCreate', handleDiscordMessage)
 
-  client.login(config.discordBotToken).catch(err => {
+  client.login(config.discordBotToken).catch((err) => {
     console.error('[Discord Gateway] Failed to login:', err)
   })
 }
@@ -279,48 +386,38 @@ async function handleDiscordMessage(message: Message): Promise<void> {
       return
     }
 
-    const realtimeModel = currentConfig?.discordGatewayModel || 'models/gemini-3.1-flash-live-preview'
-    if (!realtimeModel.includes('live') && !realtimeModel.includes('realtime')) {
-      await message.reply(`Warning: The selected model (${realtimeModel}) might not support realtime voice.`)
+    const realtimeModel =
+      currentConfig?.discordGatewayModel || 'models/gemini-3.1-flash-live-preview'
+
+    const statusMsg = await message.reply(
+      '⌛ *Initializing Prism Voice Gateway... Verifying AI model & API key...*'
+    )
+
+    const modelToUse =
+      currentConfig?.discordGatewayModel ||
+      currentConfig?.defaultModel ||
+      currentConfig?.lastSelectedChatModel ||
+      getChatModel() ||
+      realtimeModel
+
+    const { provider: activeProvider } = resolveProviderAndModel(modelToUse)
+    const apiKey = activeProvider?.apiKey
+
+    if (!apiKey || apiKey === 'prism_account_auth') {
+      const errMsg = `Cannot start voice session: No valid API key found for provider "${activeProvider?.name || 'Active Provider'}" in Prism Settings.`
+      console.error(`[Discord Gateway] Voice Error: ${errMsg}`)
+      await statusMsg.edit(`❌ ${errMsg}`)
+      return
     }
 
-    try {
-      const connection = joinVoiceChannel({
-        channelId: member.voice.channel.id,
-        guildId: message.guild!.id,
-        adapterCreator: message.guild!.voiceAdapterCreator,
-        selfDeaf: false,
-        selfMute: false
-      })
-      
-      connection.on(VoiceConnectionStatus.Ready, () => {
-        console.log(`[Discord Gateway] Joined voice channel in ${message.guild!.name}`)
-        message.reply('Joined voice channel!')
-        
-        // Start Live Session - dynamically resolve provider for the selected voice/chat model
-        const modelToUse =
-          currentConfig?.discordGatewayModel ||
-          currentConfig?.defaultModel ||
-          currentConfig?.lastSelectedChatModel ||
-          getChatModel() ||
-          realtimeModel
-
-        const { provider: activeProvider } = resolveProviderAndModel(modelToUse)
-        const apiKey = activeProvider?.apiKey
-
-        if (apiKey && apiKey !== 'prism_account_auth') {
-          startLiveVoiceSession(connection, message.author.id, realtimeModel, apiKey)
-        } else {
-          message.reply(
-            `Cannot start voice session: No valid API key found for provider "${activeProvider?.name || 'Active Provider'}" in Prism Settings.`
-          )
-        }
-      })
-
-    } catch (e) {
-      console.error('[Discord Gateway] Voice join error:', e)
-      await message.reply('Failed to join voice channel.')
-    }
+    await startLiveVoiceSession(
+      message.guild!,
+      member.voice.channel,
+      message.author.id,
+      realtimeModel,
+      apiKey,
+      statusMsg
+    )
     return
   }
 
