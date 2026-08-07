@@ -8,10 +8,18 @@ import {
 } from 'discord.js'
 import {
   joinVoiceChannel,
-  VoiceConnectionStatus
+  VoiceConnectionStatus,
+  EndBehaviorType,
+  createAudioPlayer,
+  createAudioResource,
+  StreamType,
+  VoiceConnection
 } from '@discordjs/voice'
+import { GoogleGenAI, Modality } from '@google/genai'
+import prism from 'prism-media'
+import { PassThrough } from 'stream'
 import { AppConfig } from './config'
-import { loadChatSession, saveChatSession, updateChatSessionTitle } from './history'
+import { loadChatSession, saveChatSession, updateChatSessionTitle, listChatSessions } from './history'
 import { resolveProviderAndModel } from './ai/providerManager'
 import { getChatModel } from './ai/chatHandler'
 import { runToolOrchestration } from './ai/toolOrchestrator'
@@ -25,6 +33,128 @@ import { is } from '@electron-toolkit/utils'
 let client: Client | null = null
 let currentConfig: AppConfig | null = null
 let appOwnerIds: Set<string> = new Set()
+
+let activeLiveSession: any = null
+let activeAudioPlayer: any = null
+
+const activeDmSessions: Map<string, string> = new Map()
+
+function getActiveDmSessionId(userId: string): string {
+  if (!activeDmSessions.has(userId)) {
+    const sessions = listChatSessions().filter((s) => s.id.startsWith(`discord-dm-${userId}-`))
+    if (sessions.length > 0) {
+      activeDmSessions.set(userId, sessions[0].id)
+    } else {
+      activeDmSessions.set(userId, `discord-dm-${userId}-${Date.now()}`)
+    }
+  }
+  return activeDmSessions.get(userId)!
+}
+
+function downsample48kStereoTo16kMono(pcm48k: Buffer): Buffer {
+  const numFrames = pcm48k.length / 4
+  const numOutFrames = Math.floor(numFrames / 3)
+  const outBuffer = Buffer.alloc(numOutFrames * 2)
+
+  for (let i = 0; i < numOutFrames; i++) {
+    const inIndex = i * 3 * 4
+    const left = pcm48k.readInt16LE(inIndex)
+    const right = pcm48k.readInt16LE(inIndex + 2)
+    const mono = Math.floor((left + right) / 2)
+    outBuffer.writeInt16LE(mono, i * 2)
+  }
+  return outBuffer
+}
+
+function upsample16kMonoTo48kStereo(pcm16k: Buffer): Buffer {
+  const numFrames = pcm16k.length / 2
+  const numOutFrames = numFrames * 3
+  const outBuffer = Buffer.alloc(numOutFrames * 4)
+
+  for (let i = 0; i < numFrames; i++) {
+    const sample = pcm16k.readInt16LE(i * 2)
+    for (let j = 0; j < 3; j++) {
+      const outIndex = (i * 3 + j) * 4
+      outBuffer.writeInt16LE(sample, outIndex)
+      outBuffer.writeInt16LE(sample, outIndex + 2)
+    }
+  }
+  return outBuffer
+}
+
+async function startLiveVoiceSession(
+  connection: VoiceConnection,
+  memberId: string,
+  modelName: string,
+  apiKey: string
+) {
+  try {
+    const ai = new GoogleGenAI({ apiKey })
+    
+    const speakerStream = new PassThrough()
+    activeAudioPlayer = createAudioPlayer()
+    
+    // Play speaker stream to Discord
+    const resource = createAudioResource(speakerStream, { inputType: StreamType.Raw })
+    activeAudioPlayer.play(resource)
+    connection.subscribe(activeAudioPlayer)
+
+    const session = await ai.live.connect({
+      model: modelName,
+      config: { 
+        responseModalities: [Modality.AUDIO]
+      },
+      callbacks: {
+        onmessage: (msg: any) => {
+          const parts = msg?.serverContent?.modelTurn?.parts
+          if (parts) {
+            for (const part of parts) {
+              if (part.inlineData?.data) {
+                const pcm16kBuffer = Buffer.from(part.inlineData.data, 'base64')
+                const pcm48kBuffer = upsample16kMonoTo48kStereo(pcm16kBuffer)
+                speakerStream.write(pcm48kBuffer)
+              }
+            }
+          }
+        },
+        onclose: () => {
+          console.log('[Discord Gateway] Live session closed')
+          speakerStream.end()
+        }
+      }
+    })
+
+    activeLiveSession = session
+
+    // Capture Discord Audio
+    const receiver = connection.receiver
+    const audioStream = receiver.subscribe(memberId, {
+      end: {
+        behavior: EndBehaviorType.Manual,
+      }
+    })
+    
+    const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 })
+    
+    audioStream.pipe(decoder).on('data', (pcm48kChunk: Buffer) => {
+      if (activeLiveSession) {
+        const pcm16kChunk = downsample48kStereoTo16kMono(pcm48kChunk)
+        activeLiveSession.send({
+          realtimeInput: {
+            mediaChunks: [{
+              mimeType: 'audio/pcm;rate=16000',
+              data: pcm16kChunk.toString('base64')
+            }]
+          }
+        })
+      }
+    })
+
+    console.log('[Discord Gateway] Gemini Live Session connected.')
+  } catch (e) {
+    console.error('[Discord Gateway] Live API connect error:', e)
+  }
+}
 
 export function startDiscordGateway(config: AppConfig): void {
   if (!config.discordGatewayEnabled || !config.discordBotToken) {
@@ -114,7 +244,7 @@ async function handleDiscordMessage(message: Message): Promise<void> {
   // Command: prism=new or prism=clear
   if (isDM && (lowerContent === 'prism=new' || lowerContent === 'prism=clear')) {
     const dmId = `discord-dm-${message.author.id}-${Date.now()}`
-    saveChatSession(dmId, [], 'New Conversation', 'execution', '', currentConfig?.defaultModel, true)
+    activeDmSessions.set(message.author.id, dmId)
     await message.reply('Started a new conversation history.')
     return
   }
@@ -166,6 +296,14 @@ async function handleDiscordMessage(message: Message): Promise<void> {
       connection.on(VoiceConnectionStatus.Ready, () => {
         console.log(`[Discord Gateway] Joined voice channel in ${message.guild!.name}`)
         message.reply('Joined voice channel!')
+        
+        // Start Live Session
+        const providerConfig = currentConfig?.providers?.find(p => p.id === 'google')
+        if (providerConfig?.apiKey) {
+          startLiveVoiceSession(connection, message.author.id, realtimeModel, providerConfig.apiKey)
+        } else {
+          message.reply('Cannot start voice session: No Google API key found in Prism Settings.')
+        }
       })
 
     } catch (e) {
@@ -244,7 +382,7 @@ async function handleDiscordMessage(message: Message): Promise<void> {
   }
 
   if (isDM) {
-    const dmId = `discord-dm-${message.author.id}`
+    const dmId = getActiveDmSessionId(message.author.id)
     await processAiMessage(message.channel, message.author, content, dmId)
     return
   }
@@ -258,7 +396,12 @@ async function processAiMessage(
 ) {
   if (!currentConfig) return
 
-  const modelKey = getChatModel(chatId)
+  const modelKey =
+    currentConfig.defaultModel ||
+    currentConfig.lastSelectedChatModel ||
+    getChatModel() ||
+    'gemini-3.6-flash'
+    
   const { provider, model } = resolveProviderAndModel(modelKey)
 
   if (!provider || !provider.apiKey || !model) {
@@ -457,6 +600,16 @@ async function generateTitleInBackground(
 
 export function leaveDiscordVoiceChannel(): boolean {
   if (client) {
+    if (activeLiveSession) {
+      // Just close it if there's a close method
+      try { activeLiveSession.close() } catch {}
+      activeLiveSession = null
+    }
+    if (activeAudioPlayer) {
+      try { activeAudioPlayer.stop() } catch {}
+      activeAudioPlayer = null
+    }
+
     const guilds = client.guilds.cache.map((guild) => guild.id)
     let left = false
     const { getVoiceConnection } = require('@discordjs/voice')
