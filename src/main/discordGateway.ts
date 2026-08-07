@@ -78,6 +78,12 @@ interface VoiceHistoryState {
   activeAssistantMessageIndex: number | null
 }
 
+interface LiveToolResponseSession {
+  sendToolResponse(input: {
+    functionResponses: Array<{ id: string; name: string; response: Record<string, unknown> }>
+  }): void
+}
+
 const activeDmSessions: Map<string, string> = new Map()
 
 function getActiveDmSessionId(userId: string): string {
@@ -241,7 +247,7 @@ function recordLiveToolResult(
 
 async function executeLiveToolCalls(
   functionCalls: Array<{ id?: string; name?: string; args?: Record<string, unknown> }>,
-  session: any,
+  session: LiveToolResponseSession,
   apiKey: string
 ): Promise<void> {
   const history = activeVoiceHistory
