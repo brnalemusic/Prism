@@ -9,6 +9,30 @@ export interface FetchModelsResult {
   error?: string
 }
 
+function getModelId(value: unknown): string | undefined {
+  if (typeof value === 'string') return value
+  if (!value || typeof value !== 'object') return undefined
+
+  const record = value as Record<string, unknown>
+  if (typeof record.id === 'string') return record.id
+  if (typeof record.name === 'string') return record.name
+  return undefined
+}
+
+function getModelList(payload: unknown): string[] {
+  let entries: unknown[] = []
+
+  if (Array.isArray(payload)) {
+    entries = payload
+  } else if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>
+    if (Array.isArray(record.data)) entries = record.data
+    else if (Array.isArray(record.models)) entries = record.models
+  }
+
+  return entries.map(getModelId).filter((id): id is string => Boolean(id))
+}
+
 export async function fetchModelsFromProvider(
   baseUrl: string,
   apiKey: string,
@@ -51,20 +75,8 @@ export async function fetchModelsFromProvider(
       }
     }
 
-    const data = (await response.json()) as any
-    let modelList: string[] = []
-
-    if (Array.isArray(data.data)) {
-      modelList = data.data
-        .map((m: any) => (typeof m === 'string' ? m : m.id || m.name))
-        .filter(Boolean)
-    } else if (Array.isArray(data.models)) {
-      modelList = data.models
-        .map((m: any) => (typeof m === 'string' ? m : m.id || m.name))
-        .filter(Boolean)
-    } else if (Array.isArray(data)) {
-      modelList = data.map((m: any) => (typeof m === 'string' ? m : m.id || m.name)).filter(Boolean)
-    }
+    const data: unknown = await response.json()
+    let modelList = getModelList(data)
 
     modelList = modelList.map((id) => (id.startsWith('models/') ? id.slice(7) : id))
 
@@ -79,8 +91,12 @@ export async function fetchModelsFromProvider(
     })
 
     return { success: true, models }
-  } catch (error: any) {
-    return { success: false, models: [], error: error.message || 'Failed to connect to endpoint' }
+  } catch (error: unknown) {
+    return {
+      success: false,
+      models: [],
+      error: error instanceof Error ? error.message : 'Failed to connect to endpoint'
+    }
   }
 }
 

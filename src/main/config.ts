@@ -313,9 +313,13 @@ export function loadConfig(): AppConfig {
       return DEFAULT_CONFIG
     }
 
-    let parsedConfig: any
+    let parsedConfig: Partial<AppConfig> & Record<string, unknown>
     try {
-      parsedConfig = JSON.parse(data)
+      const parsed: unknown = JSON.parse(data)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Config root must be a JSON object.')
+      }
+      parsedConfig = parsed as Partial<AppConfig> & Record<string, unknown>
     } catch (parseErr) {
       // Config file is corrupted — back it up and start fresh
       console.error(

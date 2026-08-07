@@ -37,6 +37,7 @@ let connectionSessionExpiry = 0
 let heartbeatTimer: NodeJS.Timeout | null = null
 
 export function setConnectionApiKey(_key: string): void {
+  void _key
   // Deprecated stub
 }
 

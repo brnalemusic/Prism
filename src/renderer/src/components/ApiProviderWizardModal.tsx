@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ProviderConfig, ProviderModel, CompletionType } from '../../../shared/types'
 import {
@@ -11,7 +11,7 @@ import {
   ArrowLeft
 } from '@phosphor-icons/react'
 
-export const TRUSTED_PROVIDERS_META: Array<{
+const TRUSTED_PROVIDERS_META: Array<{
   baseUrl: string
   name: string
   completionType: CompletionType
@@ -53,7 +53,7 @@ function normalizeUrl(url: string): string {
   return cleaned
 }
 
-function findTrusted(url: string) {
+function findTrusted(url: string): (typeof TRUSTED_PROVIDERS_META)[number] | undefined {
   const norm = normalizeUrl(url)
   return TRUSTED_PROVIDERS_META.find((p) => normalizeUrl(p.baseUrl) === norm)
 }
@@ -84,21 +84,16 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
   const trustedMeta = findTrusted(baseUrl)
   const isTrusted = !!trustedMeta
 
-  useEffect(() => {
+  const handleNextFromUrl = (): void => {
+    if (!baseUrl.trim()) return
     if (trustedMeta) {
       setName(trustedMeta.name)
-      if (!initialProvider) {
-        setCompletionType(trustedMeta.completionType)
-      }
+      if (!initialProvider) setCompletionType(trustedMeta.completionType)
     }
-  }, [baseUrl])
-
-  const handleNextFromUrl = () => {
-    if (!baseUrl.trim()) return
     setStep(2)
   }
 
-  const handleNextFromKey = () => {
+  const handleNextFromKey = (): void => {
     if (!apiKey.trim()) return
     if (isTrusted) {
       // Skip name step if provider is trusted and name is immutable
@@ -108,7 +103,7 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
     }
   }
 
-  const handleFetchModels = async () => {
+  const handleFetchModels = async (): Promise<void> => {
     setIsFetchingModels(true)
     setFetchError('')
     try {
@@ -118,18 +113,18 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
       } else {
         setFetchError(res.error || 'Failed to fetch models from provider')
       }
-    } catch (err: any) {
-      setFetchError(err.message || 'Error connecting to provider')
+    } catch (error: unknown) {
+      setFetchError(error instanceof Error ? error.message : 'Error connecting to provider')
     } finally {
       setIsFetchingModels(false)
     }
   }
 
-  const handleToggleModel = (id: string) => {
+  const handleToggleModel = (id: string): void => {
     setModels((prev) => (prev || []).map((m) => (m.id === id ? { ...m, enabled: !m.enabled } : m)))
   }
 
-  const handleSave = () => {
+  const handleSave = (): void => {
     const provider: ProviderConfig = {
       id: initialProvider?.id || `provider_${Date.now()}`,
       name: isTrusted ? trustedMeta!.name : name.trim() || 'Custom Provider',
