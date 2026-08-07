@@ -1,10 +1,4 @@
-import {
-  Content,
-  FunctionDeclaration,
-  GoogleGenAI,
-  Part,
-  ThinkingLevel
-} from '@google/genai'
+import { Content, FunctionDeclaration, GoogleGenAI, Part, ThinkingLevel } from '@google/genai'
 import { getAuthAccessToken } from '../supabaseAuth'
 import { getGeminiFunctionDeclarations } from '../toolRuntime'
 import { ProviderConfig } from '../../shared/types'
@@ -17,12 +11,7 @@ import {
 } from './types'
 import type { StreamCallbacks, StreamResult } from './openaiClient'
 
-const prismThinkingLevels = new Set<PrismThinkingLevel>([
-  'minimal',
-  'low',
-  'medium',
-  'high'
-])
+const prismThinkingLevels = new Set<PrismThinkingLevel>(['minimal', 'low', 'medium', 'high'])
 
 const thinkingLevelMap: Record<PrismThinkingLevel, ThinkingLevel> = {
   minimal: ThinkingLevel.MINIMAL,
@@ -143,11 +132,7 @@ export function convertMessagesToGemini(messages: OpenAiMessage[]): {
   return { systemInstruction: systemInstruction || undefined, contents }
 }
 
-function appendTextPart(
-  nativeParts: GeminiPartData[],
-  part: Part,
-  text: string
-): void {
+function appendTextPart(nativeParts: GeminiPartData[], part: Part, text: string): void {
   const previous = nativeParts.at(-1)
   const canAppend =
     previous &&
@@ -184,7 +169,9 @@ export async function streamGeminiCompletion(
   const prismCloud = isPrismCloudProvider(provider)
   const headers: Record<string, string> = {}
   let apiKey = provider.apiKey
-  let httpOptions: { baseUrl?: string; apiVersion?: string; headers?: Record<string, string> } | undefined
+  let httpOptions:
+    | { baseUrl?: string; apiVersion?: string; headers?: Record<string, string> }
+    | undefined
 
   if (prismCloud) {
     const token = await getAuthAccessToken()

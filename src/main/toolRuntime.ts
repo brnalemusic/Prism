@@ -16,9 +16,7 @@ export interface ToolError {
   retryable: boolean
 }
 
-export type ToolResultEnvelope =
-  | { ok: true; output: string }
-  | { ok: false; error: ToolError }
+export type ToolResultEnvelope = { ok: true; output: string } | { ok: false; error: ToolError }
 
 export interface ToolExecutionContext {
   event?: unknown
@@ -175,7 +173,8 @@ function validateValue(
     return { value: output, errors }
   }
 
-  const expectedType = schema.type === 'integer' || schema.type === 'number' ? 'number' : schema.type
+  const expectedType =
+    schema.type === 'integer' || schema.type === 'number' ? 'number' : schema.type
   if (typeof value !== expectedType) {
     return { errors: [`${path} must be ${schema.type}; received ${typeDescription(value)}.`] }
   }

@@ -54,7 +54,11 @@ export interface ToolOrchestratorOptions {
   reasoningLevel?: string
   maxRounds?: number
   finalInstruction?: string
-  createToolContext?: (call: { callId: string; name: string; round: number }) => ToolExecutionContext
+  createToolContext?: (call: {
+    callId: string
+    name: string
+    round: number
+  }) => ToolExecutionContext
   decorateAssistantMessage?: (
     message: OpenAiMessage,
     result: StreamResult,

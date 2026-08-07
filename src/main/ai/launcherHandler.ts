@@ -87,8 +87,7 @@ export async function handleLauncherChatMessage(
       createToolContext: ({ callId, name }) => ({
         event: { sender: window.webContents },
         signal: abortController.signal,
-        onStart: (args) =>
-          safeSend(window, 'launcher-tool-start', { callId, name, args })
+        onStart: (args) => safeSend(window, 'launcher-tool-start', { callId, name, args })
       }),
       onToolResult: (call) =>
         safeSend(window, 'launcher-tool-end', {

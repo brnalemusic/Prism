@@ -104,7 +104,10 @@ export async function handleChatMessage(
   const { provider, model } = resolveProviderAndModel(currentSelectedChatModel)
 
   if (!provider || !provider.apiKey || !model) {
-    safeSend(event.sender, 'chat-reply-error', { error: 'API_KEY_ERROR:401:API Key or Active Model Missing', chatId })
+    safeSend(event.sender, 'chat-reply-error', {
+      error: 'API_KEY_ERROR:401:API Key or Active Model Missing',
+      chatId
+    })
     return
   }
 
@@ -154,13 +157,19 @@ export async function handleChatMessage(
     if (screenshot) {
       parts.push({
         type: 'image_url',
-        image_url: { url: screenshot.startsWith('data:') ? screenshot : `data:image/png;base64,${screenshot}` }
+        image_url: {
+          url: screenshot.startsWith('data:') ? screenshot : `data:image/png;base64,${screenshot}`
+        }
       })
     }
     if (attachedFile && attachedFile.mimeType.startsWith('image/')) {
       parts.push({
         type: 'image_url',
-        image_url: { url: attachedFile.data.startsWith('data:') ? attachedFile.data : `data:${attachedFile.mimeType};base64,${attachedFile.data}` }
+        image_url: {
+          url: attachedFile.data.startsWith('data:')
+            ? attachedFile.data
+            : `data:${attachedFile.mimeType};base64,${attachedFile.data}`
+        }
       })
     }
     userMessage.content = parts
@@ -384,7 +393,8 @@ function convertHistoryToOpenAi(history: any[]): OpenAiMessage[] {
           content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
         }
       }
-      const content = m.content ?? (m.parts ? m.parts.map((p: any) => p.text || '').join('\n') : null)
+      const content =
+        m.content ?? (m.parts ? m.parts.map((p: any) => p.text || '').join('\n') : null)
       return {
         role: m.role === 'model' ? 'assistant' : m.role,
         content: content || '',
@@ -402,7 +412,9 @@ async function generateTitleInBackground(
   chatId: string
 ): Promise<void> {
   try {
-    console.log(`[Title Generator] Generating title for chat ${chatId} using model ${modelId} via provider ${provider.name || provider.baseUrl}...`)
+    console.log(
+      `[Title Generator] Generating title for chat ${chatId} using model ${modelId} via provider ${provider.name || provider.baseUrl}...`
+    )
     const prompt = `Summarize query into concise 3-5 word title in same language. No quotes or punctuation: "${firstMessage}"`
     const abortController = new AbortController()
 

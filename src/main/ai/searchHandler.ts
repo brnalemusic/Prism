@@ -17,10 +17,7 @@ export function cancelAiSearch(): void {
   }
 }
 
-export async function handleAiSearchChatMessage(
-  event: IpcMainEvent,
-  query: string
-): Promise<void> {
+export async function handleAiSearchChatMessage(event: IpcMainEvent, query: string): Promise<void> {
   cancelAiSearch()
   const abortController = new AbortController()
   searchAbortController = abortController
@@ -30,7 +27,9 @@ export async function handleAiSearchChatMessage(
   const { provider, model } = resolveProviderAndModel(modelSelection)
 
   if (!provider || !provider.apiKey || !model) {
-    safeSend(event.sender, 'ai-search-reply-error', { error: 'No active AI Provider configured for search' })
+    safeSend(event.sender, 'ai-search-reply-error', {
+      error: 'No active AI Provider configured for search'
+    })
     return
   }
 
@@ -46,7 +45,9 @@ export async function handleAiSearchChatMessage(
       )
       .join('\n\n')
 
-    console.log(`[AI SEARCH DEBUG MAIN] Starting search for query: "${query}" using model: ${model.id}`)
+    console.log(
+      `[AI SEARCH DEBUG MAIN] Starting search for query: "${query}" using model: ${model.id}`
+    )
 
     const systemPrompt: OpenAiMessage = {
       role: 'system',
@@ -102,8 +103,7 @@ export async function handleAiSearchChatMessage(
       },
       createToolContext: ({ callId, name }) => ({
         signal: abortController.signal,
-        onStart: (args) =>
-          safeSend(event.sender, 'ai-search-tool-start', { callId, name, args })
+        onStart: (args) => safeSend(event.sender, 'ai-search-tool-start', { callId, name, args })
       }),
       onToolResult: (call) =>
         safeSend(event.sender, 'ai-search-tool-end', {
@@ -136,15 +136,19 @@ export async function handleAiSearchChatMessage(
         const topResults = offlineData.results.slice(0, 3)
         for (const res of topResults) {
           const callId = `search-fallback-${res.id}`
-          const execution = await executeValidatedTool('render_chat_history', { query: res.id }, {
-            signal: abortController.signal,
-            onStart: (args) =>
-              safeSend(event.sender, 'ai-search-tool-start', {
-                callId,
-                name: 'render_chat_history',
-                args
-              })
-          })
+          const execution = await executeValidatedTool(
+            'render_chat_history',
+            { query: res.id },
+            {
+              signal: abortController.signal,
+              onStart: (args) =>
+                safeSend(event.sender, 'ai-search-tool-start', {
+                  callId,
+                  name: 'render_chat_history',
+                  args
+                })
+            }
+          )
           safeSend(event.sender, 'ai-search-tool-end', {
             callId,
             name: 'render_chat_history',
@@ -153,15 +157,19 @@ export async function handleAiSearchChatMessage(
         }
       } else {
         const callId = `search-fallback-not-found-${Date.now()}`
-        const execution = await executeValidatedTool('not_found_chat_history', {}, {
-          signal: abortController.signal,
-          onStart: (args) =>
-            safeSend(event.sender, 'ai-search-tool-start', {
-              callId,
-              name: 'not_found_chat_history',
-              args
-            })
-        })
+        const execution = await executeValidatedTool(
+          'not_found_chat_history',
+          {},
+          {
+            signal: abortController.signal,
+            onStart: (args) =>
+              safeSend(event.sender, 'ai-search-tool-start', {
+                callId,
+                name: 'not_found_chat_history',
+                args
+              })
+          }
+        )
         safeSend(event.sender, 'ai-search-tool-end', {
           callId,
           name: 'not_found_chat_history',
