@@ -53,6 +53,12 @@ let voiceOutputChunkCount = 0
 let voiceOutputByteCount = 0
 
 const VOICE_SILENCE_FLUSH_MS = 800
+const VOICE_GATE_START_RMS = 0.02
+const VOICE_GATE_CONTINUE_RMS = 0.012
+const VOICE_GATE_HANGOVER_MS = 450
+
+let voiceGateOpen = false
+let voiceGateLastSpeechAt = 0
 
 const activeDmSessions: Map<string, string> = new Map()
 
@@ -158,6 +164,78 @@ function scheduleVoiceStreamEnd(): void {
   }, VOICE_SILENCE_FLUSH_MS)
 }
 
+function calculatePcmRms(pcm16k: Buffer): number {
+  const sampleCount = Math.floor(pcm16k.length / 2)
+  if (sampleCount === 0) return 0
+
+  let sumSquares = 0
+  for (let i = 0; i < sampleCount; i++) {
+    const normalizedSample = pcm16k.readInt16LE(i * 2) / 32768
+    sumSquares += normalizedSample * normalizedSample
+  }
+  return Math.sqrt(sumSquares / sampleCount)
+}
+
+function resetVoiceGate(): void {
+  voiceGateOpen = false
+  voiceGateLastSpeechAt = 0
+}
+
+function shouldForwardVoiceAudio(pcm16k: Buffer): boolean {
+  const rms = calculatePcmRms(pcm16k)
+  const now = Date.now()
+
+  if (!voiceGateOpen) {
+    if (rms < VOICE_GATE_START_RMS) return false
+    voiceGateOpen = true
+    voiceGateLastSpeechAt = now
+    console.log(`[Discord Gateway] Voice gate opened (RMS ${rms.toFixed(4)}).`)
+    return true
+  }
+
+  if (rms >= VOICE_GATE_CONTINUE_RMS) {
+    voiceGateLastSpeechAt = now
+    return true
+  }
+
+  if (now - voiceGateLastSpeechAt <= VOICE_GATE_HANGOVER_MS) return true
+
+  voiceGateOpen = false
+  console.log(`[Discord Gateway] Voice gate closed (RMS ${rms.toFixed(4)}).`)
+  return false
+}
+
+function attachVoiceAudioPlayerErrorHandler(player: any): void {
+  player.on('error', (err: any) => {
+    if (activeAudioPlayer !== player && err?.code === 'ERR_STREAM_PREMATURE_CLOSE') return
+    console.error('[Discord Gateway] Audio player error:', err)
+  })
+}
+
+function createVoiceAudioOutput(): void {
+  const oldPlayer = activeAudioPlayer
+  const oldStream = activeSpeakerStream
+
+  if (oldPlayer) {
+    try {
+      if (activeVoiceConnection?.unsubscribe) activeVoiceConnection.unsubscribe(oldPlayer)
+      oldPlayer.stop()
+    } catch (error) {
+      console.error('[Discord Gateway] Failed to replace Discord audio player:', error)
+    }
+  }
+  if (oldStream && !oldStream.destroyed) oldStream.destroy()
+
+  const stream = new PassThrough()
+  const player = createAudioPlayer()
+  activeSpeakerStream = stream
+  activeAudioPlayer = player
+  player.play(createAudioResource(stream, { inputType: StreamType.Raw }))
+  attachVoiceAudioPlayerErrorHandler(player)
+
+  if (activeVoiceConnection) activeVoiceConnection.subscribe(player)
+}
+
 function cleanupVoiceResources(): boolean {
   const hadVoiceResources = Boolean(
     activeLiveSession ||
@@ -181,6 +259,7 @@ function cleanupVoiceResources(): boolean {
   const inputStream = activeVoiceInputStream
   activeVoiceInputStream = null
   clearVoiceSilenceTimer()
+  resetVoiceGate()
   if (inputStream) {
     try {
       inputStream.destroy()
@@ -248,18 +327,7 @@ async function startLiveVoiceSession(
     console.log(`[Discord Gateway] Connecting to Gemini Live API (${normalizedModelName})...`)
     const ai = new GoogleGenAI({ apiKey })
 
-    activeSpeakerStream = new PassThrough()
-    const voiceAudioPlayer = createAudioPlayer()
-    activeAudioPlayer = voiceAudioPlayer
-    const resource = createAudioResource(activeSpeakerStream, { inputType: StreamType.Raw })
-    voiceAudioPlayer.play(resource)
-
-    voiceAudioPlayer.on('error', (err: any) => {
-      if (activeAudioPlayer !== voiceAudioPlayer && err?.code === 'ERR_STREAM_PREMATURE_CLOSE') {
-        return
-      }
-      console.error('[Discord Gateway] Audio player error:', err)
-    })
+    createVoiceAudioOutput()
 
     aiSession = await ai.live.connect({
       model: normalizedModelName,
@@ -270,6 +338,15 @@ async function startLiveVoiceSession(
       callbacks: {
         onmessage: (msg: any) => {
           const serverContent = msg?.serverContent
+          if (serverContent?.interrupted) {
+            console.log('[Discord Gateway] Gemini interrupted its current audio response.')
+            createVoiceAudioOutput()
+          }
+
+          if (serverContent?.turnComplete) {
+            console.log('[Discord Gateway] Gemini completed the current voice turn.')
+          }
+
           const inputTranscript = serverContent?.inputTranscription?.text
           if (typeof inputTranscript === 'string' && inputTranscript.trim()) {
             console.log(`[Discord Gateway] Input transcription: ${inputTranscript.trim()}`)
@@ -296,9 +373,6 @@ async function startLiveVoiceSession(
         },
         onclose: () => {
           console.log('[Discord Gateway] Live session closed')
-          if (activeSpeakerStream && !activeSpeakerStream.destroyed) {
-            activeSpeakerStream.end()
-          }
         },
         onerror: (err: any) => {
           console.error('[Discord Gateway] Live session error:', err)
@@ -402,6 +476,8 @@ async function startLiveVoiceSession(
       try {
         if (activeLiveSession) {
           const pcm16kChunk = downsample48kStereoTo16kMono(pcm48kChunk)
+          if (!shouldForwardVoiceAudio(pcm16kChunk)) return
+
           const base64Data = pcm16kChunk.toString('base64')
           activeLiveSession.sendRealtimeInput({
             audio: {
