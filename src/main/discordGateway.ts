@@ -13,6 +13,7 @@ import {
 import { AppConfig } from './config'
 import { loadChatSession, saveChatSession, updateChatSessionTitle } from './history'
 import { resolveProviderAndModel } from './ai/providerManager'
+import { getChatModel } from './ai/chatHandler'
 import { runToolOrchestration } from './ai/toolOrchestrator'
 import { OpenAiMessage } from './ai/types'
 import { getSystemToolsPrompt, setCurrentSessionIdForTodo } from './systemTools'
@@ -23,6 +24,7 @@ import { is } from '@electron-toolkit/utils'
 
 let client: Client | null = null
 let currentConfig: AppConfig | null = null
+let appOwnerIds: Set<string> = new Set()
 
 export function startDiscordGateway(config: AppConfig): void {
   if (!config.discordGatewayEnabled || !config.discordBotToken) {
@@ -49,8 +51,20 @@ export function startDiscordGateway(config: AppConfig): void {
     partials: [Partials.Channel, Partials.Message]
   })
 
-  client.once('ready', () => {
+  client.once('ready', async () => {
     console.log(`[Discord Gateway] Logged in as ${client?.user?.tag}`)
+    try {
+      const app = await client?.application?.fetch()
+      if (app?.owner) {
+        if ('members' in app.owner) {
+          app.owner.members.forEach((m) => appOwnerIds.add(m.id))
+        } else {
+          appOwnerIds.add(app.owner.id)
+        }
+      }
+    } catch (e) {
+      console.error('[Discord Gateway] Failed to fetch application owner:', e)
+    }
   })
 
   client.on('messageCreate', handleDiscordMessage)
@@ -65,26 +79,51 @@ export function stopDiscordGateway(): void {
     console.log('[Discord Gateway] Disconnecting...')
     client.destroy()
     client = null
+    appOwnerIds.clear()
   }
 }
 
 async function handleDiscordMessage(message: Message): Promise<void> {
   if (message.author.bot) return
 
-  const content = message.content.trim()
-  const isDM = message.channel.type === ChannelType.DM
+  // Check if author is owner
+  if (!appOwnerIds.has(message.author.id)) {
+    if (!client?.application) return
+    try {
+      const app = await client.application.fetch()
+      if (app.owner) {
+        if ('members' in app.owner) {
+          app.owner.members.forEach((m) => appOwnerIds.add(m.id))
+        } else {
+          appOwnerIds.add(app.owner.id)
+        }
+      }
+    } catch (e) {
+      // Ignore
+    }
+    if (!appOwnerIds.has(message.author.id)) {
+      return // Ignore messages from non-owners
+    }
+  }
 
-  if (isDM && (content === '/new' || content === '/clear')) {
+  const content = message.content.trim()
+  const lowerContent = content.toLowerCase()
+  const isDM = message.channel.type === ChannelType.DM
+  const botId = client?.user?.id
+
+  // Command: prism=new or prism=clear
+  if (isDM && (lowerContent === 'prism=new' || lowerContent === 'prism=clear')) {
     const dmId = `discord-dm-${message.author.id}-${Date.now()}`
     saveChatSession(dmId, [], 'New Conversation', 'execution', '', currentConfig?.defaultModel, true)
     await message.reply('Started a new conversation history.')
     return
   }
 
-  if (!isDM && content.startsWith('/chat')) {
-    const requestText = content.substring('/chat'.length).trim()
+  // Command: prism=chat
+  if (!isDM && lowerContent.startsWith('prism=chat')) {
+    const requestText = content.substring('prism=chat'.length).trim()
     if (!requestText) {
-      await message.reply('Please provide a message after /chat')
+      await message.reply('Please provide a message after prism=chat')
       return
     }
 
@@ -102,15 +141,8 @@ async function handleDiscordMessage(message: Message): Promise<void> {
     return
   }
 
-  if (!isDM && message.channel.isThread()) {
-    const thread = message.channel as ThreadChannel
-    if (thread.ownerId === client?.user?.id) {
-      await processAiMessage(thread, message.author, content, `discord-thread-${thread.id}`)
-    }
-    return
-  }
-
-  if (!isDM && content.startsWith('/join')) {
+  // Command: prism=join
+  if (!isDM && lowerContent.startsWith('prism=join')) {
     const member = message.guild?.members.cache.get(message.author.id)
     if (!member?.voice.channel) {
       await message.reply('You need to join a voice channel first!')
@@ -127,6 +159,8 @@ async function handleDiscordMessage(message: Message): Promise<void> {
         channelId: member.voice.channel.id,
         guildId: message.guild!.id,
         adapterCreator: message.guild!.voiceAdapterCreator,
+        selfDeaf: false,
+        selfMute: false
       })
       
       connection.on(VoiceConnectionStatus.Ready, () => {
@@ -137,6 +171,59 @@ async function handleDiscordMessage(message: Message): Promise<void> {
     } catch (e) {
       console.error('[Discord Gateway] Voice join error:', e)
       await message.reply('Failed to join voice channel.')
+    }
+    return
+  }
+
+  // Command: prism=help
+  if (lowerContent.startsWith('prism=help')) {
+    const args = lowerContent.split(' ')
+    const page = args.length > 1 ? parseInt(args[1]) : 1
+
+    if (page === 2) {
+      await message.reply({
+        embeds: [{
+          color: 0x5865F2,
+          title: 'Prism AI Gateway Help (Page 2/2)',
+          description: 'Behavior & Notes:',
+          fields: [
+            { name: 'How to talk to Prism', value: 'In a DM or an active Thread, Prism will only respond if the message contains the word "prism" or if Prism is @mentioned.' },
+            { name: 'Audio Features', value: 'When using `prism=join`, Prism will stream audio directly into the voice channel. Currently only the bot owner can trigger voice responses.' }
+          ],
+          footer: { text: 'Type "prism=help 1" for the commands list.' }
+        }]
+      })
+    } else {
+      await message.reply({
+        embeds: [{
+          color: 0x5865F2,
+          title: 'Prism AI Gateway Help (Page 1/2)',
+          description: 'Commands to interact with Prism:',
+          fields: [
+            { name: '`prism=chat <message>`', value: 'Starts a new AI chat thread with your request (Servers only).' },
+            { name: '`prism=new` or `prism=clear`', value: 'Clears history and starts a new conversation (DMs only).' },
+            { name: '`prism=join`', value: 'Joins your current voice channel (Servers only).' }
+          ],
+          footer: { text: 'Type "prism=help 2" for more info.' }
+        }]
+      })
+    }
+    return
+  }
+
+  // Non-command message processing (Threads and DMs)
+  const mentionsBot = botId ? message.mentions.has(botId) : false
+  const botNameLower = client?.user?.username?.toLowerCase()
+  const containsName = lowerContent.includes('prism') || (botNameLower ? lowerContent.includes(botNameLower) : false)
+
+  if (!mentionsBot && !containsName) {
+    return
+  }
+
+  if (!isDM && message.channel.isThread()) {
+    const thread = message.channel as ThreadChannel
+    if (thread.ownerId === botId) {
+      await processAiMessage(thread, message.author, content, `discord-thread-${thread.id}`)
     }
     return
   }
@@ -156,7 +243,7 @@ async function processAiMessage(
 ) {
   if (!currentConfig) return
 
-  const modelKey = currentConfig.defaultModel || 'gemini-3.6-flash'
+  const modelKey = getChatModel(chatId)
   const { provider, model } = resolveProviderAndModel(modelKey)
 
   if (!provider || !provider.apiKey || !model) {

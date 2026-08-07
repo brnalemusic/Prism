@@ -55,6 +55,7 @@ type SectionId =
   | 'voice'
   | 'workflows'
   | 'system'
+  | 'discord'
   | 'license'
   | 'about'
 
@@ -562,6 +563,18 @@ function useLicenseCountdown(expiresAt?: string): string {
     }
   }
 
+  const DiscordIcon = ({ size = 18 }: { size?: number }) => (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 256 199"
+      width={size}
+      height={size}
+      fill="currentColor"
+    >
+      <path d="M216.856 16.597A208.502 208.502 0 0 0 164.042 0c-2.275 4.113-4.933 9.645-6.766 14.046-19.692-2.961-39.203-2.961-58.533 0-1.832-4.4-4.55-9.933-6.846-14.046a207.809 207.809 0 0 0-52.855 16.638C5.618 67.147-3.443 116.4 1.087 164.956c22.169 16.555 43.653 26.612 64.775 33.193A161.094 161.094 0 0 0 79.735 175.3a136.413 136.413 0 0 1-21.846-10.632 108.636 108.636 0 0 0 5.356-4.237c42.122 19.702 87.89 19.702 129.51 0a131.6 131.6 0 0 0 5.356 4.237 136.075 136.075 0 0 1-21.887 10.632 156.776 156.776 0 0 0 13.873 22.846c21.122-6.58 42.605-16.638 64.774-33.193 5.485-57.818-10.985-107.031-48.423-148.358zM85.474 135.04c-11.832 0-21.606-10.793-21.606-24.088 0-13.296 9.57-24.088 21.606-24.088 12.036 0 21.809 10.954 21.606 24.088 0 13.295-9.57 24.088-21.606 24.088zm85.05 0c-11.833 0-21.607-10.793-21.607-24.088 0-13.296 9.57-24.088 21.607-24.088 12.036 0 21.81 10.954 21.607 24.088 0 13.295-9.773 24.088-21.607 24.088z" />
+    </svg>
+  )
+
   const sections: NavSection[] = [
     { id: 'shortcuts', label: 'Shortcuts', icon: <Keyboard size={18} weight="bold" /> },
     { id: 'providers', label: 'BYOK', icon: <Key size={18} weight="bold" /> },
@@ -571,6 +584,7 @@ function useLicenseCountdown(expiresAt?: string): string {
     { id: 'voice', label: 'Voice', icon: <Volume2 size={18} weight="bold" /> },
     { id: 'workflows', label: 'Workflows', icon: <Lightning size={18} weight="bold" /> },
     { id: 'system', label: 'System', icon: <Monitor size={18} weight="bold" /> },
+    { id: 'discord', label: 'Discord', icon: <DiscordIcon /> },
     { id: 'license', label: 'License', icon: <Certificate size={18} weight="bold" /> },
     { id: 'about', label: 'About', icon: <Info size={18} weight="bold" /> }
   ]
@@ -1188,43 +1202,6 @@ function useLicenseCountdown(expiresAt?: string): string {
             onChange={() => setConfig({ ...config, autoLaunch: !config.autoLaunch })}
           />
 
-          {/* Discord Gateway */}
-          <div className="pt-4 mt-4 border-t border-white/[0.04] space-y-3">
-            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-              Discord Gateway
-            </h3>
-            <ToggleRow
-              title="Enable Discord Gateway"
-              description="Connect Prism to a Discord bot to respond to chat and voice requests."
-              checked={config.discordGatewayEnabled ?? false}
-              onChange={() => setConfig({ ...config, discordGatewayEnabled: !config.discordGatewayEnabled })}
-            />
-            {config.discordGatewayEnabled && (
-              <div className="space-y-4 pt-2">
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-sm font-medium text-text-primary">Bot Token</span>
-                  <input
-                    type="password"
-                    value={config.discordBotToken || ''}
-                    onChange={(e) => setConfig({ ...config, discordBotToken: e.target.value })}
-                    placeholder="Enter your Discord Bot Token..."
-                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:border-accent-primary/50"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-sm font-medium text-text-primary">Voice Model</span>
-                  <input
-                    type="text"
-                    value={config.discordGatewayModel || 'models/gemini-3.1-flash-live-preview'}
-                    onChange={(e) => setConfig({ ...config, discordGatewayModel: e.target.value })}
-                    placeholder="e.g. models/gemini-3.1-flash-live-preview"
-                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:border-accent-primary/50"
-                  />
-                  <span className="text-[11px] text-text-secondary/70 mt-1 block">Used for the /join command. Ensure this model supports realtime streaming (Live API).</span>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
@@ -1240,6 +1217,45 @@ function useLicenseCountdown(expiresAt?: string): string {
           Your keys are saved locally in an encrypted format. Prism does not collect or share your
           API keys.
         </p>
+      </div>
+    </div>
+  )
+
+  const renderDiscord = (): React.JSX.Element => (
+    <div className="space-y-6 animate-soft-pop">
+      <SectionHeader title="Discord Gateway" subtitle="Connect Prism to a Discord bot to respond to chat and voice requests." />
+      
+      <div className="flex flex-col gap-1.5 p-1">
+        <ToggleRow
+          title="Enable Discord Gateway"
+          description="Allows Prism to connect to Discord using the provided Bot Token."
+          checked={config.discordGatewayEnabled ?? false}
+          onChange={() => setConfig({ ...config, discordGatewayEnabled: !config.discordGatewayEnabled })}
+        />
+        
+        {config.discordGatewayEnabled && (
+          <div className="space-y-4 pt-4 border-t border-white/[0.04] mt-4">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-text-primary">Bot Token</span>
+              <input
+                type="password"
+                value={config.discordBotToken || ''}
+                onChange={(e) => setConfig({ ...config, discordBotToken: e.target.value })}
+                placeholder="Enter your Discord Bot Token..."
+                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:border-accent-primary/50"
+              />
+              <span className="text-[11px] text-text-secondary/70 mt-1 block">Your Bot Token from the Discord Developer Portal.</span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-text-primary">Voice Model</span>
+              <ModelSelector
+                selectedModel={(config as any).discordGatewayModel || ''}
+                onModelChange={(m) => setConfig({ ...config, discordGatewayModel: m } as any)}
+              />
+              <span className="text-[11px] text-text-secondary/70 mt-1 block">Used for the /join command. Ensure this model supports realtime streaming (Live API).</span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1945,6 +1961,8 @@ function useLicenseCountdown(expiresAt?: string): string {
         return renderWorkflows()
       case 'system':
         return renderSystem()
+      case 'discord':
+        return renderDiscord()
       case 'license':
         return renderLicense()
       case 'about':

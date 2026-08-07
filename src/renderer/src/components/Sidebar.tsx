@@ -28,6 +28,7 @@ interface ChatSession {
   lastUpdated: number
   sessionMode?: SessionMode
   disciplinePath?: string
+  isDiscord?: boolean
 }
 
 interface SidebarProps {
