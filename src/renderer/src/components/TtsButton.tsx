@@ -40,11 +40,10 @@ export function TtsButton({ text, className }: TtsButtonProps): React.JSX.Elemen
     try {
       setStatus('loading')
 
-      // Clean up text before sending — loop to prevent re-formed tags (e.g. "<scr<script>ipt>")
-      let cleanText = text
-      let prev: string
-      do { prev = cleanText; cleanText = cleanText.replace(/<[^>]*>?/gm, '') } while (cleanText !== prev)
-      cleanText = cleanText.trim()
+      // Parse as HTML so malformed or split script/style tags cannot survive as speech input.
+      const parsedText = new DOMParser().parseFromString(text, 'text/html')
+      parsedText.querySelectorAll('script, style').forEach((element) => element.remove())
+      const cleanText = (parsedText.body.textContent || '').trim()
 
       const audioDataUri = await window.api.generateTts(cleanText)
 
