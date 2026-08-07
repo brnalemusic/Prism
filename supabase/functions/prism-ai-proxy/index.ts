@@ -6,7 +6,7 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-prism-skip-increment',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-prism-skip-increment, x-goog-api-key, x-goog-api-client',
 }
 
 serve(async (req) => {
@@ -113,23 +113,31 @@ serve(async (req) => {
     const availableKeys = keys.map((k) => k.key_value)
     const shuffledKeys = [...availableKeys].sort(() => Math.random() - 0.5)
 
-    // 4. Parse incoming OpenAI-compatible request payload
+    // 4. Accept the native Gemini GenerateContent request emitted by @google/genai.
     const bodyPayload = await req.json()
+    const requestUrl = new URL(req.url)
+    const nativeRoute = requestUrl.pathname.match(
+      /\/models\/([a-zA-Z0-9._/-]+):(streamGenerateContent|generateContent)$/
+    )
+    if (!nativeRoute) {
+      return new Response(
+        JSON.stringify({
+          error: 'Prism Cloud requires the native Gemini GenerateContent protocol.'
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
 
-    // Pass through exact model requested by user
-    let modelId = bodyPayload.model || 'models/gemini-3-flash-preview'
-    bodyPayload.model = modelId
-
-    // Strip fields that are invalid on Google's OpenAI-compat endpoint.
-    // The client sends these for reasoning/thinking support, but the endpoint
-    // rejects them with INVALID_ARGUMENT — causing all keys to fail regardless
-    // of rate limits. Only `reasoning_effort` follows the OpenAI spec and is kept.
-    delete bodyPayload.thinking_config
-    delete bodyPayload.google
-    delete bodyPayload.extra_body
-
-    // 5. Target endpoint
-    const targetEndpoint = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
+    const rawModelId = nativeRoute[1].replace(/^models\//, '')
+    if (!/^[a-zA-Z0-9._/-]+$/.test(rawModelId) || rawModelId.includes('..')) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid Gemini model identifier.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+    const action = nativeRoute[2]
+    const streamQuery = action === 'streamGenerateContent' ? '?alt=sse' : ''
+    const targetEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${rawModelId}:${action}${streamQuery}`
 
     let lastErrorStatus = 500
     let lastErrorText = ''
@@ -144,9 +152,10 @@ serve(async (req) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${key}`
+            'x-goog-api-key': key
           },
-          body: JSON.stringify(bodyPayload)
+          body: JSON.stringify(bodyPayload),
+          signal: req.signal
         })
 
         if (geminiRes.ok) {
@@ -168,6 +177,15 @@ serve(async (req) => {
         const truncatedBody = lastErrorText.length > 500 ? lastErrorText.slice(0, 500) + '...' : lastErrorText
         console.warn(`[prism-ai-proxy] Key ${keyIndex}/${shuffledKeys.length} failed | Status: ${geminiRes.status} | Body: ${truncatedBody}`)
         failureDetails.push({ index: keyIndex, status: geminiRes.status, reason: truncatedBody })
+
+        // Invalid native payloads are deterministic and must be returned to the
+        // client so the tool loop can correct them. Rotating keys cannot help.
+        if (geminiRes.status >= 400 && geminiRes.status < 500 && geminiRes.status !== 429) {
+          return new Response(lastErrorText || JSON.stringify({ error: 'Invalid Gemini request.' }), {
+            status: geminiRes.status,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
       } catch (fetchErr: any) {
         console.warn(`[prism-ai-proxy] Key ${keyIndex}/${shuffledKeys.length} network error: ${fetchErr?.message}`)
         failureDetails.push({ index: keyIndex, status: 0, reason: fetchErr?.message || 'Network error' })
@@ -180,7 +198,7 @@ serve(async (req) => {
       acc[d.status] = (acc[d.status] || 0) + 1
       return acc
     }, {} as Record<number, number>)
-    console.error(`[prism-ai-proxy] ALL ${shuffledKeys.length} keys failed | Model: ${modelId} | Breakdown: ${JSON.stringify(statusCounts)}`)
+    console.error(`[prism-ai-proxy] ALL ${shuffledKeys.length} keys failed | Model: ${rawModelId} | Breakdown: ${JSON.stringify(statusCounts)}`)
     console.error(`[prism-ai-proxy] Last error body: ${lastErrorText.slice(0, 1000)}`)
 
     return new Response(

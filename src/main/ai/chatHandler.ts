@@ -1,14 +1,15 @@
 import { IpcMainEvent } from 'electron'
 import * as os from 'os'
 import { SessionMode, AttachedFile, StreamToolCallDelta } from '../../shared/types'
-import { toolsManifest } from '../toolsManifest'
-import { executeSystemTool, getSystemToolsPrompt, setActiveCwd, setCurrentSessionIdForTodo } from '../systemTools'
+import { getSystemToolsPrompt, setActiveCwd, setCurrentSessionIdForTodo } from '../systemTools'
 import { loadConfig } from '../config'
 import { saveChatSession, loadChatSession, updateChatSessionTitle } from '../history'
 import { resolveProviderAndModel } from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
 import { ActiveRun, OpenAiMessage, OpenAiToolDefinition } from './types'
 import { safeSend } from '../safeSend'
+import { executeValidatedTool, getOpenAiToolDefinitions, ToolLoopGuard } from '../toolRuntime'
+import { normalizePrismThinkingLevel } from './geminiClient'
 
 export const activeRuns = new Map<string, ActiveRun>()
 export const lastScreenshots = new Map<string, string>()
@@ -58,67 +59,8 @@ export function cancelChatMessage(chatId?: string): void {
   }
 }
 
-/**
- * Recursively sanitizes a JSON schema object for compatibility with the
- * Gemini function-calling API (via OpenAI-compat layer).
- *
- * Gemini is stricter than OpenAI about schemas and returns INVALID_ARGUMENT for:
- *  - `type: 'object'` nodes that are missing a `properties` field
- *  - `additionalProperties` (not supported in Gemini function schemas)
- */
-function sanitizeToolSchema(schema: Record<string, any>): Record<string, any> {
-  const result: Record<string, any> = {}
-
-  for (const [key, value] of Object.entries(schema)) {
-    // Strip additionalProperties — Gemini rejects it with INVALID_ARGUMENT
-    if (key === 'additionalProperties') continue
-
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      result[key] = sanitizeToolSchema(value)
-    } else if (Array.isArray(value)) {
-      result[key] = value.map((item) =>
-        item && typeof item === 'object' ? sanitizeToolSchema(item) : item
-      )
-    } else {
-      result[key] = value
-    }
-  }
-
-  // Gemini requires `properties` to be present when `type` is `object`
-  if (result.type === 'object' && !result.properties) {
-    result.properties = {}
-  }
-
-  return result
-}
-
-export function getNativeToolsForOpenAi(target: 'main' | 'launcher' = 'main'): OpenAiToolDefinition[] {
-  return toolsManifest
-    .filter((t) => {
-      if (target === 'launcher') return true
-      return !t.target || t.target === 'both' || t.target === target
-    })
-    .map((t) => {
-      const properties: Record<string, any> = {}
-      for (const [key, paramDef] of Object.entries(t.parameters || {})) {
-        if (typeof paramDef === 'string') {
-          properties[key] = { type: 'string', description: paramDef }
-        } else if (typeof paramDef === 'object' && paramDef !== null) {
-          properties[key] = paramDef
-        }
-      }
-      return {
-        type: 'function',
-        function: {
-          name: t.name,
-          description: t.description,
-          parameters: sanitizeToolSchema({
-            type: 'object',
-            properties
-          })
-        }
-      }
-    })
+export function getNativeToolsForOpenAi(_target: 'main' | 'launcher' = 'main'): OpenAiToolDefinition[] {
+  return getOpenAiToolDefinitions()
 }
 
 export async function handleChatMessage(
@@ -270,8 +212,7 @@ export async function handleChatMessage(
       config.modelReasoningLevels?.[cleanModelId]
 
     const dataLevel = typeof data === 'object' ? data.reasoningLevel : undefined
-    const reasoningLevel =
-      dataLevel && dataLevel !== 'off' ? dataLevel : configLevel || dataLevel || 'off'
+    const reasoningLevel = normalizePrismThinkingLevel(provider, dataLevel || configLevel)
 
     const firstMsgText = userText.trim()
     const matchedWorkflow = config.workflows?.find((w) =>
@@ -296,9 +237,11 @@ export async function handleChatMessage(
 
     let maxLoops = 100
     let loopCount = 0
+    const toolLoopGuard = new ToolLoopGuard()
     let accumulatedReplyText = ''
     let accumulatedReasoningText = ''
     let accumulatedThinkingDuration = 0
+    let replyEnded = false
 
     while (loopCount < maxLoops) {
       loopCount++
@@ -419,6 +362,12 @@ export async function handleChatMessage(
         ...(turnThinkingDuration !== undefined ? { thinking_duration: turnThinkingDuration } : {})
       }
 
+      if (streamResult.nativeContent) {
+        assistantMessage.provider_metadata = {
+          gemini: { content: streamResult.nativeContent }
+        }
+      }
+
       if (streamResult.toolCalls.length > 0) {
         assistantMessage.tool_calls = streamResult.toolCalls.map((tc) => ({
           id: tc.id,
@@ -452,28 +401,30 @@ export async function handleChatMessage(
       // Execute tool calls if any returned
       if (streamResult.toolCalls.length > 0) {
         for (const tc of streamResult.toolCalls) {
-          let parsedArgs: Record<string, any> = {}
-          try {
-            parsedArgs = JSON.parse(tc.args || '{}')
-          } catch {
-            parsedArgs = { raw: tc.args }
-          }
+          const execution = await executeValidatedTool(
+            tc.name,
+            tc.args || '{}',
+            {
+              event,
+              apiKey: provider.apiKey,
+              signal: abortController.signal,
+              chatId,
+              onStart: (args) =>
+                safeSend(event.sender, 'chat-tool-start', {
+                  callId: tc.id,
+                  name: tc.name,
+                  args,
+                  timestamp: Date.now(),
+                  chatId
+                })
+            },
+            toolLoopGuard
+          )
 
-          safeSend(event.sender, 'chat-tool-start', {
-            name: tc.name,
-            args: parsedArgs,
-            timestamp: Date.now(),
-            chatId
-          })
-
-          let toolOutput = ''
-          try {
-            toolOutput = await executeSystemTool(tc.name, parsedArgs, event, provider.apiKey, abortController.signal, chatId)
-          } catch (err: any) {
-            toolOutput = `Error executing tool ${tc.name}: ${err.message}`
-          }
+          const toolOutput = execution.modelContent
 
           safeSend(event.sender, 'chat-tool-end', {
+            callId: tc.id,
             name: tc.name,
             result: toolOutput,
             chatId
@@ -499,54 +450,6 @@ export async function handleChatMessage(
         continue
       }
 
-      // Check text for tag-based tool calls [PRISM_EXECUTE_TOOL]
-      const tagMatch = currentReplyText.match(/\[PRISM_EXECUTE_TOOL\]([\s\S]*?)\[\/PRISM_EXECUTE_TOOL\]/)
-      if (tagMatch) {
-        try {
-          const toolData = JSON.parse(tagMatch[1])
-          const toolName = toolData.type || toolData.name
-          delete toolData.type
-          delete toolData.name
-
-          safeSend(event.sender, 'chat-tool-start', {
-            name: toolName,
-            args: toolData,
-            timestamp: Date.now(),
-            chatId
-          })
-
-          const toolOutput = await executeSystemTool(toolName, toolData, event, provider.apiKey, abortController.signal, chatId)
-
-          safeSend(event.sender, 'chat-tool-end', {
-            name: toolName,
-            result: toolOutput,
-            chatId
-          })
-
-          // Remove the executed tag from history to prevent polluting the context or output
-          const cleanedReplyText = currentReplyText.replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g, '').trim()
-          if (cleanedReplyText) {
-            accumulatedReplyText = accumulatedReplyText ? accumulatedReplyText + '\n\n' + cleanedReplyText : cleanedReplyText
-          }
-
-          historyMessages.push({
-            role: 'user',
-            content: `Tool Execution Result for ${toolName}:\n${toolOutput}`
-          })
-          saveChatSession(
-            chatId,
-            historyMessages,
-            undefined,
-            currentSessionMode,
-            currentDisciplinePath,
-            currentSelectedChatModel
-          )
-          continue
-        } catch {
-          // If tag parsing fails, break
-        }
-      }
-
       // No tool calls, finish
       safeSend(event.sender, 'chat-reply-end', {
         thoughts: accumulatedReasoningText,
@@ -556,7 +459,84 @@ export async function handleChatMessage(
         thinkingDuration: turnThinkingDuration,
         chatId
       })
+      replyEnded = true
       break
+    }
+
+    if (!replyEnded && !abortController.signal.aborted) {
+      let finalText = ''
+      let finalReasoning = ''
+      const finalResult = await streamOpenAiCompletion(
+        provider,
+        model.id,
+        [
+          {
+            role: 'system',
+            content:
+              `${fullPrompt}\n\n# Tool loop limit reached\n` +
+              'The maximum of 100 tool rounds has been reached. Do not call more tools. ' +
+              'Explain what was completed, what remains, and the last tool result.'
+          },
+          ...convertHistoryToOpenAi(historyMessages)
+        ],
+        [],
+        abortController.signal,
+        {
+          onTextDelta: (text) => {
+            finalText += text
+            safeSend(event.sender, 'chat-reply-chunk', {
+              chatId,
+              thoughts: accumulatedReasoningText + finalReasoning,
+              finalResponse: accumulatedReplyText
+                ? `${accumulatedReplyText}\n\n${finalText}`
+                : finalText,
+              isThinking: false,
+              isWritingToolCall: false
+            })
+          },
+          onReasoningDelta: (reasoning) => {
+            finalReasoning += reasoning
+          },
+          onToolCallDelta: () => {}
+        },
+        reasoningLevel
+      )
+      finalText = finalResult.text || finalText
+      finalReasoning = finalResult.reasoning || finalReasoning
+      if (finalText) {
+        accumulatedReplyText = accumulatedReplyText
+          ? `${accumulatedReplyText}\n\n${finalText}`
+          : finalText
+      }
+      if (finalReasoning) {
+        accumulatedReasoningText = accumulatedReasoningText
+          ? `${accumulatedReasoningText}\n\n${finalReasoning}`
+          : finalReasoning
+      }
+      const finalAssistantMessage: OpenAiMessage = {
+        role: 'assistant',
+        content: finalText,
+        ...(finalResult.nativeContent
+          ? { provider_metadata: { gemini: { content: finalResult.nativeContent } } }
+          : {})
+      }
+      historyMessages.push(finalAssistantMessage)
+      saveChatSession(
+        chatId,
+        historyMessages,
+        undefined,
+        currentSessionMode,
+        currentDisciplinePath,
+        currentSelectedChatModel
+      )
+      safeSend(event.sender, 'chat-reply-end', {
+        thoughts: accumulatedReasoningText,
+        finalResponse: accumulatedReplyText,
+        rawText: accumulatedReplyText,
+        isThinking: false,
+        chatId,
+        loopLimitReached: true
+      })
     }
   } catch (error: any) {
     if (abortController.signal.aborted || error.name === 'AbortError') {
@@ -588,7 +568,8 @@ function convertHistoryToOpenAi(history: any[]): OpenAiMessage[] {
       return {
         role: m.role === 'model' ? 'assistant' : m.role,
         content: content || '',
-        tool_calls: m.tool_calls
+        tool_calls: m.tool_calls,
+        provider_metadata: m.provider_metadata
       }
     })
 }

@@ -4,8 +4,9 @@ import { resolveProviderAndModel } from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
 import { OpenAiMessage, StreamToolCallDelta } from './types'
 import { getNativeToolsForOpenAi } from './chatHandler'
-import { executeSystemTool, getSystemToolsPrompt } from '../systemTools'
+import { getSystemToolsPrompt } from '../systemTools'
 import { safeSend } from '../safeSend'
+import { executeValidatedTool, ToolLoopGuard } from '../toolRuntime'
 
 let launcherHistory: OpenAiMessage[] = []
 let launcherAbortController: AbortController | null = null
@@ -47,10 +48,12 @@ export async function handleLauncherChatMessage(
 
     const launcherTools = getNativeToolsForOpenAi('launcher')
     let loopCount = 0
-    const maxLoops = 10
+    const maxLoops = 100
+    const toolLoopGuard = new ToolLoopGuard()
 
     let fullText = ''
     let fullReasoning = ''
+    let replyEnded = false
 
     while (loopCount < maxLoops) {
       loopCount++
@@ -155,65 +158,109 @@ export async function handleLauncherChatMessage(
       }
 
       if (result.toolCalls && result.toolCalls.length > 0) {
+        launcherHistory.push({
+          role: 'assistant',
+          content: iterContent || null,
+          tool_calls: result.toolCalls.map((tc) => ({
+            id: tc.id,
+            type: 'function',
+            function: { name: tc.name, arguments: tc.args },
+            ...(tc.thoughtSignature
+              ? {
+                  thought_signature: tc.thoughtSignature,
+                  extra_content: { google: { thought_signature: tc.thoughtSignature } }
+                }
+              : {})
+          })),
+          ...(result.nativeContent
+            ? { provider_metadata: { gemini: { content: result.nativeContent } } }
+            : {})
+        })
+
         for (const tc of result.toolCalls) {
           const toolCallId = tc.id || `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
-
-          let parsedArgs: Record<string, any> = {}
-          try {
-            parsedArgs = typeof tc.args === 'string' ? JSON.parse(tc.args) : tc.args || {}
-          } catch {
-            parsedArgs = {}
-          }
-
-          safeSend(window, 'launcher-tool-start', {
-            name: tc.name,
-            args: parsedArgs
-          })
-
-          let toolOutput = ''
-          try {
-            const execRes = await executeSystemTool(tc.name, parsedArgs, { sender: window.webContents })
-            toolOutput = typeof execRes === 'string' ? execRes : JSON.stringify(execRes)
-          } catch (err: any) {
-            toolOutput = `Error: ${err.message || String(err)}`
-          }
+          const execution = await executeValidatedTool(
+            tc.name,
+            tc.args,
+            {
+              event: { sender: window.webContents },
+              signal: launcherAbortController.signal,
+              onStart: (args) =>
+                safeSend(window, 'launcher-tool-start', {
+                  callId: toolCallId,
+                  name: tc.name,
+                  args
+                })
+            },
+            toolLoopGuard
+          )
+          const toolOutput = execution.modelContent
 
           safeSend(window, 'launcher-tool-end', {
+            callId: toolCallId,
             name: tc.name,
             result: toolOutput
           })
 
           launcherHistory.push({
-            role: 'assistant',
-            content: iterContent || null,
-            tool_calls: [
-              {
-                id: toolCallId,
-                type: 'function',
-                function: {
-                  name: tc.name,
-                  arguments: typeof tc.args === 'string' ? tc.args : JSON.stringify(tc.args)
-                },
-                ...(tc.thoughtSignature
-                  ? {
-                      thought_signature: tc.thoughtSignature,
-                      extra_content: { google: { thought_signature: tc.thoughtSignature } }
-                    }
-                  : {})
-              }
-            ]
-          })
-
-          launcherHistory.push({
             role: 'tool',
             tool_call_id: toolCallId,
+            name: tc.name,
             content: toolOutput
           })
         }
       } else {
         launcherHistory.push({ role: 'assistant', content: fullText })
+        replyEnded = true
         break
       }
+    }
+
+    if (!replyEnded && !launcherAbortController.signal.aborted) {
+      let limitText = ''
+      let limitReasoning = ''
+      const finalResult = await streamOpenAiCompletion(
+        provider,
+        model.id,
+        [
+          {
+            role: 'system',
+            content:
+              `${getSystemToolsPrompt(model.id, 'launcher')}\n\n` +
+              'The maximum of 100 tool rounds has been reached. Do not call more tools. ' +
+              'Summarize completed work, remaining work, and the last tool result.'
+          },
+          ...launcherHistory
+        ],
+        [],
+        launcherAbortController.signal,
+        {
+          onTextDelta: (text) => {
+            limitText += text
+            safeSend(window, 'launcher-reply-chunk', {
+              thoughts: fullReasoning + limitReasoning,
+              finalResponse: fullText ? `${fullText}\n\n${limitText}` : limitText,
+              isThinking: false,
+              isWritingToolCall: false
+            })
+          },
+          onReasoningDelta: (reasoning) => {
+            limitReasoning += reasoning
+          },
+          onToolCallDelta: () => {}
+        }
+      )
+      limitText = finalResult.text || limitText
+      limitReasoning = finalResult.reasoning || limitReasoning
+      if (limitText) fullText = fullText ? `${fullText}\n\n${limitText}` : limitText
+      if (limitReasoning) fullReasoning += limitReasoning
+      launcherHistory.push({
+        role: 'assistant',
+        content: finalResult.text,
+        ...(finalResult.nativeContent
+          ? { provider_metadata: { gemini: { content: finalResult.nativeContent } } }
+          : {})
+      })
     }
 
     safeSend(window, 'launcher-reply-end', {

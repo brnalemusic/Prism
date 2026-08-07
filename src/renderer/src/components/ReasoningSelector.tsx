@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { CaretDown as ChevronDown, Check, Brain } from '@phosphor-icons/react'
 import { clsx } from 'clsx'
-import { getThinkingLevelsForModel } from '../constants'
+import { getDefaultThinkingLevelForModel, getThinkingLevelsForModel } from '../constants'
 
 interface ReasoningSelectorProps {
   selectedModel: string
@@ -33,7 +33,10 @@ export function ReasoningSelector({
 
   const levels = getThinkingLevelsForModel(selectedModel)
   const supportsReasoning = levels.length > 0
-  const currentLevel = levels.find((l) => l.id === value) || { id: 'off', name: 'Off' }
+  const currentLevel = levels.find((l) => l.id === value) || {
+    id: 'minimal' as const,
+    name: getDefaultThinkingLevelForModel(selectedModel) === 'minimal' ? 'Minimal' : 'Off'
+  }
 
   if (!supportsReasoning) {
     return null
@@ -58,7 +61,7 @@ export function ReasoningSelector({
           size={12}
           className={clsx(
             'shrink-0 transition-all duration-300',
-            value !== 'off' ? 'text-accent-primary animate-pulse' : 'text-text-secondary/70'
+            value !== 'minimal' ? 'text-accent-primary animate-pulse' : 'text-text-secondary/70'
           )}
         />
         <span>{currentLevel.name}</span>

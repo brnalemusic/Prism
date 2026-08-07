@@ -1,6 +1,6 @@
-import { ProviderConfig, ProviderModel, CompletionType, StreamToolCallDelta, TodoState } from '../../shared/types'
+import { ProviderConfig, ProviderModel, CompletionType, StreamToolCallDelta, TodoState, PrismThinkingLevel } from '../../shared/types'
 
-export type { ProviderConfig, ProviderModel, CompletionType, StreamToolCallDelta, TodoState }
+export type { ProviderConfig, ProviderModel, CompletionType, StreamToolCallDelta, TodoState, PrismThinkingLevel }
 
 export interface ActiveRun {
   chatId: string
@@ -13,6 +13,32 @@ export interface ActiveRun {
 export interface StructuredChatResponse {
   text: string
   reasoning?: string
+}
+
+export interface GeminiFunctionCallData {
+  id?: string
+  name?: string
+  args?: Record<string, unknown>
+}
+
+export interface GeminiFunctionResponseData {
+  id?: string
+  name?: string
+  response?: Record<string, unknown>
+}
+
+export interface GeminiPartData {
+  text?: string
+  thought?: boolean
+  thoughtSignature?: string
+  functionCall?: GeminiFunctionCallData
+  functionResponse?: GeminiFunctionResponseData
+  inlineData?: { mimeType?: string; data?: string }
+}
+
+export interface GeminiContentData {
+  role?: 'user' | 'model'
+  parts?: GeminiPartData[]
 }
 
 export interface OpenAiMessage {
@@ -30,6 +56,11 @@ export interface OpenAiMessage {
     extra_content?: { google?: { thought_signature?: string } }
   }>
   tool_call_id?: string
+  provider_metadata?: {
+    gemini?: {
+      content: GeminiContentData
+    }
+  }
 }
 
 export interface OpenAiToolDefinition {

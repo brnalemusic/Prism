@@ -1,491 +1,369 @@
-export interface ToolParameterSchema {
-  type: string
+export type JsonSchemaType = 'object' | 'array' | 'string' | 'integer' | 'number' | 'boolean'
+
+export interface JsonSchema {
+  type: JsonSchemaType
   description?: string
-  items?: any
-  properties?: Record<string, any>
+  enum?: Array<string | number | boolean>
+  properties?: Record<string, JsonSchema>
   required?: string[]
+  items?: JsonSchema
+  default?: unknown
+  minimum?: number
+  maximum?: number
+  minItems?: number
+  maxItems?: number
+  additionalProperties?: boolean
 }
 
 export interface ToolDefinition {
   name: string
   description: string
-  usage: string
-  parameters: Record<string, string | ToolParameterSchema>
-  target?: 'main' | 'both' | 'launcher'
+  inputSchema: JsonSchema
 }
 
+const stringSchema = (
+  description: string,
+  options: Pick<JsonSchema, 'enum' | 'default'> = {}
+): JsonSchema => ({ type: 'string', description, ...options })
+
+const booleanSchema = (description: string, defaultValue?: boolean): JsonSchema => ({
+  type: 'boolean',
+  description,
+  ...(defaultValue === undefined ? {} : { default: defaultValue })
+})
+
+const integerSchema = (
+  description: string,
+  options: Pick<JsonSchema, 'default' | 'minimum' | 'maximum'> = {}
+): JsonSchema => ({ type: 'integer', description, ...options })
+
+const objectSchema = (
+  properties: Record<string, JsonSchema>,
+  required: string[] = []
+): JsonSchema => ({
+  type: 'object',
+  properties,
+  required,
+  additionalProperties: false
+})
+
+const tool = (
+  name: string,
+  description: string,
+  properties: Record<string, JsonSchema> = {},
+  required: string[] = []
+): ToolDefinition => ({ name, description, inputSchema: objectSchema(properties, required) })
+
+const pathArg = stringSchema('Absolute filesystem path.')
+const contentArg = stringSchema('Complete UTF-8 text content. Preserve whitespace exactly.')
+
 export const toolsManifest: ToolDefinition[] = [
-  {
-    name: 'execute_terminal_command',
-    description: 'Run shell command in user terminal.',
-    usage: '{"command":"CMD"}',
-    parameters: {
-      command: 'Shell command to execute.'
-    }
-  },
-  {
-    name: 'computer_use_create_file',
-    description: 'Create file with content.',
-    usage: '{"path":"PATH","content":"TXT"}',
-    parameters: {
-      path: 'Absolute file path.',
-      content: 'File content.'
-    }
-  },
-  {
-    name: 'computer_use_create_directory',
-    description: 'Create directory.',
-    usage: '{"path":"PATH"}',
-    parameters: {
-      path: 'Absolute directory path.'
-    }
-  },
-  {
-    name: 'computer_use_remove_file',
-    description: 'Delete file.',
-    usage: '{"path":"PATH"}',
-    parameters: {
-      path: 'Absolute file path.'
-    }
-  },
-  {
-    name: 'computer_use_remove_directory',
-    description: 'Delete directory.',
-    usage: '{"path":"PATH"}',
-    parameters: {
-      path: 'Absolute directory path.'
-    }
-  },
-  {
-    name: 'computer_use_save_file',
-    description: 'Save file content.',
-    usage: '{"path":"PATH","content":"TXT"}',
-    parameters: {
-      path: 'Absolute file path.',
-      content: 'Full file content.'
-    }
-  },
-  {
-    name: 'computer_use_append_file',
-    description: 'Append text to file.',
-    usage: '{"path":"PATH","content":"TXT"}',
-    parameters: {
-      path: 'Absolute file path.',
-      content: 'Text to append.'
-    }
-  },
-  {
-    name: 'computer_use_edit_file',
-    description: 'Edit line range in file.',
-    usage: '{"path":"PATH","startLine":1,"endLine":5,"newContent":"TXT"}',
-    parameters: {
-      path: 'Absolute file path.',
-      startLine: 'Start line (1-based).',
-      endLine: 'End line (inclusive).',
-      newContent: 'New text.'
-    }
-  },
-  {
-    name: 'computer_use_copy_file',
-    description: 'Copy file or directory.',
-    usage: '{"sourcePath":"S","destinationPath":"D","overwrite":"false"}',
-    parameters: {
-      sourcePath: 'Source path.',
-      destinationPath: 'Destination path.',
-      overwrite: 'true|false'
-    }
-  },
-  {
-    name: 'computer_use_move_file',
-    description: 'Move or rename file/directory.',
-    usage: '{"sourcePath":"S","destinationPath":"D","overwrite":"false"}',
-    parameters: {
-      sourcePath: 'Source path.',
-      destinationPath: 'Destination path.',
-      overwrite: 'true|false'
-    }
-  },
-  {
-    name: 'computer_use_get_file_info',
-    description: 'Get file or directory metadata.',
-    usage: '{"path":"PATH"}',
-    parameters: {
-      path: 'Absolute path.'
-    }
-  },
-  {
-    name: 'computer_use_list_directory',
-    description: 'List directory contents.',
-    usage: '{"path":"PATH"}',
-    parameters: {
-      path: 'Absolute directory path.'
-    }
-  },
-  {
-    name: 'computer_use_read_file',
-    description: 'Read file content.',
-    usage: '{"path":"PATH","startLine":1,"limit":50}',
-    parameters: {
-      path: 'Absolute file path.',
-      startLine: '1-based start line.',
-      limit: 'Line count (default 200, max 500).'
-    }
-  },
-  {
-    name: 'search_installed_applications',
-    description: 'Search installed applications.',
-    usage: '{"query":"app"}',
-    parameters: {
-      query: 'App search term.'
-    }
-  },
-  {
-    name: 'open_application',
-    description: 'Open application from path.',
-    usage: '{"appPath":"PATH"}',
-    parameters: {
-      appPath: 'Path to .exe.'
-    }
-  },
-  {
-    name: 'web_search',
-    description: 'Search Google for live information.',
-    usage: '{"searches":[{"title":"Action","query":"keywords"}]}',
-    parameters: {
+  tool(
+    'execute_terminal_command',
+    'Run one command in the user-configured terminal shell.',
+    { command: stringSchema('Exact shell command to execute.') },
+    ['command']
+  ),
+  tool(
+    'computer_use_create_file',
+    'Create a new file. Fails if the file already exists.',
+    { path: pathArg, content: contentArg },
+    ['path', 'content']
+  ),
+  tool('computer_use_create_directory', 'Create a directory recursively.', { path: pathArg }, ['path']),
+  tool('computer_use_remove_file', 'Delete one file.', { path: pathArg }, ['path']),
+  tool('computer_use_remove_directory', 'Delete one directory recursively.', { path: pathArg }, ['path']),
+  tool(
+    'computer_use_save_file',
+    'Create or overwrite a file with complete content.',
+    { path: pathArg, content: contentArg },
+    ['path', 'content']
+  ),
+  tool(
+    'computer_use_append_file',
+    'Append text to a file.',
+    { path: pathArg, content: contentArg },
+    ['path', 'content']
+  ),
+  tool(
+    'computer_use_edit_file',
+    'Replace an inclusive line range in a text file.',
+    {
+      path: pathArg,
+      startLine: integerSchema('First line to replace, using one-based indexing.', { minimum: 1 }),
+      endLine: integerSchema('Last line to replace, inclusive.', { minimum: 1 }),
+      newContent: contentArg
+    },
+    ['path', 'startLine', 'endLine', 'newContent']
+  ),
+  tool(
+    'computer_use_copy_file',
+    'Copy a file or directory.',
+    {
+      sourcePath: stringSchema('Absolute source path.'),
+      destinationPath: stringSchema('Absolute destination path.'),
+      overwrite: booleanSchema('Whether an existing destination may be overwritten.', false)
+    },
+    ['sourcePath', 'destinationPath']
+  ),
+  tool(
+    'computer_use_move_file',
+    'Move or rename a file or directory.',
+    {
+      sourcePath: stringSchema('Absolute source path.'),
+      destinationPath: stringSchema('Absolute destination path.'),
+      overwrite: booleanSchema('Whether an existing destination may be overwritten.', false)
+    },
+    ['sourcePath', 'destinationPath']
+  ),
+  tool('computer_use_get_file_info', 'Read file or directory metadata.', { path: pathArg }, ['path']),
+  tool('computer_use_list_directory', 'List the immediate contents of a directory.', { path: pathArg }, ['path']),
+  tool(
+    'computer_use_read_file',
+    'Read a bounded line range from a UTF-8 text file.',
+    {
+      path: pathArg,
+      startLine: integerSchema('First line to read, using one-based indexing.', { default: 1, minimum: 1 }),
+      limit: integerSchema('Maximum number of lines to return.', { default: 200, minimum: 1, maximum: 500 })
+    },
+    ['path']
+  ),
+  tool(
+    'search_installed_applications',
+    'Search installed applications and workspace entries by name.',
+    { query: stringSchema('Application search term.') },
+    ['query']
+  ),
+  tool('open_application', 'Open an application from its executable path.', { appPath: stringSchema('Absolute executable path.') }, ['appPath']),
+  tool(
+    'web_search',
+    'Search the web using one or more titled queries.',
+    {
       searches: {
         type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            title: { type: 'string', description: 'Concise UI action title.' },
-            query: { type: 'string', description: 'Google search keywords.' }
+        description: 'Search requests to execute in order.',
+        minItems: 1,
+        maxItems: 10,
+        items: objectSchema(
+          {
+            title: stringSchema('Concise action title shown in the UI.'),
+            query: stringSchema('Search-engine query.')
           },
-          required: ['title', 'query']
-        },
-        description: 'Search query objects with title and query.'
+          ['title', 'query']
+        )
       }
-    }
-  },
-  {
-    name: 'saw_link_from_url',
-    description: 'Read text content from URL.',
-    usage: '{"url":"URL"}',
-    parameters: {
-      url: 'Target URL.'
-    }
-  },
-  {
-    name: 'open_browser_link',
-    description: 'Open URL in system browser.',
-    usage: '{"url":"URL"}',
-    parameters: {
-      url: 'Target URL.'
-    }
-  },
-  {
-    name: 'open_browser',
-    description: 'Open/attach live browser session. Do not re-open if active; call browser_snapshot.',
-    usage: '{"url":"URL"}',
-    parameters: {
-      url: 'Initial URL.'
-    }
-  },
-  {
-    name: 'browser_navigate',
-    description: 'Navigate browser to URL.',
-    usage: '{"url":"URL"}',
-    parameters: {
-      url: 'Target URL.'
-    }
-  },
-  {
-    name: 'browser_snapshot',
-    description: 'Get semantic DOM snapshot.',
-    usage: '{"full":"false"}',
-    parameters: {
-      full: '"true"|"false"'
-    }
-  },
-  {
-    name: 'browser_click',
-    description: 'Click element on page by ID.',
-    usage: '{"elementId":"1"}',
-    parameters: {
-      elementId: 'Element ID from snapshot.'
-    }
-  },
-  {
-    name: 'browser_type',
-    description: 'Type text into element by ID.',
-    usage: '{"elementId":"1","text":"txt"}',
-    parameters: {
-      elementId: 'Element ID from snapshot.',
-      text: 'Text to type.'
-    }
-  },
-  {
-    name: 'browser_press',
-    description: 'Press key on active page.',
-    usage: '{"key":"Enter"}',
-    parameters: {
-      key: 'Key name.'
-    }
-  },
-  {
-    name: 'browser_scroll',
-    description: 'Scroll active page view.',
-    usage: '{"direction":"down","amount":"300"}',
-    parameters: {
-      direction: '"up"|"down"',
-      amount: 'Pixels to scroll.'
-    }
-  },
-  {
-    name: 'browser_back',
-    description: 'Go back in browser history.',
-    usage: '{}',
-    parameters: {}
-  },
-  {
-    name: 'browser_screenshot',
-    description: 'Take browser screenshot.',
-    usage: '{}',
-    parameters: {}
-  },
-  {
-    name: 'web_script',
-    description: 'Execute JavaScript on page.',
-    usage: '{"script":"code"}',
-    parameters: {
-      url: 'Target URL.',
-      script: 'JavaScript code.'
-    }
-  },
-  {
-    name: 'detailed_dom_page',
-    description: 'Get detailed HTML DOM tree.',
-    usage: '{"url":"URL"}',
-    parameters: {
-      url: 'Target URL.'
-    }
-  },
-  {
-    name: 'search_chat_history',
-    description: 'Search past conversations by keywords.',
-    usage: '{"query":"keywords"}',
-    parameters: {
-      query: 'Search keywords.'
-    }
-  },
-  {
-    name: 'open_main_app',
-    description: 'Open main application window.',
-    usage: '{"instructions":"TXT","model":"KEY"}',
-    parameters: {
-      instructions: 'Target instructions.',
-      model: 'Model key.',
-      searchEnabled: '"true"|"false"'
     },
-    target: 'launcher'
-  },
-  {
-    name: 'computer_use_see_screen',
-    description: 'Take screenshot of screen/app.',
-    usage: '{"appName":"Name"}',
-    parameters: {
-      appName: 'Window name or "Entire Screen".'
+    ['searches']
+  ),
+  tool('saw_link_from_url', 'Read the main text content of a web URL.', { url: stringSchema('HTTP or HTTPS URL.') }, ['url']),
+  tool('open_browser_link', 'Open a URL in the system browser.', { url: stringSchema('HTTP or HTTPS URL.') }, ['url']),
+  tool(
+    'open_browser',
+    'Open or attach the persistent Prism browser session.',
+    { url: stringSchema('Optional initial HTTP or HTTPS URL.') }
+  ),
+  tool('browser_navigate', 'Navigate the active Prism browser.', { url: stringSchema('HTTP or HTTPS URL.') }, ['url']),
+  tool(
+    'browser_snapshot',
+    'Read a semantic snapshot of the active browser page.',
+    { full: booleanSchema('Whether to return the full page snapshot.', false) }
+  ),
+  tool('browser_click', 'Click an element in the active browser snapshot.', { elementId: stringSchema('Element ID from the latest snapshot.') }, ['elementId']),
+  tool(
+    'browser_type',
+    'Type text into an element in the active browser.',
+    { elementId: stringSchema('Element ID from the latest snapshot.'), text: stringSchema('Text to type.') },
+    ['elementId', 'text']
+  ),
+  tool('browser_press', 'Press a keyboard key in the active browser.', { key: stringSchema('Playwright key name, such as Enter or Escape.') }, ['key']),
+  tool(
+    'browser_scroll',
+    'Scroll the active browser page.',
+    {
+      direction: stringSchema('Scroll direction.', { enum: ['up', 'down'] }),
+      amount: integerSchema('Optional number of pixels to scroll.', { minimum: 1 })
+    },
+    ['direction']
+  ),
+  tool('browser_back', 'Navigate back in the active browser history.'),
+  tool('browser_screenshot', 'Capture a screenshot of the active browser page.'),
+  tool(
+    'web_script',
+    'Execute JavaScript in the active browser page.',
+    { script: stringSchema('JavaScript source to execute.'), url: stringSchema('Optional expected page URL.') },
+    ['script']
+  ),
+  tool('detailed_dom_page', 'Read the detailed DOM of the active browser page.', { url: stringSchema('Optional expected page URL.') }),
+  tool('search_chat_history', 'Search saved conversations by keywords.', { query: stringSchema('Keywords to search.') }, ['query']),
+  tool(
+    'open_main_app',
+    'Open the main Prism window with instructions from Quick Launcher.',
+    {
+      instructions: stringSchema('Instructions to send to the main chat.'),
+      model: stringSchema('Optional model key.'),
+      searchEnabled: booleanSchema('Whether search mode should be enabled.', false)
+    },
+    ['instructions']
+  ),
+  tool(
+    'computer_use_see_screen',
+    'Capture a screenshot of a screen or application window.',
+    { appName: stringSchema('Window name or "Entire Screen".', { default: 'Entire Screen' }) }
+  ),
+  tool(
+    'configure_prism',
+    'Change non-secret Prism settings. At least one property is required.',
+    {
+      launcherShortcut: stringSchema('Quick Launcher hotkey.'),
+      modelSelectionShortcut: stringSchema('Model picker hotkey.'),
+      screenshotShortcut: stringSchema('Screenshot hotkey.'),
+      newChatShortcut: stringSchema('New chat hotkey.'),
+      dictationShortcut: stringSchema('Voice dictation hotkey.'),
+      webSearchShortcut: stringSchema('Search mode hotkey.'),
+      youtubeModeShortcut: stringSchema('YouTube mode hotkey.'),
+      lastSelectedChatModel: stringSchema('Main chat model key.'),
+      defaultModel: stringSchema('Alias for the main chat model key.'),
+      searchModel: stringSchema('Search model key.'),
+      quickLauncherModel: stringSchema('Quick Launcher model key.'),
+      sttModel: stringSchema('Speech-to-text model key.'),
+      minimizeToTray: booleanSchema('Whether closing Prism minimizes it to the tray.'),
+      autoLaunch: booleanSchema('Whether Prism starts with the operating system.'),
+      quickLauncherMode: stringSchema('Quick Launcher mode.', { enum: ['simple', 'advanced'] }),
+      username: stringSchema('Display name.'),
+      ttsVoice: stringSchema('Text-to-speech voice.', { enum: ['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'] }),
+      terminalShell: stringSchema('Shell executable or absolute path.'),
+      zoomFactor: { type: 'number', description: 'Application zoom factor.', minimum: 0.5, maximum: 3 }
     }
-  },
-  {
-    name: 'configure_prism',
-    description: 'Change application settings.',
-    usage: '{"username":"Name"}',
-    parameters: {
-      launcherShortcut: 'Launcher hotkey.',
-      modelSelectionShortcut: 'Model picker hotkey.',
-      screenshotShortcut: 'Screenshot hotkey.',
-      newChatShortcut: 'Start new chat hotkey.',
-      dictationShortcut: 'Voice dictation hotkey.',
-      webSearchShortcut: 'Search mode hotkey.',
-      youtubeModeShortcut: 'YouTube mode hotkey.',
-      lastSelectedChatModel: 'Main chat model key.',
-      defaultModel: 'Main chat model key alias.',
-      searchModel: 'Web search model key.',
-      quickLauncherModel: 'Quick launcher model key.',
-      sttModel: 'Dictation model key.',
-      minimizeToTray: '"true"|"false"',
-      autoLaunch: '"true"|"false"',
-      quickLauncherMode: 'simple|advanced',
-      username: 'User name.',
-      ttsVoice: 'Aoede|Puck|Charon|Kore|Fenrir',
-      terminalShell: 'Shell executable or path.',
-      zoomFactor: 'Zoom factor (0.5 - 3.0).'
-    }
-  },
-  {
-    name: 'internal_docs_list',
-    description: 'List Prism internal documentation files.',
-    usage: '{}',
-    parameters: {}
-  },
-  {
-    name: 'internal_docs_read',
-    description: 'Read internal documentation file.',
-    usage: '{"filename":"doc.md"}',
-    parameters: {
-      filename: 'Doc filename.'
-    }
-  },
-  {
-    name: 'internal_docs_search',
-    description: 'Search across internal documentation.',
-    usage: '{"query":"keywords"}',
-    parameters: {
-      query: 'Search query.'
-    }
-  },
-  {
-    name: 'to_ask',
-    description: 'Render UI questionnaire.',
-    usage: '{"session_id":"UUID","questions":[]}',
-    parameters: {
-      session_id: 'Unique UUID.',
+  ),
+  tool('internal_docs_list', 'List Prism internal documentation files.'),
+  tool('internal_docs_read', 'Read one Prism internal documentation file.', { filename: stringSchema('Markdown filename returned by internal_docs_list.') }, ['filename']),
+  tool('internal_docs_search', 'Search Prism internal documentation.', { query: stringSchema('Search query.') }, ['query']),
+  tool(
+    'to_ask',
+    'Show a questionnaire and wait for the user response.',
+    {
+      session_id: stringSchema('Unique questionnaire session ID.'),
       questions: {
         type: 'array',
-        items: { type: 'object' },
-        description: 'Array of question objects (id, type, title, prompt).'
+        minItems: 1,
+        description: 'Question objects rendered by Prism.',
+        items: objectSchema(
+          {
+            id: stringSchema('Unique question ID.'),
+            type: stringSchema('Question type.', { enum: ['multiple-choice', 'essay'] }),
+            title: stringSchema('Short category title.'),
+            prompt: stringSchema('Question shown to the user.'),
+            options: {
+              type: 'array',
+              description: 'Choices for a multiple-choice question.',
+              items: objectSchema(
+                { value: stringSchema('Stable choice value.'), label: stringSchema('User-facing choice label.') },
+                ['value', 'label']
+              )
+            }
+          },
+          ['id', 'type', 'title', 'prompt']
+        )
       }
-    }
-  },
-  {
-    name: 'render_chat_history',
-    description: 'Show chat session in UI.',
-    usage: '{"query":"ID"}',
-    parameters: {
-      query: 'Session ID or filename.'
-    }
-  },
-  {
-    name: 'search_chat_memory',
-    description: 'Search chat memory.',
-    usage: '{"query":"keywords"}',
-    parameters: {
-      query: 'Keywords.'
-    }
-  },
-  {
-    name: 'not_found_chat_history',
-    description: 'Trigger when chat history not found.',
-    usage: '{}',
-    parameters: {}
-  },
-  {
-    name: 'list_workflows',
-    description: 'Get configured custom workflows.',
-    usage: '{}',
-    parameters: {},
-    target: 'main'
-  },
-  {
-    name: 'save_workflow',
-    description: 'Create or update custom workflow.',
-    usage: '{"command":"/cmd","name":"Name","systemInstruction":"Prompt"}',
-    parameters: {
-      command: 'Slash command starting with "/".',
-      name: 'Workflow name.',
-      systemInstruction: 'System prompt instructions.',
-      description: 'Brief description.',
-      id: 'Workflow ID.',
-      toolConstraints: 'Comma-separated allowed tool names.'
     },
-    target: 'main'
-  },
-  {
-    name: 'delete_workflow',
-    description: 'Delete custom workflow by command or ID.',
-    usage: '{"command":"/cmd"}',
-    parameters: {
-      command: 'Slash command to delete.',
-      id: 'Workflow ID to delete.'
+    ['session_id', 'questions']
+  ),
+  tool('render_chat_history', 'Render a saved chat session in the UI.', { query: stringSchema('Chat session ID or filename.') }, ['query']),
+  tool('search_chat_memory', 'Search conversation memory.', { query: stringSchema('Keywords to search.') }, ['query']),
+  tool('not_found_chat_history', 'Tell the UI that no matching chat history was found.'),
+  tool('list_workflows', 'List configured slash workflows.'),
+  tool(
+    'save_workflow',
+    'Create or update a slash workflow.',
+    {
+      command: stringSchema('Slash command beginning with "/".'),
+      name: stringSchema('Workflow name.'),
+      systemInstruction: stringSchema('Workflow system instruction.'),
+      description: stringSchema('Optional workflow description.'),
+      id: stringSchema('Existing workflow ID when updating.'),
+      toolConstraints: {
+        type: 'array',
+        description: 'Optional exact tool names allowed by the workflow.',
+        items: stringSchema('Registered tool name.')
+      }
     },
-    target: 'main'
-  },
-  {
-    name: 'create_todo',
-    description: 'Create todo list.',
-    usage: '{"tasks":["Task 1","Task 2"]}',
-    parameters: {
+    ['command', 'name', 'systemInstruction']
+  ),
+  tool(
+    'delete_workflow',
+    'Delete a slash workflow by command or ID.',
+    { command: stringSchema('Slash command to delete.'), id: stringSchema('Workflow ID to delete.') }
+  ),
+  tool(
+    'create_todo',
+    'Create a task list for the current chat.',
+    {
       tasks: {
         type: 'array',
-        items: { type: 'string' },
-        description: 'Actionable task strings (2-30).'
+        description: 'Actionable task titles.',
+        minItems: 1,
+        maxItems: 30,
+        items: stringSchema('Task title.')
       }
     },
-    target: 'main'
-  },
-  {
-    name: 'edit_todo',
-    description: 'Update task status.',
-    usage: '{"id":"task-0","status":"done"}',
-    parameters: {
-      id: 'Task ID (e.g. task-0).',
-      status: '"working"|"done"'
+    ['tasks']
+  ),
+  tool(
+    'edit_todo',
+    'Update the status of one task.',
+    {
+      id: stringSchema('Task ID, such as task-0.'),
+      status: stringSchema('New task status.', { enum: ['working', 'done'] })
     },
-    target: 'main'
-  },
-  {
-    name: 'create_mini_app',
-    description: 'Create interactive web widget/game/app (Mini-App).',
-    usage: '{"title":"Name","html":"HTML","css":"CSS","js":"JS"}',
-    parameters: {
-      title: 'Mini-app title.',
-      html: 'Clean HTML structure (no script/style tags).',
-      css: 'Modern responsive CSS styling.',
-      js: 'Interactive JS logic operating on element IDs.'
+    ['id', 'status']
+  ),
+  tool(
+    'create_mini_app',
+    'Create an interactive Mini App.',
+    {
+      title: stringSchema('Mini App title.'),
+      html: stringSchema('HTML structure without script or style tags.'),
+      css: stringSchema('Responsive CSS.'),
+      js: stringSchema('JavaScript interaction logic.')
     },
-    target: 'main'
-  },
-  {
-    name: 'write_pdf',
-    description: 'Generate a PDF artifact from HTML/CSS.',
-    usage: '{"filename":"doc.pdf","html":"HTML"}',
-    parameters: {
-      filename: 'PDF filename.',
-      html: 'A4 HTML/CSS content.'
+    ['title', 'html', 'css', 'js']
+  ),
+  tool(
+    'write_pdf',
+    'Generate a PDF artifact from HTML and CSS.',
+    { filename: stringSchema('PDF filename.'), html: stringSchema('Complete A4 HTML and CSS.') },
+    ['filename', 'html']
+  ),
+  tool(
+    'edit_pdf',
+    'Update an existing PDF artifact.',
+    {
+      id: stringSchema('Existing six-digit artifact ID.'),
+      path: stringSchema('Existing PDF path when no artifact ID is available.'),
+      html: stringSchema('Updated complete HTML and CSS.')
     },
-    target: 'main'
-  },
-  {
-    name: 'edit_pdf',
-    description: 'Edit an existing PDF artifact with updated HTML/CSS.',
-    usage: '{"id":"123456","html":"HTML"}',
-    parameters: {
-      id: '6-digit PDF artifact ID.',
-      path: 'Full file path to edit.',
-      html: 'Updated HTML/CSS content.'
+    ['html']
+  ),
+  tool(
+    'write_pptx',
+    'Generate a 16:9 PowerPoint artifact from slide HTML and CSS.',
+    { filename: stringSchema('PowerPoint filename.'), html: stringSchema('Complete 1920x1080 slide HTML and CSS.') },
+    ['filename', 'html']
+  ),
+  tool(
+    'edit_pptx',
+    'Update an existing PowerPoint artifact.',
+    {
+      id: stringSchema('Existing six-digit artifact ID.'),
+      path: stringSchema('Existing PowerPoint path when no artifact ID is available.'),
+      html: stringSchema('Updated complete slide HTML and CSS.')
     },
-    target: 'main'
-  },
-  {
-    name: 'write_pptx',
-    description: 'Generate 16:9 PowerPoint presentation artifact from HTML/CSS. Each slide MUST be <div class="slide"> (1920x1080px, padding 60px 80px, overflow hidden, page-break-after: always). Use grid cards & high visual impact.',
-    usage: '{"filename":"pres.pptx","html":"HTML"}',
-    parameters: {
-      filename: 'PowerPoint filename.',
-      html: '16:9 slide HTML and CSS layout content with <div class="slide"> wrappers.'
-    },
-    target: 'main'
-  },
-  {
-    name: 'edit_pptx',
-    description: 'Edit existing PowerPoint artifact from updated 16:9 slide HTML/CSS (<div class="slide"> 1920x1080px wrappers).',
-    usage: '{"id":"123456","html":"HTML"}',
-    parameters: {
-      id: '6-digit PowerPoint artifact ID.',
-      path: 'Full file path to edit.',
-      html: 'Updated 16:9 slide HTML and CSS content.'
-    },
-    target: 'main'
-  }
+    ['html']
+  )
 ]
 
+export const toolNames = new Set(toolsManifest.map((definition) => definition.name))
+
+export function getToolDefinition(name: string): ToolDefinition | undefined {
+  return toolsManifest.find((definition) => definition.name === name)
+}

@@ -5,8 +5,8 @@ import { resolveProviderAndModel } from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
 import { OpenAiMessage, StreamToolCallDelta } from './types'
 import { getNativeToolsForOpenAi } from './chatHandler'
-import { executeSystemTool } from '../systemTools'
 import { safeSend } from '../safeSend'
+import { executeValidatedTool, ToolLoopGuard } from '../toolRuntime'
 
 let searchAbortController: AbortController | null = null
 
@@ -60,6 +60,7 @@ export async function handleAiSearchChatMessage(
     }
 
     const searchTools = getNativeToolsForOpenAi('main')
+    const toolLoopGuard = new ToolLoopGuard()
 
     let fullText = ''
     let fullReasoning = ''
@@ -123,22 +124,25 @@ export async function handleAiSearchChatMessage(
     // Process native tool calls returned by API
     if (result.toolCalls && result.toolCalls.length > 0) {
       for (const tc of result.toolCalls) {
-        let parsedArgs: Record<string, any> = {}
-        try {
-          parsedArgs = JSON.parse(tc.args || '{}')
-        } catch {
-          parsedArgs = { query: tc.args }
-        }
-
-        safeSend(event.sender, 'ai-search-tool-start', { name: tc.name, args: parsedArgs })
-        const toolOutput = await executeSystemTool(tc.name, parsedArgs)
-        safeSend(event.sender, 'ai-search-tool-end', { name: tc.name, result: String(toolOutput) })
-
-        const toolJson = JSON.stringify({ type: tc.name, ...parsedArgs })
-        const toolMarkup = `\n[PRISM_EXECUTE_TOOL]${toolJson}[/PRISM_EXECUTE_TOOL]\n`
-        if (!fullText.includes(toolMarkup)) {
-          fullText += toolMarkup
-        }
+        const execution = await executeValidatedTool(
+          tc.name,
+          tc.args,
+          {
+            signal: searchAbortController.signal,
+            onStart: (args) =>
+              safeSend(event.sender, 'ai-search-tool-start', {
+                callId: tc.id,
+                name: tc.name,
+                args
+              })
+          },
+          toolLoopGuard
+        )
+        safeSend(event.sender, 'ai-search-tool-end', {
+          callId: tc.id,
+          name: tc.name,
+          result: execution.modelContent
+        })
       }
     }
 
@@ -155,19 +159,19 @@ export async function handleAiSearchChatMessage(
       if (offlineData.results && offlineData.results.length > 0) {
         const topResults = offlineData.results.slice(0, 3)
         for (const res of topResults) {
-          const toolJson = JSON.stringify({ type: 'render_chat_history', query: res.id })
-          fullText += `\n[PRISM_EXECUTE_TOOL]${toolJson}[/PRISM_EXECUTE_TOOL]\n`
-          safeSend(event.sender, 'ai-search-tool-start', { name: 'render_chat_history', args: { query: res.id } })
+          const callId = `search-fallback-${res.id}`
+          safeSend(event.sender, 'ai-search-tool-start', { callId, name: 'render_chat_history', args: { query: res.id } })
           safeSend(event.sender, 'ai-search-tool-end', {
+            callId,
             name: 'render_chat_history',
             result: `Successfully rendered chat history for ${res.id}`
           })
         }
       } else {
-        const toolJson = JSON.stringify({ type: 'not_found_chat_history' })
-        fullText += `\n[PRISM_EXECUTE_TOOL]${toolJson}[/PRISM_EXECUTE_TOOL]\n`
-        safeSend(event.sender, 'ai-search-tool-start', { name: 'not_found_chat_history', args: {} })
+        const callId = `search-fallback-not-found-${Date.now()}`
+        safeSend(event.sender, 'ai-search-tool-start', { callId, name: 'not_found_chat_history', args: {} })
         safeSend(event.sender, 'ai-search-tool-end', {
+          callId,
           name: 'not_found_chat_history',
           result: 'No matching chat history found'
         })

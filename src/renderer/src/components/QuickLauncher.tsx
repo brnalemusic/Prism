@@ -1017,12 +1017,15 @@ export function QuickLauncher(): React.JSX.Element {
           const toolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
           const isDuplicate = toolCalls.some(
             (t) =>
-              t.name === data.name &&
+              (data.callId ? t.id === data.callId : t.name === data.name) &&
               JSON.stringify(t.args) === JSON.stringify(data.args) &&
               t.status === 'running'
           )
           if (!isDuplicate) {
-            lastMsg.toolCalls = [...toolCalls, { ...data, status: 'running' } as ToolCall]
+            lastMsg.toolCalls = [
+              ...toolCalls,
+              { id: data.callId, name: data.name, args: data.args, status: 'running' } as ToolCall
+            ]
           }
         }
         newMsgs[newMsgs.length - 1] = lastMsg
@@ -1038,12 +1041,12 @@ export function QuickLauncher(): React.JSX.Element {
         if (lastMsg.role === 'ai' && lastMsg.toolCalls) {
           const toolCalls = [...lastMsg.toolCalls]
           const lastToolIndex = toolCalls.findLastIndex(
-            (t) => t.name === data.name && t.status === 'running'
+            (t) => (data.callId ? t.id === data.callId : t.name === data.name) && t.status === 'running'
           )
           if (lastToolIndex !== -1) {
             toolCalls[lastToolIndex] = {
               ...toolCalls[lastToolIndex],
-              status: data.result.startsWith('Error') ? 'error' : 'done',
+              status: /"ok":false/.test(data.result) ? 'error' : 'done',
               result: data.result
             }
             lastMsg.toolCalls = toolCalls

@@ -23,7 +23,7 @@ export const MODELS: Model[] = [
 ]
 
 export interface ThinkingLevelOption {
-  id: string
+  id: import('../../shared/types').PrismThinkingLevel
   name: string
 }
 
@@ -44,7 +44,7 @@ export function isPrismCloudGeminiModel(modelId: string): boolean {
 export function getThinkingLevelsForModel(modelId: string): ThinkingLevelOption[] {
   if (isPrismCloudGeminiModel(modelId)) {
     return [
-      { id: 'off', name: 'Off' },
+      { id: 'minimal', name: 'Minimal' },
       { id: 'low', name: 'Low' },
       { id: 'medium', name: 'Medium' },
       { id: 'high', name: 'High' }
@@ -52,5 +52,9 @@ export function getThinkingLevelsForModel(modelId: string): ThinkingLevelOption[
   }
 
   return []
+}
+
+export function getDefaultThinkingLevelForModel(modelId: string): string {
+  return isPrismCloudGeminiModel(modelId) ? 'minimal' : 'off'
 }
 

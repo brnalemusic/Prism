@@ -101,6 +101,28 @@ const DEFAULT_CONFIG: AppConfig = {
 const VALID_VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'])
 const VALID_THEMES = new Set(['marine', 'vertez', 'akoustik', 'terno', 'ursula', 'rgb', 'fire', 'lava', 'gold', 'forest', 'indigo', 'violet', 'white'])
 const VALID_SESSION_MODES = new Set(['conversation', 'execution', 'discipline'])
+const VALID_PRISM_THINKING_LEVELS = new Set(['minimal', 'low', 'medium', 'high'])
+const PRISM_CLOUD_MODEL_IDS = new Set([
+  'gemini-3.1-flash-lite',
+  'models/gemini-3-flash-preview',
+  'gemini-3-flash-preview'
+])
+
+function normalizeReasoningLevels(levels?: Record<string, string>): Record<string, string> {
+  const normalized: Record<string, string> = {}
+  for (const [modelKey, level] of Object.entries(levels || {})) {
+    const cleanKey = modelKey.startsWith('prism_provider:')
+      ? modelKey.slice('prism_provider:'.length)
+      : modelKey
+    const isPrismCloudKey = modelKey.startsWith('prism_provider:') || PRISM_CLOUD_MODEL_IDS.has(cleanKey)
+    normalized[modelKey] = isPrismCloudKey
+      ? VALID_PRISM_THINKING_LEVELS.has(level)
+        ? level
+        : 'minimal'
+      : level
+  }
+  return normalized
+}
 
 function tryDecryptKey(key?: string): string {
   if (!key || typeof key !== 'string') return ''
@@ -218,7 +240,7 @@ function normalizeConfig(config: AppConfig): AppConfig {
     rgbThemeExpiry: config.rgbThemeExpiry,
     sessionMode: VALID_SESSION_MODES.has(config.sessionMode) ? config.sessionMode : DEFAULT_CONFIG.sessionMode,
     disciplinePath: typeof config.disciplinePath === 'string' ? config.disciplinePath : DEFAULT_CONFIG.disciplinePath,
-    modelReasoningLevels: config.modelReasoningLevels || {}
+    modelReasoningLevels: normalizeReasoningLevels(config.modelReasoningLevels)
   }
 }
 
@@ -285,6 +307,24 @@ export function loadConfig(): AppConfig {
     }
 
     const config = normalizeConfig({ ...DEFAULT_CONFIG, ...parsedConfig })
+
+    if (
+      JSON.stringify(parsedConfig.modelReasoningLevels || {}) !==
+      JSON.stringify(config.modelReasoningLevels || {})
+    ) {
+      try {
+        fs.writeFileSync(
+          CONFIG_FILE,
+          JSON.stringify(
+            { ...parsedConfig, modelReasoningLevels: config.modelReasoningLevels },
+            null,
+            2
+          )
+        )
+      } catch (migrationError) {
+        console.error('[Config] Failed to persist Prism Cloud thinking-level migration:', migrationError)
+      }
+    }
 
     // Decrypt API keys inside providers if safeStorage was used
     if (config.providers && Array.isArray(config.providers)) {

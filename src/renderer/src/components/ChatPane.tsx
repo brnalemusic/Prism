@@ -7,6 +7,7 @@ import { QuestionnaireWizard } from './QuestionnaireRenderer'
 import type { TabSession } from '../types/tab'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
 import type { TodoState } from '../../../shared/types'
+import { getDefaultThinkingLevelForModel } from '../constants'
 
 interface ChatPaneProps {
   tab: TabSession
@@ -285,7 +286,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
                     reasoningLevel={
                       config?.modelReasoningLevels?.[tab.selectedModel] ||
                       config?.modelReasoningLevels?.[tab.selectedModel.replace('prism_provider:', '')] ||
-                      'off'
+                      getDefaultThinkingLevelForModel(tab.selectedModel)
                     }
                     onReasoningLevelChange={(level) => onReasoningLevelChange(tab.selectedModel, level)}
                     text={tab.inputText}
@@ -365,7 +366,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
                 reasoningLevel={
                   config?.modelReasoningLevels?.[tab.selectedModel] ||
                   config?.modelReasoningLevels?.[tab.selectedModel.replace('prism_provider:', '')] ||
-                  'off'
+                  getDefaultThinkingLevelForModel(tab.selectedModel)
                 }
                 onReasoningLevelChange={(level) => onReasoningLevelChange(tab.selectedModel, level)}
                 text={tab.inputText}

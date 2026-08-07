@@ -1,7 +1,6 @@
 import { ProviderConfig, StreamToolCallDelta } from '../../shared/types'
 import { normalizeBaseUrl, isGoogleHost } from './trustedRegistry'
 import { OpenAiMessage, OpenAiToolDefinition } from './types'
-import { getAuthAccessToken } from '../supabaseAuth'
 
 export interface StreamCallbacks {
   onTextDelta: (text: string) => void
@@ -19,6 +18,7 @@ export interface StreamResult {
     thoughtSignature?: string
   }>
   finishReason: string
+  nativeContent?: import('./types').GeminiContentData
 }
 
 export function sanitizeOpenAiMessages(messages: OpenAiMessage[]): OpenAiMessage[] {
@@ -81,6 +81,24 @@ export async function streamOpenAiCompletion(
   const normUrl = normalizeBaseUrl(provider.baseUrl)
   const completionType = provider.completionType || 'chat_completions'
 
+  if (
+    provider.id === 'prism_provider' ||
+    provider.baseUrl.includes('prism-ai-proxy') ||
+    isGoogleHost(normUrl)
+  ) {
+    const { streamGeminiCompletion } = await import('./geminiClient')
+    return streamGeminiCompletion(
+      provider,
+      modelId,
+      messages,
+      tools,
+      signal,
+      callbacks,
+      reasoningLevel,
+      options
+    )
+  }
+
   if (completionType === 'responses') {
     return streamOpenAiResponses(provider, normUrl, modelId, messages, tools, signal, callbacks)
   }
@@ -89,34 +107,13 @@ export async function streamOpenAiCompletion(
     return streamAnthropicMessages(provider, normUrl, modelId, messages, tools, signal, callbacks)
   }
 
-  const isGoogleAiStudio = isGoogleHost(normUrl)
-  const isPrismProvider = provider.id === 'prism_provider' || provider.baseUrl.includes('prism-ai-proxy')
-  let endpoint: string
-
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   }
+  const endpoint = `${normUrl}/chat/completions`
 
-  if (isPrismProvider) {
-    endpoint = provider.baseUrl
-    const userToken = await getAuthAccessToken()
-    if (!userToken) {
-      throw new Error('Please log in to your Prism account to access Prism Cloud models.')
-    }
-    headers['Authorization'] = `Bearer ${userToken}`
-    if (options?.skipUsageIncrement) {
-      headers['X-Prism-Skip-Increment'] = 'true'
-    }
-  } else {
-    if (isGoogleAiStudio) {
-      endpoint = `${normUrl}/openai/chat/completions`
-    } else {
-      endpoint = `${normUrl}/chat/completions`
-    }
-
-    if (provider.apiKey) {
-      headers['Authorization'] = `Bearer ${provider.apiKey}`
-    }
+  if (provider.apiKey) {
+    headers['Authorization'] = `Bearer ${provider.apiKey}`
   }
 
   console.log(`[Main Chat] Calling ${modelId} with [${provider.name || provider.baseUrl}] (${messages.length} messages, ${tools?.length || 0} tools, reasoningLevel: ${reasoningLevel || 'off'})`)
@@ -131,19 +128,6 @@ export async function streamOpenAiCompletion(
     bodyPayload.tools = tools
     bodyPayload.tool_choice = 'auto'
   }
-
-  if (reasoningLevel && reasoningLevel !== 'off') {
-    // Map Prism reasoning levels to Google OpenAI-compat reasoning_effort values.
-    // Valid values: 'none' | 'low' | 'medium' | 'high'
-    const thinkingLevelMap: Record<string, string> = {
-      low:    'low',
-      medium: 'medium',
-      high:   'high'
-    }
-    const levelValue = thinkingLevelMap[reasoningLevel] || reasoningLevel
-    bodyPayload.reasoning_effort = levelValue
-  }
-
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -348,18 +332,68 @@ async function streamAnthropicMessages(
   const endpoint = normUrl.endsWith('/messages') ? normUrl : `${normUrl}/messages`
 
   const systemMessage = messages.find((m) => m.role === 'system')?.content || ''
-  const anthropicMessages = messages
-    .filter((m) => m.role !== 'system')
-    .map((m) => {
-      let content = m.content || ''
-      if (Array.isArray(content)) {
-        content = content.map((c) => c.text || '').join('\n')
+  const anthropicMessages: Array<{ role: 'user' | 'assistant'; content: any }> = []
+  for (const message of messages.filter((entry) => entry.role !== 'system')) {
+    if (message.role === 'assistant') {
+      const blocks: any[] = []
+      if (typeof message.content === 'string' && message.content) {
+        blocks.push({ type: 'text', text: message.content })
       }
-      return {
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        content
+      for (const toolCall of message.tool_calls || []) {
+        let input: Record<string, unknown> = {}
+        try {
+          input = JSON.parse(toolCall.function.arguments || '{}')
+        } catch {}
+        blocks.push({
+          type: 'tool_use',
+          id: toolCall.id,
+          name: toolCall.function.name,
+          input
+        })
       }
-    })
+      anthropicMessages.push({ role: 'assistant', content: blocks.length ? blocks : '' })
+      continue
+    }
+
+    if (message.role === 'tool') {
+      const block = {
+        type: 'tool_result',
+        tool_use_id: message.tool_call_id,
+        content: typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+      }
+      const previous = anthropicMessages.at(-1)
+      if (
+        previous?.role === 'user' &&
+        Array.isArray(previous.content) &&
+        previous.content.every((entry: any) => entry.type === 'tool_result')
+      ) {
+        previous.content.push(block)
+      } else {
+        anthropicMessages.push({ role: 'user', content: [block] })
+      }
+      continue
+    }
+
+    if (Array.isArray(message.content)) {
+      const blocks: any[] = []
+      for (const entry of message.content) {
+        if (entry.type === 'text' && entry.text) {
+          blocks.push({ type: 'text', text: entry.text })
+          continue
+        }
+        const dataUrl = entry.image_url?.url?.match(/^data:([^;,]+);base64,(.+)$/s)
+        if (dataUrl) {
+          blocks.push({
+            type: 'image',
+            source: { type: 'base64', media_type: dataUrl[1], data: dataUrl[2] }
+          })
+        }
+      }
+      anthropicMessages.push({ role: 'user', content: blocks })
+    } else {
+      anthropicMessages.push({ role: 'user', content: message.content || '' })
+    }
+  }
 
   const bodyPayload: any = {
     model: modelId,
@@ -428,10 +462,11 @@ async function streamAnthropicMessages(
           if (eventType === 'content_block_start') {
             currentBlockIndex = parsed.index ?? 0
             if (parsed.content_block?.type === 'tool_use') {
+              const initialInput = parsed.content_block.input || {}
               toolCallsMap.set(currentBlockIndex, {
                 id: parsed.content_block.id || `call_${Date.now()}_${currentBlockIndex}`,
                 name: parsed.content_block.name || '',
-                args: ''
+                args: Object.keys(initialInput).length > 0 ? JSON.stringify(initialInput) : ''
               })
             }
           } else if (eventType === 'content_block_delta') {
@@ -471,6 +506,9 @@ async function streamAnthropicMessages(
   }
 
   const toolCalls = Array.from(toolCallsMap.values()).filter((tc) => tc.name)
+  for (const toolCall of toolCalls) {
+    if (!toolCall.args) toolCall.args = '{}'
+  }
 
   return {
     text: fullText,
@@ -500,10 +538,37 @@ async function streamOpenAiResponses(
     headers['Authorization'] = `Bearer ${provider.apiKey}`
   }
 
-  // Responses API schema: uses "input" instead of "messages"
+  const responsesInput: any[] = []
+  for (const message of messages) {
+    if (message.role === 'tool') {
+      responsesInput.push({
+        type: 'function_call_output',
+        call_id: message.tool_call_id,
+        output: typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+      })
+      continue
+    }
+    if (message.role === 'assistant' && message.tool_calls?.length) {
+      if (message.content) {
+        responsesInput.push({ role: 'assistant', content: message.content })
+      }
+      for (const toolCall of message.tool_calls) {
+        responsesInput.push({
+          type: 'function_call',
+          call_id: toolCall.id,
+          name: toolCall.function.name,
+          arguments: toolCall.function.arguments
+        })
+      }
+      continue
+    }
+    responsesInput.push({ role: message.role, content: message.content || '' })
+  }
+
+  // Responses API schema uses typed input items instead of Chat Completions messages.
   const bodyPayload: any = {
     model: modelId,
-    input: sanitizeOpenAiMessages(messages),
+    input: responsesInput,
     stream: true
   }
 
@@ -624,6 +689,13 @@ async function streamOpenAiResponses(
                   name: existing.name,
                   argsDelta: argDelta
                 })
+              }
+            } else if (parsed.type === 'response.function_call_arguments.done') {
+              const callId = parsed.call_id || parsed.item_id
+              for (const existing of toolCallsMap.values()) {
+                if (existing.id === callId && typeof parsed.arguments === 'string') {
+                  existing.args = parsed.arguments
+                }
               }
             } else if (Array.isArray(delta.tool_calls)) {
               for (const tcDelta of delta.tool_calls) {

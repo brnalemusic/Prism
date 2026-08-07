@@ -373,12 +373,13 @@ export function SearchModal({
         const updated = [...prev]
         const existingIdx = updated.findIndex(
           (t) =>
-            t.name === data.name &&
+            (data.callId ? t.id === data.callId : t.name === data.name) &&
             t.status === 'running' &&
             JSON.stringify(t.args) === JSON.stringify(data.args)
         )
         if (existingIdx === -1) {
           updated.push({
+            id: data.callId,
             name: data.name,
             args: data.args || {},
             status: 'running'
@@ -398,12 +399,12 @@ export function SearchModal({
       setToolCalls((prev) => {
         const updated = [...prev]
         const runningIdx = updated.findLastIndex(
-          (t) => t.name === data.name && t.status === 'running'
+          (t) => (data.callId ? t.id === data.callId : t.name === data.name) && t.status === 'running'
         )
         if (runningIdx !== -1) {
           updated[runningIdx] = {
             ...updated[runningIdx],
-            status: data.result.startsWith('Error') ? 'error' : 'done',
+            status: /"ok":false/.test(data.result) ? 'error' : 'done',
             result: data.result
           }
         }

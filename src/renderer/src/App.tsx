@@ -54,6 +54,7 @@ import { OnboardingLicenseModal } from './components/OnboardingLicenseModal'
 import { AppConfig, SlashWorkflow } from '../../main/config'
 import type { DownloadProgress, SessionMode, TodoState, UserProfile } from '../../shared/types'
 import { IS_DEMO } from '../../shared/demo'
+import { getDefaultThinkingLevelForModel, isPrismCloudGeminiModel } from './constants'
 
 interface HastNode {
   type: string
@@ -61,6 +62,17 @@ interface HastNode {
   value?: string
   children?: HastNode[]
   properties?: Record<string, unknown>
+}
+
+function isToolErrorResult(result?: string): boolean {
+  if (!result) return false
+  if (result.startsWith('Error')) return true
+  try {
+    const parsed = JSON.parse(result)
+    return parsed?.ok === false
+  } catch {
+    return false
+  }
 }
 
 function disableIndentedCode(this: {
@@ -1752,13 +1764,13 @@ function RealApp(): React.JSX.Element {
             )
             if (targetTc) {
               targetTc.result = toolResult
-              targetTc.status = toolResult.startsWith('Error') ? 'error' : 'done'
+              targetTc.status = isToolErrorResult(toolResult) ? 'error' : 'done'
             } else if (toolName) {
               lastAi.toolCalls.push({
                 name: toolName,
                 args: {},
                 result: toolResult,
-                status: toolResult.startsWith('Error') ? 'error' : 'done'
+                status: isToolErrorResult(toolResult) ? 'error' : 'done'
               })
             }
           }
@@ -1776,7 +1788,7 @@ function RealApp(): React.JSX.Element {
             const toolOutput = rawText.replace(/^Tool Execution Result for [^\n]+:\n?/, '')
             if (emptyTc) {
               emptyTc.result = toolOutput
-              emptyTc.status = toolOutput.startsWith('Error') ? 'error' : 'done'
+              emptyTc.status = isToolErrorResult(toolOutput) ? 'error' : 'done'
             }
           }
           continue
@@ -1864,7 +1876,7 @@ function RealApp(): React.JSX.Element {
               name,
               args,
               result,
-              status: result ? (result.startsWith('Error') ? 'error' : 'done') : 'done'
+              status: result ? (isToolErrorResult(result) ? 'error' : 'done') : 'done'
             }
           })
 
@@ -2106,16 +2118,18 @@ function RealApp(): React.JSX.Element {
   }, [])
 
   const getReasoningLevelForModel = useCallback((modelKey: string) => {
-    if (!config?.modelReasoningLevels) return 'off'
+    if (!isPrismCloudGeminiModel(modelKey)) return 'off'
+    if (!config?.modelReasoningLevels) return 'minimal'
     const cleanKey = modelKey.replace('prism_provider:', '')
     return (
       config.modelReasoningLevels[modelKey] ||
       config.modelReasoningLevels[cleanKey] ||
-      'off'
+      getDefaultThinkingLevelForModel(modelKey)
     )
   }, [config])
 
   const handleReasoningLevelChange = useCallback(async (modelKey: string, level: string) => {
+    if (!isPrismCloudGeminiModel(modelKey)) return
     const cleanKey = modelKey.replace('prism_provider:', '')
     const updatedLevels = {
       ...(config?.modelReasoningLevels || {}),
@@ -2219,7 +2233,7 @@ function RealApp(): React.JSX.Element {
                   if (tc.status === 'running' && tc.result !== undefined) {
                     return {
                       ...tc,
-                      status: tc.result.startsWith('Error') ? 'error' : 'done'
+                      status: isToolErrorResult(tc.result) ? 'error' : 'done'
                     }
                   }
                   return tc
@@ -2341,7 +2355,7 @@ function RealApp(): React.JSX.Element {
                 if (tc.status === 'running') {
                   return {
                     ...tc,
-                    status: tc.result && tc.result.startsWith('Error') ? 'error' : 'done'
+                    status: isToolErrorResult(tc.result) ? 'error' : 'done'
                   }
                 }
                 return tc
@@ -2508,7 +2522,7 @@ function RealApp(): React.JSX.Element {
                   if (tc.status === 'running' && tc.result !== undefined) {
                     return {
                       ...tc,
-                      status: tc.result.startsWith('Error') ? 'error' : 'done'
+                      status: isToolErrorResult(tc.result) ? 'error' : 'done'
                     }
                   }
                   return tc
@@ -2545,19 +2559,22 @@ function RealApp(): React.JSX.Element {
                 if (t.status === 'running' && t.result !== undefined) {
                   return {
                     ...t,
-                    status: t.result.startsWith('Error') ? 'error' : 'done'
+                    status: isToolErrorResult(t.result) ? 'error' : 'done'
                   }
                 }
                 return t
               })
 
               const promotedIndex = toolCalls.findLastIndex(
-                (t) => t.name === data.name && (t.status === 'running' || t.status === 'done')
+                (t) =>
+                  (data.callId ? t.id === data.callId : t.name === data.name) &&
+                  (t.status === 'running' || t.status === 'done')
               )
 
               if (promotedIndex !== -1) {
                 toolCalls[promotedIndex] = {
                   ...toolCalls[promotedIndex],
+                  id: data.callId || toolCalls[promotedIndex].id,
                   args: data.args,
                   status: 'running'
                 }
@@ -2572,7 +2589,7 @@ function RealApp(): React.JSX.Element {
                 )
 
                 if (!isDuplicate) {
-                  lastMsg.toolCalls = [...toolCalls, { name: data.name, args: data.args, status: 'running' }]
+                  lastMsg.toolCalls = [...toolCalls, { id: data.callId, name: data.name, args: data.args, status: 'running' }]
                   newMessages[lastMsgIndex] = lastMsg
                 }
               }
@@ -2632,13 +2649,16 @@ function RealApp(): React.JSX.Element {
               const lastMsg = { ...newMessages[lastMsgIndex] }
               const toolCalls = [...(lastMsg.toolCalls || [])]
               const lastToolIndex = toolCalls.findLastIndex(
-                (t) => t.name === data.name && t.status === 'running'
+                (t) =>
+                  (data.callId ? t.id === data.callId : t.name === data.name) &&
+                  t.status === 'running'
               )
 
               if (lastToolIndex !== -1) {
                 toolCalls[lastToolIndex] = {
                   ...toolCalls[lastToolIndex],
-                  result: data.result
+                  result: data.result,
+                  status: /"ok":false/.test(data.result) ? 'error' : 'done'
                 }
                 lastMsg.toolCalls = toolCalls
                 newMessages[lastMsgIndex] = lastMsg

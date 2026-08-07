@@ -178,6 +178,7 @@ const api = {
   },
   onToolStart: (
     callback: (data: {
+      callId?: string
       name: string
       args: Record<string, unknown>
       timestamp?: number
@@ -186,17 +187,17 @@ const api = {
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { name: string; args: Record<string, unknown>; timestamp?: number; chatId: string }
+      data: { callId?: string; name: string; args: Record<string, unknown>; timestamp?: number; chatId: string }
     ): void => callback(data)
     ipcRenderer.on('chat-tool-start', listener)
     return () => ipcRenderer.removeListener('chat-tool-start', listener)
   },
   onToolEnd: (
-    callback: (data: { name: string; result: string; chatId: string }) => void
+    callback: (data: { callId?: string; name: string; result: string; chatId: string }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { name: string; result: string; chatId: string }
+      data: { callId?: string; name: string; result: string; chatId: string }
     ): void => callback(data)
     ipcRenderer.on('chat-tool-end', listener)
     return () => ipcRenderer.removeListener('chat-tool-end', listener)
@@ -448,17 +449,17 @@ const api = {
     return () => ipcRenderer.removeListener('launcher-reply-error', listener)
   },
   onLauncherToolStart: (
-    callback: (data: { name: string; args: Record<string, unknown> }) => void
+    callback: (data: { callId?: string; name: string; args: Record<string, unknown> }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { name: string; args: Record<string, unknown> }
+      data: { callId?: string; name: string; args: Record<string, unknown> }
     ): void => callback(data)
     ipcRenderer.on('launcher-tool-start', listener)
     return () => ipcRenderer.removeListener('launcher-tool-start', listener)
   },
-  onLauncherToolEnd: (callback: (data: { name: string; result: string }) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, data: { name: string; result: string }): void =>
+  onLauncherToolEnd: (callback: (data: { callId?: string; name: string; result: string }) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: { callId?: string; name: string; result: string }): void =>
       callback(data)
     ipcRenderer.on('launcher-tool-end', listener)
     return () => ipcRenderer.removeListener('launcher-tool-end', listener)
@@ -539,17 +540,17 @@ const api = {
     return () => ipcRenderer.removeListener('ai-search-reply-error', listener)
   },
   onAiSearchToolStart: (
-    callback: (data: { name: string; args: Record<string, unknown>; timestamp?: number }) => void
+    callback: (data: { callId?: string; name: string; args: Record<string, unknown>; timestamp?: number }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { name: string; args: Record<string, unknown>; timestamp?: number }
+      data: { callId?: string; name: string; args: Record<string, unknown>; timestamp?: number }
     ): void => callback(data)
     ipcRenderer.on('ai-search-tool-start', listener)
     return () => ipcRenderer.removeListener('ai-search-tool-start', listener)
   },
-  onAiSearchToolEnd: (callback: (data: { name: string; result: string }) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, data: { name: string; result: string }): void =>
+  onAiSearchToolEnd: (callback: (data: { callId?: string; name: string; result: string }) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: { callId?: string; name: string; result: string }): void =>
       callback(data)
     ipcRenderer.on('ai-search-tool-end', listener)
     return () => ipcRenderer.removeListener('ai-search-tool-end', listener)

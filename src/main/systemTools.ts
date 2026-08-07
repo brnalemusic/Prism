@@ -859,9 +859,10 @@ function createAbortError(): Error {
   return error
 }
 
-function parseToolBoolean(value: string | undefined, defaultValue: boolean): boolean {
+function parseToolBoolean(value: unknown, defaultValue: boolean): boolean {
   if (value === undefined) return defaultValue
-  return /^(true|1|yes|y|sim)$/i.test(value.trim())
+  if (typeof value === 'boolean') return value
+  return typeof value === 'string' && /^(true|1|yes|y|sim)$/i.test(value.trim())
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -1047,7 +1048,7 @@ export async function computerAppendToFile(
 export async function computerCopyFile(
   sourcePath: string,
   destinationPath: string,
-  overwrite: string | undefined,
+  overwrite: boolean | undefined,
   signal?: AbortSignal
 ): Promise<string> {
   try {
@@ -1081,7 +1082,7 @@ export async function computerCopyFile(
 export async function computerMoveFile(
   sourcePath: string,
   destinationPath: string,
-  overwrite: string | undefined,
+  overwrite: boolean | undefined,
   signal?: AbortSignal
 ): Promise<string> {
   try {
@@ -1197,8 +1198,8 @@ export async function computerReadFile(
  */
 export async function computerEditFile(
   filePath: string,
-  startLineStr: string,
-  endLineStr: string,
+  startLine: number,
+  endLine: number,
   newContent: string,
   signal?: AbortSignal
 ): Promise<string> {
@@ -1206,12 +1207,6 @@ export async function computerEditFile(
     const fullPath = resolveRequiredPath(filePath, 'path')
     assertSafeFileMutationPath(fullPath, 'path')
 
-    const startLine = parseInt(startLineStr, 10)
-    const endLine = parseInt(endLineStr, 10)
-
-    if (isNaN(startLine) || isNaN(endLine)) {
-      return 'Error editing file lines: startLine and endLine must be valid numbers.'
-    }
     if (startLine < 1 || endLine < startLine) {
       return 'Error editing file lines: Invalid line range. startLine must be >= 1 and endLine must be >= startLine.'
     }
@@ -1515,7 +1510,7 @@ export async function sendBrowserCommandToRenderer(
     text?: string
     key?: string
     direction?: 'up' | 'down'
-    amount?: string
+    amount?: number
     script?: string
     full?: boolean
   },
@@ -1600,12 +1595,12 @@ export async function browserNavigate(url: string, signal?: AbortSignal): Promis
   )
 }
 
-export async function browserSnapshot(full?: string, signal?: AbortSignal): Promise<string> {
+export async function browserSnapshot(full?: boolean, signal?: AbortSignal): Promise<string> {
   if (!isPersistentBrowserActive) {
     return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
   const result = await sendBrowserCommandToRenderer(
-    { type: 'snapshot', full: full === 'true' },
+    { type: 'snapshot', full: full === true },
     signal
   )
   return typeof result === 'string' ? result : JSON.stringify(result)
@@ -1637,7 +1632,7 @@ export async function browserPress(key: string, signal?: AbortSignal): Promise<s
   return typeof result === 'string' ? result : `Pressed key "${key}" successfully.`
 }
 
-export async function browserScroll(direction: 'up' | 'down', amount?: string, signal?: AbortSignal): Promise<string> {
+export async function browserScroll(direction: 'up' | 'down', amount?: number, signal?: AbortSignal): Promise<string> {
   if (!isPersistentBrowserActive) {
     return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
@@ -2262,48 +2257,48 @@ export async function executeSystemTool(
 
     // File operations
     case 'computer_use_create_file':
-      return await computerCreateFile(args.path || args.filePath || '', args.content || '', signal)
+      return await computerCreateFile(args.path, args.content, signal)
     case 'computer_use_create_directory':
       return await computerCreateDirectory(args.path || '', signal)
     case 'computer_use_remove_file':
-      return await computerRemoveFile(args.path || args.filePath || '', signal)
+      return await computerRemoveFile(args.path, signal)
     case 'computer_use_remove_directory':
       return await computerRemoveDirectory(args.path || '', signal)
     case 'computer_use_save_file':
-      return await computerSaveFile(args.path || args.filePath || '', args.content || '', signal)
+      return await computerSaveFile(args.path, args.content, signal)
     case 'computer_use_append_file':
-      return await computerAppendToFile(args.path || args.filePath || '', args.content || '', signal)
+      return await computerAppendToFile(args.path, args.content, signal)
     case 'computer_use_read_file': {
       const startLine = args.startLine !== undefined ? Number(args.startLine) : 1
       const limit = args.limit !== undefined ? Number(args.limit) : 200
       return await computerReadFile(
-        args.path || args.filePath || '',
+        args.path,
         isNaN(startLine) ? 1 : startLine,
         isNaN(limit) ? 200 : limit,
         signal
       )
     }
     case 'computer_use_edit_file':
-      return await computerEditFile(args.path || args.filePath || '', args.startLine || '1', args.endLine || '1', args.content || args.newContent || '', signal)
+      return await computerEditFile(args.path, args.startLine, args.endLine, args.newContent, signal)
     case 'computer_use_copy_file':
       return await computerCopyFile(args.sourcePath || '', args.destinationPath || '', args.overwrite, signal)
     case 'computer_use_move_file':
       return await computerMoveFile(args.sourcePath || '', args.destinationPath || '', args.overwrite, signal)
     case 'computer_use_get_file_info':
-      return await computerGetFileInfo(args.path || args.filePath || '', signal)
+      return await computerGetFileInfo(args.path, signal)
     case 'computer_use_list_directory':
       return await computerListDirectory(args.path || '.', signal)
 
     // Applications & links
     case 'open_application':
-      return await openApplication(args.appPath || args.appName || '')
+      return await openApplication(args.appPath)
     case 'open_browser_link':
       return await openBrowserLink(args.url || '')
     case 'open_main_app': {
       try {
         const instructions = args.instructions || ''
         const model = args.model || ''
-        const searchEnabled = args.searchEnabled === 'true'
+        const searchEnabled = args.searchEnabled === true
 
         const wins = BrowserWindow.getAllWindows()
         const mainWin = wins.find(
@@ -2344,11 +2339,7 @@ export async function executeSystemTool(
 
     // Web search
     case 'web_search': {
-      const searches = args.searches
-      if (Array.isArray(searches) && searches.length > 0) {
-        return await webSearchContinuous(searches, { signal })
-      }
-      return await webSearchSingle(args.query || args.search || '', signal)
+      return await webSearchContinuous(args.searches, { signal })
     }
     case 'saw_link_from_url':
       return await sawLinkFromUrl(args.url || '', signal)
@@ -2375,9 +2366,6 @@ export async function executeSystemTool(
       const screenshotResult = await browserScreenshot(signal)
       return screenshotResult.result
     }
-    case 'browser_close':
-      return 'Error: AI cannot close the browser session. Closing is managed directly by the user when closing the browser tab.'
-
     // Web scripting & DOM
     case 'web_script':
       return await webScript(args.url || '', args.script || '', signal)
@@ -2392,28 +2380,8 @@ export async function executeSystemTool(
 
     // Todo system
     case 'create_todo':
-    case 'create_todos':
-    case 'add_todo': {
-      const tasksInput = args.tasks || args.todo || args.items || args.steps || args.task
-      let taskTitles: string[] = []
-      if (typeof tasksInput === 'string') {
-        try {
-          const parsed = JSON.parse(tasksInput)
-          if (Array.isArray(parsed)) taskTitles = parsed.map(String)
-          else taskTitles = [tasksInput]
-        } catch {
-          if (tasksInput.includes('\n')) {
-            taskTitles = tasksInput
-              .split('\n')
-              .map((s) => s.replace(/^[-*\d.\s]+/, '').trim())
-              .filter(Boolean)
-          } else {
-            taskTitles = [tasksInput]
-          }
-        }
-      } else if (Array.isArray(tasksInput)) {
-        taskTitles = tasksInput.map(String)
-      }
+    {
+      let taskTitles: string[] = args.tasks
 
       if (taskTitles.length < 1) {
         return 'Error: create_todo requires at least 1 task. Please define a list of steps.'
@@ -2451,23 +2419,15 @@ export async function executeSystemTool(
     }
 
     case 'edit_todo':
-    case 'update_todo':
-    case 'edit_todos':
-    case 'update_todos':
-    case 'mark_todo':
-    case 'complete_todo': {
+    {
       const todoChatId = chatId || _currentSessionIdForTodo
       let todo = getTodoForChat(todoChatId)
       if (!todo || !todo.active) {
         return 'Error: No active todo list. Create one first with create_todo.'
       }
 
-      const rawId = (args.id || args.taskId || args.task_id || args.index || args.title || args.task || '').toString().trim()
-      let rawStatus = (args.status || '').toString().trim().toLowerCase()
-      if (!rawStatus) {
-        if (args.completed === true || args.done === true) rawStatus = 'done'
-        else if (args.working === true || args.inProgress === true) rawStatus = 'working'
-      }
+      const rawId = args.id.toString().trim()
+      const rawStatus = args.status.toString().trim().toLowerCase()
 
       let newStatus: 'working' | 'done' = 'working'
       if (['done', 'completed', 'finished', 'complete'].includes(rawStatus)) {
@@ -3165,7 +3125,7 @@ export async function executeSystemTool(
     }
 
     default:
-      return `Tool "${toolName}" is registered but not yet wired in the executor. Args received: ${JSON.stringify(args)}`
+      return `Error: Tool "${toolName}" has no registered executor.`
   }
 }
 

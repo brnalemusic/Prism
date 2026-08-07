@@ -41,6 +41,7 @@ export interface DownloadProgress {
 }
 
 export interface ToolCall {
+  id?: string
   name: string
   args: Record<string, unknown>
   result?: string
@@ -75,6 +76,8 @@ export interface AttachedFile {
 }
 
 export type SessionMode = 'conversation' | 'execution' | 'discipline'
+
+export type PrismThinkingLevel = 'minimal' | 'low' | 'medium' | 'high'
 
 export interface TodoTask {
   id: string
