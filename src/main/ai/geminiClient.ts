@@ -37,11 +37,47 @@ function messageTextParts(message: OpenAiMessage): Part[] {
   return parts
 }
 
+export function extractImageUrlFromToolContent(content: unknown): string | null {
+  if (!content) return null
+  if (typeof content === 'object') {
+    const obj = content as Record<string, any>
+    if (obj.image_url && typeof obj.image_url === 'string') return obj.image_url
+    if (obj.base64 && typeof obj.base64 === 'string') {
+      return obj.base64.startsWith('data:') ? obj.base64 : `data:image/png;base64,${obj.base64}`
+    }
+  }
+  if (typeof content === 'string') {
+    if (content.startsWith('data:image/')) return content
+    try {
+      const parsed = JSON.parse(content)
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.image_url) return extractImageUrlFromToolContent(parsed.image_url)
+        if (parsed.base64) return extractImageUrlFromToolContent(parsed.base64)
+        if (parsed.output) return extractImageUrlFromToolContent(parsed.output)
+        if (parsed.result) return extractImageUrlFromToolContent(parsed.result)
+      }
+    } catch {
+      // Not JSON
+    }
+  }
+  return null
+}
+
 function parseFunctionResponse(content: OpenAiMessage['content']): Record<string, unknown> {
   if (typeof content !== 'string') return { output: content ?? '' }
   try {
     const parsed = JSON.parse(content)
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      if (typeof parsed.output === 'string') {
+        try {
+          const innerParsed = JSON.parse(parsed.output)
+          if (innerParsed && typeof innerParsed === 'object') {
+            return { ...parsed, output: innerParsed }
+          }
+        } catch {
+          // Output is plain text
+        }
+      }
       return parsed as Record<string, unknown>
     }
   } catch {
@@ -94,14 +130,24 @@ export function convertMessagesToGemini(messages: OpenAiMessage[]): {
           response: parseFunctionResponse(message.content)
         }
       }
+      const toolParts: Part[] = [responsePart]
+
+      const imageUrl = extractImageUrlFromToolContent(message.content)
+      if (imageUrl) {
+        const dataUrl = parseDataUrl(imageUrl)
+        if (dataUrl) {
+          toolParts.push({ inlineData: dataUrl })
+        }
+      }
+
       const previous = contents.at(-1)
       if (
         previous?.role === 'user' &&
-        previous.parts?.every((part) => Boolean(part.functionResponse))
+        previous.parts?.every((part) => Boolean(part.functionResponse || part.inlineData))
       ) {
-        previous.parts.push(responsePart)
+        previous.parts.push(...toolParts)
       } else {
-        contents.push({ role: 'user', parts: [responsePart] })
+        contents.push({ role: 'user', parts: toolParts })
       }
       continue
     }

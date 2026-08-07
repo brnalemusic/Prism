@@ -268,8 +268,8 @@ export const toolsManifest: ToolDefinition[] = [
     },
     ['instructions']
   ),
-  tool('computer_use_see_screen', 'Capture a screenshot of a screen or application window.', {
-    appName: stringSchema('Window name or "Entire Screen".', { default: 'Entire Screen' })
+  tool('computer_use_see_screen', 'Capture a screenshot of the entire screen.', {
+    appName: stringSchema('Optional window/app name (ignored, full desktop screen is always captured).', { default: 'Entire Screen' })
   }),
   tool('configure_prism', 'Change non-secret Prism settings. At least one property is required.', {
     launcherShortcut: stringSchema('Quick Launcher hotkey.'),

@@ -1,6 +1,7 @@
 import { ProviderConfig, StreamToolCallDelta } from '../../shared/types'
 import { normalizeBaseUrl, isGoogleHost } from './trustedRegistry'
 import { OpenAiMessage, OpenAiToolDefinition } from './types'
+import { extractImageUrlFromToolContent } from './geminiClient'
 
 export interface StreamCallbacks {
   onTextDelta: (text: string) => void
@@ -26,7 +27,7 @@ type OpenAiToolCall = NonNullable<OpenAiMessage['tool_calls']>[number]
 type AnthropicContentBlock =
   | { type: 'text'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; tool_use_id?: string; content: string }
+  | { type: 'tool_result'; tool_use_id?: string; content: string | AnthropicContentBlock[] }
   | {
       type: 'image'
       source: { type: 'base64'; media_type: string; data: string }
@@ -87,6 +88,21 @@ export function sanitizeOpenAiMessages(messages: OpenAiMessage[]): OpenAiMessage
       })
     }
     if (m.tool_call_id) cleanMsg.tool_call_id = m.tool_call_id
+    if (m.role === 'tool') {
+      const imageUrl = extractImageUrlFromToolContent(m.content)
+      if (imageUrl && !Array.isArray(cleanContent)) {
+        cleanMsg.content = [
+          {
+            type: 'text',
+            text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+          },
+          {
+            type: 'image_url',
+            image_url: { url: imageUrl }
+          }
+        ]
+      }
+    }
     return cleanMsg
   })
 }
@@ -402,11 +418,30 @@ async function streamAnthropicMessages(
     }
 
     if (message.role === 'tool') {
+      const imageUrl = extractImageUrlFromToolContent(message.content)
+      let toolContent: string | AnthropicContentBlock[] =
+        typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+
+      if (imageUrl) {
+        const dataUrl = imageUrl.match(/^data:([^;,]+);base64,(.+)$/s)
+        if (dataUrl) {
+          toolContent = [
+            {
+              type: 'text',
+              text: typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+            },
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: dataUrl[1], data: dataUrl[2] }
+            }
+          ]
+        }
+      }
+
       const block: AnthropicContentBlock = {
         type: 'tool_result',
         tool_use_id: message.tool_call_id,
-        content:
-          typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+        content: toolContent
       }
       const previous = anthropicMessages.at(-1)
       if (

@@ -2205,51 +2205,27 @@ export async function searchWorkspaceFiles(
 }
 
 /**
- * Captures a screenshot of a specific application window or the entire screen.
+ * Captures a screenshot of the entire screen.
  */
 export async function captureAppScreenshot(
-  appName: string
+  _appName?: string
 ): Promise<{ result: string; base64?: string }> {
   try {
     const sources = await desktopCapturer.getSources({
-      types: ['window', 'screen'],
+      types: ['screen'],
       thumbnailSize: { width: 1920, height: 1080 }
     })
 
-    let targetSource = sources.find((s) => {
-      const nameLower = s.name.toLowerCase()
-      const appNameLower = appName.toLowerCase()
-      return nameLower.includes(appNameLower) && s.id.startsWith('window')
-    })
-
-    if (
-      !targetSource &&
-      (appName.toLowerCase() === 'entire screen' ||
-        appName.toLowerCase() === 'screen' ||
-        appName.toLowerCase() === 'desktop' ||
-        appName.toLowerCase() === 'entire_screen')
-    ) {
-      targetSource = sources.find((s) => s.id.startsWith('screen'))
-    }
+    const targetSource = sources.find((s) => s.id.startsWith('screen')) || sources[0]
 
     if (!targetSource) {
-      // Fallback: search across all sources (including screens) for matching name
-      targetSource = sources.find((s) => s.name.toLowerCase().includes(appName.toLowerCase()))
-    }
-
-    if (!targetSource) {
-      // Final fallback: first available screen or any source
-      targetSource = sources.find((s) => s.id.startsWith('screen')) || sources[0]
-    }
-
-    if (!targetSource) {
-      return { result: 'Error: No screens or windows available to capture.' }
+      return { result: 'Error: No screens available to capture.' }
     }
 
     const image = targetSource.thumbnail
     const base64 = image.toPNG().toString('base64')
     return {
-      result: `Screenshot of "${targetSource.name}" captured successfully.`,
+      result: 'Screenshot of entire screen captured successfully.',
       base64
     }
   } catch (error) {
@@ -2429,6 +2405,13 @@ export async function executeSystemTool(
       return await browserBack(signal)
     case 'browser_screenshot': {
       const screenshotResult = await browserScreenshot(signal)
+      if (screenshotResult.base64) {
+        return JSON.stringify({
+          status: screenshotResult.result,
+          image_url: `data:image/png;base64,${screenshotResult.base64}`,
+          base64: screenshotResult.base64
+        })
+      }
       return screenshotResult.result
     }
     // Web scripting & DOM
@@ -2439,7 +2422,14 @@ export async function executeSystemTool(
 
     // Screenshot
     case 'computer_use_see_screen': {
-      const screenResult = await captureAppScreenshot(args.appName || 'Entire Screen')
+      const screenResult = await captureAppScreenshot()
+      if (screenResult.base64) {
+        return JSON.stringify({
+          status: screenResult.result,
+          image_url: `data:image/png;base64,${screenResult.base64}`,
+          base64: screenResult.base64
+        })
+      }
       return screenResult.result
     }
 
