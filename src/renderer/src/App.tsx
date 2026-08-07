@@ -55,6 +55,7 @@ import { AppConfig, SlashWorkflow } from '../../main/config'
 import type { DownloadProgress, SessionMode, TodoState, UserProfile } from '../../shared/types'
 import { IS_DEMO } from '../../shared/demo'
 import { getDefaultThinkingLevelForModel, isPrismCloudGeminiModel } from './constants'
+import { applyToolCallEnd, applyToolCallStart, isToolErrorResult } from './toolCallState'
 
 interface HastNode {
   type: string
@@ -62,17 +63,6 @@ interface HastNode {
   value?: string
   children?: HastNode[]
   properties?: Record<string, unknown>
-}
-
-function isToolErrorResult(result?: string): boolean {
-  if (!result) return false
-  if (result.startsWith('Error')) return true
-  try {
-    const parsed = JSON.parse(result)
-    return parsed?.ok === false
-  } catch {
-    return false
-  }
 }
 
 function disableIndentedCode(this: {
@@ -2551,46 +2541,8 @@ function RealApp(): React.JSX.Element {
             const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
             if (lastMsgIndex !== -1) {
               const lastMsg = { ...newMessages[lastMsgIndex] }
-              let toolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
-
-              toolCalls = toolCalls.map((t) => {
-                if (t.status === 'running' && t.result !== undefined) {
-                  return {
-                    ...t,
-                    status: isToolErrorResult(t.result) ? 'error' : 'done'
-                  }
-                }
-                return t
-              })
-
-              const promotedIndex = toolCalls.findLastIndex(
-                (t) =>
-                  (data.callId ? t.id === data.callId : t.name === data.name) &&
-                  (t.status === 'running' || t.status === 'done')
-              )
-
-              if (promotedIndex !== -1) {
-                toolCalls[promotedIndex] = {
-                  ...toolCalls[promotedIndex],
-                  id: data.callId || toolCalls[promotedIndex].id,
-                  args: data.args,
-                  status: 'running'
-                }
-                lastMsg.toolCalls = toolCalls
-                newMessages[lastMsgIndex] = lastMsg
-              } else {
-                const isDuplicate = toolCalls.some(
-                  (t) =>
-                    t.name === data.name &&
-                    JSON.stringify(t.args) === JSON.stringify(data.args) &&
-                    t.status === 'running'
-                )
-
-                if (!isDuplicate) {
-                  lastMsg.toolCalls = [...toolCalls, { id: data.callId, name: data.name, args: data.args, status: 'running' }]
-                  newMessages[lastMsgIndex] = lastMsg
-                }
-              }
+              lastMsg.toolCalls = applyToolCallStart(lastMsg.toolCalls || [], data)
+              newMessages[lastMsgIndex] = lastMsg
             }
             return { ...tab, messages: newMessages }
           }
@@ -2645,22 +2597,8 @@ function RealApp(): React.JSX.Element {
 
             if (lastMsgIndex !== -1 && newMessages[lastMsgIndex].toolCalls) {
               const lastMsg = { ...newMessages[lastMsgIndex] }
-              const toolCalls = [...(lastMsg.toolCalls || [])]
-              const lastToolIndex = toolCalls.findLastIndex(
-                (t) =>
-                  (data.callId ? t.id === data.callId : t.name === data.name) &&
-                  t.status === 'running'
-              )
-
-              if (lastToolIndex !== -1) {
-                toolCalls[lastToolIndex] = {
-                  ...toolCalls[lastToolIndex],
-                  result: data.result,
-                  status: /"ok":false/.test(data.result) ? 'error' : 'done'
-                }
-                lastMsg.toolCalls = toolCalls
-                newMessages[lastMsgIndex] = lastMsg
-              }
+              lastMsg.toolCalls = applyToolCallEnd(lastMsg.toolCalls || [], data)
+              newMessages[lastMsgIndex] = lastMsg
             }
             return { ...tab, messages: newMessages }
           }

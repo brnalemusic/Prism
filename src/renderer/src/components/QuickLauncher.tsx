@@ -25,6 +25,7 @@ import { ErrorPopup } from './ErrorPopup'
 import { ApplicationInfo, FileSearchResult } from '../../../shared/types'
 import { AppConfig } from '../../../main/config'
 import clsx from 'clsx'
+import { applyToolCallEnd, applyToolCallStart } from '../toolCallState'
 
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -1014,19 +1015,7 @@ export function QuickLauncher(): React.JSX.Element {
         const newMsgs = [...prev]
         const lastMsg = { ...newMsgs[newMsgs.length - 1] }
         if (lastMsg.role === 'ai') {
-          const toolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
-          const isDuplicate = toolCalls.some(
-            (t) =>
-              (data.callId ? t.id === data.callId : t.name === data.name) &&
-              JSON.stringify(t.args) === JSON.stringify(data.args) &&
-              t.status === 'running'
-          )
-          if (!isDuplicate) {
-            lastMsg.toolCalls = [
-              ...toolCalls,
-              { id: data.callId, name: data.name, args: data.args, status: 'running' } as ToolCall
-            ]
-          }
+          lastMsg.toolCalls = applyToolCallStart(lastMsg.toolCalls || [], data)
         }
         newMsgs[newMsgs.length - 1] = lastMsg
         return newMsgs
@@ -1039,18 +1028,7 @@ export function QuickLauncher(): React.JSX.Element {
         const newMsgs = [...prev]
         const lastMsg = { ...newMsgs[newMsgs.length - 1] }
         if (lastMsg.role === 'ai' && lastMsg.toolCalls) {
-          const toolCalls = [...lastMsg.toolCalls]
-          const lastToolIndex = toolCalls.findLastIndex(
-            (t) => (data.callId ? t.id === data.callId : t.name === data.name) && t.status === 'running'
-          )
-          if (lastToolIndex !== -1) {
-            toolCalls[lastToolIndex] = {
-              ...toolCalls[lastToolIndex],
-              status: /"ok":false/.test(data.result) ? 'error' : 'done',
-              result: data.result
-            }
-            lastMsg.toolCalls = toolCalls
-          }
+          lastMsg.toolCalls = applyToolCallEnd(lastMsg.toolCalls, data)
         }
         newMsgs[newMsgs.length - 1] = lastMsg
         return newMsgs

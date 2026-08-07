@@ -31,6 +31,7 @@ import {
 
 import { isShortcutPressed } from '../utils'
 import { AppConfig } from '../../../main/config'
+import { applyToolCallEnd, applyToolCallStart } from '../toolCallState'
 
 interface SearchModalProps {
   isOpen: boolean
@@ -369,24 +370,7 @@ export function SearchModal({
 
     const removeToolStart = window.api.onAiSearchToolStart((data) => {
       console.log('[AI SEARCH DEBUG] Tool start:', data.name, 'with args:', data.args)
-      setToolCalls((prev) => {
-        const updated = [...prev]
-        const existingIdx = updated.findIndex(
-          (t) =>
-            (data.callId ? t.id === data.callId : t.name === data.name) &&
-            t.status === 'running' &&
-            JSON.stringify(t.args) === JSON.stringify(data.args)
-        )
-        if (existingIdx === -1) {
-          updated.push({
-            id: data.callId,
-            name: data.name,
-            args: data.args || {},
-            status: 'running'
-          })
-        }
-        return updated
-      })
+      setToolCalls((prev) => applyToolCallStart(prev, data))
     })
 
     const removeToolEnd = window.api.onAiSearchToolEnd((data) => {
@@ -396,20 +380,7 @@ export function SearchModal({
         'with result length:',
         data.result?.length || 0
       )
-      setToolCalls((prev) => {
-        const updated = [...prev]
-        const runningIdx = updated.findLastIndex(
-          (t) => (data.callId ? t.id === data.callId : t.name === data.name) && t.status === 'running'
-        )
-        if (runningIdx !== -1) {
-          updated[runningIdx] = {
-            ...updated[runningIdx],
-            status: /"ok":false/.test(data.result) ? 'error' : 'done',
-            result: data.result
-          }
-        }
-        return updated
-      })
+      setToolCalls((prev) => applyToolCallEnd(prev, data))
     })
 
     return () => {

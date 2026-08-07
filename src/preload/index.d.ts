@@ -53,7 +53,7 @@ export interface PrismAPI {
   onChatError: (callback: (data: { error: string; chatId: string }) => void) => () => void
   onToolStart: (
     callback: (data: {
-      callId?: string
+      callId: string
       name: string
       args: Record<string, unknown>
       timestamp?: number
@@ -61,7 +61,7 @@ export interface PrismAPI {
     }) => void
   ) => () => void
   onToolEnd: (
-    callback: (data: { callId?: string; name: string; result: string; chatId: string }) => void
+    callback: (data: { callId: string; name: string; result: string; chatId: string }) => void
   ) => () => void
   onToolUpdate: (callback: (data: ToolUpdate & { chatId: string }) => void) => () => void
   onDownloadProgress: (callback: (data: DownloadProgress) => void) => () => void
@@ -165,9 +165,9 @@ export interface PrismAPI {
   ) => () => void
   onLauncherReplyError: (callback: (data: { error: string }) => void) => () => void
   onLauncherToolStart: (
-    callback: (data: { callId?: string; name: string; args: Record<string, unknown> }) => void
+    callback: (data: { callId: string; name: string; args: Record<string, unknown> }) => void
   ) => () => void
-  onLauncherToolEnd: (callback: (data: { callId?: string; name: string; result: string }) => void) => () => void
+  onLauncherToolEnd: (callback: (data: { callId: string; name: string; result: string }) => void) => () => void
   onOpenMainAppWithInstructions: (
     callback: (data: {
       instructions: string
@@ -200,9 +200,9 @@ export interface PrismAPI {
   ) => () => void
   onAiSearchError: (callback: (data: { error: string }) => void) => () => void
   onAiSearchToolStart: (
-    callback: (data: { callId?: string; name: string; args: Record<string, unknown>; timestamp?: number }) => void
+    callback: (data: { callId: string; name: string; args: Record<string, unknown>; timestamp?: number }) => void
   ) => () => void
-  onAiSearchToolEnd: (callback: (data: { callId?: string; name: string; result: string }) => void) => () => void
+  onAiSearchToolEnd: (callback: (data: { callId: string; name: string; result: string }) => void) => () => void
   getUpdaterState: () => Promise<any>
   downloadUpdate: () => void
   installUpdate: () => void
