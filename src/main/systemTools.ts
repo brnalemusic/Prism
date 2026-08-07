@@ -10,6 +10,7 @@ import { toolsManifest } from './toolsManifest'
 import { BrowserAction, DownloadProgress, SessionMode, TodoState, ArtifactItem } from '../shared/types'
 
 import { loadConfig, saveConfig, SlashWorkflow } from './config'
+import { leaveDiscordVoiceChannel } from './discordGateway'
 import { searchChatHistory, searchChatMemory, loadChatSession, getChatArtifacts, saveChatArtifact, saveChatTodo } from './history'
 import {
   chromium,
@@ -2311,6 +2312,13 @@ export async function executeSystemTool(
     // Terminal
     case 'execute_terminal_command':
       return await runTerminalCommand(args.command || '', apiKey, signal, event, chatId)
+
+    // Discord Tools
+    case 'discord_leave_voice':
+      if (leaveDiscordVoiceChannel()) {
+        return 'Successfully left the Discord voice channel.'
+      }
+      return 'Was not connected to any Discord voice channel.'
 
     // File operations
     case 'computer_use_create_file':

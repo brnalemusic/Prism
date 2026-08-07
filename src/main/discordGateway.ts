@@ -165,12 +165,22 @@ async function handleDiscordMessage(message: Message): Promise<void> {
       
       connection.on(VoiceConnectionStatus.Ready, () => {
         console.log(`[Discord Gateway] Joined voice channel in ${message.guild!.name}`)
-        message.reply('Joined voice channel! (Realtime audio streaming via Gemini is active for bot owner)')
+        message.reply('Joined voice channel!')
       })
 
     } catch (e) {
       console.error('[Discord Gateway] Voice join error:', e)
       await message.reply('Failed to join voice channel.')
+    }
+    return
+  }
+
+  // Command: prism=exit
+  if (!isDM && lowerContent.startsWith('prism=exit')) {
+    if (leaveDiscordVoiceChannel()) {
+      await message.reply('Left the voice channel.')
+    } else {
+      await message.reply('I am not currently in a voice channel.')
     }
     return
   }
@@ -212,12 +222,17 @@ async function handleDiscordMessage(message: Message): Promise<void> {
   }
 
   // Non-command message processing (Threads and DMs)
-  const mentionsBot = botId ? message.mentions.has(botId) : false
-  const botNameLower = client?.user?.username?.toLowerCase()
-  const containsName = lowerContent.includes('prism') || (botNameLower ? lowerContent.includes(botNameLower) : false)
+  // For the owner, we skip the mention requirement.
+  const isOwner = appOwnerIds.has(message.author.id)
+  
+  if (!isOwner) {
+    const mentionsBot = botId ? message.mentions.has(botId) : false
+    const botNameLower = client?.user?.username?.toLowerCase()
+    const containsName = lowerContent.includes('prism') || (botNameLower ? lowerContent.includes(botNameLower) : false)
 
-  if (!mentionsBot && !containsName) {
-    return
+    if (!mentionsBot && !containsName) {
+      return
+    }
   }
 
   if (!isDM && message.channel.isThread()) {
@@ -438,4 +453,21 @@ async function generateTitleInBackground(
   } catch {
     updateChatSessionTitle(chatId, 'New Conversation')
   }
+}
+
+export function leaveDiscordVoiceChannel(): boolean {
+  if (client) {
+    const guilds = client.guilds.cache.map((guild) => guild.id)
+    let left = false
+    const { getVoiceConnection } = require('@discordjs/voice')
+    for (const guildId of guilds) {
+      const connection = getVoiceConnection(guildId)
+      if (connection) {
+        connection.destroy()
+        left = true
+      }
+    }
+    return left
+  }
+  return false
 }

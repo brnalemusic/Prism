@@ -59,6 +59,12 @@ const contentArg = stringSchema('Complete UTF-8 text content. Preserve whitespac
 
 export const toolsManifest: ToolDefinition[] = [
   tool(
+    'discord_leave_voice',
+    'Leaves the current Discord voice channel. Use this when the user asks you to leave the call, hang up, or when the voice session is over.',
+    {},
+    []
+  ),
+  tool(
     'execute_terminal_command',
     'Run one command in the user-configured terminal shell.',
     { command: stringSchema('Exact shell command to execute.') },
