@@ -216,6 +216,22 @@ export async function initializeAuthSession(): Promise<UserProfile | null> {
   return await buildUserProfile(user)
 }
 
+/** Completes the authenticated-session work shared by Sign In and Sign Up. */
+async function completeAuthenticatedSession(user: User, session: Session): Promise<AuthResponse> {
+  if (!session.access_token) {
+    return { success: false, error: 'Authentication did not return an active session token.' }
+  }
+
+  saveSessionSecurely(session)
+  syncLocalLicenseWithSupabase(session.access_token).catch(() => {})
+  await ensureProfileRow(user)
+
+  return {
+    success: true,
+    user: await buildUserProfile(user)
+  }
+}
+
 /**
  * Handles user Sign Up
  */
@@ -229,14 +245,7 @@ export async function authSignUp(data: SignUpData): Promise<AuthResponse> {
     })
 
     if (directLoginRes?.user && directLoginRes?.session) {
-      saveSessionSecurely(directLoginRes.session)
-      syncLocalLicenseWithSupabase(directLoginRes.session.access_token).catch(() => {})
-      await ensureProfileRow(directLoginRes.user)
-      const userProfile = await buildUserProfile(directLoginRes.user)
-      return {
-        success: true,
-        user: userProfile
-      }
+      return await completeAuthenticatedSession(directLoginRes.user, directLoginRes.session)
     }
 
     // 2. Otherwise attempt standard signUp
@@ -286,21 +295,10 @@ export async function authSignUp(data: SignUpData): Promise<AuthResponse> {
 
       if (!fnErr && fnData?.success) {
         console.log('[Auth] Admin signup created account successfully! Signing in...')
-        const { data: loginRes } = await client.auth.signInWithPassword({
+        return await authLogin({
           email: data.email.trim(),
           password: data.password
         })
-
-        if (loginRes?.user && loginRes?.session) {
-          saveSessionSecurely(loginRes.session)
-          syncLocalLicenseWithSupabase(loginRes.session.access_token).catch(() => {})
-          await ensureProfileRow(loginRes.user)
-          const userProfile = await buildUserProfile(loginRes.user)
-          return {
-            success: true,
-            user: userProfile
-          }
-        }
       }
 
       return { success: false, error: error.message }
@@ -311,18 +309,15 @@ export async function authSignUp(data: SignUpData): Promise<AuthResponse> {
     }
 
     if (authRes.session) {
-      saveSessionSecurely(authRes.session)
-      syncLocalLicenseWithSupabase(authRes.session.access_token).catch(() => {})
+      return await completeAuthenticatedSession(authRes.user, authRes.session)
     }
 
-    // Ensure profile entry exists in public.profiles table
-    await ensureProfileRow(authRes.user)
-    const userProfile = await buildUserProfile(authRes.user)
-
-    return {
-      success: true,
-      user: userProfile
-    }
+    // Email-confirmation projects can create a user without returning a session.
+    // Complete the same authenticated Sign In flow before exposing the account to the UI.
+    return await authLogin({
+      email: data.email.trim(),
+      password: data.password
+    })
   } catch (err: any) {
     return {
       success: false,
@@ -366,15 +361,7 @@ export async function authLogin(data: LoginData): Promise<AuthResponse> {
       return { success: false, error: 'Invalid login credentials or session failed.' }
     }
 
-    saveSessionSecurely(authRes.session)
-    syncLocalLicenseWithSupabase(authRes.session.access_token).catch(() => {})
-    await ensureProfileRow(authRes.user)
-    const userProfile = await buildUserProfile(authRes.user)
-
-    return {
-      success: true,
-      user: userProfile
-    }
+    return await completeAuthenticatedSession(authRes.user, authRes.session)
   } catch (err: any) {
     return {
       success: false,

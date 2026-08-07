@@ -70,7 +70,7 @@ import {
   closePrismCloudTransport,
   checkInternetConnectivity
 } from './connection'
-import { ApplicationInfo } from '../shared/types'
+import type { ApplicationInfo, AuthResponse } from '../shared/types'
 import { IS_DEMO } from '../shared/demo'
 import { safeSend } from './safeSend'
 
@@ -176,6 +176,28 @@ function saveWindowState(state: WindowState): void {
 let currentConfig: AppConfig
 let mainWindow: BrowserWindow | null = null
 let launcherWindow: BrowserWindow | null = null
+
+async function finalizeAuthenticatedIpcResponse(result: AuthResponse): Promise<AuthResponse> {
+  if (!result.success || !result.user) return result
+
+  const token = await getAuthAccessToken()
+  if (!token) {
+    await closePrismCloudTransport()
+    return {
+      success: false,
+      error: 'Authentication did not create a valid session. Please try again.'
+    }
+  }
+
+  initializePrismCloudTransport()
+  markConnectionActive()
+  currentConfig = loadConfig()
+  safeSend(mainWindow, 'auth-session-updated', result.user)
+  safeSend(launcherWindow, 'auth-session-updated', result.user)
+  safeSend(mainWindow, 'config-changed', currentConfig)
+  safeSend(launcherWindow, 'config-changed', currentConfig)
+  return result
+}
 let tray: Tray | null = null
 let isQuitting = false
 let cachedApps: ApplicationInfo[] = []
@@ -1164,20 +1186,21 @@ if (!gotTheLock) {
 
     // Supabase Auth IPC Handlers
     ipcMain.handle('auth-login', async (_event, data) => {
-      const result = await authLogin(data)
-      if (result.success) markConnectionActive()
-      return result
+      return await finalizeAuthenticatedIpcResponse(await authLogin(data))
     })
 
     ipcMain.handle('auth-signup', async (_event, data) => {
-      const result = await authSignUp(data)
-      if (result.success) markConnectionActive()
-      return result
+      return await finalizeAuthenticatedIpcResponse(await authSignUp(data))
     })
 
     ipcMain.handle('auth-logout', async () => {
+      safeSend(mainWindow, 'auth-session-updated', null)
+      safeSend(launcherWindow, 'auth-session-updated', null)
       const result = await authLogout()
       await closePrismCloudTransport()
+      currentConfig = loadConfig()
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
       return result
     })
 

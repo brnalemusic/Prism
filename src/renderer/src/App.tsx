@@ -3123,10 +3123,22 @@ function RealApp(): React.JSX.Element {
             setIsApiKeyModalOpen(true)
           }
         }}
-        onAuthSuccess={(user) => {
-          setAuthUser(user)
-          setIsAuthModalOpen(false)
-          setIsProviderLockOpen(false)
+        onAuthSuccess={async () => {
+          try {
+            const verifiedUser = await window.api.getAuthUser()
+            if (!verifiedUser) {
+              setAuthUser(null)
+              return false
+            }
+
+            setAuthUser(verifiedUser)
+            setIsProviderLockOpen(false)
+            return true
+          } catch (err) {
+            console.error('[Auth] Failed to verify authenticated session:', err)
+            setAuthUser(null)
+            return false
+          }
         }}
       />
       <UserProfileModal

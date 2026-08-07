@@ -18,7 +18,7 @@ import type { UserProfile } from '../../../shared/types'
 interface AuthModalProps {
   isOpen: boolean
   onClose: () => void
-  onAuthSuccess: (user: UserProfile) => void
+  onAuthSuccess: (user: UserProfile) => Promise<boolean>
 }
 
 type AuthTab = 'signin' | 'signup' | 'forgot'
@@ -73,18 +73,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
     setLoading(true)
     try {
       const res = await window.api.authLogin({ email, password })
-      setLoading(false)
 
       if (!res.success || !res.user) {
         setErrorMsg(formatAuthErrorMessage(res.error || 'Failed to sign in. Please check your credentials.'))
         return
       }
 
-      onAuthSuccess(res.user)
+      if (!(await onAuthSuccess(res.user))) {
+        setErrorMsg('Your account could not be verified. Please try signing in again.')
+        return
+      }
+
       onClose()
     } catch (err: any) {
-      setLoading(false)
       setErrorMsg(formatAuthErrorMessage(err?.message))
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -133,18 +137,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         companyName: companyName.trim(),
         accountType
       })
-      setLoading(false)
 
       if (!res.success || !res.user) {
         setErrorMsg(formatAuthErrorMessage(res.error || 'Registration failed. Please try again.'))
         return
       }
 
-      onAuthSuccess(res.user)
+      if (!(await onAuthSuccess(res.user))) {
+        setErrorMsg('Your account was created, but the session could not be verified. Please sign in again.')
+        return
+      }
+
       onClose()
     } catch (err: any) {
-      setLoading(false)
       setErrorMsg(formatAuthErrorMessage(err?.message))
+    } finally {
+      setLoading(false)
     }
   }
 
