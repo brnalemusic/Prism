@@ -51,6 +51,7 @@ let voiceInputChunkCount = 0
 let voiceInputByteCount = 0
 let voiceOutputChunkCount = 0
 let voiceOutputByteCount = 0
+let voiceOutputTurnActive = false
 
 const VOICE_SILENCE_FLUSH_MS = 800
 const VOICE_GATE_START_RMS = 0.02
@@ -230,6 +231,7 @@ function createVoiceAudioOutput(): void {
   const player = createAudioPlayer()
   activeSpeakerStream = stream
   activeAudioPlayer = player
+  voiceOutputTurnActive = true
   player.play(createAudioResource(stream, { inputType: StreamType.Raw }))
   attachVoiceAudioPlayerErrorHandler(player)
 
@@ -307,6 +309,7 @@ function cleanupVoiceResources(): boolean {
   voiceInputByteCount = 0
   voiceOutputChunkCount = 0
   voiceOutputByteCount = 0
+  voiceOutputTurnActive = false
 
   return hadVoiceResources
 }
@@ -361,6 +364,8 @@ async function startLiveVoiceSession(
           const parts = serverContent?.modelTurn?.parts || []
           for (const part of parts) {
             if (part.inlineData?.data) {
+              if (!voiceOutputTurnActive) createVoiceAudioOutput()
+
               const pcm24kBuffer = Buffer.from(part.inlineData.data, 'base64')
               const pcm48kBuffer = upsample24kMonoTo48kStereo(pcm24kBuffer)
               voiceOutputChunkCount += 1
@@ -376,6 +381,8 @@ async function startLiveVoiceSession(
               }
             }
           }
+
+          if (serverContent?.turnComplete) voiceOutputTurnActive = false
         },
         onclose: () => {
           console.log('[Discord Gateway] Live session closed')
