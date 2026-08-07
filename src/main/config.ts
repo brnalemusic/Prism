@@ -9,7 +9,7 @@ export interface SlashWorkflow {
   name: string // e.g., "Summarizer"
   description: string // e.g., "Summarize text and check for errors"
   systemInstruction: string // instructions injected into system prompt
-  toolConstraints?: string[] // optional list of allowed tools (empty/undefined = all allowed)
+  toolConstraints?: string[] // undefined allows all tools; an empty list disables tools
 }
 
 export interface AppConfig {
@@ -108,7 +108,7 @@ const PRISM_CLOUD_MODEL_IDS = new Set([
   'gemini-3-flash-preview'
 ])
 
-function normalizeReasoningLevels(levels?: Record<string, string>): Record<string, string> {
+export function normalizeReasoningLevels(levels?: Record<string, string>): Record<string, string> {
   const normalized: Record<string, string> = {}
   for (const [modelKey, level] of Object.entries(levels || {})) {
     const cleanKey = modelKey.startsWith('prism_provider:')
