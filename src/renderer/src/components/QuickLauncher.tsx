@@ -248,6 +248,10 @@ interface LauncherAiMessageProps {
   markdownComponents: import('react-markdown').Components
 }
 
+function isTransientLauncherToolCall(toolCall?: ToolCall): boolean {
+  return toolCall?.status === 'writing' || toolCall?.status === 'running' || toolCall?.status === 'cooldown'
+}
+
 const LauncherAiMessage = React.memo(function LauncherAiMessage({
   msg,
   markdownComponents
@@ -567,7 +571,9 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
               }
 
               const firstItem = group.items[0]
-              return <ActionLoader key={`tc-group-${firstItem.partIndex}`} toolCall={mergedToolCall} />
+              return isTransientLauncherToolCall(mergedToolCall) ? (
+                <ActionLoader key={`tc-group-${firstItem.partIndex}`} toolCall={mergedToolCall} />
+              ) : null
             }
 
             const item = gItem as PartItem
@@ -576,7 +582,7 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
             if (item.type === 'tool_call') {
               if (item.isClosed) {
                 const tc = item.toolCall
-                if (tc) {
+                if (tc && isTransientLauncherToolCall(tc)) {
                   return <ActionLoader key={`tc-${item.partIndex}`} toolCall={tc} />
                 }
               } else {
@@ -620,7 +626,7 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
 
           {!msg.content.includes('[PRISM_EXECUTE_TOOL]') && nativeToolCalls.length > 0 && (
             <div className="flex flex-col gap-2 mt-1 w-full">
-              {nativeToolCalls.map((tc, idx) => (
+              {nativeToolCalls.filter(isTransientLauncherToolCall).map((tc, idx) => (
                 <ActionLoader key={`native-tc-${idx}`} toolCall={tc} />
               ))}
             </div>
