@@ -1934,14 +1934,6 @@ export async function webSearchSingle(query: string, signal?: AbortSignal): Prom
 }
 
 /**
- * Backwards-compatible alias for `webSearchSingle`. Kept so existing imports
- * (Launcher, AI Search modal, tests) continue to work untouched.
- */
-export async function webSearch(query: string, signal?: AbortSignal): Promise<string> {
-  return webSearchSingle(query, signal)
-}
-
-/**
  * A single continuous web search session. Each entry carries a human-friendly
  * `title` (what the user sees in the UI) and the actual `query` keywords sent
  * to Google.
@@ -2082,6 +2074,71 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | 
 - **Search:** Use web_search and saw_link_from_url. For Deep Research: 1. Search context, 2. Present plan & await user approval, 3. 10+ iterations, 4. Output Markdown report.
 - **Prism Docs:** Use internal_docs_list, internal_docs_read, internal_docs_search for Prism system queries.
 - **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}`
+}
+
+export interface InstalledApplicationResult {
+  name: string
+  path: string
+}
+
+export async function searchInstalledApplications(
+  query: string
+): Promise<InstalledApplicationResult[]> {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) return []
+
+  const roots: string[] = []
+  const extensions = new Set<string>()
+  if (process.platform === 'win32') {
+    if (process.env.ProgramData) {
+      roots.push(path.join(process.env.ProgramData, 'Microsoft', 'Windows', 'Start Menu', 'Programs'))
+    }
+    if (process.env.APPDATA) {
+      roots.push(path.join(process.env.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs'))
+    }
+    extensions.add('.lnk')
+    extensions.add('.exe')
+  } else if (process.platform === 'darwin') {
+    roots.push('/Applications', path.join(os.homedir(), 'Applications'))
+    extensions.add('.app')
+  } else {
+    roots.push('/usr/share/applications', path.join(os.homedir(), '.local', 'share', 'applications'))
+    extensions.add('.desktop')
+  }
+
+  const results: InstalledApplicationResult[] = []
+  const seen = new Set<string>()
+  let scanned = 0
+
+  const walk = async (directory: string, depth: number): Promise<void> => {
+    if (depth > 8 || results.length >= 30 || scanned >= 10000) return
+    let entries: fssync.Dirent[]
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (results.length >= 30 || scanned >= 10000) return
+      const fullPath = path.join(directory, entry.name)
+      const extension = path.extname(entry.name).toLowerCase()
+      if (entry.isDirectory() && !extensions.has(extension)) {
+        await walk(fullPath, depth + 1)
+        continue
+      }
+      scanned++
+      if (!extensions.has(extension)) continue
+      const displayName = path.basename(entry.name, extension)
+      if (!displayName.toLowerCase().includes(normalizedQuery)) continue
+      const normalizedPath = path.normalize(fullPath)
+      if (seen.has(normalizedPath.toLowerCase())) continue
+      seen.add(normalizedPath.toLowerCase())
+      results.push({ name: displayName, path: normalizedPath })
+    }
+  }
+
+  for (const root of roots) await walk(root, 0)
+  return results.sort((left, right) => left.name.localeCompare(right.name))
 }
 
 /**
@@ -2331,10 +2388,10 @@ export async function executeSystemTool(
       }
     }
     case 'search_installed_applications': {
-      const files = await searchWorkspaceFiles(args.query || '')
-      return files.length > 0
-        ? files.map((f) => `${f.name} (${f.relativePath})`).join('\n')
-        : 'No matching files found.'
+      const applications = await searchInstalledApplications(args.query)
+      return applications.length > 0
+        ? applications.map((application) => `${application.name} (${application.path})`).join('\n')
+        : 'No matching installed applications found.'
     }
 
     // Web search
@@ -2803,23 +2860,7 @@ export async function executeSystemTool(
         const description = (args.description || '').trim()
         const systemInstruction = (args.systemInstruction || '').trim()
 
-        let toolConstraints: string[] = []
-        if (args.toolConstraints) {
-          if (Array.isArray(args.toolConstraints)) {
-            toolConstraints = args.toolConstraints
-          } else if (typeof args.toolConstraints === 'string') {
-            try {
-              const parsed = JSON.parse(args.toolConstraints)
-              if (Array.isArray(parsed)) {
-                toolConstraints = parsed.map((t: any) => String(t).trim())
-              } else {
-                toolConstraints = args.toolConstraints.split(',').map((t: string) => t.trim()).filter(Boolean)
-              }
-            } catch {
-              toolConstraints = args.toolConstraints.split(',').map((t: string) => t.trim()).filter(Boolean)
-            }
-          }
-        }
+        const toolConstraints: string[] = args.toolConstraints || []
 
         if (!command.startsWith('/')) {
           return 'Error: Workflow command must start with a slash (/) (e.g., "/coder")'

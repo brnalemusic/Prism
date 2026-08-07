@@ -1,4 +1,5 @@
 import { ProviderConfig, ProviderModel, CompletionType, StreamToolCallDelta, TodoState, PrismThinkingLevel } from '../../shared/types'
+import type { ToolResultEnvelope } from '../toolRuntime'
 
 export type { ProviderConfig, ProviderModel, CompletionType, StreamToolCallDelta, TodoState, PrismThinkingLevel }
 
@@ -56,6 +57,13 @@ export interface OpenAiMessage {
     extra_content?: { google?: { thought_signature?: string } }
   }>
   tool_call_id?: string
+  tool_metadata?: {
+    originalArguments: unknown
+    validatedArguments: Record<string, unknown>
+    result: ToolResultEnvelope
+  }
+  reasoning_content?: string
+  thinking_duration?: number
   provider_metadata?: {
     gemini?: {
       content: GeminiContentData

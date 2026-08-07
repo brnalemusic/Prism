@@ -1,6 +1,6 @@
 import { IpcMainEvent } from 'electron'
 import * as os from 'os'
-import { SessionMode, AttachedFile, StreamToolCallDelta } from '../../shared/types'
+import { SessionMode, AttachedFile } from '../../shared/types'
 import { getSystemToolsPrompt, setActiveCwd, setCurrentSessionIdForTodo } from '../systemTools'
 import { loadConfig } from '../config'
 import { saveChatSession, loadChatSession, updateChatSessionTitle } from '../history'
@@ -8,8 +8,9 @@ import { resolveProviderAndModel } from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
 import { ActiveRun, OpenAiMessage, OpenAiToolDefinition } from './types'
 import { safeSend } from '../safeSend'
-import { executeValidatedTool, getOpenAiToolDefinitions, ToolLoopGuard } from '../toolRuntime'
+import { getOpenAiToolDefinitions } from '../toolRuntime'
 import { normalizePrismThinkingLevel } from './geminiClient'
+import { runToolOrchestration } from './toolOrchestrator'
 
 export const activeRuns = new Map<string, ActiveRun>()
 export const lastScreenshots = new Map<string, string>()
@@ -59,8 +60,14 @@ export function cancelChatMessage(chatId?: string): void {
   }
 }
 
-export function getNativeToolsForOpenAi(_target: 'main' | 'launcher' = 'main'): OpenAiToolDefinition[] {
-  return getOpenAiToolDefinitions()
+export function getNativeToolsForOpenAi(
+  _target: 'main' | 'launcher' = 'main',
+  allowedTools?: string[]
+): OpenAiToolDefinition[] {
+  const definitions = getOpenAiToolDefinitions()
+  if (allowedTools === undefined) return definitions
+  const allowed = new Set(allowedTools)
+  return definitions.filter((definition) => allowed.has(definition.function.name))
 }
 
 export async function handleChatMessage(
@@ -212,7 +219,7 @@ export async function handleChatMessage(
       config.modelReasoningLevels?.[cleanModelId]
 
     const dataLevel = typeof data === 'object' ? data.reasoningLevel : undefined
-    const reasoningLevel = normalizePrismThinkingLevel(provider, dataLevel || configLevel)
+    const reasoningLevel = normalizePrismThinkingLevel(provider, model.id, dataLevel || configLevel)
 
     const firstMsgText = userText.trim()
     const matchedWorkflow = config.workflows?.find((w) =>
@@ -233,311 +240,124 @@ export async function handleChatMessage(
 
     setCurrentSessionIdForTodo(chatId)
 
-    const openAiTools = getNativeToolsForOpenAi('main')
+    const openAiTools =
+      currentSessionMode === 'conversation'
+        ? []
+        : getNativeToolsForOpenAi('main', matchedWorkflow?.toolConstraints)
+    const messagesForApi: OpenAiMessage[] = [
+      { role: 'system', content: fullPrompt },
+      ...convertHistoryToOpenAi(historyMessages)
+    ]
+    const thinkingTimes = new Map<number, { startedAt?: number; endedAt?: number }>()
+    let totalThinkingDuration = 0
 
-    let maxLoops = 100
-    let loopCount = 0
-    const toolLoopGuard = new ToolLoopGuard()
-    let accumulatedReplyText = ''
-    let accumulatedReasoningText = ''
-    let accumulatedThinkingDuration = 0
-    let replyEnded = false
+    const parseThoughtAndContent = (rawText: string, extraReasoning: string) => {
+      let thoughts = extraReasoning || ''
+      let content = rawText
+      const thinkMatch = rawText.match(/<think>([\s\S]*?)(?:<\/think>|$)/i)
+      if (thinkMatch) {
+        thoughts = thoughts ? `${thoughts}\n${thinkMatch[1]}` : thinkMatch[1]
+        content = rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*/gi, '')
+      }
+      return { thoughts, content }
+    }
 
-    while (loopCount < maxLoops) {
-      loopCount++
-
-      const messagesForApi: OpenAiMessage[] = [
-        { role: 'system', content: fullPrompt },
-        ...convertHistoryToOpenAi(historyMessages)
-      ]
-
-      let currentReplyText = ''
-      let currentReasoningText = ''
-
-      const parseThoughtAndContent = (rawText: string, extraReasoning: string) => {
-        let thoughts = extraReasoning || ''
-        let content = rawText
-
-        const thinkMatch = rawText.match(/<think>([\s\S]*?)(?:<\/think>|$)/i)
-        if (thinkMatch) {
-          const embeddedThought = thinkMatch[1]
-          thoughts = thoughts ? `${thoughts}\n${embeddedThought}` : embeddedThought
-          content = rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*/gi, '')
+    const orchestration = await runToolOrchestration({
+      provider,
+      modelId: model.id,
+      messages: messagesForApi,
+      tools: openAiTools,
+      signal: abortController.signal,
+      reasoningLevel,
+      onStreamEvent: (streamEvent, state) => {
+        const timing = thinkingTimes.get(state.round) || {}
+        if (streamEvent.type === 'reasoning' && !timing.startedAt) timing.startedAt = Date.now()
+        if (streamEvent.type !== 'reasoning' && timing.startedAt && !timing.endedAt) {
+          timing.endedAt = Date.now()
         }
+        thinkingTimes.set(state.round, timing)
 
-        return { thoughts, content }
-      }
-
-      let chunkCount = 0
-      let thinkingStart: number | null = null
-      let thinkingEnd: number | null = null
-
-      const streamResult = await streamOpenAiCompletion(
-        provider,
-        model.id,
-        messagesForApi,
-        openAiTools,
-        abortController.signal,
-        {
-          onTextDelta: (text) => {
-            if (thinkingStart && !thinkingEnd) {
-              thinkingEnd = Date.now()
-            }
-            currentReplyText += text
-            chunkCount++
-            const combinedText = accumulatedReplyText ? accumulatedReplyText + '\n\n' + currentReplyText : currentReplyText
-            const combinedReasoning = accumulatedReasoningText ? accumulatedReasoningText + '\n\n' + currentReasoningText : currentReasoningText
-            const { thoughts, content } = parseThoughtAndContent(combinedText, combinedReasoning)
-            safeSend(event.sender, 'chat-reply-chunk', {
-              chatId,
-              thoughts,
-              finalResponse: content,
-              isThinking: !!thoughts && !content,
-              isWritingToolCall: false
-            })
-          },
-          onReasoningDelta: (reasoning) => {
-            if (!thinkingStart) {
-              thinkingStart = Date.now()
-            }
-            currentReasoningText += reasoning
-            chunkCount++
-            const combinedText = accumulatedReplyText ? accumulatedReplyText + '\n\n' + currentReplyText : currentReplyText
-            const combinedReasoning = accumulatedReasoningText ? accumulatedReasoningText + '\n\n' + currentReasoningText : currentReasoningText
-            const { thoughts, content } = parseThoughtAndContent(combinedText, combinedReasoning)
-            safeSend(event.sender, 'chat-reply-chunk', {
-              chatId,
-              thoughts,
-              finalResponse: content,
-              isThinking: true,
-              isWritingToolCall: false
-            })
-          },
-          onToolCallDelta: (delta: StreamToolCallDelta) => {
-            if (thinkingStart && !thinkingEnd) {
-              thinkingEnd = Date.now()
-            }
-            // Real-time tool streaming to UI!
-            safeSend(event.sender, 'chat-tool-call-delta', {
-              chatId,
-              ...delta
-            })
-          }
-        },
-        reasoningLevel
-      )
-
-      console.log(`[Main Chat] Stream generation completed. Total chunks: ${chunkCount}`)
-
-      if (thinkingStart && !thinkingEnd) {
-        thinkingEnd = Date.now()
-      }
-      const iterThinkingDuration = thinkingStart
-        ? Math.max(1, Math.round(((thinkingEnd || Date.now()) - thinkingStart) / 1000))
-        : undefined
-
-      if (iterThinkingDuration !== undefined) {
-        accumulatedThinkingDuration += iterThinkingDuration
-      }
-
-      const turnThinkingDuration = accumulatedThinkingDuration > 0 ? accumulatedThinkingDuration : iterThinkingDuration
-
-      currentReplyText = streamResult.text || currentReplyText
-      currentReasoningText = streamResult.reasoning || currentReasoningText
-
-      // Accumulate text across tool-call loop iterations so the UI preserves
-      // text that was streamed before the tool call.
-      const { thoughts: iterThoughts, content: iterContent } = parseThoughtAndContent(currentReplyText, currentReasoningText)
-      if (iterContent) {
-        accumulatedReplyText = accumulatedReplyText ? accumulatedReplyText + '\n\n' + iterContent : iterContent
-      }
-      if (iterThoughts) {
-        accumulatedReasoningText = accumulatedReasoningText ? accumulatedReasoningText + '\n\n' + iterThoughts : iterThoughts
-      }
-
-      const assistantMessage: OpenAiMessage & { reasoning_content?: string; thinking_duration?: number } = {
-        role: 'assistant',
-        content: streamResult.toolCalls.length > 0 ? (iterContent || '') : (accumulatedReplyText || iterContent || ''),
-        ...(accumulatedReasoningText || iterThoughts ? { reasoning_content: accumulatedReasoningText || iterThoughts } : {}),
-        ...(turnThinkingDuration !== undefined ? { thinking_duration: turnThinkingDuration } : {})
-      }
-
-      if (streamResult.nativeContent) {
-        assistantMessage.provider_metadata = {
-          gemini: { content: streamResult.nativeContent }
+        if (streamEvent.type === 'tool') {
+          safeSend(event.sender, 'chat-tool-call-delta', { chatId, ...streamEvent.delta })
+          return
         }
-      }
-
-      if (streamResult.toolCalls.length > 0) {
-        assistantMessage.tool_calls = streamResult.toolCalls.map((tc) => ({
-          id: tc.id,
-          type: 'function' as const,
-          function: {
-            name: tc.name,
-            arguments: tc.args
-          },
-          // Gemini thinking models require thought_signature to be echoed back on the
-          // next turn via extra_content.google.thought_signature in the OpenAI-compat API.
-          // Also spread top-level thought_signature for any future API changes.
-          ...(tc.thoughtSignature
-            ? {
-                thought_signature: tc.thoughtSignature,
-                extra_content: { google: { thought_signature: tc.thoughtSignature } }
-              }
-            : {})
-        }))
-      }
-
-      historyMessages.push(assistantMessage)
-      saveChatSession(
-        chatId,
-        historyMessages,
-        undefined,
-        currentSessionMode,
-        currentDisciplinePath,
-        currentSelectedChatModel
-      )
-
-      // Execute tool calls if any returned
-      if (streamResult.toolCalls.length > 0) {
-        for (const tc of streamResult.toolCalls) {
-          const execution = await executeValidatedTool(
-            tc.name,
-            tc.args || '{}',
-            {
-              event,
-              apiKey: provider.apiKey,
-              signal: abortController.signal,
-              chatId,
-              onStart: (args) =>
-                safeSend(event.sender, 'chat-tool-start', {
-                  callId: tc.id,
-                  name: tc.name,
-                  args,
-                  timestamp: Date.now(),
-                  chatId
-                })
-            },
-            toolLoopGuard
+        const combinedText = state.accumulatedText
+          ? `${state.accumulatedText}\n\n${state.currentText}`
+          : state.currentText
+        const combinedReasoning = state.accumulatedReasoning
+          ? `${state.accumulatedReasoning}\n\n${state.currentReasoning}`
+          : state.currentReasoning
+        const parsed = parseThoughtAndContent(combinedText, combinedReasoning)
+        safeSend(event.sender, 'chat-reply-chunk', {
+          chatId,
+          thoughts: parsed.thoughts,
+          finalResponse: parsed.content,
+          isThinking: streamEvent.type === 'reasoning',
+          isWritingToolCall: state.streamingToolCalls.length > 0
+        })
+      },
+      decorateAssistantMessage: (assistantMessage, _result, state) => {
+        const timing = thinkingTimes.get(state.round)
+        if (timing?.startedAt) {
+          const duration = Math.max(
+            1,
+            Math.round(((timing.endedAt || Date.now()) - timing.startedAt) / 1000)
           )
-
-          const toolOutput = execution.modelContent
-
-          safeSend(event.sender, 'chat-tool-end', {
-            callId: tc.id,
-            name: tc.name,
-            result: toolOutput,
+          assistantMessage.thinking_duration = duration
+          totalThinkingDuration += duration
+        }
+        return assistantMessage
+      },
+      createToolContext: ({ callId, name }) => ({
+        event,
+        apiKey: provider.apiKey,
+        signal: abortController.signal,
+        chatId,
+        onStart: (args) =>
+          safeSend(event.sender, 'chat-tool-start', {
+            callId,
+            name,
+            args,
+            timestamp: Date.now(),
             chatId
           })
+      }),
+      onToolResult: (call) =>
+        safeSend(event.sender, 'chat-tool-end', {
+          callId: call.callId,
+          name: call.name,
+          result: call.modelContent,
+          chatId
+        }),
+      onHistoryMessage: (historyMessage) => {
+        historyMessages.push(historyMessage)
+        saveChatSession(
+          chatId,
+          historyMessages,
+          undefined,
+          currentSessionMode,
+          currentDisciplinePath,
+          currentSelectedChatModel
+        )
+      },
+      finalInstruction:
+        '# Tool loop limit reached\nThe maximum of 100 tool rounds has been reached. ' +
+        'Do not call more tools. Explain what was completed, what remains, and the last tool result.'
+    })
 
-          historyMessages.push({
-            role: 'tool',
-            tool_call_id: tc.id,
-            name: tc.name,
-            content: toolOutput
-          })
-
-          saveChatSession(
-            chatId,
-            historyMessages,
-            undefined,
-            currentSessionMode,
-            currentDisciplinePath,
-            currentSelectedChatModel
-          )
-        }
-        // Continue loop to let model process tool outputs
-        continue
-      }
-
-      // No tool calls, finish
-      safeSend(event.sender, 'chat-reply-end', {
-        thoughts: accumulatedReasoningText,
-        finalResponse: accumulatedReplyText,
-        rawText: accumulatedReplyText,
-        isThinking: false,
-        thinkingDuration: turnThinkingDuration,
-        chatId
-      })
-      replyEnded = true
-      break
-    }
-
-    if (!replyEnded && !abortController.signal.aborted) {
-      let finalText = ''
-      let finalReasoning = ''
-      const finalResult = await streamOpenAiCompletion(
-        provider,
-        model.id,
-        [
-          {
-            role: 'system',
-            content:
-              `${fullPrompt}\n\n# Tool loop limit reached\n` +
-              'The maximum of 100 tool rounds has been reached. Do not call more tools. ' +
-              'Explain what was completed, what remains, and the last tool result.'
-          },
-          ...convertHistoryToOpenAi(historyMessages)
-        ],
-        [],
-        abortController.signal,
-        {
-          onTextDelta: (text) => {
-            finalText += text
-            safeSend(event.sender, 'chat-reply-chunk', {
-              chatId,
-              thoughts: accumulatedReasoningText + finalReasoning,
-              finalResponse: accumulatedReplyText
-                ? `${accumulatedReplyText}\n\n${finalText}`
-                : finalText,
-              isThinking: false,
-              isWritingToolCall: false
-            })
-          },
-          onReasoningDelta: (reasoning) => {
-            finalReasoning += reasoning
-          },
-          onToolCallDelta: () => {}
-        },
-        reasoningLevel
-      )
-      finalText = finalResult.text || finalText
-      finalReasoning = finalResult.reasoning || finalReasoning
-      if (finalText) {
-        accumulatedReplyText = accumulatedReplyText
-          ? `${accumulatedReplyText}\n\n${finalText}`
-          : finalText
-      }
-      if (finalReasoning) {
-        accumulatedReasoningText = accumulatedReasoningText
-          ? `${accumulatedReasoningText}\n\n${finalReasoning}`
-          : finalReasoning
-      }
-      const finalAssistantMessage: OpenAiMessage = {
-        role: 'assistant',
-        content: finalText,
-        ...(finalResult.nativeContent
-          ? { provider_metadata: { gemini: { content: finalResult.nativeContent } } }
-          : {})
-      }
-      historyMessages.push(finalAssistantMessage)
-      saveChatSession(
-        chatId,
-        historyMessages,
-        undefined,
-        currentSessionMode,
-        currentDisciplinePath,
-        currentSelectedChatModel
-      )
-      safeSend(event.sender, 'chat-reply-end', {
-        thoughts: accumulatedReasoningText,
-        finalResponse: accumulatedReplyText,
-        rawText: accumulatedReplyText,
-        isThinking: false,
-        chatId,
-        loopLimitReached: true
-      })
-    }
+    const finalOutput = parseThoughtAndContent(
+      orchestration.accumulatedText,
+      orchestration.accumulatedReasoning
+    )
+    safeSend(event.sender, 'chat-reply-end', {
+      thoughts: finalOutput.thoughts,
+      finalResponse: finalOutput.content,
+      rawText: finalOutput.content,
+      isThinking: false,
+      thinkingDuration: totalThinkingDuration || undefined,
+      chatId,
+      ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})
+    })
   } catch (error: any) {
     if (abortController.signal.aborted || error.name === 'AbortError') {
       safeSend(event.sender, 'chat-reply-error', { error: 'Message cancelled by user', chatId })

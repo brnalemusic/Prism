@@ -130,7 +130,7 @@ export const toolsManifest: ToolDefinition[] = [
   ),
   tool(
     'search_installed_applications',
-    'Search installed applications and workspace entries by name.',
+    'Search installed application shortcuts by name.',
     { query: stringSchema('Application search term.') },
     ['query']
   ),
@@ -229,6 +229,9 @@ export const toolsManifest: ToolDefinition[] = [
       minimizeToTray: booleanSchema('Whether closing Prism minimizes it to the tray.'),
       autoLaunch: booleanSchema('Whether Prism starts with the operating system.'),
       quickLauncherMode: stringSchema('Quick Launcher mode.', { enum: ['simple', 'advanced'] }),
+      theme: stringSchema('Application color theme.', {
+        enum: ['marine', 'vertez', 'akoustik', 'terno', 'ursula', 'rgb', 'fire', 'lava', 'gold', 'forest', 'indigo', 'violet', 'white']
+      }),
       username: stringSchema('Display name.'),
       ttsVoice: stringSchema('Text-to-speech voice.', { enum: ['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'] }),
       terminalShell: stringSchema('Shell executable or absolute path.'),
@@ -256,6 +259,8 @@ export const toolsManifest: ToolDefinition[] = [
             options: {
               type: 'array',
               description: 'Choices for a multiple-choice question.',
+              minItems: 2,
+              maxItems: 10,
               items: objectSchema(
                 { value: stringSchema('Stable choice value.'), label: stringSchema('User-facing choice label.') },
                 ['value', 'label']

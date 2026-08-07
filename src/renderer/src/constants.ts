@@ -28,11 +28,10 @@ export interface ThinkingLevelOption {
 }
 
 export function isPrismCloudGeminiModel(modelId: string): boolean {
-  if (!modelId) return false
-  const cleanId = modelId.startsWith('prism_provider:') ? modelId.replace('prism_provider:', '') : modelId
+  if (!modelId.startsWith('prism_provider:')) return false
+  const cleanId = modelId.replace('prism_provider:', '').replace(/^models\//, '')
   return (
     cleanId === 'gemini-3.1-flash-lite' ||
-    cleanId === 'models/gemini-3-flash-preview' ||
     cleanId === 'gemini-3-flash-preview'
   )
 }

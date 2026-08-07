@@ -114,7 +114,7 @@ function normalizeReasoningLevels(levels?: Record<string, string>): Record<strin
     const cleanKey = modelKey.startsWith('prism_provider:')
       ? modelKey.slice('prism_provider:'.length)
       : modelKey
-    const isPrismCloudKey = modelKey.startsWith('prism_provider:') || PRISM_CLOUD_MODEL_IDS.has(cleanKey)
+    const isPrismCloudKey = PRISM_CLOUD_MODEL_IDS.has(cleanKey)
     normalized[modelKey] = isPrismCloudKey
       ? VALID_PRISM_THINKING_LEVELS.has(level)
         ? level

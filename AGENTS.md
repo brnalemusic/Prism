@@ -59,6 +59,9 @@ Think on how to implement       Try another Plan until user accepts
             |
         Finish work
 ```
+
+NEVER run build commands like npm run build or npm run build:win.
+
 ### Branch Rules
 Those are rules for Source Control and Git Control.
 

@@ -2130,11 +2130,9 @@ function RealApp(): React.JSX.Element {
 
   const handleReasoningLevelChange = useCallback(async (modelKey: string, level: string) => {
     if (!isPrismCloudGeminiModel(modelKey)) return
-    const cleanKey = modelKey.replace('prism_provider:', '')
     const updatedLevels = {
       ...(config?.modelReasoningLevels || {}),
-      [modelKey]: level,
-      [cleanKey]: level
+      [modelKey]: level
     }
     setConfig((prev) => (prev ? { ...prev, modelReasoningLevels: updatedLevels } : prev))
     await window.api.saveConfig({ modelReasoningLevels: updatedLevels })

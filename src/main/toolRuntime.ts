@@ -183,6 +183,7 @@ function validateValue(
     errors.push(`${path} must be an integer.`)
   }
   if ((schema.type === 'integer' || schema.type === 'number') && typeof value === 'number') {
+    if (!Number.isFinite(value)) errors.push(`${path} must be a finite number.`)
     if (schema.minimum !== undefined && value < schema.minimum) {
       errors.push(`${path} must be at least ${schema.minimum}.`)
     }
@@ -310,18 +311,20 @@ export async function executeValidatedTool(
   context: ToolExecutionContext,
   loopGuard?: ToolLoopGuard
 ): Promise<{ args: Record<string, unknown>; envelope: ToolResultEnvelope; modelContent: string }> {
-  const repeatedError = loopGuard?.register(toolName, rawArgs)
+  const validation = validateToolArguments(toolName, rawArgs)
+  const repeatedError = loopGuard?.register(toolName, validation.ok ? validation.args : rawArgs)
   if (repeatedError) {
     context.onStart?.(
-      rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)
-        ? (rawArgs as Record<string, unknown>)
-        : {}
+      validation.ok
+        ? validation.args
+        : rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)
+          ? (rawArgs as Record<string, unknown>)
+          : {}
     )
     const envelope: ToolResultEnvelope = { ok: false, error: repeatedError }
     return { args: {}, envelope, modelContent: JSON.stringify(envelope) }
   }
 
-  const validation = validateToolArguments(toolName, rawArgs)
   if (!validation.ok) {
     context.onStart?.(
       rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)

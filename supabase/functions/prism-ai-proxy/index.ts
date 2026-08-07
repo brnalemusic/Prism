@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+const PRISM_CLOUD_MODELS = new Set(['gemini-3.1-flash-lite', 'gemini-3-flash-preview'])
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -132,6 +133,12 @@ serve(async (req) => {
     if (!/^[a-zA-Z0-9._/-]+$/.test(rawModelId) || rawModelId.includes('..')) {
       return new Response(
         JSON.stringify({ error: 'Invalid Gemini model identifier.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+    if (!PRISM_CLOUD_MODELS.has(rawModelId)) {
+      return new Response(
+        JSON.stringify({ error: 'This Gemini model is not available through Prism Cloud.' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
