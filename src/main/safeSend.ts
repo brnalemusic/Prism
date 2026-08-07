@@ -24,3 +24,13 @@ export function safeSend(target: SendTarget, channel: string, ...args: any[]): v
     console.warn(`[safeSend] Suppressed error sending on channel '${channel}':`, err)
   }
 }
+
+/**
+ * Safely broadcasts an IPC message to all open BrowserWindow instances.
+ */
+export function broadcastIpc(channel: string, ...args: any[]): void {
+  const windows = BrowserWindow.getAllWindows()
+  for (const win of windows) {
+    safeSend(win, channel, ...args)
+  }
+}

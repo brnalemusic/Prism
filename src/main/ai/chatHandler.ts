@@ -7,7 +7,7 @@ import { saveChatSession, loadChatSession, updateChatSessionTitle } from '../his
 import { resolveProviderAndModel } from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
 import { ActiveRun, OpenAiMessage, OpenAiToolDefinition } from './types'
-import { safeSend } from '../safeSend'
+import { safeSend, broadcastIpc } from '../safeSend'
 import { getOpenAiToolDefinitions } from '../toolRuntime'
 import { normalizePrismThinkingLevel } from './prismThinking'
 import { runToolOrchestration } from './toolOrchestrator'
@@ -193,7 +193,7 @@ export async function handleChatMessage(
       currentDisciplinePath,
       currentSelectedChatModel
     )
-    safeSend(event.sender, 'chat-session-created', { id: chatId })
+    broadcastIpc('chat-session-created', { id: chatId })
     // Background title generator
     generateTitleInBackground(event, provider, model.id, message, chatId)
   } else {
@@ -207,7 +207,7 @@ export async function handleChatMessage(
     )
   }
 
-  safeSend(event.sender, 'chat-reply-start', { chatId })
+  broadcastIpc('chat-reply-start', { chatId })
 
   const abortController = new AbortController()
   activeRuns.set(chatId, {
@@ -296,7 +296,7 @@ export async function handleChatMessage(
         thinkingTimes.set(state.round, timing)
 
         if (streamEvent.type === 'tool') {
-          safeSend(event.sender, 'chat-tool-call-delta', { chatId, ...streamEvent.delta })
+          broadcastIpc('chat-tool-call-delta', { chatId, ...streamEvent.delta })
           return
         }
         const combinedText = state.accumulatedText
@@ -306,7 +306,7 @@ export async function handleChatMessage(
           ? `${state.accumulatedReasoning}\n\n${state.currentReasoning}`
           : state.currentReasoning
         const parsed = parseThoughtAndContent(combinedText, combinedReasoning)
-        safeSend(event.sender, 'chat-reply-chunk', {
+        broadcastIpc('chat-reply-chunk', {
           chatId,
           thoughts: parsed.thoughts,
           finalResponse: parsed.content,
@@ -332,7 +332,7 @@ export async function handleChatMessage(
         signal: abortController.signal,
         chatId,
         onStart: (args) =>
-          safeSend(event.sender, 'chat-tool-start', {
+          broadcastIpc('chat-tool-start', {
             callId,
             name,
             args,
@@ -341,7 +341,7 @@ export async function handleChatMessage(
           })
       }),
       onToolResult: (call) =>
-        safeSend(event.sender, 'chat-tool-end', {
+        broadcastIpc('chat-tool-end', {
           callId: call.callId,
           name: call.name,
           result: call.modelContent,
@@ -367,7 +367,7 @@ export async function handleChatMessage(
       orchestration.accumulatedText,
       orchestration.accumulatedReasoning
     )
-    safeSend(event.sender, 'chat-reply-end', {
+    broadcastIpc('chat-reply-end', {
       thoughts: finalOutput.thoughts,
       finalResponse: finalOutput.content,
       rawText: finalOutput.content,
@@ -379,12 +379,12 @@ export async function handleChatMessage(
   } catch (error: unknown) {
     const caughtError = error instanceof Error ? error : new Error(String(error))
     if (abortController.signal.aborted || caughtError.name === 'AbortError') {
-      safeSend(event.sender, 'chat-reply-error', { error: 'Message cancelled by user', chatId })
+      broadcastIpc('chat-reply-error', { error: 'Message cancelled by user', chatId })
     } else {
       console.error(`[Main Chat] Error in handleChatMessage for chat ${chatId}:`, caughtError)
       console.error(`[Main Chat] Error name: ${caughtError.name}, message: ${caughtError.message}`)
       if (caughtError.stack) console.error(`[Main Chat] Stack: ${caughtError.stack}`)
-      safeSend(event.sender, 'chat-reply-error', { error: caughtError.message, chatId })
+      broadcastIpc('chat-reply-error', { error: caughtError.message, chatId })
     }
   } finally {
     activeRuns.delete(chatId)
@@ -415,7 +415,7 @@ function convertHistoryToOpenAi(history: OpenAiMessage[]): OpenAiMessage[] {
 }
 
 async function generateTitleInBackground(
-  event: IpcMainEvent,
+  _event: IpcMainEvent,
   provider: import('../../shared/types').ProviderConfig,
   modelId: string,
   firstMessage: string,
@@ -444,9 +444,9 @@ async function generateTitleInBackground(
 
     console.log(`[Title Generator] Generated title for chat ${chatId}: "${title}"`)
     updateChatSessionTitle(chatId, title)
-    safeSend(event.sender, 'chat-title-received', { id: chatId, title })
+    broadcastIpc('chat-title-received', { id: chatId, title })
   } catch {
     updateChatSessionTitle(chatId, 'New Conversation')
-    safeSend(event.sender, 'chat-title-received', { id: chatId, title: 'New Conversation' })
+    broadcastIpc('chat-title-received', { id: chatId, title: 'New Conversation' })
   }
 }

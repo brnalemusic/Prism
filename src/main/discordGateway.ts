@@ -8,6 +8,7 @@ import {
 } from 'discord.js'
 import {
   joinVoiceChannel,
+  getVoiceConnection,
   VoiceConnectionStatus,
   EndBehaviorType,
   createAudioPlayer,
@@ -18,9 +19,14 @@ import { GoogleGenAI, Modality } from '@google/genai'
 import prism from 'prism-media'
 import { PassThrough } from 'stream'
 import { AppConfig } from './config'
-import { loadChatSession, saveChatSession, updateChatSessionTitle, listChatSessions } from './history'
+import {
+  loadChatSession,
+  saveChatSession,
+  updateChatSessionTitle,
+  listChatSessions
+} from './history'
 import { resolveProviderAndModel } from './ai/providerManager'
-import { getChatModel } from './ai/chatHandler'
+import { getChatModel, activeRuns } from './ai/chatHandler'
 import { runToolOrchestration } from './ai/toolOrchestrator'
 import { OpenAiMessage } from './ai/types'
 import { getSystemToolsPrompt, setCurrentSessionIdForTodo } from './systemTools'
@@ -28,6 +34,7 @@ import { getOpenAiToolDefinitions } from './toolRuntime'
 import { normalizePrismThinkingLevel } from './ai/prismThinking'
 import { streamOpenAiCompletion } from './ai/openaiClient'
 import { is } from '@electron-toolkit/utils'
+import { broadcastIpc } from './safeSend'
 
 let client: Client | null = null
 let currentConfig: AppConfig | null = null
@@ -35,6 +42,14 @@ let appOwnerIds: Set<string> = new Set()
 
 let activeLiveSession: any = null
 let activeAudioPlayer: any = null
+let activeVoiceConnection: any = null
+let activeVoiceInputStream: any = null
+let activeVoiceDecoder: any = null
+let activeSpeakerStream: PassThrough | null = null
+let voiceInputChunkCount = 0
+let voiceInputByteCount = 0
+let voiceOutputChunkCount = 0
+let voiceOutputByteCount = 0
 
 const activeDmSessions: Map<string, string> = new Map()
 
@@ -65,20 +80,130 @@ function downsample48kStereoTo16kMono(pcm48k: Buffer): Buffer {
   return outBuffer
 }
 
-function upsample16kMonoTo48kStereo(pcm16k: Buffer): Buffer {
-  const numFrames = pcm16k.length / 2
-  const numOutFrames = numFrames * 3
+function upsample24kMonoTo48kStereo(pcm24k: Buffer): Buffer {
+  const numFrames = Math.floor(pcm24k.length / 2)
+  const numOutFrames = numFrames * 2
   const outBuffer = Buffer.alloc(numOutFrames * 4)
 
   for (let i = 0; i < numFrames; i++) {
-    const sample = pcm16k.readInt16LE(i * 2)
-    for (let j = 0; j < 3; j++) {
-      const outIndex = (i * 3 + j) * 4
+    const sample = pcm24k.readInt16LE(i * 2)
+    for (let j = 0; j < 2; j++) {
+      const outIndex = (i * 2 + j) * 4
       outBuffer.writeInt16LE(sample, outIndex)
       outBuffer.writeInt16LE(sample, outIndex + 2)
     }
   }
   return outBuffer
+}
+
+function normalizeLiveModelId(modelName: string): string {
+  return modelName.trim().replace(/^models\//i, '')
+}
+
+function normalizeTranscript(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+function isVoiceLeaveCommand(text: string): boolean {
+  const normalized = normalizeTranscript(text)
+  if (!normalized) return false
+
+  return (
+    normalized.includes('sai da call') ||
+    normalized.includes('sair da call') ||
+    normalized.includes('saia da call') ||
+    normalized.includes('sai da chamada') ||
+    normalized.includes('sair da chamada') ||
+    normalized.includes('leave the call') ||
+    normalized.includes('leave call') ||
+    normalized.includes('disconnect from call')
+  )
+}
+
+function logVoiceAudioStats(): void {
+  console.log(
+    `[Discord Gateway] Voice audio stats: inputChunks=${voiceInputChunkCount}, ` +
+      `inputBytes=${voiceInputByteCount}, outputChunks=${voiceOutputChunkCount}, ` +
+      `outputBytes=${voiceOutputByteCount}`
+  )
+}
+
+function cleanupVoiceResources(): boolean {
+  const hadVoiceResources = Boolean(
+    activeLiveSession ||
+    activeAudioPlayer ||
+    activeVoiceConnection ||
+    activeVoiceInputStream ||
+    activeVoiceDecoder ||
+    activeSpeakerStream
+  )
+
+  const liveSession = activeLiveSession
+  activeLiveSession = null
+  if (liveSession) {
+    try {
+      liveSession.close()
+    } catch (error) {
+      console.error('[Discord Gateway] Failed to close Gemini Live session:', error)
+    }
+  }
+
+  const inputStream = activeVoiceInputStream
+  activeVoiceInputStream = null
+  if (inputStream) {
+    try {
+      inputStream.destroy()
+    } catch (error) {
+      console.error('[Discord Gateway] Failed to stop Discord audio receiver:', error)
+    }
+  }
+
+  const decoder = activeVoiceDecoder
+  activeVoiceDecoder = null
+  if (decoder) {
+    try {
+      decoder.destroy()
+    } catch (error) {
+      console.error('[Discord Gateway] Failed to stop Opus decoder:', error)
+    }
+  }
+
+  const speakerStream = activeSpeakerStream
+  activeSpeakerStream = null
+  if (speakerStream && !speakerStream.destroyed) speakerStream.destroy()
+
+  const audioPlayer = activeAudioPlayer
+  activeAudioPlayer = null
+  if (audioPlayer) {
+    try {
+      audioPlayer.stop()
+    } catch (error) {
+      console.error('[Discord Gateway] Failed to stop Discord audio player:', error)
+    }
+  }
+
+  const voiceConnection = activeVoiceConnection
+  activeVoiceConnection = null
+  if (voiceConnection) {
+    try {
+      voiceConnection.destroy()
+    } catch (error) {
+      console.error('[Discord Gateway] Failed to destroy Discord voice connection:', error)
+    }
+  }
+
+  logVoiceAudioStats()
+  voiceInputChunkCount = 0
+  voiceInputByteCount = 0
+  voiceOutputChunkCount = 0
+  voiceOutputByteCount = 0
+
+  return hadVoiceResources
 }
 
 async function startLiveVoiceSession(
@@ -89,17 +214,17 @@ async function startLiveVoiceSession(
   apiKey: string,
   statusMsg: Message
 ): Promise<boolean> {
+  const normalizedModelName = normalizeLiveModelId(modelName)
   let aiSession: any = null
-  let speakerStream: PassThrough | null = null
 
   // Step 1: Connect to Gemini Live API FIRST
   try {
-    console.log(`[Discord Gateway] Connecting to Gemini Live API (${modelName})...`)
+    console.log(`[Discord Gateway] Connecting to Gemini Live API (${normalizedModelName})...`)
     const ai = new GoogleGenAI({ apiKey })
 
-    speakerStream = new PassThrough()
+    activeSpeakerStream = new PassThrough()
     activeAudioPlayer = createAudioPlayer()
-    const resource = createAudioResource(speakerStream, { inputType: StreamType.Raw })
+    const resource = createAudioResource(activeSpeakerStream, { inputType: StreamType.Raw })
     activeAudioPlayer.play(resource)
 
     activeAudioPlayer.on('error', (err: any) => {
@@ -107,29 +232,42 @@ async function startLiveVoiceSession(
     })
 
     aiSession = await ai.live.connect({
-      model: modelName,
+      model: normalizedModelName,
       config: {
-        responseModalities: [Modality.AUDIO]
+        responseModalities: [Modality.AUDIO],
+        inputAudioTranscription: { languageCodes: ['pt-BR'] }
       },
       callbacks: {
         onmessage: (msg: any) => {
-          const parts = msg?.serverContent?.modelTurn?.parts
-          if (parts) {
-            for (const part of parts) {
-              if (part.inlineData?.data) {
-                const pcm16kBuffer = Buffer.from(part.inlineData.data, 'base64')
-                const pcm48kBuffer = upsample16kMonoTo48kStereo(pcm16kBuffer)
-                if (speakerStream && !speakerStream.destroyed) {
-                  speakerStream.write(pcm48kBuffer)
-                }
+          const serverContent = msg?.serverContent
+          const inputTranscript = serverContent?.inputTranscription?.text
+          if (typeof inputTranscript === 'string' && inputTranscript.trim()) {
+            console.log(`[Discord Gateway] Input transcription: ${inputTranscript.trim()}`)
+            if (isVoiceLeaveCommand(inputTranscript)) {
+              console.log('[Discord Gateway] Voice leave command detected from transcription.')
+              cleanupVoiceResources()
+              void statusMsg.edit('✅ *Left the voice channel by voice command.*').catch(() => {})
+              return
+            }
+          }
+
+          const parts = serverContent?.modelTurn?.parts || []
+          for (const part of parts) {
+            if (part.inlineData?.data) {
+              const pcm24kBuffer = Buffer.from(part.inlineData.data, 'base64')
+              const pcm48kBuffer = upsample24kMonoTo48kStereo(pcm24kBuffer)
+              voiceOutputChunkCount += 1
+              voiceOutputByteCount += pcm48kBuffer.length
+              if (activeSpeakerStream && !activeSpeakerStream.destroyed) {
+                activeSpeakerStream.write(pcm48kBuffer)
               }
             }
           }
         },
         onclose: () => {
           console.log('[Discord Gateway] Live session closed')
-          if (speakerStream && !speakerStream.destroyed) {
-            speakerStream.end()
+          if (activeSpeakerStream && !activeSpeakerStream.destroyed) {
+            activeSpeakerStream.end()
           }
         },
         onerror: (err: any) => {
@@ -139,19 +277,23 @@ async function startLiveVoiceSession(
     })
 
     activeLiveSession = aiSession
-    console.log('[Discord Gateway] Gemini Live Session connected successfully.')
+    console.log(
+      `[Discord Gateway] Gemini Live session connected successfully (${normalizedModelName}).`
+    )
   } catch (e: any) {
     const errorText = e?.message || String(e)
     console.error('[Discord Gateway] Gemini Live API connection failed:', errorText)
     await statusMsg.edit(`❌ *Failed to connect to AI Live API:* ${errorText}`)
-    if (speakerStream) speakerStream.destroy()
+    cleanupVoiceResources()
     return false
   }
 
   // Step 2: Now that AI Live session is 100% working, join Discord voice channel
   try {
     await statusMsg.edit('⌛ *AI Live API Connected! Joining Discord voice channel...*')
-    console.log(`[Discord Gateway] Joining voice channel ${voiceChannel.name} (${voiceChannel.id})...`)
+    console.log(
+      `[Discord Gateway] Joining voice channel ${voiceChannel.name} (${voiceChannel.id})...`
+    )
 
     const connection = joinVoiceChannel({
       channelId: voiceChannel.id,
@@ -160,9 +302,16 @@ async function startLiveVoiceSession(
       selfDeaf: false,
       selfMute: false
     })
+    activeVoiceConnection = connection
 
     connection.on('error', (err: any) => {
       console.error('[Discord Gateway] Voice connection error:', err)
+    })
+
+    connection.on('stateChange', (oldState: any, newState: any) => {
+      console.log(
+        `[Discord Gateway] Voice connection state: ${oldState.status} -> ${newState.status}`
+      )
     })
 
     connection.subscribe(activeAudioPlayer)
@@ -172,6 +321,12 @@ async function startLiveVoiceSession(
       const timeout = setTimeout(() => {
         reject(new Error('Voice connection timed out after 15 seconds.'))
       }, 15000)
+
+      if (connection.state.status === VoiceConnectionStatus.Ready) {
+        clearTimeout(timeout)
+        resolve()
+        return
+      }
 
       connection.once(VoiceConnectionStatus.Ready, () => {
         clearTimeout(timeout)
@@ -196,47 +351,49 @@ async function startLiveVoiceSession(
         behavior: EndBehaviorType.Manual
       }
     })
+    activeVoiceInputStream = audioStream
 
     const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 })
+    activeVoiceDecoder = decoder
 
     audioStream.on('error', (err: any) => {
       console.error('[Discord Gateway] AudioStream error:', err)
+    })
+
+    audioStream.on('end', () => {
+      console.log('[Discord Gateway] Discord audio receiver ended.')
     })
 
     decoder.on('error', (err: any) => {
       console.error('[Discord Gateway] Opus Decoder error:', err)
     })
 
-    audioStream.pipe(decoder).on('data', (pcm48kChunk: Buffer) => {
+    decoder.on('data', (pcm48kChunk: Buffer) => {
       try {
         if (activeLiveSession) {
           const pcm16kChunk = downsample48kStereoTo16kMono(pcm48kChunk)
           const base64Data = pcm16kChunk.toString('base64')
-
-          if (typeof activeLiveSession.sendRealtimeInput === 'function') {
-            activeLiveSession.sendRealtimeInput([
-              {
-                mimeType: 'audio/pcm;rate=16000',
-                data: base64Data
-              }
-            ])
-          } else if (typeof activeLiveSession.send === 'function') {
-            activeLiveSession.send({
-              realtimeInput: {
-                mediaChunks: [
-                  {
-                    mimeType: 'audio/pcm;rate=16000',
-                    data: base64Data
-                  }
-                ]
-              }
-            })
+          activeLiveSession.sendRealtimeInput({
+            audio: {
+              mimeType: 'audio/pcm;rate=16000',
+              data: base64Data
+            }
+          })
+          voiceInputChunkCount += 1
+          voiceInputByteCount += pcm16kChunk.length
+          if (voiceInputChunkCount === 1 || voiceInputChunkCount % 100 === 0) {
+            console.log(
+              `[Discord Gateway] Sent audio chunk #${voiceInputChunkCount} ` +
+                `(${pcm16kChunk.length} bytes PCM16k mono).`
+            )
           }
         }
       } catch (err) {
         console.error('[Discord Gateway] Error sending audio chunk to Gemini Live:', err)
       }
     })
+
+    audioStream.pipe(decoder)
 
     console.log(`[Discord Gateway] Voice session 100% active in channel ${voiceChannel.name}`)
     await statusMsg.edit(`✅ *Connected to voice channel "${voiceChannel.name}"! Speak now.*`)
@@ -246,19 +403,7 @@ async function startLiveVoiceSession(
     console.error('[Discord Gateway] Voice join error:', errorText)
     await statusMsg.edit(`❌ *Failed to join voice channel:* ${errorText}`)
 
-    if (activeLiveSession) {
-      try {
-        activeLiveSession.close()
-      } catch {}
-      activeLiveSession = null
-    }
-    if (activeAudioPlayer) {
-      try {
-        activeAudioPlayer.stop()
-      } catch {}
-      activeAudioPlayer = null
-    }
-    leaveDiscordVoiceChannel()
+    cleanupVoiceResources()
     return false
   }
 }
@@ -312,6 +457,7 @@ export function startDiscordGateway(config: AppConfig): void {
 }
 
 export function stopDiscordGateway(): void {
+  leaveDiscordVoiceChannel()
   if (client) {
     console.log('[Discord Gateway] Disconnecting...')
     client.destroy()
@@ -386,21 +532,26 @@ async function handleDiscordMessage(message: Message): Promise<void> {
       return
     }
 
-    const realtimeModel =
-      currentConfig?.discordGatewayModel || 'models/gemini-3.1-flash-live-preview'
+    const configuredVoiceModel = currentConfig?.discordGatewayModel?.trim()
+    const fallbackVoiceModel = 'gemini-3.1-flash-live-preview'
 
     const statusMsg = await message.reply(
       '⌛ *Initializing Prism Voice Gateway... Verifying AI model & API key...*'
     )
 
-    const modelToUse =
-      currentConfig?.discordGatewayModel ||
+    if (activeLiveSession || activeVoiceConnection) {
+      console.log('[Discord Gateway] Replacing the existing voice session.')
+      leaveDiscordVoiceChannel()
+    }
+
+    const modelKey =
+      configuredVoiceModel ||
       currentConfig?.defaultModel ||
       currentConfig?.lastSelectedChatModel ||
       getChatModel() ||
-      realtimeModel
+      fallbackVoiceModel
 
-    const { provider: activeProvider } = resolveProviderAndModel(modelToUse)
+    const { provider: activeProvider, model: activeModel } = resolveProviderAndModel(modelKey)
     const apiKey = activeProvider?.apiKey
 
     if (!apiKey || apiKey === 'prism_account_auth') {
@@ -409,6 +560,12 @@ async function handleDiscordMessage(message: Message): Promise<void> {
       await statusMsg.edit(`❌ ${errMsg}`)
       return
     }
+
+    const realtimeModel = normalizeLiveModelId(activeModel?.id || modelKey || fallbackVoiceModel)
+    console.log(
+      `[Discord Gateway] Voice model selected: ${realtimeModel} ` +
+        `(provider: ${activeProvider?.name || 'unknown'})`
+    )
 
     await startLiveVoiceSession(
       message.guild!,
@@ -438,30 +595,48 @@ async function handleDiscordMessage(message: Message): Promise<void> {
 
     if (page === 2) {
       await message.reply({
-        embeds: [{
-          color: 0x5865F2,
-          title: 'Prism AI Gateway Help (Page 2/2)',
-          description: 'Behavior & Notes:',
-          fields: [
-            { name: 'How to talk to Prism', value: 'In a DM or an active Thread, Prism will only respond if the message contains the word "prism" or if Prism is @mentioned.' },
-            { name: 'Audio Features', value: 'When using `prism=join`, Prism will stream audio directly into the voice channel. Currently only the bot owner can trigger voice responses.' }
-          ],
-          footer: { text: 'Type "prism=help 1" for the commands list.' }
-        }]
+        embeds: [
+          {
+            color: 0x5865f2,
+            title: 'Prism AI Gateway Help (Page 2/2)',
+            description: 'Behavior & Notes:',
+            fields: [
+              {
+                name: 'How to talk to Prism',
+                value:
+                  'In a DM or an active Thread, Prism will only respond if the message contains the word "prism" or if Prism is @mentioned.'
+              },
+              {
+                name: 'Audio Features',
+                value:
+                  'When using `prism=join`, Prism will stream audio directly into the voice channel. Currently only the bot owner can trigger voice responses.'
+              }
+            ],
+            footer: { text: 'Type "prism=help 1" for the commands list.' }
+          }
+        ]
       })
     } else {
       await message.reply({
-        embeds: [{
-          color: 0x5865F2,
-          title: 'Prism AI Gateway Help (Page 1/2)',
-          description: 'Commands to interact with Prism:',
-          fields: [
-            { name: '`prism=chat <message>`', value: 'Starts a new AI chat thread with your request (Servers only).' },
-            { name: '`prism=new` or `prism=clear`', value: 'Clears history and starts a new conversation (DMs only).' },
-            { name: '`prism=join`', value: 'Joins your current voice channel (Servers only).' }
-          ],
-          footer: { text: 'Type "prism=help 2" for more info.' }
-        }]
+        embeds: [
+          {
+            color: 0x5865f2,
+            title: 'Prism AI Gateway Help (Page 1/2)',
+            description: 'Commands to interact with Prism:',
+            fields: [
+              {
+                name: '`prism=chat <message>`',
+                value: 'Starts a new AI chat thread with your request (Servers only).'
+              },
+              {
+                name: '`prism=new` or `prism=clear`',
+                value: 'Clears history and starts a new conversation (DMs only).'
+              },
+              { name: '`prism=join`', value: 'Joins your current voice channel (Servers only).' }
+            ],
+            footer: { text: 'Type "prism=help 2" for more info.' }
+          }
+        ]
       })
     }
     return
@@ -470,11 +645,12 @@ async function handleDiscordMessage(message: Message): Promise<void> {
   // Non-command message processing (Threads and DMs)
   // For the owner, we skip the mention requirement.
   const isOwner = appOwnerIds.has(message.author.id)
-  
+
   if (!isOwner) {
     const mentionsBot = botId ? message.mentions.has(botId) : false
     const botNameLower = client?.user?.username?.toLowerCase()
-    const containsName = lowerContent.includes('prism') || (botNameLower ? lowerContent.includes(botNameLower) : false)
+    const containsName =
+      lowerContent.includes('prism') || (botNameLower ? lowerContent.includes(botNameLower) : false)
 
     if (!mentionsBot && !containsName) {
       return
@@ -496,12 +672,7 @@ async function handleDiscordMessage(message: Message): Promise<void> {
   }
 }
 
-async function processAiMessage(
-  channel: any,
-  _author: any,
-  userText: string,
-  chatId: string
-) {
+async function processAiMessage(channel: any, _author: any, userText: string, chatId: string) {
   if (!currentConfig) return
 
   const modelKey =
@@ -509,7 +680,7 @@ async function processAiMessage(
     currentConfig.lastSelectedChatModel ||
     getChatModel() ||
     'gemini-3.6-flash'
-    
+
   const { provider, model } = resolveProviderAndModel(modelKey)
 
   if (!provider || !provider.apiKey || !model) {
@@ -540,8 +711,15 @@ async function processAiMessage(
   )
 
   if (isFirstMessage) {
+    broadcastIpc('chat-session-created', { id: chatId })
     generateTitleInBackground(provider, model.id, userText, chatId, channel)
   }
+
+  // Broadcast user message and start reply event to Prism renderer UI
+  broadcastIpc('chat-reply-start', {
+    chatId,
+    userMessage: { role: 'user', content: userText }
+  })
 
   const baseSystemPrompt = getSystemToolsPrompt(model.id, 'main', undefined, 'execution', '')
   const botName = client?.user?.username || 'AI'
@@ -553,6 +731,12 @@ async function processAiMessage(
   ]
 
   const abortController = new AbortController()
+  activeRuns.set(chatId, {
+    chatId,
+    abortController,
+    streamedText: '',
+    status: 'running'
+  })
   setCurrentSessionIdForTodo(chatId)
 
   let replyMessage: Message | null = null
@@ -575,17 +759,31 @@ async function processAiMessage(
       if (currentToolsText) {
         contentToEdit += `\n\n${currentToolsText}`
       }
-      
+
       if (contentToEdit.length > 2000) {
         contentToEdit = contentToEdit.substring(0, 1997) + '...'
       }
-      
+
       try {
         await replyMessage.edit(contentToEdit)
       } catch (e) {
         if (is.dev) console.error('[Discord Gateway] Edit message failed:', e)
       }
     }
+  }
+
+  const parseThoughtAndContent = (
+    rawText: string,
+    extraReasoning: string
+  ): { thoughts: string; content: string } => {
+    let thoughts = extraReasoning || ''
+    let content = rawText
+    const thinkMatch = rawText.match(/<think>([\s\S]*?)(?:<\/think>|$)/i)
+    if (thinkMatch) {
+      thoughts = thoughts ? `${thoughts}\n${thinkMatch[1]}` : thinkMatch[1]
+      content = rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*/gi, '')
+    }
+    return { thoughts, content }
   }
 
   const openAiTools = getOpenAiToolDefinitions()
@@ -600,25 +798,54 @@ async function processAiMessage(
       reasoningLevel: normalizePrismThinkingLevel(provider, model.id, 'minimal'),
       onStreamEvent: (streamEvent, state) => {
         if (streamEvent.type === 'tool') {
+          broadcastIpc('chat-tool-call-delta', { chatId, ...streamEvent.delta })
           currentToolsText = `*⚙️ ${streamEvent.delta.name || 'Working'}...*`
           updateDiscordMessage(currentText)
         } else {
-          currentText = state.accumulatedText ? `${state.accumulatedText}\n\n${state.currentText}` : state.currentText
-          currentText = currentText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
-          updateDiscordMessage(currentText)
+          currentText = state.accumulatedText
+            ? `${state.accumulatedText}\n\n${state.currentText}`
+            : state.currentText
+          const combinedReasoning = state.accumulatedReasoning
+            ? `${state.accumulatedReasoning}\n\n${state.currentReasoning}`
+            : state.currentReasoning
+          const parsed = parseThoughtAndContent(currentText, combinedReasoning)
+
+          broadcastIpc('chat-reply-chunk', {
+            chatId,
+            thoughts: parsed.thoughts,
+            finalResponse: parsed.content,
+            isThinking: streamEvent.type === 'reasoning',
+            isWritingToolCall: state.streamingToolCalls.length > 0
+          })
+
+          const discordText = currentText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+          updateDiscordMessage(discordText)
         }
       },
       decorateAssistantMessage: (msg) => msg,
-      createToolContext: ({ name }) => ({
+      createToolContext: ({ callId, name }) => ({
         event: null as any,
         apiKey: provider.apiKey,
         signal: abortController.signal,
         chatId,
         onStart: (args) => {
+          broadcastIpc('chat-tool-start', {
+            callId,
+            name,
+            args,
+            timestamp: Date.now(),
+            chatId
+          })
           if (is.dev) console.log(`[Discord Gateway] Tool Start: ${name}`, args)
         }
       }),
       onToolResult: (call) => {
+        broadcastIpc('chat-tool-end', {
+          callId: call.callId,
+          name: call.name,
+          result: call.modelContent,
+          chatId
+        })
         if (is.dev) console.log(`[Discord Gateway] Tool End: ${call.name}`)
         currentToolsText = ''
       },
@@ -629,20 +856,34 @@ async function processAiMessage(
       finalInstruction: 'Tool limit reached.'
     })
 
-    let finalOutput = orchestration.accumulatedText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
-    if (!finalOutput) finalOutput = '*No response generated.*'
-    
-    currentToolsText = ''
-    await updateDiscordMessage(finalOutput, true)
+    const finalOutput = parseThoughtAndContent(
+      orchestration.accumulatedText,
+      orchestration.accumulatedReasoning
+    )
+    let discordFinalOutput = finalOutput.content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+    if (!discordFinalOutput) discordFinalOutput = '*No response generated.*'
 
+    currentToolsText = ''
+    await updateDiscordMessage(discordFinalOutput, true)
+
+    broadcastIpc('chat-reply-end', {
+      thoughts: finalOutput.thoughts,
+      finalResponse: finalOutput.content,
+      rawText: finalOutput.content,
+      isThinking: false,
+      chatId,
+      ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})
+    })
   } catch (error: any) {
     console.error('[Discord Gateway] Error:', error)
+    broadcastIpc('chat-reply-error', { error: error.message || 'Unknown error occurred.', chatId })
     if (replyMessage) {
       await replyMessage.edit(`*Error:* ${error.message || 'Unknown error occurred.'}`)
     } else {
       await channel.send(`*Error:* ${error.message || 'Unknown error occurred.'}`)
     }
   } finally {
+    activeRuns.delete(chatId)
     clearInterval(typingInterval)
   }
 }
@@ -696,39 +937,36 @@ async function generateTitleInBackground(
     if (!title || title.length > 50) title = 'New Conversation'
 
     updateChatSessionTitle(chatId, title)
-    
+    broadcastIpc('chat-title-received', { id: chatId, title })
+
     if (channel.isThread()) {
       await (channel as ThreadChannel).setName(title)
     }
-
   } catch {
     updateChatSessionTitle(chatId, 'New Conversation')
+    broadcastIpc('chat-title-received', { id: chatId, title: 'New Conversation' })
   }
 }
 
 export function leaveDiscordVoiceChannel(): boolean {
-  if (client) {
-    if (activeLiveSession) {
-      // Just close it if there's a close method
-      try { activeLiveSession.close() } catch {}
-      activeLiveSession = null
-    }
-    if (activeAudioPlayer) {
-      try { activeAudioPlayer.stop() } catch {}
-      activeAudioPlayer = null
-    }
+  const hadVoiceResources = cleanupVoiceResources()
+  let left = hadVoiceResources
 
+  if (client) {
     const guilds = client.guilds.cache.map((guild) => guild.id)
-    let left = false
-    const { getVoiceConnection } = require('@discordjs/voice')
     for (const guildId of guilds) {
       const connection = getVoiceConnection(guildId)
       if (connection) {
-        connection.destroy()
+        try {
+          connection.destroy()
+        } catch (error) {
+          console.error('[Discord Gateway] Failed to destroy voice connection:', error)
+        }
         left = true
       }
     }
-    return left
   }
-  return false
+
+  if (left) console.log('[Discord Gateway] Voice session stopped.')
+  return left
 }

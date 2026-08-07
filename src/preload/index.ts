@@ -85,7 +85,6 @@ window.addEventListener('keydown', (event) => {
     key === '_' ||
     code === 'Minus' ||
     code === 'NumpadSubtract' ||
-    keyCode === 189 ||
     keyCode === 109
 
   const isZero =
@@ -145,8 +144,13 @@ const api = {
   setModel: (modelKey: string): void => ipcRenderer.send('set-model', modelKey),
   clearChat: (): void => ipcRenderer.send('clear-chat'),
   cancelChat: (chatId?: string): void => ipcRenderer.send('chat-cancel', chatId),
-  onChatStart: (callback: (data: { chatId: string }) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, data: { chatId: string }): void => callback(data)
+  onChatStart: (
+    callback: (data: { chatId: string; userMessage?: { role: 'user'; content: string } }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: { chatId: string; userMessage?: { role: 'user'; content: string } }
+    ): void => callback(data)
     ipcRenderer.on('chat-reply-start', listener)
     return () => ipcRenderer.removeListener('chat-reply-start', listener)
   },
@@ -333,6 +337,7 @@ const api = {
   getToolDefinitions: (): Promise<any[]> => ipcRenderer.invoke('get-tool-definitions'),
   getChats: (): Promise<Omit<ChatSession, 'messages'>[]> => ipcRenderer.invoke('get-chats'),
   loadChat: (id: string): Promise<any[]> => ipcRenderer.invoke('load-chat', id),
+  isChatRunning: (id: string): Promise<boolean> => ipcRenderer.invoke('is-chat-running', id),
   getChatModel: (id: string): Promise<string | undefined> => ipcRenderer.invoke('get-chat-model', id),
   deleteChat: (id: string): Promise<boolean> => ipcRenderer.invoke('delete-chat', id),
   getRunningChats: (): Promise<string[]> => ipcRenderer.invoke('get-running-chats'),

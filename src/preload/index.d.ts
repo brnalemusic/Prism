@@ -46,7 +46,9 @@ export interface PrismAPI {
   setModel: (modelKey: string) => void
   clearChat: () => void
   cancelChat: (chatId?: string) => void
-  onChatStart: (callback: (data: { chatId: string }) => void) => () => void
+  onChatStart: (
+    callback: (data: { chatId: string; userMessage?: { role: 'user'; content: string } }) => void
+  ) => () => void
 
   onChatChunk: (callback: (data: StructuredChatResponse & { chatId: string }) => void) => () => void
   onChatEnd: (callback: (data: StructuredChatResponse & { chatId: string }) => void) => () => void
@@ -125,6 +127,7 @@ export interface PrismAPI {
   getToolDefinitions: () => Promise<any[]>
   getChats: () => Promise<Omit<ChatSession, 'messages'>[]>
   loadChat: (id: string) => Promise<any[]>
+  isChatRunning: (id: string) => Promise<boolean>
   getChatModel: (id: string) => Promise<string | undefined>
   deleteChat: (id: string) => Promise<boolean>
   getRunningChats: () => Promise<string[]>

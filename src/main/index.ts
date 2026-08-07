@@ -861,6 +861,10 @@ if (!gotTheLock) {
       return session ? session.messages : []
     })
 
+    ipcMain.handle('is-chat-running', (_event, id: string) => {
+      return activeRuns.has(id)
+    })
+
     ipcMain.handle('get-todo-for-chat', (_event, id: string) => {
       return getTodoForChat(id)
     })
