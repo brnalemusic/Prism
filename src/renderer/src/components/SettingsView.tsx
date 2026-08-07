@@ -812,15 +812,15 @@ function useLicenseCountdown(expiresAt?: string): string {
           />
         </div>
 
-        {/* Prism Gateway (Discord) Model */}
+        {/* Prism Gateway (Discord) Text Model */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035]">
           <div>
             <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
               <DiscordIcon size={16} />
-              Prism Gateway (Discord) Model
+              Prism Gateway (Discord) Text Model
             </h3>
             <p className="text-xs text-text-secondary/60 mt-1">
-              Model used for processing chat &amp; voice requests via Prism Discord Gateway.
+              Model used for generating text responses in Discord chat, DMs, and threads.
             </p>
           </div>
           <ModelSelector
@@ -1264,12 +1264,12 @@ function useLicenseCountdown(expiresAt?: string): string {
               <span className="text-[11px] text-text-secondary/70 mt-1 block">Your Bot Token from the Discord Developer Portal.</span>
             </div>
             <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-text-primary">Voice Model</span>
+              <span className="text-sm font-medium text-text-primary">Voice Model (Gemini Live)</span>
               <ModelSelector
-                selectedModel={(config as any).discordGatewayModel || ''}
-                onModelChange={(m) => setConfig({ ...config, discordGatewayModel: m } as any)}
+                selectedModel={(config as any).discordGatewayVoiceModel || ''}
+                onModelChange={(m) => setConfig({ ...config, discordGatewayVoiceModel: m } as any)}
               />
-              <span className="text-[11px] text-text-secondary/70 mt-1 block">Used for the /join command. Ensure this model supports realtime streaming (Live API).</span>
+              <span className="text-[11px] text-text-secondary/70 mt-1 block">Used for the prism=join voice command. Ensure this model supports realtime streaming (Live API).</span>
             </div>
           </div>
         )}

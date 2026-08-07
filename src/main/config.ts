@@ -65,6 +65,7 @@ export interface AppConfig {
   discordBotToken?: string
   discordGatewayEnabled?: boolean
   discordGatewayModel?: string
+  discordGatewayVoiceModel?: string
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -85,6 +86,7 @@ const DEFAULT_CONFIG: AppConfig = {
   discordBotToken: '',
   discordGatewayEnabled: false,
   discordGatewayModel: '',
+  discordGatewayVoiceModel: '',
   minimizeToTray: false,
   modelReasoningLevels: {},
   autoLaunch: false,
@@ -272,6 +274,7 @@ function normalizeConfig(config: AppConfig): AppConfig {
     discordBotToken: typeof config.discordBotToken === 'string' ? config.discordBotToken : '',
     discordGatewayEnabled: typeof config.discordGatewayEnabled === 'boolean' ? config.discordGatewayEnabled : false,
     discordGatewayModel: typeof config.discordGatewayModel === 'string' ? config.discordGatewayModel : '',
+    discordGatewayVoiceModel: typeof config.discordGatewayVoiceModel === 'string' ? config.discordGatewayVoiceModel : '',
     ttsVoice: VALID_VOICES.has(config.ttsVoice) ? config.ttsVoice : DEFAULT_CONFIG.ttsVoice,
     theme: VALID_THEMES.has(config.theme)
       ? (config.theme as AppConfig['theme'])

@@ -532,7 +532,8 @@ async function handleDiscordMessage(message: Message): Promise<void> {
       return
     }
 
-    const configuredVoiceModel = currentConfig?.discordGatewayModel?.trim()
+    const configuredVoiceModel =
+      currentConfig?.discordGatewayVoiceModel?.trim() || currentConfig?.discordGatewayModel?.trim()
     const fallbackVoiceModel = 'gemini-3.1-flash-live-preview'
 
     const statusMsg = await message.reply(
