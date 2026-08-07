@@ -35,6 +35,7 @@ interface SidebarProps {
   onViewChange: (view: string) => void
   onLoadChat: (id: string) => void
   onNewChat: (force?: boolean) => void
+  onChatDeleted: (id: string) => void
   currentChatId?: string
   runningChats?: Record<string, boolean>
   className?: string
@@ -74,6 +75,7 @@ export function Sidebar({
   onViewChange,
   onLoadChat,
   onNewChat,
+  onChatDeleted,
   currentChatId,
   runningChats = {},
   className,
@@ -178,6 +180,7 @@ export function Sidebar({
     const success = await window.api.deleteChat(id)
     if (success) {
       setChats((prev) => prev.filter((c) => c.id !== id))
+      onChatDeleted(id)
       if (id === currentChatId) {
         onNewChat(true)
       }

@@ -1550,6 +1550,36 @@ function RealApp(): React.JSX.Element {
     })
   }, [])
 
+  const handleChatDeleted = useCallback((chatId: string) => {
+    setTabs((prevTabs) => {
+      const deletedTabIds = new Set(
+        prevTabs.filter((tab) => tab.chatId === chatId).map((tab) => tab.id)
+      )
+      if (deletedTabIds.size === 0) return prevTabs
+
+      const nextTabs = prevTabs.filter((tab) => !deletedTabIds.has(tab.id))
+      const fallback = nextTabs[0]
+      setActiveTabId((activeId) =>
+        deletedTabIds.has(activeId) ? fallback?.id || '' : activeId
+      )
+      setVisibleTabIds((visibleIds) => {
+        const nextVisibleIds = visibleIds.filter((id) => !deletedTabIds.has(id))
+        return nextVisibleIds.length > 0
+          ? nextVisibleIds
+          : fallback
+            ? [fallback.id]
+            : []
+      })
+      return nextTabs
+    })
+    setChatTodos((prev) => {
+      if (!(chatId in prev)) return prev
+      const next = { ...prev }
+      delete next[chatId]
+      return next
+    })
+  }, [])
+
   const handleCloseOtherTabs = useCallback((keepTabId: string) => {
     setTabs((prevTabs) => {
       const closedTabs = prevTabs.filter((t) => t.id !== keepTabId)
@@ -2752,6 +2782,7 @@ function RealApp(): React.JSX.Element {
         onNewChat={() => {
           handleNewChat()
         }}
+        onChatDeleted={handleChatDeleted}
         currentChatId={activeTab.chatId}
         runningChats={runningChats}
         config={config}
@@ -2768,6 +2799,7 @@ function RealApp(): React.JSX.Element {
     isSidebarOpen,
     handleLoadChat,
     handleNewChat,
+    handleChatDeleted,
     activeTab.chatId,
     runningChats,
     config,
