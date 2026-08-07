@@ -6,6 +6,7 @@ import { getNativeToolsForOpenAi } from './chatHandler'
 import { getSystemToolsPrompt } from '../systemTools'
 import { safeSend } from '../safeSend'
 import { runToolOrchestration } from './toolOrchestrator'
+import { markConnectionActive } from '../connection'
 
 let launcherHistory: OpenAiMessage[] = []
 let launcherAbortController: AbortController | null = null
@@ -36,6 +37,8 @@ export async function handleLauncherChatMessage(
     safeSend(window, 'launcher-reply-error', { error: 'No active AI Provider configured' })
     return
   }
+
+  markConnectionActive()
 
   launcherHistory.push({ role: 'user', content: message })
   safeSend(window, 'launcher-reply-start')

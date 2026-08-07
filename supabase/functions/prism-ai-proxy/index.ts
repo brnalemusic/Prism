@@ -4,9 +4,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 const PRISM_CLOUD_MODELS = new Set(['gemini-3.1-flash-lite', 'gemini-3-flash-preview'])
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers':
     'authorization, x-client-info, apikey, content-type, x-prism-skip-increment, x-goog-api-key, x-goog-api-client'
 }
@@ -17,6 +19,15 @@ serve(async (req) => {
   }
 
   try {
+    const requestUrl = new URL(req.url)
+    const isWarmup = requestUrl.pathname.endsWith('/warmup')
+    if (req.method !== 'POST') {
+      return new Response(JSON.stringify({ error: 'Method not allowed.' }), {
+        status: 405,
+        headers: { ...corsHeaders, Allow: 'POST, OPTIONS', 'Content-Type': 'application/json' }
+      })
+    }
+
     const authHeader = req.headers.get('Authorization') ?? ''
     const jwt = authHeader.replace(/^Bearer\s+/i, '')
 
@@ -26,8 +37,6 @@ serve(async (req) => {
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
-
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
     // 1. Verify user JWT token & email confirmation
     const { data: userData, error: userErr } = await supabase.auth.getUser(jwt)
@@ -39,6 +48,50 @@ serve(async (req) => {
     }
 
     const userId = userData.user.id
+
+    // Warm-up is authenticated but deliberately non-billable. It primes the
+    // Edge Function and the upstream Gemini route before the first AI prompt.
+    if (isWarmup) {
+      const { data: keys, error: keysErr } = await supabase
+        .from('prism_api_keys')
+        .select('key_value')
+        .eq('is_active', true)
+        .limit(1)
+
+      if (keysErr || !keys?.[0]?.key_value) {
+        console.error('[prism-ai-proxy] Warm-up key lookup failed:', keysErr)
+        return new Response(JSON.stringify({ error: 'Prism Cloud service is currently unavailable.' }), {
+          status: 503,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+        })
+      }
+
+      try {
+        const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+          method: 'GET',
+          headers: { 'x-goog-api-key': keys[0].key_value },
+          signal: req.signal
+        })
+        if (!upstream.ok) {
+          console.warn(`[prism-ai-proxy] Warm-up upstream returned ${upstream.status}`)
+          return new Response(JSON.stringify({ error: 'Prism Cloud warm-up failed.' }), {
+            status: 503,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+          })
+        }
+      } catch (err: any) {
+        console.warn('[prism-ai-proxy] Warm-up upstream error:', err?.message)
+        return new Response(JSON.stringify({ error: 'Prism Cloud warm-up failed.' }), {
+          status: 503,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+        })
+      }
+
+      return new Response(null, {
+        status: 204,
+        headers: { ...corsHeaders, 'Cache-Control': 'no-store', Connection: 'keep-alive' }
+      })
+    }
 
     // 2. Check rate limit — skip increment for non-billable requests (e.g. title generation)
     const skipIncrement = req.headers.get('X-Prism-Skip-Increment') === 'true'
@@ -126,7 +179,6 @@ serve(async (req) => {
 
     // 4. Accept the native Gemini GenerateContent request emitted by @google/genai.
     const bodyPayload = await req.json()
-    const requestUrl = new URL(req.url)
     const nativeRoute = requestUrl.pathname.match(
       /\/models\/([a-zA-Z0-9._/-]+):(streamGenerateContent|generateContent)$/
     )

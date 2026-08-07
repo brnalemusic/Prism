@@ -11,6 +11,7 @@ import {
 } from './types'
 import type { StreamCallbacks, StreamResult } from './openaiClient'
 import { isPrismCloudProvider, normalizePrismThinkingLevel } from './prismThinking'
+import { initializePrismCloudTransport } from '../connection'
 
 const thinkingLevelMap: Record<PrismThinkingLevel, ThinkingLevel> = {
   minimal: ThinkingLevel.MINIMAL,
@@ -153,6 +154,7 @@ export async function streamGeminiCompletion(
     | undefined
 
   if (prismCloud) {
+    initializePrismCloudTransport()
     const token = await getAuthAccessToken()
     if (!token) throw new Error('Please log in to your Prism account to access Prism Cloud models.')
     headers.Authorization = `Bearer ${token}`

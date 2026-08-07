@@ -66,6 +66,8 @@ import {
   testGeminiConnection,
   markConnectionActive,
   stopKeepAlive,
+  initializePrismCloudTransport,
+  closePrismCloudTransport,
   checkInternetConnectivity
 } from './connection'
 import { ApplicationInfo } from '../shared/types'
@@ -1162,15 +1164,21 @@ if (!gotTheLock) {
 
     // Supabase Auth IPC Handlers
     ipcMain.handle('auth-login', async (_event, data) => {
-      return await authLogin(data)
+      const result = await authLogin(data)
+      if (result.success) markConnectionActive()
+      return result
     })
 
     ipcMain.handle('auth-signup', async (_event, data) => {
-      return await authSignUp(data)
+      const result = await authSignUp(data)
+      if (result.success) markConnectionActive()
+      return result
     })
 
     ipcMain.handle('auth-logout', async () => {
-      return await authLogout()
+      const result = await authLogout()
+      await closePrismCloudTransport()
+      return result
     })
 
     ipcMain.handle('auth-get-user', async () => {
@@ -1252,9 +1260,14 @@ if (!gotTheLock) {
     })
 
     // Initialize Supabase Auth Session (Restores encrypted session token)
-    initializeAuthSession().catch((err) => {
-      console.error('[Auth] Error restoring session on launch:', err)
-    })
+    initializePrismCloudTransport()
+    initializeAuthSession()
+      .then((user) => {
+        if (user) markConnectionActive()
+      })
+      .catch((err) => {
+        console.error('[Auth] Error restoring session on launch:', err)
+      })
 
     if (IS_DEMO) {
       registerDemoDownloadHandlers()
@@ -1331,6 +1344,7 @@ if (!gotTheLock) {
   app.on('will-quit', () => {
     globalShortcut.unregisterAll()
     stopKeepAlive()
+    void closePrismCloudTransport()
     // Clean up connectivity poller to prevent lingering timers after quit
     if (connectivityIntervalId) {
       clearInterval(connectivityIntervalId)

@@ -11,6 +11,7 @@ import { safeSend } from '../safeSend'
 import { getOpenAiToolDefinitions } from '../toolRuntime'
 import { normalizePrismThinkingLevel } from './prismThinking'
 import { runToolOrchestration } from './toolOrchestrator'
+import { markConnectionActive } from '../connection'
 
 export const activeRuns = new Map<string, ActiveRun>()
 export const lastScreenshots = new Map<string, string>()
@@ -111,6 +112,8 @@ export async function handleChatMessage(
     })
     return
   }
+
+  markConnectionActive()
 
   if (activeRuns.has(chatId)) {
     console.log(`Chat ${chatId} is already running. Ignoring duplicate.`)
