@@ -365,6 +365,12 @@ async function startLiveVoiceSession(
               const pcm48kBuffer = upsample24kMonoTo48kStereo(pcm24kBuffer)
               voiceOutputChunkCount += 1
               voiceOutputByteCount += pcm48kBuffer.length
+              if (voiceOutputChunkCount === 1 || voiceOutputChunkCount % 50 === 0) {
+                console.log(
+                  `[Discord Gateway] Received output audio chunk #${voiceOutputChunkCount} ` +
+                    `(${pcm48kBuffer.length} bytes PCM48k stereo).`
+                )
+              }
               if (activeSpeakerStream && !activeSpeakerStream.destroyed) {
                 activeSpeakerStream.write(pcm48kBuffer)
               }
