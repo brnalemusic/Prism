@@ -676,6 +676,7 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
   if (!currentConfig) return
 
   const modelKey =
+    currentConfig.discordGatewayModel?.trim() ||
     currentConfig.defaultModel ||
     currentConfig.lastSelectedChatModel ||
     getChatModel() ||

@@ -757,7 +757,7 @@ function useLicenseCountdown(expiresAt?: string): string {
     <div className="space-y-8 animate-soft-pop">
       <SectionHeader
         title="Feature Intelligence Model Assignments"
-        subtitle="Assign specific AI models for Dictation (STT), Quick Launcher, Search, and Subagents."
+        subtitle="Assign specific AI models for Dictation (STT), Quick Launcher, Search, Prism Gateway, and Subagents."
       />
 
       <div className="space-y-6">
@@ -809,6 +809,23 @@ function useLicenseCountdown(expiresAt?: string): string {
           <ModelSelector
             selectedModel={(config as any).searchModel || ''}
             onModelChange={(m) => setConfig({ ...config, searchModel: m } as any)}
+          />
+        </div>
+
+        {/* Prism Gateway (Discord) Model */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035]">
+          <div>
+            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+              <DiscordIcon size={16} />
+              Prism Gateway (Discord) Model
+            </h3>
+            <p className="text-xs text-text-secondary/60 mt-1">
+              Model used for processing chat &amp; voice requests via Prism Discord Gateway.
+            </p>
+          </div>
+          <ModelSelector
+            selectedModel={(config as any).discordGatewayModel || ''}
+            onModelChange={(m) => setConfig({ ...config, discordGatewayModel: m } as any)}
           />
         </div>
       </div>
