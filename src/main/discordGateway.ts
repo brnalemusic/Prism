@@ -46,10 +46,13 @@ let activeVoiceConnection: any = null
 let activeVoiceInputStream: any = null
 let activeVoiceDecoder: any = null
 let activeSpeakerStream: PassThrough | null = null
+let activeVoiceSilenceTimer: ReturnType<typeof setTimeout> | null = null
 let voiceInputChunkCount = 0
 let voiceInputByteCount = 0
 let voiceOutputChunkCount = 0
 let voiceOutputByteCount = 0
+
+const VOICE_SILENCE_FLUSH_MS = 800
 
 const activeDmSessions: Map<string, string> = new Map()
 
@@ -133,6 +136,28 @@ function logVoiceAudioStats(): void {
   )
 }
 
+function clearVoiceSilenceTimer(): void {
+  if (activeVoiceSilenceTimer) {
+    clearTimeout(activeVoiceSilenceTimer)
+    activeVoiceSilenceTimer = null
+  }
+}
+
+function scheduleVoiceStreamEnd(): void {
+  clearVoiceSilenceTimer()
+  activeVoiceSilenceTimer = setTimeout(() => {
+    activeVoiceSilenceTimer = null
+    if (!activeLiveSession) return
+
+    try {
+      activeLiveSession.sendRealtimeInput({ audioStreamEnd: true })
+      console.log('[Discord Gateway] Sent audioStreamEnd after Discord voice silence.')
+    } catch (error) {
+      console.error('[Discord Gateway] Failed to flush silent voice turn:', error)
+    }
+  }, VOICE_SILENCE_FLUSH_MS)
+}
+
 function cleanupVoiceResources(): boolean {
   const hadVoiceResources = Boolean(
     activeLiveSession ||
@@ -155,6 +180,7 @@ function cleanupVoiceResources(): boolean {
 
   const inputStream = activeVoiceInputStream
   activeVoiceInputStream = null
+  clearVoiceSilenceTimer()
   if (inputStream) {
     try {
       inputStream.destroy()
@@ -223,11 +249,15 @@ async function startLiveVoiceSession(
     const ai = new GoogleGenAI({ apiKey })
 
     activeSpeakerStream = new PassThrough()
-    activeAudioPlayer = createAudioPlayer()
+    const voiceAudioPlayer = createAudioPlayer()
+    activeAudioPlayer = voiceAudioPlayer
     const resource = createAudioResource(activeSpeakerStream, { inputType: StreamType.Raw })
-    activeAudioPlayer.play(resource)
+    voiceAudioPlayer.play(resource)
 
-    activeAudioPlayer.on('error', (err: any) => {
+    voiceAudioPlayer.on('error', (err: any) => {
+      if (activeAudioPlayer !== voiceAudioPlayer && err?.code === 'ERR_STREAM_PREMATURE_CLOSE') {
+        return
+      }
       console.error('[Discord Gateway] Audio player error:', err)
     })
 
@@ -381,6 +411,7 @@ async function startLiveVoiceSession(
           })
           voiceInputChunkCount += 1
           voiceInputByteCount += pcm16kChunk.length
+          scheduleVoiceStreamEnd()
           if (voiceInputChunkCount === 1 || voiceInputChunkCount % 100 === 0) {
             console.log(
               `[Discord Gateway] Sent audio chunk #${voiceInputChunkCount} ` +
