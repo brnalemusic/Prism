@@ -3364,9 +3364,9 @@ async function compileHtmlToPptxFallback(html: string, pptx: PptxGenJS): Promise
 
 function cleanHtmlTags(str: string): string {
   return removeUnsafeHtmlBlocks(str)
-    .replace(/<[^>]*>/g, '')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
+    .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .trim()
