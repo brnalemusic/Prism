@@ -21,35 +21,58 @@ export interface StreamResult {
   nativeContent?: import('./types').GeminiContentData
 }
 
+type OpenAiToolCall = NonNullable<OpenAiMessage['tool_calls']>[number]
+
+type AnthropicContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  | { type: 'tool_result'; tool_use_id?: string; content: string }
+  | {
+      type: 'image'
+      source: { type: 'base64'; media_type: string; data: string }
+    }
+
+interface AnthropicMessagePayload {
+  role: 'user' | 'assistant'
+  content: string | AnthropicContentBlock[]
+}
+
 export function sanitizeOpenAiMessages(messages: OpenAiMessage[]): OpenAiMessage[] {
   return messages.map((m) => {
-    let cleanContent: any = m.content
+    let cleanContent: OpenAiMessage['content'] = m.content
     if (cleanContent === undefined || cleanContent === null) {
       cleanContent = m.tool_calls && m.tool_calls.length > 0 ? null : ''
-    } else if (typeof cleanContent === 'string' && cleanContent.trim() === '' && m.tool_calls && m.tool_calls.length > 0) {
+    } else if (
+      typeof cleanContent === 'string' &&
+      cleanContent.trim() === '' &&
+      m.tool_calls &&
+      m.tool_calls.length > 0
+    ) {
       cleanContent = null
     }
 
     const cleanMsg: OpenAiMessage = {
-      role: m.role,
+      role: m.role === 'model' ? 'assistant' : m.role,
       content: cleanContent
     }
     if (m.name) cleanMsg.name = m.name
     if (m.tool_calls && m.tool_calls.length > 0) {
       cleanMsg.tool_calls = m.tool_calls.map((tc) => {
-        const tcAny = tc as any
         const thoughtSig =
           tc.thought_signature ||
           tc.extra_content?.google?.thought_signature ||
-          tcAny.thoughtSignature ||
-          tcAny.extra_content?.thought_signature
+          tc.thoughtSignature ||
+          tc.extra_content?.thought_signature
 
-        const cleanTc: any = {
+        const cleanTc: OpenAiToolCall = {
           id: tc.id || `call_${Date.now()}`,
           type: 'function',
           function: {
             name: tc.function?.name || '',
-            arguments: typeof tc.function?.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function?.arguments || {})
+            arguments:
+              typeof tc.function?.arguments === 'string'
+                ? tc.function.arguments
+                : JSON.stringify(tc.function?.arguments || {})
           }
         }
 
@@ -116,9 +139,17 @@ export async function streamOpenAiCompletion(
     headers['Authorization'] = `Bearer ${provider.apiKey}`
   }
 
-  console.log(`[Main Chat] Calling ${modelId} with [${provider.name || provider.baseUrl}] (${messages.length} messages, ${tools?.length || 0} tools, reasoningLevel: ${reasoningLevel || 'off'})`)
+  console.log(
+    `[Main Chat] Calling ${modelId} with [${provider.name || provider.baseUrl}] (${messages.length} messages, ${tools?.length || 0} tools, reasoningLevel: ${reasoningLevel || 'off'})`
+  )
 
-  const bodyPayload: any = {
+  const bodyPayload: {
+    model: string
+    messages: OpenAiMessage[]
+    stream: boolean
+    tools?: OpenAiToolDefinition[]
+    tool_choice?: 'auto'
+  } = {
     model: modelId,
     messages: sanitizeOpenAiMessages(messages),
     stream: true
@@ -142,7 +173,8 @@ export async function streamOpenAiCompletion(
     try {
       const parsed = JSON.parse(errorText)
       if (parsed.error) {
-        const rawErr = typeof parsed.error === 'string' ? parsed.error : JSON.stringify(parsed.error)
+        const rawErr =
+          typeof parsed.error === 'string' ? parsed.error : JSON.stringify(parsed.error)
         // Unwrap nested provider error messages (e.g. "Provider API Error 400: ..."
         // that contain a JSON blob with the original upstream error)
         const providerMsgMatch = rawErr.match(/Provider API Error \d+:\s*(.+)/)
@@ -150,7 +182,8 @@ export async function streamOpenAiCompletion(
           const innerMsg = providerMsgMatch[1].trim()
           // Check for known error conditions and give friendly messages
           if (innerMsg.toLowerCase().includes('all api keys exhausted')) {
-            detail = 'Prism Cloud servers are temporarily overloaded. Please try again in a few minutes or use your own API key.'
+            detail =
+              'Prism Cloud servers are temporarily overloaded. Please try again in a few minutes or use your own API key.'
           } else {
             // Try to extract the innermost message from nested JSON
             try {
@@ -169,19 +202,26 @@ export async function streamOpenAiCompletion(
           detail = rawErr
         }
       }
-    } catch {}
+    } catch {
+      // Preserve the raw upstream error when it is not JSON.
+    }
 
     // Handle server overload (503) — all API keys exhausted on the server side
     if (response.status === 503) {
       try {
         const parsed = JSON.parse(errorText)
         if (parsed?.serverOverloaded) {
-          detail = 'Prism Cloud servers are temporarily overloaded. Please try again in a few minutes or use your own API key.'
+          detail =
+            'Prism Cloud servers are temporarily overloaded. Please try again in a few minutes or use your own API key.'
         }
-      } catch {}
+      } catch {
+        // The generic status text remains the fallback for non-JSON responses.
+      }
     }
 
-    console.error(`[AI Client] API Error ${response.status} (${response.statusText}) from ${endpoint}: ${detail}`)
+    console.error(
+      `[AI Client] API Error ${response.status} (${response.statusText}) from ${endpoint}: ${detail}`
+    )
     throw new Error(`API Error ${response.status}: ${detail}`)
   }
 
@@ -196,7 +236,10 @@ export async function streamOpenAiCompletion(
   let fullText = ''
   let fullReasoning = ''
   let finishReason = ''
-  const toolCallsMap = new Map<number, { id: string; name: string; args: string; thoughtSignature?: string }>()
+  const toolCallsMap = new Map<
+    number,
+    { id: string; name: string; args: string; thoughtSignature?: string }
+  >()
 
   try {
     while (true) {
@@ -332,10 +375,10 @@ async function streamAnthropicMessages(
   const endpoint = normUrl.endsWith('/messages') ? normUrl : `${normUrl}/messages`
 
   const systemMessage = messages.find((m) => m.role === 'system')?.content || ''
-  const anthropicMessages: Array<{ role: 'user' | 'assistant'; content: any }> = []
+  const anthropicMessages: AnthropicMessagePayload[] = []
   for (const message of messages.filter((entry) => entry.role !== 'system')) {
-    if (message.role === 'assistant') {
-      const blocks: any[] = []
+    if (message.role === 'assistant' || message.role === 'model') {
+      const blocks: AnthropicContentBlock[] = []
       if (typeof message.content === 'string' && message.content) {
         blocks.push({ type: 'text', text: message.content })
       }
@@ -343,7 +386,9 @@ async function streamAnthropicMessages(
         let input: Record<string, unknown> = {}
         try {
           input = JSON.parse(toolCall.function.arguments || '{}')
-        } catch {}
+        } catch {
+          // The runtime validator will return malformed arguments to the model.
+        }
         blocks.push({
           type: 'tool_use',
           id: toolCall.id,
@@ -356,16 +401,17 @@ async function streamAnthropicMessages(
     }
 
     if (message.role === 'tool') {
-      const block = {
+      const block: AnthropicContentBlock = {
         type: 'tool_result',
         tool_use_id: message.tool_call_id,
-        content: typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+        content:
+          typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
       }
       const previous = anthropicMessages.at(-1)
       if (
         previous?.role === 'user' &&
         Array.isArray(previous.content) &&
-        previous.content.every((entry: any) => entry.type === 'tool_result')
+        previous.content.every((entry) => entry.type === 'tool_result')
       ) {
         previous.content.push(block)
       } else {
@@ -375,7 +421,7 @@ async function streamAnthropicMessages(
     }
 
     if (Array.isArray(message.content)) {
-      const blocks: any[] = []
+      const blocks: AnthropicContentBlock[] = []
       for (const entry of message.content) {
         if (entry.type === 'text' && entry.text) {
           blocks.push({ type: 'text', text: entry.text })
@@ -395,7 +441,18 @@ async function streamAnthropicMessages(
     }
   }
 
-  const bodyPayload: any = {
+  const bodyPayload: {
+    model: string
+    system: string
+    messages: AnthropicMessagePayload[]
+    max_tokens: number
+    stream: boolean
+    tools?: Array<{
+      name: string
+      description: string
+      input_schema?: Record<string, unknown>
+    }>
+  } = {
     model: modelId,
     system: typeof systemMessage === 'string' ? systemMessage : '',
     messages: anthropicMessages,
@@ -529,7 +586,9 @@ async function streamOpenAiResponses(
 ): Promise<StreamResult> {
   const endpoint = normUrl.endsWith('/responses') ? normUrl : `${normUrl}/responses`
 
-  console.log(`[Main Chat - Responses API] Calling ${modelId} with [${provider.name || provider.baseUrl}] (${messages.length} input items, ${tools?.length || 0} tools)`)
+  console.log(
+    `[Main Chat - Responses API] Calling ${modelId} with [${provider.name || provider.baseUrl}] (${messages.length} input items, ${tools?.length || 0} tools)`
+  )
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
@@ -538,17 +597,18 @@ async function streamOpenAiResponses(
     headers['Authorization'] = `Bearer ${provider.apiKey}`
   }
 
-  const responsesInput: any[] = []
+  const responsesInput: Array<Record<string, unknown>> = []
   for (const message of messages) {
     if (message.role === 'tool') {
       responsesInput.push({
         type: 'function_call_output',
         call_id: message.tool_call_id,
-        output: typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+        output:
+          typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
       })
       continue
     }
-    if (message.role === 'assistant' && message.tool_calls?.length) {
+    if ((message.role === 'assistant' || message.role === 'model') && message.tool_calls?.length) {
       if (message.content) {
         responsesInput.push({ role: 'assistant', content: message.content })
       }
@@ -562,11 +622,25 @@ async function streamOpenAiResponses(
       }
       continue
     }
-    responsesInput.push({ role: message.role, content: message.content || '' })
+    responsesInput.push({
+      role: message.role === 'model' ? 'assistant' : message.role,
+      content: message.content || ''
+    })
   }
 
   // Responses API schema uses typed input items instead of Chat Completions messages.
-  const bodyPayload: any = {
+  const bodyPayload: {
+    model: string
+    input: Array<Record<string, unknown>>
+    stream: boolean
+    tools?: Array<{
+      type: 'function'
+      name: string
+      description: string
+      parameters?: Record<string, unknown>
+    }>
+    tool_choice?: 'auto'
+  } = {
     model: modelId,
     input: responsesInput,
     stream: true
@@ -592,7 +666,9 @@ async function streamOpenAiResponses(
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '')
-    console.error(`[AI Client] Responses API Error ${response.status} (${response.statusText}) from ${endpoint}`)
+    console.error(
+      `[AI Client] Responses API Error ${response.status} (${response.statusText}) from ${endpoint}`
+    )
     console.error(`[AI Client] Response body: ${errorText}`)
     throw new Error(`Responses API Error ${response.status} (${response.statusText}): ${errorText}`)
   }
@@ -608,7 +684,10 @@ async function streamOpenAiResponses(
   let fullText = ''
   let fullReasoning = ''
   let finishReason = ''
-  const toolCallsMap = new Map<number, { id: string; name: string; args: string; thoughtSignature?: string }>()
+  const toolCallsMap = new Map<
+    number,
+    { id: string; name: string; args: string; thoughtSignature?: string }
+  >()
   let currentToolIdx = 0
 
   try {
@@ -644,7 +723,8 @@ async function streamOpenAiResponses(
             }
 
             // Reasoning stream
-            const reasoningChunk = delta.reasoning_content || delta.reasoning || delta.thinking || parsed.reasoning || ''
+            const reasoningChunk =
+              delta.reasoning_content || delta.reasoning || delta.thinking || parsed.reasoning || ''
             if (reasoningChunk) {
               fullReasoning += reasoningChunk
               callbacks.onReasoningDelta(reasoningChunk)
@@ -663,7 +743,10 @@ async function streamOpenAiResponses(
             }
 
             // Responses API output_item / function call events
-            if (parsed.type === 'response.output_item.added' && parsed.item?.type === 'function_call') {
+            if (
+              parsed.type === 'response.output_item.added' &&
+              parsed.item?.type === 'function_call'
+            ) {
               const idx = currentToolIdx++
               toolCallsMap.set(idx, {
                 id: parsed.item.call_id || parsed.item.id || `call_${Date.now()}_${idx}`,

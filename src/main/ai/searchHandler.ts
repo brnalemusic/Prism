@@ -39,10 +39,10 @@ export async function handleAiSearchChatMessage(event: IpcMainEvent, query: stri
     const offlineData = searchChatsOffline(query)
     const contextSnippet = (offlineData.results || [])
       .slice(0, 10)
-      .map(
-        (res: any) =>
-          `[Chat ID: ${res.id} | Title: "${res.title}"]\nSnippets: ${(res.matchingSnippets || []).join(' ... ')}`
-      )
+      .map((result) => {
+        const snippets = result.messageMatches.map((match) => match.snippet)
+        return `[Chat ID: ${result.id} | Title: "${result.title}"]\nSnippets: ${snippets.join(' ... ')}`
+      })
       .join('\n\n')
 
     console.log(
@@ -66,7 +66,10 @@ export async function handleAiSearchChatMessage(event: IpcMainEvent, query: stri
       'not_found_chat_history'
     ])
 
-    const parseThoughtAndContent = (rawText: string, extraReasoning: string) => {
+    const parseThoughtAndContent = (
+      rawText: string,
+      extraReasoning: string
+    ): { thoughts: string; content: string } => {
       let thoughts = extraReasoning || ''
       let content = rawText
 
@@ -185,13 +188,15 @@ export async function handleAiSearchChatMessage(event: IpcMainEvent, query: stri
       finalResponse: content,
       offlineResults: offlineData.results
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (abortController.signal.aborted) {
       console.log('[AI SEARCH DEBUG MAIN] Search aborted before main loop')
       safeSend(event.sender, 'ai-search-reply-error', { error: 'Search cancelled' })
     } else {
       console.error('AI Search Error:', error)
-      safeSend(event.sender, 'ai-search-reply-error', { error: error.message || String(error) })
+      safeSend(event.sender, 'ai-search-reply-error', {
+        error: error instanceof Error ? error.message : String(error)
+      })
     }
   } finally {
     if (searchAbortController === abortController) searchAbortController = null

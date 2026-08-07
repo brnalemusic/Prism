@@ -48,7 +48,10 @@ export async function handleLauncherChatMessage(
 
     const launcherTools = getNativeToolsForOpenAi('launcher')
     const messages: OpenAiMessage[] = [systemPrompt, ...launcherHistory]
-    const parseThoughtAndContent = (rawText: string, extraReasoning: string) => {
+    const parseThoughtAndContent = (
+      rawText: string,
+      extraReasoning: string
+    ): { thoughts: string; content: string } => {
       let thoughts = extraReasoning || ''
       let content = rawText
       const thinkMatch = rawText.match(/<think>([\s\S]*?)(?:<\/think>|$)/i)
@@ -110,11 +113,13 @@ export async function handleLauncherChatMessage(
       finalResponse: finalOutput.content,
       ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (abortController.signal.aborted) {
       safeSend(window, 'launcher-reply-error', { error: 'Request cancelled' })
     } else {
-      safeSend(window, 'launcher-reply-error', { error: error.message || String(error) })
+      safeSend(window, 'launcher-reply-error', {
+        error: error instanceof Error ? error.message : String(error)
+      })
     }
   } finally {
     if (launcherAbortController === abortController) launcherAbortController = null

@@ -15,7 +15,7 @@ export function ReasoningSelector({
   value,
   onChange,
   disabled
-}: ReasoningSelectorProps) {
+}: ReasoningSelectorProps): React.JSX.Element | null {
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 

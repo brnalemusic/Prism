@@ -68,7 +68,9 @@ function parseFunctionResponse(content: OpenAiMessage['content']): Record<string
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       return parsed as Record<string, unknown>
     }
-  } catch {}
+  } catch {
+    // Non-JSON tool results are wrapped as plain output.
+  }
   return { output: content }
 }
 
@@ -85,7 +87,7 @@ export function convertMessagesToGemini(messages: OpenAiMessage[]): {
   for (const message of messages) {
     if (message.role === 'system') continue
 
-    if (message.role === 'assistant') {
+    if (message.role === 'assistant' || message.role === 'model') {
       const nativeContent = message.provider_metadata?.gemini?.content
       if (nativeContent?.parts?.length) {
         contents.push(nativeContent as Content)
@@ -96,7 +98,9 @@ export function convertMessagesToGemini(messages: OpenAiMessage[]): {
         let args: Record<string, unknown> = {}
         try {
           args = JSON.parse(toolCall.function.arguments || '{}')
-        } catch {}
+        } catch {
+          // Invalid legacy arguments are validated after the model retries the call.
+        }
         parts.push({
           functionCall: { id: toolCall.id, name: toolCall.function.name, args },
           ...(toolCall.thought_signature ? { thoughtSignature: toolCall.thought_signature } : {})

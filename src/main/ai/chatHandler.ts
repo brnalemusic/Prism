@@ -14,7 +14,7 @@ import { runToolOrchestration } from './toolOrchestrator'
 
 export const activeRuns = new Map<string, ActiveRun>()
 export const lastScreenshots = new Map<string, string>()
-export let currentSessionId = ''
+const currentSessionId = ''
 
 let currentSelectedChatModel = ''
 let currentSessionMode: SessionMode = 'execution'
@@ -64,6 +64,7 @@ export function getNativeToolsForOpenAi(
   _target: 'main' | 'launcher' = 'main',
   allowedTools?: string[]
 ): OpenAiToolDefinition[] {
+  void _target
   const definitions = getOpenAiToolDefinitions()
   if (allowedTools === undefined) return definitions
   const allowed = new Set(allowedTools)
@@ -94,8 +95,8 @@ export async function handleChatMessage(
   const quote = typeof data === 'object' ? data.quote : undefined
   const attachedFile = typeof data === 'object' ? data.attachedFile : undefined
 
-  let sessionMode = typeof data === 'object' ? data.sessionMode : undefined
-  let disciplinePath = typeof data === 'object' ? data.disciplinePath : undefined
+  const sessionMode = typeof data === 'object' ? data.sessionMode : undefined
+  const disciplinePath = typeof data === 'object' ? data.disciplinePath : undefined
 
   if (typeof data === 'object' && data.modelKey) {
     currentSelectedChatModel = data.modelKey
@@ -136,7 +137,7 @@ export async function handleChatMessage(
 
   // Load chat session from disk if existing
   const session = loadChatSession(chatId)
-  let historyMessages: any[] = session ? session.messages : []
+  const historyMessages: OpenAiMessage[] = session ? session.messages : []
 
   // Check if first message
   const isFirstMessage = historyMessages.length === 0
@@ -153,7 +154,9 @@ export async function handleChatMessage(
   }
 
   if (screenshot || attachedFile) {
-    const parts: any[] = [{ type: 'text', text: userText }]
+    const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
+      { type: 'text', text: userText }
+    ]
     if (screenshot) {
       parts.push({
         type: 'image_url',
@@ -260,7 +263,10 @@ export async function handleChatMessage(
     const thinkingTimes = new Map<number, { startedAt?: number; endedAt?: number }>()
     let totalThinkingDuration = 0
 
-    const parseThoughtAndContent = (rawText: string, extraReasoning: string) => {
+    const parseThoughtAndContent = (
+      rawText: string,
+      extraReasoning: string
+    ): { thoughts: string; content: string } => {
       let thoughts = extraReasoning || ''
       let content = rawText
       const thinkMatch = rawText.match(/<think>([\s\S]*?)(?:<\/think>|$)/i)
@@ -367,21 +373,22 @@ export async function handleChatMessage(
       chatId,
       ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})
     })
-  } catch (error: any) {
-    if (abortController.signal.aborted || error.name === 'AbortError') {
+  } catch (error: unknown) {
+    const caughtError = error instanceof Error ? error : new Error(String(error))
+    if (abortController.signal.aborted || caughtError.name === 'AbortError') {
       safeSend(event.sender, 'chat-reply-error', { error: 'Message cancelled by user', chatId })
     } else {
-      console.error(`[Main Chat] Error in handleChatMessage for chat ${chatId}:`, error)
-      console.error(`[Main Chat] Error name: ${error.name}, message: ${error.message}`)
-      if (error.stack) console.error(`[Main Chat] Stack: ${error.stack}`)
-      safeSend(event.sender, 'chat-reply-error', { error: error.message || String(error), chatId })
+      console.error(`[Main Chat] Error in handleChatMessage for chat ${chatId}:`, caughtError)
+      console.error(`[Main Chat] Error name: ${caughtError.name}, message: ${caughtError.message}`)
+      if (caughtError.stack) console.error(`[Main Chat] Stack: ${caughtError.stack}`)
+      safeSend(event.sender, 'chat-reply-error', { error: caughtError.message, chatId })
     }
   } finally {
     activeRuns.delete(chatId)
   }
 }
 
-function convertHistoryToOpenAi(history: any[]): OpenAiMessage[] {
+function convertHistoryToOpenAi(history: OpenAiMessage[]): OpenAiMessage[] {
   return history
     .filter((m) => m.role !== 'system')
     .map((m) => {
@@ -394,7 +401,7 @@ function convertHistoryToOpenAi(history: any[]): OpenAiMessage[] {
         }
       }
       const content =
-        m.content ?? (m.parts ? m.parts.map((p: any) => p.text || '').join('\n') : null)
+        m.content ?? (m.parts ? m.parts.map((part) => part.text || '').join('\n') : null)
       return {
         role: m.role === 'model' ? 'assistant' : m.role,
         content: content || '',
@@ -406,7 +413,7 @@ function convertHistoryToOpenAi(history: any[]): OpenAiMessage[] {
 
 async function generateTitleInBackground(
   event: IpcMainEvent,
-  provider: any,
+  provider: import('../../shared/types').ProviderConfig,
   modelId: string,
   firstMessage: string,
   chatId: string

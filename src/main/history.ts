@@ -1,14 +1,14 @@
 import { app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
-import { Content } from '@google/genai'
 import { SessionMode, ArtifactItem, TodoState } from '../shared/types'
+import type { OpenAiMessage } from './ai/types'
 
 export interface ChatSession {
   id: string
   title: string
   lastUpdated: number
-  messages: Content[]
+  messages: OpenAiMessage[]
   sessionMode?: SessionMode
   disciplinePath?: string
   model?: string
@@ -43,20 +43,16 @@ function sanitizeId(id: string): string {
  * Safely extracts text from content parts, combining all text components.
  * Optionally filters out technical blocks like tool calls and system results.
  */
-export function getMessageText(content?: Content | any, clean = false): string {
+export function getMessageText(content?: OpenAiMessage, clean = false): string {
   if (!content) return ''
 
   let text = ''
   if (typeof content.content === 'string') {
     text = content.content
   } else if (Array.isArray(content.content)) {
-    text = content.content
-      .map((p: any) => (typeof p === 'string' ? p : p.text || ''))
-      .join(' ')
+    text = content.content.map((part) => part.text || '').join(' ')
   } else if (content.parts) {
-    text = content.parts
-      .map((p: any) => p.text || '')
-      .join(' ')
+    text = content.parts.map((part) => part.text || '').join(' ')
   }
   text = text.trim()
 
@@ -136,7 +132,7 @@ export function loadChatSession(id: string): ChatSession | null {
  * Sanitizes search_chat_memory tool outputs in history messages before saving,
  * replacing their content with "[RESULTS OMITTED]".
  */
-function sanitizeMessagesForSaving(messages: Content[]): Content[] {
+function sanitizeMessagesForSaving(messages: OpenAiMessage[]): OpenAiMessage[] {
   return messages.map((m) => {
     if (!m.parts) return m
     const sanitizedParts = m.parts.map((p) => {
@@ -158,7 +154,7 @@ function sanitizeMessagesForSaving(messages: Content[]): Content[] {
  */
 export function saveChatSession(
   id: string,
-  messages: Content[],
+  messages: OpenAiMessage[],
   title?: string,
   sessionMode?: SessionMode,
   disciplinePath?: string,
@@ -176,17 +172,22 @@ export function saveChatSession(
     let existingModel = model
 
     // If title or modes not provided, try to keep the existing ones from the file
-    if (sessionTitle === undefined || existingMode === undefined || existingPath === undefined || existingModel === undefined) {
+    if (
+      sessionTitle === undefined ||
+      existingMode === undefined ||
+      existingPath === undefined ||
+      existingModel === undefined
+    ) {
       if (fs.existsSync(filePath)) {
         try {
           const existingData = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
-          
+
           if (sessionTitle === undefined) {
             if (existingData.title) {
               sessionTitle = existingData.title
             }
           }
-          
+
           if (existingMode === undefined) {
             existingMode = existingData.sessionMode
           }
@@ -313,7 +314,9 @@ export function saveChatArtifact(id: string, artifact: ArtifactItem): ChatSessio
       }
     }
     const artifacts = session.artifacts || []
-    const existingIndex = artifacts.findIndex((a) => a.id === artifact.id || a.path === artifact.path)
+    const existingIndex = artifacts.findIndex(
+      (a) => a.id === artifact.id || a.path === artifact.path
+    )
     if (existingIndex >= 0) {
       artifacts[existingIndex] = artifact
     } else {
@@ -610,7 +613,37 @@ export function searchChatsOffline(query: string): {
   }
 
   const allKeywords = cleanQuery.split(/\s+/).filter((k) => k.length > 0)
-  const stopWords = new Set(['uma', 'vez', 'que', 'de', 'do', 'da', 'em', 'no', 'na', 'os', 'as', 'um', 'e', 'ou', 'com', 'por', 'me', 'my', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'is', 'it'])
+  const stopWords = new Set([
+    'uma',
+    'vez',
+    'que',
+    'de',
+    'do',
+    'da',
+    'em',
+    'no',
+    'na',
+    'os',
+    'as',
+    'um',
+    'e',
+    'ou',
+    'com',
+    'por',
+    'me',
+    'my',
+    'the',
+    'a',
+    'an',
+    'in',
+    'on',
+    'at',
+    'to',
+    'for',
+    'of',
+    'is',
+    'it'
+  ])
   const significantKeywords = allKeywords.filter((k) => k.length > 2 && !stopWords.has(k))
   const searchKeywords = significantKeywords.length > 0 ? significantKeywords : allKeywords
 
@@ -634,8 +667,10 @@ export function searchChatsOffline(query: string): {
 
         const textLower = text.toLowerCase()
         const isExactMatch = cleanQuery.length > 3 && textLower.includes(cleanQuery)
-        const isAllMatch = allKeywords.length > 0 && allKeywords.every((kw) => textLower.includes(kw))
-        const isSignificantMatch = searchKeywords.length > 0 && searchKeywords.some((kw) => textLower.includes(kw))
+        const isAllMatch =
+          allKeywords.length > 0 && allKeywords.every((kw) => textLower.includes(kw))
+        const isSignificantMatch =
+          searchKeywords.length > 0 && searchKeywords.some((kw) => textLower.includes(kw))
 
         if (isExactMatch || isAllMatch || isSignificantMatch) {
           let firstIndex = Infinity
