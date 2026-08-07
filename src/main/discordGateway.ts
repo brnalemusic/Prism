@@ -235,7 +235,7 @@ async function startLiveVoiceSession(
       model: normalizedModelName,
       config: {
         responseModalities: [Modality.AUDIO],
-        inputAudioTranscription: { languageCodes: ['pt-BR'] }
+        inputAudioTranscription: {}
       },
       callbacks: {
         onmessage: (msg: any) => {
