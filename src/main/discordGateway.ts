@@ -43,6 +43,7 @@ import { normalizePrismThinkingLevel } from './ai/prismThinking'
 import { streamOpenAiCompletion } from './ai/openaiClient'
 import { is } from '@electron-toolkit/utils'
 import { broadcastIpc } from './safeSend'
+import { createVoiceOverlayWindow, closeVoiceOverlayWindow } from './index'
 
 let client: Client | null = null
 let currentConfig: AppConfig | null = null
@@ -77,6 +78,7 @@ interface PendingVoiceLeave {
   audioReceived: boolean
   turnComplete: boolean
   player: any | null
+  forceTimer?: NodeJS.Timeout
 }
 
 let pendingVoiceLeave: PendingVoiceLeave | null = null
@@ -481,19 +483,35 @@ function maybeFinalizePendingVoiceLeave(): void {
   const pending = pendingVoiceLeave
   if (!pending || !pending.farewellRequested || !pending.turnComplete) return
 
-  if (!pending.audioReceived) {
-    if (!pending.responseStarted) return
+  if (!pending.audioReceived && !pending.responseStarted) {
     finalizePendingVoiceLeave()
     return
   }
 
-  if (pending.player !== activeAudioPlayer) return
-  if (activeAudioPlayer?.state?.status !== AudioPlayerStatus.Idle) return
+  // If the audio player is no longer playing, finalize.
+  if (
+    !activeAudioPlayer ||
+    activeAudioPlayer.state.status === AudioPlayerStatus.Idle ||
+    pending.player !== activeAudioPlayer
+  ) {
+    finalizePendingVoiceLeave()
+    return
+  }
 
-  finalizePendingVoiceLeave()
+  // Fallback: if we haven't finalized within 8 seconds of turn completion, force it.
+  if (!pending.forceTimer) {
+    pending.forceTimer = setTimeout(() => {
+      if (pendingVoiceLeave === pending) finalizePendingVoiceLeave()
+    }, 8000)
+  }
 }
 
 function finalizePendingVoiceLeave(): void {
+  const pending = pendingVoiceLeave
+  if (pending?.forceTimer) {
+    clearTimeout(pending.forceTimer)
+  }
+
   const statusMessage = activeVoiceStatusMessage
   pendingVoiceLeave = null
   activeVoiceStatusMessage = null
@@ -538,6 +556,10 @@ function createVoiceAudioOutput(): void {
 }
 
 function cleanupVoiceResources(): boolean {
+  let cleaned = false
+
+  broadcastVoiceOverlayState('disconnected')
+  closeVoiceOverlayWindow()
   const hadVoiceResources = Boolean(
     activeLiveSession ||
     activeAudioPlayer ||
@@ -646,6 +668,7 @@ async function startLiveVoiceSession(
   broadcastIpc('chat-session-created', { id: voiceChatId })
   setCurrentSessionIdForTodo(voiceChatId)
   broadcastVoiceOverlayState('connecting')
+  createVoiceOverlayWindow()
   let aiSession: any = null
 
   // Step 1: Connect to Gemini Live API FIRST

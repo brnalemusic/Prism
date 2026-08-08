@@ -894,64 +894,64 @@
 
 .discord-voice-glow {
   position: absolute;
-  width: clamp(17rem, 38vw, 48rem);
-  height: clamp(12rem, 29vw, 36rem);
+  width: clamp(25rem, 55vw, 90rem);
+  height: clamp(20rem, 55vh, 75rem);
   border-radius: 54% 46% 61% 39% / 47% 55% 45% 53%;
   background: var(--color-accent-primary);
-  filter: blur(64px);
+  filter: blur(140px);
   opacity: calc(var(--discord-voice-presence) + var(--discord-voice-energy));
   will-change: transform, opacity;
 }
 
 .discord-voice-glow--northwest {
-  top: clamp(-17rem, -18vw, -8rem);
-  left: clamp(-20rem, -18vw, -8rem);
-  animation: discord-voice-drift-northwest 48s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  top: clamp(-20rem, -25vh, -10rem);
+  left: clamp(-25rem, -25vw, -10rem);
+  animation: discord-voice-drift-northwest 52s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
 .discord-voice-glow--northeast {
-  top: clamp(-17rem, -19vw, -8rem);
-  right: clamp(-20rem, -17vw, -8rem);
+  top: clamp(-20rem, -25vh, -10rem);
+  right: clamp(-25rem, -25vw, -10rem);
   border-radius: 42% 58% 38% 62% / 55% 44% 56% 45%;
-  animation: discord-voice-drift-northeast 57s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation: discord-voice-drift-northeast 62s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
 .discord-voice-glow--southeast {
-  right: clamp(-20rem, -18vw, -8rem);
-  bottom: clamp(-17rem, -18vw, -8rem);
+  right: clamp(-25rem, -25vw, -10rem);
+  bottom: clamp(-20rem, -25vh, -10rem);
   border-radius: 61% 39% 52% 48% / 43% 57% 43% 57%;
-  animation: discord-voice-drift-southeast 53s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation: discord-voice-drift-southeast 58s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
 .discord-voice-glow--southwest {
-  bottom: clamp(-17rem, -19vw, -8rem);
-  left: clamp(-20rem, -17vw, -8rem);
+  bottom: clamp(-20rem, -25vh, -10rem);
+  left: clamp(-25rem, -25vw, -10rem);
   border-radius: 39% 61% 46% 54% / 56% 42% 58% 44%;
-  animation: discord-voice-drift-southwest 61s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation: discord-voice-drift-southwest 65s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
 @keyframes discord-voice-drift-northwest {
-  0%, 100% { transform: translate3d(-3%, -2%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy))); }
-  27% { transform: translate3d(9%, 7%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) + 0.025)); }
-  61% { transform: translate3d(2%, 13%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) - 0.018)); }
+  0%, 100% { transform: translate3d(-5%, -5%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy))); }
+  27% { transform: translate3d(12%, 10%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) + 0.035)); }
+  61% { transform: translate3d(4%, 18%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) - 0.025)); }
 }
 
 @keyframes discord-voice-drift-northeast {
-  0%, 100% { transform: translate3d(4%, -1%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy))); }
-  33% { transform: translate3d(-8%, 10%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) - 0.015)); }
-  72% { transform: translate3d(-2%, 15%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) + 0.022)); }
+  0%, 100% { transform: translate3d(5%, -3%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy))); }
+  33% { transform: translate3d(-12%, 15%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) - 0.02)); }
+  72% { transform: translate3d(-4%, 22%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) + 0.03)); }
 }
 
 @keyframes discord-voice-drift-southeast {
-  0%, 100% { transform: translate3d(3%, 3%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy))); }
-  24% { transform: translate3d(-10%, -7%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) + 0.019)); }
-  67% { transform: translate3d(-4%, -13%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) - 0.02)); }
+  0%, 100% { transform: translate3d(4%, 4%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy))); }
+  24% { transform: translate3d(-15%, -10%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) + 0.025)); }
+  67% { transform: translate3d(-6%, -18%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) - 0.03)); }
 }
 
 @keyframes discord-voice-drift-southwest {
-  0%, 100% { transform: translate3d(-4%, 2%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy))); }
-  37% { transform: translate3d(8%, -8%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) - 0.017)); }
-  76% { transform: translate3d(3%, -15%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) + 0.023)); }
+  0%, 100% { transform: translate3d(-5%, 3%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy))); }
+  37% { transform: translate3d(12%, -12%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) - 0.025)); }
+  76% { transform: translate3d(5%, -20%, 0) scale(calc(var(--discord-voice-scale) + var(--discord-voice-energy) + 0.035)); }
 }
 
 .discord-voice-tool-shell {

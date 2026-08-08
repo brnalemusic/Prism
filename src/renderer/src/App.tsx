@@ -2860,6 +2860,10 @@ function RealApp(): React.JSX.Element {
     )
   }
 
+  if (route === '#voice-overlay') {
+    return <DiscordVoiceGlowOverlay />
+  }
+
   if (route === '#launcher') {
     return <QuickLauncher />
   }
@@ -2906,7 +2910,6 @@ function RealApp(): React.JSX.Element {
         </div>
       )}
       <PrismBackground />
-      <DiscordVoiceGlowOverlay />
 
       {!isSidebarOpen && (
         <button

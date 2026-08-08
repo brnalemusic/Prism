@@ -178,6 +178,7 @@ function saveWindowState(state: WindowState): void {
 let currentConfig: AppConfig
 let mainWindow: BrowserWindow | null = null
 let launcherWindow: BrowserWindow | null = null
+export let voiceOverlayWindow: BrowserWindow | null = null
 
 async function finalizeAuthenticatedIpcResponse(result: AuthResponse): Promise<AuthResponse> {
   if (!result.success || !result.user) return result
@@ -643,6 +644,59 @@ function toggleLauncher(): void {
     launcherWindow.focus()
     safeSend(launcherWindow, 'launcher-focus')
   }
+}
+
+export function createVoiceOverlayWindow(): void {
+  if (voiceOverlayWindow) return
+
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { bounds } = primaryDisplay
+
+  voiceOverlayWindow = new BrowserWindow({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    show: false,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    hasShadow: false,
+    focusable: false,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+      spellcheck: false
+    }
+  })
+
+  voiceOverlayWindow.setIgnoreMouseEvents(true, { forward: true })
+  if (process.platform === 'darwin') {
+    voiceOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  }
+
+  voiceOverlayWindow.on('ready-to-show', () => {
+    voiceOverlayWindow?.showInactive()
+  })
+
+  voiceOverlayWindow.on('closed', () => {
+    voiceOverlayWindow = null
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    voiceOverlayWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#voice-overlay`)
+  } else {
+    voiceOverlayWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: 'voice-overlay' })
+  }
+}
+
+export function closeVoiceOverlayWindow(): void {
+  if (voiceOverlayWindow && !voiceOverlayWindow.isDestroyed()) {
+    voiceOverlayWindow.close()
+  }
+  voiceOverlayWindow = null
 }
 
 if (process.argv.includes('--get-dependencies')) {
