@@ -82,8 +82,20 @@ interface VoiceHistoryState {
 
 interface LiveToolResponseSession {
   sendToolResponse(input: {
-    functionResponses: Array<{ id: string; name: string; response: Record<string, unknown> }>
+    functionResponses: LiveFunctionResponse[]
   }): void
+}
+
+interface LiveFunctionResponse {
+  id: string
+  name: string
+  response: Record<string, unknown>
+  parts?: Array<{
+    inlineData: {
+      mimeType: string
+      data: string
+    }
+  }>
 }
 
 const activeDmSessions: Map<string, string> = new Map()
@@ -228,7 +240,8 @@ function recordLiveToolResult(
   name: string,
   args: Record<string, unknown>,
   modelContent: string,
-  envelope: import('./toolRuntime').ToolResultEnvelope
+  envelope: import('./toolRuntime').ToolResultEnvelope,
+  attachments?: import('./toolAttachments').ToolAttachment[]
 ): void {
   const history = activeVoiceHistory
   if (!history) return
@@ -238,6 +251,7 @@ function recordLiveToolResult(
     tool_call_id: callId,
     name,
     content: modelContent,
+    ...(attachments && attachments.length > 0 ? { tool_attachments: attachments } : {}),
     tool_metadata: {
       originalArguments: args,
       validatedArguments: args,
@@ -259,8 +273,7 @@ async function executeLiveToolCalls(
   activeLiveAbortController = abortController
   const loopGuard = activeLiveToolLoopGuard || new ToolLoopGuard()
   activeLiveToolLoopGuard = loopGuard
-  const functionResponses: Array<{ id: string; name: string; response: Record<string, unknown> }> =
-    []
+  const functionResponses: LiveFunctionResponse[] = []
 
   for (const functionCall of functionCalls) {
     const callId = functionCall.id || `live_call_${Date.now()}_${functionResponses.length}`
@@ -289,7 +302,14 @@ async function executeLiveToolCalls(
       loopGuard
     )
 
-    recordLiveToolResult(callId, name, execution.args, execution.modelContent, execution.envelope)
+    recordLiveToolResult(
+      callId,
+      name,
+      execution.args,
+      execution.modelContent,
+      execution.envelope,
+      execution.attachments
+    )
     broadcastIpc('chat-tool-end', {
       callId,
       name,
@@ -297,12 +317,22 @@ async function executeLiveToolCalls(
       chatId: history.chatId
     })
 
+    const visualParts = (execution.attachments || [])
+      .filter((attachment) => attachment.kind === 'image')
+      .map((attachment) => ({
+        inlineData: {
+          mimeType: attachment.mimeType,
+          data: attachment.data
+        }
+      }))
+
     functionResponses.push({
       id: callId,
       name,
       response: execution.envelope.ok
         ? { result: execution.envelope.output }
-        : { error: execution.envelope.error.message, details: execution.envelope.error.details }
+        : { error: execution.envelope.error.message, details: execution.envelope.error.details },
+      ...(visualParts.length > 0 ? { parts: visualParts } : {})
     })
   }
 
@@ -548,14 +578,10 @@ async function startLiveVoiceSession(
           '# Discord Voice Gateway\n' +
           'You are speaking with the user through Discord voice. Use the available tools whenever they are needed. ' +
           'When you use a tool, wait for its result before answering. Keep spoken answers concise and clear. ' +
-          'Screen and browser screenshot tools are unavailable in voice sessions.',
+          'When a screenshot is returned, inspect it before answering the user.',
         tools: [
           {
-            functionDeclarations: getGeminiFunctionDeclarations().filter(
-              (declaration) =>
-                declaration.name !== 'computer_use_see_screen' &&
-                declaration.name !== 'browser_screenshot'
-            )
+            functionDeclarations: getGeminiFunctionDeclarations()
           }
         ]
       },
