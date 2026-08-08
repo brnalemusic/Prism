@@ -56,6 +56,10 @@ let activeVoiceInputStream: any = null
 let activeVoiceDecoder: any = null
 let activeSpeakerStream: PassThrough | null = null
 let activeVoiceSilenceTimer: ReturnType<typeof setTimeout> | null = null
+let activeVoiceInactivityTimer: ReturnType<typeof setTimeout> | null = null
+let activeVoiceSessionParams: { apiKey: string; modelName: string } | null = null
+let isReconnectingLive = false
+let pendingAudioChunks: Buffer[] = []
 let voiceInputChunkCount = 0
 let voiceInputByteCount = 0
 let voiceOutputChunkCount = 0
@@ -87,6 +91,7 @@ const VOICE_SILENCE_FLUSH_MS = 800
 const VOICE_GATE_START_RMS = 0.02
 const VOICE_GATE_CONTINUE_RMS = 0.012
 const VOICE_GATE_HANGOVER_MS = 450
+const VOICE_INACTIVITY_TIMEOUT_MS = 240 * 60 * 1000 // 240 minutes (4 hours) of inactivity before AI says goodbye and leaves
 
 let voiceGateOpen = false
 let voiceGateLastSpeechAt = 0
@@ -369,6 +374,65 @@ function clearVoiceSilenceTimer(): void {
   }
 }
 
+function clearVoiceInactivityTimer(): void {
+  if (activeVoiceInactivityTimer) {
+    clearTimeout(activeVoiceInactivityTimer)
+    activeVoiceInactivityTimer = null
+  }
+}
+
+function resetVoiceInactivityTimer(): void {
+  clearVoiceInactivityTimer()
+  if (!activeLiveSession || pendingVoiceLeave) return
+
+  activeVoiceInactivityTimer = setTimeout(() => {
+    activeVoiceInactivityTimer = null
+    triggerVoiceInactivityFarewell()
+  }, VOICE_INACTIVITY_TIMEOUT_MS)
+}
+
+function triggerVoiceInactivityFarewell(): void {
+  const session = activeLiveSession
+  if (!session || pendingVoiceLeave) return
+
+  console.log('[Discord Gateway] Inactivity timeout reached (240 minutes). Requesting voice farewell...')
+  if (!pendingVoiceLeave) {
+    pendingVoiceLeave = {
+      farewellRequested: true,
+      responseStarted: false,
+      audioReceived: false,
+      turnComplete: false,
+      player: null
+    }
+  }
+  void activeVoiceStatusMessage
+    ?.edit('⌛ *User inactive for 240 minutes. Saying goodbye before leaving voice channel...*')
+    .catch(() => {})
+
+  try {
+    if (activeSpeakerStream && !activeSpeakerStream.destroyed) {
+      createVoiceAudioOutput()
+    }
+    appendVoiceTranscript('user', 'The user is now inactive for 240 minutes. Leave the call.')
+    session.sendClientContent({
+      turns: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: 'The user is now inactive for 240 minutes. Leave the call.'
+            }
+          ]
+        }
+      ],
+      turnComplete: true
+    })
+  } catch (error) {
+    console.error('[Discord Gateway] Failed to trigger inactivity farewell:', error)
+    leaveDiscordVoiceChannel()
+  }
+}
+
 function scheduleVoiceStreamEnd(): void {
   clearVoiceSilenceTimer()
   activeVoiceSilenceTimer = setTimeout(() => {
@@ -569,6 +633,9 @@ function cleanupVoiceResources(): boolean {
 
   const liveSession = activeLiveSession
   activeLiveSession = null
+  activeVoiceSessionParams = null
+  isReconnectingLive = false
+  pendingAudioChunks = []
   resetVoiceOverlay()
   pendingVoiceLeave = null
   activeVoiceStatusMessage = null
@@ -588,6 +655,7 @@ function cleanupVoiceResources(): boolean {
   const inputStream = activeVoiceInputStream
   activeVoiceInputStream = null
   clearVoiceSilenceTimer()
+  clearVoiceInactivityTimer()
   resetVoiceGate()
   if (inputStream) {
     try {
@@ -641,6 +709,192 @@ function cleanupVoiceResources(): boolean {
   return hadVoiceResources
 }
 
+function handleLiveMessage(msg: any, aiSession: any, apiKey: string): void {
+  const serverContent = msg?.serverContent
+  if (msg?.toolCallCancellation?.ids?.length) {
+    console.log('[Discord Gateway] Gemini cancelled pending Live tool calls.')
+    activeLiveAbortController?.abort()
+  }
+
+  const functionCalls = msg?.toolCall?.functionCalls
+  if (
+    Array.isArray(functionCalls) &&
+    functionCalls.length > 0 &&
+    !pendingVoiceLeave?.farewellRequested
+  ) {
+    console.log(
+      `[Discord Gateway] Gemini requested ${functionCalls.length} Live tool call(s).`
+    )
+    void executeLiveToolCalls(functionCalls, aiSession, apiKey)
+  }
+
+  if (serverContent?.interrupted) {
+    console.log('[Discord Gateway] Gemini interrupted its current audio response.')
+    setVoiceOverlaySpeaking(false)
+    broadcastVoiceOverlayLevel(0, true)
+    createVoiceAudioOutput()
+  }
+
+  if (serverContent?.turnComplete) {
+    console.log('[Discord Gateway] Gemini completed the current voice turn.')
+  }
+
+  const inputTranscript = serverContent?.inputTranscription?.text
+  if (typeof inputTranscript === 'string' && inputTranscript.trim()) {
+    console.log(`[Discord Gateway] Input transcription: ${inputTranscript.trim()}`)
+    appendVoiceTranscript('user', inputTranscript)
+    resetVoiceInactivityTimer()
+  }
+
+  const outputTranscript = serverContent?.outputTranscription?.text
+  if (typeof outputTranscript === 'string' && outputTranscript.trim()) {
+    appendVoiceTranscript('assistant', outputTranscript)
+    if (pendingVoiceLeave?.farewellRequested) {
+      pendingVoiceLeave.responseStarted = true
+    }
+  }
+
+  const parts = serverContent?.modelTurn?.parts || []
+  for (const part of parts) {
+    if (part.inlineData?.data) {
+      if (pendingVoiceLeave?.farewellRequested && pendingVoiceLeave.turnComplete) {
+        continue
+      }
+      if (!voiceOutputTurnActive) createVoiceAudioOutput()
+
+      const pcm24kBuffer = Buffer.from(part.inlineData.data, 'base64')
+      broadcastVoiceOverlayOutput()
+      setVoiceOverlaySpeaking(true)
+      reportVoiceOutputLevel(pcm24kBuffer)
+      const pcm48kBuffer = upsample24kMonoTo48kStereo(pcm24kBuffer)
+      voiceOutputChunkCount += 1
+      voiceOutputByteCount += pcm48kBuffer.length
+      if (voiceOutputChunkCount === 1 || voiceOutputChunkCount % 50 === 0) {
+        console.log(
+          `[Discord Gateway] Received output audio chunk #${voiceOutputChunkCount} ` +
+            `(${pcm48kBuffer.length} bytes PCM48k stereo).`
+        )
+      }
+      if (activeSpeakerStream && !activeSpeakerStream.destroyed) {
+        activeSpeakerStream.write(pcm48kBuffer)
+      }
+      if (pendingVoiceLeave?.farewellRequested) {
+        pendingVoiceLeave.responseStarted = true
+        pendingVoiceLeave.audioReceived = true
+        pendingVoiceLeave.player = activeAudioPlayer
+      }
+    }
+  }
+
+  if (serverContent?.turnComplete) {
+    if (voiceOutputTurnActive) {
+      voiceOutputTurnActive = false
+      setVoiceOverlaySpeaking(false)
+      broadcastVoiceOverlayLevel(0, true)
+      if (activeSpeakerStream && !activeSpeakerStream.destroyed) {
+        activeSpeakerStream.end()
+      }
+    }
+
+    if (pendingVoiceLeave?.farewellRequested) {
+      pendingVoiceLeave.turnComplete = true
+      maybeFinalizePendingVoiceLeave()
+    }
+
+    if (activeVoiceHistory) {
+      activeVoiceHistory.activeUserMessageIndex = null
+      activeVoiceHistory.activeAssistantMessageIndex = null
+    }
+  }
+}
+
+async function reconnectLiveVoiceSession(): Promise<boolean> {
+  if (isReconnectingLive || !activeVoiceSessionParams || pendingVoiceLeave) return false
+  isReconnectingLive = true
+  console.log('[Discord Gateway] User spoke while WebSocket was idle. Reconnecting Gemini Live session...')
+
+  try {
+    const { apiKey, modelName } = activeVoiceSessionParams
+    const ai = new GoogleGenAI({ apiKey })
+
+    let historyContextPrompt = ''
+    if (activeVoiceHistory?.messages?.length) {
+      const historyLines = activeVoiceHistory.messages
+        .filter((m) => typeof m.content === 'string' && m.content.trim())
+        .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+      if (historyLines.length > 0) {
+        historyContextPrompt = `\n\n# Existing Conversation History in This Voice Session:\n${historyLines.join('\n')}`
+      }
+    }
+
+    if (!activeAudioPlayer) createVoiceAudioOutput()
+
+    const aiSession = await ai.live.connect({
+      model: modelName,
+      config: {
+        responseModalities: [Modality.AUDIO],
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
+        systemInstruction:
+          `${getSystemToolsPrompt(modelName, 'main', undefined, 'execution', '')}\n\n` +
+          '# Discord Voice Gateway\n' +
+          'You are speaking with the user through Discord voice. Use the available tools whenever they are needed. ' +
+          'When you use a tool, wait for its result before answering. Keep spoken answers concise and clear. ' +
+          'Do not decide to leave because an isolated phrase in a transcript mentions leaving the call; consider the full conversation and use discord_leave_voice only when the user asks or leaving is contextually appropriate. ' +
+          'When discord_leave_voice confirms a leave request, say a brief personalized goodbye and do not call any more tools. ' +
+          'When a screenshot is returned, inspect it before answering the user.' +
+          historyContextPrompt,
+        tools: [
+          {
+            functionDeclarations: getGeminiFunctionDeclarations()
+          }
+        ]
+      },
+      callbacks: {
+        onmessage: (msg: any) => handleLiveMessage(msg, aiSession, apiKey),
+        onclose: () => {
+          console.log('[Discord Gateway] Live WebSocket session closed.')
+          if (activeLiveSession === aiSession) {
+            activeLiveSession = null
+            if (pendingVoiceLeave) {
+              cleanupVoiceResources()
+            } else {
+              console.log(
+                '[Discord Gateway] Standing by in Discord voice channel. Will reconnect Gemini Live WebSocket seamlessly when user speaks next.'
+              )
+            }
+          }
+        },
+        onerror: (err: any) => {
+          console.error('[Discord Gateway] Live session error:', err)
+        }
+      }
+    })
+
+    activeLiveSession = aiSession
+    console.log('[Discord Gateway] Gemini Live WebSocket reconnected successfully with full history context!')
+
+    const buffered = [...pendingAudioChunks]
+    pendingAudioChunks = []
+    for (const chunk of buffered) {
+      activeLiveSession.sendRealtimeInput({
+        audio: {
+          mimeType: 'audio/pcm;rate=16000',
+          data: chunk.toString('base64')
+        }
+      })
+    }
+    scheduleVoiceStreamEnd()
+    return true
+  } catch (err) {
+    console.error('[Discord Gateway] Failed to reconnect Gemini Live session:', err)
+    pendingAudioChunks = []
+    return false
+  } finally {
+    isReconnectingLive = false
+  }
+}
+
 async function startLiveVoiceSession(
   guild: any,
   voiceChannel: any,
@@ -662,6 +916,7 @@ async function startLiveVoiceSession(
   activeVoiceStatusMessage = statusMsg
   activeLiveToolLoopGuard = new ToolLoopGuard()
   activeVoiceOverlayChatId = voiceChatId
+  activeVoiceSessionParams = { apiKey, modelName: normalizedModelName }
   persistVoiceHistory()
   broadcastIpc('chat-session-created', { id: voiceChatId })
   setCurrentSessionIdForTodo(voiceChatId)
@@ -697,106 +952,19 @@ async function startLiveVoiceSession(
         ]
       },
       callbacks: {
-        onmessage: (msg: any) => {
-          const serverContent = msg?.serverContent
-          if (msg?.toolCallCancellation?.ids?.length) {
-            console.log('[Discord Gateway] Gemini cancelled pending Live tool calls.')
-            activeLiveAbortController?.abort()
-          }
-
-          const functionCalls = msg?.toolCall?.functionCalls
-          if (
-            Array.isArray(functionCalls) &&
-            functionCalls.length > 0 &&
-            !pendingVoiceLeave?.farewellRequested
-          ) {
-            console.log(
-              `[Discord Gateway] Gemini requested ${functionCalls.length} Live tool call(s).`
-            )
-            void executeLiveToolCalls(functionCalls, aiSession, apiKey)
-          }
-
-          if (serverContent?.interrupted) {
-            console.log('[Discord Gateway] Gemini interrupted its current audio response.')
-            setVoiceOverlaySpeaking(false)
-            broadcastVoiceOverlayLevel(0, true)
-            createVoiceAudioOutput()
-          }
-
-          if (serverContent?.turnComplete) {
-            console.log('[Discord Gateway] Gemini completed the current voice turn.')
-          }
-
-          const inputTranscript = serverContent?.inputTranscription?.text
-          if (typeof inputTranscript === 'string' && inputTranscript.trim()) {
-            console.log(`[Discord Gateway] Input transcription: ${inputTranscript.trim()}`)
-            appendVoiceTranscript('user', inputTranscript)
-          }
-
-          const outputTranscript = serverContent?.outputTranscription?.text
-          if (typeof outputTranscript === 'string' && outputTranscript.trim()) {
-            appendVoiceTranscript('assistant', outputTranscript)
-            if (pendingVoiceLeave?.farewellRequested) {
-              pendingVoiceLeave.responseStarted = true
-            }
-          }
-
-          const parts = serverContent?.modelTurn?.parts || []
-          for (const part of parts) {
-            if (part.inlineData?.data) {
-              if (pendingVoiceLeave?.farewellRequested && pendingVoiceLeave.turnComplete) {
-                continue
-              }
-              if (!voiceOutputTurnActive) createVoiceAudioOutput()
-
-              const pcm24kBuffer = Buffer.from(part.inlineData.data, 'base64')
-              broadcastVoiceOverlayOutput()
-              setVoiceOverlaySpeaking(true)
-              reportVoiceOutputLevel(pcm24kBuffer)
-              const pcm48kBuffer = upsample24kMonoTo48kStereo(pcm24kBuffer)
-              voiceOutputChunkCount += 1
-              voiceOutputByteCount += pcm48kBuffer.length
-              if (voiceOutputChunkCount === 1 || voiceOutputChunkCount % 50 === 0) {
-                console.log(
-                  `[Discord Gateway] Received output audio chunk #${voiceOutputChunkCount} ` +
-                    `(${pcm48kBuffer.length} bytes PCM48k stereo).`
-                )
-              }
-              if (activeSpeakerStream && !activeSpeakerStream.destroyed) {
-                activeSpeakerStream.write(pcm48kBuffer)
-              }
-              if (pendingVoiceLeave?.farewellRequested) {
-                pendingVoiceLeave.responseStarted = true
-                pendingVoiceLeave.audioReceived = true
-                pendingVoiceLeave.player = activeAudioPlayer
-              }
-            }
-          }
-
-          if (serverContent?.turnComplete) {
-            if (voiceOutputTurnActive) {
-              voiceOutputTurnActive = false
-              setVoiceOverlaySpeaking(false)
-              broadcastVoiceOverlayLevel(0, true)
-              if (activeSpeakerStream && !activeSpeakerStream.destroyed) {
-                activeSpeakerStream.end()
-              }
-            }
-
-            if (pendingVoiceLeave?.farewellRequested) {
-              pendingVoiceLeave.turnComplete = true
-              maybeFinalizePendingVoiceLeave()
-            }
-
-            if (activeVoiceHistory) {
-              activeVoiceHistory.activeUserMessageIndex = null
-              activeVoiceHistory.activeAssistantMessageIndex = null
-            }
-          }
-        },
+        onmessage: (msg: any) => handleLiveMessage(msg, aiSession, apiKey),
         onclose: () => {
-          console.log('[Discord Gateway] Live session closed')
-          if (activeLiveSession === aiSession) cleanupVoiceResources()
+          console.log('[Discord Gateway] Live WebSocket session closed.')
+          if (activeLiveSession === aiSession) {
+            activeLiveSession = null
+            if (pendingVoiceLeave) {
+              cleanupVoiceResources()
+            } else {
+              console.log(
+                '[Discord Gateway] Standing by in Discord voice channel. Will reconnect Gemini Live WebSocket seamlessly when user speaks next.'
+              )
+            }
+          }
         },
         onerror: (err: any) => {
           console.error('[Discord Gateway] Live session error:', err)
@@ -898,9 +1066,18 @@ async function startLiveVoiceSession(
 
     decoder.on('data', (pcm48kChunk: Buffer) => {
       try {
-        if (activeLiveSession && !pendingVoiceLeave) {
+        if (!pendingVoiceLeave) {
           const pcm16kChunk = downsample48kStereoTo16kMono(pcm48kChunk)
           if (!shouldForwardVoiceAudio(pcm16kChunk)) return
+          resetVoiceInactivityTimer()
+
+          if (!activeLiveSession) {
+            pendingAudioChunks.push(pcm16kChunk)
+            if (!isReconnectingLive) {
+              void reconnectLiveVoiceSession()
+            }
+            return
+          }
 
           const base64Data = pcm16kChunk.toString('base64')
           activeLiveSession.sendRealtimeInput({
@@ -928,6 +1105,7 @@ async function startLiveVoiceSession(
 
     console.log(`[Discord Gateway] Voice session 100% active in channel ${voiceChannel.name}`)
     broadcastVoiceOverlayState('connected')
+    resetVoiceInactivityTimer()
     await statusMsg.edit(`✅ *Connected to voice channel "${voiceChannel.name}"! Speak now.*`)
     return true
   } catch (e: any) {
