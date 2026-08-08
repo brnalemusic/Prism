@@ -897,7 +897,7 @@
   width: clamp(25rem, 55vw, 90rem);
   height: clamp(20rem, 55vh, 75rem);
   border-radius: 54% 46% 61% 39% / 47% 55% 45% 53%;
-  background: var(--color-accent-primary);
+  background: var(--color-accent-primary, var(--accent-primary, #6366f1));
   filter: blur(140px);
   opacity: calc(var(--discord-voice-presence) + var(--discord-voice-energy));
   will-change: transform, opacity;

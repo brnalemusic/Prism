@@ -84,6 +84,15 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
 
   useEffect(() => {
     window.electron.ipcRenderer.send('overlay-log', '[DiscordVoiceGlowOverlay] MOUNTED in React!')
+    if (!document.documentElement.getAttribute('data-theme')) {
+      document.documentElement.setAttribute('data-theme', 'marine')
+    }
+    window.api.getConfig().then((cfg) => {
+      if (cfg?.theme) {
+        document.documentElement.setAttribute('data-theme', cfg.theme)
+      }
+    })
+
     const isActiveVoiceChat = (chatId: string): boolean => {
       if (!chatIdRef.current) {
         chatIdRef.current = chatId
