@@ -556,8 +556,6 @@ function createVoiceAudioOutput(): void {
 }
 
 function cleanupVoiceResources(): boolean {
-  let cleaned = false
-
   broadcastVoiceOverlayState('disconnected')
   closeVoiceOverlayWindow()
   const hadVoiceResources = Boolean(
