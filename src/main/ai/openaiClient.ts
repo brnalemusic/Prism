@@ -91,10 +91,36 @@ export function sanitizeOpenAiMessages(messages: OpenAiMessage[]): OpenAiMessage
     if (m.role === 'tool') {
       const imageUrl = extractImageUrlFromToolContent(m.content)
       if (imageUrl && !Array.isArray(cleanContent)) {
+        let textStr = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+        try {
+          const parsed = JSON.parse(textStr)
+          if (parsed && typeof parsed === 'object') {
+            if (
+              parsed.image_url &&
+              typeof parsed.image_url === 'string' &&
+              parsed.image_url.startsWith('data:')
+            ) {
+              parsed.image_url = '[Attached Image]'
+            }
+            if (parsed.base64) delete parsed.base64
+            if (parsed.output && typeof parsed.output === 'object') {
+              if (
+                parsed.output.image_url &&
+                typeof parsed.output.image_url === 'string' &&
+                parsed.output.image_url.startsWith('data:')
+              ) {
+                parsed.output.image_url = '[Attached Image]'
+              }
+              if (parsed.output.base64) delete parsed.output.base64
+            }
+            textStr = JSON.stringify(parsed)
+          }
+        } catch {}
+
         cleanMsg.content = [
           {
             type: 'text',
-            text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+            text: textStr
           },
           {
             type: 'image_url',

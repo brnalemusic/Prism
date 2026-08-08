@@ -86,6 +86,21 @@ function parseFunctionResponse(content: OpenAiMessage['content']): Record<string
   return { output: content }
 }
 
+function sanitizeFunctionResponse(res: Record<string, unknown>): Record<string, unknown> {
+  const clean: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(res)) {
+    if (key === 'base64') continue
+    if (key === 'image_url' && typeof value === 'string' && value.startsWith('data:')) {
+      clean[key] = '[Attached Image]'
+    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      clean[key] = sanitizeFunctionResponse(value as Record<string, unknown>)
+    } else {
+      clean[key] = value
+    }
+  }
+  return clean
+}
+
 export function convertMessagesToGemini(messages: OpenAiMessage[]): {
   systemInstruction?: string
   contents: Content[]
@@ -123,16 +138,21 @@ export function convertMessagesToGemini(messages: OpenAiMessage[]): {
     }
 
     if (message.role === 'tool') {
+      let responseObj = parseFunctionResponse(message.content)
+      const imageUrl = extractImageUrlFromToolContent(message.content)
+      if (imageUrl) {
+        responseObj = sanitizeFunctionResponse(responseObj)
+      }
+
       const responsePart: Part = {
         functionResponse: {
           id: message.tool_call_id,
           name: message.name || 'unknown_tool',
-          response: parseFunctionResponse(message.content)
+          response: responseObj
         }
       }
       const toolParts: Part[] = [responsePart]
 
-      const imageUrl = extractImageUrlFromToolContent(message.content)
       if (imageUrl) {
         const dataUrl = parseDataUrl(imageUrl)
         if (dataUrl) {

@@ -2211,10 +2211,14 @@ export async function captureAppScreenshot(
   _appName?: string
 ): Promise<{ result: string; base64?: string }> {
   try {
-    const sources = await desktopCapturer.getSources({
+    const sourcesPromise = desktopCapturer.getSources({
       types: ['screen'],
       thumbnailSize: { width: 1920, height: 1080 }
     })
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Screenshot capture timed out after 5 seconds')), 5000)
+    )
+    const sources = await Promise.race([sourcesPromise, timeoutPromise])
 
     const targetSource = sources.find((s) => s.id.startsWith('screen')) || sources[0]
 
@@ -2408,8 +2412,7 @@ export async function executeSystemTool(
       if (screenshotResult.base64) {
         return JSON.stringify({
           status: screenshotResult.result,
-          image_url: `data:image/png;base64,${screenshotResult.base64}`,
-          base64: screenshotResult.base64
+          image_url: `data:image/png;base64,${screenshotResult.base64}`
         })
       }
       return screenshotResult.result
@@ -2426,8 +2429,7 @@ export async function executeSystemTool(
       if (screenResult.base64) {
         return JSON.stringify({
           status: screenResult.result,
-          image_url: `data:image/png;base64,${screenResult.base64}`,
-          base64: screenResult.base64
+          image_url: `data:image/png;base64,${screenResult.base64}`
         })
       }
       return screenResult.result

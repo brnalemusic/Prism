@@ -40,7 +40,9 @@ const TOOL_LABELS: Record<string, string> = {
   computer_use_read_file: 'Reading file',
   search_chat_history: 'Searching history',
   list_installed_applications: 'Searching apps',
-  search_installed_applications: 'Searching apps'
+  search_installed_applications: 'Searching apps',
+  computer_use_see_screen: 'Taking screenshot',
+  browser_screenshot: 'Taking screenshot'
 }
 
 function getToolLabel(name: string): string {
@@ -396,6 +398,10 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
   } else if (toolCall.name === 'computer_use_read_file') {
     displayTitle = 'Reading File'
     displayDetail = getStringArg(toolCall.args, 'path') || getStringArg(toolCall.args, 'filePath') || 'Loading file content.'
+  } else if (toolCall.name === 'computer_use_see_screen') {
+    displayTitle = 'Screen Capture'
+    displayDetail = 'Capturing desktop screen.'
+    tone = 'search'
   } else if (toolCall.name.startsWith('computer_use_')) {
     displayTitle = 'Computer Use'
     displayDetail = toolCall.name.replace('computer_use_', '').replace(/_/g, ' ')
