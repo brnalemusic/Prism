@@ -3,7 +3,13 @@ import * as os from 'os'
 import { SessionMode, AttachedFile } from '../../shared/types'
 import { getSystemToolsPrompt, setActiveCwd, setCurrentSessionIdForTodo } from '../systemTools'
 import { loadConfig } from '../config'
-import { saveChatSession, loadChatSession, updateChatSessionTitle } from '../history'
+import {
+  hydrateHistoryToolAttachments,
+  prepareHistoryMessage,
+  saveChatSession,
+  loadChatSession,
+  updateChatSessionTitle
+} from '../history'
 import { resolveProviderAndModel } from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
 import { ActiveRun, OpenAiMessage, OpenAiToolDefinition } from './types'
@@ -140,7 +146,9 @@ export async function handleChatMessage(
 
   // Load chat session from disk if existing
   const session = loadChatSession(chatId)
-  const historyMessages: OpenAiMessage[] = session ? session.messages : []
+  const historyMessages: OpenAiMessage[] = session
+    ? hydrateHistoryToolAttachments(chatId, session.messages)
+    : []
 
   // Check if first message
   const isFirstMessage = historyMessages.length === 0
@@ -348,7 +356,7 @@ export async function handleChatMessage(
           chatId
         }),
       onHistoryMessage: (historyMessage) => {
-        historyMessages.push(historyMessage)
+        historyMessages.push(prepareHistoryMessage(chatId, historyMessage))
         saveChatSession(
           chatId,
           historyMessages,
@@ -400,7 +408,8 @@ function convertHistoryToOpenAi(history: OpenAiMessage[]): OpenAiMessage[] {
           role: 'tool',
           tool_call_id: m.tool_call_id || `call_${Date.now()}`,
           name: m.name,
-          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+          tool_attachments: m.tool_attachments
         }
       }
       const content =

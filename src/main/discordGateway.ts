@@ -21,6 +21,8 @@ import { PassThrough } from 'stream'
 import { AppConfig } from './config'
 import {
   loadChatSession,
+  hydrateHistoryToolAttachments,
+  prepareHistoryMessage,
   saveChatSession,
   updateChatSessionTitle,
   listChatSessions
@@ -545,8 +547,17 @@ async function startLiveVoiceSession(
           `${getSystemToolsPrompt(normalizedModelName, 'main', undefined, 'execution', '')}\n\n` +
           '# Discord Voice Gateway\n' +
           'You are speaking with the user through Discord voice. Use the available tools whenever they are needed. ' +
-          'When you use a tool, wait for its result before answering. Keep spoken answers concise and clear.',
-        tools: [{ functionDeclarations: getGeminiFunctionDeclarations() }]
+          'When you use a tool, wait for its result before answering. Keep spoken answers concise and clear. ' +
+          'Screen and browser screenshot tools are unavailable in voice sessions.',
+        tools: [
+          {
+            functionDeclarations: getGeminiFunctionDeclarations().filter(
+              (declaration) =>
+                declaration.name !== 'computer_use_see_screen' &&
+                declaration.name !== 'browser_screenshot'
+            )
+          }
+        ]
       },
       callbacks: {
         onmessage: (msg: any) => {
@@ -1049,7 +1060,9 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
   const typingInterval = setInterval(() => channel.sendTyping(), 9000)
 
   const session = loadChatSession(chatId)
-  const historyMessages: OpenAiMessage[] = session ? session.messages : []
+  const historyMessages: OpenAiMessage[] = session
+    ? hydrateHistoryToolAttachments(chatId, session.messages)
+    : []
   const isFirstMessage = historyMessages.length === 0
 
   historyMessages.push({
@@ -1207,7 +1220,7 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
         currentToolsText = ''
       },
       onHistoryMessage: (historyMessage) => {
-        historyMessages.push(historyMessage)
+        historyMessages.push(prepareHistoryMessage(chatId, historyMessage))
         saveChatSession(chatId, historyMessages, undefined, 'execution', '', modelKey, true)
       },
       finalInstruction: 'Tool limit reached.'
@@ -1254,7 +1267,8 @@ function convertHistoryToOpenAi(history: OpenAiMessage[]): OpenAiMessage[] {
           role: 'tool',
           tool_call_id: m.tool_call_id || `call_${Date.now()}`,
           name: m.name,
-          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+          tool_attachments: m.tool_attachments
         }
       }
       const content =

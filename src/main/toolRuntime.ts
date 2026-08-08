@@ -1,5 +1,6 @@
 import { executeSystemTool } from './systemTools'
 import { getToolDefinition, JsonSchema, ToolDefinition, toolsManifest } from './toolsManifest'
+import { SystemToolOutput, ToolAttachment } from './toolAttachments'
 
 export type ToolErrorCode =
   | 'UNKNOWN_TOOL'
@@ -17,6 +18,13 @@ export interface ToolError {
 }
 
 export type ToolResultEnvelope = { ok: true; output: string } | { ok: false; error: ToolError }
+
+export interface ValidatedToolExecution {
+  args: Record<string, unknown>
+  envelope: ToolResultEnvelope
+  modelContent: string
+  attachments?: ToolAttachment[]
+}
 
 export interface ToolExecutionContext {
   event?: unknown
@@ -291,7 +299,9 @@ export class ToolLoopGuard {
   private readonly attempts = new Map<string, number>()
 
   register(toolName: string, args: unknown): ToolError | null {
-    const fingerprint = JSON.stringify([toolName, stableValue(args)])
+    const fingerprintArgs =
+      toolName === 'computer_use_see_screen' || toolName === 'browser_screenshot' ? {} : args
+    const fingerprint = JSON.stringify([toolName, stableValue(fingerprintArgs)])
     const count = (this.attempts.get(fingerprint) || 0) + 1
     this.attempts.set(fingerprint, count)
     if (count <= 3) return null
@@ -309,7 +319,7 @@ export async function executeValidatedTool(
   rawArgs: unknown,
   context: ToolExecutionContext,
   loopGuard?: ToolLoopGuard
-): Promise<{ args: Record<string, unknown>; envelope: ToolResultEnvelope; modelContent: string }> {
+): Promise<ValidatedToolExecution> {
   const validation = validateToolArguments(toolName, rawArgs)
   const repeatedError = loopGuard?.register(toolName, validation.ok ? validation.args : rawArgs)
   if (repeatedError) {
@@ -336,7 +346,7 @@ export async function executeValidatedTool(
 
   try {
     context.onStart?.(validation.args)
-    const output = await executeSystemTool(
+    const rawOutput = await executeSystemTool(
       toolName,
       validation.args,
       context.event,
@@ -344,6 +354,19 @@ export async function executeValidatedTool(
       context.signal,
       context.chatId
     )
+    const { output, attachments } = normalizeSystemToolOutput(rawOutput)
+    if (attachments.length > 0) {
+      console.info('[Tool Runtime] Prepared visual attachment.', {
+        toolName,
+        attachments: attachments.map((attachment) => ({
+          kind: attachment.kind,
+          mimeType: attachment.mimeType,
+          width: attachment.width,
+          height: attachment.height,
+          byteLength: attachment.byteLength
+        }))
+      })
+    }
     if (/^Error(?:\s|:)/i.test(output)) {
       const envelope: ToolResultEnvelope = {
         ok: false,
@@ -356,7 +379,12 @@ export async function executeValidatedTool(
       return { args: validation.args, envelope, modelContent: JSON.stringify(envelope) }
     }
     const envelope: ToolResultEnvelope = { ok: true, output }
-    return { args: validation.args, envelope, modelContent: JSON.stringify(envelope) }
+    return {
+      args: validation.args,
+      envelope,
+      modelContent: JSON.stringify(envelope),
+      ...(attachments.length > 0 ? { attachments } : {})
+    }
   } catch (error) {
     const cancelled =
       context.signal?.aborted || (error instanceof Error && error.name === 'AbortError')
@@ -371,5 +399,16 @@ export async function executeValidatedTool(
       }
     }
     return { args: validation.args, envelope, modelContent: JSON.stringify(envelope) }
+  }
+}
+
+function normalizeSystemToolOutput(output: SystemToolOutput): {
+  output: string
+  attachments: ToolAttachment[]
+} {
+  if (typeof output === 'string') return { output, attachments: [] }
+  return {
+    output: output.output,
+    attachments: Array.isArray(output.attachments) ? output.attachments : []
   }
 }

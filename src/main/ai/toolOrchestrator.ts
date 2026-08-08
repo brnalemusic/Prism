@@ -7,6 +7,7 @@ import {
 } from '../toolRuntime'
 import { streamOpenAiCompletion, StreamResult } from './openaiClient'
 import { OpenAiMessage, OpenAiToolDefinition } from './types'
+import { ToolAttachment } from '../toolAttachments'
 
 export interface OrchestratorStreamState {
   round: number
@@ -34,6 +35,7 @@ export interface ExecutedToolCall {
   args: Record<string, unknown>
   envelope: ToolResultEnvelope
   modelContent: string
+  attachments?: ToolAttachment[]
   round: number
 }
 
@@ -180,6 +182,35 @@ export async function runToolOrchestration(
     return { result, state: state() }
   }
 
+  const finalize = async (
+    round: number,
+    instruction: string,
+    loopLimitReached: boolean
+  ): Promise<ToolOrchestrationResult> => {
+    const finalRound = await streamRound(
+      round + 1,
+      true,
+      withFinalInstruction(options.messages, instruction),
+      []
+    )
+    accumulatedText = joinOutput(accumulatedText, finalRound.result.text)
+    accumulatedReasoning = joinOutput(accumulatedReasoning, finalRound.result.reasoning)
+    const finalBaseMessage = createAssistantMessage(finalRound.result)
+    const finalMessage = options.decorateAssistantMessage
+      ? options.decorateAssistantMessage(finalBaseMessage, finalRound.result, finalRound.state)
+      : finalBaseMessage
+    options.messages.push(finalMessage)
+    options.onHistoryMessage?.(finalMessage)
+
+    return {
+      accumulatedText,
+      accumulatedReasoning,
+      rounds: round,
+      loopLimitReached,
+      executedTools
+    }
+  }
+
   for (let round = 1; round <= maxRounds; round++) {
     abortIfNeeded(options.signal)
     const streamed = await streamRound(round, false, options.messages, options.tools)
@@ -203,6 +234,7 @@ export async function runToolOrchestration(
       }
     }
 
+    let nonRetryableFailure: string | null = null
     for (const toolCall of streamed.result.toolCalls) {
       abortIfNeeded(options.signal)
       const callId = toolCall.id
@@ -223,6 +255,7 @@ export async function runToolOrchestration(
         args: execution.args,
         envelope: execution.envelope,
         modelContent: execution.modelContent,
+        ...(execution.attachments ? { attachments: execution.attachments } : {}),
         round
       }
       executedTools.push(executed)
@@ -233,6 +266,7 @@ export async function runToolOrchestration(
         tool_call_id: callId,
         name: toolCall.name,
         content: execution.modelContent,
+        ...(execution.attachments ? { tool_attachments: execution.attachments } : {}),
         tool_metadata: {
           originalArguments: toolCall.args,
           validatedArguments: execution.args,
@@ -241,6 +275,19 @@ export async function runToolOrchestration(
       }
       options.messages.push(toolMessage)
       options.onHistoryMessage?.(toolMessage)
+
+      if (!execution.envelope.ok && !execution.envelope.error.retryable) {
+        nonRetryableFailure = execution.envelope.error.message
+      }
+    }
+
+    if (nonRetryableFailure) {
+      return finalize(
+        round,
+        `# Tool execution stopped\nA tool returned a non-retryable error: ${nonRetryableFailure}\n` +
+          'Do not call more tools. Explain the result and any safe next step to the user.',
+        false
+      )
     }
   }
 
@@ -249,26 +296,5 @@ export async function runToolOrchestration(
     options.finalInstruction ||
     `The maximum of ${maxRounds} tool rounds has been reached. Do not call more tools. ` +
       'Explain what was completed, what remains, and the last tool result.'
-  const finalRound = await streamRound(
-    maxRounds + 1,
-    true,
-    withFinalInstruction(options.messages, finalInstruction),
-    []
-  )
-  accumulatedText = joinOutput(accumulatedText, finalRound.result.text)
-  accumulatedReasoning = joinOutput(accumulatedReasoning, finalRound.result.reasoning)
-  const finalBaseMessage = createAssistantMessage(finalRound.result)
-  const finalMessage = options.decorateAssistantMessage
-    ? options.decorateAssistantMessage(finalBaseMessage, finalRound.result, finalRound.state)
-    : finalBaseMessage
-  options.messages.push(finalMessage)
-  options.onHistoryMessage?.(finalMessage)
-
-  return {
-    accumulatedText,
-    accumulatedReasoning,
-    rounds: maxRounds,
-    loopLimitReached: true,
-    executedTools
-  }
+  return finalize(maxRounds, finalInstruction, true)
 }

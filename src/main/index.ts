@@ -51,6 +51,7 @@ import {
   _resetIdleTimer,
   setupSessionDownloadHandler
 } from './systemTools'
+import { asDataUrl } from './toolAttachments'
 
 import {
   initAppScanner,
@@ -411,9 +412,9 @@ async function handleScreenshotShortcut(): Promise<void> {
   // Wait for window hide animations to complete
   await new Promise((resolve) => setTimeout(resolve, 150))
 
-  let capture: { result: string; base64?: string } = { result: 'Error' }
+  let capture: Awaited<ReturnType<typeof captureAppScreenshot>> = { result: 'Error' }
   try {
-    capture = await captureAppScreenshot('Entire Screen')
+    capture = await captureAppScreenshot()
   } catch (error) {
     console.error('Failed to capture screenshot during shortcut:', error)
   }
@@ -427,8 +428,8 @@ async function handleScreenshotShortcut(): Promise<void> {
     launcherWindow.focus()
     safeSend(launcherWindow, 'launcher-focus')
 
-    if (capture.base64) {
-      safeSend(launcherWindow, 'screenshot-captured', capture.base64)
+    if (capture.attachment) {
+      safeSend(launcherWindow, 'screenshot-captured', asDataUrl(capture.attachment))
     }
   }
 }

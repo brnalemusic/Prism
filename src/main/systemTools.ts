@@ -1,5 +1,13 @@
 import { exec, execFile } from 'child_process'
-import { shell, desktopCapturer, app, BrowserWindow, ipcMain } from 'electron'
+import {
+  shell,
+  desktopCapturer,
+  app,
+  BrowserWindow,
+  ipcMain,
+  screen,
+  type NativeImage
+} from 'electron'
 
 import * as fs from 'fs/promises'
 import * as fssync from 'fs'
@@ -28,6 +36,10 @@ import {
   runGuardedTerminalCommand
 } from './localCommandSandbox'
 import { safeSend } from './safeSend'
+import {
+  SystemToolOutput,
+  ToolImageAttachment
+} from './toolAttachments'
 
 function getDownloadsFolder(): string {
   try {
@@ -1649,7 +1661,9 @@ export async function browserBack(signal?: AbortSignal): Promise<string> {
   return typeof result === 'string' ? result : 'Navigated back in browser history successfully.'
 }
 
-export async function browserScreenshot(signal?: AbortSignal): Promise<{ result: string; base64?: string }> {
+export async function browserScreenshot(
+  signal?: AbortSignal
+): Promise<{ result: string; attachment?: ToolImageAttachment }> {
   if (!isPersistentBrowserActive) {
     return {
       result:
@@ -1657,10 +1671,19 @@ export async function browserScreenshot(signal?: AbortSignal): Promise<{ result:
     }
   }
   const res = await sendBrowserCommandToRenderer({ type: 'screenshot' }, signal)
-  if (typeof res === 'object' && res?.base64) {
+  if (typeof res === 'object' && typeof res?.base64 === 'string' && res.base64) {
     return {
       result: 'Screenshot captured successfully and attached to context.',
-      base64: res.base64
+      attachment: {
+        kind: 'image',
+        mimeType: res.mimeType === 'image/png' ? 'image/png' : 'image/jpeg',
+        data: res.base64,
+        ...(typeof res.width === 'number' && res.width > 0 ? { width: res.width } : {}),
+        ...(typeof res.height === 'number' && res.height > 0 ? { height: res.height } : {}),
+        ...(typeof res.byteLength === 'number' && res.byteLength > 0
+          ? { byteLength: res.byteLength }
+          : {})
+      }
     }
   }
   return { result: typeof res === 'string' ? res : 'Screenshot captured successfully.' }
@@ -2204,38 +2227,123 @@ export async function searchWorkspaceFiles(
   return results
 }
 
+const SCREENSHOT_CAPTURE_TIMEOUT_MS = 5_000
+const SCREENSHOT_MAX_EDGE = 1_440
+const SCREENSHOT_JPEG_QUALITY = 80
+
+export interface ScreenshotCapture {
+  result: string
+  attachment?: ToolImageAttachment
+}
+
+function resizeScreenshotForVision(image: NativeImage): NativeImage {
+  const { width, height } = image.getSize()
+  if (Math.max(width, height) <= SCREENSHOT_MAX_EDGE) return image
+
+  return width >= height
+    ? image.resize({ width: SCREENSHOT_MAX_EDGE, quality: 'best' })
+    : image.resize({ height: SCREENSHOT_MAX_EDGE, quality: 'best' })
+}
+
+function screenshotCaptureFailure(
+  message: string,
+  startedAt: number,
+  details: Record<string, unknown> = {}
+): ScreenshotCapture {
+  console.warn('[Screenshot] Capture failed.', {
+    message,
+    durationMs: Date.now() - startedAt,
+    ...details
+  })
+  return { result: `Error: ${message}` }
+}
+
 /**
- * Captures a screenshot of the entire screen.
+ * Captures the primary desktop source as a size-bounded JPEG for model vision.
  */
-export async function captureAppScreenshot(
-  _appName?: string
-): Promise<{ result: string; base64?: string }> {
+export async function captureAppScreenshot(): Promise<ScreenshotCapture> {
+  const startedAt = Date.now()
   try {
     const sourcesPromise = desktopCapturer.getSources({
       types: ['screen'],
-      thumbnailSize: { width: 1920, height: 1080 }
+      thumbnailSize: { width: SCREENSHOT_MAX_EDGE, height: SCREENSHOT_MAX_EDGE }
     })
+    let timeout: NodeJS.Timeout | undefined
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Screenshot capture timed out after 5 seconds')), 5000)
+      (timeout = setTimeout(
+        () => reject(new Error(`Screenshot capture timed out after ${SCREENSHOT_CAPTURE_TIMEOUT_MS / 1000} seconds`)),
+        SCREENSHOT_CAPTURE_TIMEOUT_MS
+      ))
     )
-    const sources = await Promise.race([sourcesPromise, timeoutPromise])
+    const sources = await Promise.race([sourcesPromise, timeoutPromise]).finally(() => {
+      if (timeout) clearTimeout(timeout)
+    })
 
-    const targetSource = sources.find((s) => s.id.startsWith('screen')) || sources[0]
+    const primaryDisplayId = String(screen.getPrimaryDisplay().id)
+    const targetSource =
+      sources.find((source) => source.name === 'Entire Screen') ||
+      sources.find((source) => source.display_id === primaryDisplayId) ||
+      sources.find((source) => source.id.startsWith('screen:')) ||
+      sources[0]
 
     if (!targetSource) {
-      return { result: 'Error: No screens available to capture.' }
+      return screenshotCaptureFailure('No screens available to capture.', startedAt, {
+        sourceCount: sources.length
+      })
     }
 
-    const image = targetSource.thumbnail
-    const base64 = image.toPNG().toString('base64')
+    if (targetSource.thumbnail.isEmpty()) {
+      return screenshotCaptureFailure('The selected screen source returned an empty image.', startedAt, {
+        sourceId: targetSource.id,
+        displayId: targetSource.display_id || undefined
+      })
+    }
+
+    const image = resizeScreenshotForVision(targetSource.thumbnail)
+    const { width, height } = image.getSize()
+    if (width <= 0 || height <= 0) {
+      return screenshotCaptureFailure('The selected screen source has invalid dimensions.', startedAt, {
+        sourceId: targetSource.id,
+        width,
+        height
+      })
+    }
+
+    const buffer = image.toJPEG(SCREENSHOT_JPEG_QUALITY)
+    if (buffer.length === 0) {
+      return screenshotCaptureFailure('Screen image encoding returned no data.', startedAt, {
+        sourceId: targetSource.id,
+        width,
+        height
+      })
+    }
+
+    const attachment: ToolImageAttachment = {
+      kind: 'image',
+      mimeType: 'image/jpeg',
+      data: buffer.toString('base64'),
+      width,
+      height,
+      byteLength: buffer.length
+    }
+    console.info('[Screenshot] Capture completed.', {
+      sourceId: targetSource.id,
+      displayId: targetSource.display_id || undefined,
+      sourceCount: sources.length,
+      width,
+      height,
+      byteLength: attachment.byteLength,
+      durationMs: Date.now() - startedAt
+    })
     return {
       result: 'Screenshot of entire screen captured successfully.',
-      base64
+      attachment
     }
   } catch (error) {
-    return {
-      result: `Error capturing screenshot: ${error instanceof Error ? error.message : String(error)}`
-    }
+    return screenshotCaptureFailure(
+      `Capturing screenshot failed: ${error instanceof Error ? error.message : String(error)}`,
+      startedAt
+    )
   }
 }
 
@@ -2284,7 +2392,7 @@ export async function executeSystemTool(
   apiKey?: string,
   signal?: AbortSignal,
   chatId?: string
-): Promise<string> {
+): Promise<SystemToolOutput> {
   if (chatId) {
     _currentSessionIdForTodo = chatId
   }
@@ -2409,11 +2517,11 @@ export async function executeSystemTool(
       return await browserBack(signal)
     case 'browser_screenshot': {
       const screenshotResult = await browserScreenshot(signal)
-      if (screenshotResult.base64) {
-        return JSON.stringify({
-          status: screenshotResult.result,
-          image_url: `data:image/png;base64,${screenshotResult.base64}`
-        })
+      if (screenshotResult.attachment) {
+        return {
+          output: screenshotResult.result,
+          attachments: [screenshotResult.attachment]
+        }
       }
       return screenshotResult.result
     }
@@ -2426,11 +2534,11 @@ export async function executeSystemTool(
     // Screenshot
     case 'computer_use_see_screen': {
       const screenResult = await captureAppScreenshot()
-      if (screenResult.base64) {
-        return JSON.stringify({
-          status: screenResult.result,
-          image_url: `data:image/png;base64,${screenResult.base64}`
-        })
+      if (screenResult.attachment) {
+        return {
+          output: screenResult.result,
+          attachments: [screenResult.attachment]
+        }
       }
       return screenResult.result
     }

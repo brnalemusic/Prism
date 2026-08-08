@@ -7,6 +7,7 @@ import {
   PrismThinkingLevel
 } from '../../shared/types'
 import type { ToolResultEnvelope } from '../toolRuntime'
+import type { ToolAttachment, ToolImageReference } from '../toolAttachments'
 
 export type {
   ProviderConfig,
@@ -76,6 +77,8 @@ export interface OpenAiMessage {
     }
   }>
   tool_call_id?: string
+  tool_attachments?: ToolAttachment[]
+  tool_attachment_refs?: ToolImageReference[]
   tool_metadata?: {
     originalArguments: unknown
     validatedArguments: Record<string, unknown>

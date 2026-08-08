@@ -1,8 +1,14 @@
 import { app } from 'electron'
+import { randomUUID } from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
 import { SessionMode, ArtifactItem, TodoState } from '../shared/types'
 import type { OpenAiMessage } from './ai/types'
+import {
+  ToolImageAttachment,
+  ToolImageReference,
+  imageAttachments
+} from './toolAttachments'
 
 export interface ChatSession {
   id: string
@@ -118,6 +124,11 @@ export function loadChatSession(id: string): ChatSession | null {
     if (fs.existsSync(filePath)) {
       const data = fs.readFileSync(filePath, 'utf-8')
       const session: ChatSession = JSON.parse(data)
+      const persistedMessages = sanitizeMessagesForSaving(cleanId, session.messages)
+      if (JSON.stringify(persistedMessages) !== JSON.stringify(session.messages)) {
+        session.messages = persistedMessages
+        fs.writeFileSync(filePath, JSON.stringify(session, null, 2))
+      }
       if (session.sessionMode !== 'discipline' && session.disciplinePath) {
         session.disciplinePath = ''
       }
@@ -134,8 +145,162 @@ export function loadChatSession(id: string): ChatSession | null {
  * Sanitizes search_chat_memory tool outputs in history messages before saving,
  * replacing their content with "[RESULTS OMITTED]".
  */
-function sanitizeMessagesForSaving(messages: OpenAiMessage[]): OpenAiMessage[] {
-  return messages.map((m) => {
+const TOOL_ATTACHMENTS_DIR = path.join(CHATS_DIR, 'attachments')
+const MAX_PERSISTED_TOOL_IMAGE_BYTES = 10 * 1024 * 1024
+const DATA_IMAGE_URL_PATTERN = /data:(image\/[a-zA-Z0-9.+-]+);base64,([a-zA-Z0-9+/=\r\n]+)/g
+
+function imageExtension(mimeType: ToolImageReference['mimeType']): 'jpg' | 'png' | 'webp' {
+  if (mimeType === 'image/png') return 'png'
+  if (mimeType === 'image/webp') return 'webp'
+  return 'jpg'
+}
+
+function imageMimeType(value: string): ToolImageReference['mimeType'] | null {
+  const normalized = value.toLowerCase() === 'image/jpg' ? 'image/jpeg' : value.toLowerCase()
+  return normalized === 'image/jpeg' || normalized === 'image/png' || normalized === 'image/webp'
+    ? normalized
+    : null
+}
+
+function attachmentDirectory(cleanChatId: string): string {
+  return path.join(TOOL_ATTACHMENTS_DIR, cleanChatId)
+}
+
+function legacyImageAttachments(content: OpenAiMessage['content']): ToolImageAttachment[] {
+  if (typeof content !== 'string') return []
+  const attachments: ToolImageAttachment[] = []
+  for (const match of content.matchAll(DATA_IMAGE_URL_PATTERN)) {
+    const mimeType = imageMimeType(match[1])
+    const data = match[2].replace(/\s/g, '')
+    if (mimeType && data) attachments.push({ kind: 'image', mimeType, data })
+  }
+  return attachments
+}
+
+function persistToolImageAttachments(
+  cleanChatId: string,
+  attachments: ToolImageAttachment[]
+): ToolImageReference[] {
+  if (attachments.length === 0) return []
+
+  const directory = attachmentDirectory(cleanChatId)
+  fs.mkdirSync(directory, { recursive: true })
+  const references: ToolImageReference[] = []
+  for (const attachment of attachments) {
+    const buffer = Buffer.from(attachment.data, 'base64')
+    if (buffer.length === 0 || buffer.length > MAX_PERSISTED_TOOL_IMAGE_BYTES) {
+      console.warn('[History] Skipped invalid tool image attachment.', {
+        byteLength: buffer.length,
+        maximumByteLength: MAX_PERSISTED_TOOL_IMAGE_BYTES
+      })
+      continue
+    }
+
+    const id = randomUUID()
+    const filePath = path.join(directory, `${id}.${imageExtension(attachment.mimeType)}`)
+    fs.writeFileSync(filePath, buffer, { mode: 0o600 })
+    references.push({
+      kind: 'image',
+      id,
+      mimeType: attachment.mimeType,
+      ...(attachment.width ? { width: attachment.width } : {}),
+      ...(attachment.height ? { height: attachment.height } : {}),
+      byteLength: buffer.length
+    })
+  }
+  return references
+}
+
+function redactEmbeddedImageData(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return value.replace(DATA_IMAGE_URL_PATTERN, '[Image omitted from saved history]')
+  }
+  if (Array.isArray(value)) return value.map(redactEmbeddedImageData)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+        key,
+        redactEmbeddedImageData(child)
+      ])
+    )
+  }
+  return value
+}
+
+/**
+ * Moves tool images into per-chat files and keeps compact references in the JSON history.
+ */
+export function prepareHistoryMessage(chatId: string, message: OpenAiMessage): OpenAiMessage {
+  if (message.role !== 'tool') return message
+
+  const cleanChatId = sanitizeId(chatId)
+  const existingReferences = message.tool_attachment_refs || []
+  const attachments =
+    existingReferences.length > 0
+      ? []
+      : [...imageAttachments(message.tool_attachments), ...legacyImageAttachments(message.content)]
+  const references = cleanChatId
+    ? existingReferences.length > 0
+      ? existingReferences
+      : persistToolImageAttachments(cleanChatId, attachments)
+    : []
+  const persisted = { ...message }
+  delete persisted.tool_attachments
+  delete persisted.tool_attachment_refs
+  delete persisted.tool_metadata
+  return {
+    ...persisted,
+    content: redactEmbeddedImageData(message.content) as OpenAiMessage['content'],
+    ...(references.length > 0 ? { tool_attachment_refs: references } : {}),
+    ...(message.tool_metadata
+      ? {
+          tool_metadata: redactEmbeddedImageData(message.tool_metadata) as NonNullable<
+            OpenAiMessage['tool_metadata']
+          >
+        }
+      : {})
+  }
+}
+
+export function hydrateHistoryToolAttachments(
+  chatId: string,
+  messages: OpenAiMessage[]
+): OpenAiMessage[] {
+  const cleanChatId = sanitizeId(chatId)
+  if (!cleanChatId) return messages
+  const directory = attachmentDirectory(cleanChatId)
+
+  return messages.map((message) => {
+    if (message.role !== 'tool' || !message.tool_attachment_refs?.length) return message
+    const attachments: ToolImageAttachment[] = []
+    for (const reference of message.tool_attachment_refs) {
+      if (!/^[a-f0-9-]{36}$/i.test(reference.id)) continue
+      const filePath = path.join(directory, `${reference.id}.${imageExtension(reference.mimeType)}`)
+      try {
+        const data = fs.readFileSync(filePath).toString('base64')
+        if (!data) continue
+        attachments.push({
+          kind: 'image',
+          mimeType: reference.mimeType,
+          data,
+          ...(reference.width ? { width: reference.width } : {}),
+          ...(reference.height ? { height: reference.height } : {}),
+          ...(reference.byteLength ? { byteLength: reference.byteLength } : {})
+        })
+      } catch (error) {
+        console.warn('[History] Failed to hydrate tool image attachment.', {
+          attachmentId: reference.id,
+          message: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+    return attachments.length > 0 ? { ...message, tool_attachments: attachments } : message
+  })
+}
+
+function sanitizeMessagesForSaving(cleanChatId: string, messages: OpenAiMessage[]): OpenAiMessage[] {
+  return messages.map((message) => {
+    const m = prepareHistoryMessage(cleanChatId, message)
     if (!m.parts) return m
     const sanitizedParts = m.parts.map((p) => {
       if (typeof p.text === 'string') {
@@ -232,7 +397,7 @@ export function saveChatSession(
       return true
     })
 
-    const messagesToSave = sanitizeMessagesForSaving(filteredMessages)
+    const messagesToSave = sanitizeMessagesForSaving(cleanId, filteredMessages)
 
     let existingArtifacts: ArtifactItem[] | undefined = undefined
     let existingTodo: TodoState | null | undefined = undefined
@@ -370,12 +535,20 @@ export function deleteChatSession(id: string): boolean {
   const cleanId = sanitizeId(id)
   if (!cleanId) return false
   const filePath = path.join(CHATS_DIR, `chat_${cleanId}.json`)
+  const directory = attachmentDirectory(cleanId)
+  const attachmentsRoot = path.resolve(TOOL_ATTACHMENTS_DIR)
+  const resolvedDirectory = path.resolve(directory)
   try {
-    if (fs.existsSync(filePath)) {
+    const sessionDeleted = fs.existsSync(filePath)
+    if (sessionDeleted) {
       fs.unlinkSync(filePath)
-      return true
     }
-    return false
+
+    if (resolvedDirectory.startsWith(`${attachmentsRoot}${path.sep}`) && fs.existsSync(directory)) {
+      fs.rmSync(directory, { recursive: true, force: true })
+    }
+
+    return sessionDeleted
   } catch (error) {
     console.error(`Failed to delete chat session ${id}:`, error)
     return false

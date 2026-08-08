@@ -385,15 +385,34 @@ export const BrowserPane = React.memo(function BrowserPane({
 
           case 'screenshot': {
             let base64: string | undefined
+            let width: number | undefined
+            let height: number | undefined
+            let byteLength: number | undefined
             try {
               if (webview.capturePage) {
                 const image = await webview.capturePage()
-                base64 = image.toJPEG(75).toString('base64')
+                const { width: sourceWidth, height: sourceHeight } = image.getSize()
+                const visionImage =
+                  Math.max(sourceWidth, sourceHeight) > 1440
+                    ? sourceWidth >= sourceHeight
+                      ? image.resize({ width: 1440, quality: 'best' })
+                      : image.resize({ height: 1440, quality: 'best' })
+                    : image
+                const size = visionImage.getSize()
+                width = size.width
+                height = size.height
+                const encoded = visionImage.toJPEG(80)
+                byteLength = encoded.length
+                base64 = encoded.toString('base64')
               }
             } catch {}
             window.api.sendBrowserExecResult(requestId, {
               result: 'Screenshot captured successfully.',
-              base64
+              base64,
+              mimeType: 'image/jpeg',
+              width,
+              height,
+              byteLength
             })
             break
           }

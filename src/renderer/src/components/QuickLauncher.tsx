@@ -81,6 +81,10 @@ interface Message {
   screenshot?: string
 }
 
+function screenshotDataUrl(screenshot: string): string {
+  return screenshot.startsWith('data:') ? screenshot : `data:image/png;base64,${screenshot}`
+}
+
 function consolidateToolCalls(
   toolCalls?: ToolCall[],
   streamingToolCalls?: StreamingToolCall[]
@@ -1408,7 +1412,7 @@ export function QuickLauncher(): React.JSX.Element {
             {attachedScreenshot && (
               <div className="relative flex items-center justify-start self-start bg-white/[0.03] border border-white/[0.08] p-1.5 rounded-xl pr-8 animate-soft-pop group/thumb">
                 <img
-                  src={`data:image/png;base64,${attachedScreenshot}`}
+                  src={screenshotDataUrl(attachedScreenshot)}
                   alt="Screenshot preview"
                   className="h-14 w-auto rounded-lg object-cover shadow-md border border-white/10"
                 />
@@ -1671,14 +1675,14 @@ export function QuickLauncher(): React.JSX.Element {
                       {msg.screenshot && (
                         <div className="relative rounded-xl overflow-hidden border border-white/10 shadow-lg max-w-[200px] hover:border-white/20 transition-all duration-300">
                           <img
-                            src={`data:image/png;base64,${msg.screenshot}`}
+                            src={screenshotDataUrl(msg.screenshot)}
                             alt="Screenshot preview"
                             className="w-full h-auto cursor-zoom-in block"
                             onClick={() => {
                               const newWin = window.open()
                               newWin?.document.write(`
                                 <body style="margin: 0; background: #0b0c0f; display: flex; align-items: center; justify-content: center; min-height: 100vh;">
-                                  <img src="data:image/png;base64,${msg.screenshot}" style="max-width: 100%; max-height: 100vh; object-fit: contain; box-shadow: 0 20px 50px rgba(0,0,0,0.5);" />
+                                  <img src="${screenshotDataUrl(msg.screenshot!)}" style="max-width: 100%; max-height: 100vh; object-fit: contain; box-shadow: 0 20px 50px rgba(0,0,0,0.5);" />
                                 </body>
                               `)
                             }}

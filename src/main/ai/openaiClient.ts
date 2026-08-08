@@ -1,7 +1,7 @@
 import { ProviderConfig, StreamToolCallDelta } from '../../shared/types'
 import { normalizeBaseUrl, isGoogleHost } from './trustedRegistry'
 import { OpenAiMessage, OpenAiToolDefinition } from './types'
-import { extractImageUrlFromToolContent } from './geminiClient'
+import { asDataUrl, imageAttachments } from '../toolAttachments'
 
 export interface StreamCallbacks {
   onTextDelta: (text: string) => void
@@ -39,7 +39,7 @@ interface AnthropicMessagePayload {
 }
 
 export function sanitizeOpenAiMessages(messages: OpenAiMessage[]): OpenAiMessage[] {
-  return messages.map((m) => {
+  return messages.flatMap((m) => {
     let cleanContent: OpenAiMessage['content'] = m.content
     if (cleanContent === undefined || cleanContent === null) {
       cleanContent = m.tool_calls && m.tool_calls.length > 0 ? null : ''
@@ -88,48 +88,30 @@ export function sanitizeOpenAiMessages(messages: OpenAiMessage[]): OpenAiMessage
       })
     }
     if (m.tool_call_id) cleanMsg.tool_call_id = m.tool_call_id
-    if (m.role === 'tool') {
-      const imageUrl = extractImageUrlFromToolContent(m.content)
-      if (imageUrl && !Array.isArray(cleanContent)) {
-        let textStr = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
-        try {
-          const parsed = JSON.parse(textStr)
-          if (parsed && typeof parsed === 'object') {
-            if (
-              parsed.image_url &&
-              typeof parsed.image_url === 'string' &&
-              parsed.image_url.startsWith('data:')
-            ) {
-              parsed.image_url = '[Attached Image]'
-            }
-            if (parsed.base64) delete parsed.base64
-            if (parsed.output && typeof parsed.output === 'object') {
-              if (
-                parsed.output.image_url &&
-                typeof parsed.output.image_url === 'string' &&
-                parsed.output.image_url.startsWith('data:')
-              ) {
-                parsed.output.image_url = '[Attached Image]'
-              }
-              if (parsed.output.base64) delete parsed.output.base64
-            }
-            textStr = JSON.stringify(parsed)
-          }
-        } catch {}
-
-        cleanMsg.content = [
-          {
-            type: 'text',
-            text: textStr
-          },
-          {
-            type: 'image_url',
-            image_url: { url: imageUrl }
-          }
-        ]
-      }
+    const attachments = imageAttachments(m.tool_attachments)
+    if (m.role === 'tool' && attachments.length > 0) {
+      // Chat Completions only accepts text in a tool message. The visual result is
+      // supplied in a following user message, after the required tool response.
+      return [
+        cleanMsg,
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text:
+                `The tool "${m.name || 'unknown_tool'}" returned the attached image. ` +
+                'Inspect it and continue the original task. Do not call the same screenshot tool again unless a new screen state is required.'
+            },
+            ...attachments.map((attachment) => ({
+              type: 'image_url',
+              image_url: { url: asDataUrl(attachment) }
+            }))
+          ]
+        }
+      ]
     }
-    return cleanMsg
+    return [cleanMsg]
   })
 }
 
@@ -145,6 +127,19 @@ export async function streamOpenAiCompletion(
 ): Promise<StreamResult> {
   const normUrl = normalizeBaseUrl(provider.baseUrl)
   const completionType = provider.completionType || 'chat_completions'
+  const visualAttachments = messages.flatMap((message) => imageAttachments(message.tool_attachments))
+  if (visualAttachments.length > 0) {
+    console.info('[AI Client] Sending visual tool attachment.', {
+      provider: provider.name || provider.baseUrl,
+      completionType,
+      attachments: visualAttachments.map((attachment) => ({
+        mimeType: attachment.mimeType,
+        width: attachment.width,
+        height: attachment.height,
+        byteLength: attachment.byteLength
+      }))
+    })
+  }
 
   if (
     completionType === 'gemini_native' ||
@@ -444,24 +439,21 @@ async function streamAnthropicMessages(
     }
 
     if (message.role === 'tool') {
-      const imageUrl = extractImageUrlFromToolContent(message.content)
+      const attachments = imageAttachments(message.tool_attachments)
       let toolContent: string | AnthropicContentBlock[] =
         typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
 
-      if (imageUrl) {
-        const dataUrl = imageUrl.match(/^data:([^;,]+);base64,(.+)$/s)
-        if (dataUrl) {
-          toolContent = [
-            {
-              type: 'text',
-              text: typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
-            },
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: dataUrl[1], data: dataUrl[2] }
-            }
-          ]
-        }
+      if (attachments.length > 0) {
+        toolContent = [
+          {
+            type: 'text',
+            text: typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+          },
+          ...attachments.map((attachment) => ({
+            type: 'image' as const,
+            source: { type: 'base64' as const, media_type: attachment.mimeType, data: attachment.data }
+          }))
+        ]
       }
 
       const block: AnthropicContentBlock = {
@@ -662,11 +654,18 @@ async function streamOpenAiResponses(
   const responsesInput: Array<Record<string, unknown>> = []
   for (const message of messages) {
     if (message.role === 'tool') {
+      const text = typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
       responsesInput.push({
         type: 'function_call_output',
         call_id: message.tool_call_id,
-        output:
-          typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+        output: [
+          { type: 'input_text', text },
+          ...imageAttachments(message.tool_attachments).map((attachment) => ({
+            type: 'input_image',
+            image_url: asDataUrl(attachment),
+            detail: 'auto'
+          }))
+        ]
       })
       continue
     }
@@ -686,7 +685,7 @@ async function streamOpenAiResponses(
     }
     responsesInput.push({
       role: message.role === 'model' ? 'assistant' : message.role,
-      content: message.content || ''
+      content: toResponsesMessageContent(message.content)
     })
   }
 
@@ -906,4 +905,21 @@ async function streamOpenAiResponses(
     toolCalls,
     finishReason
   }
+}
+
+function toResponsesMessageContent(
+  content: OpenAiMessage['content']
+): string | Array<Record<string, unknown>> {
+  if (!Array.isArray(content)) return content || ''
+  const blocks: Array<Record<string, unknown>> = []
+  for (const part of content) {
+    if (part.type === 'text' && part.text) {
+      blocks.push({ type: 'input_text', text: part.text })
+      continue
+    }
+    if (part.type === 'image_url' && part.image_url?.url) {
+      blocks.push({ type: 'input_image', image_url: part.image_url.url, detail: 'auto' })
+    }
+  }
+  return blocks
 }

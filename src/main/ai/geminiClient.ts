@@ -12,6 +12,7 @@ import {
 import type { StreamCallbacks, StreamResult } from './openaiClient'
 import { isPrismCloudProvider, normalizePrismThinkingLevel } from './prismThinking'
 import { initializePrismCloudTransport } from '../connection'
+import { asDataUrl, imageAttachments } from '../toolAttachments'
 
 const thinkingLevelMap: Record<PrismThinkingLevel, ThinkingLevel> = {
   minimal: ThinkingLevel.MINIMAL,
@@ -37,32 +38,6 @@ function messageTextParts(message: OpenAiMessage): Part[] {
   return parts
 }
 
-export function extractImageUrlFromToolContent(content: unknown): string | null {
-  if (!content) return null
-  if (typeof content === 'object') {
-    const obj = content as Record<string, any>
-    if (obj.image_url && typeof obj.image_url === 'string') return obj.image_url
-    if (obj.base64 && typeof obj.base64 === 'string') {
-      return obj.base64.startsWith('data:') ? obj.base64 : `data:image/png;base64,${obj.base64}`
-    }
-  }
-  if (typeof content === 'string') {
-    if (content.startsWith('data:image/')) return content
-    try {
-      const parsed = JSON.parse(content)
-      if (parsed && typeof parsed === 'object') {
-        if (parsed.image_url) return extractImageUrlFromToolContent(parsed.image_url)
-        if (parsed.base64) return extractImageUrlFromToolContent(parsed.base64)
-        if (parsed.output) return extractImageUrlFromToolContent(parsed.output)
-        if (parsed.result) return extractImageUrlFromToolContent(parsed.result)
-      }
-    } catch {
-      // Not JSON
-    }
-  }
-  return null
-}
-
 function parseFunctionResponse(content: OpenAiMessage['content']): Record<string, unknown> {
   if (typeof content !== 'string') return { output: content ?? '' }
   try {
@@ -84,21 +59,6 @@ function parseFunctionResponse(content: OpenAiMessage['content']): Record<string
     // Non-JSON tool results are wrapped as plain output.
   }
   return { output: content }
-}
-
-function sanitizeFunctionResponse(res: Record<string, unknown>): Record<string, unknown> {
-  const clean: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(res)) {
-    if (key === 'base64') continue
-    if (key === 'image_url' && typeof value === 'string' && value.startsWith('data:')) {
-      clean[key] = '[Attached Image]'
-    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      clean[key] = sanitizeFunctionResponse(value as Record<string, unknown>)
-    } else {
-      clean[key] = value
-    }
-  }
-  return clean
 }
 
 export function convertMessagesToGemini(messages: OpenAiMessage[]): {
@@ -138,23 +98,17 @@ export function convertMessagesToGemini(messages: OpenAiMessage[]): {
     }
 
     if (message.role === 'tool') {
-      let responseObj = parseFunctionResponse(message.content)
-      const imageUrl = extractImageUrlFromToolContent(message.content)
-      if (imageUrl) {
-        responseObj = sanitizeFunctionResponse(responseObj)
-      }
-
       const responsePart: Part = {
         functionResponse: {
           id: message.tool_call_id,
           name: message.name || 'unknown_tool',
-          response: responseObj
+          response: parseFunctionResponse(message.content)
         }
       }
       const toolParts: Part[] = [responsePart]
 
-      if (imageUrl) {
-        const dataUrl = parseDataUrl(imageUrl)
+      for (const attachment of imageAttachments(message.tool_attachments)) {
+        const dataUrl = parseDataUrl(asDataUrl(attachment))
         if (dataUrl) {
           toolParts.push({ inlineData: dataUrl })
         }
