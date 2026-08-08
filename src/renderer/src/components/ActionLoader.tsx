@@ -42,7 +42,10 @@ const TOOL_LABELS: Record<string, string> = {
   list_installed_applications: 'Searching apps',
   search_installed_applications: 'Searching apps',
   computer_use_see_screen: 'Taking screenshot',
-  browser_screenshot: 'Taking screenshot'
+  browser_screenshot: 'Taking screenshot',
+  discord_leave_voice: 'Leaving call',
+  leave_voice: 'Leaving call',
+  disconnect_voice: 'Leaving call'
 }
 
 function getToolLabel(name: string): string {
