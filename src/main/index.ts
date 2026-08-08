@@ -647,10 +647,15 @@ function toggleLauncher(): void {
 }
 
 export function createVoiceOverlayWindow(): void {
-  if (voiceOverlayWindow) return
-
   const primaryDisplay = screen.getPrimaryDisplay()
   const { bounds } = primaryDisplay
+
+  if (voiceOverlayWindow && !voiceOverlayWindow.isDestroyed()) {
+    voiceOverlayWindow.setBounds(bounds)
+    voiceOverlayWindow.setAlwaysOnTop(true, 'screen-saver')
+    voiceOverlayWindow.showInactive()
+    return
+  }
 
   voiceOverlayWindow = new BrowserWindow({
     x: bounds.x,
@@ -672,6 +677,7 @@ export function createVoiceOverlayWindow(): void {
     }
   })
 
+  voiceOverlayWindow.setAlwaysOnTop(true, 'screen-saver')
   voiceOverlayWindow.setIgnoreMouseEvents(true, { forward: true })
   if (process.platform === 'darwin') {
     voiceOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })

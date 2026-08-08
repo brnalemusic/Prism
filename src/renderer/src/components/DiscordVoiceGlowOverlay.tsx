@@ -84,6 +84,9 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
 
   useEffect(() => {
     window.electron.ipcRenderer.send('overlay-log', '[DiscordVoiceGlowOverlay] MOUNTED in React!')
+    document.body.style.background = 'transparent'
+    document.documentElement.style.background = 'transparent'
+
     if (!document.documentElement.getAttribute('data-theme')) {
       document.documentElement.setAttribute('data-theme', 'marine')
     }
@@ -195,6 +198,8 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
     })
 
     return () => {
+      document.body.style.background = ''
+      document.documentElement.style.background = ''
       removeStateListener()
       removeSpeakingListener()
       removeAudioLevelListener()
@@ -214,12 +219,12 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
     const updateEnergy = (): void => {
       const current = smoothedLevelRef.current
       const target = targetLevelRef.current
-      const smoothing = target > current ? 0.16 : 0.045
+      const smoothing = target > current ? 0.18 : 0.05
       const next = current + (target - current) * smoothing
       smoothedLevelRef.current = Math.abs(next) < 0.001 ? 0 : next
 
       if (overlayRef.current) {
-        const energy = (smoothedLevelRef.current * 0.105).toFixed(4)
+        const energy = (smoothedLevelRef.current * 0.38).toFixed(4)
         overlayRef.current.style.setProperty('--discord-voice-energy', energy)
       }
 
