@@ -43,7 +43,37 @@ function getPerimeterPoint(
   radius: number,
   inset = 0
 ): PerimeterPoint {
-  const r = Math.min(radius, width / 2, height / 2)
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2))
+  
+  // Sharp square screen corner geometry (100% flush against physical monitor borders)
+  if (r <= 0) {
+    const w = width - 2 * inset
+    const h = height - 2 * inset
+    const totalP = 2 * w + 2 * h
+    let dist = ((normS % 1 + 1) % 1) * totalP
+
+    // Top edge (Left -> Right)
+    if (dist <= w) {
+      return { x: inset + dist, y: inset, nx: 0, ny: 1, s: normS }
+    }
+    dist -= w
+
+    // Right edge (Top -> Bottom)
+    if (dist <= h) {
+      return { x: width - inset, y: inset + dist, nx: -1, ny: 0, s: normS }
+    }
+    dist -= h
+
+    // Bottom edge (Right -> Left)
+    if (dist <= w) {
+      return { x: width - inset - dist, y: height - inset, nx: 0, ny: -1, s: normS }
+    }
+    dist -= w
+
+    // Left edge (Bottom -> Top)
+    return { x: inset, y: height - inset - dist, nx: 1, ny: 0, s: normS }
+  }
+
   const w = width - 2 * r - 2 * inset
   const h = height - 2 * r - 2 * inset
   const cornerArc = (Math.PI / 2) * r
@@ -406,16 +436,17 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
         entrySweepRef.current = 1
       }
 
-      let targetThickness = 14
-      let targetSpeed = 0.06
-      let targetTurbulence = 0.5
-      let targetOpacity = 1
+      let targetThickness = 9
+      let targetSpeed = 0.05
+      let targetTurbulence = 0.4
+      let targetOpacity = 0.38 // Soft, discrete, non-intrusive ambient glow in idle
       let targetColorMode = 1 // 0: connecting, 1: idle, 2: speaking, 3: working
 
       if (isConnecting) {
         targetThickness = 22 + Math.sin(timeRef.current * 8) * 4
         targetSpeed = 0.28
         targetTurbulence = 1.3
+        targetOpacity = 0.95
         targetColorMode = 0
       } else if (isExiting) {
         targetThickness = 0
@@ -426,16 +457,19 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
         targetThickness = 20 + Math.sin(timeRef.current * 4) * 4
         targetSpeed = 0.26
         targetTurbulence = 1.4
+        targetOpacity = 0.95
         targetColorMode = 3
       } else if (isSpeaking) {
         targetThickness = 16 + audioEnergy * 24
         targetSpeed = 0.12 + audioEnergy * 0.16
         targetTurbulence = 0.8 + audioEnergy * 1.4
+        targetOpacity = 1.0
         targetColorMode = 2
       } else if (isQuiet) {
-        targetThickness = 8
-        targetSpeed = 0.04
-        targetTurbulence = 0.3
+        targetThickness = 5
+        targetSpeed = 0.03
+        targetTurbulence = 0.25
+        targetOpacity = 0.22 // Ultra-sleek, subtle whisper glow in quiet idle
         targetColorMode = 1
       }
 
@@ -493,71 +527,92 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
 
       const liquidColors = getLiquidColors(params.colorMode)
 
-      // 5. Draw Liquid Outer Ambient Blur Layer
-      const cornerRadius = 24
-      const numSamples = 160
+      // 5. Multi-Pass Ultra-Soft Feathered Liquid Glow Rendering
+      const cornerRadius = 0 // Sharp square screen corners (100% flush against physical monitor borders)
+      const numSamples = 180
       const sweepLimit = isConnecting ? entrySweepRef.current : 1
-
-      ctx.save()
-      ctx.globalAlpha = params.opacity * 0.85
-      ctx.shadowBlur = Math.max(12, params.thickness * 1.4)
-      ctx.shadowColor = liquidColors[0]
-
-      // Draw Main Liquid Edge Arc Path
-      ctx.beginPath()
       const orbitOffset = (timeRef.current * params.orbitSpeed) % 1
 
-      for (let i = 0; i <= numSamples; i++) {
-        const normS = (i / numSamples) * sweepLimit
-        const sWrapped = (normS + orbitOffset) % 1
-        const pt = getPerimeterPoint(sWrapped, width, height, cornerRadius, 2)
+      // Helper function to build liquid perimeter path
+      const buildLiquidPath = (thicknessVal: number, waveAmp: number): void => {
+        ctx.beginPath()
+        for (let i = 0; i <= numSamples; i++) {
+          const normS = (i / numSamples) * sweepLimit
+          const sWrapped = (normS + orbitOffset) % 1
+          const pt = getPerimeterPoint(sWrapped, width, height, cornerRadius, 0)
 
-        // Multi-frequency wave displacement
-        const wave =
-          Math.sin(sWrapped * Math.PI * 8 + timeRef.current * 3.5) * 0.45 +
-          Math.sin(sWrapped * Math.PI * 18 - timeRef.current * 5.0) * 0.35 +
-          Math.sin(sWrapped * Math.PI * 32 + timeRef.current * 7.5) * 0.2
+          // Multi-frequency wave displacement for liquid motion
+          const wave =
+            Math.sin(sWrapped * Math.PI * 6 + timeRef.current * 3.0) * 0.45 +
+            Math.sin(sWrapped * Math.PI * 14 - timeRef.current * 4.5) * 0.35 +
+            Math.sin(sWrapped * Math.PI * 26 + timeRef.current * 6.5) * 0.2
 
-        const dInner = params.thickness * (0.6 + wave * 0.4 * params.turbulence)
-        const px = pt.x + pt.nx * dInner
-        const py = pt.y + pt.ny * dInner
+          const dInner = thicknessVal * (0.65 + wave * waveAmp * params.turbulence)
+          const px = pt.x + pt.nx * dInner
+          const py = pt.y + pt.ny * dInner
 
-        if (i === 0) {
-          ctx.moveTo(px, py)
-        } else {
-          ctx.lineTo(px, py)
+          if (i === 0) {
+            ctx.moveTo(px, py)
+          } else {
+            ctx.lineTo(px, py)
+          }
         }
+
+        // Outer border path flush against screen edge (-6px overflow ensures zero corner gaps)
+        for (let i = numSamples; i >= 0; i--) {
+          const normS = (i / numSamples) * sweepLimit
+          const sWrapped = (normS + orbitOffset) % 1
+          const pt = getPerimeterPoint(sWrapped, width, height, cornerRadius, -6)
+          ctx.lineTo(pt.x, pt.y)
+        }
+
+        ctx.closePath()
       }
 
-      // Complete perimeter band hugging outer screen edge
-      for (let i = numSamples; i >= 0; i--) {
-        const normS = (i / numSamples) * sweepLimit
-        const sWrapped = (normS + orbitOffset) % 1
-        const pt = getPerimeterPoint(sWrapped, width, height, cornerRadius, 0)
-        ctx.lineTo(pt.x, pt.y)
-      }
+      // Linear Gradient across viewport
+      const mainGrad = ctx.createLinearGradient(0, 0, width, height)
+      mainGrad.addColorStop(0, liquidColors[0])
+      mainGrad.addColorStop(0.5, liquidColors[1])
+      mainGrad.addColorStop(1, liquidColors[2])
 
-      ctx.closePath()
-
-      // Create multi-stop gradient around perimeter
-      const grad = ctx.createLinearGradient(0, 0, width, height)
-      grad.addColorStop(0, liquidColors[0])
-      grad.addColorStop(0.5, liquidColors[1])
-      grad.addColorStop(1, liquidColors[2])
-      ctx.fillStyle = grad
+      // PASS 1: Deep Soft Ambient Glow Aura (Wide Gaussian Diffusion)
+      ctx.save()
+      ctx.globalAlpha = params.opacity * 0.65
+      ctx.filter = 'blur(26px)'
+      buildLiquidPath(params.thickness * 2.2 + 16, 0.3)
+      ctx.fillStyle = mainGrad
       ctx.fill()
       ctx.restore()
 
-      // 6. Draw Orbiting Plasma Blobs (3 organic liquid nodes)
+      // PASS 2: Middle Liquid Body (Soft Feathered Contour)
+      ctx.save()
+      ctx.globalAlpha = params.opacity * 0.85
+      ctx.filter = 'blur(10px)'
+      buildLiquidPath(params.thickness * 1.35 + 6, 0.45)
+      ctx.fillStyle = mainGrad
+      ctx.fill()
+      ctx.restore()
+
+      // PASS 3: High-Luminance Liquid Core (Crisp yet Soft Stream)
       ctx.save()
       ctx.globalAlpha = params.opacity * 0.95
+      ctx.filter = 'blur(4px)'
+      buildLiquidPath(params.thickness * 0.75 + 2, 0.55)
+      ctx.fillStyle = mainGrad
+      ctx.fill()
+      ctx.restore()
+
+      // PASS 4: Orbiting Soft Plasma Blobs (Large Radial Diffusion)
+      ctx.save()
+      ctx.globalAlpha = params.opacity * 0.85
       ctx.globalCompositeOperation = 'screen'
+      ctx.filter = 'blur(14px)'
 
       const blobCount = 3
       for (let b = 0; b < blobCount; b++) {
-        const blobNormS = ((orbitOffset + (b / blobCount) + Math.sin(timeRef.current * 1.5 + b) * 0.05) % 1) * sweepLimit
-        const pt = getPerimeterPoint(blobNormS, width, height, cornerRadius, 4)
-        const blobRadius = (params.thickness * 1.8 + Math.sin(timeRef.current * 4 + b) * 4) * (1 + audioEnergy * 0.6)
+        const blobNormS = ((orbitOffset + (b / blobCount) + Math.sin(timeRef.current * 1.2 + b) * 0.06) % 1) * sweepLimit
+        const pt = getPerimeterPoint(blobNormS, width, height, cornerRadius, 6)
+        const blobRadius = (params.thickness * 2.2 + Math.sin(timeRef.current * 3.5 + b) * 6) * (1 + audioEnergy * 0.7) + 12
 
         const radial = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, blobRadius)
         radial.addColorStop(0, '#ffffff')
@@ -571,19 +626,20 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
       }
       ctx.restore()
 
-      // 7. Draw Floating Liquid Sparkle Particles
+      // PASS 5: Soft Floating Liquid Sparkle Droplets
       ctx.save()
-      ctx.globalAlpha = params.opacity * 0.8
+      ctx.globalAlpha = params.opacity * 0.75
+      ctx.filter = 'blur(2px)'
       particlesRef.current.forEach((p) => {
-        p.normS = (p.normS + dt * p.speed * params.orbitSpeed * 3) % 1
+        p.normS = (p.normS + dt * p.speed * params.orbitSpeed * 2.5) % 1
         if (p.normS > sweepLimit) return
 
         const sWrapped = (p.normS + orbitOffset) % 1
-        const pt = getPerimeterPoint(sWrapped, width, height, cornerRadius, 3 + p.offset)
+        const pt = getPerimeterPoint(sWrapped, width, height, cornerRadius, 4 + p.offset)
 
         ctx.fillStyle = '#ffffff'
         ctx.beginPath()
-        ctx.arc(pt.x, pt.y, p.size * (1 + audioEnergy * 0.5), 0, Math.PI * 2)
+        ctx.arc(pt.x, pt.y, (p.size + 1) * (1 + audioEnergy * 0.6), 0, Math.PI * 2)
         ctx.fill()
       })
       ctx.restore()
