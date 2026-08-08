@@ -15,7 +15,7 @@ interface VoiceOverlayView {
 }
 
 const INITIAL_VIEW: VoiceOverlayView = {
-  mounted: false,
+  mounted: true,
   connection: 'connecting',
   speaking: false,
   quiet: false,
@@ -83,9 +83,16 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
   }
 
   useEffect(() => {
-    const isActiveVoiceChat = (chatId: string): boolean => chatIdRef.current === chatId
+    window.electron.ipcRenderer.send('overlay-log', '[DiscordVoiceGlowOverlay] MOUNTED in React!')
+    const isActiveVoiceChat = (chatId: string): boolean => {
+      if (!chatIdRef.current) {
+        chatIdRef.current = chatId
+      }
+      return chatIdRef.current === chatId
+    }
 
     const removeStateListener = window.api.onDiscordVoiceState(({ chatId, state }) => {
+      window.electron.ipcRenderer.send('overlay-log', `[DiscordVoiceGlowOverlay] Received state: ${state} for chatId: ${chatId}`)
       if (state === 'connecting') {
         clearOverlayExitTimer()
         clearPanelExitTimer()

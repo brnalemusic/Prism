@@ -679,6 +679,9 @@ export function createVoiceOverlayWindow(): void {
 
   voiceOverlayWindow.on('ready-to-show', () => {
     voiceOverlayWindow?.showInactive()
+    if (is.dev) {
+      voiceOverlayWindow?.webContents.openDevTools({ mode: 'detach' })
+    }
   })
 
   voiceOverlayWindow.on('closed', () => {
@@ -903,6 +906,11 @@ if (!gotTheLock) {
     ipcMain.on('ai-search-cancel', () => {
       cancelAiSearch()
     })
+
+    ipcMain.on('overlay-log', (_event, msg) => {
+      console.log(`[Overlay React]: ${msg}`)
+    })
+
     ipcMain.handle('search-chats-offline', (_event, query: string) => {
       return searchChatsOffline(query)
     })

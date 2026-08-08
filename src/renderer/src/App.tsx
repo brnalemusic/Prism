@@ -2861,6 +2861,7 @@ function RealApp(): React.JSX.Element {
   }
 
   if (route === '#voice-overlay') {
+    window.electron.ipcRenderer.send('overlay-log', 'Mounting DiscordVoiceGlowOverlay because route is ' + route)
     return <DiscordVoiceGlowOverlay />
   }
 
