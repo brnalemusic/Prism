@@ -646,22 +646,10 @@ function toggleLauncher(): void {
   }
 }
 
-export function createVoiceOverlayWindow(): void {
-  const primaryDisplay = screen.getPrimaryDisplay()
-  const { bounds } = primaryDisplay
-
-  if (voiceOverlayWindow && !voiceOverlayWindow.isDestroyed()) {
-    voiceOverlayWindow.setBounds(bounds)
-    voiceOverlayWindow.setAlwaysOnTop(true, 'screen-saver')
-    voiceOverlayWindow.showInactive()
-    return
-  }
+export function createVoiceOverlayWindowInstance(): void {
+  if (voiceOverlayWindow && !voiceOverlayWindow.isDestroyed()) return
 
   voiceOverlayWindow = new BrowserWindow({
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
     show: false,
     frame: false,
     transparent: true,
@@ -669,7 +657,9 @@ export function createVoiceOverlayWindow(): void {
     skipTaskbar: true,
     resizable: false,
     hasShadow: false,
-    focusable: false,
+    ...(process.platform === 'linux' || process.platform === 'win32'
+      ? { icon: getAppIconPath() }
+      : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -679,16 +669,10 @@ export function createVoiceOverlayWindow(): void {
 
   voiceOverlayWindow.setAlwaysOnTop(true, 'screen-saver')
   voiceOverlayWindow.setIgnoreMouseEvents(true, { forward: true })
+
   if (process.platform === 'darwin') {
     voiceOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   }
-
-  voiceOverlayWindow.on('ready-to-show', () => {
-    voiceOverlayWindow?.showInactive()
-    if (is.dev) {
-      voiceOverlayWindow?.webContents.openDevTools({ mode: 'detach' })
-    }
-  })
 
   voiceOverlayWindow.on('closed', () => {
     voiceOverlayWindow = null
@@ -701,11 +685,24 @@ export function createVoiceOverlayWindow(): void {
   }
 }
 
+export function createVoiceOverlayWindow(): void {
+  createVoiceOverlayWindowInstance()
+
+  if (!voiceOverlayWindow || voiceOverlayWindow.isDestroyed()) return
+
+  const primaryDisplay = screen.getPrimaryDisplay()
+  voiceOverlayWindow.setBounds(primaryDisplay.bounds)
+  voiceOverlayWindow.setAlwaysOnTop(true, 'screen-saver')
+  voiceOverlayWindow.setIgnoreMouseEvents(true, { forward: true })
+  if (!voiceOverlayWindow.isVisible()) {
+    voiceOverlayWindow.showInactive()
+  }
+}
+
 export function closeVoiceOverlayWindow(): void {
   if (voiceOverlayWindow && !voiceOverlayWindow.isDestroyed()) {
-    voiceOverlayWindow.close()
+    voiceOverlayWindow.hide()
   }
-  voiceOverlayWindow = null
 }
 
 if (process.argv.includes('--get-dependencies')) {
@@ -1387,6 +1384,7 @@ if (!gotTheLock) {
     createWindow()
     if (!IS_DEMO) {
       createLauncherWindow()
+      createVoiceOverlayWindowInstance()
       createTray()
     }
     updateNativeIcons()
