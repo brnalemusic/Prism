@@ -60,7 +60,7 @@ const contentArg = stringSchema('Complete UTF-8 text content. Preserve whitespac
 export const toolsManifest: ToolDefinition[] = [
   tool(
     'discord_leave_voice',
-    'Leaves the current Discord voice channel. Use this when the user asks you to leave the call, hang up, or when the voice session is over.',
+    'Requests leaving the current Discord voice channel. Use this when the user asks you to leave, or when the full conversation makes ending the voice session appropriate. After it succeeds, say a brief personalized goodbye and do not call more tools.',
     {},
     []
   ),

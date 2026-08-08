@@ -10,6 +10,7 @@ import {
   joinVoiceChannel,
   getVoiceConnection,
   VoiceConnectionStatus,
+  AudioPlayerStatus,
   EndBehaviorType,
   createAudioPlayer,
   createAudioResource,
@@ -62,6 +63,17 @@ let voiceOutputTurnActive = false
 let activeVoiceHistory: VoiceHistoryState | null = null
 let activeLiveToolLoopGuard: ToolLoopGuard | null = null
 let activeLiveAbortController: AbortController | null = null
+let activeVoiceStatusMessage: Message | null = null
+
+interface PendingVoiceLeave {
+  farewellRequested: boolean
+  responseStarted: boolean
+  audioReceived: boolean
+  turnComplete: boolean
+  player: any | null
+}
+
+let pendingVoiceLeave: PendingVoiceLeave | null = null
 
 const VOICE_SILENCE_FLUSH_MS = 800
 const VOICE_GATE_START_RMS = 0.02
@@ -145,31 +157,6 @@ function upsample24kMonoTo48kStereo(pcm24k: Buffer): Buffer {
 
 function normalizeLiveModelId(modelName: string): string {
   return modelName.trim().replace(/^models\//i, '')
-}
-
-function normalizeTranscript(text: string): string {
-  return text
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-}
-
-function isVoiceLeaveCommand(text: string): boolean {
-  const normalized = normalizeTranscript(text)
-  if (!normalized) return false
-
-  return (
-    normalized.includes('sai da call') ||
-    normalized.includes('sair da call') ||
-    normalized.includes('saia da call') ||
-    normalized.includes('sai da chamada') ||
-    normalized.includes('sair da chamada') ||
-    normalized.includes('leave the call') ||
-    normalized.includes('leave call') ||
-    normalized.includes('disconnect from call')
-  )
 }
 
 function mergeVoiceTranscript(current: string, incoming: string): string {
@@ -334,6 +321,8 @@ async function executeLiveToolCalls(
         : { error: execution.envelope.error.message, details: execution.envelope.error.details },
       ...(visualParts.length > 0 ? { parts: visualParts } : {})
     })
+
+    if (pendingVoiceLeave) break
   }
 
   if (activeLiveSession !== session || abortController.signal.aborted) {
@@ -341,12 +330,17 @@ async function executeLiveToolCalls(
     return
   }
   try {
+    const farewellWasRequested = pendingVoiceLeave !== null
+    if (farewellWasRequested) {
+      pendingVoiceLeave!.farewellRequested = true
+    }
     session.sendToolResponse({ functionResponses })
     console.log(
       `[Discord Gateway] Returned ${functionResponses.length} tool result(s) to Gemini Live.`
     )
   } catch (error) {
     console.error('[Discord Gateway] Failed to return Live tool results:', error)
+    if (pendingVoiceLeave) leaveDiscordVoiceChannel()
   } finally {
     if (activeLiveAbortController === abortController) activeLiveAbortController = null
   }
@@ -430,6 +424,35 @@ function attachVoiceAudioPlayerErrorHandler(player: any): void {
   })
 }
 
+function maybeFinalizePendingVoiceLeave(): void {
+  const pending = pendingVoiceLeave
+  if (!pending || !pending.farewellRequested || !pending.turnComplete) return
+
+  if (!pending.audioReceived) {
+    if (!pending.responseStarted) return
+    finalizePendingVoiceLeave()
+    return
+  }
+
+  if (pending.player !== activeAudioPlayer) return
+  if (activeAudioPlayer?.state?.status !== AudioPlayerStatus.Idle) return
+
+  finalizePendingVoiceLeave()
+}
+
+function finalizePendingVoiceLeave(): void {
+  const statusMessage = activeVoiceStatusMessage
+  pendingVoiceLeave = null
+  activeVoiceStatusMessage = null
+
+  const left = leaveDiscordVoiceChannel()
+  if (statusMessage) {
+    void statusMessage
+      .edit(left ? '✅ *Left the voice channel after saying goodbye.*' : '✅ *Voice session ended.*')
+      .catch(() => {})
+  }
+}
+
 function createVoiceAudioOutput(): void {
   const oldPlayer = activeAudioPlayer
   const oldStream = activeSpeakerStream
@@ -451,6 +474,9 @@ function createVoiceAudioOutput(): void {
   voiceOutputTurnActive = true
   player.play(createAudioResource(stream, { inputType: StreamType.Raw }))
   attachVoiceAudioPlayerErrorHandler(player)
+  player.on(AudioPlayerStatus.Idle, () => {
+    maybeFinalizePendingVoiceLeave()
+  })
 
   if (activeVoiceConnection) activeVoiceConnection.subscribe(player)
 }
@@ -467,6 +493,8 @@ function cleanupVoiceResources(): boolean {
 
   const liveSession = activeLiveSession
   activeLiveSession = null
+  pendingVoiceLeave = null
+  activeVoiceStatusMessage = null
   activeLiveAbortController?.abort()
   activeLiveAbortController = null
   persistVoiceHistory()
@@ -554,6 +582,7 @@ async function startLiveVoiceSession(
     activeUserMessageIndex: null,
     activeAssistantMessageIndex: null
   }
+  activeVoiceStatusMessage = statusMsg
   activeLiveToolLoopGuard = new ToolLoopGuard()
   persistVoiceHistory()
   broadcastIpc('chat-session-created', { id: voiceChatId })
@@ -578,6 +607,8 @@ async function startLiveVoiceSession(
           '# Discord Voice Gateway\n' +
           'You are speaking with the user through Discord voice. Use the available tools whenever they are needed. ' +
           'When you use a tool, wait for its result before answering. Keep spoken answers concise and clear. ' +
+          'Do not decide to leave because an isolated phrase in a transcript mentions leaving the call; consider the full conversation and use discord_leave_voice only when the user asks or leaving is contextually appropriate. ' +
+          'When discord_leave_voice confirms a leave request, say a brief personalized goodbye and do not call any more tools. ' +
           'When a screenshot is returned, inspect it before answering the user.',
         tools: [
           {
@@ -594,7 +625,11 @@ async function startLiveVoiceSession(
           }
 
           const functionCalls = msg?.toolCall?.functionCalls
-          if (Array.isArray(functionCalls) && functionCalls.length > 0) {
+          if (
+            Array.isArray(functionCalls) &&
+            functionCalls.length > 0 &&
+            !pendingVoiceLeave?.farewellRequested
+          ) {
             console.log(
               `[Discord Gateway] Gemini requested ${functionCalls.length} Live tool call(s).`
             )
@@ -614,22 +649,22 @@ async function startLiveVoiceSession(
           if (typeof inputTranscript === 'string' && inputTranscript.trim()) {
             console.log(`[Discord Gateway] Input transcription: ${inputTranscript.trim()}`)
             appendVoiceTranscript('user', inputTranscript)
-            if (isVoiceLeaveCommand(inputTranscript)) {
-              console.log('[Discord Gateway] Voice leave command detected from transcription.')
-              cleanupVoiceResources()
-              void statusMsg.edit('✅ *Left the voice channel by voice command.*').catch(() => {})
-              return
-            }
           }
 
           const outputTranscript = serverContent?.outputTranscription?.text
           if (typeof outputTranscript === 'string' && outputTranscript.trim()) {
             appendVoiceTranscript('assistant', outputTranscript)
+            if (pendingVoiceLeave?.farewellRequested) {
+              pendingVoiceLeave.responseStarted = true
+            }
           }
 
           const parts = serverContent?.modelTurn?.parts || []
           for (const part of parts) {
             if (part.inlineData?.data) {
+              if (pendingVoiceLeave?.farewellRequested && pendingVoiceLeave.turnComplete) {
+                continue
+              }
               if (!voiceOutputTurnActive) createVoiceAudioOutput()
 
               const pcm24kBuffer = Buffer.from(part.inlineData.data, 'base64')
@@ -645,11 +680,23 @@ async function startLiveVoiceSession(
               if (activeSpeakerStream && !activeSpeakerStream.destroyed) {
                 activeSpeakerStream.write(pcm48kBuffer)
               }
+              if (pendingVoiceLeave?.farewellRequested) {
+                pendingVoiceLeave.responseStarted = true
+                pendingVoiceLeave.audioReceived = true
+                pendingVoiceLeave.player = activeAudioPlayer
+              }
             }
           }
 
           if (serverContent?.turnComplete) {
             voiceOutputTurnActive = false
+            if (activeSpeakerStream && !activeSpeakerStream.destroyed) {
+              activeSpeakerStream.end()
+            }
+            if (pendingVoiceLeave?.farewellRequested && pendingVoiceLeave.responseStarted) {
+              pendingVoiceLeave.turnComplete = true
+              maybeFinalizePendingVoiceLeave()
+            }
             if (activeVoiceHistory) {
               activeVoiceHistory.activeUserMessageIndex = null
               activeVoiceHistory.activeAssistantMessageIndex = null
@@ -759,7 +806,7 @@ async function startLiveVoiceSession(
 
     decoder.on('data', (pcm48kChunk: Buffer) => {
       try {
-        if (activeLiveSession) {
+        if (activeLiveSession && !pendingVoiceLeave) {
           const pcm16kChunk = downsample48kStereoTo16kMono(pcm48kChunk)
           if (!shouldForwardVoiceAudio(pcm16kChunk)) return
 
@@ -796,6 +843,68 @@ async function startLiveVoiceSession(
     await statusMsg.edit(`❌ *Failed to join voice channel:* ${errorText}`)
 
     cleanupVoiceResources()
+    return false
+  }
+}
+
+export function requestDiscordVoiceLeave(): boolean {
+  const hasVoiceResources = Boolean(
+    activeLiveSession ||
+      activeAudioPlayer ||
+      activeVoiceConnection ||
+      activeVoiceInputStream ||
+      activeVoiceDecoder ||
+      activeSpeakerStream
+  )
+  if (!hasVoiceResources) return false
+
+  if (!activeLiveSession) {
+    return leaveDiscordVoiceChannel()
+  }
+
+  if (!pendingVoiceLeave) {
+    pendingVoiceLeave = {
+      farewellRequested: false,
+      responseStarted: false,
+      audioReceived: false,
+      turnComplete: false,
+      player: null
+    }
+  }
+  void activeVoiceStatusMessage?.edit('⌛ *Preparing a brief goodbye before leaving...*').catch(() => {})
+  return true
+}
+
+export function requestDiscordVoiceFarewell(): boolean {
+  const pending = pendingVoiceLeave
+  const session = activeLiveSession
+  if (!pending || !session) return false
+  if (pending.farewellRequested) return true
+
+  pending.farewellRequested = true
+  try {
+    if (activeSpeakerStream && !activeSpeakerStream.destroyed) {
+      createVoiceAudioOutput()
+    }
+    appendVoiceTranscript('user', 'The user explicitly requested to end the Discord voice call.')
+    session.sendClientContent({
+      turns: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text:
+                'The user explicitly requested to end this Discord voice call. Say a brief, personalized goodbye based on our conversation. Do not call any tools.'
+            }
+          ]
+        }
+      ],
+      turnComplete: true
+    })
+    return true
+  } catch (error) {
+    console.error('[Discord Gateway] Failed to request Live farewell:', error)
+    leaveDiscordVoiceChannel()
     return false
   }
 }
@@ -971,10 +1080,14 @@ async function handleDiscordMessage(message: Message): Promise<void> {
     return
   }
 
-  // Command: prism=exit
-  if (!isDM && lowerContent.startsWith('prism=exit')) {
-    if (leaveDiscordVoiceChannel()) {
-      await message.reply('Left the voice channel.')
+  // Commands: prism=exit or prism=quit
+  if (!isDM && (lowerContent === 'prism=exit' || lowerContent === 'prism=quit')) {
+    if (requestDiscordVoiceLeave()) {
+      if (requestDiscordVoiceFarewell()) {
+        await message.reply('I will say goodbye before leaving the voice channel.')
+      } else {
+        await message.reply('Left the voice channel.')
+      }
     } else {
       await message.reply('I am not currently in a voice channel.')
     }
@@ -1025,7 +1138,11 @@ async function handleDiscordMessage(message: Message): Promise<void> {
                 name: '`prism=new` or `prism=clear`',
                 value: 'Clears history and starts a new conversation (DMs only).'
               },
-              { name: '`prism=join`', value: 'Joins your current voice channel (Servers only).' }
+              { name: '`prism=join`', value: 'Joins your current voice channel (Servers only).' },
+              {
+                name: '`prism=exit` or `prism=quit`',
+                value: 'Says goodbye and leaves the current voice channel (Servers only).'
+              }
             ],
             footer: { text: 'Type "prism=help 2" for more info.' }
           }

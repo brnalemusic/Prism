@@ -18,7 +18,7 @@ import { toolsManifest } from './toolsManifest'
 import { BrowserAction, DownloadProgress, SessionMode, TodoState, ArtifactItem } from '../shared/types'
 
 import { loadConfig, saveConfig, SlashWorkflow } from './config'
-import { leaveDiscordVoiceChannel } from './discordGateway'
+import { requestDiscordVoiceLeave } from './discordGateway'
 import { searchChatHistory, searchChatMemory, loadChatSession, getChatArtifacts, saveChatArtifact, saveChatTodo } from './history'
 import {
   chromium,
@@ -2403,8 +2403,8 @@ export async function executeSystemTool(
 
     // Discord Tools
     case 'discord_leave_voice':
-      if (leaveDiscordVoiceChannel()) {
-        return 'Successfully left the Discord voice channel.'
+      if (requestDiscordVoiceLeave()) {
+        return 'The request to leave the Discord voice channel was accepted. Remain in the call and say a brief, personalized goodbye based on the conversation. Do not call any more tools.'
       }
       return 'Was not connected to any Discord voice channel.'
 
