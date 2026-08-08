@@ -176,14 +176,16 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
   const timeRef = useRef(0)
   const entrySweepRef = useRef(0) // 0 to 1 entry animation progress
   const particlesRef = useRef<Particle[]>([])
+  const orbitOffsetRef = useRef(0) // Continuous incremental orbit offset along perimeter [0, 1]
 
   // Continuous smoothed parameters
   const currentParamsRef = useRef({
     thickness: 0,
-    orbitSpeed: 0.15,
+    orbitSpeed: 0.05,
     turbulence: 1.0,
     opacity: 0,
-    colorMode: 0 // 0: connecting, 1: idle, 2: speaking, 3: working
+    colorMode: 0, // 0: connecting, 1: idle, 2: speaking, 3: working
+    blobIntensity: 1.0 // Dynamic state-based glow force/intensity for traveling balls
   })
 
   const clearQuietTimer = (): void => {
@@ -436,51 +438,58 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
         entrySweepRef.current = 1
       }
 
+      // Maintain strictly CONSTANT orbit travel speed across ALL AI states (idle rate)
+      const CONST_IDLE_ORBIT_SPEED = 0.05
+      orbitOffsetRef.current = (orbitOffsetRef.current + dt * CONST_IDLE_ORBIT_SPEED) % 1
+      const orbitOffset = orbitOffsetRef.current
+
       let targetThickness = 9
-      let targetSpeed = 0.05
       let targetTurbulence = 0.4
       let targetOpacity = 0.38 // Soft, discrete, non-intrusive ambient glow in idle
       let targetColorMode = 1 // 0: connecting, 1: idle, 2: speaking, 3: working
+      let targetBlobIntensity = 1.0 // Normal force in idle
 
       if (isConnecting) {
         targetThickness = 22 + Math.sin(timeRef.current * 8) * 4
-        targetSpeed = 0.28
         targetTurbulence = 1.3
         targetOpacity = 0.95
         targetColorMode = 0
+        targetBlobIntensity = 1.8
       } else if (isExiting) {
         targetThickness = 0
-        targetSpeed = 0.02
         targetTurbulence = 0.2
         targetOpacity = 0
+        targetBlobIntensity = 0
       } else if (isWorking) {
+        // AI executing a tool call: high vibrant glow force, but constant orbital travel speed
         targetThickness = 20 + Math.sin(timeRef.current * 4) * 4
-        targetSpeed = 0.26
         targetTurbulence = 1.4
         targetOpacity = 0.95
         targetColorMode = 3
+        targetBlobIntensity = 2.2
       } else if (isSpeaking) {
+        // AI speaking: audio-reactive glow force, but constant orbital travel speed
         targetThickness = 16 + audioEnergy * 24
-        targetSpeed = 0.12 + audioEnergy * 0.16
         targetTurbulence = 0.8 + audioEnergy * 1.4
         targetOpacity = 1.0
         targetColorMode = 2
+        targetBlobIntensity = 1.6 + audioEnergy * 1.4
       } else if (isQuiet) {
         targetThickness = 5
-        targetSpeed = 0.03
         targetTurbulence = 0.25
         targetOpacity = 0.22 // Ultra-sleek, subtle whisper glow in quiet idle
         targetColorMode = 1
+        targetBlobIntensity = 0.7
       }
 
       // 3. Continuous Damped Parameter Smoothing (Frame-rate independent lerp)
       const damp = 1 - Math.exp(-12 * dt)
       const params = currentParamsRef.current
       params.thickness += (targetThickness - params.thickness) * damp
-      params.orbitSpeed += (targetSpeed - params.orbitSpeed) * damp
       params.turbulence += (targetTurbulence - params.turbulence) * damp
       params.opacity += (targetOpacity - params.opacity) * damp
       params.colorMode += (targetColorMode - params.colorMode) * damp
+      params.blobIntensity += (targetBlobIntensity - params.blobIntensity) * damp
 
       if (params.opacity <= 0.005) {
         ctx.restore()
@@ -531,7 +540,6 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
       const cornerRadius = 0 // Sharp square screen corners (100% flush against physical monitor borders)
       const numSamples = 180
       const sweepLimit = isConnecting ? entrySweepRef.current : 1
-      const orbitOffset = (timeRef.current * params.orbitSpeed) % 1
 
       // Helper function to build liquid perimeter path
       const buildLiquidPath = (thicknessVal: number, waveAmp: number): void => {
@@ -602,17 +610,22 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
       ctx.fill()
       ctx.restore()
 
-      // PASS 4: Orbiting Soft Plasma Blobs (Large Radial Diffusion)
+      // PASS 4: Orbiting Soft Plasma Blobs ("Bolinhas" main glowing Orbs)
       ctx.save()
-      ctx.globalAlpha = params.opacity * 0.85
+      const blobAlpha = Math.min(1.0, params.opacity * (0.75 + params.blobIntensity * 0.25))
+      ctx.globalAlpha = blobAlpha
       ctx.globalCompositeOperation = 'screen'
       ctx.filter = 'blur(14px)'
 
       const blobCount = 3
       for (let b = 0; b < blobCount; b++) {
+        // Continuous travel around screen perimeter at constant idle velocity
         const blobNormS = ((orbitOffset + (b / blobCount) + Math.sin(timeRef.current * 1.2 + b) * 0.06) % 1) * sweepLimit
         const pt = getPerimeterPoint(blobNormS, width, height, cornerRadius, 6)
-        const blobRadius = (params.thickness * 2.2 + Math.sin(timeRef.current * 3.5 + b) * 6) * (1 + audioEnergy * 0.7) + 12
+
+        // Glow radius & force scales dynamically with state (working/speaking = stronger & larger),
+        // but orbital travel velocity around monitor stays 100% constant at idle speed
+        const blobRadius = (params.thickness * 1.8 + 14) * (0.75 + params.blobIntensity * 0.45) + Math.sin(timeRef.current * 3.5 + b) * 4
 
         const radial = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, blobRadius)
         radial.addColorStop(0, '#ffffff')
@@ -626,20 +639,23 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
       }
       ctx.restore()
 
-      // PASS 5: Soft Floating Liquid Sparkle Droplets
+      // PASS 5: Soft Floating Liquid Sparkle Droplets (Particles / small "bolinhas")
       ctx.save()
-      ctx.globalAlpha = params.opacity * 0.75
       ctx.filter = 'blur(2px)'
       particlesRef.current.forEach((p) => {
-        p.normS = (p.normS + dt * p.speed * params.orbitSpeed * 2.5) % 1
+        // Continuous travel around screen perimeter at constant idle speed
+        p.normS = (p.normS + dt * p.speed * 0.35) % 1
         if (p.normS > sweepLimit) return
 
         const sWrapped = (p.normS + orbitOffset) % 1
         const pt = getPerimeterPoint(sWrapped, width, height, cornerRadius, 4 + p.offset)
 
+        const pAlpha = Math.min(1.0, params.opacity * p.alpha * (0.6 + params.blobIntensity * 0.5))
+        ctx.globalAlpha = pAlpha
         ctx.fillStyle = '#ffffff'
         ctx.beginPath()
-        ctx.arc(pt.x, pt.y, (p.size + 1) * (1 + audioEnergy * 0.6), 0, Math.PI * 2)
+        const pSize = (p.size + 1) * (0.8 + params.blobIntensity * 0.4)
+        ctx.arc(pt.x, pt.y, pSize, 0, Math.PI * 2)
         ctx.fill()
       })
       ctx.restore()
