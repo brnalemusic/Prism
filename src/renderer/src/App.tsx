@@ -6,6 +6,7 @@ import rehypeRaw from 'rehype-raw'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
 import { PrismBackground } from './components/PrismBackground'
+import { DiscordVoiceGlowOverlay } from './components/DiscordVoiceGlowOverlay'
 import { LoadingScreen } from './components/LoadingScreen'
 import { OfflineBanner } from './components/OfflineBanner'
 import { Sidebar } from './components/Sidebar'
@@ -2905,6 +2906,7 @@ function RealApp(): React.JSX.Element {
         </div>
       )}
       <PrismBackground />
+      <DiscordVoiceGlowOverlay />
 
       {!isSidebarOpen && (
         <button

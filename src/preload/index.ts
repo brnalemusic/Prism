@@ -206,6 +206,40 @@ const api = {
     ipcRenderer.on('chat-tool-end', listener)
     return () => ipcRenderer.removeListener('chat-tool-end', listener)
   },
+  onDiscordVoiceState: (
+    callback: (data: {
+      chatId: string
+      state: 'connecting' | 'connected' | 'disconnected'
+    }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: { chatId: string; state: 'connecting' | 'connected' | 'disconnected' }
+    ): void => callback(data)
+    ipcRenderer.on('discord-voice-state', listener)
+    return () => ipcRenderer.removeListener('discord-voice-state', listener)
+  },
+  onDiscordVoiceSpeaking: (
+    callback: (data: { chatId: string; speaking: boolean }) => void
+  ): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: { chatId: string; speaking: boolean }): void =>
+      callback(data)
+    ipcRenderer.on('discord-voice-speaking', listener)
+    return () => ipcRenderer.removeListener('discord-voice-speaking', listener)
+  },
+  onDiscordVoiceAudioLevel: (
+    callback: (data: { chatId: string; level: number }) => void
+  ): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: { chatId: string; level: number }): void =>
+      callback(data)
+    ipcRenderer.on('discord-voice-audio-level', listener)
+    return () => ipcRenderer.removeListener('discord-voice-audio-level', listener)
+  },
+  onDiscordVoiceOutput: (callback: (data: { chatId: string }) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: { chatId: string }): void => callback(data)
+    ipcRenderer.on('discord-voice-output', listener)
+    return () => ipcRenderer.removeListener('discord-voice-output', listener)
+  },
   onToolUpdate: (callback: (data: ToolUpdate & { chatId: string }) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, data: ToolUpdate & { chatId: string }): void =>
       callback(data)
@@ -365,6 +399,10 @@ const api = {
     ipcRenderer.removeAllListeners('chat-tool-start')
     ipcRenderer.removeAllListeners('chat-tool-end')
     ipcRenderer.removeAllListeners('chat-tool-update')
+    ipcRenderer.removeAllListeners('discord-voice-state')
+    ipcRenderer.removeAllListeners('discord-voice-speaking')
+    ipcRenderer.removeAllListeners('discord-voice-audio-level')
+    ipcRenderer.removeAllListeners('discord-voice-output')
     ipcRenderer.removeAllListeners('launcher-message')
     ipcRenderer.removeAllListeners('launcher-focus')
     ipcRenderer.removeAllListeners('model-changed')

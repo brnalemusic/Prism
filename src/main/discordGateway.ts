@@ -64,6 +64,12 @@ let activeVoiceHistory: VoiceHistoryState | null = null
 let activeLiveToolLoopGuard: ToolLoopGuard | null = null
 let activeLiveAbortController: AbortController | null = null
 let activeVoiceStatusMessage: Message | null = null
+let activeVoiceOverlayChatId: string | null = null
+let voiceOverlaySpeaking = false
+let voiceOutputAnnounced = false
+let lastVoiceOverlayLevelAt = 0
+
+type VoiceOverlayConnectionState = 'connecting' | 'connected' | 'disconnected'
 
 interface PendingVoiceLeave {
   farewellRequested: boolean
@@ -388,6 +394,53 @@ function calculatePcmRms(pcm16k: Buffer): number {
   return Math.sqrt(sumSquares / sampleCount)
 }
 
+function broadcastVoiceOverlayState(state: VoiceOverlayConnectionState): void {
+  if (!activeVoiceOverlayChatId) return
+  broadcastIpc('discord-voice-state', { chatId: activeVoiceOverlayChatId, state })
+}
+
+function setVoiceOverlaySpeaking(speaking: boolean): void {
+  if (!activeVoiceOverlayChatId || voiceOverlaySpeaking === speaking) return
+  voiceOverlaySpeaking = speaking
+  broadcastIpc('discord-voice-speaking', { chatId: activeVoiceOverlayChatId, speaking })
+}
+
+function broadcastVoiceOverlayLevel(level: number, force = false): void {
+  if (!activeVoiceOverlayChatId) return
+
+  const now = Date.now()
+  if (!force && now - lastVoiceOverlayLevelAt < 42) return
+
+  lastVoiceOverlayLevelAt = now
+  broadcastIpc('discord-voice-audio-level', {
+    chatId: activeVoiceOverlayChatId,
+    level: Math.min(1, Math.max(0, level))
+  })
+}
+
+function broadcastVoiceOverlayOutput(): void {
+  if (!activeVoiceOverlayChatId || voiceOutputAnnounced) return
+  voiceOutputAnnounced = true
+  broadcastIpc('discord-voice-output', { chatId: activeVoiceOverlayChatId })
+}
+
+function reportVoiceOutputLevel(pcm: Buffer): void {
+  const rms = calculatePcmRms(pcm)
+  const normalized = Math.min(1, Math.max(0, (rms - 0.004) / 0.16))
+  broadcastVoiceOverlayLevel(Math.pow(normalized, 0.68))
+}
+
+function resetVoiceOverlay(): void {
+  if (!activeVoiceOverlayChatId) return
+
+  setVoiceOverlaySpeaking(false)
+  broadcastVoiceOverlayLevel(0, true)
+  broadcastVoiceOverlayState('disconnected')
+  activeVoiceOverlayChatId = null
+  voiceOutputAnnounced = false
+  lastVoiceOverlayLevelAt = 0
+}
+
 function resetVoiceGate(): void {
   voiceGateOpen = false
   voiceGateLastSpeechAt = 0
@@ -472,6 +525,9 @@ function createVoiceAudioOutput(): void {
   activeSpeakerStream = stream
   activeAudioPlayer = player
   voiceOutputTurnActive = true
+  voiceOutputAnnounced = false
+  setVoiceOverlaySpeaking(false)
+  broadcastVoiceOverlayLevel(0, true)
   player.play(createAudioResource(stream, { inputType: StreamType.Raw }))
   attachVoiceAudioPlayerErrorHandler(player)
   player.on(AudioPlayerStatus.Idle, () => {
@@ -493,6 +549,7 @@ function cleanupVoiceResources(): boolean {
 
   const liveSession = activeLiveSession
   activeLiveSession = null
+  resetVoiceOverlay()
   pendingVoiceLeave = null
   activeVoiceStatusMessage = null
   activeLiveAbortController?.abort()
@@ -584,9 +641,11 @@ async function startLiveVoiceSession(
   }
   activeVoiceStatusMessage = statusMsg
   activeLiveToolLoopGuard = new ToolLoopGuard()
+  activeVoiceOverlayChatId = voiceChatId
   persistVoiceHistory()
   broadcastIpc('chat-session-created', { id: voiceChatId })
   setCurrentSessionIdForTodo(voiceChatId)
+  broadcastVoiceOverlayState('connecting')
   let aiSession: any = null
 
   // Step 1: Connect to Gemini Live API FIRST
@@ -638,6 +697,8 @@ async function startLiveVoiceSession(
 
           if (serverContent?.interrupted) {
             console.log('[Discord Gateway] Gemini interrupted its current audio response.')
+            setVoiceOverlaySpeaking(false)
+            broadcastVoiceOverlayLevel(0, true)
             createVoiceAudioOutput()
           }
 
@@ -668,6 +729,9 @@ async function startLiveVoiceSession(
               if (!voiceOutputTurnActive) createVoiceAudioOutput()
 
               const pcm24kBuffer = Buffer.from(part.inlineData.data, 'base64')
+              broadcastVoiceOverlayOutput()
+              setVoiceOverlaySpeaking(true)
+              reportVoiceOutputLevel(pcm24kBuffer)
               const pcm48kBuffer = upsample24kMonoTo48kStereo(pcm24kBuffer)
               voiceOutputChunkCount += 1
               voiceOutputByteCount += pcm48kBuffer.length
@@ -690,6 +754,8 @@ async function startLiveVoiceSession(
 
           if (serverContent?.turnComplete) {
             voiceOutputTurnActive = false
+            setVoiceOverlaySpeaking(false)
+            broadcastVoiceOverlayLevel(0, true)
             if (activeSpeakerStream && !activeSpeakerStream.destroyed) {
               activeSpeakerStream.end()
             }
@@ -705,6 +771,7 @@ async function startLiveVoiceSession(
         },
         onclose: () => {
           console.log('[Discord Gateway] Live session closed')
+          if (activeLiveSession === aiSession) cleanupVoiceResources()
         },
         onerror: (err: any) => {
           console.error('[Discord Gateway] Live session error:', err)
@@ -835,6 +902,7 @@ async function startLiveVoiceSession(
     audioStream.pipe(decoder)
 
     console.log(`[Discord Gateway] Voice session 100% active in channel ${voiceChannel.name}`)
+    broadcastVoiceOverlayState('connected')
     await statusMsg.edit(`✅ *Connected to voice channel "${voiceChannel.name}"! Speak now.*`)
     return true
   } catch (e: any) {

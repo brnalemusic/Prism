@@ -27,6 +27,21 @@ export interface AttachedFile {
   data: string
 }
 
+export interface DiscordVoiceStateEvent {
+  chatId: string
+  state: 'connecting' | 'connected' | 'disconnected'
+}
+
+export interface DiscordVoiceSpeakingEvent {
+  chatId: string
+  speaking: boolean
+}
+
+export interface DiscordVoiceAudioLevelEvent {
+  chatId: string
+  level: number
+}
+
 export interface PrismAPI {
   platform: string
   getMimeType: (fileName: string) => string | false
@@ -65,6 +80,10 @@ export interface PrismAPI {
   onToolEnd: (
     callback: (data: { callId: string; name: string; result: string; chatId: string }) => void
   ) => () => void
+  onDiscordVoiceState: (callback: (data: DiscordVoiceStateEvent) => void) => () => void
+  onDiscordVoiceSpeaking: (callback: (data: DiscordVoiceSpeakingEvent) => void) => () => void
+  onDiscordVoiceAudioLevel: (callback: (data: DiscordVoiceAudioLevelEvent) => void) => () => void
+  onDiscordVoiceOutput: (callback: (data: { chatId: string }) => void) => () => void
   onToolUpdate: (callback: (data: ToolUpdate & { chatId: string }) => void) => () => void
   onDownloadProgress: (callback: (data: DownloadProgress) => void) => () => void
   demoDownloadPrism: () => Promise<DemoDownloadResult>
