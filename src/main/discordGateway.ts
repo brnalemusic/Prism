@@ -753,16 +753,20 @@ async function startLiveVoiceSession(
           }
 
           if (serverContent?.turnComplete) {
-            voiceOutputTurnActive = false
-            setVoiceOverlaySpeaking(false)
-            broadcastVoiceOverlayLevel(0, true)
-            if (activeSpeakerStream && !activeSpeakerStream.destroyed) {
-              activeSpeakerStream.end()
+            if (voiceOutputTurnActive) {
+              voiceOutputTurnActive = false
+              setVoiceOverlaySpeaking(false)
+              broadcastVoiceOverlayLevel(0, true)
+              if (activeSpeakerStream && !activeSpeakerStream.destroyed) {
+                activeSpeakerStream.end()
+              }
             }
-            if (pendingVoiceLeave?.farewellRequested && pendingVoiceLeave.responseStarted) {
+
+            if (pendingVoiceLeave?.farewellRequested) {
               pendingVoiceLeave.turnComplete = true
               maybeFinalizePendingVoiceLeave()
             }
+
             if (activeVoiceHistory) {
               activeVoiceHistory.activeUserMessageIndex = null
               activeVoiceHistory.activeAssistantMessageIndex = null

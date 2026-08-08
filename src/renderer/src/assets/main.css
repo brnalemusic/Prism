@@ -868,27 +868,27 @@
 }
 
 .discord-voice-glow-overlay[data-state='connecting'] {
-  --discord-voice-presence: 0.024;
+  --discord-voice-presence: 0.08;
   --discord-voice-scale: 0.95;
 }
 
 .discord-voice-glow-overlay[data-state='idle'] {
-  --discord-voice-presence: 0.048;
+  --discord-voice-presence: 0.12;
   --discord-voice-scale: 1;
 }
 
 .discord-voice-glow-overlay[data-state='idle'][data-quiet] {
-  --discord-voice-presence: 0.026;
+  --discord-voice-presence: 0.06;
   --discord-voice-scale: 0.94;
 }
 
 .discord-voice-glow-overlay[data-state='speaking'] {
-  --discord-voice-presence: 0.064;
+  --discord-voice-presence: 0.18;
   --discord-voice-scale: 1.06;
 }
 
 .discord-voice-glow-overlay[data-state='working'] {
-  --discord-voice-presence: 0.082;
+  --discord-voice-presence: 0.15;
   --discord-voice-scale: 1.08;
 }
 
