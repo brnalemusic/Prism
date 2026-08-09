@@ -16,20 +16,60 @@ By following these rules, your generated PDFs will have precise page breaks, ele
 
 ---
 
-## 2. Unlocked Tools Specification
+## 2. Unlocked Native Tool Schemas (JSON Definitions)
 
-When this skill is active, you are authorized to call the following PDF artifact tools:
+Reading this skill unlocks the native PDF generation tools. You are now authorized to invoke these tools directly:
 
-### 2.1 `write_pdf`
-Generates a new PDF artifact from complete HTML and CSS.
-- **`filename`** (string): Filename for the PDF (e.g. `executive_summary.pdf`).
-- **`html`** (string): Complete A4 HTML document including standard layout `<style>` block and structured content.
-
-### 2.2 `edit_pdf`
-Updates an existing PDF artifact while preserving its 6-digit artifact ID or path.
-- **`id`** (string, optional): 6-digit artifact ID (e.g. `849201`).
-- **`path`** (string, optional): Absolute path to the PDF file if ID is omitted.
-- **`html`** (string): Updated complete HTML and CSS document.
+```json
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "write_pdf",
+      "description": "Generate a PDF artifact from HTML and CSS.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "PDF filename (e.g. executive_summary.pdf)."
+          },
+          "html": {
+            "type": "string",
+            "description": "Complete A4 HTML and CSS document content."
+          }
+        },
+        "required": ["filename", "html"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "edit_pdf",
+      "description": "Update an existing PDF artifact.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Existing six-digit artifact ID (e.g. 849201)."
+          },
+          "path": {
+            "type": "string",
+            "description": "Existing PDF path when no artifact ID is available."
+          },
+          "html": {
+            "type": "string",
+            "description": "Updated complete HTML and CSS document content."
+          }
+        },
+        "required": ["html"]
+      }
+    }
+  }
+]
+```
 
 ---
 
@@ -264,4 +304,4 @@ Wrap the entire Table of Contents in a single container with `break-inside: avoi
 </html>
 ```
 
-Now invoke `write_pdf` with your clean HTML!
+Now invoke `write_pdf` natively with your clean HTML!

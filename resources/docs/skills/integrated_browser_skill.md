@@ -35,26 +35,162 @@ The Prism platform features two distinct browser interaction modes:
 
 ---
 
-## 2. Integrated Browser Tool Specifications
+## 2. Unlocked Native Tool Schemas (JSON Definitions)
 
-Reading this skill unlocks the following 11 integrated browser tools:
+Reading this skill unlocks the 11 integrated browser tools. You are now authorized to invoke these tools directly:
 
-### 2.1 Session & Navigation Tools
-- **`open_browser`**: Initializes or attaches to the persistent Prism in-app browser session. Accepts an optional `url` parameter (e.g. `{ url: "https://example.com" }`).
-- **`browser_navigate`**: Navigates the active browser session to a new URL (e.g. `{ url: "https://news.ycombinator.com" }`).
-- **`browser_back`**: Navigates backwards in the active browser history tab.
-
-### 2.2 Inspection & Reading Tools
-- **`browser_snapshot`**: Generates a high-level semantic accessibility tree and interactive DOM snapshot with unique numerical element IDs (e.g., `[42] <button>Submit</button>`). Accepts an optional `full: true` parameter for full-page inspection.
-- **`detailed_dom_page`**: Extracts the structured HTML DOM tree of the active page for deep inspection of nested elements, hidden fields, and custom web components.
-- **`browser_screenshot`**: Captures a full high-resolution PNG image of the current browser viewport for visual verification.
-
-### 2.3 Interaction Tools
-- **`browser_click`**: Clicks an interactive element using its assigned `elementId` from the latest `browser_snapshot` (e.g. `{ elementId: "42" }`).
-- **`browser_type`**: Enters text into an input field, textarea, or content-editable element by its `elementId` (e.g. `{ elementId: "18", text: "Prism AI" }`).
-- **`browser_press`**: Sends keypress events (such as `"Enter"`, `"Escape"`, `"Tab"`, `"Backspace"`, `"ArrowDown"`) to the active element or document.
-- **`browser_scroll`**: Scrolls the active browser viewport up or down by pixel amount (e.g. `{ direction: "down", amount: 500 }`).
-- **`web_script`**: Executes arbitrary JavaScript code inside the page context and returns the evaluation result (e.g. `{ script: "document.title" }`).
+```json
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "open_browser",
+      "description": "Open or attach the persistent Prism browser session.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "Optional initial HTTP or HTTPS URL." }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "browser_navigate",
+      "description": "Navigate the active Prism browser.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "HTTP or HTTPS URL." }
+        },
+        "required": ["url"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "browser_snapshot",
+      "description": "Read a semantic snapshot of the active browser page.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "full": { "type": "boolean", "description": "Whether to return the full page snapshot." }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "browser_click",
+      "description": "Click an element in the active browser snapshot.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "elementId": { "type": "string", "description": "Element ID from the latest snapshot." }
+        },
+        "required": ["elementId"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "browser_type",
+      "description": "Type text into an element in the active browser.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "elementId": { "type": "string", "description": "Element ID from the latest snapshot." },
+          "text": { "type": "string", "description": "Text to type." }
+        },
+        "required": ["elementId", "text"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "browser_press",
+      "description": "Press a keyboard key in the active browser.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string", "description": "Playwright key name, such as Enter or Escape." }
+        },
+        "required": ["key"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "browser_scroll",
+      "description": "Scroll the active browser page.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "direction": { "type": "string", "enum": ["up", "down"], "description": "Scroll direction." },
+          "amount": { "type": "integer", "description": "Optional number of pixels to scroll." }
+        },
+        "required": ["direction"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "browser_back",
+      "description": "Navigate back in the active browser history.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "browser_screenshot",
+      "description": "Capture a screenshot of the active browser page.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "web_script",
+      "description": "Execute JavaScript in the active browser page.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "script": { "type": "string", "description": "JavaScript source to execute." },
+          "url": { "type": "string", "description": "Optional expected page URL." }
+        },
+        "required": ["script"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "detailed_dom_page",
+      "description": "Read the detailed DOM of the active browser page.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "Optional expected page URL." }
+        }
+      }
+    }
+  }
+]
+```
 
 ---
 

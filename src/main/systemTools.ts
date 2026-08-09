@@ -14,7 +14,7 @@ import * as fssync from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import PptxGenJS from 'pptxgenjs'
-import { toolsManifest } from './toolsManifest'
+import { toolsManifest, getToolDefinition } from './toolsManifest'
 import { BrowserAction, DownloadProgress, SessionMode, TodoState, ArtifactItem } from '../shared/types'
 
 import { loadConfig, saveConfig, SlashWorkflow } from './config'
@@ -2868,10 +2868,26 @@ export async function executeSystemTool(
         if (!result.success) {
           return result.content
         }
-        const unlockedToolsMsg =
-          result.unlockedTools.length > 0
-            ? `\n\n[System Note: The following execution tools are now unlocked for this conversation: ${result.unlockedTools.join(', ')}]`
-            : ''
+
+        let unlockedToolsMsg = ''
+        if (result.unlockedTools.length > 0) {
+          const definitions = result.unlockedTools
+            .map((tName) => {
+              const def = getToolDefinition(tName)
+              if (!def) return null
+              return {
+                type: 'function',
+                function: {
+                  name: def.name,
+                  description: def.description,
+                  parameters: def.inputSchema
+                }
+              }
+            })
+            .filter(Boolean)
+
+          unlockedToolsMsg = `\n\n[System Note: The following native execution tool definitions have been UNLOCKED for this conversation:\n\`\`\`json\n${JSON.stringify(definitions, null, 2)}\n\`\`\`\n]`
+        }
         return `${result.content}${unlockedToolsMsg}`
       } catch (err) {
         return `Error reading skill: ${err instanceof Error ? err.message : String(err)}`

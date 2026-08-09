@@ -16,20 +16,60 @@ By structuring each slide inside a `<div class="slide">` container, your present
 
 ---
 
-## 2. Unlocked Tools Specification
+## 2. Unlocked Native Tool Schemas (JSON Definitions)
 
-When this skill is active, you are authorized to call the following PPTX artifact tools:
+Reading this skill unlocks the native PowerPoint generation tools. You are now authorized to invoke these tools directly:
 
-### 2.1 `write_pptx`
-Generates a 16:9 PowerPoint presentation artifact from complete slide HTML and CSS.
-- **`filename`** (string): Filename for the presentation (e.g. `product_pitch.pptx`).
-- **`html`** (string): Complete HTML string containing elements with class `.slide` (or `<section>`).
-
-### 2.2 `edit_pptx`
-Updates an existing PowerPoint artifact while preserving its 6-digit artifact ID or path.
-- **`id`** (string, optional): 6-digit artifact ID (e.g. `492018`).
-- **`path`** (string, optional): Absolute path to the PPTX file if ID is omitted.
-- **`html`** (string): Updated complete slide HTML and CSS document.
+```json
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "write_pptx",
+      "description": "Generate a 16:9 PowerPoint artifact from slide HTML and CSS.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "PowerPoint filename (e.g. presentation.pptx)."
+          },
+          "html": {
+            "type": "string",
+            "description": "Complete 1920x1080 slide HTML and CSS document content."
+          }
+        },
+        "required": ["filename", "html"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "edit_pptx",
+      "description": "Update an existing PowerPoint artifact.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Existing six-digit artifact ID (e.g. 492018)."
+          },
+          "path": {
+            "type": "string",
+            "description": "Existing PowerPoint path when no artifact ID is available."
+          },
+          "html": {
+            "type": "string",
+            "description": "Updated complete slide HTML and CSS document content."
+          }
+        },
+        "required": ["html"]
+      }
+    }
+  }
+]
+```
 
 ---
 
@@ -215,4 +255,4 @@ Place topic tags at the top and slide counter badges at the bottom right:
 </html>
 ```
 
-Now invoke `write_pptx` with your complete slide HTML!
+Now invoke `write_pptx` natively with your complete slide HTML!
