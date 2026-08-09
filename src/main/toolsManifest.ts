@@ -160,8 +160,8 @@ export const toolsManifest: ToolDefinition[] = [
   ),
   tool(
     'open_application',
-    'Open an application from its executable path.',
-    { appPath: stringSchema('Absolute executable path.') },
+    'Open an application or file via path in the default system app.',
+    { appPath: stringSchema('Absolute file or executable path.') },
     ['appPath']
   ),
   tool(
@@ -192,7 +192,7 @@ export const toolsManifest: ToolDefinition[] = [
   ),
   tool(
     'open_browser_link',
-    'Open a URL in the system browser.',
+    'Open a web URL (http/https) in the system browser. Do not use for local file paths.',
     { url: stringSchema('HTTP or HTTPS URL.') },
     ['url']
   ),

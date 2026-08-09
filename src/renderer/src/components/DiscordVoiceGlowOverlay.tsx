@@ -309,8 +309,13 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
     const removeOutputListener = window.api.onDiscordVoiceOutput(({ chatId }) => {
       if (!isActiveVoiceChat(chatId)) return
       clearQuietTimer()
-      dismissToolPanel()
-      setView((current) => ({ ...current, speaking: true, quiet: false }))
+      setView((current) => {
+        const isLeaveTool = current.tool?.name && ['discord_leave_voice', 'leave_voice', 'disconnect_voice'].includes(current.tool.name)
+        if (!isLeaveTool) {
+          dismissToolPanel()
+        }
+        return { ...current, speaking: true, quiet: false }
+      })
     })
 
     const removeToolStartListener = window.api.onToolStart(({ chatId, name }) => {
