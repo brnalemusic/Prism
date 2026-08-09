@@ -434,6 +434,14 @@ export const toolsManifest: ToolDefinition[] = [
     ['title', 'html', 'css', 'js']
   ),
   tool(
+    'read_skill',
+    'Read a specialized skill file from Prism internal skills library to learn guidelines and unlock execution tools for specific tasks.',
+    {
+      skill_name: stringSchema('Filename of the skill to read, e.g. "pdf_skill.md" or "pptx_skill.md".')
+    },
+    ['skill_name']
+  ),
+  tool(
     'write_pdf',
     'Generate a PDF artifact from HTML and CSS.',
     { filename: stringSchema('PDF filename.'), html: stringSchema('Complete A4 HTML and CSS.') },

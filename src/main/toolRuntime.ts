@@ -81,30 +81,61 @@ export function schemaForGemini(schema: JsonSchema): Record<string, unknown> {
   return result
 }
 
-export function getOpenAiToolDefinitions(): Array<{
+import { isToolUnlockedForSession } from './skillsManager'
+
+const SKILL_LOCKED_TOOLS = new Set([
+  'write_pdf',
+  'edit_pdf',
+  'write_pptx',
+  'edit_pptx',
+  'open_browser',
+  'browser_navigate',
+  'browser_snapshot',
+  'browser_click',
+  'browser_type',
+  'browser_press',
+  'browser_scroll',
+  'browser_back',
+  'browser_screenshot',
+  'web_script',
+  'detailed_dom_page'
+])
+
+function isToolAvailableForSession(toolName: string, chatId?: string): boolean {
+  if (!SKILL_LOCKED_TOOLS.has(toolName)) {
+    return true
+  }
+  return isToolUnlockedForSession(toolName, chatId)
+}
+
+export function getOpenAiToolDefinitions(chatId?: string): Array<{
   type: 'function'
   function: { name: string; description: string; parameters: Record<string, unknown> }
 }> {
-  return toolsManifest.map((definition) => ({
-    type: 'function',
-    function: {
-      name: definition.name,
-      description: definition.description,
-      parameters: definition.inputSchema as unknown as Record<string, unknown>
-    }
-  }))
+  return toolsManifest
+    .filter((definition) => isToolAvailableForSession(definition.name, chatId))
+    .map((definition) => ({
+      type: 'function',
+      function: {
+        name: definition.name,
+        description: definition.description,
+        parameters: definition.inputSchema as unknown as Record<string, unknown>
+      }
+    }))
 }
 
-export function getGeminiFunctionDeclarations(): Array<{
+export function getGeminiFunctionDeclarations(chatId?: string): Array<{
   name: string
   description: string
   parameters: Record<string, unknown>
 }> {
-  return toolsManifest.map((definition) => ({
-    name: definition.name,
-    description: definition.description,
-    parameters: schemaForGemini(definition.inputSchema)
-  }))
+  return toolsManifest
+    .filter((definition) => isToolAvailableForSession(definition.name, chatId))
+    .map((definition) => ({
+      name: definition.name,
+      description: definition.description,
+      parameters: schemaForGemini(definition.inputSchema)
+    }))
 }
 
 function typeDescription(value: unknown): string {

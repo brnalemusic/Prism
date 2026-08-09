@@ -25,6 +25,7 @@ import { PptxArtifactCard } from './PptxArtifactCard'
 const TOOL_LABELS: Record<string, string> = {
   web_search: 'Searching web',
   saw_link_from_url: 'Reading web page',
+  read_skill: 'Reading skill',
   execute_terminal_command: 'Running terminal command',
   run_command: 'Running terminal command',
   create_mini_app: 'Creating mini app',

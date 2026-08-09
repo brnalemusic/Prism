@@ -69,10 +69,11 @@ export function cancelChatMessage(chatId?: string): void {
 
 export function getNativeToolsForOpenAi(
   _target: 'main' | 'launcher' = 'main',
-  allowedTools?: string[]
+  allowedTools?: string[],
+  chatId?: string
 ): OpenAiToolDefinition[] {
   void _target
-  const definitions = getOpenAiToolDefinitions()
+  const definitions = getOpenAiToolDefinitions(chatId)
   if (allowedTools === undefined) return definitions
   const allowed = new Set(allowedTools)
   return definitions.filter((definition) => allowed.has(definition.function.name))
@@ -266,7 +267,7 @@ export async function handleChatMessage(
     const openAiTools =
       currentSessionMode === 'conversation'
         ? []
-        : getNativeToolsForOpenAi('main', matchedWorkflow?.toolConstraints)
+        : getNativeToolsForOpenAi('main', matchedWorkflow?.toolConstraints, chatId)
     const messagesForApi: OpenAiMessage[] = [
       { role: 'system', content: fullPrompt },
       ...convertHistoryToOpenAi(historyMessages)

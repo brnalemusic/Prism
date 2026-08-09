@@ -20,6 +20,7 @@ import { BrowserAction, DownloadProgress, SessionMode, TodoState, ArtifactItem }
 import { loadConfig, saveConfig, SlashWorkflow } from './config'
 import { requestDiscordVoiceLeave } from './discordGateway'
 import { searchChatHistory, searchChatMemory, loadChatSession, getChatArtifacts, saveChatArtifact, saveChatTodo } from './history'
+import { getSkillsSystemPromptSnippetSync, readSkill } from './skillsManager'
 import {
   chromium,
   type Browser,
@@ -2075,29 +2076,28 @@ Context: ${date} | ${platform} | Home: ${homeDir} | CWD: ${cwd}
       ? `\n- **Discipline Mode**: Operations/commands run in ${disciplinePath}. Modify relative to this path.`
       : ''
 
+  const skillsSnippet = getSkillsSystemPromptSnippetSync()
+  const skillsSection = skillsSnippet ? `\n\n${skillsSnippet}` : ''
+
   return `# Identity & Context
 Role: ${name} (${modelName}), Desktop AI Assistant.
 Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
 # Rules & Protocols
 - Match user language. Be direct, factual, and concise.${disciplineRule}
-- **Auto-Open:** If an app, link, or path is sent alone, open it immediately via relevant tool.
+- **Auto-Open & Links:** Open URLs/links in OS system browser via \`open_browser_link\` by default. Use integrated AI browser tools only if user explicitly requests in-app/AI browser (requires \`read_skill\` with \`integrated_browser_skill.md\`).
 - **Formatting:**
   1. Simple Markdown for standard text/code.
   2. Inline HTML/CSS inside Markdown for rich visual cards/designs (render directly, do not block-wrap in \`\`\`html).
   3. Call \`create_mini_app\` tool for interactive widgets/games.
-- **PDF & PPTX Best Practices:**
-  - **PDF (A4):** \`@page { size: A4; margin: 0; }\`. Cover (\`.cover\`): \`width: 210mm; height: 297mm; box-sizing: border-box; padding: 20mm; overflow: hidden; page-break-after: always; break-after: page;\`. Inner pages (\`.page\`): \`padding: 15mm 20mm; box-sizing: border-box;\`. Single-container TOC (no item breaks). Cards/tables/code: \`break-inside: avoid;\`.
-  - **PPTX (16:9 1920x1080):** Wrap each slide in \`<div class="slide">\` with \`width: 1920px; height: 1080px; padding: 60px 80px; box-sizing: border-box; overflow: hidden; page-break-after: always; position: relative;\`. 1 concept/slide, 2-3 column CSS grid, bold card callouts, high contrast typography.
 - **Execution & Tools:**
   - Absolute paths required for file operations.
   - Commands run in \`${shellName}\` (${shellSyntax}).
-  - Shared single live browser session. If active, inspect via browser_snapshot or detailed_dom_page. Do not re-open.
   - Parallel native tool calls allowed.
   - Do not invent tool results, paths, or citations.
 - **Search:** Use web_search and saw_link_from_url. For Deep Research: 1. Search context, 2. Present plan & await user approval, 3. 10+ iterations, 4. Output Markdown report.
 - **Prism Docs:** Use internal_docs_list, internal_docs_read, internal_docs_search for Prism system queries.
-- **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}`
+- **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}${skillsSection}`
 }
 
 export interface InstalledApplicationResult {
@@ -2854,6 +2854,27 @@ export async function executeSystemTool(
         }
       } catch (error) {
         return `Error reading doc: ${error instanceof Error ? error.message : String(error)}`
+      }
+    }
+
+    // Skills
+    case 'read_skill': {
+      try {
+        const skillName = (args.skill_name || '').toString().trim()
+        if (!skillName) {
+          return 'Error: skill_name parameter is required.'
+        }
+        const result = await readSkill(skillName, chatId)
+        if (!result.success) {
+          return result.content
+        }
+        const unlockedToolsMsg =
+          result.unlockedTools.length > 0
+            ? `\n\n[System Note: The following execution tools are now unlocked for this conversation: ${result.unlockedTools.join(', ')}]`
+            : ''
+        return `${result.content}${unlockedToolsMsg}`
+      } catch (err) {
+        return `Error reading skill: ${err instanceof Error ? err.message : String(err)}`
       }
     }
     case 'internal_docs_search': {
