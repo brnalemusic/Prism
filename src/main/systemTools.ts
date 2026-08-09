@@ -3547,32 +3547,72 @@ function parseCssColorToHex(colorStr: string): string | null {
 }
 
 async function compileHtmlToPdf(html: string, outputPath: string): Promise<void> {
-  const win = new BrowserWindow({
-    show: false,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true
-    }
-  })
+  const dir = path.dirname(outputPath)
+  await fs.mkdir(dir, { recursive: true })
 
   try {
-    const encodedHtml = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
-    await win.loadURL(encodedHtml)
-
-    const dir = path.dirname(outputPath)
-    await fs.mkdir(dir, { recursive: true })
-
-    const pdfBuffer = await win.webContents.printToPDF({
-      printBackground: true,
-      pageSize: 'A4',
-      preferCSSPageSize: true
+    let win: BrowserWindow | null = new BrowserWindow({
+      width: 1200,
+      height: 1600,
+      show: false,
+      frame: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true
+      }
     })
 
-    await fs.writeFile(outputPath, pdfBuffer)
-  } finally {
-    if (!win.isDestroyed()) {
-      win.destroy()
+    try {
+      const encodedHtml = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
+      await win.loadURL(encodedHtml)
+
+      // Wait brief moment for layout & styles to compute before printing
+      await new Promise((r) => setTimeout(r, 600))
+
+      let pdfBuffer: Buffer
+      try {
+        pdfBuffer = await win.webContents.printToPDF({
+          printBackground: true,
+          pageSize: 'A4',
+          preferCSSPageSize: true
+        })
+      } catch (printErr) {
+        console.warn('Electron printToPDF failed on first attempt, retrying after pause...', printErr)
+        await new Promise((r) => setTimeout(r, 400))
+        pdfBuffer = await win.webContents.printToPDF({
+          printBackground: true,
+          pageSize: 'A4',
+          preferCSSPageSize: true
+        })
+      }
+
+      await fs.writeFile(outputPath, pdfBuffer)
+    } finally {
+      if (win && !win.isDestroyed()) {
+        win.destroy()
+        win = null
+      }
     }
+  } catch (primaryErr) {
+    console.error('BrowserWindow PDF compilation failed, invoking Playwright fallback:', primaryErr)
+    await compileHtmlToPdfFallback(html, outputPath)
+  }
+}
+
+async function compileHtmlToPdfFallback(html: string, outputPath: string): Promise<void> {
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await browser.newPage()
+    await page.setContent(html, { waitUntil: 'domcontentloaded' })
+    await new Promise((r) => setTimeout(r, 500))
+    await page.pdf({
+      path: outputPath,
+      format: 'A4',
+      printBackground: true,
+      preferCSSPageSize: true
+    })
+  } finally {
+    await browser.close()
   }
 }
 
