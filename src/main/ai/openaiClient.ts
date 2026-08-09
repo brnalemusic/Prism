@@ -165,7 +165,16 @@ export async function streamOpenAiCompletion(
   }
 
   if (completionType === 'anthropic_messages') {
-    return streamAnthropicMessages(provider, normUrl, modelId, messages, tools, signal, callbacks)
+    return streamAnthropicMessages(
+      provider,
+      normUrl,
+      modelId,
+      messages,
+      tools,
+      signal,
+      callbacks,
+      reasoningLevel
+    )
   }
 
   const headers: Record<string, string> = {
@@ -408,8 +417,12 @@ async function streamAnthropicMessages(
   messages: OpenAiMessage[],
   tools: OpenAiToolDefinition[],
   signal: AbortSignal,
-  callbacks: StreamCallbacks
+  callbacks: StreamCallbacks,
+  reasoningLevel?: string
 ): Promise<StreamResult> {
+  console.log(
+    `[Main Chat] Calling ${modelId} with [${provider.name || provider.baseUrl}] (${messages.length} messages, ${tools?.length || 0} tools, reasoningLevel: ${reasoningLevel || 'off'})`
+  )
   const endpoint = normUrl.endsWith('/messages') ? normUrl : `${normUrl}/messages`
 
   const systemMessage = messages.find((m) => m.role === 'system')?.content || ''

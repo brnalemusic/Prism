@@ -166,6 +166,9 @@ export async function streamGeminiCompletion(
   reasoningLevel?: string,
   options?: { skipUsageIncrement?: boolean }
 ): Promise<StreamResult> {
+  console.log(
+    `[Main Chat] Calling ${modelId} with [${provider.name || provider.baseUrl}] (${messages.length} messages, ${tools?.length || 0} tools, reasoningLevel: ${reasoningLevel || 'off'})`
+  )
   const prismCloud = isPrismCloudProvider(provider)
   const headers: Record<string, string> = {}
   let apiKey = provider.apiKey

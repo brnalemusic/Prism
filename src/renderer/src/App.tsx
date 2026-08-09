@@ -2467,18 +2467,24 @@ function RealApp(): React.JSX.Element {
               })
             } else {
               const lowerErr = error.toLowerCase()
+              const isPrismCloudError =
+                lowerErr.includes('prism cloud') ||
+                lowerErr.includes('prism provider') ||
+                lowerErr.includes('prism_provider')
+
               const isQuotaExceeded =
-                lowerErr.includes('quota') ||
-                lowerErr.includes('limit reached') ||
-                lowerErr.includes('429') ||
-                lowerErr.includes('rate limit')
+                isPrismCloudError &&
+                (lowerErr.includes('quota') ||
+                  lowerErr.includes('limit reached') ||
+                  lowerErr.includes('429') ||
+                  lowerErr.includes('rate limit'))
 
               let separatorContent: string
               if (isQuotaExceeded) {
                 setIsQuotaModalOpen(true)
                 separatorContent =
                   'Prism Cloud Quota Exceeded: Your Prism Cloud request limit has been reached. Please wait for the reset window or switch to a custom API key in Settings.'
-              } else if (error.startsWith('API Error') || error.startsWith('Provider API Error') || lowerErr.includes('prism provider') || lowerErr.includes('prism cloud')) {
+              } else if (error.startsWith('API Error') || error.startsWith('Provider API Error') || isPrismCloudError) {
                 separatorContent = error
               } else {
                 const apiErrorMatch = error.match(/^API_KEY_ERROR:(\d{3}):(.+)$/)

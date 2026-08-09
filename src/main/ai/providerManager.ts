@@ -188,7 +188,7 @@ export function resolveProviderAndModel(fullKey?: string): {
   if (!providers.length) return { provider: null, model: null }
 
   if (fullKey) {
-    // Check if fullKey is in providerId:modelId format
+    // 1. Exact match with providerId:modelId
     if (fullKey.includes(':')) {
       const [pid, ...mParts] = fullKey.split(':')
       const mid = mParts.join(':')
@@ -199,15 +199,27 @@ export function resolveProviderAndModel(fullKey?: string): {
       }
     }
 
-    // Direct model ID match across enabled models
-    for (const p of providers) {
+    // 2. Direct bare model ID match: check custom BYOK providers FIRST
+    for (const p of providers.filter((p) => p.id !== PRISM_PROVIDER_ID)) {
+      const m = p.models.find((mod) => mod.enabled && (mod.id === fullKey || mod.name === fullKey))
+      if (m) return { provider: p, model: m }
+    }
+
+    // 3. Fallback check for Prism Cloud bare model ID match
+    for (const p of providers.filter((p) => p.id === PRISM_PROVIDER_ID)) {
       const m = p.models.find((mod) => mod.enabled && (mod.id === fullKey || mod.name === fullKey))
       if (m) return { provider: p, model: m }
     }
   }
 
-  // Fallback: Return first enabled model in any provider
-  for (const p of providers) {
+  // 4. Default fallback: Prefer enabled model in custom BYOK providers first
+  for (const p of providers.filter((p) => p.id !== PRISM_PROVIDER_ID)) {
+    const m = p.models.find((mod) => mod.enabled)
+    if (m) return { provider: p, model: m }
+  }
+
+  // 5. Fallback to enabled model in Prism Cloud
+  for (const p of providers.filter((p) => p.id === PRISM_PROVIDER_ID)) {
     const m = p.models.find((mod) => mod.enabled)
     if (m) return { provider: p, model: m }
   }
