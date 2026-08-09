@@ -294,6 +294,10 @@ export async function handleChatMessage(
       modelId: model.id,
       messages: messagesForApi,
       tools: openAiTools,
+      getToolsForRound: () =>
+        currentSessionMode === 'conversation'
+          ? []
+          : getNativeToolsForOpenAi('main', matchedWorkflow?.toolConstraints, chatId),
       signal: abortController.signal,
       reasoningLevel,
       onStreamEvent: (streamEvent, state) => {

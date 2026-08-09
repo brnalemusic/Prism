@@ -52,6 +52,7 @@ export interface ToolOrchestratorOptions {
   modelId: string
   messages: OpenAiMessage[]
   tools: OpenAiToolDefinition[]
+  getToolsForRound?: () => OpenAiToolDefinition[]
   signal: AbortSignal
   reasoningLevel?: string
   maxRounds?: number
@@ -213,7 +214,8 @@ export async function runToolOrchestration(
 
   for (let round = 1; round <= maxRounds; round++) {
     abortIfNeeded(options.signal)
-    const streamed = await streamRound(round, false, options.messages, options.tools)
+    const currentTools = options.getToolsForRound ? options.getToolsForRound() : options.tools
+    const streamed = await streamRound(round, false, options.messages, currentTools)
     accumulatedText = joinOutput(accumulatedText, streamed.result.text)
     accumulatedReasoning = joinOutput(accumulatedReasoning, streamed.result.reasoning)
 

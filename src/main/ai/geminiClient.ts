@@ -191,9 +191,8 @@ export async function streamGeminiCompletion(
   const { systemInstruction, contents } = convertMessagesToGemini(messages)
   const thinkingLevel = normalizePrismThinkingLevel(provider, modelId, reasoningLevel)
   const requestedToolNames = new Set(tools.map((tool) => tool.function.name))
-  const functionDeclarations = getGeminiFunctionDeclarations().filter((declaration) =>
-    requestedToolNames.has(declaration.name)
-  ) as FunctionDeclaration[]
+  const functionDeclarations = getGeminiFunctionDeclarations()
+    .filter((declaration) => requestedToolNames.has(declaration.name)) as FunctionDeclaration[]
 
   const stream = await client.models.generateContentStream({
     model: modelId,
