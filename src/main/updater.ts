@@ -111,7 +111,7 @@ function fetchUrl(url: string, redirects = 0): Promise<string> {
             } else {
               reject(new Error(`Insecure redirect to ${redirectUrl.toString()}`))
             }
-          } catch (e) {
+          } catch {
             reject(new Error(`Invalid redirect URL: ${res.headers.location}`))
           }
           res.resume()
@@ -219,7 +219,7 @@ function downloadFile(
               } else {
                 reject(new Error(`Insecure redirect to ${redirectUrl.toString()}`))
               }
-            } catch (e) {
+            } catch {
               reject(new Error(`Invalid redirect URL: ${res.headers.location}`))
             }
             return
@@ -288,7 +288,10 @@ function createUpdaterWindow(mainWindow: BrowserWindow): void {
       ? { icon: getAppIconPath() }
       : {}),
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      // This module is loaded lazily and therefore may execute from an emitted
+      // `chunks` directory. Resolve from the application root instead of this
+      // module's directory so the preload path remains stable in both modes.
+      preload: join(app.getAppPath(), 'out', 'preload', 'index.js'),
       sandbox: false
     }
   })
@@ -444,10 +447,10 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
       updaterState.progress = { percent: 100, speed: 0, transferred: totalSize, total: totalSize }
       safeSend(updaterWindow, 'updater-state', { ...updaterState })
       console.log(`[Auto-Updater] Download complete: ${destPath}`)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[Auto-Updater] Download failed:', err)
       updaterState.status = 'error'
-      updaterState.error = err?.message || String(err)
+      updaterState.error = err instanceof Error ? err.message : String(err)
       safeSend(updaterWindow, 'updater-state', { ...updaterState })
     }
   })

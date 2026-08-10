@@ -4,6 +4,7 @@ import './assets/main.css'
 import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { IS_DEMO } from '../../shared/demo'
+import { UpdaterView } from './components/UpdaterView'
 import { StartupShell } from './components/StartupShell'
 
 const RootApp = lazy(async () => {
@@ -23,10 +24,8 @@ const RootApp = lazy(async () => {
       const { DiscordVoiceGlowOverlay } = await import('./components/DiscordVoiceGlowOverlay')
       return { default: DiscordVoiceGlowOverlay }
     }
-    case '#updater': {
-      const { UpdaterView } = await import('./components/UpdaterView')
+    case '#updater':
       return { default: UpdaterView }
-    }
   }
 
   return await import('./App')

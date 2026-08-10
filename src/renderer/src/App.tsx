@@ -25,6 +25,7 @@ import { PdfArtifactCard } from './components/PdfArtifactCard'
 import { PptxArtifactCard } from './components/PptxArtifactCard'
 import { TtsButton } from './components/TtsButton'
 import { CopyMessageButton } from './components/CopyMessageButton'
+import { UpdaterView } from './components/UpdaterView'
 import { isShortcutPressed } from './utils'
 import { TabBar } from './components/TabBar'
 import { ChatPane } from './components/ChatPane'
@@ -64,9 +65,6 @@ const QuickLauncher = lazy(() =>
 )
 const SettingsView = lazy(() =>
   import('./components/SettingsView').then(({ SettingsView }) => ({ default: SettingsView }))
-)
-const UpdaterView = lazy(() =>
-  import('./components/UpdaterView').then(({ UpdaterView }) => ({ default: UpdaterView }))
 )
 
 interface HastNode {

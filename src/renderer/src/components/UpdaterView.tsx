@@ -1,39 +1,52 @@
 import React, { useEffect, useState } from 'react'
 import { Sparkle, Warning, Info, ArrowRight, Download, CheckCircle, WarningOctagon } from '@phosphor-icons/react'
-import { AppConfig } from '../../../main/config'
+import type { AppConfig } from '../../../main/config'
+
+type UpdaterState = {
+  status: 'checking' | 'available' | 'downloading' | 'downloaded' | 'error' | 'not-available'
+  currentVersion: string
+  latestVersion: string
+  recommendationLevel: 'patch' | 'minor' | 'major'
+  releaseNotes: string
+  progress?: {
+    percent: number
+    speed: number
+    transferred: number
+    total: number
+  }
+  error?: string
+}
+
+const initialUpdaterState: UpdaterState = {
+  status: 'checking',
+  currentVersion: '',
+  latestVersion: '',
+  recommendationLevel: 'patch',
+  releaseNotes: ''
+}
 
 export function UpdaterView(): React.JSX.Element {
-  const [state, setState] = useState<{
-    status: 'checking' | 'available' | 'downloading' | 'downloaded' | 'error' | 'not-available'
-    currentVersion: string
-    latestVersion: string
-    recommendationLevel: 'patch' | 'minor' | 'major'
-    releaseNotes: string
-    progress?: {
-      percent: number
-      speed: number
-      transferred: number
-      total: number
+  const [state, setState] = useState<UpdaterState>(() => {
+    if (window.api) return initialUpdaterState
+
+    return {
+      ...initialUpdaterState,
+      status: 'error',
+      error: 'The updater IPC bridge is unavailable. Please restart Prism.'
     }
-    error?: string
-  }>({
-    status: 'checking',
-    currentVersion: '',
-    latestVersion: '',
-    recommendationLevel: 'patch',
-    releaseNotes: ''
   })
 
   useEffect(() => {
+    const api = window.api
+    if (!api) {
+      console.error('The updater IPC bridge is unavailable. Please restart Prism.')
+      return
+    }
+
     // Load config to apply the selected theme
     const loadConfig = async (): Promise<void> => {
-      let c: AppConfig | null = null
       try {
-        if (window.api && (window.api as any).getConfig) {
-          c = await (window.api as any).getConfig()
-        } else {
-          c = window.electron.ipcRenderer.sendSync('get-config-sync')
-        }
+        const c: AppConfig = await api.getConfig()
         if (c && c.theme) {
           document.documentElement.setAttribute('data-theme', c.theme)
         }
@@ -44,14 +57,14 @@ export function UpdaterView(): React.JSX.Element {
     loadConfig()
 
     // Fetch initial updater state
-    window.api.getUpdaterState()
-      .then((initialState: any) => {
+    api.getUpdaterState()
+      .then((initialState: UpdaterState | null) => {
         if (initialState) setState(initialState)
       })
       .catch(console.error)
 
     // Register updater state push notifications
-    const removeListener = window.api.onUpdaterState((newState: any) => {
+    const removeListener = api.onUpdaterState((newState: UpdaterState | null) => {
       if (newState) setState(newState)
     })
 
@@ -59,15 +72,15 @@ export function UpdaterView(): React.JSX.Element {
   }, [])
 
   const handleDownload = (): void => {
-    window.api.downloadUpdate()
+    window.api?.downloadUpdate()
   }
 
   const handleInstall = (): void => {
-    window.api.installUpdate()
+    window.api?.installUpdate()
   }
 
   const handleClose = (): void => {
-    window.electron.ipcRenderer.send('close-updater-window')
+    window.electron?.ipcRenderer.send('close-updater-window')
   }
 
   // Set recommendation level styling parameters
