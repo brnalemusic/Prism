@@ -63,7 +63,6 @@ import { loadConfig, saveConfig, AppConfig } from './config'
 import { activateLicenseKey, deactivateLicense, getLicenseInfo, startLicenseExpirationMonitor, syncLocalLicenseWithSupabase, revokeLocalLicenseFromSupabase } from './license'
 import { toolsManifest } from './toolsManifest'
 import { listChatSessions, loadChatSession, deleteChatSession, searchChatsOffline } from './history'
-import { startDiscordGateway } from './discordGateway'
 import {
   testGeminiConnection,
   markConnectionActive,
@@ -89,8 +88,6 @@ if (process.platform === 'win32') {
   }
 }
 
-import { initAutoUpdater } from './updater'
-import { registerDemoDownloadHandlers } from './demoDownload'
 import {
   initializeAuthSession,
   authSignUp,
@@ -178,7 +175,62 @@ function saveWindowState(state: WindowState): void {
 let currentConfig: AppConfig
 let mainWindow: BrowserWindow | null = null
 let launcherWindow: BrowserWindow | null = null
+let launcherShowWhenReady = false
+let launcherLoadListenerAttached = false
 export let voiceOverlayWindow: BrowserWindow | null = null
+
+type DiscordGatewayModule = typeof import('./discordGateway')
+
+let discordGatewayModule: DiscordGatewayModule | null = null
+let discordGatewayModulePromise: Promise<DiscordGatewayModule> | null = null
+let discordGatewayRequestId = 0
+let discordGatewayFingerprint = ''
+
+function getDiscordGatewayFingerprint(config: AppConfig): string {
+  return `${config.discordGatewayEnabled ? 'enabled' : 'disabled'}:${config.discordBotToken?.trim() || ''}`
+}
+
+function reconcileDiscordGateway(config: AppConfig): void {
+  currentConfig = config
+  const enabled = Boolean(config.discordGatewayEnabled && config.discordBotToken?.trim())
+  const fingerprint = getDiscordGatewayFingerprint(config)
+
+  if (!enabled) {
+    discordGatewayFingerprint = fingerprint
+    discordGatewayRequestId += 1
+    discordGatewayModule?.stopDiscordGateway()
+    return
+  }
+
+  if (fingerprint === discordGatewayFingerprint && discordGatewayModule) {
+    // The Gateway keeps its connection when unrelated settings or its model change.
+    discordGatewayModule.startDiscordGateway(config)
+    return
+  }
+
+  discordGatewayFingerprint = fingerprint
+  const requestId = ++discordGatewayRequestId
+  const loadModule = discordGatewayModule
+    ? Promise.resolve(discordGatewayModule)
+    : (discordGatewayModulePromise ||= import('./discordGateway'))
+
+  void loadModule
+    .then((module) => {
+      discordGatewayModule = module
+      if (requestId !== discordGatewayRequestId || currentConfig !== config) return
+      module.startDiscordGateway(config)
+    })
+    .catch((error) => {
+      if (requestId === discordGatewayRequestId) {
+        console.error('[Discord Gateway] Failed to load Gateway module:', error)
+      }
+    })
+}
+
+function scheduleDiscordGatewayStart(): void {
+  if (IS_DEMO || !currentConfig || isQuitting) return
+  setTimeout(() => reconcileDiscordGateway(currentConfig), 0)
+}
 
 async function finalizeAuthenticatedIpcResponse(result: AuthResponse): Promise<AuthResponse> {
   if (!result.success || !result.user) return result
@@ -550,7 +602,13 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => {
     console.log('ready-to-show event fired')
     mainWindow?.focus()
-    if (mainWindow && !IS_DEMO) initAutoUpdater(mainWindow)
+    if (mainWindow && !IS_DEMO) {
+      const readyWindow = mainWindow
+      void import('./updater')
+        .then(({ initAutoUpdater }) => initAutoUpdater(readyWindow))
+        .catch((error) => console.error('[Updater] Failed to initialize:', error))
+    }
+    scheduleDiscordGatewayStart()
   })
 
   mainWindow.on('close', (event) => {
@@ -627,6 +685,8 @@ function createWindow(): void {
 }
 
 function createLauncherWindow(): void {
+  if (launcherWindow && !launcherWindow.isDestroyed()) return
+
   launcherWindow = new BrowserWindow({
     show: false,
     frame: false,
@@ -662,6 +722,8 @@ function createLauncherWindow(): void {
 
   launcherWindow.on('closed', () => {
     launcherWindow = null
+    launcherShowWhenReady = false
+    launcherLoadListenerAttached = false
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -672,16 +734,36 @@ function createLauncherWindow(): void {
 }
 
 function toggleLauncher(): void {
+  if (!launcherWindow) createLauncherWindow()
   if (!launcherWindow) return
 
   if (launcherWindow.isVisible()) {
     launcherWindow.hide()
   } else {
     const primaryDisplay = screen.getPrimaryDisplay()
-    launcherWindow.setBounds(primaryDisplay.bounds)
-    launcherWindow.show()
-    launcherWindow.focus()
-    safeSend(launcherWindow, 'launcher-focus')
+    const showLauncher = (): void => {
+      if (!launcherWindow || launcherWindow.isDestroyed()) return
+      launcherWindow.setBounds(primaryDisplay.bounds)
+      launcherWindow.show()
+      launcherWindow.focus()
+      safeSend(launcherWindow, 'launcher-focus')
+    }
+
+    if (launcherWindow.webContents.isLoading()) {
+      launcherShowWhenReady = true
+      if (!launcherLoadListenerAttached) {
+        launcherLoadListenerAttached = true
+        launcherWindow.webContents.once('did-finish-load', () => {
+          launcherLoadListenerAttached = false
+          if (!launcherShowWhenReady) return
+          launcherShowWhenReady = false
+          showLauncher()
+        })
+      }
+    } else {
+      launcherShowWhenReady = false
+      showLauncher()
+    }
   }
 }
 
@@ -884,7 +966,6 @@ if (!gotTheLock) {
 
     // Load config after app is ready
     currentConfig = loadConfig()
-    if (!IS_DEMO) startDiscordGateway(currentConfig)
 
     // Enforce auto-launch state based on loaded configuration
     if (!IS_DEMO) {
@@ -955,6 +1036,15 @@ if (!gotTheLock) {
 
     ipcMain.on('overlay-log', (_event, msg) => {
       console.log(`[Overlay React]: ${msg}`)
+    })
+
+    // The voice overlay is created on demand. Replay the latest lightweight
+    // state after its isolated renderer has mounted so no connection event is
+    // lost while the BrowserWindow is loading.
+    ipcMain.on('voice-overlay-ready', () => {
+      void import('./discordGateway')
+        .then(({ replayVoiceOverlayState }) => replayVoiceOverlayState())
+        .catch((error) => console.error('[Discord Gateway] Failed to restore overlay state:', error))
     })
 
     ipcMain.handle('search-chats-offline', (_event, query: string) => {
@@ -1175,7 +1265,7 @@ if (!gotTheLock) {
         currentConfig = loadConfig()
         if (!IS_DEMO) registerGlobalShortcuts()
         updateNativeIcons()
-        if (!IS_DEMO) startDiscordGateway(currentConfig)
+        if (!IS_DEMO) reconcileDiscordGateway(currentConfig)
         // Notify windows with merged config
         safeSend(mainWindow, 'config-changed', currentConfig)
         safeSend(launcherWindow, 'config-changed', currentConfig)
@@ -1393,6 +1483,7 @@ if (!gotTheLock) {
         }
       }
       updateNativeIcons()
+      if (!IS_DEMO) reconcileDiscordGateway(config)
       // Notify both windows
       safeSend(mainWindow, 'config-changed', config)
       safeSend(launcherWindow, 'config-changed', config)
@@ -1400,20 +1491,17 @@ if (!gotTheLock) {
 
     // Start loading the renderer as soon as all synchronous IPC contracts are registered.
     createWindow()
+    if (!IS_DEMO) {
+      // Safety fallback for unusual renderer startup failures where
+      // ready-to-show is never emitted.
+      setTimeout(scheduleDiscordGatewayStart, 5000)
+    }
 
     if (IS_DEMO) {
-      registerDemoDownloadHandlers()
+      void import('./demoDownload')
+        .then(({ registerDemoDownloadHandlers }) => registerDemoDownloadHandlers())
+        .catch((error) => console.error('[Demo] Failed to initialize download handlers:', error))
     } else {
-      // Restore network-backed services after the renderer has started loading.
-      initializePrismCloudTransport()
-      initializeAuthSession()
-        .then((user) => {
-          if (user) markConnectionActive()
-        })
-        .catch((err) => {
-          console.error('[Auth] Error restoring session on launch:', err)
-        })
-
       registerGlobalShortcuts()
 
       registerAppsUpdatedCallback((apps) => {
@@ -1421,15 +1509,39 @@ if (!gotTheLock) {
         safeSend(launcherWindow, 'launcher-apps-updated', cachedApps)
       })
 
-      initAppScanner().catch((e) => {
-        console.error('Failed to initialize app scanner:', e)
-      })
+      // Network-backed services and disk-heavy discovery start only after the
+      // primary window has reached its first paint. The timeout is a safety
+      // fallback for environments where ready-to-show is delayed indefinitely.
+      let deferredServicesStarted = false
+      let deferredServicesFallback: ReturnType<typeof setTimeout> | null = null
+      const startDeferredServices = (): void => {
+        if (deferredServicesStarted) return
+        deferredServicesStarted = true
+        if (deferredServicesFallback) {
+          clearTimeout(deferredServicesFallback)
+          deferredServicesFallback = null
+        }
 
-      initGemini()
+        initializePrismCloudTransport()
+        initializeAuthSession()
+          .then((user) => {
+            if (user) markConnectionActive()
+          })
+          .catch((err) => {
+            console.error('[Auth] Error restoring session on launch:', err)
+          })
+
+        initAppScanner().catch((e) => {
+          console.error('Failed to initialize app scanner:', e)
+        })
+
+        initGemini()
+      }
+
+      mainWindow?.once('ready-to-show', startDeferredServices)
+      deferredServicesFallback = setTimeout(startDeferredServices, 5000)
     }
     if (!IS_DEMO) {
-      createLauncherWindow()
-      createVoiceOverlayWindowInstance()
       createTray()
     }
     updateNativeIcons()
@@ -1463,9 +1575,17 @@ if (!gotTheLock) {
 
     // The scripted Demo is fully local and must remain idle without network polling.
     if (!IS_DEMO) {
-      void checkConnectivity()
-        .then(() => startConnectivityPoller())
-        .catch((err) => console.error('[Connectivity] Initial check failed:', err))
+      let connectivityStarted = false
+      const startConnectivityMonitoring = (): void => {
+        if (connectivityStarted) return
+        connectivityStarted = true
+        void checkConnectivity()
+          .then(() => startConnectivityPoller())
+          .catch((err) => console.error('[Connectivity] Initial check failed:', err))
+      }
+
+      mainWindow?.once('ready-to-show', startConnectivityMonitoring)
+      setTimeout(startConnectivityMonitoring, 5000)
     }
 
     app.on('activate', function () {

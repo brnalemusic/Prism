@@ -156,6 +156,7 @@ function getPerimeterPoint(
 
 export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
   const [view, setView] = useState<VoiceOverlayView>(INITIAL_VIEW)
+  const viewRef = useRef<VoiceOverlayView>(INITIAL_VIEW)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const chatIdRef = useRef<string | null>(null)
   const targetLevelRef = useRef(0)
@@ -163,6 +164,10 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
   const quietTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const panelExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const overlayExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    viewRef.current = view
+  }, [view])
 
   // Physics & Animation state refs
   const timeRef = useRef(0)
@@ -225,6 +230,7 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
 
   useEffect(() => {
     window.electron.ipcRenderer.send('overlay-log', '[DiscordVoiceGlowOverlay] MOUNTED in React!')
+    window.electron.ipcRenderer.send('voice-overlay-ready')
     document.body.style.background = 'transparent'
     document.documentElement.style.background = 'transparent'
 
@@ -378,38 +384,48 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
   useEffect(() => {
     if (!view.mounted) return
 
+    const canvas = canvasRef.current
+    const ctx = canvas?.getContext('2d')
+    if (!canvas || !ctx) return
+
     let animationFrame = 0
     let lastTime = performance.now()
+    let lastRenderTime = lastTime
+    const frameInterval = 1000 / 30
 
-    const render = (now: number): void => {
-      const dt = Math.min(0.064, (now - lastTime) / 1000)
-      lastTime = now
-      timeRef.current += dt
-
-      const canvas = canvasRef.current
-      if (!canvas) {
-        animationFrame = requestAnimationFrame(render)
-        return
-      }
-
-      const ctx = canvas.getContext('2d')
-      if (!ctx) {
-        animationFrame = requestAnimationFrame(render)
-        return
-      }
-
-      const dpr = window.devicePixelRatio || 1
+    const resizeCanvas = (): void => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.25)
       const width = window.innerWidth
       const height = window.innerHeight
+      const pixelWidth = Math.max(1, Math.round(width * dpr))
+      const pixelHeight = Math.max(1, Math.round(height * dpr))
 
-      if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
-        canvas.width = width * dpr
-        canvas.height = height * dpr
+      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth
+        canvas.height = pixelHeight
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      }
+    }
+
+    resizeCanvas()
+    window.addEventListener('resize', resizeCanvas, { passive: true })
+
+    const render = (now: number): void => {
+      if (now - lastRenderTime < frameInterval) {
+        animationFrame = requestAnimationFrame(render)
+        return
       }
 
-      ctx.save()
-      ctx.scale(dpr, dpr)
+      const dt = Math.min(0.064, (now - lastTime) / 1000)
+      lastTime = now
+      lastRenderTime = now
+      timeRef.current += dt
+
+      const width = window.innerWidth
+      const height = window.innerHeight
       ctx.clearRect(0, 0, width, height)
+
+      const currentView = viewRef.current
 
       // 1. Audio Energy Lerp (Fast Attack, Smooth Decay)
       const targetAudio = targetLevelRef.current
@@ -419,11 +435,11 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
       const audioEnergy = smoothedLevelRef.current
 
       // 2. State & Physics Target Calculation
-      const isConnecting = view.connection === 'connecting'
-      const isExiting = view.connection === 'exiting'
-      const isSpeaking = view.speaking
-      const isWorking = view.toolPanel === 'visible'
-      const isQuiet = view.quiet
+      const isConnecting = currentView.connection === 'connecting'
+      const isExiting = currentView.connection === 'exiting'
+      const isSpeaking = currentView.speaking
+      const isWorking = currentView.toolPanel === 'visible'
+      const isQuiet = currentView.quiet
 
       // Update Entry Sweep animation
       if (isConnecting) {
@@ -479,7 +495,6 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
       params.colorMode += (targetColorMode - params.colorMode) * damp
 
       if (params.opacity <= 0.005) {
-        ctx.restore()
         animationFrame = requestAnimationFrame(render)
         return
       }
@@ -596,13 +611,15 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
       ctx.fill()
       ctx.restore()
 
-      ctx.restore()
       animationFrame = requestAnimationFrame(render)
     }
 
     animationFrame = requestAnimationFrame(render)
-    return () => cancelAnimationFrame(animationFrame)
-  }, [view.mounted, view.connection, view.speaking, view.quiet, view.toolPanel])
+    return () => {
+      cancelAnimationFrame(animationFrame)
+      window.removeEventListener('resize', resizeCanvas)
+    }
+  }, [view.mounted])
 
   if (!view.mounted) return null
 
@@ -621,7 +638,6 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
 
   return (
     <div
-      ref={canvasRef ? undefined : null}
       className="discord-voice-glow-overlay"
       data-state={visualState}
       data-quiet={view.quiet || undefined}

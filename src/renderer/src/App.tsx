@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import React, { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import ReactMarkdown, { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -6,14 +6,11 @@ import rehypeRaw from 'rehype-raw'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
 import { PrismBackground } from './components/PrismBackground'
-import { DiscordVoiceGlowOverlay } from './components/DiscordVoiceGlowOverlay'
 import { LoadingScreen } from './components/LoadingScreen'
 import { OfflineBanner } from './components/OfflineBanner'
 import { Sidebar } from './components/Sidebar'
 import { ToolCallIndicator } from './components/ActionLoader'
-import { QuickLauncher } from './components/QuickLauncher'
 import { TitleBar } from './components/TitleBar'
-import { SettingsView } from './components/SettingsView'
 import { ApiKeyModal } from './components/ApiKeyModal'
 import { ProviderLockScreen } from './components/ProviderLockScreen'
 import { SearchModal } from './components/SearchModal'
@@ -28,11 +25,9 @@ import { PdfArtifactCard } from './components/PdfArtifactCard'
 import { PptxArtifactCard } from './components/PptxArtifactCard'
 import { TtsButton } from './components/TtsButton'
 import { CopyMessageButton } from './components/CopyMessageButton'
-import { UpdaterView } from './components/UpdaterView'
 import { isShortcutPressed } from './utils'
 import { TabBar } from './components/TabBar'
 import { ChatPane } from './components/ChatPane'
-import { BrowserPane } from './components/BrowserPane'
 import { EmptyTabState } from './components/EmptyTabState'
 import type { TabSession, Message, AttachedFile, StreamingToolCall, ToolCallItem } from './types/tab'
 import {
@@ -55,6 +50,24 @@ import { AppConfig, SlashWorkflow } from '../../main/config'
 import type { DownloadProgress, SessionMode, TodoState, UserProfile } from '../../shared/types'
 import { getDefaultThinkingLevelForModel, isPrismCloudGeminiModel } from './constants'
 import { applyToolCallEnd, applyToolCallStart, isToolErrorResult } from './toolCallState'
+
+const DiscordVoiceGlowOverlay = lazy(() =>
+  import('./components/DiscordVoiceGlowOverlay').then(({ DiscordVoiceGlowOverlay }) => ({
+    default: DiscordVoiceGlowOverlay
+  }))
+)
+const BrowserPane = lazy(() =>
+  import('./components/BrowserPane').then(({ BrowserPane }) => ({ default: BrowserPane }))
+)
+const QuickLauncher = lazy(() =>
+  import('./components/QuickLauncher').then(({ QuickLauncher }) => ({ default: QuickLauncher }))
+)
+const SettingsView = lazy(() =>
+  import('./components/SettingsView').then(({ SettingsView }) => ({ default: SettingsView }))
+)
+const UpdaterView = lazy(() =>
+  import('./components/UpdaterView').then(({ UpdaterView }) => ({ default: UpdaterView }))
+)
 
 interface HastNode {
   type: string
@@ -2865,7 +2878,11 @@ function RealApp(): React.JSX.Element {
   }
 
   if (route === '#voice-overlay') {
-    return <DiscordVoiceGlowOverlay />
+    return (
+      <Suspense fallback={null}>
+        <DiscordVoiceGlowOverlay />
+      </Suspense>
+    )
   }
 
   if (route === '#launcher') {

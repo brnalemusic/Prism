@@ -12,6 +12,23 @@ const RootApp = lazy(async () => {
     return { default: DemoApp }
   }
 
+  // Secondary BrowserWindows use focused entrypoints so the launcher and
+  // voice overlay do not parse the full chat application at startup.
+  switch (window.location.hash) {
+    case '#launcher': {
+      const { QuickLauncher } = await import('./components/QuickLauncher')
+      return { default: QuickLauncher }
+    }
+    case '#voice-overlay': {
+      const { DiscordVoiceGlowOverlay } = await import('./components/DiscordVoiceGlowOverlay')
+      return { default: DiscordVoiceGlowOverlay }
+    }
+    case '#updater': {
+      const { UpdaterView } = await import('./components/UpdaterView')
+      return { default: UpdaterView }
+    }
+  }
+
   return await import('./App')
 })
 

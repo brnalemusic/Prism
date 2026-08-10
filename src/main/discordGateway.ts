@@ -42,12 +42,13 @@ import {
 import { normalizePrismThinkingLevel } from './ai/prismThinking'
 import { streamOpenAiCompletion } from './ai/openaiClient'
 import { is } from '@electron-toolkit/utils'
-import { broadcastIpc } from './safeSend'
-import { createVoiceOverlayWindow, closeVoiceOverlayWindow } from './index'
+import { broadcastIpc, safeSend } from './safeSend'
+import { createVoiceOverlayWindow, closeVoiceOverlayWindow, voiceOverlayWindow } from './index'
 
 let client: Client | null = null
 let currentConfig: AppConfig | null = null
-let appOwnerIds: Set<string> = new Set()
+const appOwnerIds: Set<string> = new Set()
+let gatewayConfigFingerprint = ''
 
 let activeLiveSession: any = null
 let activeAudioPlayer: any = null
@@ -78,6 +79,9 @@ let activeVoiceOverlayChatId: string | null = null
 let voiceOverlaySpeaking = false
 let voiceOutputAnnounced = false
 let lastVoiceOverlayLevelAt = 0
+let voiceOverlayConnectionState: VoiceOverlayConnectionState = 'disconnected'
+let voiceOverlayLevel = 0
+let activeVoiceOverlayTool: { callId: string; name: string } | null = null
 let lastVoiceReceiveWarningAt = 0
 let suppressedVoiceReceiveWarnings = 0
 
@@ -99,6 +103,7 @@ const VOICE_GATE_START_RMS = 0.02
 const VOICE_RECEIVE_WARNING_INTERVAL_MS = 5000
 const VOICE_INPUT_RECOVERY_BASE_DELAY_MS = 350
 const VOICE_INPUT_RECOVERY_MAX_DELAY_MS = 5000
+const MAX_PENDING_AUDIO_CHUNKS = 32
 
 function getVoiceReceiveErrorText(error: unknown): string {
   if (error instanceof Error) {
@@ -172,6 +177,9 @@ function forwardVoicePcmChunk(pcm48kChunk: Buffer): void {
     resetVoiceInactivityTimer()
 
     if (!activeLiveSession) {
+      if (pendingAudioChunks.length >= MAX_PENDING_AUDIO_CHUNKS) {
+        pendingAudioChunks.shift()
+      }
       pendingAudioChunks.push(pcm16kChunk)
       if (!isReconnectingLive) void reconnectLiveVoiceSession()
       return
@@ -490,6 +498,7 @@ async function executeLiveToolCalls(
             timestamp: Date.now(),
             chatId: history.chatId
           })
+          activeVoiceOverlayTool = { callId, name }
         }
       },
       loopGuard
@@ -509,6 +518,7 @@ async function executeLiveToolCalls(
       result: execution.modelContent,
       chatId: history.chatId
     })
+    activeVoiceOverlayTool = null
 
     const visualParts = (execution.attachments || [])
       .filter((attachment) => attachment.kind === 'image')
@@ -653,34 +663,40 @@ function calculatePcmRms(pcm16k: Buffer): number {
   return Math.sqrt(sumSquares / sampleCount)
 }
 
+function sendVoiceOverlayIpc(channel: string, payload: Record<string, unknown>): void {
+  safeSend(voiceOverlayWindow, channel, payload)
+}
+
 function broadcastVoiceOverlayState(state: VoiceOverlayConnectionState): void {
   if (!activeVoiceOverlayChatId) return
-  broadcastIpc('discord-voice-state', { chatId: activeVoiceOverlayChatId, state })
+  voiceOverlayConnectionState = state
+  sendVoiceOverlayIpc('discord-voice-state', { chatId: activeVoiceOverlayChatId, state })
 }
 
 function setVoiceOverlaySpeaking(speaking: boolean): void {
   if (!activeVoiceOverlayChatId || voiceOverlaySpeaking === speaking) return
   voiceOverlaySpeaking = speaking
-  broadcastIpc('discord-voice-speaking', { chatId: activeVoiceOverlayChatId, speaking })
+  sendVoiceOverlayIpc('discord-voice-speaking', { chatId: activeVoiceOverlayChatId, speaking })
 }
 
 function broadcastVoiceOverlayLevel(level: number, force = false): void {
   if (!activeVoiceOverlayChatId) return
 
+  voiceOverlayLevel = Math.min(1, Math.max(0, level))
   const now = Date.now()
   if (!force && now - lastVoiceOverlayLevelAt < 42) return
 
   lastVoiceOverlayLevelAt = now
-  broadcastIpc('discord-voice-audio-level', {
+  sendVoiceOverlayIpc('discord-voice-audio-level', {
     chatId: activeVoiceOverlayChatId,
-    level: Math.min(1, Math.max(0, level))
+    level: voiceOverlayLevel
   })
 }
 
 function broadcastVoiceOverlayOutput(): void {
   if (!activeVoiceOverlayChatId || voiceOutputAnnounced) return
   voiceOutputAnnounced = true
-  broadcastIpc('discord-voice-output', { chatId: activeVoiceOverlayChatId })
+  sendVoiceOverlayIpc('discord-voice-output', { chatId: activeVoiceOverlayChatId })
 }
 
 function reportVoiceOutputLevel(pcm: Buffer): void {
@@ -698,6 +714,35 @@ function resetVoiceOverlay(): void {
   activeVoiceOverlayChatId = null
   voiceOutputAnnounced = false
   lastVoiceOverlayLevelAt = 0
+  voiceOverlayConnectionState = 'disconnected'
+  voiceOverlayLevel = 0
+  activeVoiceOverlayTool = null
+}
+
+export function replayVoiceOverlayState(): void {
+  const chatId = activeVoiceOverlayChatId
+  if (!chatId) return
+
+  sendVoiceOverlayIpc('discord-voice-state', {
+    chatId,
+    state: voiceOverlayConnectionState
+  })
+  sendVoiceOverlayIpc('discord-voice-speaking', { chatId, speaking: voiceOverlaySpeaking })
+  broadcastVoiceOverlayLevel(voiceOverlayLevel, true)
+
+  if (voiceOutputAnnounced) {
+    sendVoiceOverlayIpc('discord-voice-output', { chatId })
+  }
+
+  if (activeVoiceOverlayTool) {
+    broadcastIpc('chat-tool-start', {
+      callId: activeVoiceOverlayTool.callId,
+      name: activeVoiceOverlayTool.name,
+      args: {},
+      timestamp: Date.now(),
+      chatId
+    })
+  }
 }
 
 function resetVoiceGate(): void {
@@ -1116,8 +1161,8 @@ async function startLiveVoiceSession(
   persistVoiceHistory()
   broadcastIpc('chat-session-created', { id: voiceChatId })
   setCurrentSessionIdForTodo(voiceChatId)
-  broadcastVoiceOverlayState('connecting')
   createVoiceOverlayWindow()
+  broadcastVoiceOverlayState('connecting')
   let aiSession: any = null
 
   // Step 1: Connect to Gemini Live API FIRST
@@ -1322,9 +1367,16 @@ export function requestDiscordVoiceFarewell(): boolean {
 
 export function startDiscordGateway(config: AppConfig): void {
   if (!config.discordGatewayEnabled || !config.discordBotToken) {
+    currentConfig = config
     if (client) {
       stopDiscordGateway()
     }
+    return
+  }
+
+  const nextFingerprint = `${config.discordGatewayEnabled ? 'enabled' : 'disabled'}:${config.discordBotToken.trim()}`
+  if (client && gatewayConfigFingerprint === nextFingerprint) {
+    currentConfig = config
     return
   }
 
@@ -1333,6 +1385,8 @@ export function startDiscordGateway(config: AppConfig): void {
   if (client) {
     stopDiscordGateway()
   }
+
+  gatewayConfigFingerprint = nextFingerprint
 
   client = new Client({
     intents: [
@@ -1363,13 +1417,20 @@ export function startDiscordGateway(config: AppConfig): void {
 
   client.on('messageCreate', handleDiscordMessage)
 
-  client.login(config.discordBotToken).catch((err) => {
+  const gatewayClient = client
+  gatewayClient.login(config.discordBotToken).catch((err) => {
     console.error('[Discord Gateway] Failed to login:', err)
+    if (client === gatewayClient) {
+      client = null
+      gatewayConfigFingerprint = ''
+      appOwnerIds.clear()
+    }
   })
 }
 
 export function stopDiscordGateway(): void {
   leaveDiscordVoiceChannel()
+  gatewayConfigFingerprint = ''
   if (client) {
     console.log('[Discord Gateway] Disconnecting...')
     client.destroy()
