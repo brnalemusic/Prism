@@ -13,6 +13,22 @@ const SUPABASE_ANON_KEY = 'sb_publishable_WcCSfH1dSXUzHDjlQGk2kw_4TQcAt4Q'
 
 // Edge Function base URL (same Supabase project)
 const EDGE_BASE = `${SUPABASE_URL}/functions/v1`
+const EDGE_REQUEST_TIMEOUT_MS = 20_000
+
+async function fetchEdgeFunction(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), EDGE_REQUEST_TIMEOUT_MS)
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+function isRequestTimeout(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}
 
 function getSupabaseClient() {
   return createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
@@ -101,7 +117,7 @@ export async function createStripeCheckoutSession(
   accessToken: string
 ): Promise<CheckoutSessionResult> {
   try {
-    const res = await fetch(`${EDGE_BASE}/create-checkout-session`, {
+    const res = await fetchEdgeFunction(`${EDGE_BASE}/create-checkout-session`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -125,7 +141,12 @@ export async function createStripeCheckoutSession(
     }
   } catch (err: any) {
     console.error('[LicensePayment] Network error creating session:', err)
-    return { success: false, error: err?.message ?? 'Network error contacting payment server.' }
+    return {
+      success: false,
+      error: isRequestTimeout(err)
+        ? 'Checkout service timed out. Please try again.'
+        : err?.message ?? 'Network error contacting payment server.',
+    }
   }
 }
 
@@ -170,7 +191,7 @@ export async function verifyAndActivatePayment(
 ): Promise<PaymentVerificationResult> {
   try {
     // 1. Call the Edge Function — it verifies payment_status === 'paid' with Stripe
-    const res = await fetch(`${EDGE_BASE}/verify-payment`, {
+    const res = await fetchEdgeFunction(`${EDGE_BASE}/verify-payment`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -189,7 +210,11 @@ export async function verifyAndActivatePayment(
 
     if (!res.ok || !data.success) {
       console.error('[LicensePayment] Edge Function verify-payment error:', data)
-      return { success: false, error: data.error ?? 'Payment verification failed.' }
+      return {
+        success: false,
+        pending: res.status === 402,
+        error: data.error ?? 'Payment verification failed.',
+      }
     }
 
     // 2. Sign the payload locally with the Ed25519 key
@@ -220,6 +245,11 @@ export async function verifyAndActivatePayment(
     return { success: true, licenseKey }
   } catch (err: any) {
     console.error('[LicensePayment] verifyAndActivatePayment error:', err)
-    return { success: false, error: err?.message ?? 'Payment verification failed.' }
+    return {
+      success: false,
+      error: isRequestTimeout(err)
+        ? 'Payment verification timed out. Please try again.'
+        : err?.message ?? 'Payment verification failed.',
+    }
   }
 }

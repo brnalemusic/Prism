@@ -281,7 +281,7 @@ export interface PrismAPI {
     sessionId: string,
     email: string,
     company?: string
-  ) => Promise<{ success: boolean; licenseKey?: string; error?: string }>
+  ) => Promise<import('../shared/types').PaymentVerificationResult>
 }
 
 

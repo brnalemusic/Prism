@@ -4,10 +4,34 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY') ?? ''
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+const DATABASE_REQUEST_TIMEOUT_MS = 10_000
+const STRIPE_REQUEST_TIMEOUT_MS = 15_000
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+const fetchWithTimeout: typeof fetch = async (input, init) => {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), DATABASE_REQUEST_TIMEOUT_MS)
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function fetchStripe(input: RequestInfo | URL, init: RequestInit): Promise<Response> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), STRIPE_REQUEST_TIMEOUT_MS)
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 function parseStoredPayload(licenseKey: string): Record<string, unknown> | null {
@@ -44,7 +68,9 @@ serve(async (req) => {
   }
 
   try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      global: { fetch: fetchWithTimeout },
+    })
     const user = getAuthenticatedUser(req)
     if (!user) {
       return new Response(
@@ -106,7 +132,7 @@ serve(async (req) => {
       )
     }
 
-    const stripeRes = await fetch(`https://api.stripe.com/v1/checkout/sessions/${session_id}`, {
+    const stripeRes = await fetchStripe(`https://api.stripe.com/v1/checkout/sessions/${session_id}`, {
       headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}` },
     })
     const stripeSession = await stripeRes.json()
@@ -220,8 +246,11 @@ serve(async (req) => {
     )
   } catch (err: any) {
     console.error('[verify-payment] Unexpected error:', err)
+    const error = err?.name === 'AbortError'
+      ? 'Payment verification timed out. Please try again.'
+      : err?.message || 'Internal server error.'
     return new Response(
-      JSON.stringify({ error: err?.message || 'Internal server error.' }),
+      JSON.stringify({ error }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }

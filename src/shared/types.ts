@@ -249,6 +249,7 @@ export interface OpenExternalUrlResult {
 
 export interface PaymentVerificationResult {
   success: boolean
+  pending?: boolean
   licenseKey?: string
   error?: string
 }

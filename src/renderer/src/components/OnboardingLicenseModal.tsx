@@ -40,8 +40,8 @@ export function OnboardingLicenseModal({
   // Stripe automated verification & polling state
   const [stripeVerifying, setStripeVerifying] = useState(false)
   const [stripeVerifyStep, setStripeVerifyStep] = useState<'opening' | 'polling' | 'success' | 'error'>('opening')
-  
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const isPaymentVerificationInFlightRef = useRef(false)
 
   useEffect(() => {
     if (isOpen) {
@@ -62,6 +62,7 @@ export function OnboardingLicenseModal({
       clearInterval(pollIntervalRef.current)
       pollIntervalRef.current = null
     }
+    isPaymentVerificationInFlightRef.current = false
   }
 
   if (!isOpen) return null
@@ -92,6 +93,9 @@ export function OnboardingLicenseModal({
         // Start global polling every 2 seconds
         stopPolling()
         pollIntervalRef.current = setInterval(async () => {
+          if (isPaymentVerificationInFlightRef.current) return
+          isPaymentVerificationInFlightRef.current = true
+
           try {
             const verifyRes = await window.api.verifyAndActivatePayment(
               plan.id,
@@ -109,9 +113,18 @@ export function OnboardingLicenseModal({
                 if (onLicenseActivated) onLicenseActivated()
                 onClose()
               }, 1800)
+            } else if (!verifyRes.pending) {
+              stopPolling()
+              setStripeVerifying(false)
+              setLicenseError(verifyRes.error || 'Payment verification failed. Please try again.')
             }
           } catch (pollErr) {
-            console.warn('[StripePolling] Retrying verify step...', pollErr)
+            console.warn('[StripePolling] Payment verification failed:', pollErr)
+            stopPolling()
+            setStripeVerifying(false)
+            setLicenseError('Unable to verify the payment. Please try again.')
+          } finally {
+            isPaymentVerificationInFlightRef.current = false
           }
         }, 2000)
       } else {
@@ -313,13 +326,19 @@ export function OnboardingLicenseModal({
 
             <div className="flex flex-col gap-2">
               <h3 className="text-lg font-bold text-text-primary">
-                {stripeVerifyStep === 'success' ? 'Payment Confirmed!' : 'Completing Checkout'}
+                {stripeVerifyStep === 'success'
+                  ? 'Payment Confirmed!'
+                  : stripeVerifyStep === 'opening'
+                    ? 'Preparing Checkout'
+                    : 'Completing Checkout'}
               </h3>
 
               <p className="text-xs text-text-secondary/80 leading-relaxed max-w-xs">
                 {stripeVerifyStep === 'success'
                   ? 'Your Enterprise license has been activated.'
-                  : 'Please complete your payment in the browser window.'}
+                  : stripeVerifyStep === 'opening'
+                    ? 'Creating your secure checkout session.'
+                    : 'Please complete your payment in the browser window.'}
               </p>
             </div>
 

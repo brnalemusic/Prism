@@ -229,17 +229,20 @@ function useLicenseCountdown(expiresAt?: string): string {
   const [plans, setPlans] = useState<import('../../../shared/types').SubscriptionPlan[]>([])
   const [isLoadingPlans, setIsLoadingPlans] = useState(false)
   const [checkoutLoadingPlanId, setCheckoutLoadingPlanId] = useState<string | null>(null)
+  const [stripeCheckoutStage, setStripeCheckoutStage] = useState<'opening' | 'polling'>('opening')
   // Maps planId -> Stripe session_id after a real checkout is opened
   const [pendingSessionIds, setPendingSessionIds] = useState<Record<string, string>>({})
   const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null)
 
   const settingsPollRef = useRef<NodeJS.Timeout | null>(null)
+  const isPaymentVerificationInFlightRef = useRef(false)
 
   const stopSettingsPolling = (): void => {
     if (settingsPollRef.current) {
       clearInterval(settingsPollRef.current)
       settingsPollRef.current = null
     }
+    isPaymentVerificationInFlightRef.current = false
   }
 
   useEffect(() => {
@@ -274,6 +277,7 @@ function useLicenseCountdown(expiresAt?: string): string {
     setLicenseError(null)
     setCheckoutMessage(null)
     setStripeVerifying(true)
+    setStripeCheckoutStage('opening')
 
     try {
       const email = authUser?.email || ''
@@ -288,10 +292,14 @@ function useLicenseCountdown(expiresAt?: string): string {
           return
         }
         setPendingSessionIds((prev) => ({ ...prev, [plan.id]: res.sessionId! }))
+        setStripeCheckoutStage('polling')
 
         // Start automatic global polling every 2 seconds
         stopSettingsPolling()
         settingsPollRef.current = setInterval(async () => {
+          if (isPaymentVerificationInFlightRef.current) return
+          isPaymentVerificationInFlightRef.current = true
+
           try {
             const verifyRes = await window.api.verifyAndActivatePayment(
               plan.id,
@@ -310,9 +318,18 @@ function useLicenseCountdown(expiresAt?: string): string {
                 setStripeVerifying(false)
                 setIsActivationModalOpen(true)
               }, 1500)
+            } else if (!verifyRes.pending) {
+              stopSettingsPolling()
+              setStripeVerifying(false)
+              setLicenseError(verifyRes.error || 'Payment verification failed. Please try again.')
             }
           } catch (pollErr) {
-            console.warn('[SettingsStripePolling] Retrying verify step...', pollErr)
+            console.warn('[SettingsStripePolling] Payment verification failed:', pollErr)
+            stopSettingsPolling()
+            setStripeVerifying(false)
+            setLicenseError('Unable to verify the payment. Please try again.')
+          } finally {
+            isPaymentVerificationInFlightRef.current = false
           }
         }, 2000)
       } else {
@@ -1616,10 +1633,12 @@ function useLicenseCountdown(expiresAt?: string): string {
 
             <div className="flex flex-col gap-2">
               <h3 className="text-lg font-bold text-text-primary">
-                Completing Checkout
+                {stripeCheckoutStage === 'opening' ? 'Preparing Checkout' : 'Completing Checkout'}
               </h3>
               <p className="text-xs text-text-secondary/80 leading-relaxed max-w-xs">
-                Please complete your payment in the browser window.
+                {stripeCheckoutStage === 'opening'
+                  ? 'Creating your secure checkout session.'
+                  : 'Please complete your payment in the browser window.'}
               </p>
             </div>
 

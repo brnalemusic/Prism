@@ -744,7 +744,7 @@ const api = {
     sessionId: string,
     email: string,
     company?: string
-  ): Promise<{ success: boolean; licenseKey?: string; error?: string }> =>
+  ): Promise<import('../shared/types').PaymentVerificationResult> =>
     ipcRenderer.invoke('verify-and-activate-payment', planId, sessionId, email, company)
 }
 
