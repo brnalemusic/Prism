@@ -307,9 +307,8 @@ interface VoiceHistoryState {
 }
 
 interface LiveToolResponseSession {
-  sendToolResponse(input: {
-    functionResponses: LiveFunctionResponse[]
-  }): void
+  sendToolResponse(input: { functionResponses: LiveFunctionResponse[] }): void
+  close(): void
 }
 
 interface LiveFunctionResponse {
@@ -475,6 +474,7 @@ async function executeLiveToolCalls(
   const loopGuard = activeLiveToolLoopGuard || new ToolLoopGuard()
   activeLiveToolLoopGuard = loopGuard
   const functionResponses: LiveFunctionResponse[] = []
+  let refreshedSkillTools = false
 
   for (const functionCall of functionCalls) {
     const callId = functionCall.id || `live_call_${Date.now()}_${functionResponses.length}`
@@ -538,6 +538,10 @@ async function executeLiveToolCalls(
       ...(visualParts.length > 0 ? { parts: visualParts } : {})
     })
 
+    if (name === 'read_skill' && execution.envelope.ok) {
+      refreshedSkillTools = true
+    }
+
     if (pendingVoiceLeave) break
   }
 
@@ -554,6 +558,9 @@ async function executeLiveToolCalls(
     console.log(
       `[Discord Gateway] Returned ${functionResponses.length} tool result(s) to Gemini Live.`
     )
+    if (refreshedSkillTools && !farewellWasRequested) {
+      await refreshLiveSessionAfterSkillUnlock(session)
+    }
   } catch (error) {
     console.error('[Discord Gateway] Failed to return Live tool results:', error)
     if (pendingVoiceLeave) leaveDiscordVoiceChannel()
@@ -598,7 +605,9 @@ function triggerVoiceInactivityFarewell(): void {
   const session = activeLiveSession
   if (!session || pendingVoiceLeave) return
 
-  console.log('[Discord Gateway] Inactivity timeout reached (240 minutes). Requesting voice farewell...')
+  console.log(
+    '[Discord Gateway] Inactivity timeout reached (240 minutes). Requesting voice farewell...'
+  )
   if (!pendingVoiceLeave) {
     pendingVoiceLeave = {
       farewellRequested: true,
@@ -745,6 +754,30 @@ export function replayVoiceOverlayState(): void {
   }
 }
 
+/**
+ * Gemini Live fixes its function declarations when a connection is created. A
+ * successful read_skill must therefore continue in a fresh connection so the
+ * newly unlocked native tools can be registered with the API.
+ */
+async function refreshLiveSessionAfterSkillUnlock(session: LiveToolResponseSession): Promise<void> {
+  if (activeLiveSession !== session || pendingVoiceLeave) return
+
+  console.log('[Discord Gateway] Reconnecting Gemini Live session with unlocked skill tools.')
+  activeLiveSession = null
+  try {
+    session.close()
+  } catch (error) {
+    console.error('[Discord Gateway] Failed to close Gemini Live session for skill refresh:', error)
+  }
+
+  const reconnected = await reconnectLiveVoiceSession(true)
+  if (!reconnected && !pendingVoiceLeave) {
+    console.error(
+      '[Discord Gateway] Failed to refresh Gemini Live tool definitions after read_skill.'
+    )
+  }
+}
+
 function resetVoiceGate(): void {
   voiceGateOpen = false
   voiceGateLastSpeechAt = 0
@@ -821,7 +854,9 @@ function finalizePendingVoiceLeave(): void {
   const left = leaveDiscordVoiceChannel()
   if (statusMessage) {
     void statusMessage
-      .edit(left ? '✅ *Left the voice channel after saying goodbye.*' : '✅ *Voice session ended.*')
+      .edit(
+        left ? '✅ *Left the voice channel after saying goodbye.*' : '✅ *Voice session ended.*'
+      )
       .catch(() => {})
   }
 }
@@ -963,9 +998,7 @@ function handleLiveMessage(msg: any, aiSession: any, apiKey: string): void {
     functionCalls.length > 0 &&
     !pendingVoiceLeave?.farewellRequested
   ) {
-    console.log(
-      `[Discord Gateway] Gemini requested ${functionCalls.length} Live tool call(s).`
-    )
+    console.log(`[Discord Gateway] Gemini requested ${functionCalls.length} Live tool call(s).`)
     void executeLiveToolCalls(functionCalls, aiSession, apiKey)
   }
 
@@ -1049,10 +1082,12 @@ function handleLiveMessage(msg: any, aiSession: any, apiKey: string): void {
   }
 }
 
-async function reconnectLiveVoiceSession(): Promise<boolean> {
+async function reconnectLiveVoiceSession(continueAfterSkillUnlock = false): Promise<boolean> {
   if (isReconnectingLive || !activeVoiceSessionParams || pendingVoiceLeave) return false
   isReconnectingLive = true
-  console.log('[Discord Gateway] User spoke while WebSocket was idle. Reconnecting Gemini Live session...')
+  console.log(
+    '[Discord Gateway] User spoke while WebSocket was idle. Reconnecting Gemini Live session...'
+  )
 
   try {
     const { apiKey, modelName } = activeVoiceSessionParams
@@ -1087,7 +1122,7 @@ async function reconnectLiveVoiceSession(): Promise<boolean> {
           historyContextPrompt,
         tools: [
           {
-            functionDeclarations: getGeminiFunctionDeclarations()
+            functionDeclarations: getGeminiFunctionDeclarations(activeVoiceHistory?.chatId)
           }
         ]
       },
@@ -1113,7 +1148,27 @@ async function reconnectLiveVoiceSession(): Promise<boolean> {
     })
 
     activeLiveSession = aiSession
-    console.log('[Discord Gateway] Gemini Live WebSocket reconnected successfully with full history context!')
+    console.log(
+      '[Discord Gateway] Gemini Live WebSocket reconnected successfully with full history context!'
+    )
+
+    if (continueAfterSkillUnlock) {
+      activeLiveSession.sendClientContent({
+        turns: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text:
+                  'System: The requested skill has been read and its native tools are now available. ' +
+                  'Continue the original request using those tools when needed; do not read the skill again.'
+              }
+            ]
+          }
+        ],
+        turnComplete: true
+      })
+    }
 
     const buffered = [...pendingAudioChunks]
     pendingAudioChunks = []
@@ -1188,7 +1243,7 @@ async function startLiveVoiceSession(
           'When a screenshot is returned, inspect it before answering the user.',
         tools: [
           {
-            functionDeclarations: getGeminiFunctionDeclarations()
+            functionDeclarations: getGeminiFunctionDeclarations(voiceChatId)
           }
         ]
       },
@@ -1306,11 +1361,11 @@ async function startLiveVoiceSession(
 export function requestDiscordVoiceLeave(): boolean {
   const hasVoiceResources = Boolean(
     activeLiveSession ||
-      activeAudioPlayer ||
-      activeVoiceConnection ||
-      activeVoiceInputStream ||
-      activeVoiceDecoder ||
-      activeSpeakerStream
+    activeAudioPlayer ||
+    activeVoiceConnection ||
+    activeVoiceInputStream ||
+    activeVoiceDecoder ||
+    activeSpeakerStream
   )
   if (!hasVoiceResources) return false
 
@@ -1327,7 +1382,9 @@ export function requestDiscordVoiceLeave(): boolean {
       player: null
     }
   }
-  void activeVoiceStatusMessage?.edit('⌛ *Preparing a brief goodbye before leaving...*').catch(() => {})
+  void activeVoiceStatusMessage
+    ?.edit('⌛ *Preparing a brief goodbye before leaving...*')
+    .catch(() => {})
   return true
 }
 
@@ -1349,8 +1406,7 @@ export function requestDiscordVoiceFarewell(): boolean {
           role: 'user',
           parts: [
             {
-              text:
-                'The user explicitly requested to end this Discord voice call. Say a brief, personalized goodbye based on our conversation. Do not call any tools.'
+              text: 'The user explicitly requested to end this Discord voice call. Say a brief, personalized goodbye based on our conversation. Do not call any tools.'
             }
           ]
         }
@@ -1771,7 +1827,7 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
     return { thoughts, content }
   }
 
-  const openAiTools = getOpenAiToolDefinitions()
+  const openAiTools = getOpenAiToolDefinitions(chatId)
 
   try {
     const orchestration = await runToolOrchestration({
@@ -1779,6 +1835,7 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
       modelId: model.id,
       messages: messagesForApi,
       tools: openAiTools,
+      getToolsForRound: () => getOpenAiToolDefinitions(chatId),
       signal: abortController.signal,
       reasoningLevel: normalizePrismThinkingLevel(provider, model.id, 'minimal'),
       onStreamEvent: (streamEvent, state) => {

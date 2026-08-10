@@ -1,6 +1,7 @@
 import { Content, FunctionDeclaration, GoogleGenAI, Part, ThinkingLevel } from '@google/genai'
 import { getAuthAccessToken } from '../supabaseAuth'
-import { getGeminiFunctionDeclarations } from '../toolRuntime'
+import { schemaForGemini } from '../toolRuntime'
+import type { JsonSchema } from '../toolsManifest'
 import { ProviderConfig } from '../../shared/types'
 import {
   GeminiContentData,
@@ -193,9 +194,14 @@ export async function streamGeminiCompletion(
   })
   const { systemInstruction, contents } = convertMessagesToGemini(messages)
   const thinkingLevel = normalizePrismThinkingLevel(provider, modelId, reasoningLevel)
-  const requestedToolNames = new Set(tools.map((tool) => tool.function.name))
-  const functionDeclarations = getGeminiFunctionDeclarations()
-    .filter((declaration) => requestedToolNames.has(declaration.name)) as FunctionDeclaration[]
+  // `tools` is already filtered for this request's chat session. Rebuilding the list
+  // from the global manifest here would lose skill-unlocked tools because their
+  // availability is session-scoped.
+  const functionDeclarations = tools.map((tool) => ({
+    name: tool.function.name,
+    description: tool.function.description,
+    parameters: schemaForGemini((tool.function.parameters || {}) as unknown as JsonSchema)
+  })) as FunctionDeclaration[]
 
   const stream = await client.models.generateContentStream({
     model: modelId,
