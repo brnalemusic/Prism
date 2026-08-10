@@ -21,6 +21,7 @@ serve(async (req) => {
   try {
     const requestUrl = new URL(req.url)
     const isWarmup = requestUrl.pathname.endsWith('/warmup')
+    const isUsageStatus = requestUrl.pathname.endsWith('/usage')
     if (req.method !== 'POST') {
       return new Response(JSON.stringify({ error: 'Method not allowed.' }), {
         status: 405,
@@ -48,6 +49,28 @@ serve(async (req) => {
     }
 
     const userId = userData.user.id
+
+    // Usage status is read through this authenticated endpoint so the client
+    // cannot choose another user's ID in a direct database RPC request.
+    if (isUsageStatus) {
+      const { data: statusResult, error: statusErr } = await supabase.rpc(
+        'get_user_ai_usage_status',
+        { p_user_id: userId }
+      )
+
+      if (statusErr || !statusResult) {
+        console.error('[prism-ai-proxy] RPC usage status error:', statusErr)
+        return new Response(JSON.stringify({ error: 'Failed to load account usage.' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+        })
+      }
+
+      return new Response(JSON.stringify(statusResult), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+      })
+    }
 
     // Warm-up is authenticated but deliberately non-billable. It primes the
     // Edge Function and the upstream Gemini route before the first AI prompt.

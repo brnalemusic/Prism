@@ -39,14 +39,24 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
   onOpenProfile
 }) => {
   const [aiUsage, setAiUsage] = useState<UserAiUsageStatus | null>(null)
+  const [isAiUsageUnavailable, setIsAiUsageUnavailable] = useState(false)
 
   useEffect(() => {
     if (isOpen) {
+      setAiUsage(null)
+      setIsAiUsageUnavailable(false)
       window.api.getUserAiUsage()
         .then((usage) => {
-          if (usage) setAiUsage(usage)
+          if (usage) {
+            setAiUsage(usage)
+          } else {
+            setIsAiUsageUnavailable(true)
+          }
         })
-        .catch((err) => console.error('Failed to load AI usage for quota modal:', err))
+        .catch((err) => {
+          console.error('Failed to load AI usage for quota modal:', err)
+          setIsAiUsageUnavailable(true)
+        })
     }
   }, [isOpen])
 
@@ -105,6 +115,12 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
             Your quota will automatically reset once the current window expires. In the meantime, you can add your custom API keys in Settings for unlimited requests.
           </p>
         </div>
+
+        {isAiUsageUnavailable && (
+          <p className="mb-5 text-xs text-status-error">
+            Usage details are temporarily unavailable. Please try again shortly.
+          </p>
+        )}
 
         {/* Reset Countdown Cards */}
         <div className="grid grid-cols-2 gap-3 mb-6">

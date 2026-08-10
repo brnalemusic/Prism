@@ -52,6 +52,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [fullName, setFullName] = useState(user?.fullName || '')
   const [companyName, setCompanyName] = useState(user?.companyName || '')
   const [aiUsage, setAiUsage] = useState<UserAiUsageStatus | null>(null)
+  const [isAiUsageUnavailable, setIsAiUsageUnavailable] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
 
   useEffect(() => {
@@ -63,11 +64,20 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
   useEffect(() => {
     if (isOpen && user) {
+      setAiUsage(null)
+      setIsAiUsageUnavailable(false)
       window.api.getUserAiUsage()
         .then((usage) => {
-          if (usage) setAiUsage(usage)
+          if (usage) {
+            setAiUsage(usage)
+          } else {
+            setIsAiUsageUnavailable(true)
+          }
         })
-        .catch((err) => console.error('Failed to load AI usage:', err))
+        .catch((err) => {
+          console.error('Failed to load AI usage:', err)
+          setIsAiUsageUnavailable(true)
+        })
     }
   }, [isOpen, user])
 
@@ -224,13 +234,13 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     )}
                   </div>
                   <span className="font-mono text-[11px] font-bold text-white">
-                    {aiUsage ? `${aiUsage.percentage5h}% Remaining` : '100% Remaining'}
+                    {aiUsage ? `${aiUsage.percentage5h}% Remaining` : isAiUsageUnavailable ? 'Usage unavailable' : 'Loading…'}
                   </span>
                 </div>
                 <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-accent-primary to-cyan-400 rounded-full transition-all duration-500"
-                    style={{ width: `${aiUsage ? aiUsage.percentage5h : 100}%` }}
+                    style={{ width: `${aiUsage?.percentage5h ?? 0}%` }}
                   />
                 </div>
               </div>
@@ -247,13 +257,13 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     )}
                   </div>
                   <span className="font-mono text-[11px] font-bold text-white">
-                    {aiUsage ? `${aiUsage.percentage1w}% Remaining` : '100% Remaining'}
+                    {aiUsage ? `${aiUsage.percentage1w}% Remaining` : isAiUsageUnavailable ? 'Usage unavailable' : 'Loading…'}
                   </span>
                 </div>
                 <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-purple-500 to-accent-primary rounded-full transition-all duration-500"
-                    style={{ width: `${aiUsage ? aiUsage.percentage1w : 100}%` }}
+                    style={{ width: `${aiUsage?.percentage1w ?? 0}%` }}
                   />
                 </div>
               </div>

@@ -8,6 +8,7 @@ import { syncLocalLicenseWithSupabase, revokeLocalLicenseFromSupabase } from './
 // Supabase Configuration for Prism Agent Project
 const SUPABASE_URL = 'https://jfqyqkkdmoqdpejzxdhd.supabase.co'
 const SUPABASE_ANON_KEY = 'sb_publishable_WcCSfH1dSXUzHDjlQGk2kw_4TQcAt4Q'
+const PRISM_CLOUD_USAGE_URL = `${SUPABASE_URL}/functions/v1/prism-ai-proxy/usage`
 
 let supabase: SupabaseClient | null = null
 
@@ -629,18 +630,26 @@ export async function getAuthAccessToken(): Promise<string | null> {
  * Gets current AI quota usage status for the logged-in user
  */
 export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
-  const { user } = await ensureActiveSession()
-  if (!user) return null
+  const { session, user } = await ensureActiveSession()
+  if (!user || !session?.access_token) return null
 
-  const client = getSupabaseClient()
   try {
-    const { data: rpcData, error } = await client.rpc('get_user_ai_usage_status', {
-      p_user_id: user.id
+    // The Edge Function verifies the caller's JWT and always resolves usage for
+    // that authenticated user. This avoids exposing a user-id parameter through
+    // a browser-callable database RPC.
+    const response = await fetch(PRISM_CLOUD_USAGE_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json'
+      },
+      body: '{}'
     })
 
-    if (!error && rpcData) {
+    if (response.ok) {
+      const rpcData = await response.json()
       const max5h = rpcData.max_5h || 20
-      const max1w = rpcData.max_1w || 120
+      const max1w = rpcData.max_1w || rpcData.max_7d || 120
       const count5h = rpcData.count_5h ?? 0
       const count1w = rpcData.count_1w ?? 0
       const remaining5h = rpcData.remaining_5h ?? Math.max(0, max5h - count5h)
@@ -663,9 +672,7 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
       }
     }
 
-    if (error) {
-      console.error('[Auth] RPC get_user_ai_usage_status error:', error)
-    }
+    console.error('[Auth] Prism Cloud usage request failed:', response.status)
   } catch (err) {
     console.error('[Auth] Error fetching user AI usage status:', err)
   }
