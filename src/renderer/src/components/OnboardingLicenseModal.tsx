@@ -80,7 +80,12 @@ export function OnboardingLicenseModal({
 
       if (res.success && res.checkoutUrl && res.sessionId) {
         // Open Stripe Checkout in user's browser
-        window.open(res.checkoutUrl, '_blank')
+        const openResult = await window.api.openExternalUrl(res.checkoutUrl)
+        if (!openResult.success) {
+          setStripeVerifying(false)
+          setLicenseError(openResult.error || 'Unable to open the checkout in your system browser.')
+          return
+        }
 
         setStripeVerifyStep('polling')
 

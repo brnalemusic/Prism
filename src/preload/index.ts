@@ -691,6 +691,8 @@ const api = {
     ipcRenderer.send('browser-exec-result', { requestId, result })
   },
   openBrowser: (url?: string): Promise<string> => ipcRenderer.invoke('open-browser', url),
+  openExternalUrl: (url: string): Promise<import('../shared/types').OpenExternalUrlResult> =>
+    ipcRenderer.invoke('open-external-url', url),
   closeBrowser: (): Promise<string> => ipcRenderer.invoke('close-browser'),
   resetBrowserIdle: (): void => ipcRenderer.send('reset-browser-idle'),
   activateLicense: (key: string): Promise<import('../shared/types').ActivationResult> =>

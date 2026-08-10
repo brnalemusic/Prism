@@ -242,6 +242,11 @@ export interface CheckoutSessionResult {
   error?: string
 }
 
+export interface OpenExternalUrlResult {
+  success: boolean
+  error?: string
+}
+
 export interface PaymentVerificationResult {
   success: boolean
   licenseKey?: string

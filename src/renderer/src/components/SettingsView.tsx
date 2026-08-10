@@ -281,8 +281,13 @@ function useLicenseCountdown(expiresAt?: string): string {
       const res = await window.api.createCheckoutSession(plan.id, email)
 
       if (res.success && res.checkoutUrl && res.sessionId) {
+        const openResult = await window.api.openExternalUrl(res.checkoutUrl)
+        if (!openResult.success) {
+          setStripeVerifying(false)
+          setLicenseError(openResult.error || 'Unable to open the checkout in your system browser.')
+          return
+        }
         setPendingSessionIds((prev) => ({ ...prev, [plan.id]: res.sessionId! }))
-        window.open(res.checkoutUrl, '_blank')
 
         // Start automatic global polling every 2 seconds
         stopSettingsPolling()

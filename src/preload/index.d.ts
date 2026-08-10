@@ -249,6 +249,7 @@ export interface PrismAPI {
   onBrowserExecCommand: (callback: (data: { requestId: string; command: any }) => void) => () => void
   sendBrowserExecResult: (requestId: string, result: any) => void
   openBrowser: (url?: string) => Promise<string>
+  openExternalUrl: (url: string) => Promise<import('../shared/types').OpenExternalUrlResult>
   closeBrowser: () => Promise<string>
   resetBrowserIdle: () => void
   activateLicense: (key: string) => Promise<import('../shared/types').ActivationResult>

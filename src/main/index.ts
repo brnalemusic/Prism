@@ -1004,6 +1004,21 @@ if (!gotTheLock) {
       return openBrowser(url)
     })
 
+    ipcMain.handle('open-external-url', async (_event, url: string) => {
+      try {
+        const targetUrl = new URL(url)
+        if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') {
+          return { success: false, error: 'Only HTTP and HTTPS links can be opened externally.' }
+        }
+
+        await shell.openExternal(targetUrl.toString())
+        return { success: true }
+      } catch (error) {
+        console.error('[Navigation] Failed to open external URL:', url, error)
+        return { success: false, error: 'Unable to open the checkout in your system browser.' }
+      }
+    })
+
     ipcMain.handle('close-browser', () => {
       return closePersistentBrowser()
     })
