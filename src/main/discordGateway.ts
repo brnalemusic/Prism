@@ -73,6 +73,8 @@ let activeVoiceOverlayChatId: string | null = null
 let voiceOverlaySpeaking = false
 let voiceOutputAnnounced = false
 let lastVoiceOverlayLevelAt = 0
+let lastVoiceReceiveWarningAt = 0
+let suppressedVoiceReceiveWarnings = 0
 
 type VoiceOverlayConnectionState = 'connecting' | 'connected' | 'disconnected'
 
@@ -89,6 +91,60 @@ let pendingVoiceLeave: PendingVoiceLeave | null = null
 
 const VOICE_SILENCE_FLUSH_MS = 800
 const VOICE_GATE_START_RMS = 0.02
+const VOICE_RECEIVE_WARNING_INTERVAL_MS = 5000
+
+function getVoiceReceiveErrorText(error: unknown): string {
+  if (error instanceof Error) {
+    const errorCode = 'code' in error ? String(error.code) : ''
+    return [errorCode, error.message].filter(Boolean).join(' ')
+  }
+  if (typeof error === 'string') return error
+
+  if (error && typeof error === 'object') {
+    const errorRecord = error as { code?: unknown; message?: unknown }
+    return [errorRecord.code, errorRecord.message].filter(Boolean).join(' ')
+  }
+
+  return String(error)
+}
+
+function isRecoverableVoiceReceiveError(error: unknown): boolean {
+  const errorText = getVoiceReceiveErrorText(error).toLowerCase()
+
+  return (
+    errorText.includes('decryptionfailed') ||
+    errorText.includes('unencryptedwhenpassthroughdisabled') ||
+    (errorText.includes('genericfailure') &&
+      /(decrypt|udp|packet|opus|passthrough)/i.test(errorText)) ||
+    /(decrypt|udp|packet|opus).*(decode|decrypt|invalid|malformed|corrupt)/i.test(errorText)
+  )
+}
+
+function warnAboutVoiceReceiveError(source: string, error: unknown): void {
+  const now = Date.now()
+  if (now - lastVoiceReceiveWarningAt < VOICE_RECEIVE_WARNING_INTERVAL_MS) {
+    suppressedVoiceReceiveWarnings += 1
+    return
+  }
+
+  const suppressed = suppressedVoiceReceiveWarnings
+  lastVoiceReceiveWarningAt = now
+  suppressedVoiceReceiveWarnings = 0
+  const suffix = suppressed > 0 ? ` (${suppressed} similar warning(s) suppressed)` : ''
+  console.warn(
+    `[Discord Gateway] Ignored recoverable ${source} packet error${suffix}: ${getVoiceReceiveErrorText(error)}`
+  )
+}
+
+function handleVoiceReceiveError(source: string, error: unknown, stream: unknown): void {
+  if (isRecoverableVoiceReceiveError(error)) {
+    warnAboutVoiceReceiveError(source, error)
+    return
+  }
+
+  console.error(`[Discord Gateway] Fatal ${source} error:`, error)
+  if (activeVoiceInputStream === stream) cleanupVoiceResources()
+}
 const VOICE_GATE_CONTINUE_RMS = 0.012
 const VOICE_GATE_HANGOVER_MS = 450
 const VOICE_INACTIVITY_TIMEOUT_MS = 240 * 60 * 1000 // 240 minutes (4 hours) of inactivity before AI says goodbye and leaves
@@ -1052,16 +1108,16 @@ async function startLiveVoiceSession(
     const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 })
     activeVoiceDecoder = decoder
 
-    audioStream.on('error', (err: any) => {
-      console.error('[Discord Gateway] AudioStream error:', err)
+    audioStream.on('error', (err: unknown) => {
+      handleVoiceReceiveError('Discord audio receive', err, audioStream)
     })
 
     audioStream.on('end', () => {
       console.log('[Discord Gateway] Discord audio receiver ended.')
     })
 
-    decoder.on('error', (err: any) => {
-      console.error('[Discord Gateway] Opus Decoder error:', err)
+    decoder.on('error', (err: unknown) => {
+      handleVoiceReceiveError('Opus decoder', err, audioStream)
     })
 
     decoder.on('data', (pcm48kChunk: Buffer) => {
