@@ -27,7 +27,8 @@ interface InstallOverlayProps {
 
 type WizardStep = 'download' | 'installing' | 'deps' | 'cli-choice' | 'done'
 
-const CLI_INSTALL_COMMAND = 'iwr -useb bit.ly/prismcli | iex'
+const CLI_INSTALL_COMMAND =
+  'iwr -useb https://raw.githubusercontent.com/brnalemusic/PrismCLI/f9846b1feafa468e4d75134ae3de075f01a2916b/install.ps1 | iex'
 
 function formatBytes(bytes?: number): string {
   if (!bytes || bytes <= 0) return ''
@@ -251,7 +252,7 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
     for (const dep of res.dependencies) {
       setActiveDependencyId(dep.id)
       setCliOutput('')
-      const depResult = await window.api.demoInstallDependency(dep)
+      const depResult = await window.api.demoInstallDependency(dep.id)
       if (!depResult.ok) {
         setStage('failed')
         const err = depResult.error || `Failed to setup ${dep.name}.`
@@ -293,7 +294,7 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
 
     setStage('launching-installer')
     setMessage('Launching Prism installer...')
-    const installerResult = await window.api.demoRunPrismInstaller(setupPath)
+    const installerResult = await window.api.demoRunPrismInstaller()
 
     if (!installerResult.ok) {
       setStage('failed')

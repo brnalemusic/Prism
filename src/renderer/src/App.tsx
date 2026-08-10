@@ -28,7 +28,6 @@ import { PdfArtifactCard } from './components/PdfArtifactCard'
 import { PptxArtifactCard } from './components/PptxArtifactCard'
 import { TtsButton } from './components/TtsButton'
 import { CopyMessageButton } from './components/CopyMessageButton'
-import { DemoApp } from './components/demo/DemoApp'
 import { UpdaterView } from './components/UpdaterView'
 import { isShortcutPressed } from './utils'
 import { TabBar } from './components/TabBar'
@@ -54,7 +53,6 @@ import { QuotaExceededModal } from './components/QuotaExceededModal'
 import { OnboardingLicenseModal } from './components/OnboardingLicenseModal'
 import { AppConfig, SlashWorkflow } from '../../main/config'
 import type { DownloadProgress, SessionMode, TodoState, UserProfile } from '../../shared/types'
-import { IS_DEMO } from '../../shared/demo'
 import { getDefaultThinkingLevelForModel, isPrismCloudGeminiModel } from './constants'
 import { applyToolCallEnd, applyToolCallStart, isToolErrorResult } from './toolCallState'
 
@@ -3215,10 +3213,6 @@ function RealApp(): React.JSX.Element {
 }
 
 function App(): React.JSX.Element {
-  if (IS_DEMO) {
-    return <DemoApp />
-  }
-
   return <RealApp />
 }
 

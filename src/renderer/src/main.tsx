@@ -1,12 +1,24 @@
 import '@fontsource/outfit'
 import './assets/main.css'
 
-import { StrictMode } from 'react'
+import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
-import App from './App'
+import { IS_DEMO } from '../../shared/demo'
+import { StartupShell } from './components/StartupShell'
+
+const RootApp = lazy(async () => {
+  if (IS_DEMO) {
+    const { DemoApp } = await import('./components/demo/DemoApp')
+    return { default: DemoApp }
+  }
+
+  return await import('./App')
+})
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <Suspense fallback={<StartupShell isDemo={IS_DEMO} />}>
+      <RootApp />
+    </Suspense>
   </StrictMode>
 )

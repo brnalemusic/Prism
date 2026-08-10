@@ -12,7 +12,8 @@ export function answerChunks(
   const originalChunksCount = Math.ceil(text.length / maxChars)
   const totalTime = originalChunksCount * interval
 
-  const targetInterval = 12
+  // Keep streaming visually fluid without reparsing Markdown more often than a frame can paint.
+  const targetInterval = 32
   let subInterval = targetInterval
   let subChunkSize = Math.max(1, Math.round((subInterval / interval) * maxChars))
 
@@ -20,8 +21,8 @@ export function answerChunks(
     subChunkSize = 2
     const totalSubChunks = Math.ceil(text.length / subChunkSize)
     subInterval = totalSubChunks > 0 ? totalTime / totalSubChunks : interval
-  } else if (subChunkSize > 8) {
-    subChunkSize = 8
+  } else if (subChunkSize > 24) {
+    subChunkSize = 24
     const totalSubChunks = Math.ceil(text.length / subChunkSize)
     subInterval = totalSubChunks > 0 ? totalTime / totalSubChunks : interval
   }

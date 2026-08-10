@@ -118,6 +118,7 @@ export async function testGeminiConnection(_overrideKey?: string): Promise<Conne
     return { ok: false, errorType: 'invalid-key', message: 'No active API provider or account login found.' }
   }
 
+  let timeout: ReturnType<typeof setTimeout> | null = null
   try {
     const baseUrl = activeProvider.baseUrl.replace(/\/+$/, '')
     const headers: Record<string, string> = {}
@@ -129,9 +130,8 @@ export async function testGeminiConnection(_overrideKey?: string): Promise<Conne
     } else headers.Authorization = `Bearer ${activeProvider.apiKey}`
 
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 8000)
+    timeout = setTimeout(() => controller.abort(), 8000)
     const response = await fetch(`${baseUrl}/models`, { method: 'GET', headers, signal: controller.signal })
-    clearTimeout(timeout)
     if (response.ok || response.status === 404) return { ok: true }
     if (response.status === 401 || response.status === 403) {
       return { ok: false, errorType: 'invalid-key', message: `API key for provider "${activeProvider.name}" is invalid or expired.` }
@@ -139,6 +139,8 @@ export async function testGeminiConnection(_overrideKey?: string): Promise<Conne
     return { ok: false, errorType: 'server', message: `Provider "${activeProvider.name}" returned status ${response.status}.` }
   } catch (error) {
     return classifyError(error, activeProvider.name)
+  } finally {
+    if (timeout) clearTimeout(timeout)
   }
 }
 
@@ -188,13 +190,15 @@ export async function closePrismCloudTransport(): Promise<void> {
 }
 
 export async function checkInternetConnectivity(): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | null = null
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 5000)
+    timeout = setTimeout(() => controller.abort(), 5000)
     const res = await fetch('https://www.google.com/generate_204', { method: 'HEAD', signal: controller.signal, cache: 'no-store' })
-    clearTimeout(timeout)
     return res.ok || res.status === 204
   } catch {
     return false
+  } finally {
+    if (timeout) clearTimeout(timeout)
   }
 }

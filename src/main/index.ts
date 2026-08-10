@@ -204,6 +204,7 @@ async function finalizeAuthenticatedIpcResponse(result: AuthResponse): Promise<A
 let tray: Tray | null = null
 let isQuitting = false
 let cachedApps: ApplicationInfo[] = []
+let stopLicenseMonitor: (() => void) | null = null
 // Stored so we can clear it in will-quit to prevent lingering timers
 let connectivityIntervalId: ReturnType<typeof setInterval> | null = null
 
@@ -494,8 +495,10 @@ function createWindow(): void {
       : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
       sandbox: false,
-      webviewTag: true,
+      webviewTag: !IS_DEMO,
       // Disable spellcheck to reduce background Chromium memory overhead
       spellcheck: false
     }
@@ -541,9 +544,8 @@ function createWindow(): void {
 
   if (windowState.isMaximized) {
     mainWindow.maximize()
-  } else {
-    mainWindow.show()
   }
+  mainWindow.show()
 
   mainWindow.on('ready-to-show', () => {
     console.log('ready-to-show event fired')
@@ -573,10 +575,47 @@ function createWindow(): void {
       if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
         shell.openExternal(details.url)
       }
-    } catch {
-      /* ignore malformed URLs */
+    } catch (err) {
+      console.warn('[Navigation] Blocked malformed external URL:', details.url, err)
     }
     return { action: 'deny' }
+  })
+
+  mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
+    try {
+      const target = new URL(targetUrl)
+      const devOrigin = process.env['ELECTRON_RENDERER_URL']
+        ? new URL(process.env['ELECTRON_RENDERER_URL']).origin
+        : null
+      const isTrusted = is.dev
+        ? target.origin === devOrigin
+        : target.protocol === 'file:'
+
+      if (!isTrusted) {
+        event.preventDefault()
+        console.warn('[Navigation] Blocked renderer navigation:', targetUrl)
+      }
+    } catch (err) {
+      event.preventDefault()
+      console.warn('[Navigation] Blocked invalid renderer navigation:', targetUrl, err)
+    }
+  })
+
+  mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    delete webPreferences.preload
+    webPreferences.nodeIntegration = false
+    webPreferences.contextIsolation = true
+
+    try {
+      const source = new URL(params.src)
+      if (!['http:', 'https:', 'about:'].includes(source.protocol)) {
+        event.preventDefault()
+        console.warn('[Webview] Blocked unsupported source:', params.src)
+      }
+    } catch (err) {
+      event.preventDefault()
+      console.warn('[Webview] Blocked invalid source:', params.src, err)
+    }
   })
 
   // HMR for renderer base on electron-vite cli.
@@ -814,21 +853,25 @@ if (!gotTheLock) {
     electronApp.setAppUserModelId(IS_DEMO ? 'com.prism.demo.app' : 'com.prism.app')
 
     // Check if app was launched via deep link URL (Windows / Linux process.argv)
-    const initialDeepLink = process.argv.find((arg) => arg.startsWith('prism://'))
+    const initialDeepLink = !IS_DEMO
+      ? process.argv.find((arg) => arg.startsWith('prism://'))
+      : undefined
     if (initialDeepLink) {
       processDeepLinkUrl(initialDeepLink).catch((err) => console.error('[Auth] Failed to process initial deep link:', err))
     }
 
-    // Start real-time license expiration monitor
-    startLicenseExpirationMonitor(() => {
-      currentConfig = loadConfig()
-      safeSend(mainWindow, 'config-changed', currentConfig)
-      safeSend(launcherWindow, 'config-changed', currentConfig)
-    })
+    if (!IS_DEMO) {
+      // Start real-time license expiration monitor only for the full application.
+      stopLicenseMonitor = startLicenseExpirationMonitor(() => {
+        currentConfig = loadConfig()
+        safeSend(mainWindow, 'config-changed', currentConfig)
+        safeSend(launcherWindow, 'config-changed', currentConfig)
+      })
 
-    // Attach automatic download event handlers to Electron sessions
-    setupSessionDownloadHandler(session.defaultSession)
-    setupSessionDownloadHandler(session.fromPartition('persist:prism-ai-browser'))
+      // The Demo uses its own local installer flow and does not need browser download hooks.
+      setupSessionDownloadHandler(session.defaultSession)
+      setupSessionDownloadHandler(session.fromPartition('persist:prism-ai-browser'))
+    }
 
     // Set working directory to user home directory in production/packaged mode
     if (app.isPackaged) {
@@ -841,7 +884,7 @@ if (!gotTheLock) {
 
     // Load config after app is ready
     currentConfig = loadConfig()
-    startDiscordGateway(currentConfig)
+    if (!IS_DEMO) startDiscordGateway(currentConfig)
 
     // Enforce auto-launch state based on loaded configuration
     if (!IS_DEMO) {
@@ -1132,7 +1175,7 @@ if (!gotTheLock) {
         currentConfig = loadConfig()
         if (!IS_DEMO) registerGlobalShortcuts()
         updateNativeIcons()
-        startDiscordGateway(currentConfig)
+        if (!IS_DEMO) startDiscordGateway(currentConfig)
         // Notify windows with merged config
         safeSend(mainWindow, 'config-changed', currentConfig)
         safeSend(launcherWindow, 'config-changed', currentConfig)
@@ -1355,19 +1398,22 @@ if (!gotTheLock) {
       safeSend(launcherWindow, 'config-changed', config)
     })
 
-    // Initialize Supabase Auth Session (Restores encrypted session token)
-    initializePrismCloudTransport()
-    initializeAuthSession()
-      .then((user) => {
-        if (user) markConnectionActive()
-      })
-      .catch((err) => {
-        console.error('[Auth] Error restoring session on launch:', err)
-      })
+    // Start loading the renderer as soon as all synchronous IPC contracts are registered.
+    createWindow()
 
     if (IS_DEMO) {
       registerDemoDownloadHandlers()
     } else {
+      // Restore network-backed services after the renderer has started loading.
+      initializePrismCloudTransport()
+      initializeAuthSession()
+        .then((user) => {
+          if (user) markConnectionActive()
+        })
+        .catch((err) => {
+          console.error('[Auth] Error restoring session on launch:', err)
+        })
+
       registerGlobalShortcuts()
 
       registerAppsUpdatedCallback((apps) => {
@@ -1381,7 +1427,6 @@ if (!gotTheLock) {
 
       initGemini()
     }
-    createWindow()
     if (!IS_DEMO) {
       createLauncherWindow()
       createVoiceOverlayWindowInstance()
@@ -1416,8 +1461,12 @@ if (!gotTheLock) {
       }, intervalMs)
     }
 
-    // Run once immediately to get the initial state, then start polling
-    checkConnectivity().then(() => startConnectivityPoller())
+    // The scripted Demo is fully local and must remain idle without network polling.
+    if (!IS_DEMO) {
+      void checkConnectivity()
+        .then(() => startConnectivityPoller())
+        .catch((err) => console.error('[Connectivity] Initial check failed:', err))
+    }
 
     app.on('activate', function () {
       if (BrowserWindow.getAllWindows().length === 0) {
@@ -1440,6 +1489,8 @@ if (!gotTheLock) {
 
   app.on('will-quit', () => {
     globalShortcut.unregisterAll()
+    stopLicenseMonitor?.()
+    stopLicenseMonitor = null
     stopKeepAlive()
     void closePrismCloudTransport()
     // Clean up connectivity poller to prevent lingering timers after quit

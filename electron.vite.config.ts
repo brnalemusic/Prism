@@ -14,6 +14,14 @@ const demoDefine = {
 export default defineConfig({
   main: {
     define: demoDefine,
+    build: {
+      rollupOptions: {
+        input: resolve(IS_DEMO ? 'src/main/demo.ts' : 'src/main/index.ts'),
+        output: {
+          entryFileNames: 'index.js'
+        }
+      }
+    },
     plugins: [
       externalizeDepsPlugin({
         exclude: ['@protobufjs/utf8', 'jszip', 'pptxgenjs', 'mime-types']
@@ -22,6 +30,14 @@ export default defineConfig({
   },
   preload: {
     define: demoDefine,
+    build: {
+      rollupOptions: {
+        input: resolve(IS_DEMO ? 'src/preload/demo.ts' : 'src/preload/index.ts'),
+        output: {
+          entryFileNames: 'index.js'
+        }
+      }
+    },
     plugins: [externalizeDepsPlugin()]
   },
   renderer: {

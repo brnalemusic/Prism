@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
-import { spawn, exec, execFile, execSync } from 'child_process'
+import { spawn, exec, execSync } from 'child_process'
 import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
@@ -19,6 +19,9 @@ import type {
 import type { DownloadProgress } from '../shared/types'
 
 const DEMO_DOWNLOAD_ID = 'demo-prism-installer'
+const PRISM_CLI_INSTALL_SCRIPT =
+  'https://raw.githubusercontent.com/brnalemusic/PrismCLI/f9846b1feafa468e4d75134ae3de075f01a2916b/install.ps1'
+let preparedInstallerPath: string | null = null
 
 function emitDemoProgress(progress: Omit<DemoInstallProgress, 'updatedAt'>): void {
   const payload: DemoInstallProgress = {
@@ -97,8 +100,16 @@ function runProcess(
   })
 }
 
-async function runInstaller(setupPath: string): Promise<DemoProcessResult> {
-  const resolvedPath = path.resolve(setupPath)
+async function runInstaller(): Promise<DemoProcessResult> {
+  const expectedPath = path.resolve(app.getPath('temp'), 'prism-setup.exe')
+  const resolvedPath = preparedInstallerPath ? path.resolve(preparedInstallerPath) : null
+
+  if (!resolvedPath || resolvedPath !== expectedPath) {
+    throw new Error('The Prism installer has not been prepared by this Demo session.')
+  }
+
+  // Claim the path before spawning so concurrent IPC calls cannot execute it twice.
+  preparedInstallerPath = null
   await fs.access(resolvedPath)
 
   const result = await runProcess(resolvedPath, [], {
@@ -146,7 +157,13 @@ async function runInstaller(setupPath: string): Promise<DemoProcessResult> {
 async function installPrismCli(): Promise<DemoProcessResult> {
   const result = await runProcess(
     'powershell.exe',
-    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'iwr -useb bit.ly/prismcli | iex'],
+    [
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      `iwr -useb ${PRISM_CLI_INSTALL_SCRIPT} | iex`
+    ],
     {
       stage: 'cli-running',
       message: 'Installing PrismCLI...',
@@ -210,6 +227,7 @@ async function unpackEmbeddedInstaller(): Promise<DemoDownloadResult> {
   const tempPath = app.getPath('temp')
   const setupPath = path.join(tempPath, 'prism-setup.exe')
   const embeddedPath = getEmbeddedInstallerPath()
+  preparedInstallerPath = null
 
   try {
     emitDemoProgress({
@@ -220,39 +238,7 @@ async function unpackEmbeddedInstaller(): Promise<DemoDownloadResult> {
 
     await fs.mkdir(tempPath, { recursive: true })
 
-    if (!app.isPackaged) {
-      try {
-        await fs.access(embeddedPath)
-      } catch {
-        console.warn(`[Dev Mode] ${embeddedPath} not found. Creating a mock fallback using a system executable.`)
-        const resourcesDir = path.dirname(embeddedPath)
-        await fs.mkdir(resourcesDir, { recursive: true })
-
-        const systemExes = [
-          'C:\\Windows\\System32\\whoami.exe',
-          'C:\\Windows\\System32\\ping.exe',
-          'C:\\Windows\\System32\\cmd.exe'
-        ]
-
-        let copied = false
-        for (const exe of systemExes) {
-          try {
-            await fs.access(exe)
-            await fs.copyFile(exe, embeddedPath)
-            copied = true
-            console.log(`[Dev Mode] Successfully copied mock installer from ${exe} to ${embeddedPath}`)
-            break
-          } catch {
-            // try next
-          }
-        }
-
-        if (!copied) {
-          await fs.writeFile(embeddedPath, 'DUMMY INSTALLER CONTENT FOR DEV TESTING')
-          console.log(`[Dev Mode] Fallback to writing dummy text file at ${embeddedPath}`)
-        }
-      }
-    }
+    await fs.access(embeddedPath)
 
     const stats = await fs.stat(embeddedPath)
     const totalBytes = stats.size
@@ -260,7 +246,7 @@ async function unpackEmbeddedInstaller(): Promise<DemoDownloadResult> {
     let lastProgressAt = 0
     const startedAt = Date.now()
 
-    const updateProgress = (receivedBytes: number, percent: number) => {
+    const updateProgress = (receivedBytes: number, percent: number): void => {
       emitDownloadProgress({
         id: DEMO_DOWNLOAD_ID,
         filename: 'prism-setup.exe',
@@ -294,6 +280,7 @@ async function unpackEmbeddedInstaller(): Promise<DemoDownloadResult> {
     })
 
     await pipeline(readStream, progressStream, writeStream)
+    preparedInstallerPath = path.resolve(setupPath)
 
     emitDemoProgress({
       stage: 'unpacked',
@@ -318,29 +305,6 @@ async function unpackEmbeddedInstaller(): Promise<DemoDownloadResult> {
   }
 }
 
-async function findInstalledPrismExe(): Promise<string | null> {
-  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local')
-  const programFiles = process.env.ProgramFiles || 'C:\\Program Files'
-  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
-
-  const candidates = [
-    path.join(localAppData, 'Programs', 'Prism', 'Prism.exe'),
-    path.join(localAppData, 'Prism', 'Prism.exe'),
-    path.join(programFiles, 'Prism', 'Prism.exe'),
-    path.join(programFilesX86, 'Prism', 'Prism.exe')
-  ]
-
-  for (const candidate of candidates) {
-    try {
-      await fs.access(candidate)
-      return candidate
-    } catch (err) {
-      // Candidate not accessible
-    }
-  }
-  return null
-}
-
 function refreshEnvPath(): void {
   try {
     let userPath = ''
@@ -355,7 +319,7 @@ function refreshEnvPath(): void {
         userPath = line.split(/REG_(?:SZ|EXPAND_SZ)\s+/)[1]?.trim() || ''
       }
     } catch (err) {
-      // Registry key not found
+      console.debug('[Demo] User PATH registry entry is unavailable:', err)
     }
 
     let systemPath = ''
@@ -370,10 +334,10 @@ function refreshEnvPath(): void {
         systemPath = line.split(/REG_(?:SZ|EXPAND_SZ)\s+/)[1]?.trim() || ''
       }
     } catch (err) {
-      // Registry key not found
+      console.debug('[Demo] System PATH registry entry is unavailable:', err)
     }
 
-    const expand = (str: string) => {
+    const expand = (str: string): string => {
       return str.replace(/%([^%]+)%/g, (_, key) => process.env[key] || `%${key}%`)
     }
     const expandedUser = expand(userPath)
@@ -578,7 +542,7 @@ async function installNodeDependency(
   }
 
   emitProgress?.(40, 'Silent MSI install failed (Error code 1603). Requesting elevation...')
-  const elevatedMsiCmd = `powershell -NoProfile -Command "Start-Process msiexec.exe -ArgumentList '/i \"${filePath.replace(/"/g, '`"')}\" /passive /norestart' -Verb RunAs -Wait"`
+  const elevatedMsiCmd = `powershell -NoProfile -Command "Start-Process msiexec.exe -ArgumentList '/i "${filePath.replace(/"/g, '`"')}" /passive /norestart' -Verb RunAs -Wait"`
 
   await new Promise((resolve) => {
     exec(elevatedMsiCmd, { env: process.env }, () => resolve(true))
@@ -681,6 +645,8 @@ async function installDependency(
 }
 
 export function registerDemoDownloadHandlers(): void {
+  preparedInstallerPath = null
+
   for (const channel of [
     'demo-download-prism',
     'demo-run-prism-installer',
@@ -700,20 +666,20 @@ export function registerDemoDownloadHandlers(): void {
 
   ipcMain.handle(
     'demo-run-prism-installer',
-    async (_event, setupPath: string): Promise<DemoProcessResult> => {
+    async (): Promise<DemoProcessResult> => {
       try {
+        const setupPath = preparedInstallerPath || undefined
         emitDemoProgress({
           stage: 'launching-installer',
           message: 'Launching Prism installer...',
           setupPath
         })
-        return await runInstaller(setupPath)
+        return await runInstaller()
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err)
         emitDemoProgress({
           stage: 'failed',
           message: error,
-          setupPath,
           error
         })
         return { ok: false, error }
@@ -740,45 +706,17 @@ export function registerDemoDownloadHandlers(): void {
   })
 
   ipcMain.handle('demo-get-prism-dependencies', async (): Promise<{ ok: boolean; dependencies?: Dependency[]; error?: string }> => {
-    try {
-      const exePath = await findInstalledPrismExe()
-      if (!exePath) {
-        console.warn('Prism executable not found. Falling back to default dependency manifest.')
-        return { ok: true, dependencies: DEPENDENCIES }
-      }
-
-      return new Promise((resolve) => {
-        execFile(exePath, ['--get-dependencies'], (error, stdout) => {
-          if (error) {
-            console.warn(
-              'Failed to run Prism --get-dependencies, falling back to local manifest:',
-              error
-            )
-            resolve({ ok: true, dependencies: DEPENDENCIES })
-            return
-          }
-
-          try {
-            const dependencies = JSON.parse(stdout.trim())
-            resolve({ ok: true, dependencies })
-          } catch (parseErr) {
-            console.warn(
-              'Failed to parse dependencies stdout, falling back to local manifest:',
-              parseErr
-            )
-            resolve({ ok: true, dependencies: DEPENDENCIES })
-          }
-        })
-      })
-    } catch (err) {
-      const error = err instanceof Error ? err.message : String(err)
-      return { ok: false, error }
-    }
+    return { ok: true, dependencies: DEPENDENCIES.map((dependency) => ({ ...dependency })) }
   })
 
   ipcMain.handle(
     'demo-install-dependency',
-    async (event, dependency: Dependency): Promise<DemoProcessResult> => {
+    async (event, dependencyId: string): Promise<DemoProcessResult> => {
+      const dependency = DEPENDENCIES.find((candidate) => candidate.id === dependencyId)
+      if (!dependency) {
+        return { ok: false, error: 'Unknown Prism dependency requested.' }
+      }
+
       const emitDepProgress = (
         status: DemoDependencyProgress['status'],
         percent: number | undefined,

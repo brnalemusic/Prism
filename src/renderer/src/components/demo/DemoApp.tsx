@@ -1,11 +1,46 @@
-import { useState, useEffect } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import type { DemoScript } from '../../../../shared/demo'
 import { PrismBackground } from '../PrismBackground'
 import { TitleBar } from '../TitleBar'
 import { demoScripts } from '../../demo/scripts'
 import { DemoHome } from './DemoHome'
-import { DemoChatView } from './DemoChatView'
-import { InstallOverlay } from './InstallOverlay'
+
+const DemoChatView = lazy(async () => {
+  const module = await import('./DemoChatView')
+  return { default: module.DemoChatView }
+})
+
+const InstallOverlay = lazy(async () => {
+  const module = await import('./InstallOverlay')
+  return { default: module.InstallOverlay }
+})
+
+function DemoModuleFallback(): React.JSX.Element {
+  return (
+    <div
+      className="flex h-full w-full items-center justify-center text-sm text-text-secondary"
+      role="status"
+      aria-live="polite"
+    >
+      Loading demo...
+    </div>
+  )
+}
+
+function InstallModuleFallback(): React.JSX.Element {
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-background-main/90 backdrop-blur-sm"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-center gap-3 text-sm text-text-secondary">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/10 border-t-accent-secondary" />
+        Preparing installer...
+      </div>
+    </div>
+  )
+}
 
 export function DemoApp(): React.JSX.Element {
   const [selectedScript, setSelectedScript] = useState<DemoScript | null>(null)
@@ -33,12 +68,14 @@ export function DemoApp(): React.JSX.Element {
 
       <div className="relative z-10 h-full w-full overflow-hidden">
         {selectedScript ? (
-          <DemoChatView
-            key={selectedScript.id}
-            script={selectedScript}
-            onBack={() => setSelectedScript(null)}
-            onDownload={() => setIsInstallOpen(true)}
-          />
+          <Suspense fallback={<DemoModuleFallback />}>
+            <DemoChatView
+              key={selectedScript.id}
+              script={selectedScript}
+              onBack={() => setSelectedScript(null)}
+              onDownload={() => setIsInstallOpen(true)}
+            />
+          </Suspense>
         ) : (
           <DemoHome
             scripts={demoScripts}
@@ -49,7 +86,11 @@ export function DemoApp(): React.JSX.Element {
         )}
       </div>
 
-      {isInstallOpen && <InstallOverlay onClose={() => setIsInstallOpen(false)} />}
+      {isInstallOpen && (
+        <Suspense fallback={<InstallModuleFallback />}>
+          <InstallOverlay onClose={() => setIsInstallOpen(false)} />
+        </Suspense>
+      )}
     </div>
   )
 }

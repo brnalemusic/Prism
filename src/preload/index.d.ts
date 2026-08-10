@@ -87,7 +87,7 @@ export interface PrismAPI {
   onToolUpdate: (callback: (data: ToolUpdate & { chatId: string }) => void) => () => void
   onDownloadProgress: (callback: (data: DownloadProgress) => void) => () => void
   demoDownloadPrism: () => Promise<DemoDownloadResult>
-  demoRunPrismInstaller: (setupPath: string) => Promise<DemoProcessResult>
+  demoRunPrismInstaller: () => Promise<DemoProcessResult>
   demoInstallCli: () => Promise<DemoProcessResult>
   demoInstallDeps: () => Promise<DemoProcessResult>
   demoOpenPrism: () => Promise<DemoOpenResult>
@@ -98,7 +98,7 @@ export interface PrismAPI {
     dependencies?: Dependency[]
     error?: string
   }>
-  demoInstallDependency: (dependency: Dependency) => Promise<DemoProcessResult>
+  demoInstallDependency: (dependencyId: string) => Promise<DemoProcessResult>
   onDemoDependencyProgress: (callback: (data: DemoDependencyProgress) => void) => () => void
   onLauncherMessage: (
     callback: (data: {

@@ -252,8 +252,8 @@ const api = {
     return () => ipcRenderer.removeListener('download-progress', listener)
   },
   demoDownloadPrism: (): Promise<DemoDownloadResult> => ipcRenderer.invoke('demo-download-prism'),
-  demoRunPrismInstaller: (setupPath: string): Promise<DemoProcessResult> =>
-    ipcRenderer.invoke('demo-run-prism-installer', setupPath),
+  demoRunPrismInstaller: (): Promise<DemoProcessResult> =>
+    ipcRenderer.invoke('demo-run-prism-installer'),
   demoInstallCli: (): Promise<DemoProcessResult> => ipcRenderer.invoke('demo-install-cli'),
   demoInstallDeps: (): Promise<DemoProcessResult> => ipcRenderer.invoke('demo-install-deps'),
   demoOpenPrism: (): Promise<DemoOpenResult> => ipcRenderer.invoke('demo-open-prism'),
@@ -268,8 +268,8 @@ const api = {
     dependencies?: Dependency[]
     error?: string
   }> => ipcRenderer.invoke('demo-get-prism-dependencies'),
-  demoInstallDependency: (dependency: Dependency): Promise<DemoProcessResult> =>
-    ipcRenderer.invoke('demo-install-dependency', dependency),
+  demoInstallDependency: (dependencyId: string): Promise<DemoProcessResult> =>
+    ipcRenderer.invoke('demo-install-dependency', dependencyId),
   onDemoDependencyProgress: (callback: (data: DemoDependencyProgress) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, data: DemoDependencyProgress): void =>
       callback(data)

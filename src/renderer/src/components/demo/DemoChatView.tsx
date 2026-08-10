@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ArrowLeft, ArrowClockwise, Brain, DownloadSimple } from '@phosphor-icons/react'
@@ -70,9 +70,12 @@ function updateLastAiMessage(
   return next
 }
 
-function DemoAiMessage({ message }: { message: DemoChatMessage }): React.JSX.Element | null {
+const DemoAiMessage = memo(function DemoAiMessage({
+  message
+}: {
+  message: DemoChatMessage
+}): React.JSX.Element | null {
   const streamStats = useStreamStats(message.content, message.isStreaming)
-  const markdownComponents = useMemo(() => StaticMarkdownComponents, [])
 
   if (!message.content && message.toolCalls.length === 0 && !message.thoughts) return null
 
@@ -115,7 +118,7 @@ function DemoAiMessage({ message }: { message: DemoChatMessage }): React.JSX.Ele
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[createStreamingFadeRehypePlugin(streamStats)]}
-              components={markdownComponents}
+              components={StaticMarkdownComponents}
             >
               {message.content}
             </ReactMarkdown>
@@ -124,7 +127,7 @@ function DemoAiMessage({ message }: { message: DemoChatMessage }): React.JSX.Ele
       </div>
     </StreamContext.Provider>
   )
-}
+})
 
 export function DemoChatView({ script, onBack, onDownload }: DemoChatViewProps): React.JSX.Element {
   const [messages, setMessages] = useState<DemoChatMessage[]>([])
@@ -227,7 +230,10 @@ export function DemoChatView({ script, onBack, onDownload }: DemoChatViewProps):
   }, [handleEvent, runId, script])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const frame = window.requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' })
+    })
+    return () => window.cancelAnimationFrame(frame)
   }, [messages])
 
   const handleReplay = (): void => {
