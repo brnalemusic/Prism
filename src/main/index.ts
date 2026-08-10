@@ -60,7 +60,7 @@ import {
   getAppsList
 } from './appScanner'
 import { loadConfig, saveConfig, AppConfig } from './config'
-import { activateLicenseKey, deactivateLicense, getLicenseInfo, startLicenseExpirationMonitor, syncLocalLicenseWithSupabase, revokeLocalLicenseFromSupabase } from './license'
+import { activateLicenseKey, deactivateLicense, getLicenseInfo, startLicenseExpirationMonitor, syncLocalLicenseWithSupabase, revokeLocalLicenseFromSupabase, verifyLicenseKey } from './license'
 import { toolsManifest } from './toolsManifest'
 import { listChatSessions, loadChatSession, deleteChatSession, searchChatsOffline } from './history'
 import {
@@ -100,6 +100,7 @@ import {
   authResendConfirmationEmail,
   handleDeepLinkAuth,
   getAuthAccessToken,
+  isUserAuthenticated,
   authRequestDeleteAccountEmail,
   authConfirmDeleteAccount,
   authConfirmDeleteAccountWithPassword
@@ -1340,15 +1341,32 @@ if (!gotTheLock) {
     })
 
     ipcMain.handle('activate-license', async (_event, key: string) => {
+      const verification = verifyLicenseKey(key)
+      if (!verification.valid) {
+        return {
+          success: false,
+          error: verification.error || 'Invalid license key.'
+        }
+      }
+
       const token = await getAuthAccessToken()
+      if (!token && isUserAuthenticated()) {
+        return {
+          success: false,
+          error: 'Your Prism session could not be validated. Please check your connection and try again.'
+        }
+      }
+
       if (token) {
         // Make the Supabase entitlement the source of truth before reporting a
         // successful local activation to an authenticated user.
-        const synced = await syncLocalLicenseWithSupabase(token, key)
-        if (!synced) {
+        const syncResult = await syncLocalLicenseWithSupabase(token, key)
+        if (!syncResult.success) {
           return {
             success: false,
-            error: 'The license could not be linked to your Prism account. Please try again while connected.'
+            error:
+              syncResult.error ||
+              'The license could not be linked to your Prism account. Please try again while connected.'
           }
         }
       }

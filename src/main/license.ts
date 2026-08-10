@@ -130,13 +130,25 @@ export function startLicenseExpirationMonitor(onExpired: () => void): () => void
 const SUPABASE_URL = 'https://jfqyqkkdmoqdpejzxdhd.supabase.co'
 const SUPABASE_ANON_KEY = 'sb_publishable_WcCSfH1dSXUzHDjlQGk2kw_4TQcAt4Q'
 const EDGE_BASE = `${SUPABASE_URL}/functions/v1`
+const LICENSE_ENTITLEMENT_TIMEOUT_MS = 12_000
+
+export interface LicenseEntitlementSyncResult {
+  success: boolean
+  error?: string
+}
 
 /**
  * Syncs the currently active local Enterprise key with Supabase for the logged-in user session.
  */
-export async function syncLocalLicenseWithSupabase(accessToken: string, licenseKey?: string): Promise<boolean> {
+export async function syncLocalLicenseWithSupabase(
+  accessToken: string,
+  licenseKey?: string
+): Promise<LicenseEntitlementSyncResult> {
   const keyToSync = licenseKey?.trim() || getLicenseInfo()?.key
-  if (!keyToSync) return false
+  if (!keyToSync) return { success: false, error: 'No active Enterprise license key was found.' }
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), LICENSE_ENTITLEMENT_TIMEOUT_MS)
 
   try {
     const res = await fetch(`${EDGE_BASE}/activate-local-license`, {
@@ -146,20 +158,32 @@ export async function syncLocalLicenseWithSupabase(accessToken: string, licenseK
         apikey: SUPABASE_ANON_KEY,
         Authorization: `Bearer ${accessToken}`
       },
-      body: JSON.stringify({ license_key: keyToSync })
+      body: JSON.stringify({ license_key: keyToSync }),
+      signal: controller.signal
     })
 
-    const data = await res.json()
+    const data = await res.json().catch(() => ({}))
     if (!res.ok || !data.success) {
       console.warn('[LicenseSync] Failed to sync local license with Supabase:', data?.error)
-      return false
+      return {
+        success: false,
+        error: data?.error || 'Prism Cloud rejected the Enterprise license entitlement.'
+      }
     }
 
     console.log('[LicenseSync] Successfully synced local Enterprise license with Supabase account.')
-    return true
+    return { success: true }
   } catch (err) {
     console.error('[LicenseSync] Network error syncing local license:', err)
-    return false
+    return {
+      success: false,
+      error:
+        err instanceof Error && err.name === 'AbortError'
+          ? 'Prism Cloud took too long to validate the license. Please try again.'
+          : 'Prism Cloud could not be reached to validate the license.'
+    }
+  } finally {
+    clearTimeout(timeout)
   }
 }
 
@@ -167,6 +191,9 @@ export async function syncLocalLicenseWithSupabase(accessToken: string, licenseK
  * Revokes the online Enterprise status for the logged-in user session when they log out or deactivate.
  */
 export async function revokeLocalLicenseFromSupabase(accessToken: string): Promise<boolean> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), LICENSE_ENTITLEMENT_TIMEOUT_MS)
+
   try {
     const res = await fetch(`${EDGE_BASE}/deactivate-local-license`, {
       method: 'POST',
@@ -174,10 +201,11 @@ export async function revokeLocalLicenseFromSupabase(accessToken: string): Promi
         'Content-Type': 'application/json',
         apikey: SUPABASE_ANON_KEY,
         Authorization: `Bearer ${accessToken}`
-      }
+      },
+      signal: controller.signal
     })
 
-    const data = await res.json()
+    const data = await res.json().catch(() => ({}))
     if (!res.ok || !data.success) {
       console.warn('[LicenseSync] Failed to revoke online enterprise status:', data?.error)
       return false
@@ -188,6 +216,8 @@ export async function revokeLocalLicenseFromSupabase(accessToken: string): Promi
   } catch (err) {
     console.error('[LicenseSync] Network error revoking online license status:', err)
     return false
+  } finally {
+    clearTimeout(timeout)
   }
 }
 

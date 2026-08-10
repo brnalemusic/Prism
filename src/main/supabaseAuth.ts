@@ -9,8 +9,19 @@ import { getLicenseInfo, syncLocalLicenseWithSupabase, revokeLocalLicenseFromSup
 const SUPABASE_URL = 'https://jfqyqkkdmoqdpejzxdhd.supabase.co'
 const SUPABASE_ANON_KEY = 'sb_publishable_WcCSfH1dSXUzHDjlQGk2kw_4TQcAt4Q'
 const PRISM_CLOUD_USAGE_URL = `${SUPABASE_URL}/functions/v1/prism-ai-proxy/usage`
+const SUPABASE_REQUEST_TIMEOUT_MS = 12_000
 
 let supabase: SupabaseClient | null = null
+
+function fetchSupabaseWithTimeout(
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1]
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), SUPABASE_REQUEST_TIMEOUT_MS)
+
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timeout))
+}
 
 function getSupabaseClient(): SupabaseClient {
   if (!supabase) {
@@ -19,6 +30,9 @@ function getSupabaseClient(): SupabaseClient {
         persistSession: false,
         autoRefreshToken: true,
         detectSessionInUrl: false
+      },
+      global: {
+        fetch: fetchSupabaseWithTimeout
       }
     })
 
@@ -641,8 +655,25 @@ export function isUserAuthenticated(): boolean {
  * Gets active Supabase access token for the logged-in user
  */
 export async function getAuthAccessToken(): Promise<string | null> {
-  const { session } = await ensureActiveSession()
-  return session?.access_token || null
+  let timeout: ReturnType<typeof setTimeout> | undefined
+
+  try {
+    const { session } = await Promise.race([
+      ensureActiveSession(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error('Timed out restoring the Prism session.')),
+          SUPABASE_REQUEST_TIMEOUT_MS
+        )
+      })
+    ])
+    return session?.access_token || null
+  } catch (err) {
+    console.warn('[Auth] Could not restore an access token:', err)
+    return null
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
 }
 
 

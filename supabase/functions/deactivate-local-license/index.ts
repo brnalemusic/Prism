@@ -3,10 +3,22 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+const DATABASE_REQUEST_TIMEOUT_MS = 10_000
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+const fetchWithTimeout: typeof fetch = async (input, init) => {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), DATABASE_REQUEST_TIMEOUT_MS)
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 function getAuthenticatedUserId(req: Request): string | null {
@@ -38,7 +50,9 @@ serve(async (req) => {
       )
     }
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      global: { fetch: fetchWithTimeout }
+    })
     // Deactivate only the account's license entitlement. Account type is a
     // separate profile attribute and must never be changed by this flow.
     const { error: deactivateErr } = await supabase

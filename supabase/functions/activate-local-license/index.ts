@@ -1,9 +1,11 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import crypto from 'node:crypto'
+import { Buffer } from 'node:buffer'
+import { verify as verifySignature } from 'node:crypto'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+const DATABASE_REQUEST_TIMEOUT_MS = 10_000
 
 const PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAkHVl3RMVeGM9QIntkaQ6Q48vFU1G2ZwALwScZiWaYg0=
@@ -24,6 +26,17 @@ interface LicensePayload {
   expiresAt: string
   plan_id?: string
   stripe_session_id?: string
+}
+
+const fetchWithTimeout: typeof fetch = async (input, init) => {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), DATABASE_REQUEST_TIMEOUT_MS)
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 interface AuthenticatedUser {
@@ -66,7 +79,7 @@ function verifyLicenseKey(keyString: string): { valid: boolean; payload?: Licens
     const payload = JSON.parse(payloadJson) as LicensePayload
 
     const signatureBuffer = Buffer.from(signatureBase64, 'base64url')
-    const isVerified = crypto.verify(
+    const isVerified = verifySignature(
       null,
       Buffer.from(payloadBase64),
       PUBLIC_KEY_PEM,
@@ -103,7 +116,9 @@ serve(async (req) => {
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      global: { fetch: fetchWithTimeout }
+    })
     const { license_key } = await req.json()
 
     const verification = verifyLicenseKey(license_key)

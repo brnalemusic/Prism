@@ -72,7 +72,6 @@ let voiceOutputChunkCount = 0
 let voiceOutputByteCount = 0
 let voiceOutputTurnActive = false
 let activeVoiceHistory: VoiceHistoryState | null = null
-let activeLiveToolLoopGuard: ToolLoopGuard | null = null
 let activeLiveAbortController: AbortController | null = null
 let activeVoiceStatusMessage: Message | null = null
 let activeVoiceOverlayChatId: string | null = null
@@ -471,8 +470,10 @@ async function executeLiveToolCalls(
 
   const abortController = new AbortController()
   activeLiveAbortController = abortController
-  const loopGuard = activeLiveToolLoopGuard || new ToolLoopGuard()
-  activeLiveToolLoopGuard = loopGuard
+  // Scope repeated-call protection to this Live tool execution batch.
+  // A guard must not carry screenshot attempts across separate user requests
+  // during the same long-lived Gemini Live session.
+  const loopGuard = new ToolLoopGuard()
   const functionResponses: LiveFunctionResponse[] = []
   let refreshedSkillTools = false
 
@@ -917,7 +918,6 @@ function cleanupVoiceResources(): boolean {
   activeLiveAbortController = null
   persistVoiceHistory()
   activeVoiceHistory = null
-  activeLiveToolLoopGuard = null
   if (liveSession) {
     try {
       liveSession.close()
@@ -1210,7 +1210,6 @@ async function startLiveVoiceSession(
     activeAssistantMessageIndex: null
   }
   activeVoiceStatusMessage = statusMsg
-  activeLiveToolLoopGuard = new ToolLoopGuard()
   activeVoiceOverlayChatId = voiceChatId
   activeVoiceSessionParams = { apiKey, modelName: normalizedModelName }
   persistVoiceHistory()
