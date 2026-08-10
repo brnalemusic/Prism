@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ToolCallIndicator } from './ActionLoader'
 
-type ConnectionPhase = 'connecting' | 'connected' | 'exiting'
+type ConnectionPhase = 'connecting' | 'connected' | 'reconnecting' | 'exiting'
 type ToolPanelPhase = 'hidden' | 'visible' | 'leaving'
 type ToolStatus = 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown'
 
@@ -264,6 +264,20 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
         clearOverlayExitTimer()
         setView((current) => ({ ...current, mounted: true, connection: 'connected', quiet: false }))
         scheduleQuietState()
+        return
+      }
+
+      if (state === 'reconnecting') {
+        clearOverlayExitTimer()
+        clearQuietTimer()
+        targetLevelRef.current = 0
+        setView((current) => ({
+          ...current,
+          mounted: true,
+          connection: 'reconnecting',
+          speaking: false,
+          quiet: false
+        }))
         return
       }
 
@@ -595,6 +609,8 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
   const visualState =
     view.connection === 'connecting'
       ? 'connecting'
+      : view.connection === 'reconnecting'
+        ? 'reconnecting'
       : view.connection === 'exiting'
         ? 'exiting'
         : view.speaking
@@ -612,6 +628,12 @@ export function DiscordVoiceGlowOverlay(): React.JSX.Element | null {
       aria-hidden="true"
     >
       <canvas ref={canvasRef} className="discord-voice-canvas" />
+
+      {view.connection === 'reconnecting' && (
+        <div className="discord-voice-reconnect-label" role="status">
+          <span className="tool-shimmer-text">Reconnecting</span>
+        </div>
+      )}
 
       <div className="discord-voice-tool-shell" data-phase={view.toolPanel}>
         <div className="discord-voice-tool-panel">

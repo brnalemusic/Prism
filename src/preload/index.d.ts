@@ -29,7 +29,7 @@ export interface AttachedFile {
 
 export interface DiscordVoiceStateEvent {
   chatId: string
-  state: 'connecting' | 'connected' | 'disconnected'
+  state: 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
 }
 
 export interface DiscordVoiceSpeakingEvent {

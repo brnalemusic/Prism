@@ -209,12 +209,12 @@ const api = {
   onDiscordVoiceState: (
     callback: (data: {
       chatId: string
-      state: 'connecting' | 'connected' | 'disconnected'
+      state: 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
     }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { chatId: string; state: 'connecting' | 'connected' | 'disconnected' }
+      data: { chatId: string; state: 'connecting' | 'connected' | 'reconnecting' | 'disconnected' }
     ): void => callback(data)
     ipcRenderer.on('discord-voice-state', listener)
     return () => ipcRenderer.removeListener('discord-voice-state', listener)

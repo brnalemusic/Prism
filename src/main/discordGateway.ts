@@ -54,6 +54,11 @@ let activeAudioPlayer: any = null
 let activeVoiceConnection: any = null
 let activeVoiceInputStream: any = null
 let activeVoiceDecoder: any = null
+let activeVoiceReceiver: any = null
+let activeVoiceMemberId: string | null = null
+let voiceInputRecoveryTimer: ReturnType<typeof setTimeout> | null = null
+let voiceInputRecoveryInFlight = false
+let voiceInputRecoveryAttempt = 0
 let activeSpeakerStream: PassThrough | null = null
 let activeVoiceSilenceTimer: ReturnType<typeof setTimeout> | null = null
 let activeVoiceInactivityTimer: ReturnType<typeof setTimeout> | null = null
@@ -76,7 +81,7 @@ let lastVoiceOverlayLevelAt = 0
 let lastVoiceReceiveWarningAt = 0
 let suppressedVoiceReceiveWarnings = 0
 
-type VoiceOverlayConnectionState = 'connecting' | 'connected' | 'disconnected'
+type VoiceOverlayConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
 
 interface PendingVoiceLeave {
   farewellRequested: boolean
@@ -92,6 +97,8 @@ let pendingVoiceLeave: PendingVoiceLeave | null = null
 const VOICE_SILENCE_FLUSH_MS = 800
 const VOICE_GATE_START_RMS = 0.02
 const VOICE_RECEIVE_WARNING_INTERVAL_MS = 5000
+const VOICE_INPUT_RECOVERY_BASE_DELAY_MS = 350
+const VOICE_INPUT_RECOVERY_MAX_DELAY_MS = 5000
 
 function getVoiceReceiveErrorText(error: unknown): string {
   if (error instanceof Error) {
@@ -139,11 +146,141 @@ function warnAboutVoiceReceiveError(source: string, error: unknown): void {
 function handleVoiceReceiveError(source: string, error: unknown, stream: unknown): void {
   if (isRecoverableVoiceReceiveError(error)) {
     warnAboutVoiceReceiveError(source, error)
+    scheduleVoiceInputRecovery()
     return
   }
 
   console.error(`[Discord Gateway] Fatal ${source} error:`, error)
   if (activeVoiceInputStream === stream) cleanupVoiceResources()
+}
+
+function clearVoiceInputRecovery(): void {
+  if (voiceInputRecoveryTimer) {
+    clearTimeout(voiceInputRecoveryTimer)
+    voiceInputRecoveryTimer = null
+  }
+  voiceInputRecoveryInFlight = false
+  voiceInputRecoveryAttempt = 0
+}
+
+function forwardVoicePcmChunk(pcm48kChunk: Buffer): void {
+  try {
+    if (pendingVoiceLeave) return
+
+    const pcm16kChunk = downsample48kStereoTo16kMono(pcm48kChunk)
+    if (!shouldForwardVoiceAudio(pcm16kChunk)) return
+    resetVoiceInactivityTimer()
+
+    if (!activeLiveSession) {
+      pendingAudioChunks.push(pcm16kChunk)
+      if (!isReconnectingLive) void reconnectLiveVoiceSession()
+      return
+    }
+
+    const base64Data = pcm16kChunk.toString('base64')
+    activeLiveSession.sendRealtimeInput({
+      audio: {
+        mimeType: 'audio/pcm;rate=16000',
+        data: base64Data
+      }
+    })
+    voiceInputChunkCount += 1
+    voiceInputByteCount += pcm16kChunk.length
+    scheduleVoiceStreamEnd()
+    if (voiceInputChunkCount === 1 || voiceInputChunkCount % 100 === 0) {
+      console.log(
+        `[Discord Gateway] Sent audio chunk #${voiceInputChunkCount} ` +
+          `(${pcm16kChunk.length} bytes PCM16k mono).`
+      )
+    }
+  } catch (err) {
+    console.error('[Discord Gateway] Error sending audio chunk to Gemini Live:', err)
+  }
+}
+
+function attachVoiceInputPipeline(): boolean {
+  const receiver = activeVoiceReceiver
+  const memberId = activeVoiceMemberId
+  if (!receiver || !memberId || pendingVoiceLeave) return false
+
+  const audioStream = receiver.subscribe(memberId, {
+    end: {
+      behavior: EndBehaviorType.Manual
+    }
+  })
+  const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 })
+  activeVoiceInputStream = audioStream
+  activeVoiceDecoder = decoder
+
+  audioStream.on('error', (err: unknown) => {
+    if (activeVoiceInputStream !== audioStream) return
+    handleVoiceReceiveError('Discord audio receive', err, audioStream)
+  })
+  audioStream.on('end', () => {
+    if (activeVoiceInputStream !== audioStream || pendingVoiceLeave) return
+    console.warn('[Discord Gateway] Discord audio receiver ended; attempting to reattach.')
+    scheduleVoiceInputRecovery()
+  })
+  audioStream.on('close', () => {
+    if (activeVoiceInputStream !== audioStream || pendingVoiceLeave) return
+    scheduleVoiceInputRecovery()
+  })
+
+  decoder.on('error', (err: unknown) => {
+    if (activeVoiceDecoder !== decoder) return
+    handleVoiceReceiveError('Opus decoder', err, audioStream)
+  })
+  decoder.on('data', forwardVoicePcmChunk)
+  audioStream.pipe(decoder)
+  return true
+}
+
+function scheduleVoiceInputRecovery(): void {
+  if (
+    pendingVoiceLeave ||
+    !activeVoiceReceiver ||
+    !activeVoiceMemberId ||
+    voiceInputRecoveryTimer ||
+    voiceInputRecoveryInFlight
+  ) {
+    return
+  }
+
+  broadcastVoiceOverlayState('reconnecting')
+  const delay = Math.min(
+    VOICE_INPUT_RECOVERY_MAX_DELAY_MS,
+    VOICE_INPUT_RECOVERY_BASE_DELAY_MS * 2 ** voiceInputRecoveryAttempt
+  )
+  voiceInputRecoveryAttempt += 1
+  voiceInputRecoveryTimer = setTimeout(() => {
+    voiceInputRecoveryTimer = null
+    voiceInputRecoveryInFlight = true
+
+    const previousStream = activeVoiceInputStream
+    const previousDecoder = activeVoiceDecoder
+    activeVoiceInputStream = null
+    activeVoiceDecoder = null
+    if (previousStream && !previousStream.destroyed) previousStream.destroy()
+    if (previousDecoder && !previousDecoder.destroyed) previousDecoder.destroy()
+
+    try {
+      const attached = attachVoiceInputPipeline()
+      if (attached) {
+        voiceInputRecoveryAttempt = 0
+        broadcastVoiceOverlayState('connected')
+        console.log('[Discord Gateway] Discord audio receiver reattached successfully.')
+      } else {
+        voiceInputRecoveryInFlight = false
+        scheduleVoiceInputRecovery()
+      }
+    } catch (error) {
+      console.warn('[Discord Gateway] Failed to reattach Discord audio receiver:', error)
+      voiceInputRecoveryInFlight = false
+      scheduleVoiceInputRecovery()
+    } finally {
+      voiceInputRecoveryInFlight = false
+    }
+  }, delay)
 }
 const VOICE_GATE_CONTINUE_RMS = 0.012
 const VOICE_GATE_HANGOVER_MS = 450
@@ -676,6 +813,7 @@ function createVoiceAudioOutput(): void {
 }
 
 function cleanupVoiceResources(): boolean {
+  clearVoiceInputRecovery()
   broadcastVoiceOverlayState('disconnected')
   closeVoiceOverlayWindow()
   const hadVoiceResources = Boolean(
@@ -710,6 +848,8 @@ function cleanupVoiceResources(): boolean {
 
   const inputStream = activeVoiceInputStream
   activeVoiceInputStream = null
+  activeVoiceReceiver = null
+  activeVoiceMemberId = null
   clearVoiceSilenceTimer()
   clearVoiceInactivityTimer()
   resetVoiceGate()
@@ -1097,67 +1237,11 @@ async function startLiveVoiceSession(
     })
 
     // Step 3: Capture Discord Audio & Stream to Gemini
-    const receiver = connection.receiver
-    const audioStream = receiver.subscribe(memberId, {
-      end: {
-        behavior: EndBehaviorType.Manual
-      }
-    })
-    activeVoiceInputStream = audioStream
-
-    const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 2, rate: 48000 })
-    activeVoiceDecoder = decoder
-
-    audioStream.on('error', (err: unknown) => {
-      handleVoiceReceiveError('Discord audio receive', err, audioStream)
-    })
-
-    audioStream.on('end', () => {
-      console.log('[Discord Gateway] Discord audio receiver ended.')
-    })
-
-    decoder.on('error', (err: unknown) => {
-      handleVoiceReceiveError('Opus decoder', err, audioStream)
-    })
-
-    decoder.on('data', (pcm48kChunk: Buffer) => {
-      try {
-        if (!pendingVoiceLeave) {
-          const pcm16kChunk = downsample48kStereoTo16kMono(pcm48kChunk)
-          if (!shouldForwardVoiceAudio(pcm16kChunk)) return
-          resetVoiceInactivityTimer()
-
-          if (!activeLiveSession) {
-            pendingAudioChunks.push(pcm16kChunk)
-            if (!isReconnectingLive) {
-              void reconnectLiveVoiceSession()
-            }
-            return
-          }
-
-          const base64Data = pcm16kChunk.toString('base64')
-          activeLiveSession.sendRealtimeInput({
-            audio: {
-              mimeType: 'audio/pcm;rate=16000',
-              data: base64Data
-            }
-          })
-          voiceInputChunkCount += 1
-          voiceInputByteCount += pcm16kChunk.length
-          scheduleVoiceStreamEnd()
-          if (voiceInputChunkCount === 1 || voiceInputChunkCount % 100 === 0) {
-            console.log(
-              `[Discord Gateway] Sent audio chunk #${voiceInputChunkCount} ` +
-                `(${pcm16kChunk.length} bytes PCM16k mono).`
-            )
-          }
-        }
-      } catch (err) {
-        console.error('[Discord Gateway] Error sending audio chunk to Gemini Live:', err)
-      }
-    })
-
-    audioStream.pipe(decoder)
+    activeVoiceReceiver = connection.receiver
+    activeVoiceMemberId = memberId
+    if (!attachVoiceInputPipeline()) {
+      throw new Error('Failed to attach Discord audio receiver.')
+    }
 
     console.log(`[Discord Gateway] Voice session 100% active in channel ${voiceChannel.name}`)
     broadcastVoiceOverlayState('connected')
