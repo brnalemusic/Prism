@@ -9,16 +9,29 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+function getAuthenticatedUserId(req: Request): string | null {
+  const jwt = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
+  const payloadBase64 = jwt.split('.')[1]
+  if (!payloadBase64) return null
+
+  try {
+    const normalized = payloadBase64.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
+    const claims = JSON.parse(atob(padded)) as { sub?: string }
+    return claims.sub || null
+  } catch {
+    return null
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const authHeader = req.headers.get('Authorization') ?? ''
-    const jwt = authHeader.replace(/^Bearer\s+/i, '')
-
-    if (!jwt) {
+    const userId = getAuthenticatedUserId(req)
+    if (!userId) {
       return new Response(
         JSON.stringify({ error: 'Authentication required.' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -26,29 +39,16 @@ serve(async (req) => {
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    const { data: userData, error: userErr } = await supabase.auth.getUser(jwt)
-
-    if (userErr || !userData?.user) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid session token.' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    const user = userData.user
-
-    // 1. Deactivate active user_licenses for this user
-    await supabase
+    // Deactivate only the account's license entitlement. Account type is a
+    // separate profile attribute and must never be changed by this flow.
+    const { error: deactivateErr } = await supabase
       .from('user_licenses')
       .update({ status: 'inactive' })
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('status', 'active')
+      .is('stripe_session_id', null)
 
-    // 2. Set profile back to individual
-    await supabase
-      .from('profiles')
-      .update({ account_type: 'individual' })
-      .eq('id', user.id)
+    if (deactivateErr) throw deactivateErr
 
     return new Response(
       JSON.stringify({ success: true, tier: 'free' }),

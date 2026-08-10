@@ -13,22 +13,44 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+function getAuthenticatedUser(req: Request): { id: string; email?: string } | null {
+  const jwt = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
+  const payloadBase64 = jwt.split('.')[1]
+  if (!payloadBase64) return null
+
+  try {
+    const normalized = payloadBase64.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
+    const claims = JSON.parse(atob(padded)) as { sub?: string; email?: string }
+    return claims.sub ? { id: claims.sub, email: claims.email } : null
+  } catch {
+    return null
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { plan_id, email } = await req.json()
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    const user = getAuthenticatedUser(req)
+    if (!user) {
+      return new Response(
+        JSON.stringify({ error: 'Authentication required.' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
 
+    const { plan_id } = await req.json()
     if (!plan_id) {
       return new Response(
-        JSON.stringify({ error: 'plan_id is required' }),
+        JSON.stringify({ error: 'plan_id is required.' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     const { data: plan, error: planError } = await supabase
       .from('subscription_plans')
       .select('*')
@@ -44,7 +66,6 @@ serve(async (req) => {
     }
 
     const unitAmountCents = Math.round(parseFloat(plan.price_usd) * 100)
-
     const params = new URLSearchParams()
     params.append('mode', 'payment')
     params.append('success_url', `${SUCCESS_URL}?session_id={CHECKOUT_SESSION_ID}&plan=${plan.id}`)
@@ -54,11 +75,13 @@ serve(async (req) => {
     params.append('line_items[0][price_data][product_data][name]', `Prism ${plan.name}`)
     params.append('line_items[0][price_data][product_data][description]', plan.description ?? '')
     params.append('line_items[0][quantity]', '1')
+    params.append('client_reference_id', user.id)
     params.append('metadata[plan_id]', plan.id)
     params.append('metadata[duration_days]', String(plan.duration_days ?? 30))
+    params.append('metadata[user_id]', user.id)
 
-    if (email?.trim()) {
-      params.append('customer_email', email.trim())
+    if (user.email) {
+      params.append('customer_email', user.email)
     }
 
     const stripeRes = await fetch('https://api.stripe.com/v1/checkout/sessions', {
@@ -71,7 +94,6 @@ serve(async (req) => {
     })
 
     const session = await stripeRes.json()
-
     if (!stripeRes.ok || !session.url) {
       console.error('[create-checkout-session] Stripe error:', JSON.stringify(session))
       return new Response(
@@ -80,22 +102,24 @@ serve(async (req) => {
       )
     }
 
-    // Save pending session to Supabase for later verification
-    await supabase.from('pending_checkout_sessions').upsert({
+    const { error: pendingError } = await supabase.from('pending_checkout_sessions').upsert({
       session_id: session.id,
       plan_id: plan.id,
-      user_email: email ?? null,
+      user_id: user.id,
+      user_email: user.email ?? null,
       status: 'pending',
     })
+
+    if (pendingError) throw pendingError
 
     return new Response(
       JSON.stringify({ url: session.url, session_id: session.id }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
-  } catch (err) {
+  } catch (err: any) {
     console.error('[create-checkout-session] Unexpected error:', err)
     return new Response(
-      JSON.stringify({ error: 'Internal server error.' }),
+      JSON.stringify({ error: err?.message || 'Internal server error.' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }

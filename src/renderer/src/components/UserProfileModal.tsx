@@ -103,7 +103,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const handleSignOut = async () => {
     setLoading(true)
     try {
-      await window.api.authLogout()
+      const signedOut = await window.api.authLogout()
+      if (!signedOut) {
+        setLoading(false)
+        setErrorMsg('Unable to securely sign out while the local license entitlement is still active. Please reconnect and try again.')
+        return
+      }
       setLoading(false)
       onLoggedOut()
       onClose()

@@ -10,14 +10,50 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+function parseStoredPayload(licenseKey: string): Record<string, unknown> | null {
+  const [, payloadBase64] = licenseKey.split('.')
+  if (!payloadBase64) return null
+
+  try {
+    const normalized = payloadBase64.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
+    return JSON.parse(atob(padded)) as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+function getAuthenticatedUser(req: Request): { id: string; email?: string; metadata?: Record<string, unknown> } | null {
+  const jwt = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
+  const payloadBase64 = jwt.split('.')[1]
+  if (!payloadBase64) return null
+
+  try {
+    const normalized = payloadBase64.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
+    const claims = JSON.parse(atob(padded)) as { sub?: string; email?: string; user_metadata?: Record<string, unknown> }
+    return claims.sub ? { id: claims.sub, email: claims.email, metadata: claims.user_metadata } : null
+  } catch {
+    return null
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { session_id, plan_id, email, company_name } = await req.json()
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    const user = getAuthenticatedUser(req)
+    if (!user) {
+      return new Response(
+        JSON.stringify({ error: 'Authentication required.' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
 
+    const { session_id, plan_id } = await req.json()
     if (!session_id || !plan_id) {
       return new Response(
         JSON.stringify({ error: 'session_id and plan_id are required.' }),
@@ -25,27 +61,54 @@ serve(async (req) => {
       )
     }
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-
-    // --- Idempotency check: session already activated? ---
-    const { data: existingSession } = await supabase
+    const { data: pendingSession, error: pendingError } = await supabase
       .from('pending_checkout_sessions')
-      .select('status, activated_at')
+      .select('plan_id, status, user_id')
       .eq('session_id', session_id)
-      .single()
+      .maybeSingle()
 
-    if (existingSession?.status === 'activated') {
+    if (pendingError || !pendingSession) {
       return new Response(
-        JSON.stringify({ error: 'This payment session has already been used to activate a license.' }),
+        JSON.stringify({ error: 'Checkout session was not created for this Prism account.' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    if (pendingSession.user_id !== user.id || pendingSession.plan_id !== plan_id) {
+      return new Response(
+        JSON.stringify({ error: 'This checkout session belongs to a different Prism account.' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    if (pendingSession.status === 'activated') {
+      const { data: existingLicense, error: existingLicenseError } = await supabase
+        .from('user_licenses')
+        .select('license_key')
+        .eq('stripe_session_id', session_id)
+        .eq('user_id', user.id)
+        .maybeSingle()
+
+      const payload = !existingLicenseError && existingLicense
+        ? parseStoredPayload(existingLicense.license_key)
+        : null
+
+      if (payload) {
+        return new Response(
+          JSON.stringify({ success: true, payload, already_activated: true }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      return new Response(
+        JSON.stringify({ error: 'This payment was already processed. Please contact Prism support.' }),
         { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    // --- Verify payment with Stripe ---
     const stripeRes = await fetch(`https://api.stripe.com/v1/checkout/sessions/${session_id}`, {
       headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}` },
     })
-
     const stripeSession = await stripeRes.json()
 
     if (!stripeRes.ok) {
@@ -56,7 +119,6 @@ serve(async (req) => {
       )
     }
 
-    // --- Payment status check ---
     if (stripeSession.payment_status !== 'paid') {
       return new Response(
         JSON.stringify({
@@ -66,38 +128,46 @@ serve(async (req) => {
       )
     }
 
-    // --- Validate plan matches session metadata ---
-    const metaPlanId = stripeSession.metadata?.plan_id
-    if (metaPlanId && metaPlanId !== plan_id) {
+    if (
+      (stripeSession.client_reference_id && stripeSession.client_reference_id !== user.id) ||
+      (stripeSession.metadata?.user_id && stripeSession.metadata.user_id !== user.id) ||
+      (stripeSession.metadata?.plan_id && stripeSession.metadata.plan_id !== plan_id)
+    ) {
       return new Response(
-        JSON.stringify({ error: 'Plan mismatch between session and request.' }),
+        JSON.stringify({ error: 'Stripe session metadata does not match this Prism account.' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    // --- Fetch plan details ---
-    const { data: plan } = await supabase
+    const { data: plan, error: planError } = await supabase
       .from('subscription_plans')
       .select('*')
       .eq('id', plan_id)
       .single()
 
-    if (!plan) {
+    if (planError || !plan) {
       return new Response(
         JSON.stringify({ error: 'Plan not found.' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    const durationDays: number = parseInt(stripeSession.metadata?.duration_days ?? String(plan.duration_days ?? 30), 10)
-    const resolvedEmail: string = email ?? stripeSession.customer_details?.email ?? 'customer@prism.app'
-    const resolvedCompany: string = company_name ?? resolvedEmail.split('@')[0] ?? 'Enterprise Licensee'
+    const durationDays = parseInt(stripeSession.metadata?.duration_days ?? String(plan.duration_days ?? 30), 10)
+    const resolvedEmail = user.email ?? stripeSession.customer_details?.email
+    if (!resolvedEmail) {
+      return new Response(
+        JSON.stringify({ error: 'The authenticated account does not have an email address.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
 
-    // --- Build signed license key payload ---
+    const metadataCompany = typeof user.metadata?.company_name === 'string'
+      ? user.metadata.company_name.trim()
+      : ''
+    const resolvedCompany = metadataCompany || resolvedEmail.split('@')[0] || 'Enterprise Licensee'
     const now = new Date()
     const expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000)
     const licenseId = `PRISM-${crypto.randomUUID().replace(/-/g, '').substring(0, 12).toUpperCase()}`
-
     const payload = {
       id: licenseId,
       licensee: resolvedCompany,
@@ -109,48 +179,49 @@ serve(async (req) => {
       plan_id: plan.id,
       stripe_session_id: session_id,
     }
-
-    // Encode payload as base64url (no private key on Edge — the main process will sign locally)
-    // We return the full payload so the Electron app can sign it with its local Ed25519 key.
-    // The license_key is assembled on the main process side after receiving this payload.
     const payloadBase64 = btoa(JSON.stringify(payload))
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
       .replace(/=/g, '')
 
-    // --- Save license record to Supabase ---
-    const paymentIntent = stripeSession.payment_intent ?? null
-
-    await supabase.from('user_licenses').insert({
+    const { error: licenseError } = await supabase.from('user_licenses').insert({
+      user_id: user.id,
+      license_id: licenseId,
       plan_id: plan.id,
       license_key: `PRISM-ENTERPRISE.${payloadBase64}.PENDING_SIGNATURE`,
       status: 'active',
       issued_at: now.toISOString(),
       expires_at: expiresAt.toISOString(),
       stripe_session_id: session_id,
-      stripe_payment_intent_id: paymentIntent,
+      stripe_payment_intent_id: stripeSession.payment_intent ?? null,
       user_email: resolvedEmail,
       company_name: resolvedCompany,
     })
 
-    // --- Mark session as activated (idempotency) ---
-    await supabase
+    if (licenseError) throw licenseError
+
+    const { error: activateError } = await supabase
       .from('pending_checkout_sessions')
-      .upsert({ session_id, plan_id, status: 'activated', activated_at: now.toISOString() })
+      .update({ status: 'activated', activated_at: now.toISOString() })
+      .eq('session_id', session_id)
+      .eq('user_id', user.id)
+      .eq('status', 'pending')
+
+    if (activateError) throw activateError
 
     return new Response(
       JSON.stringify({
         success: true,
         payload,
         duration_days: durationDays,
-        payment_intent_id: paymentIntent,
+        payment_intent_id: stripeSession.payment_intent ?? null,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
-  } catch (err) {
+  } catch (err: any) {
     console.error('[verify-payment] Unexpected error:', err)
     return new Response(
-      JSON.stringify({ error: 'Internal server error.' }),
+      JSON.stringify({ error: err?.message || 'Internal server error.' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }

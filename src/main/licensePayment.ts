@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import type { SubscriptionPlan, CheckoutSessionResult, PaymentVerificationResult } from '../shared/types'
-import { activateLicenseKey } from './license'
+import { activateLicenseKey, syncLocalLicenseWithSupabase } from './license'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -97,7 +97,8 @@ function getFallbackPlans(): SubscriptionPlan[] {
 // ---------------------------------------------------------------------------
 export async function createStripeCheckoutSession(
   planId: string,
-  userEmail?: string
+  userEmail: string | undefined,
+  accessToken: string
 ): Promise<CheckoutSessionResult> {
   try {
     const res = await fetch(`${EDGE_BASE}/create-checkout-session`, {
@@ -105,6 +106,7 @@ export async function createStripeCheckoutSession(
       headers: {
         'Content-Type': 'application/json',
         apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({ plan_id: planId, email: userEmail ?? '' }),
     })
@@ -163,7 +165,8 @@ export async function verifyAndActivatePayment(
   planId: string,
   sessionId: string,
   userEmail: string,
-  companyName?: string
+  companyName: string | undefined,
+  accessToken: string
 ): Promise<PaymentVerificationResult> {
   try {
     // 1. Call the Edge Function — it verifies payment_status === 'paid' with Stripe
@@ -172,6 +175,7 @@ export async function verifyAndActivatePayment(
       headers: {
         'Content-Type': 'application/json',
         apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
         session_id: sessionId,
@@ -205,6 +209,13 @@ export async function verifyAndActivatePayment(
     if (!activation.success) {
       return { success: false, error: activation.error ?? 'Failed to activate generated license.' }
     }
+
+    // The verified payment already grants the remote entitlement. Keep the
+    // stored key in sync too, so future authenticated sessions retain the
+    // license-to-account link without relying on email matching.
+    await syncLocalLicenseWithSupabase(accessToken).catch((err) => {
+      console.warn('[LicensePayment] Failed to replace the pending remote license key:', err)
+    })
 
     return { success: true, licenseKey }
   } catch (err: any) {

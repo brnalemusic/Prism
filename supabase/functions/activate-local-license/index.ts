@@ -23,6 +23,29 @@ interface LicensePayload {
   issuedAt: string
   expiresAt: string
   plan_id?: string
+  stripe_session_id?: string
+}
+
+interface AuthenticatedUser {
+  id: string
+  email?: string
+  metadata?: Record<string, unknown>
+}
+
+function getAuthenticatedUser(req: Request): AuthenticatedUser | null {
+  const jwt = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
+  const payloadBase64 = jwt.split('.')[1]
+  if (!payloadBase64) return null
+
+  try {
+    const normalized = payloadBase64.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
+    const claims = JSON.parse(atob(padded)) as { sub?: string; email?: string; user_metadata?: Record<string, unknown> }
+    if (!claims.sub) return null
+    return { id: claims.sub, email: claims.email, metadata: claims.user_metadata }
+  } catch {
+    return null
+  }
 }
 
 function verifyLicenseKey(keyString: string): { valid: boolean; payload?: LicensePayload; rawKey?: string; error?: string } {
@@ -73,27 +96,14 @@ serve(async (req) => {
   }
 
   try {
-    const authHeader = req.headers.get('Authorization') ?? ''
-    const jwt = authHeader.replace(/^Bearer\s+/i, '')
-
-    if (!jwt) {
+    const user = getAuthenticatedUser(req)
+    if (!user) {
       return new Response(
         JSON.stringify({ error: 'Authentication required.' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
-
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    const { data: userData, error: userErr } = await supabase.auth.getUser(jwt)
-
-    if (userErr || !userData?.user) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid session token.' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    const user = userData.user
     const { license_key } = await req.json()
 
     const verification = verifyLicenseKey(license_key)
@@ -106,52 +116,95 @@ serve(async (req) => {
 
     const payload = verification.payload
     const rawKey = verification.rawKey
+    const isStripeLicense = typeof payload.stripe_session_id === 'string' && payload.stripe_session_id.length > 0
 
-    // 1. Floating Seat Enforcement: Revoke active license for this license_id from other users
-    await supabase
+    const planId = payload.plan_id || 'enterprise_local'
+    const { data: plan, error: planErr } = await supabase
+      .from('subscription_plans')
+      .select('id')
+      .eq('id', planId)
+      .maybeSingle()
+
+    if (planErr || !plan) {
+      throw new Error('The license plan is not configured for Prism Cloud.')
+    }
+
+    if (isStripeLicense) {
+      const { data: stripeLicense, error: stripeLicenseError } = await supabase
+        .from('user_licenses')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('stripe_session_id', payload.stripe_session_id)
+        .maybeSingle()
+
+      if (stripeLicenseError || !stripeLicense) {
+        throw new Error('No verified Stripe entitlement was found for this Prism account.')
+      }
+
+      const { error: stripeUpdateError } = await supabase
+        .from('user_licenses')
+        .update({
+          license_key: rawKey,
+          user_email: user.email,
+          company_name: payload.licensee || user.metadata?.company_name || 'Enterprise Licensee',
+        })
+        .eq('id', stripeLicense.id)
+
+      if (stripeUpdateError) throw stripeUpdateError
+
+      return new Response(
+        JSON.stringify({ success: true, tier: 'enterprise', license_id: payload.id }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Floating-seat enforcement applies only to signed local licenses.
+    const { error: transferErr } = await supabase
       .from('user_licenses')
       .update({ status: 'transferred' })
       .eq('license_id', payload.id)
       .neq('user_id', user.id)
+      .is('stripe_session_id', null)
+
+    if (transferErr) throw transferErr
 
     // 2. Check if row exists for current user and this license_id
-    const { data: existing } = await supabase
+    const { data: existing, error: existingErr } = await supabase
       .from('user_licenses')
       .select('id')
       .eq('user_id', user.id)
       .eq('license_id', payload.id)
+      .is('stripe_session_id', null)
       .maybeSingle()
 
+    if (existingErr) throw existingErr
+
     if (existing) {
-      await supabase
+      const { error: updateErr } = await supabase
         .from('user_licenses')
         .update({
           status: 'active',
           expires_at: payload.expiresAt,
           license_key: rawKey,
           user_email: user.email,
-          company_name: payload.licensee || user.user_metadata?.company_name || 'Enterprise Licensee',
+          company_name: payload.licensee || user.metadata?.company_name || 'Enterprise Licensee',
         })
         .eq('id', existing.id)
+      if (updateErr) throw updateErr
     } else {
-      await supabase.from('user_licenses').insert({
+      const { error: insertErr } = await supabase.from('user_licenses').insert({
         user_id: user.id,
         license_id: payload.id,
-        plan_id: payload.plan_id || 'enterprise_local',
+        plan_id: planId,
         license_key: rawKey,
         status: 'active',
         issued_at: payload.issuedAt || new Date().toISOString(),
         expires_at: payload.expiresAt,
         user_email: user.email,
-        company_name: payload.licensee || user.user_metadata?.company_name || 'Enterprise Licensee',
+        company_name: payload.licensee || user.metadata?.company_name || 'Enterprise Licensee',
       })
+      if (insertErr) throw insertErr
     }
-
-    // 3. Update profiles account_type to enterprise
-    await supabase
-      .from('profiles')
-      .update({ account_type: 'enterprise' })
-      .eq('id', user.id)
 
     return new Response(
       JSON.stringify({ success: true, tier: 'enterprise', license_id: payload.id }),

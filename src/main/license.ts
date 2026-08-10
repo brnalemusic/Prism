@@ -134,9 +134,9 @@ const EDGE_BASE = `${SUPABASE_URL}/functions/v1`
 /**
  * Syncs the currently active local Enterprise key with Supabase for the logged-in user session.
  */
-export async function syncLocalLicenseWithSupabase(accessToken: string): Promise<boolean> {
-  const licenseInfo = getLicenseInfo()
-  if (!licenseInfo || !licenseInfo.key) return false
+export async function syncLocalLicenseWithSupabase(accessToken: string, licenseKey?: string): Promise<boolean> {
+  const keyToSync = licenseKey?.trim() || getLicenseInfo()?.key
+  if (!keyToSync) return false
 
   try {
     const res = await fetch(`${EDGE_BASE}/activate-local-license`, {
@@ -146,7 +146,7 @@ export async function syncLocalLicenseWithSupabase(accessToken: string): Promise
         apikey: SUPABASE_ANON_KEY,
         Authorization: `Bearer ${accessToken}`
       },
-      body: JSON.stringify({ license_key: licenseInfo.key })
+      body: JSON.stringify({ license_key: keyToSync })
     })
 
     const data = await res.json()

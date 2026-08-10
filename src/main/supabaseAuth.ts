@@ -3,7 +3,7 @@ import { safeStorage, app } from 'electron'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { UserProfile, AuthResponse, SignUpData, LoginData, UserAiUsageStatus } from '../shared/types'
-import { syncLocalLicenseWithSupabase, revokeLocalLicenseFromSupabase } from './license'
+import { getLicenseInfo, syncLocalLicenseWithSupabase, revokeLocalLicenseFromSupabase } from './license'
 
 // Supabase Configuration for Prism Agent Project
 const SUPABASE_URL = 'https://jfqyqkkdmoqdpejzxdhd.supabase.co'
@@ -211,10 +211,27 @@ export async function initializeAuthSession(): Promise<UserProfile | null> {
   const { session, user } = await ensureActiveSession()
   if (!user) return null
   if (session?.access_token) {
-    syncLocalLicenseWithSupabase(session.access_token).catch(() => {})
+    await reconcileLocalLicenseEntitlement(session.access_token)
     await ensureProfileRow(user)
   }
   return await buildUserProfile(user)
+}
+
+/**
+ * Keeps local-license entitlement tied to the current Prism installation.
+ * Stripe entitlements are intentionally unaffected by this reconciliation.
+ */
+async function reconcileLocalLicenseEntitlement(accessToken: string): Promise<void> {
+  if (getLicenseInfo()?.isActivated) {
+    await syncLocalLicenseWithSupabase(accessToken).catch((err) => {
+      console.warn('[Auth] Failed to synchronize the active local license:', err)
+    })
+    return
+  }
+
+  await revokeLocalLicenseFromSupabase(accessToken).catch((err) => {
+    console.warn('[Auth] Failed to revoke a local license missing from this Prism installation:', err)
+  })
 }
 
 /** Completes the authenticated-session work shared by Sign In and Sign Up. */
@@ -224,7 +241,7 @@ async function completeAuthenticatedSession(user: User, session: Session): Promi
   }
 
   saveSessionSecurely(session)
-  syncLocalLicenseWithSupabase(session.access_token).catch(() => {})
+  await reconcileLocalLicenseEntitlement(session.access_token)
   await ensureProfileRow(user)
 
   return {
@@ -379,15 +396,18 @@ export async function authLogout(): Promise<boolean> {
   try {
     const token = await getAuthAccessToken()
     if (token) {
-      await revokeLocalLicenseFromSupabase(token).catch(() => {})
+      const revoked = await revokeLocalLicenseFromSupabase(token)
+      if (!revoked) {
+        console.error('[Auth] Refusing to sign out before the local license entitlement is revoked.')
+        return false
+      }
     }
     await client.auth.signOut()
     saveSessionSecurely(null)
     return true
   } catch (err) {
     console.error('[Auth] Logout error:', err)
-    saveSessionSecurely(null)
-    return true
+    return false
   }
 }
 
@@ -511,7 +531,7 @@ export async function handleDeepLinkAuth(urlStr: string): Promise<UserProfile | 
     }
 
     if (activeUser) {
-      syncLocalLicenseWithSupabase(activeSessionToken!).catch(() => {})
+      await reconcileLocalLicenseEntitlement(activeSessionToken!)
       await ensureProfileRow(activeUser)
       return await buildUserProfile(activeUser)
     }

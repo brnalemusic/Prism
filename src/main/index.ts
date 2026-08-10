@@ -945,6 +945,10 @@ if (!gotTheLock) {
     if (!IS_DEMO) {
       // Start real-time license expiration monitor only for the full application.
       stopLicenseMonitor = startLicenseExpirationMonitor(() => {
+        void (async () => {
+          const token = await getAuthAccessToken()
+          if (token) await revokeLocalLicenseFromSupabase(token)
+        })()
         currentConfig = loadConfig()
         safeSend(mainWindow, 'config-changed', currentConfig)
         safeSend(launcherWindow, 'config-changed', currentConfig)
@@ -1336,16 +1340,24 @@ if (!gotTheLock) {
     })
 
     ipcMain.handle('activate-license', async (_event, key: string) => {
+      const token = await getAuthAccessToken()
+      if (token) {
+        // Make the Supabase entitlement the source of truth before reporting a
+        // successful local activation to an authenticated user.
+        const synced = await syncLocalLicenseWithSupabase(token, key)
+        if (!synced) {
+          return {
+            success: false,
+            error: 'The license could not be linked to your Prism account. Please try again while connected.'
+          }
+        }
+      }
+
       const result = activateLicenseKey(key)
       if (result.success) {
         currentConfig = loadConfig()
         safeSend(mainWindow, 'config-changed', currentConfig)
         safeSend(launcherWindow, 'config-changed', currentConfig)
-
-        const token = await getAuthAccessToken()
-        if (token) {
-          await syncLocalLicenseWithSupabase(token).catch(() => {})
-        }
       }
       return result
     })
@@ -1353,7 +1365,8 @@ if (!gotTheLock) {
     ipcMain.handle('deactivate-license', async () => {
       const token = await getAuthAccessToken()
       if (token) {
-        await revokeLocalLicenseFromSupabase(token).catch(() => {})
+        const revoked = await revokeLocalLicenseFromSupabase(token)
+        if (!revoked) return false
       }
       const success = deactivateLicense()
       if (success) {
@@ -1373,14 +1386,22 @@ if (!gotTheLock) {
     })
 
     ipcMain.handle('create-checkout-session', async (_event, planId: string, email?: string) => {
-      return await createStripeCheckoutSession(planId, email)
+      const token = await getAuthAccessToken()
+      if (!token) {
+        return { success: false, error: 'Please sign in before purchasing an Enterprise subscription.' }
+      }
+      return await createStripeCheckoutSession(planId, email, token)
     })
 
     ipcMain.handle('verify-and-activate-payment', async (_event, planId: string, sessionId: string, email: string, company?: string) => {
       if (!sessionId) {
         return { success: false, error: 'No Stripe session ID provided. Please complete checkout first.' }
       }
-      const res = await verifyAndActivatePayment(planId, sessionId, email, company)
+      const token = await getAuthAccessToken()
+      if (!token) {
+        return { success: false, error: 'Please sign in before verifying an Enterprise subscription.' }
+      }
+      const res = await verifyAndActivatePayment(planId, sessionId, email, company, token)
       if (res.success) {
         currentConfig = loadConfig()
         safeSend(mainWindow, 'config-changed', currentConfig)
@@ -1400,9 +1421,11 @@ if (!gotTheLock) {
     })
 
     ipcMain.handle('auth-logout', async () => {
+      const result = await authLogout()
+      if (!result) return false
+
       safeSend(mainWindow, 'auth-session-updated', null)
       safeSend(launcherWindow, 'auth-session-updated', null)
-      const result = await authLogout()
       await closePrismCloudTransport()
       currentConfig = loadConfig()
       safeSend(mainWindow, 'config-changed', currentConfig)
