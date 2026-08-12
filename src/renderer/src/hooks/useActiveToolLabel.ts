@@ -9,6 +9,14 @@ export interface ActiveToolLabelTarget {
   streamingToolCalls?: Array<{ name: string; status?: string }>
 }
 
+function getCleanTextLength(content?: string): number {
+  if (!content) return 0
+  return content
+    .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)/g, '')
+    .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/g, '')
+    .trim().length
+}
+
 export function useActiveToolLabel(msg: ActiveToolLabelTarget | undefined): {
   activeToolLabel: string | null
   activeToolName: string | null
@@ -26,8 +34,8 @@ export function useActiveToolLabel(msg: ActiveToolLabelTarget | undefined): {
       return
     }
 
-    // Only track text content length (thoughts are ignored so label stays alive during thinking)
-    const currentOutputLen = (msg.content || '').length
+    // Only track real user-visible text content length (ignoring tool tags, mini_app tags, and thinking)
+    const currentOutputLen = getCleanTextLength(msg.content)
 
     // Find the latest non-internal tool call
     const allTools = [
@@ -70,11 +78,11 @@ export function useActiveToolLabel(msg: ActiveToolLabelTarget | undefined): {
     }
 
     // Tool is completed (done, error, cancelled, etc.)
-    // Check if new text or thoughts have streamed in since tool completion
+    // Check if new real text output has streamed in since tool completion
     if (baselineOutputLenRef.current !== null && currentOutputLen > baselineOutputLenRef.current) {
       setActiveToolInfo(null)
     } else {
-      // Keep tool label alive and shimmering until next AI streaming output or next tool
+      // Keep tool label alive and shimmering until next real text streaming output or next tool
       setActiveToolInfo((prev) => {
         if (prev && prev.label === nextLabel && prev.name === nextName) {
           return prev
@@ -85,7 +93,6 @@ export function useActiveToolLabel(msg: ActiveToolLabelTarget | undefined): {
   }, [
     msg?.isStreaming,
     msg?.content,
-    msg?.thoughts,
     msg?.toolCalls,
     msg?.streamingToolCalls
   ])

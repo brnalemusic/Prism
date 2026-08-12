@@ -905,7 +905,11 @@ const AiMessageRow = React.memo(function AiMessageRow({
   const inactivityLabel = useInactivityLabel(msg)
   const { activeToolLabel } = useActiveToolLabel(msg)
 
-  const hasContent = !!(msg.content && msg.content.trim() !== '')
+  const cleanContentText = (msg.content || '')
+    .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)/g, '')
+    .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/g, '')
+    .trim()
+  const hasContent = cleanContentText !== ''
 
   const isRunningTool = !!(
     activeToolLabel ||

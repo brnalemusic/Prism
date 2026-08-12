@@ -269,7 +269,11 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
   const streamStats = useStreamStats(contentText, !!msg.isStreaming)
   const nativeToolCalls = useMemo(() => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls), [msg.toolCalls, msg.streamingToolCalls])
 
-  const hasContent = contentText.trim() !== ''
+  const cleanContentText = contentText
+    .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)/g, '')
+    .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/g, '')
+    .trim()
+  const hasContent = cleanContentText !== ''
   const isRunningTool = !!(
     activeToolLabel ||
     msg.isWritingToolCall ||
