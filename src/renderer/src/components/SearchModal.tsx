@@ -14,20 +14,9 @@ import {
 } from '@phosphor-icons/react'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 import clsx from 'clsx'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import remarkMath from 'remark-math'
-import rehypeRaw from 'rehype-raw'
-import rehypeKatex from 'rehype-katex'
 import { ToolCall } from './ActionLoader'
 import { RenderChatHistory } from './RenderChatHistory'
 import { Spinner } from './Spinner'
-import {
-  StreamContext,
-  StaticMarkdownComponents,
-  createStreamingFadeRehypePlugin,
-  useStreamStats
-} from './AnimatedStreamingText'
 
 import { isShortcutPressed } from '../utils'
 import { AppConfig } from '../../../main/config'
@@ -52,92 +41,33 @@ interface QuickSearchResult {
 }
 
 interface AiSearchOutputProps {
-  aiResponse: string
-  isAiProcessing: boolean
-  toolCalls: ToolCall[]
-  isWritingToolCall: boolean
+  renderChatIds: string[]
   onClose: () => void
   onOpenChat: (id: string) => void
-  markdownComponents: import('react-markdown').Components
 }
 
 const AiSearchOutput = React.memo(function AiSearchOutput({
-  aiResponse,
-  isAiProcessing,
-  toolCalls,
-  isWritingToolCall,
+  renderChatIds,
   onClose,
-  onOpenChat,
-  markdownComponents
+  onOpenChat
 }: AiSearchOutputProps) {
-  const streamStats = useStreamStats(aiResponse, isAiProcessing)
-
-  if (!aiResponse && !toolCalls.length && !isWritingToolCall) {
+  if (!renderChatIds.length) {
     return null
   }
 
-  const parts = aiResponse.split(/(\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$))/gi)
-  let partStartOffset = 0
-
   return (
-    <StreamContext.Provider value={streamStats}>
-      <div className="flex flex-col gap-4 animate-fade-in pr-2 select-text">
-        {parts.map((part, idx) => {
-          const currentPartStartOffset = partStartOffset
-          partStartOffset += part.length
-
-          if (part.startsWith('[PRISM_EXECUTE_TOOL]')) {
-            if (part.includes('[/PRISM_EXECUTE_TOOL]')) {
-              try {
-                const jsonText = part
-                  .replace(/\[PRISM_EXECUTE_TOOL\]/gi, '')
-                  .replace(/\[\/PRISM_EXECUTE_TOOL\]/gi, '')
-                  .trim()
-                const tc = JSON.parse(jsonText)
-                const isRenderChatHistory =
-                  tc && (tc.type === 'render_chat_history' || tc.name === 'render_chat_history')
-                if (isRenderChatHistory) {
-                  const queryVal = tc.query || tc.args?.query || ''
-                  return (
-                    <RenderChatHistory
-                      key={`tc-${idx}`}
-                      chatId={String(queryVal)}
-                      onOpenChat={(id) => {
-                        onClose()
-                        onOpenChat(id)
-                      }}
-                    />
-                  )
-                }
-              } catch (e) {
-                console.error('[AI SEARCH] Failed to parse tool call JSON from text:', e)
-              }
-            }
-            return null
-          } else if (part.trim() !== '') {
-            return (
-              <div
-                key={`text-${idx}`}
-                className="prose prose-invert max-w-none text-sm text-text-secondary/90 leading-relaxed font-light"
-              >
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm, remarkMath]}
-                  rehypePlugins={[
-                    rehypeRaw,
-                    rehypeKatex,
-                    createStreamingFadeRehypePlugin(streamStats, currentPartStartOffset)
-                  ]}
-                  components={markdownComponents}
-                >
-                  {part}
-                </ReactMarkdown>
-              </div>
-            )
-          }
-          return null
-        })}
-      </div>
-    </StreamContext.Provider>
+    <div className="flex flex-col gap-3 items-center w-full animate-fade-in pr-2 select-text">
+      {renderChatIds.map((chatId, idx) => (
+        <RenderChatHistory
+          key={`${chatId}-${idx}`}
+          chatId={chatId}
+          onOpenChat={(id) => {
+            onClose()
+            onOpenChat(id)
+          }}
+        />
+      ))}
+    </div>
   )
 })
 
@@ -148,7 +78,6 @@ export function SearchModal({
 }: SearchModalProps): React.JSX.Element | null {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [activeTab, setActiveTab] = useState<'quick' | 'ai'>('quick')
-  const markdownComponents = useMemo(() => StaticMarkdownComponents, [])
   const [isVisible, setIsVisible] = useState(false)
   const [query, setQuery] = useState('')
 
@@ -190,12 +119,45 @@ export function SearchModal({
     aiPromptRef.current = aiPrompt
   }, [aiPrompt])
 
-  const hasRenderChat = useMemo(() => {
-    return (
-      toolCalls.some((tc) => tc.name === 'render_chat_history') ||
-      /"type"\s*:\s*"render_chat_history"|"name"\s*:\s*"render_chat_history"/.test(aiResponse)
-    )
+  const renderChatIds = useMemo(() => {
+    const ids: string[] = []
+
+    for (const tc of toolCalls) {
+      if (tc.name === 'render_chat_history') {
+        const q = (tc.args?.query || tc.args?.chatId || tc.args?.id) as string | undefined
+        if (q && typeof q === 'string' && q.trim() && !ids.includes(q.trim())) {
+          ids.push(q.trim())
+        }
+      }
+    }
+
+    if (aiResponse.includes('[PRISM_EXECUTE_TOOL]')) {
+      const parts = aiResponse.split(/(\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$))/gi)
+      for (const part of parts) {
+        if (part.startsWith('[PRISM_EXECUTE_TOOL]') && part.includes('[/PRISM_EXECUTE_TOOL]')) {
+          try {
+            const jsonText = part
+              .replace(/\[PRISM_EXECUTE_TOOL\]/gi, '')
+              .replace(/\[\/PRISM_EXECUTE_TOOL\]/gi, '')
+              .trim()
+            const tc = JSON.parse(jsonText)
+            if (tc && (tc.type === 'render_chat_history' || tc.name === 'render_chat_history')) {
+              const q = (tc.query || tc.args?.query || tc.chatId || tc.args?.chatId) as string | undefined
+              if (q && typeof q === 'string' && q.trim() && !ids.includes(q.trim())) {
+                ids.push(q.trim())
+              }
+            }
+          } catch {
+            // ignore invalid JSON
+          }
+        }
+      }
+    }
+
+    return ids
   }, [toolCalls, aiResponse])
+
+  const hasRenderChat = renderChatIds.length > 0
 
   const hasNotFoundChat = useMemo(() => {
     return (
@@ -218,7 +180,7 @@ export function SearchModal({
     !hasNotFoundChat &&
     !aiError
   const showSearching =
-    (isAiProcessing || isPerformingToolCalls || (!hasRenderChat && !hasNotFoundChat)) &&
+    (isAiProcessing || isPerformingToolCalls) &&
     !aiError &&
     !showNotFound &&
     !showResults &&
@@ -721,13 +683,9 @@ export function SearchModal({
                 <div className="flex-1">
                   {showResults && (
                     <AiSearchOutput
-                      aiResponse={aiResponse}
-                      isAiProcessing={isAiProcessing}
-                      toolCalls={toolCalls}
-                      isWritingToolCall={isWritingToolCall}
+                      renderChatIds={renderChatIds}
                       onClose={onClose}
                       onOpenChat={onOpenChat}
-                      markdownComponents={markdownComponents}
                     />
                   )}
 

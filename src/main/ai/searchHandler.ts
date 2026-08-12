@@ -5,7 +5,6 @@ import { resolveProviderAndModel } from './providerManager'
 import { OpenAiMessage } from './types'
 import { getNativeToolsForOpenAi } from './chatHandler'
 import { safeSend } from '../safeSend'
-import { executeValidatedTool } from '../toolRuntime'
 import { runToolOrchestration } from './toolOrchestrator'
 
 let searchAbortController: AbortController | null = null
@@ -52,8 +51,9 @@ export async function handleAiSearchChatMessage(event: IpcMainEvent, query: stri
     const systemPrompt: OpenAiMessage = {
       role: 'system',
       content: `Prism Conversation Search Assistant. Analyze query and past chat context.
-1. If matches found, invoke 'render_chat_history' with matching Chat ID and provide concise summary.
-2. If no matches, invoke 'not_found_chat_history'.`
+1. If matches found, invoke 'render_chat_history' for each matching Chat ID.
+2. If no matches found, invoke 'not_found_chat_history'.
+Do not reply with plain text summaries without tool calls.`
     }
 
     const userPrompt: OpenAiMessage = {
@@ -125,61 +125,6 @@ export async function handleAiSearchChatMessage(event: IpcMainEvent, query: stri
       `[AI SEARCH DEBUG MAIN] AI Search completed. response: ${fullText.length} chars, ` +
         `tools: ${orchestration.executedTools.length}`
     )
-
-    // Safety fallback: if AI didn't emit render_chat_history or not_found_chat_history, ensure UI displays results or not found state
-    const hasRenderChatInText = orchestration.executedTools.some(
-      (call) => call.name === 'render_chat_history' && call.envelope.ok
-    )
-    const hasNotFoundChatInText = orchestration.executedTools.some(
-      (call) => call.name === 'not_found_chat_history' && call.envelope.ok
-    )
-
-    if (!hasRenderChatInText && !hasNotFoundChatInText) {
-      if (offlineData.results && offlineData.results.length > 0) {
-        const topResults = offlineData.results.slice(0, 3)
-        for (const res of topResults) {
-          const callId = `search-fallback-${res.id}`
-          const execution = await executeValidatedTool(
-            'render_chat_history',
-            { query: res.id },
-            {
-              signal: abortController.signal,
-              onStart: (args) =>
-                safeSend(event.sender, 'ai-search-tool-start', {
-                  callId,
-                  name: 'render_chat_history',
-                  args
-                })
-            }
-          )
-          safeSend(event.sender, 'ai-search-tool-end', {
-            callId,
-            name: 'render_chat_history',
-            result: execution.modelContent
-          })
-        }
-      } else {
-        const callId = `search-fallback-not-found-${Date.now()}`
-        const execution = await executeValidatedTool(
-          'not_found_chat_history',
-          {},
-          {
-            signal: abortController.signal,
-            onStart: (args) =>
-              safeSend(event.sender, 'ai-search-tool-start', {
-                callId,
-                name: 'not_found_chat_history',
-                args
-              })
-          }
-        )
-        safeSend(event.sender, 'ai-search-tool-end', {
-          callId,
-          name: 'not_found_chat_history',
-          result: execution.modelContent
-        })
-      }
-    }
 
     const { thoughts, content } = parseThoughtAndContent(fullText, fullReasoning)
 

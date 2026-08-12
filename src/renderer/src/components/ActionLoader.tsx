@@ -49,7 +49,7 @@ const TOOL_LABELS: Record<string, string> = {
   disconnect_voice: 'Leaving call'
 }
 
-function getToolLabel(name: string): string {
+export function getToolLabel(name: string): string {
   return TOOL_LABELS[name] || 'Working'
 }
 

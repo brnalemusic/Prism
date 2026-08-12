@@ -28,6 +28,7 @@ import { CopyMessageButton } from './components/CopyMessageButton'
 import { UpdaterView } from './components/UpdaterView'
 import { isShortcutPressed } from './utils'
 import { useInactivityLabel } from './hooks/useInactivityLabel'
+import { useActiveToolLabel } from './hooks/useActiveToolLabel'
 import { TabBar } from './components/TabBar'
 import { ChatPane } from './components/ChatPane'
 import { EmptyTabState } from './components/EmptyTabState'
@@ -276,6 +277,7 @@ interface AiMessageProps {
   markdownComponents: Components
   onOpenBrowserTab?: () => void
   inactivityLabel?: string | null
+  activeToolLabel?: string | null
 }
 
 const BROWSER_TOOL_NAMES = new Set([
@@ -300,7 +302,8 @@ const AiMessage = React.memo(function AiMessage({
   handleLoadChat,
   markdownComponents,
   onOpenBrowserTab,
-  inactivityLabel
+  inactivityLabel,
+  activeToolLabel
 }: AiMessageProps) {
   const streamStats = useStreamStats(msg.content, !!msg.isStreaming)
   const nativeToolCalls = useMemo(
@@ -342,6 +345,7 @@ const AiMessage = React.memo(function AiMessage({
   )
 
   const visibleNativeTools = useMemo(() => {
+    if (activeToolLabel) return []
     const list = nativeToolCalls.filter(
       (tc) =>
         tc.name !== 'to_ask' &&
@@ -350,7 +354,7 @@ const AiMessage = React.memo(function AiMessage({
         tc.name !== 'create_mini_app'
     )
     return list.filter((tc) => !shouldHideIndicator(tc.status))
-  }, [nativeToolCalls, shouldHideIndicator])
+  }, [nativeToolCalls, shouldHideIndicator, activeToolLabel])
 
   const parts = useMemo(() => {
     return (msg.content || '').split(
@@ -843,9 +847,14 @@ const AiMessage = React.memo(function AiMessage({
           </div>
         )}
 
-        {msg.isStreaming && inactivityLabel && (
+        {msg.isStreaming && activeToolLabel && (
+          <div className="flex items-center gap-1.5 mt-1 select-none">
+            <ToolCallIndicator overrideLabel={activeToolLabel} />
+          </div>
+        )}
+
+        {msg.isStreaming && !activeToolLabel && inactivityLabel && (
           <div className="flex items-center gap-1.5 mt-1.5 select-none">
-            <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
             <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
           </div>
         )}
@@ -891,6 +900,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
   onOpenBrowserTab
 }: AiMessageRowProps) {
   const inactivityLabel = useInactivityLabel(msg)
+  const { activeToolLabel } = useActiveToolLabel(msg)
 
   const filteredThoughts = (msg.thoughts || '')
     .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g, '')
@@ -917,24 +927,8 @@ const AiMessageRow = React.memo(function AiMessageRow({
               />
               <span className="font-semibold text-sm leading-normal text-text-primary">
                 {(() => {
-                  const toolsList = msg.toolCalls || []
-                  const streamingTools = (msg.streamingToolCalls || []).map((stc) => ({
-                    name: stc.name,
-                    status: 'writing' as const
-                  }))
-                  const allTools = [
-                    ...toolsList,
-                    ...streamingTools
-                  ] as ToolCallItem[]
-                  const activeTools = allTools.filter(
-                    (t) =>
-                      t.status !== 'done' &&
-                      t.status !== 'error' &&
-                      t.status !== 'cancelled'
-                  )
-                  if (activeTools.length > 0) {
-                    const lastTool = activeTools[activeTools.length - 1]
-                    return <ToolCallIndicator tools={[lastTool]} />
+                  if (activeToolLabel) {
+                    return <ToolCallIndicator overrideLabel={activeToolLabel} />
                   }
 
                   if (inactivityLabel && !hasContent) {
@@ -982,22 +976,14 @@ const AiMessageRow = React.memo(function AiMessageRow({
 
       <div className="w-full text-text-primary">
         {!hasContent &&
-        (msg.isConnecting || (!hasThoughtBlock && (msg.isWritingToolCall || (msg.toolCalls && msg.toolCalls.some(t => t.status === 'running' || t.status === 'writing')))) || (msg.isStreaming && !hasThoughtBlock)) ? (
+        (msg.isConnecting || (!hasThoughtBlock && (msg.isWritingToolCall || activeToolLabel || (msg.toolCalls && msg.toolCalls.some(t => t.status === 'running' || t.status === 'writing')))) || (msg.isStreaming && !hasThoughtBlock)) ? (
           <div className="flex items-center gap-1.5 h-6 select-none">
             <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
-            {(() => {
-              const active = [
-                ...(msg.toolCalls || []),
-                ...(msg.streamingToolCalls || []).map((stc) => ({ name: stc.name, status: 'writing' as const }))
-              ].filter((t) => t.status === 'writing' || t.status === 'running')
-              if (active.length > 0) {
-                return <ToolCallIndicator tools={[active[active.length - 1]]} />
-              }
-              if (inactivityLabel) {
-                return <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
-              }
-              return null
-            })()}
+            {activeToolLabel ? (
+              <ToolCallIndicator overrideLabel={activeToolLabel} />
+            ) : inactivityLabel ? (
+              <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
+            ) : null}
           </div>
         ) : (
           <AiMessage
@@ -1007,6 +993,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
             markdownComponents={markdownComponents}
             onOpenBrowserTab={onOpenBrowserTab}
             inactivityLabel={inactivityLabel}
+            activeToolLabel={activeToolLabel}
           />
         )}
       </div>
