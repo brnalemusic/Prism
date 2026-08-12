@@ -15,8 +15,7 @@ import {
   ChatCircle as MessageSquare,
   Microphone,
   PaperPlaneRight as SendHorizontal,
-  StopCircle,
-  CaretDown
+  StopCircle
 } from '@phosphor-icons/react'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 import { MODELS } from '../constants'
@@ -71,6 +70,8 @@ interface Message {
   role: 'user' | 'ai'
   content: string
   thoughts?: string
+  thinkingDuration?: number
+  workedDuration?: number
   isError?: boolean
   isStreaming?: boolean
   isThinking?: boolean
@@ -267,29 +268,42 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
   const nativeToolCalls = useMemo(() => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls), [msg.toolCalls, msg.streamingToolCalls])
 
   const hasContent = contentText.trim() !== ''
-  const filteredThoughts = (msg.thoughts || '').replace(
-    /\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g,
-    ''
-  ).trim()
-  const hasThoughtBlock = !!(filteredThoughts || msg.isThinking)
+  const isActive =
+    msg.isStreaming ||
+    msg.isThinking ||
+    msg.isConnecting ||
+    msg.isWritingToolCall ||
+    (msg.streamingToolCalls && msg.streamingToolCalls.some((t) => !t.isComplete)) ||
+    (msg.toolCalls && msg.toolCalls.some((t) => t.status === 'running' || t.status === 'writing'))
 
-  if (!hasContent && (msg.isConnecting || (!hasThoughtBlock && (msg.isWritingToolCall || (msg.streamingToolCalls && msg.streamingToolCalls.length > 0))) || (msg.isStreaming && !hasThoughtBlock))) {
-    return (
-      <div className="flex items-center gap-1.5 h-6 select-none py-1">
-        <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe" />
-        {msg.isWritingToolCall && msg.streamingToolCalls && msg.streamingToolCalls.length > 0 ? (
-          <ToolCallIndicator
-            tools={msg.streamingToolCalls.map((stc) => ({
-              name: stc.name,
-              status: 'writing'
-            }))}
-          />
-        ) : inactivityLabel ? (
-          <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
-        ) : null}
-      </div>
-    )
-  }
+  const toolsList = msg.toolCalls || []
+  const streamingTools = (msg.streamingToolCalls || []).map((stc) => ({
+    name: stc.name,
+    status: 'writing' as const
+  }))
+  const allTools = [...toolsList, ...streamingTools] as Array<{
+    name: string
+    status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown'
+  }>
+  const activeTools = allTools.filter(
+    (t) => t.status !== 'done' && t.status !== 'error' && t.status !== 'cancelled'
+  )
+  const lastActiveTool = activeTools.length > 0 ? activeTools[activeTools.length - 1] : null
+
+  const hasTools = !!(msg.toolCalls && msg.toolCalls.length > 0)
+  const thinkingSec =
+    msg.thinkingDuration !== undefined
+      ? msg.thinkingDuration
+      : msg.thoughts && msg.thoughts.trim() !== ''
+        ? Math.max(1, Math.round(msg.thoughts.length / 120))
+        : 0
+  const hasThinking = thinkingSec > 0
+  const workedSec = msg.workedDuration !== undefined ? msg.workedDuration : thinkingSec
+  const hasThoughtInTurn = !!(
+    msg.isThinking ||
+    (msg.thoughts && msg.thoughts.trim() !== '') ||
+    hasThinking
+  )
 
   return (
     <StreamContext.Provider value={streamStats}>
@@ -299,64 +313,41 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
           msg.isStreaming && 'opacity-90'
         )}
       >
-        {/* Thought Section */}
-        {hasThoughtBlock && (
-          <div className="w-full mb-3 select-none">
-            <details className="group w-full select-none">
-              <summary
-                className={clsx(
-                  'inline-flex items-center gap-2 text-[12.5px] py-1 select-none transition-all duration-200 cursor-pointer text-text-secondary/60 hover:text-text-secondary/90 list-none [&::-webkit-details-marker]:hidden'
-                )}
-              >
-                <Brain
-                  size={13}
-                  className={clsx(
-                    'text-text-secondary/50 transition-all duration-300',
-                    msg.isThinking && 'animate-pulse text-accent-secondary/70'
-                  )}
-                />
-
-                <span className="font-medium leading-normal">
-                  {(() => {
-                    const toolsList = msg.toolCalls || []
-                    const streamingTools = (msg.streamingToolCalls || []).map((stc) => ({
-                      name: stc.name,
-                      status: 'writing' as const
-                    }))
-                    const allTools = [...toolsList, ...streamingTools] as Array<{
-                      name: string
-                      status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown'
-                    }>
-                    const activeTools = allTools.filter(
-                      (t) => t.status !== 'done' && t.status !== 'error' && t.status !== 'cancelled'
-                    )
-                    if (activeTools.length > 0 && !hasContent) {
-                      const lastTool = activeTools[activeTools.length - 1]
-                      return <ToolCallIndicator tools={[lastTool]} />
-                    }
-                    if (inactivityLabel && !hasContent) {
-                      return <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
-                    }
-                    const outlineMatches = Array.from(
-                      filteredThoughts.matchAll(/\*\*(.*?)\*\*/g)
-                    )
-                    if (outlineMatches.length > 0) {
-                      return outlineMatches[outlineMatches.length - 1][1]
-                    }
-                    return msg.isThinking ? 'Thinking...' : 'Thinking'
-                  })()}
-                </span>
-
-                <CaretDown
-                  size={11}
-                  className="text-text-muted/50 transition-transform duration-200 group-open:rotate-180"
-                />
-              </summary>
-              <div className="mt-1.5 border-l border-white/[0.06] ml-1.5 pl-4 py-0.5 font-mono text-[11px] leading-relaxed select-text text-text-secondary/50">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{filteredThoughts}</ReactMarkdown>
-              </div>
-            </details>
+        {/* 1. Active State Header: "Thinking" shimming remains sticky until turn completes */}
+        {isActive && hasThoughtInTurn && (
+          <div className="w-full mb-2 select-none flex flex-col items-start gap-1">
+            <span className="thinking-shimmer-text text-[12.5px] font-medium leading-normal inline-block pb-[1.5px]">
+              Thinking
+            </span>
           </div>
+        )}
+
+        {/* Immediate Breathing Dot / Active Tool when content not ready yet */}
+        {!hasContent && isActive && (
+          <div className="flex items-center gap-1.5 h-6 select-none py-1 mb-1">
+            {lastActiveTool ? (
+              <ToolCallIndicator tools={[lastActiveTool]} />
+            ) : inactivityLabel ? (
+              <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
+            ) : (
+              <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
+            )}
+          </div>
+        )}
+
+        {/* 2. Finished State Indicator (Static Gray Text) */}
+        {!isActive && (
+          <>
+            {hasTools ? (
+              <div className="w-full mb-2 select-none text-[12px] text-text-secondary/60 font-medium">
+                Worked for {workedSec > 0 ? workedSec : 1} {workedSec === 1 ? 'second' : 'seconds'}
+              </div>
+            ) : hasThinking ? (
+              <div className="w-full mb-2 select-none text-[12px] text-text-secondary/60 font-medium">
+                Thought for {thinkingSec} {thinkingSec === 1 ? 'second' : 'seconds'}
+              </div>
+            ) : null /* Instant message: no header */}
+          </>
         )}
 
         {/* Content rendering: split by tool call and mini-app tags to render inline */}

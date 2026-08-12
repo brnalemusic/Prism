@@ -41,7 +41,7 @@ import {
   CodeBlock
 } from './components/AnimatedStreamingText'
 import clsx from 'clsx'
-import { CaretDown, Quotes, Brain, FilePdf, FilePpt, CheckCircle, XCircle, GlobeSimple } from '@phosphor-icons/react'
+import { Quotes, Brain, FilePdf, FilePpt, CheckCircle, XCircle, GlobeSimple } from '@phosphor-icons/react'
 
 import { ScreenshotModal } from './components/ScreenshotModal'
 import { YoutubeAppModal } from './components/YoutubeAppModal'
@@ -902,88 +902,72 @@ const AiMessageRow = React.memo(function AiMessageRow({
   const inactivityLabel = useInactivityLabel(msg)
   const { activeToolLabel } = useActiveToolLabel(msg)
 
-  const filteredThoughts = (msg.thoughts || '')
-    .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g, '')
-    .trim()
-
-  const hasThoughtBlock = !!(filteredThoughts || msg.isThinking)
   const hasContent = !!(msg.content && msg.content.trim() !== '')
+
+  const isRunningTool = !!(
+    activeToolLabel ||
+    msg.isWritingToolCall ||
+    (msg.streamingToolCalls && msg.streamingToolCalls.some((t) => !t.isComplete)) ||
+    (msg.toolCalls && msg.toolCalls.some((t) => t.status === 'running' || t.status === 'writing'))
+  )
+
+  const isActive = msg.isStreaming || msg.isThinking || isRunningTool || msg.isConnecting
+
+  const hasTools = !!(msg.toolCalls && msg.toolCalls.length > 0)
+  const thinkingSec =
+    msg.thinkingDuration !== undefined
+      ? msg.thinkingDuration
+      : msg.thoughts && msg.thoughts.trim() !== ''
+        ? Math.max(1, Math.round(msg.thoughts.length / 120))
+        : 0
+  const hasThinking = thinkingSec > 0
+  const workedSec = msg.workedDuration !== undefined ? msg.workedDuration : thinkingSec
+
+  const hasThoughtInTurn = !!(
+    msg.isThinking ||
+    (msg.thoughts && msg.thoughts.trim() !== '') ||
+    hasThinking
+  )
 
   return (
     <div
       key={i}
       className="w-full flex flex-col items-start px-4 py-3.5 transition-all duration-700 animate-message"
     >
-      {hasThoughtBlock && (
-        <div className="w-full mb-1.5 select-none">
-          <details className="group w-full select-none">
-            <summary className="inline-flex items-center gap-2 cursor-pointer text-sm font-semibold text-text-primary hover:text-white transition-colors duration-150 py-1 select-none list-none [&::-webkit-details-marker]:hidden">
-              <Brain
-                size={15}
-                className={clsx(
-                  'text-accent-secondary shrink-0 transition-all duration-300',
-                  msg.isThinking && 'animate-pulse'
-                )}
-              />
-              <span className="font-semibold text-sm leading-normal text-text-primary">
-                {(() => {
-                  if (activeToolLabel) {
-                    return <ToolCallIndicator overrideLabel={activeToolLabel} />
-                  }
-
-                  if (inactivityLabel && !hasContent) {
-                    return <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
-                  }
-
-                  if (msg.isThinking) {
-                    return 'Thinking...'
-                  }
-
-                  const duration =
-                    msg.thinkingDuration !== undefined
-                      ? msg.thinkingDuration
-                      : msg.thoughts && msg.thoughts.trim() !== ''
-                        ? Math.max(1, Math.round(msg.thoughts.length / 120))
-                        : undefined
-
-                  if (duration !== undefined) {
-                    return `Thought for ${duration} ${duration === 1 ? 'second' : 'seconds'}`
-                  }
-
-                  return 'Thought'
-                })()}
-              </span>
-              <CaretDown
-                size={13}
-                className="text-text-primary/70 transition-transform duration-200 group-open:rotate-180"
-              />
-            </summary>
-            <div className="mt-1.5 border-l border-white/[0.06] ml-1.5 pl-4 py-0.5 font-mono text-[11px] leading-relaxed select-text text-text-secondary/50">
-              <ReactMarkdown
-                remarkPlugins={[
-                  remarkGfm,
-                  remarkMath,
-                  disableIndentedCode as unknown as import('unified').Pluggable
-                ]}
-                rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
-              >
-                {filteredThoughts}
-              </ReactMarkdown>
-            </div>
-          </details>
+      {/* 1. Active State Header: "Thinking" shimming remains sticky until turn completes */}
+      {isActive && hasThoughtInTurn && (
+        <div className="w-full mb-1.5 select-none flex flex-col items-start gap-1">
+          <span className="thinking-shimmer-text text-[13px] font-medium leading-normal inline-block pb-[1.5px]">
+            Thinking
+          </span>
         </div>
       )}
 
+      {/* 2. Finished State Indicator (Static Gray Text) */}
+      {!isActive && (
+        <>
+          {hasTools ? (
+            <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
+              Worked for {workedSec > 0 ? workedSec : 1} {workedSec === 1 ? 'second' : 'seconds'}
+            </div>
+          ) : hasThinking ? (
+            <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
+              Thought for {thinkingSec} {thinkingSec === 1 ? 'second' : 'seconds'}
+            </div>
+          ) : null /* Instant message: no header */}
+        </>
+      )}
+
       <div className="w-full text-text-primary">
-        {!hasContent &&
-        (msg.isConnecting || (!hasThoughtBlock && (msg.isWritingToolCall || activeToolLabel || (msg.toolCalls && msg.toolCalls.some(t => t.status === 'running' || t.status === 'writing')))) || (msg.isStreaming && !hasThoughtBlock)) ? (
+        {!hasContent && isActive ? (
           <div className="flex items-center gap-1.5 h-6 select-none">
-            <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
             {activeToolLabel ? (
               <ToolCallIndicator overrideLabel={activeToolLabel} />
             ) : inactivityLabel ? (
               <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
-            ) : null}
+            ) : (
+              <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
+            )}
           </div>
         ) : (
           <AiMessage
@@ -1789,6 +1773,12 @@ function RealApp(): React.JSX.Element {
       const combineThinkingDuration = (existing?: number, incoming?: number): number | undefined => {
         if (existing === undefined) return incoming
         if (incoming === undefined) return existing
+        return existing + incoming
+      }
+
+      const combineWorkedDuration = (existing?: number, incoming?: number): number | undefined => {
+        if (existing === undefined) return incoming
+        if (incoming === undefined) return existing
         return Math.max(existing, incoming)
       }
 
@@ -1890,6 +1880,13 @@ function RealApp(): React.JSX.Element {
                 ? c.thinkingDuration
                 : undefined
 
+          const workedDuration =
+            typeof c.worked_duration === 'number'
+              ? c.worked_duration
+              : typeof c.workedDuration === 'number'
+                ? c.workedDuration
+                : undefined
+
           const rawToolCalls = c.tool_calls || c.toolCalls || []
 
           const toolCalls: (ToolCallItem & { id?: string })[] = rawToolCalls.map((tc: any) => {
@@ -1966,6 +1963,10 @@ function RealApp(): React.JSX.Element {
               lastMsg.thinkingDuration,
               thinkingDuration
             )
+            lastMsg.workedDuration = combineWorkedDuration(
+              lastMsg.workedDuration,
+              workedDuration
+            )
             if (toolCalls.length > 0) {
               if (!lastMsg.toolCalls) {
                 lastMsg.toolCalls = toolCalls
@@ -1990,6 +1991,7 @@ function RealApp(): React.JSX.Element {
               content: rawText,
               thoughts,
               thinkingDuration,
+              workedDuration,
               toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
               isStreaming: false,
               isThinking: false
@@ -2259,6 +2261,7 @@ function RealApp(): React.JSX.Element {
                 isStreaming: true,
                 isThinking: false,
                 thinkingStartTime: undefined,
+                workStartTime: Date.now(),
                 isConnecting: true,
                 toolCalls: []
               })
@@ -2302,14 +2305,18 @@ function RealApp(): React.JSX.Element {
                 })
               }
 
-              const startTime =
-                lastMsg.thinkingStartTime ||
-                (isThinking || (thoughts && thoughts.trim() !== '') ? Date.now() : undefined)
+              const workStartTime = lastMsg.workStartTime || Date.now()
+              const currentWorkedDuration = Math.max(1, Math.round((Date.now() - workStartTime) / 1000))
+
               let duration = lastMsg.thinkingDuration
-              if (!isThinking && (lastMsg.isThinking || (thoughts && thoughts.trim() !== ''))) {
-                if (duration === undefined && startTime) {
-                  duration = Math.max(1, Math.round((Date.now() - startTime) / 1000))
-                }
+              let startTime = lastMsg.thinkingStartTime
+
+              if (isThinking && !startTime) {
+                startTime = Date.now()
+              } else if (!isThinking && lastMsg.isThinking && startTime) {
+                const roundDur = Math.max(1, Math.round((Date.now() - startTime) / 1000))
+                duration = (duration || 0) + roundDur
+                startTime = undefined
               }
 
               newMessages[lastMsgIndex] = {
@@ -2319,6 +2326,8 @@ function RealApp(): React.JSX.Element {
                 isThinking,
                 thinkingStartTime: startTime,
                 thinkingDuration: duration,
+                workStartTime,
+                workedDuration: currentWorkedDuration,
                 isWritingToolCall,
                 toolType,
                 streamingToolCalls,
@@ -2371,7 +2380,7 @@ function RealApp(): React.JSX.Element {
         flushChunk(pendingData)
       }
 
-      const { chatId, thoughts, finalResponse, thinkingDuration: eventDuration } = data
+      const { chatId, thoughts, finalResponse, thinkingDuration: eventDuration, workedDuration: eventWorkedDuration } = data as typeof data & { workedDuration?: number }
       setRunningChats((prev) => {
         const next = { ...prev }
         delete next[chatId]
@@ -2426,12 +2435,19 @@ function RealApp(): React.JSX.Element {
               let duration = eventDuration !== undefined ? eventDuration : lastMsg.thinkingDuration
               if (
                 duration === undefined &&
-                lastMsg.thinkingStartTime &&
-                lastMsg.thoughts &&
-                lastMsg.thoughts.trim() !== ''
+                lastMsg.thinkingStartTime
               ) {
-                duration = Math.max(1, Math.round((Date.now() - lastMsg.thinkingStartTime) / 1000))
+                const roundDur = Math.max(1, Math.round((Date.now() - lastMsg.thinkingStartTime) / 1000))
+                duration = (lastMsg.thinkingDuration || 0) + roundDur
               }
+
+              const workStartTime = lastMsg.workStartTime || Date.now()
+              let finalWorkedDuration =
+                eventWorkedDuration !== undefined
+                  ? eventWorkedDuration
+                  : lastMsg.workedDuration !== undefined
+                    ? lastMsg.workedDuration
+                    : Math.max(1, Math.round((Date.now() - workStartTime) / 1000))
 
               newMessages[lastMsgIndex] = {
                 ...lastMsg,
@@ -2440,6 +2456,7 @@ function RealApp(): React.JSX.Element {
                 isStreaming: false,
                 isThinking: false,
                 thinkingDuration: duration,
+                workedDuration: finalWorkedDuration,
                 isWritingToolCall: false,
                 isConnecting: false,
                 toolCalls: promotedToolCalls,

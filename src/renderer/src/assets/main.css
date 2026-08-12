@@ -844,6 +844,22 @@
   animation: shimmer 2.5s linear infinite;
 }
 
+.thinking-shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--color-text-secondary) 0%,
+    var(--color-text-secondary) 40%,
+    rgba(255,255,255,0.8) 50%,
+    var(--color-text-secondary) 60%,
+    var(--color-text-secondary) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 3s linear infinite;
+}
+
+
 /* Discord Voice - persistent, high-vibrancy OS liquid edge presence. */
 /* Discord Voice - persistent, high-vibrancy OS liquid edge presence. */
 .discord-voice-glow-overlay {

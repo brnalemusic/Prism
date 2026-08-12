@@ -295,6 +295,7 @@ export async function handleChatMessage(
       { role: 'system', content: fullPrompt },
       ...convertHistoryToOpenAi(historyMessages)
     ]
+    const turnStartTime = Date.now()
     const thinkingTimes = new Map<number, { startedAt?: number; endedAt?: number }>()
     let totalThinkingDuration = 0
 
@@ -400,12 +401,14 @@ export async function handleChatMessage(
       orchestration.accumulatedText,
       orchestration.accumulatedReasoning
     )
+    const totalWorkedDuration = Math.max(1, Math.round((Date.now() - turnStartTime) / 1000))
     broadcastIpc('chat-reply-end', {
       thoughts: finalOutput.thoughts,
       finalResponse: finalOutput.content,
       rawText: finalOutput.content,
       isThinking: false,
       thinkingDuration: totalThinkingDuration || undefined,
+      workedDuration: totalWorkedDuration || undefined,
       chatId,
       ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})
     })

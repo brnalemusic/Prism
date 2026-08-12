@@ -36,6 +36,8 @@ export interface Message {
   isThinking?: boolean
   thinkingStartTime?: number
   thinkingDuration?: number
+  workStartTime?: number
+  workedDuration?: number
   isError?: boolean
   toolCalls?: ToolCallItem[]
   streamingToolCalls?: StreamingToolCall[]

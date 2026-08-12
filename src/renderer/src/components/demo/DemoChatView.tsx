@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ArrowLeft, ArrowClockwise, Brain, DownloadSimple } from '@phosphor-icons/react'
+import { ArrowLeft, ArrowClockwise, DownloadSimple } from '@phosphor-icons/react'
 import clsx from 'clsx'
 import type { DemoEvent, DemoScript } from '../../../../shared/demo'
 import { playDemoScript } from '../../demo/playback'
@@ -82,23 +82,15 @@ const DemoAiMessage = memo(function DemoAiMessage({
   return (
     <StreamContext.Provider value={streamStats}>
       <div className="flex w-full flex-col gap-3 text-text-primary">
-        {(message.isThinking || message.thoughts) && (
-          <details className="group w-full select-none">
-            <summary className="inline-flex list-none items-center gap-2 py-1 text-[12.5px] font-medium text-text-secondary/70 transition-colors hover:text-text-secondary [&::-webkit-details-marker]:hidden">
-              <Brain
-                size={13}
-                className={clsx(
-                  'text-text-secondary/55',
-                  message.isThinking && 'animate-pulse text-accent-secondary/80'
-                )}
-              />
-              <span>{message.isThinking ? 'Thinking...' : 'Thinking'}</span>
-            </summary>
-            <div className="ml-1.5 mt-1.5 border-l border-white/[0.06] py-0.5 pl-4 font-mono text-[11px] leading-relaxed text-text-secondary/55">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.thoughts}</ReactMarkdown>
-            </div>
-          </details>
-        )}
+        {message.isThinking ? (
+          <div className="w-full mb-1 select-none">
+            <span className="thinking-shimmer-text text-[12.5px] font-medium inline-block">Thinking</span>
+          </div>
+        ) : message.thoughts ? (
+          <div className="w-full mb-1 select-none text-[12px] text-text-secondary/60 font-medium">
+            Thought for 2 seconds
+          </div>
+        ) : null}
 
         {message.toolCalls.map((toolCall) => (
           <div key={`${toolCall.name}-${toolCall.status}`} className="flex flex-col gap-1">
