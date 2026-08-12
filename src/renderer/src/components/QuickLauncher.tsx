@@ -30,6 +30,7 @@ import { applyToolCallEnd, applyToolCallStart } from '../toolCallState'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ActionLoader, ToolCall, ToolCallIndicator } from './ActionLoader'
+import { useInactivityLabel } from '../hooks/useInactivityLabel'
 import {
   StreamContext,
   StaticMarkdownComponents,
@@ -260,6 +261,7 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
   msg,
   markdownComponents
 }: LauncherAiMessageProps) {
+  const inactivityLabel = useInactivityLabel(msg)
   const contentText = msg.content || ''
   const streamStats = useStreamStats(contentText, !!msg.isStreaming)
   const nativeToolCalls = useMemo(() => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls), [msg.toolCalls, msg.streamingToolCalls])
@@ -271,18 +273,20 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
   ).trim()
   const hasThoughtBlock = !!(filteredThoughts || msg.isThinking)
 
-  if (!hasContent && (msg.isConnecting || (!hasThoughtBlock && (msg.isWritingToolCall || (msg.streamingToolCalls && msg.streamingToolCalls.length > 0))))) {
+  if (!hasContent && (msg.isConnecting || (!hasThoughtBlock && (msg.isWritingToolCall || (msg.streamingToolCalls && msg.streamingToolCalls.length > 0))) || (msg.isStreaming && !hasThoughtBlock))) {
     return (
       <div className="flex items-center gap-1.5 h-6 select-none py-1">
         <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe" />
-        {msg.isWritingToolCall && msg.streamingToolCalls && msg.streamingToolCalls.length > 0 && (
+        {msg.isWritingToolCall && msg.streamingToolCalls && msg.streamingToolCalls.length > 0 ? (
           <ToolCallIndicator
             tools={msg.streamingToolCalls.map((stc) => ({
               name: stc.name,
               status: 'writing'
             }))}
           />
-        )}
+        ) : inactivityLabel ? (
+          <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
+        ) : null}
       </div>
     )
   }
@@ -329,6 +333,9 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
                     if (activeTools.length > 0 && !hasContent) {
                       const lastTool = activeTools[activeTools.length - 1]
                       return <ToolCallIndicator tools={[lastTool]} />
+                    }
+                    if (inactivityLabel && !hasContent) {
+                      return <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
                     }
                     const outlineMatches = Array.from(
                       filteredThoughts.matchAll(/\*\*(.*?)\*\*/g)
@@ -649,6 +656,13 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
                 }}
               />
             )}
+
+          {msg.isStreaming && inactivityLabel && (
+            <div className="flex items-center gap-1.5 mt-1.5 select-none">
+              <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
+              <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
+            </div>
+          )}
       </div>
     </StreamContext.Provider>
   )

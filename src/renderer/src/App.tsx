@@ -27,6 +27,7 @@ import { TtsButton } from './components/TtsButton'
 import { CopyMessageButton } from './components/CopyMessageButton'
 import { UpdaterView } from './components/UpdaterView'
 import { isShortcutPressed } from './utils'
+import { useInactivityLabel } from './hooks/useInactivityLabel'
 import { TabBar } from './components/TabBar'
 import { ChatPane } from './components/ChatPane'
 import { EmptyTabState } from './components/EmptyTabState'
@@ -274,6 +275,7 @@ interface AiMessageProps {
   handleLoadChat?: (id: string) => void
   markdownComponents: Components
   onOpenBrowserTab?: () => void
+  inactivityLabel?: string | null
 }
 
 const BROWSER_TOOL_NAMES = new Set([
@@ -297,7 +299,8 @@ const AiMessage = React.memo(function AiMessage({
   currentChatId,
   handleLoadChat,
   markdownComponents,
-  onOpenBrowserTab
+  onOpenBrowserTab,
+  inactivityLabel
 }: AiMessageProps) {
   const streamStats = useStreamStats(msg.content, !!msg.isStreaming)
   const nativeToolCalls = useMemo(
@@ -840,6 +843,13 @@ const AiMessage = React.memo(function AiMessage({
           </div>
         )}
 
+        {msg.isStreaming && inactivityLabel && (
+          <div className="flex items-center gap-1.5 mt-1.5 select-none">
+            <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
+            <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
+          </div>
+        )}
+
         {/* Copy & TTS buttons + browser session button */}
         {!msg.isStreaming && (
           <div className="flex items-center gap-1.5 mt-0.5 select-none opacity-60 hover:opacity-100 transition-opacity">
@@ -860,6 +870,147 @@ const AiMessage = React.memo(function AiMessage({
         )}
       </div>
     </StreamContext.Provider>
+  )
+})
+
+interface AiMessageRowProps {
+  msg: Message
+  i: number
+  currentChatId?: string
+  handleLoadChat?: (id: string) => void
+  markdownComponents: Components
+  onOpenBrowserTab?: () => void
+}
+
+const AiMessageRow = React.memo(function AiMessageRow({
+  msg,
+  i,
+  currentChatId,
+  handleLoadChat,
+  markdownComponents,
+  onOpenBrowserTab
+}: AiMessageRowProps) {
+  const inactivityLabel = useInactivityLabel(msg)
+
+  const filteredThoughts = (msg.thoughts || '')
+    .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g, '')
+    .trim()
+
+  const hasThoughtBlock = !!(filteredThoughts || msg.isThinking)
+  const hasContent = !!(msg.content && msg.content.trim() !== '')
+
+  return (
+    <div
+      key={i}
+      className="w-full flex flex-col items-start px-4 py-3.5 transition-all duration-700 animate-message"
+    >
+      {hasThoughtBlock && (
+        <div className="w-full mb-1.5 select-none">
+          <details className="group w-full select-none">
+            <summary className="inline-flex items-center gap-2 cursor-pointer text-sm font-semibold text-text-primary hover:text-white transition-colors duration-150 py-1 select-none list-none [&::-webkit-details-marker]:hidden">
+              <Brain
+                size={15}
+                className={clsx(
+                  'text-accent-secondary shrink-0 transition-all duration-300',
+                  msg.isThinking && 'animate-pulse'
+                )}
+              />
+              <span className="font-semibold text-sm leading-normal text-text-primary">
+                {(() => {
+                  const toolsList = msg.toolCalls || []
+                  const streamingTools = (msg.streamingToolCalls || []).map((stc) => ({
+                    name: stc.name,
+                    status: 'writing' as const
+                  }))
+                  const allTools = [
+                    ...toolsList,
+                    ...streamingTools
+                  ] as ToolCallItem[]
+                  const activeTools = allTools.filter(
+                    (t) =>
+                      t.status !== 'done' &&
+                      t.status !== 'error' &&
+                      t.status !== 'cancelled'
+                  )
+                  if (activeTools.length > 0) {
+                    const lastTool = activeTools[activeTools.length - 1]
+                    return <ToolCallIndicator tools={[lastTool]} />
+                  }
+
+                  if (inactivityLabel && !hasContent) {
+                    return <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
+                  }
+
+                  if (msg.isThinking) {
+                    return 'Thinking...'
+                  }
+
+                  const duration =
+                    msg.thinkingDuration !== undefined
+                      ? msg.thinkingDuration
+                      : msg.thoughts && msg.thoughts.trim() !== ''
+                        ? Math.max(1, Math.round(msg.thoughts.length / 120))
+                        : undefined
+
+                  if (duration !== undefined) {
+                    return `Thought for ${duration} ${duration === 1 ? 'second' : 'seconds'}`
+                  }
+
+                  return 'Thought'
+                })()}
+              </span>
+              <CaretDown
+                size={13}
+                className="text-text-primary/70 transition-transform duration-200 group-open:rotate-180"
+              />
+            </summary>
+            <div className="mt-1.5 border-l border-white/[0.06] ml-1.5 pl-4 py-0.5 font-mono text-[11px] leading-relaxed select-text text-text-secondary/50">
+              <ReactMarkdown
+                remarkPlugins={[
+                  remarkGfm,
+                  remarkMath,
+                  disableIndentedCode as unknown as import('unified').Pluggable
+                ]}
+                rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
+              >
+                {filteredThoughts}
+              </ReactMarkdown>
+            </div>
+          </details>
+        </div>
+      )}
+
+      <div className="w-full text-text-primary">
+        {!hasContent &&
+        (msg.isConnecting || (!hasThoughtBlock && (msg.isWritingToolCall || (msg.toolCalls && msg.toolCalls.some(t => t.status === 'running' || t.status === 'writing')))) || (msg.isStreaming && !hasThoughtBlock)) ? (
+          <div className="flex items-center gap-1.5 h-6 select-none">
+            <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
+            {(() => {
+              const active = [
+                ...(msg.toolCalls || []),
+                ...(msg.streamingToolCalls || []).map((stc) => ({ name: stc.name, status: 'writing' as const }))
+              ].filter((t) => t.status === 'writing' || t.status === 'running')
+              if (active.length > 0) {
+                return <ToolCallIndicator tools={[active[active.length - 1]]} />
+              }
+              if (inactivityLabel) {
+                return <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
+              }
+              return null
+            })()}
+          </div>
+        ) : (
+          <AiMessage
+            msg={msg}
+            currentChatId={currentChatId}
+            handleLoadChat={handleLoadChat}
+            markdownComponents={markdownComponents}
+            onOpenBrowserTab={onOpenBrowserTab}
+            inactivityLabel={inactivityLabel}
+          />
+        )}
+      </div>
+    </div>
   )
 })
 
@@ -934,117 +1085,16 @@ const TabMessagesList = React.memo(function TabMessagesList({
           )
         }
 
-        const filteredThoughts = (msg.thoughts || '')
-          .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g, '')
-          .trim()
-
-        const hasThoughtBlock = !!(filteredThoughts || msg.isThinking)
-        const hasContent = !!(msg.content && msg.content.trim() !== '')
-
         return (
-          <div
+          <AiMessageRow
             key={i}
-            className="w-full flex flex-col items-start px-4 py-3.5 transition-all duration-700 animate-message"
-          >
-            {hasThoughtBlock && (
-              <div className="w-full mb-1.5 select-none">
-                <details className="group w-full select-none">
-                  <summary className="inline-flex items-center gap-2 cursor-pointer text-sm font-semibold text-text-primary hover:text-white transition-colors duration-150 py-1 select-none list-none [&::-webkit-details-marker]:hidden">
-                    <Brain
-                      size={15}
-                      className={clsx(
-                        'text-accent-secondary shrink-0 transition-all duration-300',
-                        msg.isThinking && 'animate-pulse'
-                      )}
-                    />
-                    <span className="font-semibold text-sm leading-normal text-text-primary">
-                      {(() => {
-                        const toolsList = msg.toolCalls || []
-                        const streamingTools = (msg.streamingToolCalls || []).map((stc) => ({
-                          name: stc.name,
-                          status: 'writing' as const
-                        }))
-                        const allTools = [
-                          ...toolsList,
-                          ...streamingTools
-                        ] as ToolCallItem[]
-                        const activeTools = allTools.filter(
-                          (t) =>
-                            t.status !== 'done' &&
-                            t.status !== 'error' &&
-                            t.status !== 'cancelled'
-                        )
-                        if (activeTools.length > 0) {
-                          const lastTool = activeTools[activeTools.length - 1]
-                          return <ToolCallIndicator tools={[lastTool]} />
-                        }
-
-                        if (msg.isThinking) {
-                          return 'Thinking...'
-                        }
-
-                        const duration =
-                          msg.thinkingDuration !== undefined
-                            ? msg.thinkingDuration
-                            : msg.thoughts && msg.thoughts.trim() !== ''
-                              ? Math.max(1, Math.round(msg.thoughts.length / 120))
-                              : undefined
-
-                        if (duration !== undefined) {
-                          return `Thought for ${duration} ${duration === 1 ? 'second' : 'seconds'}`
-                        }
-
-                        return 'Thought'
-                      })()}
-                    </span>
-                    <CaretDown
-                      size={13}
-                      className="text-text-primary/70 transition-transform duration-200 group-open:rotate-180"
-                    />
-                  </summary>
-                  <div className="mt-1.5 border-l border-white/[0.06] ml-1.5 pl-4 py-0.5 font-mono text-[11px] leading-relaxed select-text text-text-secondary/50">
-                    <ReactMarkdown
-                      remarkPlugins={[
-                        remarkGfm,
-                        remarkMath,
-                        disableIndentedCode as unknown as import('unified').Pluggable
-                      ]}
-                      rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
-                    >
-                      {filteredThoughts}
-                    </ReactMarkdown>
-                  </div>
-                </details>
-              </div>
-            )}
-
-            <div className="w-full text-text-primary">
-              {!hasContent &&
-              (msg.isConnecting || (!hasThoughtBlock && (msg.isWritingToolCall || (msg.toolCalls && msg.toolCalls.some(t => t.status === 'running' || t.status === 'writing')))) || (msg.isStreaming && !hasThoughtBlock)) ? (
-                <div className="flex items-center gap-1.5 h-6 select-none">
-                  <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
-                  {(() => {
-                    const active = [
-                      ...(msg.toolCalls || []),
-                      ...(msg.streamingToolCalls || []).map((stc) => ({ name: stc.name, status: 'writing' as const }))
-                    ].filter((t) => t.status === 'writing' || t.status === 'running')
-                    if (active.length > 0) {
-                      return <ToolCallIndicator tools={[active[active.length - 1]]} />
-                    }
-                    return null
-                  })()}
-                </div>
-              ) : (
-                <AiMessage
-                  msg={msg}
-                  currentChatId={currentChatId}
-                  handleLoadChat={handleLoadChat}
-                  markdownComponents={markdownComponents}
-                  onOpenBrowserTab={onOpenBrowserTab}
-                />
-              )}
-            </div>
-          </div>
+            msg={msg}
+            i={i}
+            currentChatId={currentChatId}
+            handleLoadChat={handleLoadChat}
+            markdownComponents={markdownComponents}
+            onOpenBrowserTab={onOpenBrowserTab}
+          />
         )
       })}
     </div>

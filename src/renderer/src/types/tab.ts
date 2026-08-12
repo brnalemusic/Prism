@@ -21,7 +21,7 @@ export interface ToolCallItem {
   name: string
   args: Record<string, unknown>
   result?: string
-  status: 'writing' | 'running' | 'done' | 'error' | 'cancelled'
+  status: 'writing' | 'running' | 'cooldown' | 'done' | 'error' | 'cancelled'
   addedLines?: number
   removedLines?: number
   readLines?: { start: number; end: number }[]

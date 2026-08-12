@@ -54,18 +54,25 @@ function getToolLabel(name: string): string {
 }
 
 interface ToolCallIndicatorProps {
-  tools: Array<{ name: string; status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown' }>
+  tools?: Array<{ name: string; status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown' }>
+  overrideLabel?: string
+  isItalic?: boolean
 }
 
-export function ToolCallIndicator({ tools }: ToolCallIndicatorProps): React.JSX.Element | null {
-  if (!tools || tools.length === 0) return null
+export function ToolCallIndicator({ tools, overrideLabel, isItalic }: ToolCallIndicatorProps): React.JSX.Element | null {
+  if ((!tools || tools.length === 0) && !overrideLabel) return null
 
   // Show only the LAST tool (even if done/error/etc to keep text visible)
-  const lastTool = tools[tools.length - 1]
-  const displayText = getToolLabel(lastTool.name)
+  const lastTool = tools && tools.length > 0 ? tools[tools.length - 1] : null
+  const displayText = overrideLabel || (lastTool ? getToolLabel(lastTool.name) : 'Working')
 
   return (
-    <span className="tool-shimmer-text text-[13px] font-medium leading-normal inline-block pb-[1.5px]">
+    <span
+      className={clsx(
+        'tool-shimmer-text text-[13px] font-medium leading-normal inline-block pb-[1.5px]',
+        isItalic && 'italic'
+      )}
+    >
       {displayText}
     </span>
   )
