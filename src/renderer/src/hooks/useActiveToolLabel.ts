@@ -15,18 +15,19 @@ export function useActiveToolLabel(msg: ActiveToolLabelTarget | undefined): {
 } {
   const [activeToolInfo, setActiveToolInfo] = useState<{ label: string; name: string } | null>(null)
 
-  const lastToolRef = useRef<string | null>(null)
-  const outputLenAtToolRef = useRef<number>(0)
+  const lastToolKeyRef = useRef<string | null>(null)
+  const baselineOutputLenRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (!msg || !msg.isStreaming) {
       setActiveToolInfo(null)
-      lastToolRef.current = null
-      outputLenAtToolRef.current = 0
+      lastToolKeyRef.current = null
+      baselineOutputLenRef.current = null
       return
     }
 
-    const currentOutputLen = (msg.content || '').length + (msg.thoughts || '').length
+    // Only track text content length (thoughts are ignored so label stays alive during thinking)
+    const currentOutputLen = (msg.content || '').length
 
     // Find the latest non-internal tool call
     const allTools = [
@@ -42,7 +43,8 @@ export function useActiveToolLabel(msg: ActiveToolLabelTarget | undefined): {
 
     if (allTools.length === 0) {
       setActiveToolInfo(null)
-      lastToolRef.current = null
+      lastToolKeyRef.current = null
+      baselineOutputLenRef.current = currentOutputLen
       return
     }
 
@@ -50,34 +52,34 @@ export function useActiveToolLabel(msg: ActiveToolLabelTarget | undefined): {
     const toolKey = `${latestTool.name}-${allTools.length}`
     const isToolActive = latestTool.status === 'writing' || latestTool.status === 'running'
 
-    if (toolKey !== lastToolRef.current) {
-      // New tool call detected
-      lastToolRef.current = toolKey
-      outputLenAtToolRef.current = currentOutputLen
-      setActiveToolInfo({
-        label: getToolLabel(latestTool.name),
-        name: latestTool.name
-      })
-      return
-    }
+    const nextLabel = getToolLabel(latestTool.name)
+    const nextName = latestTool.name
 
-    // Tool is currently active
     if (isToolActive) {
-      outputLenAtToolRef.current = currentOutputLen
-      setActiveToolInfo({
-        label: getToolLabel(latestTool.name),
-        name: latestTool.name
+      // While tool is active, track its key and baseline output length
+      lastToolKeyRef.current = toolKey
+      baselineOutputLenRef.current = currentOutputLen
+
+      setActiveToolInfo((prev) => {
+        if (prev && prev.label === nextLabel && prev.name === nextName) {
+          return prev
+        }
+        return { label: nextLabel, name: nextName }
       })
       return
     }
 
-    // Tool is done. Persist label until new output text/thoughts stream in from AI
-    if (currentOutputLen > outputLenAtToolRef.current) {
+    // Tool is completed (done, error, cancelled, etc.)
+    // Check if new text or thoughts have streamed in since tool completion
+    if (baselineOutputLenRef.current !== null && currentOutputLen > baselineOutputLenRef.current) {
       setActiveToolInfo(null)
     } else {
-      setActiveToolInfo({
-        label: getToolLabel(latestTool.name),
-        name: latestTool.name
+      // Keep tool label alive and shimmering until next AI streaming output or next tool
+      setActiveToolInfo((prev) => {
+        if (prev && prev.label === nextLabel && prev.name === nextName) {
+          return prev
+        }
+        return { label: nextLabel, name: nextName }
       })
     }
   }, [

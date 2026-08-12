@@ -30,6 +30,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ActionLoader, ToolCall, ToolCallIndicator } from './ActionLoader'
 import { useInactivityLabel } from '../hooks/useInactivityLabel'
+import { useActiveToolLabel } from '../hooks/useActiveToolLabel'
 import {
   StreamContext,
   StaticMarkdownComponents,
@@ -263,32 +264,23 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
   markdownComponents
 }: LauncherAiMessageProps) {
   const inactivityLabel = useInactivityLabel(msg)
+  const { activeToolLabel } = useActiveToolLabel(msg)
   const contentText = msg.content || ''
   const streamStats = useStreamStats(contentText, !!msg.isStreaming)
   const nativeToolCalls = useMemo(() => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls), [msg.toolCalls, msg.streamingToolCalls])
 
   const hasContent = contentText.trim() !== ''
+  const isRunningTool = !!(
+    activeToolLabel ||
+    msg.isWritingToolCall ||
+    (msg.streamingToolCalls && msg.streamingToolCalls.some((t) => !t.isComplete)) ||
+    (msg.toolCalls && msg.toolCalls.some((t) => t.status === 'running' || t.status === 'writing'))
+  )
   const isActive =
     msg.isStreaming ||
     msg.isThinking ||
     msg.isConnecting ||
-    msg.isWritingToolCall ||
-    (msg.streamingToolCalls && msg.streamingToolCalls.some((t) => !t.isComplete)) ||
-    (msg.toolCalls && msg.toolCalls.some((t) => t.status === 'running' || t.status === 'writing'))
-
-  const toolsList = msg.toolCalls || []
-  const streamingTools = (msg.streamingToolCalls || []).map((stc) => ({
-    name: stc.name,
-    status: 'writing' as const
-  }))
-  const allTools = [...toolsList, ...streamingTools] as Array<{
-    name: string
-    status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown'
-  }>
-  const activeTools = allTools.filter(
-    (t) => t.status !== 'done' && t.status !== 'error' && t.status !== 'cancelled'
-  )
-  const lastActiveTool = activeTools.length > 0 ? activeTools[activeTools.length - 1] : null
+    isRunningTool
 
   const hasTools = !!(msg.toolCalls && msg.toolCalls.length > 0)
   const thinkingSec =
@@ -325,8 +317,8 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
         {/* Immediate Breathing Dot / Active Tool when content not ready yet */}
         {!hasContent && isActive && (
           <div className="flex items-center gap-1.5 h-6 select-none py-1 mb-1">
-            {lastActiveTool ? (
-              <ToolCallIndicator tools={[lastActiveTool]} />
+            {activeToolLabel ? (
+              <ToolCallIndicator overrideLabel={activeToolLabel} />
             ) : inactivityLabel ? (
               <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
             ) : (
@@ -648,9 +640,14 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
               />
             )}
 
-          {msg.isStreaming && inactivityLabel && (
+          {msg.isStreaming && activeToolLabel && (
+            <div className="flex items-center gap-1.5 mt-1 select-none">
+              <ToolCallIndicator overrideLabel={activeToolLabel} />
+            </div>
+          )}
+
+          {msg.isStreaming && !activeToolLabel && inactivityLabel && (
             <div className="flex items-center gap-1.5 mt-1.5 select-none">
-              <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
               <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
             </div>
           )}

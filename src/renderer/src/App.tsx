@@ -368,6 +368,9 @@ const AiMessage = React.memo(function AiMessage({
       if (isActive) {
         return false
       }
+      if (msg.isStreaming && activeToolLabel) {
+        return false
+      }
 
       const hasTextAfter = parts.slice(partIndex + 1).some((p) => {
         const isTool = p.startsWith('[PRISM_EXECUTE_TOOL]')
@@ -389,7 +392,7 @@ const AiMessage = React.memo(function AiMessage({
 
       return true
     },
-    [parts, hasThoughtBlock]
+    [parts, hasThoughtBlock, msg.isStreaming, activeToolLabel]
   )
 
   if (msg.isConnecting) {
