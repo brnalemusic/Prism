@@ -450,6 +450,9 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
         )
         setText('')
         setActiveWorkflow?.(null)
+        if (isSearchEnabled) {
+          setIsSearchEnabled(false)
+        }
 
         if (isFullscreen) {
           onFullscreenToggle()

@@ -28,6 +28,7 @@ interface ChatPaneProps {
   onSelectFolder: () => void
   onUpdateTabInput: (id: string, text: string) => void
   onUpdateTabFile: (id: string, file: TabSession['attachedFile']) => void
+  onToggleSearch?: (enabled?: boolean) => void
   onOpenScreenshotModal: () => void
   onOpenYoutubeModal: () => void
   activeWorkflow: SlashWorkflow | null
@@ -55,6 +56,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
   onSelectFolder,
   onUpdateTabInput,
   onUpdateTabFile,
+  onToggleSearch,
   onOpenScreenshotModal,
   onOpenYoutubeModal,
   activeWorkflow,
@@ -292,7 +294,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
                     text={tab.inputText}
                     setText={handleSetTextInputBar}
                     isSearchEnabled={tab.isSearchEnabled}
-                    setIsSearchEnabled={() => {}}
+                    setIsSearchEnabled={(val) => onToggleSearch?.(val)}
                     isFullscreen={false}
                     onFullscreenToggle={() => {}}
                     attachedFile={tab.attachedFile}
@@ -372,7 +374,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(({
                 text={tab.inputText}
                 setText={handleSetTextInputBar}
                 isSearchEnabled={tab.isSearchEnabled}
-                setIsSearchEnabled={() => {}}
+                setIsSearchEnabled={(val) => onToggleSearch?.(val)}
                 isFullscreen={false}
                 onFullscreenToggle={() => {}}
                 attachedFile={tab.attachedFile}

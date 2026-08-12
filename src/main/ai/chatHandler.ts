@@ -155,7 +155,10 @@ export async function handleChatMessage(
   const isFirstMessage = historyMessages.length === 0
 
   // Construct current user content
-  let userText = message
+  let rawUserText = message
+  const isForceSearch = rawUserText.startsWith('[FORCE_SEARCH]')
+  let userText = rawUserText.replace(/^\[FORCE_SEARCH\]\s*/i, '')
+
   if (quote) {
     userText = `> ${quote}\n\n${userText}`
   }
@@ -261,13 +264,33 @@ export async function handleChatMessage(
     if (matchedWorkflow) {
       fullPrompt += `\n\n# Active Workflow: ${matchedWorkflow.name}\n${matchedWorkflow.systemInstruction}`
     }
+    if (isForceSearch) {
+      fullPrompt += `\n\n# Web Search Requirement\nThe user has explicitly enabled Web Search for this prompt. You MUST use the 'web_search' tool to search the internet for current up-to-date information before returning your response.`
+    }
 
     setCurrentSessionIdForTodo(chatId)
 
-    const openAiTools =
-      currentSessionMode === 'conversation'
-        ? []
-        : getNativeToolsForOpenAi('main', matchedWorkflow?.toolConstraints, chatId)
+    const getToolsForSessionMode = (): OpenAiToolDefinition[] => {
+      let tools =
+        currentSessionMode === 'conversation'
+          ? []
+          : getNativeToolsForOpenAi('main', matchedWorkflow?.toolConstraints, chatId)
+      if (isForceSearch) {
+        const allTools = getNativeToolsForOpenAi('main', undefined, chatId)
+        const searchTools = allTools.filter((t) =>
+          ['web_search', 'saw_link_from_url', 'open_browser_link'].includes(t.function.name)
+        )
+        const existingNames = new Set(tools.map((t) => t.function.name))
+        for (const tool of searchTools) {
+          if (!existingNames.has(tool.function.name)) {
+            tools.push(tool)
+          }
+        }
+      }
+      return tools
+    }
+
+    const openAiTools = getToolsForSessionMode()
     const messagesForApi: OpenAiMessage[] = [
       { role: 'system', content: fullPrompt },
       ...convertHistoryToOpenAi(historyMessages)
@@ -294,10 +317,7 @@ export async function handleChatMessage(
       modelId: model.id,
       messages: messagesForApi,
       tools: openAiTools,
-      getToolsForRound: () =>
-        currentSessionMode === 'conversation'
-          ? []
-          : getNativeToolsForOpenAi('main', matchedWorkflow?.toolConstraints, chatId),
+      getToolsForRound: () => getToolsForSessionMode(),
       signal: abortController.signal,
       reasoningLevel,
       onStreamEvent: (streamEvent, state) => {

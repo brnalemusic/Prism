@@ -325,25 +325,17 @@ const AiMessage = React.memo(function AiMessage({
     return !!(filteredThoughts || msg.isThinking)
   }, [msg.thoughts, msg.isThinking])
 
-  const shouldHideActiveBelow = hasThoughtBlock && (!msg.content || msg.content.trim() === '')
-
-  const hasTextOutput = useMemo(() => {
-    const cleaned = msg.content
-      .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)/gi, '')
-      .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/gi, '')
-      .trim()
-    return cleaned !== ''
-  }, [msg.content])
+  const shouldHideActiveBelow = hasThoughtBlock
 
   const shouldHideIndicator = useCallback(
     (status: ToolCallItem['status']) => {
       const isActive = status === 'writing' || status === 'running'
-      if (hasTextOutput) {
-        return !isActive
+      if (hasThoughtBlock) {
+        return true
       }
-      return hasThoughtBlock
+      return !isActive
     },
-    [hasTextOutput, hasThoughtBlock]
+    [hasThoughtBlock]
   )
 
   const visibleNativeTools = useMemo(() => {
@@ -367,15 +359,7 @@ const AiMessage = React.memo(function AiMessage({
     (status: ToolCallItem['status'], partIndex: number) => {
       const isActive = status === 'writing' || status === 'running'
       if (isActive) {
-        const hasTextBefore = parts.slice(0, partIndex).some((p) => {
-          const isTool = p.startsWith('[PRISM_EXECUTE_TOOL]')
-          const isMiniApp = p.startsWith('<mini_app>')
-          return !isTool && !isMiniApp && p.trim() !== ''
-        })
-        if (!hasTextBefore && hasThoughtBlock) {
-          return false
-        }
-        return true
+        return false
       }
 
       const hasTextAfter = parts.slice(partIndex + 1).some((p) => {
@@ -990,7 +974,7 @@ const TabMessagesList = React.memo(function TabMessagesList({
                             t.status !== 'error' &&
                             t.status !== 'cancelled'
                         )
-                        if (activeTools.length > 0 && !hasContent) {
+                        if (activeTools.length > 0) {
                           const lastTool = activeTools[activeTools.length - 1]
                           return <ToolCallIndicator tools={[lastTool]} />
                         }
@@ -1036,17 +1020,19 @@ const TabMessagesList = React.memo(function TabMessagesList({
 
             <div className="w-full text-text-primary">
               {!hasContent &&
-              (msg.isConnecting || (!hasThoughtBlock && msg.isWritingToolCall) || (msg.isStreaming && !hasThoughtBlock)) ? (
+              (msg.isConnecting || (!hasThoughtBlock && (msg.isWritingToolCall || (msg.toolCalls && msg.toolCalls.some(t => t.status === 'running' || t.status === 'writing')))) || (msg.isStreaming && !hasThoughtBlock)) ? (
                 <div className="flex items-center gap-1.5 h-6 select-none">
                   <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
-                  {msg.isWritingToolCall && msg.streamingToolCalls && msg.streamingToolCalls.length > 0 && (
-                    <ToolCallIndicator
-                      tools={msg.streamingToolCalls.map((stc) => ({
-                        name: stc.name,
-                        status: 'writing' as const
-                      }))}
-                    />
-                  )}
+                  {(() => {
+                    const active = [
+                      ...(msg.toolCalls || []),
+                      ...(msg.streamingToolCalls || []).map((stc) => ({ name: stc.name, status: 'writing' as const }))
+                    ].filter((t) => t.status === 'writing' || t.status === 'running')
+                    if (active.length > 0) {
+                      return <ToolCallIndicator tools={[active[active.length - 1]]} />
+                    }
+                    return null
+                  })()}
                 </div>
               ) : (
                 <AiMessage
@@ -2099,7 +2085,8 @@ function RealApp(): React.JSX.Element {
               ...t,
               messages: [...t.messages, userMessage],
               inputText: '',
-              attachedFile: null
+              attachedFile: null,
+              isSearchEnabled: false
             }
           }
           return t
@@ -2145,6 +2132,16 @@ function RealApp(): React.JSX.Element {
     window.api.setModel(modelKey)
     setTabs((prev) => prev.map((t) => ({ ...t, selectedModel: modelKey })))
     window.api.saveConfig({ lastSelectedChatModel: modelKey })
+  }, [])
+
+  const handleToggleSearch = useCallback((tabId: string, enabled?: boolean) => {
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === tabId
+          ? { ...t, isSearchEnabled: enabled !== undefined ? enabled : !t.isSearchEnabled }
+          : t
+      )
+    )
   }, [])
 
   const getReasoningLevelForModel = useCallback((modelKey: string) => {
@@ -2753,7 +2750,15 @@ function RealApp(): React.JSX.Element {
       })
     })
 
+    const removeSearchEnabledListener = window.api.onSearchEnabledChanged?.((val) => {
+      const activeId = activeTabIdRef.current
+      if (activeId) {
+        handleToggleSearch(activeId, val)
+      }
+    })
+
     return () => {
+      removeSearchEnabledListener?.()
       // Cancel any pending RAF to avoid stale state updates after cleanup
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current)
@@ -3059,6 +3064,7 @@ function RealApp(): React.JSX.Element {
                           prev.map((t) => (t.id === id ? { ...t, attachedFile: file } : t))
                         )
                       }}
+                      onToggleSearch={(enabled) => handleToggleSearch(tab.id, enabled)}
                       onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
                       onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
                       activeWorkflow={activeWorkflow}
