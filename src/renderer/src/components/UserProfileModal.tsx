@@ -16,6 +16,8 @@ import {
   Trash
 } from '@phosphor-icons/react'
 import { DeleteAccountModal } from './DeleteAccountModal'
+import { ScrambleText } from './ScrambleText'
+import { AnimatedQuotaBar } from './AnimatedQuotaBar'
 import type { UserProfile, UserAiUsageStatus } from '../../../shared/types'
 
 interface UserProfileModalProps {
@@ -41,6 +43,8 @@ function formatResetTime(seconds?: number): string {
   return `Resets in ${minutes}m`
 }
 
+let cachedAiUsage: UserAiUsageStatus | null = null
+
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   isOpen,
   user,
@@ -51,7 +55,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [isEditing, setIsEditing] = useState(false)
   const [fullName, setFullName] = useState(user?.fullName || '')
   const [companyName, setCompanyName] = useState(user?.companyName || '')
-  const [aiUsage, setAiUsage] = useState<UserAiUsageStatus | null>(null)
+  const [aiUsage, setAiUsage] = useState<UserAiUsageStatus | null>(cachedAiUsage)
   const [isAiUsageUnavailable, setIsAiUsageUnavailable] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
 
@@ -64,19 +68,19 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
   useEffect(() => {
     if (isOpen && user) {
-      setAiUsage(null)
       setIsAiUsageUnavailable(false)
       window.api.getUserAiUsage()
         .then((usage) => {
           if (usage) {
+            cachedAiUsage = usage
             setAiUsage(usage)
           } else {
-            setIsAiUsageUnavailable(true)
+            if (!cachedAiUsage) setIsAiUsageUnavailable(true)
           }
         })
         .catch((err) => {
           console.error('Failed to load AI usage:', err)
-          setIsAiUsageUnavailable(true)
+          if (!cachedAiUsage) setIsAiUsageUnavailable(true)
         })
     }
   }, [isOpen, user])
@@ -147,7 +151,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 animate-soft-pop">
-      <div className="relative flex flex-col w-full max-w-md rounded-[28px] border border-white/[0.12] bg-[#0E0F12]/95 p-6 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] overflow-hidden space-y-5 text-text-primary">
+      <div className="relative flex flex-col w-full max-w-[480px] max-h-[90vh] overflow-y-auto rounded-[28px] border border-white/[0.12] bg-[#0E0F12]/95 p-6 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] space-y-5 text-text-primary scrollbar-none">
         {/* Ambient glow background */}
         <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-accent-primary/10 blur-3xl" />
         <div className="pointer-events-none absolute -left-20 -bottom-20 h-56 w-56 rounded-full bg-purple-600/10 blur-3xl" />
@@ -217,63 +221,101 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           </div>
         )}
 
-        {/* Prism Cloud AI Quota Card */}
-        {!isEditing && (
-            <div className="rounded-2xl border border-accent-primary/20 bg-accent-primary/[0.04] p-4 space-y-3.5">
-              <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
-                <div className="flex items-center gap-2 text-xs font-bold text-white">
-                  <Sparkle size={16} className="text-accent-primary" weight="fill" />
-                  <span>Prism Cloud Quota</span>
+        {/* Prism Cloud AI Quota Cards (Segregated by Model) */}
+        {!isEditing && (() => {
+          const flashUsage =
+            aiUsage?.models?.['gemini-3-flash-preview'] ||
+            aiUsage?.models?.['gemini-3-flash'] ||
+            aiUsage?.modelList?.find((m) => m.modelId.includes('flash') && !m.modelId.includes('lite'))
+
+          const liteUsage =
+            aiUsage?.models?.['gemini-3.1-flash-lite'] ||
+            aiUsage?.modelList?.find((m) => m.modelId.includes('lite'))
+
+          return (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between px-1">
+                <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider">
+                  <Sparkle size={15} className="text-accent-primary" weight="fill" />
+                  <span>Prism AI Model Quotas</span>
                 </div>
+                <span className="text-[10px] font-mono text-text-muted">Live DB Metrics</span>
               </div>
 
-              {/* 5-Hour Window Progress Bar */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-[11px]">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-text-secondary font-medium">5-Hour Quota</span>
-                    {aiUsage && aiUsage.percentage5h < 100 && aiUsage.reset5hSeconds !== undefined && (
-                      <span className="text-[10px] font-mono text-text-muted/60 select-none">
-                        • {formatResetTime(aiUsage.reset5hSeconds)}
-                      </span>
-                    )}
+              {/* Gemini 3 Flash Card */}
+              <div className="rounded-2xl border border-accent-primary/20 bg-accent-primary/[0.04] p-4 space-y-3 shadow-sm">
+                <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+                    <span className="text-xs font-bold text-white">Gemini 3 Flash</span>
                   </div>
-                  <span className="font-mono text-[11px] font-bold text-white">
-                    {aiUsage ? `${aiUsage.percentage5h}% Remaining` : isAiUsageUnavailable ? 'Usage unavailable' : 'Loading…'}
+                  <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 text-cyan-400">
+                    <ScrambleText
+                      text={flashUsage ? `${flashUsage.tier.toUpperCase()} TIER` : 'QUOTA'}
+                      triggerKey={isOpen}
+                    />
                   </span>
                 </div>
-                <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-accent-primary to-cyan-400 rounded-full transition-all duration-500"
-                    style={{ width: `${aiUsage?.percentage5h ?? 0}%` }}
-                  />
-                </div>
+
+                {/* 5-Hour Progress */}
+                <AnimatedQuotaBar
+                  label="5-Hour Quota"
+                  resetSeconds={flashUsage?.reset5hSeconds}
+                  targetPercentage={flashUsage?.percentage5h}
+                  isUnavailable={isAiUsageUnavailable}
+                  barGradient="from-accent-primary to-cyan-400"
+                  formatResetTime={formatResetTime}
+                />
+
+                {/* Weekly Progress */}
+                <AnimatedQuotaBar
+                  label="Weekly Quota"
+                  resetSeconds={flashUsage?.reset1wSeconds}
+                  targetPercentage={flashUsage?.percentage1w}
+                  isUnavailable={isAiUsageUnavailable}
+                  barGradient="from-cyan-400 to-emerald-400"
+                  formatResetTime={formatResetTime}
+                />
               </div>
 
-              {/* Weekly Window Progress Bar */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-[11px]">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-text-secondary font-medium">Weekly Quota</span>
-                    {aiUsage && aiUsage.percentage1w < 100 && aiUsage.reset1wSeconds !== undefined && (
-                      <span className="text-[10px] font-mono text-text-muted/60 select-none">
-                        • {formatResetTime(aiUsage.reset1wSeconds)}
-                      </span>
-                    )}
+              {/* Gemini 3.1 Flash-Lite Card */}
+              <div className="rounded-2xl border border-purple-500/20 bg-purple-500/[0.04] p-4 space-y-3 shadow-sm">
+                <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-purple-400 animate-pulse" />
+                    <span className="text-xs font-bold text-white">Gemini 3.1 Flash-Lite</span>
                   </div>
-                  <span className="font-mono text-[11px] font-bold text-white">
-                    {aiUsage ? `${aiUsage.percentage1w}% Remaining` : isAiUsageUnavailable ? 'Usage unavailable' : 'Loading…'}
+                  <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-purple-500/30 bg-purple-500/10 text-purple-400">
+                    <ScrambleText
+                      text={liteUsage ? `${liteUsage.tier.toUpperCase()} TIER` : 'QUOTA'}
+                      triggerKey={isOpen}
+                    />
                   </span>
                 </div>
-                <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-purple-500 to-accent-primary rounded-full transition-all duration-500"
-                    style={{ width: `${aiUsage?.percentage1w ?? 0}%` }}
-                  />
-                </div>
+
+                {/* 5-Hour Progress */}
+                <AnimatedQuotaBar
+                  label="5-Hour Quota"
+                  resetSeconds={liteUsage?.reset5hSeconds}
+                  targetPercentage={liteUsage?.percentage5h}
+                  isUnavailable={isAiUsageUnavailable}
+                  barGradient="from-purple-500 to-indigo-400"
+                  formatResetTime={formatResetTime}
+                />
+
+                {/* Weekly Progress */}
+                <AnimatedQuotaBar
+                  label="Weekly Quota"
+                  resetSeconds={liteUsage?.reset1wSeconds}
+                  targetPercentage={liteUsage?.percentage1w}
+                  isUnavailable={isAiUsageUnavailable}
+                  barGradient="from-indigo-400 to-accent-primary"
+                  formatResetTime={formatResetTime}
+                />
               </div>
             </div>
-        )}
+          )
+        })()}
 
         {/* Details or Edit Form */}
         {!isEditing ? (

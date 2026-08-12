@@ -2,7 +2,7 @@ import { createClient, SupabaseClient, Session, User } from '@supabase/supabase-
 import { safeStorage, app } from 'electron'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { UserProfile, AuthResponse, SignUpData, LoginData, UserAiUsageStatus } from '../shared/types'
+import type { UserProfile, AuthResponse, SignUpData, LoginData, UserAiUsageStatus, ModelAiUsageStatus } from '../shared/types'
 import { getLicenseInfo, syncLocalLicenseWithSupabase, revokeLocalLicenseFromSupabase } from './license'
 
 // Supabase Configuration for Prism Agent Project
@@ -685,10 +685,7 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
   if (!user || !session?.access_token) return null
 
   try {
-    // The Edge Function verifies the caller's JWT and always resolves usage for
-    // that authenticated user. This avoids exposing a user-id parameter through
-    // a browser-callable database RPC.
-    const response = await fetch(PRISM_CLOUD_USAGE_URL, {
+    const response = await fetch(`${PRISM_CLOUD_USAGE_URL}?model=all`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${session.access_token}`,
@@ -699,27 +696,72 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
 
     if (response.ok) {
       const rpcData = await response.json()
-      const max5h = rpcData.max_5h || 20
-      const max1w = rpcData.max_1w || rpcData.max_7d || 120
-      const count5h = rpcData.count_5h ?? 0
-      const count1w = rpcData.count_1w ?? 0
-      const remaining5h = rpcData.remaining_5h ?? Math.max(0, max5h - count5h)
-      const remaining1w = rpcData.remaining_1w ?? Math.max(0, max1w - count1w)
+      const rawList: any[] = Array.isArray(rpcData) ? rpcData : [rpcData]
 
-      const percentage5h = Math.round((remaining5h / max5h) * 100)
-      const percentage1w = Math.round((remaining1w / max1w) * 100)
-      const percentageRemaining = Math.min(percentage5h, percentage1w)
+      const modelList: ModelAiUsageStatus[] = rawList.map((item) => {
+        const modelId = item.model_id || 'legacy'
+        const modelName =
+          modelId === 'gemini-3-flash-preview' || modelId === 'gemini-3-flash'
+            ? 'Gemini 3 Flash'
+            : modelId === 'gemini-3.1-flash-lite'
+              ? 'Gemini 3.1 Flash-Lite'
+              : 'Legacy Model'
+
+        const max5h = item.max_5h || (modelId === 'gemini-3.1-flash-lite' ? 180 : 20)
+        const max1w = item.max_1w || item.max_7d || (modelId === 'gemini-3.1-flash-lite' ? 720 : 80)
+        const count5h = item.count_5h ?? 0
+        const count1w = item.count_1w ?? 0
+        const remaining5h = item.remaining_5h ?? Math.max(0, max5h - count5h)
+        const remaining1w = item.remaining_1w ?? Math.max(0, max1w - count1w)
+
+        const percentage5h = Math.round((remaining5h / max5h) * 100)
+        const percentage1w = Math.round((remaining1w / max1w) * 100)
+        const percentageRemaining = Math.min(percentage5h, percentage1w)
+
+        return {
+          modelId,
+          modelName,
+          tier: item.tier || 'free',
+          count5h,
+          count1w,
+          remaining5h,
+          remaining1w,
+          max5h,
+          max1w,
+          percentage5h,
+          percentage1w,
+          percentageRemaining,
+          reset5hSeconds: item.reset_5h_seconds ?? 0,
+          reset1wSeconds: item.reset_1w_seconds ?? 0
+        }
+      })
+
+      const modelsMap: Record<string, ModelAiUsageStatus> = {}
+      for (const m of modelList) {
+        modelsMap[m.modelId] = m
+      }
+
+      // Select primary reference model for top-level backward compatibility
+      const primary =
+        modelsMap['gemini-3-flash-preview'] ||
+        modelsMap['gemini-3-flash'] ||
+        modelsMap['legacy'] ||
+        modelList[0]
 
       return {
-        percentageRemaining,
-        percentage5h,
-        percentage1w,
-        count5h,
-        count1w,
-        remaining5h,
-        remaining1w,
-        reset5hSeconds: rpcData.reset_5h_seconds ?? 0,
-        reset1wSeconds: rpcData.reset_1w_seconds ?? 0
+        percentageRemaining: primary ? primary.percentageRemaining : 100,
+        percentage5h: primary ? primary.percentage5h : 100,
+        percentage1w: primary ? primary.percentage1w : 100,
+        count5h: primary ? primary.count5h : 0,
+        count1w: primary ? primary.count1w : 0,
+        remaining5h: primary ? primary.remaining5h : 20,
+        remaining1w: primary ? primary.remaining1w : 80,
+        max5h: primary ? primary.max5h : 20,
+        max1w: primary ? primary.max1w : 80,
+        reset5hSeconds: primary ? primary.reset5hSeconds : 0,
+        reset1wSeconds: primary ? primary.reset1wSeconds : 0,
+        models: modelsMap,
+        modelList
       }
     }
 

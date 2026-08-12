@@ -254,6 +254,23 @@ export interface PaymentVerificationResult {
   error?: string
 }
 
+export interface ModelAiUsageStatus {
+  modelId: string
+  modelName: string
+  tier: string
+  count5h: number
+  count1w: number
+  remaining5h: number
+  remaining1w: number
+  max5h: number
+  max1w: number
+  percentage5h: number
+  percentage1w: number
+  percentageRemaining: number
+  reset5hSeconds?: number
+  reset1wSeconds?: number
+}
+
 export interface UserAiUsageStatus {
   percentageRemaining: number
   percentage5h: number
@@ -262,6 +279,10 @@ export interface UserAiUsageStatus {
   count1w: number
   remaining5h: number
   remaining1w: number
+  max5h?: number
+  max1w?: number
   reset5hSeconds?: number
   reset1wSeconds?: number
+  models?: Record<string, ModelAiUsageStatus>
+  modelList?: ModelAiUsageStatus[]
 }
