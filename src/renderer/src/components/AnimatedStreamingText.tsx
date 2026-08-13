@@ -29,6 +29,8 @@ export interface StreamContextType {
 interface CharacterTiming {
   startAt: number
   endAt: number
+  duration: number
+  units: number
 }
 
 interface StreamingAnimationClock {
@@ -45,14 +47,16 @@ interface StreamingTimeline {
   timings: Map<string, CharacterTiming>
   nextStartAt: number
   maxEndAt: number
+  cadenceSamples: Array<{ duration: number; characters: number }>
 }
 
-const DEFAULT_CHARACTER_CADENCE = 20
-const MIN_CHARACTER_CADENCE = 8
+const DEFAULT_CHARACTER_CADENCE = 4
+const MIN_CHARACTER_CADENCE = 0.35
 const MAX_CHARACTER_CADENCE = 45
 const OPACITY_DURATION = 260
 const COLOR_DURATION = 390
-const CADENCE_SMOOTHING = 0.35
+const CADENCE_SAMPLE_COUNT = 6
+const MAX_REVEAL_QUEUE_AHEAD = 140
 
 const idleAnimationClock: StreamingAnimationClock = {
   renderTime: 0,
@@ -87,7 +91,8 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
   const timelineRef = useRef<StreamingTimeline>({
     timings: new Map(),
     nextStartAt: 0,
-    maxEndAt: 0
+    maxEndAt: 0,
+    cadenceSamples: []
   })
   const [, forceTimelineCleanup] = useReducer((version: number) => version + 1, 0)
 
@@ -124,7 +129,8 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
       0
     )
     timeline.nextStartAt = retainedTimings.reduce(
-      (latestStart, timing) => Math.max(latestStart, timing.startAt + charDurationRef.current),
+      (latestStart, timing) =>
+        Math.max(latestStart, timing.startAt + charDurationRef.current * timing.units),
       renderTime
     )
   }
@@ -133,20 +139,45 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
   const isVisuallyStreaming = shouldAnimateNewText || hasRunningAnimations
 
   let renderCadence = charDurationRef.current
+  let addedLength = 0
   if (shouldAnimateNewText && text !== previousCommittedText) {
     const addedText = stripNonVisualStreamingParts(text.slice(stablePrefixLength))
-    const addedLength = countGraphemes(addedText)
+    addedLength = countGraphemes(addedText)
     const lastTime = lastTimeRef.current
 
     if (addedLength > 0 && lastTime > 0) {
-      const observedCadence = (renderTime - lastTime) / addedLength
-      const clampedCadence = Math.max(
-        MIN_CHARACTER_CADENCE,
-        Math.min(MAX_CHARACTER_CADENCE, observedCadence)
+      timeline.cadenceSamples.push({
+        duration: Math.max(1, renderTime - lastTime),
+        characters: addedLength
+      })
+      if (timeline.cadenceSamples.length > CADENCE_SAMPLE_COUNT) {
+        timeline.cadenceSamples.shift()
+      }
+
+      const sampledDuration = timeline.cadenceSamples.reduce(
+        (total, sample) => total + sample.duration,
+        0
       )
-      renderCadence =
-        charDurationRef.current * (1 - CADENCE_SMOOTHING) + clampedCadence * CADENCE_SMOOTHING
+      const sampledCharacters = timeline.cadenceSamples.reduce(
+        (total, sample) => total + sample.characters,
+        0
+      )
+      renderCadence = sampledDuration / Math.max(1, sampledCharacters)
+    } else if (addedLength > 0) {
+      renderCadence = Math.min(DEFAULT_CHARACTER_CADENCE, MAX_REVEAL_QUEUE_AHEAD / addedLength)
     }
+
+    const pendingUnits = Array.from(timeline.timings.values()).reduce(
+      (total, timing) => total + (timing.startAt > renderTime ? timing.units : 0),
+      0
+    )
+    const queueSafeCadence = MAX_REVEAL_QUEUE_AHEAD / Math.max(1, pendingUnits + addedLength)
+    renderCadence = Math.max(
+      MIN_CHARACTER_CADENCE,
+      Math.min(MAX_CHARACTER_CADENCE, renderCadence, queueSafeCadence)
+    )
+
+    reschedulePendingTimings(timeline, renderTime, renderCadence)
   }
 
   const animationClock: StreamingAnimationClock = {
@@ -159,10 +190,12 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
       const startAt = Math.max(renderTime, timeline.nextStartAt)
       const timing = {
         startAt,
-        endAt: startAt + duration
+        endAt: startAt + duration,
+        duration,
+        units: Math.max(1, units)
       }
       timeline.timings.set(token, timing)
-      timeline.nextStartAt = startAt + renderCadence * Math.max(1, units)
+      timeline.nextStartAt = startAt + renderCadence * timing.units
       timeline.maxEndAt = Math.max(timeline.maxEndAt, timing.endAt)
       return timing
     }
@@ -193,6 +226,7 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
       timeline.timings.clear()
       timeline.nextStartAt = 0
       timeline.maxEndAt = 0
+      timeline.cadenceSamples = []
       lastTimeRef.current = 0
       charDurationRef.current = DEFAULT_CHARACTER_CADENCE
     }
@@ -213,6 +247,36 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
   }
 }
 /* eslint-enable react-hooks/refs, react-hooks/purity */
+
+function reschedulePendingTimings(timeline: StreamingTimeline, now: number, cadence: number): void {
+  const pendingTimings = Array.from(timeline.timings.entries())
+    .filter(([, timing]) => timing.startAt > now)
+    .sort(([leftToken], [rightToken]) => getTokenStart(leftToken) - getTokenStart(rightToken))
+
+  const lastStartedAt = Array.from(timeline.timings.values()).reduce(
+    (latestStart, timing) =>
+      timing.startAt <= now ? Math.max(latestStart, timing.startAt) : latestStart,
+    Number.NEGATIVE_INFINITY
+  )
+  let nextStartAt = Number.isFinite(lastStartedAt) ? Math.max(now, lastStartedAt + cadence) : now
+
+  for (const [, timing] of pendingTimings) {
+    timing.startAt = nextStartAt
+    timing.endAt = nextStartAt + timing.duration
+    nextStartAt += cadence * timing.units
+  }
+
+  timeline.nextStartAt = nextStartAt
+  timeline.maxEndAt = Array.from(timeline.timings.values()).reduce(
+    (latestEnd, timing) => Math.max(latestEnd, timing.endAt),
+    0
+  )
+}
+
+function getTokenStart(token: string): number {
+  const start = Number(token.split(':', 1)[0])
+  return Number.isFinite(start) ? start : Number.MAX_SAFE_INTEGER
+}
 
 function stripNonVisualStreamingParts(value: string): string {
   return value
