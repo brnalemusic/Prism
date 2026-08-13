@@ -66,9 +66,11 @@ export interface AppConfig {
   discordGatewayEnabled?: boolean
   discordGatewayModel?: string
   discordGatewayVoiceModel?: string
+  disabledSkills?: string[]
 }
 
 const DEFAULT_CONFIG: AppConfig = {
+  disabledSkills: [],
   hasResetV8Keys: false,
   suppressLicenseModal: false,
   launcherShortcut: 'CommandOrControl+Space',

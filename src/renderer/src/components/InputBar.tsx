@@ -11,7 +11,6 @@ import {
   Plus,
   Paperclip,
   Camera,
-  SquaresFour as AppIcon,
   CaretRight,
   FilePdf,
   FilePpt,
@@ -21,7 +20,8 @@ import {
   ChatTeardropText,
   Folder,
   CaretDown,
-  Check
+  Check,
+  Sparkle
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
 import { useSpeechToText } from '../hooks/useSpeechToText'
@@ -108,8 +108,26 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     const [isFocused, setIsFocused] = useState(false)
     const [showFullscreenBtn, setShowFullscreenBtn] = useState(false)
     const [showAttachMenu, setShowAttachMenu] = useState(false)
-    const [showAppsMenu, setShowAppsMenu] = useState(false)
+    const [showSkillsMenu, setShowSkillsMenu] = useState(false)
     const [showModeMenu, setShowModeMenu] = useState(false)
+
+    const isSkillEnabled = (skillKey: string): boolean => {
+      const disabled = config?.disabledSkills || []
+      return !disabled.includes(skillKey)
+    }
+
+    const toggleSkill = (skillKey: string): void => {
+      const currentDisabled = config?.disabledSkills || []
+      let newDisabled: string[]
+      if (currentDisabled.includes(skillKey)) {
+        newDisabled = currentDisabled.filter((k) => k !== skillKey)
+      } else {
+        newDisabled = [...currentDisabled, skillKey]
+      }
+      const updatedConfig = { ...config, disabledSkills: newDisabled } as AppConfig
+      setConfig(updatedConfig)
+      window.api.saveConfig({ disabledSkills: newDisabled })
+    }
 
     const inputRef = useRef<HTMLTextAreaElement>(null)
     const attachMenuRef = useRef<HTMLDivElement>(null)
@@ -353,15 +371,15 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             e.preventDefault()
             setShowAttachMenu(false)
           }
-          if (showAppsMenu) {
+          if (showSkillsMenu) {
             e.preventDefault()
-            setShowAppsMenu(false)
+            setShowSkillsMenu(false)
           }
         }
       }
       window.addEventListener('keydown', handleKeyDown)
       return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [showModeMenu, showAttachMenu, showAppsMenu])
+    }, [showModeMenu, showAttachMenu, showSkillsMenu])
 
     const textRef = useRef(text)
     useEffect(() => {
@@ -412,7 +430,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
 
         if (!isClickInsideAttach && !isClickOnAttachBtn) {
           setShowAttachMenu(false)
-          setShowAppsMenu(false)
+          setShowSkillsMenu(false)
         }
         if (!isClickInsideModeMenu) {
           setShowModeMenu(false)
@@ -614,22 +632,40 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                   </div>
                 </button>
 
-                {/* Hoverable / Clickable Apps item */}
+                {/* YouTube app directly below Web Search */}
+                <button
+                  onClick={() => {
+                    setIsSearchEnabled(false)
+                    onOpenYoutubeModal?.()
+                    setShowAttachMenu(false)
+                  }}
+                  className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.04] transition-all text-left"
+                >
+                  <CirclePlay size={16} className="text-accent-primary" />
+                  <div className="flex flex-col">
+                    <span>YouTube</span>
+                    <span className="text-[9px] text-text-secondary/50 font-normal">
+                      Run YouTube assistant
+                    </span>
+                  </div>
+                </button>
+
+                {/* Hoverable / Clickable Skills item */}
                 <div
-                  className="relative group/apps"
-                  onMouseEnter={() => setShowAppsMenu(true)}
-                  onMouseLeave={() => setShowAppsMenu(false)}
+                  className="relative group/skills"
+                  onMouseEnter={() => setShowSkillsMenu(true)}
+                  onMouseLeave={() => setShowSkillsMenu(false)}
                 >
                   <button
-                    onClick={() => setShowAppsMenu(!showAppsMenu)}
+                    onClick={() => setShowSkillsMenu(!showSkillsMenu)}
                     className="w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.04] transition-all text-left"
                   >
                     <div className="flex items-center gap-2.5">
-                      <AppIcon size={16} className="text-text-secondary" />
+                      <Sparkle size={16} className="text-text-secondary" />
                       <div className="flex flex-col">
-                        <span>Apps</span>
+                        <span>Skills</span>
                         <span className="text-[9px] text-text-secondary/50 font-normal">
-                          Run apps with AI
+                          Toggle AI capabilities
                         </span>
                       </div>
                     </div>
@@ -637,20 +673,104 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                   </button>
 
                   {/* Drop-side submenu to the right */}
-                  {showAppsMenu && (
+                  {showSkillsMenu && (
                     <div className="absolute left-full bottom-0 pl-1.5 z-[70] -ml-px">
-                      <div className="model-menu-panel w-44 p-1.5 animate-soft-pop text-left">
+                      <div className="model-menu-panel w-52 p-2 animate-soft-pop text-left space-y-1">
+                        <div className="px-2 py-1 text-[10px] font-bold text-text-secondary/40 uppercase tracking-wider">
+                          AI Skills
+                        </div>
+
+                        {/* PowerPoint Skill */}
                         <button
-                          onClick={() => {
-                            setIsSearchEnabled(false)
-                            onOpenYoutubeModal?.()
-                            setShowAttachMenu(false)
-                            setShowAppsMenu(false)
-                          }}
-                          className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.04] transition-all text-left"
+                          onClick={() => toggleSkill('pptx')}
+                          className="w-full flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-white/[0.04] transition-all"
                         >
-                          <CirclePlay size={16} className="text-accent-primary" />
-                          <span>YouTube</span>
+                          <div className="flex items-center gap-2">
+                            <FilePpt
+                              size={15}
+                              className={
+                                isSkillEnabled('pptx')
+                                  ? 'text-accent-primary'
+                                  : 'text-text-secondary/50'
+                              }
+                            />
+                            <span>PowerPoint Skill</span>
+                          </div>
+                          <div
+                            className={clsx(
+                              'w-7 h-4 rounded-full transition-colors relative flex items-center p-0.5 cursor-pointer',
+                              isSkillEnabled('pptx') ? 'bg-accent-primary' : 'bg-white/10'
+                            )}
+                          >
+                            <div
+                              className={clsx(
+                                'w-3 h-3 rounded-full bg-white transition-transform',
+                                isSkillEnabled('pptx') ? 'translate-x-3' : 'translate-x-0'
+                              )}
+                            />
+                          </div>
+                        </button>
+
+                        {/* PDF Skill */}
+                        <button
+                          onClick={() => toggleSkill('pdf')}
+                          className="w-full flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-white/[0.04] transition-all"
+                        >
+                          <div className="flex items-center gap-2">
+                            <FilePdf
+                              size={15}
+                              className={
+                                isSkillEnabled('pdf')
+                                  ? 'text-accent-primary'
+                                  : 'text-text-secondary/50'
+                              }
+                            />
+                            <span>PDF Skill</span>
+                          </div>
+                          <div
+                            className={clsx(
+                              'w-7 h-4 rounded-full transition-colors relative flex items-center p-0.5 cursor-pointer',
+                              isSkillEnabled('pdf') ? 'bg-accent-primary' : 'bg-white/10'
+                            )}
+                          >
+                            <div
+                              className={clsx(
+                                'w-3 h-3 rounded-full bg-white transition-transform',
+                                isSkillEnabled('pdf') ? 'translate-x-3' : 'translate-x-0'
+                              )}
+                            />
+                          </div>
+                        </button>
+
+                        {/* Browser Skill */}
+                        <button
+                          onClick={() => toggleSkill('browser')}
+                          className="w-full flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-white/[0.04] transition-all"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Globe
+                              size={15}
+                              className={
+                                isSkillEnabled('browser')
+                                  ? 'text-accent-primary'
+                                  : 'text-text-secondary/50'
+                              }
+                            />
+                            <span>Browser Skill</span>
+                          </div>
+                          <div
+                            className={clsx(
+                              'w-7 h-4 rounded-full transition-colors relative flex items-center p-0.5 cursor-pointer',
+                              isSkillEnabled('browser') ? 'bg-accent-primary' : 'bg-white/10'
+                            )}
+                          >
+                            <div
+                              className={clsx(
+                                'w-3 h-3 rounded-full bg-white transition-transform',
+                                isSkillEnabled('browser') ? 'translate-x-3' : 'translate-x-0'
+                              )}
+                            />
+                          </div>
                         </button>
                       </div>
                     </div>

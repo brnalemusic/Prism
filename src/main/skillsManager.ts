@@ -2,6 +2,7 @@ import fs from 'fs/promises'
 import fssync from 'fs'
 import path from 'path'
 import { app } from 'electron'
+import { loadConfig } from './config'
 
 export interface SkillInfo {
   filename: string
@@ -12,6 +13,22 @@ export interface SkillInfo {
 
 // Session map: chatId -> Set of unlocked tool names
 const unlockedToolsBySession = new Map<string, Set<string>>()
+
+export function isSkillFileDisabled(filename: string): boolean {
+  try {
+    const config = loadConfig()
+    const disabled = config.disabledSkills || []
+    const lower = filename.toLowerCase()
+    if (disabled.includes('pptx') && lower.includes('pptx')) return true
+    if (disabled.includes('pdf') && lower.includes('pdf')) return true
+    if (
+      disabled.includes('browser') &&
+      (lower.includes('browser') || lower.includes('integrated_browser'))
+    )
+      return true
+  } catch {}
+  return false
+}
 
 /**
   Resolves the path to the skills directory.
@@ -60,7 +77,9 @@ export async function listSkills(): Promise<SkillInfo[]> {
   const skillsPath = getSkillsPath()
   try {
     const files = await fs.readdir(skillsPath)
-    const mdFiles = files.filter((f) => f.endsWith('.md')).sort()
+    const mdFiles = files
+      .filter((f) => f.endsWith('.md') && !isSkillFileDisabled(f))
+      .sort()
 
     const skills: SkillInfo[] = []
     for (const filename of mdFiles) {
@@ -147,7 +166,9 @@ export function listSkillsSync(): SkillInfo[] {
   try {
     if (!fssync.existsSync(skillsPath)) return []
     const files = fssync.readdirSync(skillsPath)
-    const mdFiles = files.filter((f) => f.endsWith('.md')).sort()
+    const mdFiles = files
+      .filter((f) => f.endsWith('.md') && !isSkillFileDisabled(f))
+      .sort()
 
     const skills: SkillInfo[] = []
     for (const filename of mdFiles) {
@@ -212,6 +233,14 @@ export async function readSkill(
     return {
       success: false,
       content: `Error: Invalid skill filename "${skillName}". Skill files must end with .md.`,
+      unlockedTools: []
+    }
+  }
+
+  if (isSkillFileDisabled(normalizedFilename)) {
+    return {
+      success: false,
+      content: `Error: The skill "${skillName}" is currently disabled in settings.`,
       unlockedTools: []
     }
   }

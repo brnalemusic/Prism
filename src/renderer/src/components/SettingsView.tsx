@@ -33,7 +33,9 @@ import {
   Sparkle,
   ArrowSquareOut,
   CheckCircle,
-  X
+  X,
+  FilePpt,
+  FilePdf
 } from '@phosphor-icons/react'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import { EnterpriseActivationModal } from './EnterpriseActivationModal'
@@ -50,6 +52,7 @@ type SectionId =
   | 'shortcuts'
   | 'providers'
   | 'intelligence'
+  | 'skills'
   | 'runtime'
   | 'appearance'
   | 'voice'
@@ -601,6 +604,7 @@ function useLicenseCountdown(expiresAt?: string): string {
     { id: 'shortcuts', label: 'Shortcuts', icon: <Keyboard size={18} weight="bold" /> },
     { id: 'providers', label: 'BYOK', icon: <Key size={18} weight="bold" /> },
     { id: 'intelligence', label: 'Intelligence', icon: <Bot size={18} weight="bold" /> },
+    { id: 'skills', label: 'Skills', icon: <Sparkle size={18} weight="bold" /> },
     { id: 'runtime', label: 'AI Runtime', icon: <Shield size={18} weight="bold" /> },
     { id: 'appearance', label: 'Appearance', icon: <Palette size={18} weight="bold" /> },
     { id: 'voice', label: 'Voice', icon: <Volume2 size={18} weight="bold" /> },
@@ -1984,6 +1988,125 @@ function useLicenseCountdown(expiresAt?: string): string {
     )
   }
 
+  const isSkillEnabledInSettings = (skillKey: string): boolean => {
+    const disabled = config.disabledSkills || []
+    return !disabled.includes(skillKey)
+  }
+
+  const toggleSkillInSettings = (skillKey: string): void => {
+    const currentDisabled = config.disabledSkills || []
+    let newDisabled: string[]
+    if (currentDisabled.includes(skillKey)) {
+      newDisabled = currentDisabled.filter((k) => k !== skillKey)
+    } else {
+      newDisabled = [...currentDisabled, skillKey]
+    }
+    const updatedConfig = { ...config, disabledSkills: newDisabled }
+    setConfig(updatedConfig)
+    window.api.saveConfig({ disabledSkills: newDisabled })
+  }
+
+  const renderSkills = (): React.JSX.Element => (
+    <div className="space-y-6 animate-soft-pop">
+      <SectionHeader
+        title="AI Skills"
+        subtitle="Enable or disable specialized AI skills and execution tools for PDF, PowerPoint, and Browser capabilities."
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* PowerPoint Skill */}
+        <div className="flex flex-col justify-between p-5 rounded-[20px] border border-white/[0.08] bg-white/[0.035] hover:bg-white/[0.05] transition-all">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+                <FilePpt size={20} weight="bold" />
+              </div>
+              <button
+                type="button"
+                onClick={() => toggleSkillInSettings('pptx')}
+                className={clsx(
+                  'w-10 h-5 rounded-full transition-colors relative flex items-center p-0.5 cursor-pointer',
+                  isSkillEnabledInSettings('pptx') ? 'bg-accent-primary' : 'bg-white/10'
+                )}
+              >
+                <div
+                  className={clsx(
+                    'w-4 h-4 rounded-full bg-white transition-transform',
+                    isSkillEnabledInSettings('pptx') ? 'translate-x-5' : 'translate-x-0'
+                  )}
+                />
+              </button>
+            </div>
+            <h3 className="text-sm font-semibold text-text-primary">PowerPoint Skill</h3>
+            <p className="text-xs text-text-secondary/60 mt-1">
+              Allows the AI to learn presentation design guidelines and build 16:9 .pptx slide decks.
+            </p>
+          </div>
+        </div>
+
+        {/* PDF Skill */}
+        <div className="flex flex-col justify-between p-5 rounded-[20px] border border-white/[0.08] bg-white/[0.035] hover:bg-white/[0.05] transition-all">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+                <FilePdf size={20} weight="bold" />
+              </div>
+              <button
+                type="button"
+                onClick={() => toggleSkillInSettings('pdf')}
+                className={clsx(
+                  'w-10 h-5 rounded-full transition-colors relative flex items-center p-0.5 cursor-pointer',
+                  isSkillEnabledInSettings('pdf') ? 'bg-accent-primary' : 'bg-white/10'
+                )}
+              >
+                <div
+                  className={clsx(
+                    'w-4 h-4 rounded-full bg-white transition-transform',
+                    isSkillEnabledInSettings('pdf') ? 'translate-x-5' : 'translate-x-0'
+                  )}
+                />
+              </button>
+            </div>
+            <h3 className="text-sm font-semibold text-text-primary">PDF Skill</h3>
+            <p className="text-xs text-text-secondary/60 mt-1">
+              Allows the AI to learn document formatting rules and compile clean A4 PDF files.
+            </p>
+          </div>
+        </div>
+
+        {/* Browser Skill */}
+        <div className="flex flex-col justify-between p-5 rounded-[20px] border border-white/[0.08] bg-white/[0.035] hover:bg-white/[0.05] transition-all">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+                <Globe size={20} weight="bold" />
+              </div>
+              <button
+                type="button"
+                onClick={() => toggleSkillInSettings('browser')}
+                className={clsx(
+                  'w-10 h-5 rounded-full transition-colors relative flex items-center p-0.5 cursor-pointer',
+                  isSkillEnabledInSettings('browser') ? 'bg-accent-primary' : 'bg-white/10'
+                )}
+              >
+                <div
+                  className={clsx(
+                    'w-4 h-4 rounded-full bg-white transition-transform',
+                    isSkillEnabledInSettings('browser') ? 'translate-x-5' : 'translate-x-0'
+                  )}
+                />
+              </button>
+            </div>
+            <h3 className="text-sm font-semibold text-text-primary">Browser Skill</h3>
+            <p className="text-xs text-text-secondary/60 mt-1">
+              Enables integrated Playwright browser automation, navigation, typing, and page snapshots.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
   const renderActiveSection = (): React.JSX.Element => {
     switch (activeSection) {
       case 'shortcuts':
@@ -1992,6 +2115,8 @@ function useLicenseCountdown(expiresAt?: string): string {
         return <ApiManagerSettings />
       case 'intelligence':
         return renderIntelligence()
+      case 'skills':
+        return renderSkills()
       case 'runtime':
         return renderRuntime()
       case 'appearance':

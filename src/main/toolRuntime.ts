@@ -82,12 +82,11 @@ export function schemaForGemini(schema: JsonSchema): Record<string, unknown> {
 }
 
 import { isToolUnlockedForSession } from './skillsManager'
+import { loadConfig } from './config'
 
-const SKILL_LOCKED_TOOLS = new Set([
-  'write_pdf',
-  'edit_pdf',
-  'write_pptx',
-  'edit_pptx',
+const PPTX_TOOLS = new Set(['write_pptx', 'edit_pptx'])
+const PDF_TOOLS = new Set(['write_pdf', 'edit_pdf'])
+const BROWSER_TOOLS = new Set([
   'open_browser',
   'browser_navigate',
   'browser_snapshot',
@@ -101,7 +100,29 @@ const SKILL_LOCKED_TOOLS = new Set([
   'detailed_dom_page'
 ])
 
+const SKILL_LOCKED_TOOLS = new Set([
+  ...PPTX_TOOLS,
+  ...PDF_TOOLS,
+  ...BROWSER_TOOLS
+])
+
 function isToolAvailableForSession(toolName: string, chatId?: string): boolean {
+  try {
+    const config = loadConfig()
+    const disabled = config.disabledSkills || []
+    if (disabled.includes('pptx') && PPTX_TOOLS.has(toolName)) return false
+    if (disabled.includes('pdf') && PDF_TOOLS.has(toolName)) return false
+    if (disabled.includes('browser') && BROWSER_TOOLS.has(toolName)) return false
+    if (
+      toolName === 'read_skill' &&
+      disabled.includes('pptx') &&
+      disabled.includes('pdf') &&
+      disabled.includes('browser')
+    ) {
+      return false
+    }
+  } catch {}
+
   if (!SKILL_LOCKED_TOOLS.has(toolName)) {
     return true
   }

@@ -1,4 +1,4 @@
-import React, { useContext, useLayoutEffect, useRef, useState } from 'react'
+import React, { useContext, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { Components } from 'react-markdown'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-javascript'
@@ -19,20 +19,52 @@ import 'prismjs/components/prism-cpp'
 import 'prismjs/components/prism-java'
 import 'prismjs/components/prism-csharp'
 
-
 export interface StreamContextType {
   isStreaming: boolean
   prevTotalLength: number
   charDuration: number
-  globalCharCountRef: React.MutableRefObject<number>
+  animationClock: StreamingAnimationClock
 }
 
-// Context to coordinate typewriter animations globally across AST elements
+interface CharacterTiming {
+  startAt: number
+  endAt: number
+}
+
+interface StreamingAnimationClock {
+  renderTime: number
+  getTiming: (
+    token: string,
+    isNew: boolean,
+    units?: number,
+    duration?: number
+  ) => CharacterTiming | undefined
+}
+
+interface StreamingTimeline {
+  timings: Map<string, CharacterTiming>
+  nextStartAt: number
+  maxEndAt: number
+}
+
+const DEFAULT_CHARACTER_CADENCE = 20
+const MIN_CHARACTER_CADENCE = 8
+const MAX_CHARACTER_CADENCE = 45
+const OPACITY_DURATION = 260
+const COLOR_DURATION = 390
+const CADENCE_SMOOTHING = 0.35
+
+const idleAnimationClock: StreamingAnimationClock = {
+  renderTime: 0,
+  getTiming: () => undefined
+}
+
+// Context to coordinate one monotonic animation timeline across all Markdown parts.
 export const StreamContext = React.createContext<StreamContextType>({
   isStreaming: false,
   prevTotalLength: 0,
-  charDuration: 20,
-  globalCharCountRef: { current: 0 }
+  charDuration: DEFAULT_CHARACTER_CADENCE,
+  animationClock: idleAnimationClock
 })
 
 function getCommonPrefixLength(a: string, b: string): number {
@@ -44,57 +76,148 @@ function getCommonPrefixLength(a: string, b: string): number {
   return index
 }
 
-// Tracks the last committed stream text so render-time Markdown transforms can
-// mark only the newly appended range. This avoids mutating refs during render.
+// Tracks arrivals and keeps one animation clock alive across Markdown reparses.
+/* eslint-disable react-hooks/refs, react-hooks/purity -- The HAST plugins share a monotonic, imperative animation clock. */
 export function useStreamStats(text: string, isStreaming: boolean): StreamContextType {
   const committedTextRef = useRef('')
   const lastTimeRef = useRef(0)
-  const charDurationRef = useRef(20)
-  const globalCharCountRef = useRef(0)
+  const charDurationRef = useRef(DEFAULT_CHARACTER_CADENCE)
+  const wasStreamingRef = useRef(false)
+  const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const timelineRef = useRef<StreamingTimeline>({
+    timings: new Map(),
+    nextStartAt: 0,
+    maxEndAt: 0
+  })
+  const [, forceTimelineCleanup] = useReducer((version: number) => version + 1, 0)
 
   const previousCommittedText = committedTextRef.current
+  const shouldAnimateNewText = isStreaming || wasStreamingRef.current
+  const stablePrefixLength = text.startsWith(previousCommittedText)
+    ? previousCommittedText.length
+    : getCommonPrefixLength(previousCommittedText, text)
   const prevTotalLength =
-    isStreaming && text !== previousCommittedText
-      ? text.startsWith(previousCommittedText)
-        ? previousCommittedText.length
-        : getCommonPrefixLength(previousCommittedText, text)
-      : text.length
+    shouldAnimateNewText && text !== previousCommittedText ? stablePrefixLength : text.length
+
+  const renderTime = performance.now()
+  const timeline = timelineRef.current
+
+  for (const [token, timing] of timeline.timings) {
+    if (timing.endAt <= renderTime) timeline.timings.delete(token)
+  }
+  timeline.maxEndAt = Array.from(timeline.timings.values()).reduce(
+    (latestEnd, timing) => Math.max(latestEnd, timing.endAt),
+    0
+  )
+
+  if (text !== previousCommittedText && stablePrefixLength < previousCommittedText.length) {
+    for (const token of timeline.timings.keys()) {
+      const tokenStart = Number(token.split(':', 1)[0])
+      if (Number.isFinite(tokenStart) && tokenStart >= stablePrefixLength) {
+        timeline.timings.delete(token)
+      }
+    }
+
+    const retainedTimings = Array.from(timeline.timings.values())
+    timeline.maxEndAt = retainedTimings.reduce(
+      (latestEnd, timing) => Math.max(latestEnd, timing.endAt),
+      0
+    )
+    timeline.nextStartAt = retainedTimings.reduce(
+      (latestStart, timing) => Math.max(latestStart, timing.startAt + charDurationRef.current),
+      renderTime
+    )
+  }
+
+  const hasRunningAnimations = timeline.maxEndAt > renderTime
+  const isVisuallyStreaming = shouldAnimateNewText || hasRunningAnimations
+
+  let renderCadence = charDurationRef.current
+  if (shouldAnimateNewText && text !== previousCommittedText) {
+    const addedText = stripNonVisualStreamingParts(text.slice(stablePrefixLength))
+    const addedLength = countGraphemes(addedText)
+    const lastTime = lastTimeRef.current
+
+    if (addedLength > 0 && lastTime > 0) {
+      const observedCadence = (renderTime - lastTime) / addedLength
+      const clampedCadence = Math.max(
+        MIN_CHARACTER_CADENCE,
+        Math.min(MAX_CHARACTER_CADENCE, observedCadence)
+      )
+      renderCadence =
+        charDurationRef.current * (1 - CADENCE_SMOOTHING) + clampedCadence * CADENCE_SMOOTHING
+    }
+  }
+
+  const animationClock: StreamingAnimationClock = {
+    renderTime,
+    getTiming: (token, isNew, units = 1, duration = COLOR_DURATION) => {
+      const existing = timeline.timings.get(token)
+      if (existing) return existing.endAt > renderTime ? existing : undefined
+      if (!isNew || !isVisuallyStreaming) return undefined
+
+      const startAt = Math.max(renderTime, timeline.nextStartAt)
+      const timing = {
+        startAt,
+        endAt: startAt + duration
+      }
+      timeline.timings.set(token, timing)
+      timeline.nextStartAt = startAt + renderCadence * Math.max(1, units)
+      timeline.maxEndAt = Math.max(timeline.maxEndAt, timing.endAt)
+      return timing
+    }
+  }
 
   useLayoutEffect(() => {
-    if (!isStreaming) {
-      committedTextRef.current = text
-      lastTimeRef.current = 0
-      charDurationRef.current = 20
-      return
-    }
-
     const previousText = committedTextRef.current
-    if (text === previousText) return
-
-    const now = performance.now()
-    const lastTime = lastTimeRef.current
-    const deltaTime = lastTime === 0 ? 100 : now - lastTime
-    lastTimeRef.current = now
-
-    const stablePrefixLength = text.startsWith(previousText)
-      ? previousText.length
-      : getCommonPrefixLength(previousText, text)
-    const addedLength = text.length - stablePrefixLength
-
-    if (addedLength > 0) {
-      const rawSpeed = deltaTime / addedLength
-      charDurationRef.current = Math.max(8, Math.min(45, rawSpeed))
+    if (text !== previousText) {
+      committedTextRef.current = text
+      lastTimeRef.current = renderTime
+      charDurationRef.current = renderCadence
     }
 
-    committedTextRef.current = text
-  }, [isStreaming, text])
+    wasStreamingRef.current = isStreaming
+
+    if (cleanupTimerRef.current) {
+      clearTimeout(cleanupTimerRef.current)
+      cleanupTimerRef.current = null
+    }
+
+    const remainingAnimationTime = timeline.maxEndAt - performance.now()
+    if (!isStreaming && remainingAnimationTime > 0) {
+      cleanupTimerRef.current = setTimeout(
+        forceTimelineCleanup,
+        Math.ceil(remainingAnimationTime) + 16
+      )
+    } else if (!isStreaming && remainingAnimationTime <= 0) {
+      timeline.timings.clear()
+      timeline.nextStartAt = 0
+      timeline.maxEndAt = 0
+      lastTimeRef.current = 0
+      charDurationRef.current = DEFAULT_CHARACTER_CADENCE
+    }
+
+    return () => {
+      if (cleanupTimerRef.current) {
+        clearTimeout(cleanupTimerRef.current)
+        cleanupTimerRef.current = null
+      }
+    }
+  })
 
   return {
-    isStreaming,
+    isStreaming: isVisuallyStreaming,
     prevTotalLength,
-    charDuration: charDurationRef.current,
-    globalCharCountRef
+    charDuration: renderCadence,
+    animationClock
   }
+}
+/* eslint-enable react-hooks/refs, react-hooks/purity */
+
+function stripNonVisualStreamingParts(value: string): string {
+  return value
+    .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)/g, '')
+    .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/g, '')
 }
 
 export interface AnimatedStreamingTextProps {
@@ -125,7 +248,23 @@ interface HastNode {
   position?: HastPosition
 }
 
-const STREAMING_CHUNK_FADE_CLASS = 'streaming-chunk-fade'
+const STREAMING_CHARACTER_FADE_CLASS = 'streaming-character-fade'
+const STREAMING_ELEMENT_FADE_CLASS = 'streaming-element-fade'
+
+interface GraphemePart {
+  segment: string
+  index: number
+}
+
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
+function segmentGraphemes(value: string): GraphemePart[] {
+  return Array.from(graphemeSegmenter.segment(value), ({ segment, index }) => ({ segment, index }))
+}
+
+function countGraphemes(value: string): number {
+  return Array.from(graphemeSegmenter.segment(value)).length
+}
 
 function getOffset(positionPoint: HastPosition['start']): number | undefined {
   return typeof positionPoint?.offset === 'number' ? positionPoint.offset : undefined
@@ -142,7 +281,9 @@ function shouldSkipChildren(node: HastNode): boolean {
   if (node.type !== 'element') return false
 
   const tagName = node.tagName?.toLowerCase()
-  if (tagName === 'script' || tagName === 'style' || tagName === 'svg') return true
+  if (tagName === 'script' || tagName === 'style' || tagName === 'svg' || tagName === 'code') {
+    return true
+  }
 
   const classes = getClassList(node.properties)
   return classes.some(
@@ -159,6 +300,7 @@ function canFadeSkippedElement(node: HastNode): boolean {
 
   const tagName = node.tagName?.toLowerCase()
   if (tagName === 'script' || tagName === 'style' || tagName === 'svg') return false
+  if (tagName === 'code') return true
 
   const classes = getClassList(node.properties)
   return classes.some(
@@ -205,14 +347,25 @@ function shouldFadeNode(node: HastNode, boundary: number, fallbackStart: number)
   return end > boundary
 }
 
-function createFadeSpan(textNode: HastNode, value: string, token: string): HastNode {
+function setStreamTiming(node: HastNode, token: string, delay: number): void {
+  setStreamToken(node, token)
+  node.properties = {
+    ...(node.properties || {}),
+    dataStreamDelay: String(delay),
+    'data-stream-delay': String(delay)
+  }
+}
+
+function createFadeSpan(textNode: HastNode, value: string, token: string, delay: number): HastNode {
   return {
     type: 'element',
     tagName: 'span',
     properties: {
-      className: [STREAMING_CHUNK_FADE_CLASS],
+      className: [STREAMING_CHARACTER_FADE_CLASS],
       dataStreamToken: token,
-      'data-stream-token': token
+      'data-stream-token': token,
+      dataStreamDelay: String(delay),
+      'data-stream-delay': String(delay)
     },
     children: [
       {
@@ -224,7 +377,13 @@ function createFadeSpan(textNode: HastNode, value: string, token: string): HastN
   }
 }
 
-function splitTextNodeForFade(node: HastNode, boundary: number, fallbackStart: number): HastNode[] {
+function splitTextNodeForFade(
+  node: HastNode,
+  boundary: number,
+  fallbackStart: number,
+  partStartOffset: number,
+  animationClock: StreamingAnimationClock
+): HastNode[] {
   const value = node.value || ''
   if (!value) return [node]
 
@@ -232,22 +391,41 @@ function splitTextNodeForFade(node: HastNode, boundary: number, fallbackStart: n
   const positionedEnd = getOffset(node.position?.end)
   const start = positionedStart ?? fallbackStart
   const end = positionedEnd ?? start + value.length
-  const token = `${boundary}:${start}:${end}`
+  const sourceSpan = Math.max(value.length, end - start)
+  const nextNodes: HastNode[] = []
+  let plainText = ''
 
-  if (end <= boundary) return [node]
-  if (start >= boundary) return [createFadeSpan(node, value, token)]
+  const flushPlainText = (): void => {
+    if (!plainText) return
+    nextNodes.push({ ...node, value: plainText })
+    plainText = ''
+  }
 
-  const splitIndex = Math.max(0, Math.min(value.length, boundary - start))
-  if (splitIndex <= 0) return [createFadeSpan(node, value, token)]
-  if (splitIndex >= value.length) return [node]
+  for (const grapheme of segmentGraphemes(value)) {
+    const nextGrapheme = grapheme.index + grapheme.segment.length
+    const relativeStart = Math.round((grapheme.index / value.length) * sourceSpan)
+    const relativeEnd = Math.max(
+      relativeStart + 1,
+      Math.round((nextGrapheme / value.length) * sourceSpan)
+    )
+    const globalStart = partStartOffset + start + relativeStart
+    const globalEnd = partStartOffset + start + relativeEnd
+    const token = `${globalStart}:${globalEnd}:char`
+    const timing = animationClock.getTiming(token, start + relativeEnd > boundary)
 
-  return [
-    {
-      ...node,
-      value: value.slice(0, splitIndex)
-    },
-    createFadeSpan(node, value.slice(splitIndex), token)
-  ]
+    if (!timing || /^\s+$/u.test(grapheme.segment)) {
+      plainText += grapheme.segment
+      continue
+    }
+
+    flushPlainText()
+    nextNodes.push(
+      createFadeSpan(node, grapheme.segment, token, timing.startAt - animationClock.renderTime)
+    )
+  }
+
+  flushPlainText()
+  return nextNodes
 }
 
 export function createStreamingFadeRehypePlugin(
@@ -269,22 +447,44 @@ export function createStreamingFadeRehypePlugin(
         const nextChildren: HastNode[] = []
         for (const child of node.children) {
           if (child.type === 'text') {
-            nextChildren.push(...splitTextNodeForFade(child, boundary, fallbackTextOffset))
+            nextChildren.push(
+              ...splitTextNodeForFade(
+                child,
+                boundary,
+                fallbackTextOffset,
+                partStartOffset,
+                streamStats.animationClock
+              )
+            )
             fallbackTextOffset += child.value?.length || 0
             continue
           }
 
           if (shouldSkipChildren(child)) {
             const childTextLength = getTextLength(child)
-            if (
-              canFadeSkippedElement(child) &&
-              shouldFadeNode(child, boundary, fallbackTextOffset)
-            ) {
-              addClassName(child, STREAMING_CHUNK_FADE_CLASS)
-              setStreamToken(
-                child,
-                `${boundary}:${fallbackTextOffset}:${fallbackTextOffset + childTextLength}`
+            if (canFadeSkippedElement(child)) {
+              const positionedStart = getOffset(child.position?.start) ?? fallbackTextOffset
+              const positionedEnd =
+                getOffset(child.position?.end) ?? positionedStart + childTextLength
+              const globalStart = partStartOffset + positionedStart
+              const globalEnd = partStartOffset + positionedEnd
+              const token = `${globalStart}:${globalEnd}:element`
+              const units = Math.max(1, countGraphemes(getTextValue(child)))
+              const timing = streamStats.animationClock.getTiming(
+                token,
+                shouldFadeNode(child, boundary, fallbackTextOffset),
+                units,
+                OPACITY_DURATION
               )
+
+              if (timing) {
+                addClassName(child, STREAMING_ELEMENT_FADE_CLASS)
+                setStreamTiming(
+                  child,
+                  token,
+                  timing.startAt - streamStats.animationClock.renderTime
+                )
+              }
             }
             fallbackTextOffset += childTextLength
             nextChildren.push(child)
@@ -303,6 +503,11 @@ export function createStreamingFadeRehypePlugin(
     }
 }
 
+function getTextValue(node: HastNode): string {
+  if (node.type === 'text') return node.value || ''
+  return node.children?.map(getTextValue).join('') || ''
+}
+
 const wrapTextWithAnimation = (
   children: React.ReactNode,
   _isStreaming: boolean
@@ -314,6 +519,8 @@ interface StreamingSpanProps extends React.ComponentPropsWithoutRef<'span'> {
   node?: unknown
   dataStreamToken?: string
   'data-stream-token'?: string
+  dataStreamDelay?: string
+  'data-stream-delay'?: string
 }
 
 function StreamingSpan({
@@ -321,28 +528,67 @@ function StreamingSpan({
   className,
   dataStreamToken,
   'data-stream-token': dataStreamTokenAttribute,
+  dataStreamDelay,
+  'data-stream-delay': dataStreamDelayAttribute,
   node: _node,
+  style,
   ...props
 }: StreamingSpanProps): React.JSX.Element {
-  const ref = useRef<HTMLSpanElement>(null)
+  void _node
   const streamToken = dataStreamTokenAttribute ?? dataStreamToken
-  const isStreamingFade =
-    typeof className === 'string' && className.split(/\s+/).includes(STREAMING_CHUNK_FADE_CLASS)
-
-  useLayoutEffect(() => {
-    const element = ref.current
-    if (!element || !isStreamingFade) return
-
-    element.style.animation = 'none'
-    void element.offsetWidth
-    element.style.animation = ''
-  }, [streamToken, isStreamingFade])
+  const streamDelay = dataStreamDelayAttribute ?? dataStreamDelay
+  const animationStyle = getStreamingAnimationStyle(style, streamDelay)
 
   return (
-    <span ref={ref} className={className} data-stream-token={streamToken} {...props}>
+    <span className={className} data-stream-token={streamToken} style={animationStyle} {...props}>
       {children}
     </span>
   )
+}
+
+interface StreamingDivProps extends React.ComponentPropsWithoutRef<'div'> {
+  node?: unknown
+  dataStreamToken?: string
+  'data-stream-token'?: string
+  dataStreamDelay?: string
+  'data-stream-delay'?: string
+}
+
+function StreamingDiv({
+  children,
+  dataStreamToken,
+  'data-stream-token': dataStreamTokenAttribute,
+  dataStreamDelay,
+  'data-stream-delay': dataStreamDelayAttribute,
+  node: _node,
+  style,
+  ...props
+}: StreamingDivProps): React.JSX.Element {
+  void _node
+  return (
+    <div
+      data-stream-token={dataStreamTokenAttribute ?? dataStreamToken}
+      style={getStreamingAnimationStyle(style, dataStreamDelayAttribute ?? dataStreamDelay)}
+      {...props}
+    >
+      {children}
+    </div>
+  )
+}
+
+type StreamingStyle = React.CSSProperties & {
+  '--streaming-character-delay'?: string
+}
+
+function getStreamingAnimationStyle(
+  style: React.CSSProperties | undefined,
+  delay: string | undefined
+): StreamingStyle | undefined {
+  if (delay === undefined) return style
+  return {
+    ...style,
+    '--streaming-character-delay': `${Number(delay) || 0}ms`
+  }
 }
 
 function renderToken(token: string | Prism.Token, key: string | number): React.ReactNode {
@@ -392,17 +638,46 @@ const getGrammar = (lang: string) => {
   return Prism.languages[target]
 }
 
-export const CodeBlock = ({ className, children, ...props }: React.ComponentPropsWithoutRef<'code'>) => {
+interface StreamingCodeProps extends React.ComponentPropsWithoutRef<'code'> {
+  node?: unknown
+  dataStreamToken?: string
+  'data-stream-token'?: string
+  dataStreamDelay?: string
+  'data-stream-delay'?: string
+}
+
+export const CodeBlock = ({
+  className,
+  children,
+  dataStreamToken,
+  'data-stream-token': dataStreamTokenAttribute,
+  dataStreamDelay,
+  'data-stream-delay': dataStreamDelayAttribute,
+  node: _node,
+  style,
+  ...props
+}: StreamingCodeProps) => {
+  void _node
   const [copied, setCopied] = useState(false)
   const match = /language-(\w+)/.exec(className || '')
   const isInline = !match
   const codeContent = String(children).replace(/\n$/, '')
+  const streamToken = dataStreamTokenAttribute ?? dataStreamToken
+  const streamDelay = dataStreamDelayAttribute ?? dataStreamDelay
+  const isStreamingElement = className?.split(/\s+/).includes(STREAMING_ELEMENT_FADE_CLASS)
+  const animationStyle = getStreamingAnimationStyle(style, streamDelay)
+  const codeClassName = className
+    ?.split(/\s+/)
+    .filter((name) => name && name !== STREAMING_ELEMENT_FADE_CLASS)
+    .join(' ')
 
   if (isInline) {
     return (
       <code
-        className="text-accent-secondary font-mono text-[13px] font-medium tracking-tight bg-transparent border-none p-0 mx-0.5 inline select-text"
+        className={`${className || ''} text-accent-secondary font-mono text-[13px] font-medium tracking-tight bg-transparent border-none p-0 mx-0.5 inline select-text`}
+        data-stream-token={streamToken}
         style={{
+          ...animationStyle,
           fontFamily:
             "'Cascadia Code', 'Fira Code', 'Ubuntu Mono', 'JetBrains Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'Consolas', monospace"
         }}
@@ -431,9 +706,15 @@ export const CodeBlock = ({ className, children, ...props }: React.ComponentProp
   }
 
   return (
-    <div className="not-prose my-4 overflow-hidden rounded-xl border border-white/[0.08] bg-[#07080a] shadow-lg font-mono text-xs w-full text-text-primary">
+    <div
+      className={`not-prose my-4 overflow-hidden rounded-xl border border-white/[0.08] bg-[#07080a] shadow-lg font-mono text-xs w-full text-text-primary ${isStreamingElement ? STREAMING_ELEMENT_FADE_CLASS : ''}`}
+      data-stream-token={streamToken}
+      style={animationStyle}
+    >
       <div className="flex items-center justify-between bg-white/[0.02] border-b border-white/[0.05] px-4 py-2 select-none">
-        <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">{lang}</span>
+        <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
+          {lang}
+        </span>
         <button
           type="button"
           onClick={handleCopy}
@@ -443,7 +724,7 @@ export const CodeBlock = ({ className, children, ...props }: React.ComponentProp
         </button>
       </div>
       <div className="p-4 overflow-x-auto">
-        <code className={`${className || ''} block whitespace-pre`} {...props}>
+        <code className={`${codeClassName || ''} block whitespace-pre`} {...props}>
           {renderedCode}
         </code>
       </div>
@@ -465,6 +746,7 @@ export const StaticMarkdownComponents: Partial<Components> = {
     const { isStreaming } = useContext(StreamContext)
     return <StreamingSpan {...props}>{wrapTextWithAnimation(children, isStreaming)}</StreamingSpan>
   },
+  div: ({ children, ...props }) => <StreamingDiv {...props}>{children}</StreamingDiv>,
   strong: ({ children, ...props }) => {
     const { isStreaming } = useContext(StreamContext)
     return <strong {...props}>{wrapTextWithAnimation(children, isStreaming)}</strong>

@@ -463,27 +463,43 @@
     display: inline;
   }
 
-  @keyframes streaming-chunk-fade-in {
+  @keyframes streaming-character-opacity {
     from {
       opacity: 0;
-      filter: blur(1px);
     }
     to {
       opacity: 1;
-      filter: blur(0);
     }
   }
 
-  .streaming-chunk-fade {
-    animation: streaming-chunk-fade-in 260ms ease-out both;
+  @keyframes streaming-character-color {
+    from {
+      color: var(--color-accent-primary);
+    }
+    to {
+      color: inherit;
+    }
+  }
+
+  .streaming-character-fade {
+    animation:
+      streaming-character-opacity 260ms ease-out var(--streaming-character-delay, 0ms) both,
+      streaming-character-color 390ms cubic-bezier(0.2, 0.82, 0.2, 1)
+        var(--streaming-character-delay, 0ms) both;
     display: inline;
-    will-change: opacity, filter;
+  }
+
+  .streaming-element-fade {
+    animation: streaming-character-opacity 260ms ease-out var(--streaming-character-delay, 0ms) both;
+    will-change: opacity;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .streaming-chunk-fade {
+    .streaming-character-fade,
+    .streaming-element-fade {
       animation: none;
-      filter: none;
+      opacity: 1;
+      color: inherit;
     }
   }
 }
@@ -1146,4 +1162,3 @@
 .animate-drop-target {
   animation: drop-pulse 1.2s ease-in-out infinite;
 }
-

@@ -2079,13 +2079,25 @@ Context: ${date} | ${platform} | Home: ${homeDir} | CWD: ${cwd}
   const skillsSnippet = getSkillsSystemPromptSnippetSync()
   const skillsSection = skillsSnippet ? `\n\n${skillsSnippet}` : ''
 
+  let isBrowserDisabled = false
+  try {
+    const config = loadConfig()
+    if (config.disabledSkills?.includes('browser')) {
+      isBrowserDisabled = true
+    }
+  } catch {}
+
+  const browserRule = isBrowserDisabled
+    ? '- **Auto-Open & Links:** Open URLs/links in OS system browser via `open_browser_link` by default.'
+    : '- **Auto-Open & Links:** Open URLs/links in OS system browser via `open_browser_link` by default. Use integrated AI browser tools only if user explicitly requests in-app/AI browser (requires `read_skill` with `integrated_browser_skill.md`).'
+
   return `# Identity & Context
 Role: ${name} (${modelName}), Desktop AI Assistant.
 Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
 # Rules & Protocols
 - Match user language. Be direct, factual, and concise.${disciplineRule}
-- **Auto-Open & Links:** Open URLs/links in OS system browser via \`open_browser_link\` by default. Use integrated AI browser tools only if user explicitly requests in-app/AI browser (requires \`read_skill\` with \`integrated_browser_skill.md\`).
+${browserRule}
 - **Formatting:**
   1. Simple Markdown for standard text/code.
   2. Inline HTML/CSS inside Markdown for rich visual cards/designs (render directly, do not block-wrap in \`\`\`html).
@@ -2396,6 +2408,34 @@ export async function executeSystemTool(
   if (chatId) {
     _currentSessionIdForTodo = chatId
   }
+  try {
+    const config = loadConfig()
+    const disabled = config.disabledSkills || []
+    if (disabled.includes('pptx') && ['write_pptx', 'edit_pptx'].includes(toolName)) {
+      return `Error: PowerPoint (PPTX) skill is currently disabled in settings.`
+    }
+    if (disabled.includes('pdf') && ['write_pdf', 'edit_pdf'].includes(toolName)) {
+      return `Error: PDF Document skill is currently disabled in settings.`
+    }
+    if (
+      disabled.includes('browser') &&
+      [
+        'open_browser',
+        'browser_navigate',
+        'browser_snapshot',
+        'browser_click',
+        'browser_type',
+        'browser_press',
+        'browser_scroll',
+        'browser_back',
+        'browser_screenshot',
+        'web_script',
+        'detailed_dom_page'
+      ].includes(toolName)
+    ) {
+      return `Error: Browser Use skill is currently disabled in settings.`
+    }
+  } catch {}
   switch (toolName) {
     // Terminal
     case 'execute_terminal_command':
