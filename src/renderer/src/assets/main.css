@@ -851,18 +851,8 @@
 }
 
 @keyframes shimmer {
-  0% {
-    background-position: 200% center;
-    filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.04));
-  }
-  50% {
-    background-position: 0% center;
-    filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.14)) drop-shadow(0 0 10px rgba(255, 255, 255, 0.07));
-  }
-  100% {
-    background-position: -200% center;
-    filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.04));
-  }
+  0% { background-position: 200% center; }
+  100% { background-position: -200% center; }
 }
 
 .tool-shimmer-text {
@@ -880,7 +870,6 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: shimmer 2.2s ease-in-out infinite;
-  will-change: background-position, filter;
 }
 
 .thinking-shimmer-text {
@@ -898,7 +887,6 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: shimmer 2.6s ease-in-out infinite;
-  will-change: background-position, filter;
 }
 
 
