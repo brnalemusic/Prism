@@ -2,12 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 
 export function getInactivityMessage(seconds: number): string | null {
   if (seconds < 5) return null
-  if (seconds < 35) return 'Still working...'
-  if (seconds < 95) return 'Hold on, still working on it...'
-  if (seconds < 275) return 'Working hard on it, wait...'
-  if (seconds < 575) return "Do not give up, I'm still working..."
-  if (seconds < 1175) return 'Almost...'
-  return "I'm still working on it..."
+  if (seconds < 35) return 'Working...'
+  if (seconds < 95) return 'Stil working...'
+  if (seconds < 275) return 'Hold on, still working...'
+  if (seconds < 575) return 'Almost there...'
+  if (seconds < 1175) return "Do not give up, I'm still working..."
+  return 'Give me more time, this is taking a really hard work...'
 }
 
 export interface InactivityMessageTarget {

@@ -303,6 +303,10 @@ function createUpdaterWindow(mainWindow: BrowserWindow): void {
     }
   })
 
+  updaterWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    console.error('[Auto-Updater] updaterWindow did-fail-load:', errorCode, errorDescription)
+  })
+
   updaterWindow.on('ready-to-show', () => {
     console.log('[Auto-Updater] updaterWindow ready-to-show fired')
     updaterWindow?.show()
@@ -319,7 +323,7 @@ function createUpdaterWindow(mainWindow: BrowserWindow): void {
     urlToLoad = `${process.env['ELECTRON_RENDERER_URL']}/#updater`
     updaterWindow.loadURL(urlToLoad)
   } else {
-    updaterWindow.loadFile(join(__dirname, '../renderer/index.html'), {
+    updaterWindow.loadFile(join(app.getAppPath(), 'out', 'renderer', 'index.html'), {
       hash: 'updater'
     })
   }
