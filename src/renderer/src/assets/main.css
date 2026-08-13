@@ -494,10 +494,20 @@
     will-change: opacity;
   }
 
+  .streaming-character-pending,
+  .streaming-element-pending {
+    visibility: hidden;
+    opacity: 0 !important;
+    animation: none !important;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .streaming-character-fade,
-    .streaming-element-fade {
+    .streaming-element-fade,
+    .streaming-character-pending,
+    .streaming-element-pending {
       animation: none;
+      visibility: visible;
       opacity: 1;
       color: inherit;
     }

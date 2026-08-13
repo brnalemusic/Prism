@@ -214,13 +214,25 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
       cleanupTimerRef.current = null
     }
 
-    const remainingAnimationTime = timeline.maxEndAt - performance.now()
-    if (!isStreaming && remainingAnimationTime > 0) {
+    const effectTime = performance.now()
+    const nextPendingStart = Array.from(timeline.timings.values()).reduce(
+      (earliestStart, timing) =>
+        timing.startAt > effectTime ? Math.min(earliestStart, timing.startAt) : earliestStart,
+      Number.POSITIVE_INFINITY
+    )
+    const nextVisualUpdate = Number.isFinite(nextPendingStart)
+      ? nextPendingStart
+      : !isStreaming
+      ? timeline.maxEndAt
+      : Number.POSITIVE_INFINITY
+    const remainingAnimationTime = nextVisualUpdate - effectTime
+
+    if (Number.isFinite(nextVisualUpdate) && remainingAnimationTime > 0) {
       cleanupTimerRef.current = setTimeout(
         forceTimelineCleanup,
-        Math.ceil(remainingAnimationTime) + 16
+        Math.max(0, Math.ceil(remainingAnimationTime))
       )
-    } else if (!isStreaming && remainingAnimationTime <= 0) {
+    } else if (!isStreaming && timeline.maxEndAt <= effectTime) {
       timeline.timings.clear()
       timeline.nextStartAt = 0
       timeline.maxEndAt = 0
@@ -341,6 +353,8 @@ interface HastNode {
 
 const STREAMING_CHARACTER_FADE_CLASS = 'streaming-character-fade'
 const STREAMING_ELEMENT_FADE_CLASS = 'streaming-element-fade'
+const STREAMING_CHARACTER_PENDING_CLASS = 'streaming-character-pending'
+const STREAMING_ELEMENT_PENDING_CLASS = 'streaming-element-pending'
 
 interface GraphemePart {
   segment: string
@@ -447,12 +461,20 @@ function setStreamTiming(node: HastNode, token: string, delay: number): void {
   }
 }
 
-function createFadeSpan(textNode: HastNode, value: string, token: string, delay: number): HastNode {
+function createFadeSpan(
+  textNode: HastNode,
+  value: string,
+  token: string,
+  delay: number,
+  isPending: boolean
+): HastNode {
   return {
     type: 'element',
     tagName: 'span',
     properties: {
-      className: [STREAMING_CHARACTER_FADE_CLASS],
+      className: [
+        isPending ? STREAMING_CHARACTER_PENDING_CLASS : STREAMING_CHARACTER_FADE_CLASS
+      ],
       dataStreamToken: token,
       'data-stream-token': token,
       dataStreamDelay: String(delay),
@@ -511,7 +533,13 @@ function splitTextNodeForFade(
 
     flushPlainText()
     nextNodes.push(
-      createFadeSpan(node, grapheme.segment, token, timing.startAt - animationClock.renderTime)
+      createFadeSpan(
+        node,
+        grapheme.segment,
+        token,
+        timing.startAt - animationClock.renderTime,
+        timing.startAt > animationClock.renderTime
+      )
     )
   }
 
@@ -569,7 +597,12 @@ export function createStreamingFadeRehypePlugin(
               )
 
               if (timing) {
-                addClassName(child, STREAMING_ELEMENT_FADE_CLASS)
+                addClassName(
+                  child,
+                  timing.startAt > streamStats.animationClock.renderTime
+                    ? STREAMING_ELEMENT_PENDING_CLASS
+                    : STREAMING_ELEMENT_FADE_CLASS
+                )
                 setStreamTiming(
                   child,
                   token,
@@ -755,11 +788,21 @@ export const CodeBlock = ({
   const codeContent = String(children).replace(/\n$/, '')
   const streamToken = dataStreamTokenAttribute ?? dataStreamToken
   const streamDelay = dataStreamDelayAttribute ?? dataStreamDelay
-  const isStreamingElement = className?.split(/\s+/).includes(STREAMING_ELEMENT_FADE_CLASS)
+  const streamingElementClass = className
+    ?.split(/\s+/)
+    .find(
+      (name) =>
+        name === STREAMING_ELEMENT_FADE_CLASS || name === STREAMING_ELEMENT_PENDING_CLASS
+    )
   const animationStyle = getStreamingAnimationStyle(style, streamDelay)
   const codeClassName = className
     ?.split(/\s+/)
-    .filter((name) => name && name !== STREAMING_ELEMENT_FADE_CLASS)
+    .filter(
+      (name) =>
+        name &&
+        name !== STREAMING_ELEMENT_FADE_CLASS &&
+        name !== STREAMING_ELEMENT_PENDING_CLASS
+    )
     .join(' ')
 
   if (isInline) {
@@ -798,7 +841,7 @@ export const CodeBlock = ({
 
   return (
     <div
-      className={`not-prose my-4 overflow-hidden rounded-xl border border-white/[0.08] bg-[#07080a] shadow-lg font-mono text-xs w-full text-text-primary ${isStreamingElement ? STREAMING_ELEMENT_FADE_CLASS : ''}`}
+      className={`not-prose my-4 overflow-hidden rounded-xl border border-white/[0.08] bg-[#07080a] shadow-lg font-mono text-xs w-full text-text-primary ${streamingElementClass || ''}`}
       data-stream-token={streamToken}
       style={animationStyle}
     >
