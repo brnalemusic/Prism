@@ -52,11 +52,13 @@ interface StreamingTimeline {
 
 const DEFAULT_CHARACTER_CADENCE = 4
 const MIN_CHARACTER_CADENCE = 0.35
-const MAX_CHARACTER_CADENCE = 45
+const MAX_CHARACTER_CADENCE = 500
 const OPACITY_DURATION = 260
 const COLOR_DURATION = 390
 const CADENCE_SAMPLE_COUNT = 6
-const MAX_REVEAL_QUEUE_AHEAD = 140
+const INITIAL_REVEAL_WINDOW = 320
+const MIN_PREDICTED_CHUNK_INTERVAL = 40
+const MAX_PREDICTED_CHUNK_INTERVAL = 4000
 
 const idleAnimationClock: StreamingAnimationClock = {
   renderTime: 0,
@@ -147,31 +149,27 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
 
     if (addedLength > 0 && lastTime > 0) {
       timeline.cadenceSamples.push({
-        duration: Math.max(1, renderTime - lastTime),
+        duration: Math.max(1, Math.min(MAX_PREDICTED_CHUNK_INTERVAL, renderTime - lastTime)),
         characters: addedLength
       })
       if (timeline.cadenceSamples.length > CADENCE_SAMPLE_COUNT) {
         timeline.cadenceSamples.shift()
       }
 
-      const sampledDuration = timeline.cadenceSamples.reduce(
-        (total, sample) => total + sample.duration,
-        0
-      )
-      const sampledCharacters = timeline.cadenceSamples.reduce(
-        (total, sample) => total + sample.characters,
-        0
-      )
-      renderCadence = sampledDuration / Math.max(1, sampledCharacters)
+      renderCadence = getWeightedCharacterCadence(timeline.cadenceSamples)
     } else if (addedLength > 0) {
-      renderCadence = Math.min(DEFAULT_CHARACTER_CADENCE, MAX_REVEAL_QUEUE_AHEAD / addedLength)
+      renderCadence = Math.min(DEFAULT_CHARACTER_CADENCE, INITIAL_REVEAL_WINDOW / addedLength)
     }
 
     const pendingUnits = Array.from(timeline.timings.values()).reduce(
       (total, timing) => total + (timing.startAt > renderTime ? timing.units : 0),
       0
     )
-    const queueSafeCadence = MAX_REVEAL_QUEUE_AHEAD / Math.max(1, pendingUnits + addedLength)
+    const predictedChunkInterval =
+      timeline.cadenceSamples.length > 0
+        ? getWeightedChunkInterval(timeline.cadenceSamples)
+        : INITIAL_REVEAL_WINDOW
+    const queueSafeCadence = predictedChunkInterval / Math.max(1, pendingUnits + addedLength)
     renderCadence = Math.max(
       MIN_CHARACTER_CADENCE,
       Math.min(MAX_CHARACTER_CADENCE, renderCadence, queueSafeCadence)
@@ -276,6 +274,35 @@ function reschedulePendingTimings(timeline: StreamingTimeline, now: number, cade
 function getTokenStart(token: string): number {
   const start = Number(token.split(':', 1)[0])
   return Number.isFinite(start) ? start : Number.MAX_SAFE_INTEGER
+}
+
+function getWeightedCharacterCadence(samples: StreamingTimeline['cadenceSamples']): number {
+  let weightedDuration = 0
+  let weightedCharacters = 0
+
+  samples.forEach((sample, index) => {
+    const weight = index + 1
+    weightedDuration += sample.duration * weight
+    weightedCharacters += sample.characters * weight
+  })
+
+  return weightedDuration / Math.max(1, weightedCharacters)
+}
+
+function getWeightedChunkInterval(samples: StreamingTimeline['cadenceSamples']): number {
+  let weightedDuration = 0
+  let totalWeight = 0
+
+  samples.forEach((sample, index) => {
+    const weight = index + 1
+    weightedDuration += sample.duration * weight
+    totalWeight += weight
+  })
+
+  return Math.max(
+    MIN_PREDICTED_CHUNK_INTERVAL,
+    Math.min(MAX_PREDICTED_CHUNK_INTERVAL, weightedDuration / Math.max(1, totalWeight))
+  )
 }
 
 function stripNonVisualStreamingParts(value: string): string {
