@@ -45,9 +45,39 @@ Write-Host "     > $oldVersion" -ForegroundColor Gray
 
 Write-Separator
 
+# --- Check README.md ---
+$readmePath = "README.md"
+$readmeUpdated = $false
+if (Test-Path $readmePath) {
+    $readmeContent = [System.IO.File]::ReadAllText((Get-Item $readmePath).FullName, [System.Text.Encoding]::UTF8)
+    $readmeRegex = 'https://img\.shields\.io/badge/version-([0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9\.\-]*)-38bdf8'
+    if ($readmeContent -match $readmeRegex) {
+        $currentReadmeVersion = $Matches[1]
+        if ($currentReadmeVersion -ne $newVersion) {
+            $readmeContent = $readmeContent -replace $readmeRegex, "https://img.shields.io/badge/version-$newVersion-38bdf8"
+            [System.IO.File]::WriteAllText((Get-Item $readmePath).FullName, $readmeContent, (New-Object System.Text.UTF8Encoding $false))
+            $readmeUpdated = $true
+        }
+    }
+}
+
+# --- Check package-lock.json ---
+$lockPath = "package-lock.json"
+$lockUpdated = $false
+if (Test-Path $lockPath) {
+    $lockContent = [System.IO.File]::ReadAllText((Get-Item $lockPath).FullName, [System.Text.Encoding]::UTF8)
+    $lockRegex = '("name":\s*"prism",\s*"version":\s*")[^"]+(")'
+    if ($lockContent -match $lockRegex) {
+        $currentLockVersion = ($lockContent | Select-String -Pattern $lockRegex).Matches[0].Groups[0].Value
+        $lockContent = $lockContent -replace $lockRegex, "`$1$newVersion`$2"
+        [System.IO.File]::WriteAllText((Get-Item $lockPath).FullName, $lockContent, (New-Object System.Text.UTF8Encoding $false))
+        $lockUpdated = $true
+    }
+}
+
 # --- Check if sync needed ---
-if ($oldVersion -eq $newVersion) {
-    Write-Step "OK" "Already up to date!" Green
+if ($oldVersion -eq $newVersion -and -not $readmeUpdated -and -not $lockUpdated) {
+    Write-Step "OK" "Already up to date ($newVersion)!" Green
     Write-Host ""
     exit 0
 }
@@ -67,6 +97,12 @@ $json = $pkg | ConvertTo-Json -Depth 10
 [System.IO.File]::WriteAllText((Get-Item $pkgPath).FullName, $json, (New-Object System.Text.UTF8Encoding $false))
 
 Write-Step "OK" "Updated package.json" Green
+if ($readmeUpdated) {
+    Write-Step "OK" "Updated README.md" Green
+}
+if ($lockUpdated) {
+    Write-Step "OK" "Updated package-lock.json" Green
+}
 
 # --- Collect changed files ---
 $changedFiles = @()
@@ -75,7 +111,7 @@ $changedFiles = @()
 $oldEAP = $ErrorActionPreference
 $ErrorActionPreference = "SilentlyContinue"
 
-# Check git diff for package.json
+# Check git diff
 $gitDiff = git diff --name-only 2>$null
 if ($gitDiff) {
     foreach ($file in $gitDiff) {
@@ -101,6 +137,10 @@ if ($changedFiles.Count -gt 0) {
     Write-Step "[]" "Files changed:" White
     foreach ($file in ($changedFiles | Sort-Object -Unique)) {
         if ($file -eq "package.json") {
+            Write-Host "     OK $file" -ForegroundColor Green
+        } elseif ($file -eq "README.md") {
+            Write-Host "     OK $file" -ForegroundColor Green
+        } elseif ($file -eq "package-lock.json") {
             Write-Host "     OK $file" -ForegroundColor Green
         } elseif ($file -eq "version.txt") {
             Write-Host "     ~  $file" -ForegroundColor Yellow
