@@ -61,22 +61,16 @@ if (Test-Path $readmePath) {
     }
 }
 
-# --- Check package-lock.json ---
-$lockPath = "package-lock.json"
-$lockUpdated = $false
-if (Test-Path $lockPath) {
-    $lockContent = [System.IO.File]::ReadAllText((Get-Item $lockPath).FullName, [System.Text.Encoding]::UTF8)
-    $lockRegex = '("name":\s*"prism",\s*"version":\s*")[^"]+(")'
-    if ($lockContent -match $lockRegex) {
-        $currentLockVersion = ($lockContent | Select-String -Pattern $lockRegex).Matches[0].Groups[0].Value
-        $lockContent = $lockContent -replace $lockRegex, "`$1$newVersion`$2"
-        [System.IO.File]::WriteAllText((Get-Item $lockPath).FullName, $lockContent, (New-Object System.Text.UTF8Encoding $false))
-        $lockUpdated = $true
-    }
+# --- Check if sync needed ---
+$packageJsonUpdated = $false
+$packageLockUpdated = $false
+
+if ($oldVersion -ne $newVersion) {
+    $packageJsonUpdated = $true
+    $packageLockUpdated = $true
 }
 
-# --- Check if sync needed ---
-if ($oldVersion -eq $newVersion -and -not $readmeUpdated -and -not $lockUpdated) {
+if (-not $packageJsonUpdated -and -not $readmeUpdated) {
     Write-Step "OK" "Already up to date ($newVersion)!" Green
     Write-Host ""
     exit 0
@@ -91,17 +85,13 @@ Write-Host " -> " -ForegroundColor DarkGray -NoNewline
 Write-Host $newVersion -ForegroundColor Green
 Write-Host ""
 
-# --- Update package.json ---
-$pkg.version = $newVersion
-$json = $pkg | ConvertTo-Json -Depth 10
-[System.IO.File]::WriteAllText((Get-Item $pkgPath).FullName, $json, (New-Object System.Text.UTF8Encoding $false))
+# --- Update package.json and package-lock.json safely using npm ---
+npm version $newVersion --no-git-tag-version --allow-same-version | Out-Null
 
 Write-Step "OK" "Updated package.json" Green
+Write-Step "OK" "Updated package-lock.json" Green
 if ($readmeUpdated) {
     Write-Step "OK" "Updated README.md" Green
-}
-if ($lockUpdated) {
-    Write-Step "OK" "Updated package-lock.json" Green
 }
 
 # --- Collect changed files ---
