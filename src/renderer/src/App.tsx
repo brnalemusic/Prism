@@ -1214,17 +1214,21 @@ function RealApp(): React.JSX.Element {
   }, [config, authUser])
 
   const hasTriggeredOnboardingRef = useRef(false)
+  const isOnboardingRef = useRef(false)
   useEffect(() => {
     if (!bootComplete || config === null) return
     if (isKeyMissing) {
       if (!hasTriggeredOnboardingRef.current) {
         hasTriggeredOnboardingRef.current = true
+        isOnboardingRef.current = true
         setIsAuthModalOpen(true)
+      } else if (!isAuthModalOpen && !isApiKeyModalOpen) {
+        setIsProviderLockOpen(true)
       }
     } else {
       setIsProviderLockOpen(false)
     }
-  }, [bootComplete, isKeyMissing, config])
+  }, [bootComplete, isKeyMissing, config, isAuthModalOpen, isApiKeyModalOpen])
 
   // Global Selected Model State
   const [selectedModel, setSelectedModel] = useState<string>('')
@@ -3285,8 +3289,10 @@ function RealApp(): React.JSX.Element {
         isOpen={isAuthModalOpen}
         onClose={() => {
           setIsAuthModalOpen(false)
-          if (isKeyMissing) {
+          if (isOnboardingRef.current && isKeyMissing) {
             setIsApiKeyModalOpen(true)
+          } else if (isKeyMissing) {
+            setIsProviderLockOpen(true)
           }
         }}
         onAuthSuccess={async () => {
@@ -3298,7 +3304,10 @@ function RealApp(): React.JSX.Element {
             }
 
             setAuthUser(verifiedUser)
+            setIsAuthModalOpen(false)
+            setIsApiKeyModalOpen(false)
             setIsProviderLockOpen(false)
+            isOnboardingRef.current = false
             return true
           } catch (err) {
             console.error('[Auth] Failed to verify authenticated session:', err)
@@ -3332,13 +3341,23 @@ function RealApp(): React.JSX.Element {
         isOpen={isApiKeyModalOpen}
         onClose={() => {
           setIsApiKeyModalOpen(false)
+          isOnboardingRef.current = false
           if (isKeyMissing) {
             setIsProviderLockOpen(true)
           }
         }}
-        onSave={() => {
+        onSave={async () => {
           setIsApiKeyModalOpen(false)
           setIsProviderLockOpen(false)
+          isOnboardingRef.current = false
+          try {
+            const cfg = await window.api.getConfig()
+            if (cfg) {
+              setConfig(cfg)
+            }
+          } catch (e) {
+            console.error('Failed to refresh config after saving provider:', e)
+          }
         }}
         initialValue={''}
       />

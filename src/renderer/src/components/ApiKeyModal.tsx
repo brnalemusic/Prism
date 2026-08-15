@@ -21,10 +21,13 @@ export function ApiKeyModal({
       const existing = await window.api.getProviders()
       const updated = [...(existing || []), provider]
       await window.api.saveProviders(updated)
-      onSave?.(provider.apiKey)
+      if (onSave) {
+        onSave(provider.apiKey)
+      } else {
+        onClose()
+      }
     } catch (e) {
       console.error('Failed to save provider from modal:', e)
-    } finally {
       onClose()
     }
   }

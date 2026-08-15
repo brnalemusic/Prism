@@ -85,8 +85,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         setErrorMsg('Your account could not be verified. Please try signing in again.')
         return
       }
-
-      onClose()
     } catch (err: any) {
       setErrorMsg(formatAuthErrorMessage(err?.message))
     } finally {
@@ -155,8 +153,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         )
         return
       }
-
-      onClose()
     } catch (err: any) {
       setErrorMsg(formatAuthErrorMessage(err?.message))
     } finally {
