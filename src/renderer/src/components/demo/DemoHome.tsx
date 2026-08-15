@@ -9,7 +9,6 @@ import {
 } from '@phosphor-icons/react'
 import type { DemoScript } from '../../../../shared/demo'
 import clsx from 'clsx'
-import { LandingBackgroundEffects } from '../LandingBackgroundEffects'
 
 interface DemoHomeProps {
   scripts: DemoScript[]
@@ -31,19 +30,17 @@ export function DemoHome({
   onSelectScript,
   onDownload
 }: DemoHomeProps): React.JSX.Element {
-  const activeTheme = (document.documentElement.getAttribute('data-theme') as any) || 'marine'
-
   return (
-    <main className="relative flex h-full w-full flex-col overflow-hidden">
+    <main className="relative flex h-full w-full flex-col overflow-hidden bg-black">
       {/* Top Header/Bar for Demo branding and Download CTA */}
       <header className="absolute left-0 right-0 top-12 z-20 flex h-16 items-center justify-between px-6 sm:px-8">
-        <div className="flex items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.035] px-3 py-1.5 text-xs font-medium text-accent-secondary backdrop-blur-md">
+        <div className="flex items-center gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-accent-secondary">
           <Sparkle size={14} weight="fill" />
           Prism Demo
         </div>
         <button
           onClick={onDownload}
-          className="flex h-9 items-center gap-2 rounded-lg border border-accent-secondary/25 bg-accent-secondary/5 px-4 text-xs font-semibold text-accent-secondary transition-all hover:border-accent-secondary/50 hover:bg-accent-secondary/15 active:scale-[0.98] cursor-pointer"
+          className="flex h-9 items-center gap-2 rounded-lg border border-white bg-white px-4 text-xs font-semibold text-black transition-colors hover:bg-neutral-200 active:scale-[0.98] cursor-pointer"
         >
           <DownloadSimple size={15} weight="bold" />
           Download Prism
@@ -52,9 +49,6 @@ export function DemoHome({
 
       {/* Main Centered Content */}
       <div className="flex-grow flex flex-col items-center justify-center px-4 pb-[6vh] pt-24 relative select-none">
-        {/* Background effects matching current theme */}
-        <LandingBackgroundEffects theme={activeTheme} />
-
         {/* Home Screen Selection Options */}
         <div className="relative z-10 flex flex-col items-center w-full max-w-[820px] text-center gap-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 w-full mt-4">
@@ -63,7 +57,7 @@ export function DemoHome({
                 key={script.id}
                 onClick={() => onSelectScript(script)}
                 className={clsx(
-                  'group relative flex min-h-[105px] flex-col justify-between rounded-xl border border-white/[0.06] bg-white/[0.015] p-4.5 text-left shadow-sm backdrop-blur-md transition-all duration-300 hover:translate-y-[-2px] hover:border-accent-secondary/35 hover:bg-white/[0.045] hover:shadow-md hover:shadow-accent-secondary/2 active:scale-[0.98] cursor-pointer',
+                  'group relative flex min-h-[105px] flex-col justify-between rounded-xl border border-[var(--border-default)] bg-[var(--surface)] p-4.5 text-left transition-colors duration-200 hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)] active:scale-[0.98] cursor-pointer',
                   index === 4 && 'sm:col-span-2'
                 )}
               >

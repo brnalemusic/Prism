@@ -30,7 +30,7 @@ function DemoModuleFallback(): React.JSX.Element {
 function InstallModuleFallback(): React.JSX.Element {
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-background-main/90 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black"
       role="status"
       aria-live="polite"
     >

@@ -9,8 +9,8 @@ import { WarningCircle } from '@phosphor-icons/react'
 export function OfflineBanner(): React.JSX.Element {
   return (
     <div className="w-full px-6 pt-3 sm:px-12 animate-soft-pop">
-      <div className="premium-panel-soft flex items-center gap-3 rounded-[22px] border-status-error/30 px-5 py-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[14px] border border-status-error/20 bg-status-error/[0.12] text-status-error">
+      <div className="flex items-center gap-3 rounded-xl border border-status-error/25 bg-status-error/[0.06] px-4 py-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-status-error/20 bg-status-error/[0.1] text-status-error">
           <WarningCircle size={18} weight="fill" />
         </div>
         <div className="flex flex-col">

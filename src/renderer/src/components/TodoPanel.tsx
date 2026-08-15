@@ -18,10 +18,7 @@ interface TodoPanelProps {
   artifacts?: ArtifactItem[]
 }
 
-function TodoPanel({
-  todo,
-  artifacts = []
-}: TodoPanelProps): React.ReactElement | null {
+function TodoPanel({ todo, artifacts = [] }: TodoPanelProps): React.ReactElement | null {
   const hasTodo = !!(todo && todo.tasks.length > 0)
   const hasArtifacts = artifacts.length > 0
 
@@ -66,7 +63,14 @@ function TodoPanel({
   const statusIcon = (status: string, index: number) => {
     switch (status) {
       case 'done':
-        return <CheckCircle key={index} size={14} className="shrink-0 text-status-success" weight="fill" />
+        return (
+          <CheckCircle
+            key={index}
+            size={14}
+            className="shrink-0 text-status-success"
+            weight="fill"
+          />
+        )
       case 'working':
         return (
           <CircleNotch
@@ -84,7 +88,7 @@ function TodoPanel({
   return (
     <div className="w-[70%] mx-auto relative select-none animate-fade-in z-20 transition-all duration-300">
       {/* Attached Card Docked Above InputBar */}
-      <div className="relative overflow-hidden rounded-t-2xl rounded-b-none border border-b-0 border-white/[0.08] bg-background-secondary/95 backdrop-blur-2xl shadow-[0_-8px_32px_rgba(0,0,0,0.45)]">
+      <div className="relative overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-[var(--border-default)] bg-[var(--surface-lowest)]">
         {/* Background accent glow */}
         <div className="absolute -top-20 -right-20 w-48 h-48 rounded-full bg-accent-primary/8 blur-[60px] pointer-events-none" />
 
@@ -99,7 +103,11 @@ function TodoPanel({
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-primary/15 text-accent-primary shrink-0">
               {activeTab === 'todo' ? (
                 workingTask ? (
-                  <CircleNotch size={15} className="animate-spin text-accent-primary" weight="bold" />
+                  <CircleNotch
+                    size={15}
+                    className="animate-spin text-accent-primary"
+                    weight="bold"
+                  />
                 ) : lastDoneTask ? (
                   <CheckCircle size={15} className="text-status-success" weight="fill" />
                 ) : (
@@ -251,10 +259,16 @@ function TodoPanel({
                         <div
                           className={clsx(
                             'flex h-8 w-8 items-center justify-center rounded-lg shrink-0',
-                            art.type === 'pptx' ? 'bg-orange-500/15 text-orange-400' : 'bg-red-500/15 text-red-400'
+                            art.type === 'pptx'
+                              ? 'bg-orange-500/15 text-orange-400'
+                              : 'bg-red-500/15 text-red-400'
                           )}
                         >
-                          {art.type === 'pptx' ? <FilePpt size={16} weight="bold" /> : <FilePdf size={16} weight="bold" />}
+                          {art.type === 'pptx' ? (
+                            <FilePpt size={16} weight="bold" />
+                          ) : (
+                            <FilePdf size={16} weight="bold" />
+                          )}
                         </div>
                         <div className="flex flex-col min-w-0">
                           <div className="flex items-center gap-2">

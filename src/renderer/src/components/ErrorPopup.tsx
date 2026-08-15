@@ -52,8 +52,8 @@ export function ErrorPopup(): React.JSX.Element | null {
         isVisible ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-4 opacity-0 scale-95'
       )}
     >
-      <div className="premium-panel-soft flex items-start gap-3.5 p-4 rounded-[22px] border border-status-error/30 bg-status-error/[0.06] backdrop-blur-2xl shadow-[0_12px_40px_rgba(239,127,120,0.12)]">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[14px] border border-status-error/20 bg-status-error/[0.12] text-status-error">
+      <div className="flex items-start gap-3.5 rounded-xl border border-status-error/30 bg-[var(--surface-raised)] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.45)]">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-status-error/20 bg-status-error/[0.1] text-status-error">
           <AlertCircle size={16} />
         </div>
 

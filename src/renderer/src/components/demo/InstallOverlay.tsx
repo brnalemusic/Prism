@@ -365,7 +365,7 @@ export function InstallOverlay({ onClose }: InstallOverlayProps): React.JSX.Elem
   const isFailed = stage === 'failed'
 
   return (
-    <div className="fixed inset-0 z-[120] flex flex-col bg-background-main/96 text-text-primary backdrop-blur-xl">
+    <div className="fixed inset-0 z-[120] flex flex-col bg-black text-text-primary">
       {/* Header */}
       <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/[0.07] px-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">

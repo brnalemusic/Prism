@@ -243,7 +243,7 @@ export function Sidebar({
       const lastUpdated = mostRecentChat ? mostRecentChat.lastUpdated : 0
       computedGroups.push({
         id: pathKey,
-        name: isDiscord ? 'Discord' : (isGeneral ? 'General' : getFolderBasename(pathKey)),
+        name: isDiscord ? 'Discord' : isGeneral ? 'General' : getFolderBasename(pathKey),
         isGeneral,
         isDiscord,
         chats: groupChats,
@@ -255,7 +255,9 @@ export function Sidebar({
     return computedGroups
   }, [chats])
 
-  const [licenseInfo, setLicenseInfo] = useState<import('../../../shared/types').LicenseInfo | null>(null)
+  const [licenseInfo, setLicenseInfo] = useState<
+    import('../../../shared/types').LicenseInfo | null
+  >(null)
 
   useEffect(() => {
     const updateLicense = () => {
@@ -287,9 +289,11 @@ export function Sidebar({
   return (
     <aside
       className={clsx(
-        'relative h-full flex flex-row border-r border-white/[0.04] bg-black/90 backdrop-blur-xl transition-all duration-300 ease-in-out overflow-hidden',
+        'relative h-full flex flex-row border-r border-[var(--border-default)] bg-[var(--sidebar-bg)] transition-all duration-300 ease-in-out overflow-hidden',
         isOpen
-          ? (viewMoreGroupId ? 'w-[580px] opacity-100' : 'w-[260px] opacity-100')
+          ? viewMoreGroupId
+            ? 'w-[580px] opacity-100'
+            : 'w-[260px] opacity-100'
           : 'w-0 opacity-0 pointer-events-none border-r-0',
         className
       )}
@@ -302,7 +306,7 @@ export function Sidebar({
             <img
               src={prismIcon}
               alt="Prism Logo"
-              className="h-7 w-7 rounded-[8px] object-cover border border-white/10 shadow-sm self-center"
+              className="h-7 w-7 rounded-lg object-cover border border-[var(--border-default)] self-center"
             />
             <div className="flex items-baseline gap-1.5 min-w-0">
               <h1 className="text-sm font-semibold text-text-primary tracking-wide">Prism</h1>
@@ -323,7 +327,7 @@ export function Sidebar({
           {isOpen && onClose && (
             <button
               onClick={onClose}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted hover:bg-white/[0.04] hover:text-text-primary transition-all duration-200 cursor-pointer"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-[var(--sidebar-hover)] hover:text-text-primary transition-colors duration-200 cursor-pointer"
               title="Collapse sidebar"
             >
               <SidebarSimple size={16} weight="bold" />
@@ -335,9 +339,13 @@ export function Sidebar({
         <div className="px-3 pb-2 pt-1 shrink-0">
           <button
             onClick={() => onNewChat()}
-            className="group flex w-full items-center justify-center gap-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.07] text-xs font-medium text-text-primary hover:text-white transition-all duration-200 active:scale-[0.98] cursor-pointer py-2.5 px-3 border border-white/[0.05] hover:border-white/[0.09]"
+            className="group flex w-full items-center justify-center gap-2.5 rounded-lg bg-[var(--sidebar-surface)] hover:bg-[var(--sidebar-hover)] text-xs font-medium text-text-primary transition-colors duration-200 cursor-pointer py-2.5 px-3 border border-[var(--border-default)] hover:border-[var(--border-strong)]"
           >
-            <NotePencil size={16} weight="bold" className="text-text-secondary group-hover:text-white transition-colors" />
+            <NotePencil
+              size={16}
+              weight="bold"
+              className="text-text-secondary group-hover:text-white transition-colors"
+            />
             <span>New Chat</span>
           </button>
         </div>
@@ -357,7 +365,7 @@ export function Sidebar({
           />
         </nav>
 
-        <div className="mx-3 h-px shrink-0 bg-white/[0.03]" />
+        <div className="mx-3 h-px shrink-0 bg-[var(--border-subtle)]" />
 
         {/* History & Groups */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-3">
@@ -373,7 +381,7 @@ export function Sidebar({
             ) : (
               groups.map((group) => {
                 const isCollapsed = collapsedGroups[group.id] || false
-                const Icon = group.isDiscord ? DiscordIcon : (group.isGeneral ? Lightning : Folder)
+                const Icon = group.isDiscord ? DiscordIcon : group.isGeneral ? Lightning : Folder
                 const CaretIcon = isCollapsed ? CaretRight : CaretDown
                 const visibleChats = group.chats.slice(0, 5)
 
@@ -384,15 +392,20 @@ export function Sidebar({
                       className="group/btn flex items-center gap-2 px-2 py-1 rounded-lg text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-white/[0.025] transition-all duration-200 text-left w-full select-none cursor-pointer"
                       title={group.isGeneral ? undefined : group.id}
                     >
-                      <CaretIcon size={11} weight="bold" className="text-text-muted/60 transition-transform duration-200" />
+                      <CaretIcon
+                        size={11}
+                        weight="bold"
+                        className="text-text-muted/60 transition-transform duration-200"
+                      />
                       <Icon
                         size={13}
-                        weight={group.isDiscord ? undefined : "bold"}
+                        weight={group.isDiscord ? undefined : 'bold'}
                         className={clsx(
-                          group.isDiscord ? 'text-white/80' : 
-                          (group.isGeneral
+                          group.isDiscord
                             ? 'text-white/80'
-                            : 'text-text-muted group-hover/btn:text-text-secondary')
+                            : group.isGeneral
+                              ? 'text-white/80'
+                              : 'text-text-muted group-hover/btn:text-text-secondary'
                         )}
                       />
                       <span className="truncate flex-1 text-xs">{group.name}</span>
@@ -470,7 +483,7 @@ export function Sidebar({
         </div>
 
         {/* Footer */}
-        <div className="mt-auto p-3 shrink-0 border-t border-white/[0.03] bg-black/20">
+        <div className="mt-auto p-3 shrink-0 border-t border-[var(--border-subtle)] bg-[var(--sidebar-bg)]">
           <UserAccountCard
             user={authUser || null}
             onOpenAuth={onOpenAuth || (() => {})}
@@ -490,7 +503,7 @@ export function Sidebar({
       {/* Right Column - Folder Chats Panel */}
       <div
         className={clsx(
-          'h-full flex flex-col border-l border-white/[0.04] transition-all duration-300 ease-in-out overflow-hidden',
+          'h-full flex flex-col border-l border-[var(--border-default)] bg-[var(--sidebar-bg)] transition-all duration-300 ease-in-out overflow-hidden',
           viewMoreGroupId ? 'w-[320px] opacity-100' : 'w-0 opacity-0 pointer-events-none'
         )}
       >
@@ -503,7 +516,7 @@ export function Sidebar({
                 : getFolderBasename(viewMoreGroupId)
               : ''
           }
-          chats={viewMoreGroupId ? (groups.find((g) => g.id === viewMoreGroupId)?.chats || []) : []}
+          chats={viewMoreGroupId ? groups.find((g) => g.id === viewMoreGroupId)?.chats || [] : []}
           currentChatId={currentChatId}
           runningChats={runningChats}
           deletingChatId={isDeleting}
@@ -536,10 +549,10 @@ function NavItem({
     <button
       onClick={onClick}
       className={clsx(
-        'group relative flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs transition-all duration-200 cursor-pointer select-none',
+        'group relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs transition-colors duration-200 cursor-pointer select-none',
         active
-          ? 'bg-white/[0.06] text-text-primary font-medium'
-          : 'text-text-secondary hover:bg-white/[0.03] hover:text-text-primary'
+          ? 'bg-[var(--sidebar-surface)] text-text-primary font-medium'
+          : 'text-text-secondary hover:bg-[var(--sidebar-hover)] hover:text-text-primary'
       )}
     >
       {active && (
@@ -547,7 +560,7 @@ function NavItem({
           className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 rounded-r-full transition-colors duration-200"
           style={{
             backgroundColor: 'var(--accent-primary)',
-            boxShadow: '0 0 10px var(--accent-primary)'
+            boxShadow: 'none'
           }}
         />
       )}

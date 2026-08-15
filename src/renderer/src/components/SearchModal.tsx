@@ -132,7 +132,9 @@ export function SearchModal({
     }
 
     if (aiResponse.includes('[PRISM_EXECUTE_TOOL]')) {
-      const parts = aiResponse.split(/(\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$))/gi)
+      const parts = aiResponse.split(
+        /(\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$))/gi
+      )
       for (const part of parts) {
         if (part.startsWith('[PRISM_EXECUTE_TOOL]') && part.includes('[/PRISM_EXECUTE_TOOL]')) {
           try {
@@ -142,7 +144,9 @@ export function SearchModal({
               .trim()
             const tc = JSON.parse(jsonText)
             if (tc && (tc.type === 'render_chat_history' || tc.name === 'render_chat_history')) {
-              const q = (tc.query || tc.args?.query || tc.chatId || tc.args?.chatId) as string | undefined
+              const q = (tc.query || tc.args?.query || tc.chatId || tc.args?.chatId) as
+                | string
+                | undefined
               if (q && typeof q === 'string' && q.trim() && !ids.includes(q.trim())) {
                 ids.push(q.trim())
               }
@@ -397,19 +401,19 @@ export function SearchModal({
   return (
     <div
       className={clsx(
-        'fixed inset-0 z-[100] flex items-center justify-center p-4 transition-all duration-300',
+        'prism-modal-backdrop fixed inset-0 z-[100] flex items-center justify-center p-4 transition-all duration-300',
         isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
       )}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/[0.55] backdrop-blur-xl" onClick={onClose} />
+      <div className="absolute inset-0" onClick={onClose} />
 
       {/* Modal Card */}
       <div
         role="dialog"
         aria-modal="true"
         className={clsx(
-          'premium-panel relative w-full max-w-2xl overflow-hidden rounded-[30px] transition-all duration-300 transform bg-background-main border border-white/[0.08] shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex flex-col max-h-[80vh]',
+          'prism-modal-panel relative flex max-h-[min(760px,calc(100vh-32px))] w-full max-w-2xl flex-col overflow-hidden transition-all duration-300 transform',
           isOpen ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'
         )}
       >

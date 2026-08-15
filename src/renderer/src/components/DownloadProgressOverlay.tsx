@@ -63,12 +63,12 @@ function getIcon(download: DownloadProgress): React.JSX.Element {
 
 export function DownloadProgressOverlay({
   downloads,
-  className = "fixed right-4 top-28 z-40 w-[min(360px,calc(100vw-2rem))] sm:right-5"
+  className = 'fixed right-4 top-28 z-40 w-[min(360px,calc(100vw-2rem))] sm:right-5'
 }: DownloadProgressOverlayProps): React.JSX.Element | null {
   if (downloads.length === 0) return null
 
   return (
-    <div className={clsx("pointer-events-none flex flex-col gap-2", className)}>
+    <div className={clsx('pointer-events-none flex flex-col gap-2', className)}>
       {downloads.map((download) => {
         const isActive =
           download.status === 'starting' ||
@@ -85,7 +85,7 @@ export function DownloadProgressOverlay({
           <div
             key={download.id}
             title={download.targetPath || download.filename}
-            className="animate-soft-pop overflow-hidden rounded-lg border border-white/[0.07] bg-background-secondary/88 shadow-[0_10px_28px_rgba(0,0,0,0.32)] backdrop-blur-xl"
+            className="animate-soft-pop overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--surface-raised)] shadow-[0_10px_28px_rgba(0,0,0,0.32)]"
           >
             <div className="flex items-center gap-2.5 px-3 py-2">
               <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/[0.045]">

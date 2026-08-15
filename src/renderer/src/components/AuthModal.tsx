@@ -75,7 +75,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       const res = await window.api.authLogin({ email, password })
 
       if (!res.success || !res.user) {
-        setErrorMsg(formatAuthErrorMessage(res.error || 'Failed to sign in. Please check your credentials.'))
+        setErrorMsg(
+          formatAuthErrorMessage(res.error || 'Failed to sign in. Please check your credentials.')
+        )
         return
       }
 
@@ -106,7 +108,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       if (res.success) {
         setSuccessMsg('Verification link sent! Check your email inbox to confirm your account.')
       } else {
-        setErrorMsg(formatAuthErrorMessage(res.error || 'Failed to send verification email. Please check your email address.'))
+        setErrorMsg(
+          formatAuthErrorMessage(
+            res.error || 'Failed to send verification email. Please check your email address.'
+          )
+        )
       }
     } catch (err: any) {
       setLoading(false)
@@ -144,7 +150,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       }
 
       if (!(await onAuthSuccess(res.user))) {
-        setErrorMsg('Your account was created, but the session could not be verified. Please sign in again.')
+        setErrorMsg(
+          'Your account was created, but the session could not be verified. Please sign in again.'
+        )
         return
       }
 
@@ -183,12 +191,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 animate-soft-pop">
-      <div className="relative flex flex-col w-full max-w-md rounded-[28px] border border-white/[0.12] bg-[#0E0F12]/95 p-6 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] overflow-hidden space-y-5 text-text-primary">
-        {/* Glow ambient background effect */}
-        <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-accent-primary/10 blur-3xl" />
-        <div className="pointer-events-none absolute -left-20 -bottom-20 h-56 w-56 rounded-full bg-purple-600/10 blur-3xl" />
-
+    <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-soft-pop">
+      <div className="prism-modal-panel auth-modal-panel relative flex max-h-[calc(100vh-32px)] w-full max-w-md flex-col overflow-y-auto p-6 text-text-primary">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -199,8 +203,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
 
         {/* Top Header */}
         <div className="flex flex-col items-center text-center pt-2 space-y-1.5 select-none">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-primary/15 border border-accent-primary/30 text-accent-primary shadow-inner mb-1">
-            <ShieldCheck size={26} weight="fill" />
+          <div className="settings-icon-box mb-2">
+            <ShieldCheck size={22} weight="duotone" />
           </div>
           <h2 className="text-xl font-bold text-white tracking-tight">Prism Account</h2>
           <p className="text-xs text-text-secondary max-w-xs leading-relaxed">
@@ -211,11 +215,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         </div>
 
         {/* Free AI Highlight Banner */}
-        <div className="flex items-start gap-3 rounded-2xl border border-blue-500/30 bg-blue-500/10 p-3.5 text-xs text-blue-300">
-          <Sparkle size={20} weight="fill" className="shrink-0 text-blue-400 mt-0.5" />
+        <div className="flex items-start gap-3 rounded-xl border border-accent-primary/25 bg-accent-primary/[0.07] p-3.5 text-xs text-accent-primary">
+          <Sparkle size={20} weight="duotone" className="mt-0.5 shrink-0" />
           <div className="space-y-0.5">
             <span className="font-bold text-white block">Unlock Free AI Access</span>
-            <p className="text-[11px] text-blue-200/80 leading-snug">
+            <p className="text-[11px] leading-snug text-text-secondary">
               Sign in or create an account to unlock free AI models powered by Prism Cloud!
             </p>
           </div>
@@ -228,7 +232,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
               onClick={() => handleTabSwitch('signin')}
               className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                 tab === 'signin'
-                  ? 'bg-accent-primary text-white shadow-md'
+                  ? 'bg-accent-primary text-black'
                   : 'text-text-secondary hover:text-white'
               }`}
             >
@@ -238,7 +242,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
               onClick={() => handleTabSwitch('signup')}
               className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                 tab === 'signup'
-                  ? 'bg-accent-primary text-white shadow-md'
+                  ? 'bg-accent-primary text-black'
                   : 'text-text-secondary hover:text-white'
               }`}
             >
@@ -329,7 +333,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
               ) : (
                 <>
                   <span>Sign In</span>
-                  <ArrowRight size={16} weight="bold" className="group-hover:translate-x-0.5 transition-transform" />
+                  <ArrowRight
+                    size={16}
+                    weight="bold"
+                    className="group-hover:translate-x-0.5 transition-transform"
+                  />
                 </>
               )}
             </button>
@@ -451,7 +459,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
               ) : (
                 <>
                   <span>Create Account</span>
-                  <ArrowRight size={16} weight="bold" className="group-hover:translate-x-0.5 transition-transform" />
+                  <ArrowRight
+                    size={16}
+                    weight="bold"
+                    className="group-hover:translate-x-0.5 transition-transform"
+                  />
                 </>
               )}
             </button>
@@ -490,7 +502,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
                 disabled={loading}
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 text-xs font-bold text-white bg-accent-primary hover:bg-accent-primary/90 rounded-xl transition-all shadow-md cursor-pointer disabled:opacity-50"
               >
-                {loading ? <CircleNotch size={18} className="animate-spin" /> : <span>Send Reset Link</span>}
+                {loading ? (
+                  <CircleNotch size={18} className="animate-spin" />
+                ) : (
+                  <span>Send Reset Link</span>
+                )}
               </button>
             </div>
           </form>

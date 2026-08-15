@@ -17,7 +17,7 @@ export const UserAccountCard: React.FC<UserAccountCardProps> = ({
     return (
       <button
         onClick={onOpenAuth}
-        className="group relative flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs transition-all duration-200 cursor-pointer select-none text-text-secondary hover:bg-white/[0.04] hover:text-text-primary border border-dashed border-white/10 hover:border-white/20 mb-1.5"
+        className="group relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs transition-colors duration-200 cursor-pointer select-none text-text-secondary hover:bg-[var(--sidebar-hover)] hover:text-text-primary border border-dashed border-[var(--border-default)] hover:border-[var(--border-strong)] mb-1.5"
       >
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.05] text-text-muted group-hover:bg-accent-primary/20 group-hover:text-accent-primary transition-all duration-200">
           <UserPlus size={16} weight="bold" />
@@ -34,9 +34,7 @@ export const UserAccountCard: React.FC<UserAccountCardProps> = ({
     )
   }
 
-  const isEnterprise =
-    user.accountType === 'enterprise' ||
-    user.accountType === 'company'
+  const isEnterprise = user.accountType === 'enterprise' || user.accountType === 'company'
 
   const initials = user.fullName
     ? user.fullName
@@ -50,10 +48,10 @@ export const UserAccountCard: React.FC<UserAccountCardProps> = ({
   return (
     <button
       onClick={onOpenProfile}
-      className="group relative flex w-full items-center gap-2.5 rounded-xl p-2.5 text-xs transition-all duration-200 cursor-pointer select-none bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.05] hover:border-white/[0.1] mb-1.5 shadow-sm"
+      className="group relative flex w-full items-center gap-2.5 rounded-lg p-2.5 text-xs transition-colors duration-200 cursor-pointer select-none bg-[var(--sidebar-surface)] hover:bg-[var(--sidebar-hover)] border border-[var(--border-default)] hover:border-[var(--border-strong)] mb-1.5"
     >
       {/* Avatar / Initials */}
-      <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-accent-primary/30 to-purple-600/30 border border-white/15 text-accent-primary font-bold text-xs shadow-inner">
+      <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-primary/12 border border-accent-primary/25 text-accent-primary font-bold text-xs">
         {user.avatarUrl ? (
           <img
             src={user.avatarUrl}
@@ -88,7 +86,9 @@ export const UserAccountCard: React.FC<UserAccountCardProps> = ({
         {isEnterprise ? (
           <span
             className="flex items-center gap-0.5 rounded px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-accent-primary bg-accent-primary/10 border border-accent-primary/20"
-            title={user.companyName ? `Enterprise Account: ${user.companyName}` : 'Enterprise Account'}
+            title={
+              user.companyName ? `Enterprise Account: ${user.companyName}` : 'Enterprise Account'
+            }
           >
             <Buildings size={10} weight="bold" />
             ENT

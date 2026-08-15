@@ -109,13 +109,17 @@ function consolidateToolCalls(
           parsedArgs = JSON.parse(stc.arguments)
         } catch {
           try {
-            const filePathMatch = stc.arguments.match(/"(?:filePath|path|TargetFile|absolutePath|AbsolutePath|sourcePath)"\s*:\s*"([^"]*)/i)
+            const filePathMatch = stc.arguments.match(
+              /"(?:filePath|path|TargetFile|absolutePath|AbsolutePath|sourcePath)"\s*:\s*"([^"]*)/i
+            )
             const commandMatch = stc.arguments.match(/"(?:command|CommandLine)"\s*:\s*"([^"]*)/i)
             const queryMatch = stc.arguments.match(/"query"\s*:\s*"([^"]*)/i)
             if (filePathMatch) parsedArgs.filePath = filePathMatch[1]
             if (commandMatch) parsedArgs.command = commandMatch[1]
             if (queryMatch) parsedArgs.query = queryMatch[1]
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
         allCalls.push({
           name: stc.name || 'task',
@@ -133,10 +137,22 @@ function consolidateToolCalls(
   allCalls.forEach((call) => {
     const name = call.name
     const args = call.args
-    const filePath = (args?.filePath || args?.path || args?.TargetFile || args?.absolutePath || args?.AbsolutePath || args?.sourcePath) as string | undefined
+    const filePath = (args?.filePath ||
+      args?.path ||
+      args?.TargetFile ||
+      args?.absolutePath ||
+      args?.AbsolutePath ||
+      args?.sourcePath) as string | undefined
 
-    const isWrite = name === 'computer_use_create_file' || name === 'computer_use_save_file' || name === 'write_to_file' || name === 'computer_use_append_file'
-    const isEdit = name === 'computer_use_edit_file' || name === 'replace_file_content' || name === 'multi_replace_file_content'
+    const isWrite =
+      name === 'computer_use_create_file' ||
+      name === 'computer_use_save_file' ||
+      name === 'write_to_file' ||
+      name === 'computer_use_append_file'
+    const isEdit =
+      name === 'computer_use_edit_file' ||
+      name === 'replace_file_content' ||
+      name === 'multi_replace_file_content'
     const isRead = name === 'computer_use_read_file' || name === 'view_file'
 
     if (filePath && (isWrite || isEdit || isRead)) {
@@ -213,7 +229,8 @@ function consolidateToolCalls(
         placeholder.addedLines = (placeholder.addedLines || 0) + countLines(cArgs.newContent)
       } else if (cName === 'replace_file_content') {
         placeholder.removedLines = (placeholder.removedLines || 0) + countLines(cArgs.TargetContent)
-        placeholder.addedLines = (placeholder.addedLines || 0) + countLines(cArgs.ReplacementContent)
+        placeholder.addedLines =
+          (placeholder.addedLines || 0) + countLines(cArgs.ReplacementContent)
       } else if (cName === 'multi_replace_file_content') {
         let chunks: any[] = []
         if (Array.isArray(cArgs.ReplacementChunks)) {
@@ -221,11 +238,15 @@ function consolidateToolCalls(
         } else if (typeof cArgs.ReplacementChunks === 'string') {
           try {
             chunks = JSON.parse(cArgs.ReplacementChunks)
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
         chunks.forEach((chunk) => {
-          placeholder.removedLines = (placeholder.removedLines || 0) + countLines(chunk.TargetContent)
-          placeholder.addedLines = (placeholder.addedLines || 0) + countLines(chunk.ReplacementContent)
+          placeholder.removedLines =
+            (placeholder.removedLines || 0) + countLines(chunk.TargetContent)
+          placeholder.addedLines =
+            (placeholder.addedLines || 0) + countLines(chunk.ReplacementContent)
         })
       } else if (cName === 'computer_use_read_file') {
         const start = parseInt(cArgs.startLine as string, 10) || 1
@@ -256,7 +277,11 @@ interface LauncherAiMessageProps {
 }
 
 function isTransientLauncherToolCall(toolCall?: ToolCall): boolean {
-  return toolCall?.status === 'writing' || toolCall?.status === 'running' || toolCall?.status === 'cooldown'
+  return (
+    toolCall?.status === 'writing' ||
+    toolCall?.status === 'running' ||
+    toolCall?.status === 'cooldown'
+  )
 }
 
 const LauncherAiMessage = React.memo(function LauncherAiMessage({
@@ -267,7 +292,10 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
   const { activeToolLabel } = useActiveToolLabel(msg)
   const contentText = msg.content || ''
   const streamStats = useStreamStats(contentText, !!msg.isStreaming)
-  const nativeToolCalls = useMemo(() => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls), [msg.toolCalls, msg.streamingToolCalls])
+  const nativeToolCalls = useMemo(
+    () => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls),
+    [msg.toolCalls, msg.streamingToolCalls]
+  )
 
   const cleanContentText = contentText
     .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)/g, '')
@@ -280,11 +308,7 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
     (msg.streamingToolCalls && msg.streamingToolCalls.some((t) => !t.isComplete)) ||
     (msg.toolCalls && msg.toolCalls.some((t) => t.status === 'running' || t.status === 'writing'))
   )
-  const isActive =
-    msg.isStreaming ||
-    msg.isThinking ||
-    msg.isConnecting ||
-    isRunningTool
+  const isActive = msg.isStreaming || msg.isThinking || msg.isConnecting || isRunningTool
 
   const hasTools = !!(msg.toolCalls && msg.toolCalls.length > 0)
   const thinkingSec =
@@ -334,15 +358,18 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
         {/* 2. Finished State Indicator (Static Gray Text) */}
         {!isActive && (
           <>
-            {hasTools ? (
-              <div className="w-full mb-2 select-none text-[12px] text-text-secondary/60 font-medium">
-                Worked for {workedSec > 0 ? workedSec : 1} {workedSec === 1 ? 'second' : 'seconds'}
-              </div>
-            ) : hasThinking ? (
-              <div className="w-full mb-2 select-none text-[12px] text-text-secondary/60 font-medium">
-                Thought for {thinkingSec} {thinkingSec === 1 ? 'second' : 'seconds'}
-              </div>
-            ) : null /* Instant message: no header */}
+            {
+              hasTools ? (
+                <div className="w-full mb-2 select-none text-[12px] text-text-secondary/60 font-medium">
+                  Worked for {workedSec > 0 ? workedSec : 1}{' '}
+                  {workedSec === 1 ? 'second' : 'seconds'}
+                </div>
+              ) : hasThinking ? (
+                <div className="w-full mb-2 select-none text-[12px] text-text-secondary/60 font-medium">
+                  Thought for {thinkingSec} {thinkingSec === 1 ? 'second' : 'seconds'}
+                </div>
+              ) : null /* Instant message: no header */
+            }
           </>
         )}
 
@@ -401,7 +428,13 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
                       const parsed = JSON.parse(partialJson)
                       if (parsed && typeof parsed === 'object') {
                         writingToolArgs = parsed as Record<string, unknown>
-                        const pathVal = parsed.filePath || parsed.path || parsed.TargetFile || parsed.absolutePath || parsed.AbsolutePath || parsed.sourcePath
+                        const pathVal =
+                          parsed.filePath ||
+                          parsed.path ||
+                          parsed.TargetFile ||
+                          parsed.absolutePath ||
+                          parsed.AbsolutePath ||
+                          parsed.sourcePath
                         if (pathVal) writingToolArgs.filePath = pathVal
                         const cmdVal = parsed.command || parsed.CommandLine
                         if (cmdVal) writingToolArgs.command = cmdVal
@@ -409,8 +442,12 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
                         if (queryVal) writingToolArgs.query = queryVal
                       }
                     } catch {
-                      const filePathMatch = partialJson.match(/"(?:filePath|path|TargetFile|absolutePath|AbsolutePath|sourcePath)"\s*:\s*"([^"]*)/i)
-                      const commandMatch = partialJson.match(/"(?:command|CommandLine)"\s*:\s*"([^"]*)/i)
+                      const filePathMatch = partialJson.match(
+                        /"(?:filePath|path|TargetFile|absolutePath|AbsolutePath|sourcePath)"\s*:\s*"([^"]*)/i
+                      )
+                      const commandMatch = partialJson.match(
+                        /"(?:command|CommandLine)"\s*:\s*"([^"]*)/i
+                      )
                       const queryMatch = partialJson.match(/"query"\s*:\s*"([^"]*)/i)
                       writingToolArgs = {}
                       if (filePathMatch) writingToolArgs.filePath = filePathMatch[1]
@@ -418,7 +455,9 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
                       if (queryMatch) writingToolArgs.query = queryMatch[1]
                     }
                   }
-                } catch { /* ignore */ }
+                } catch {
+                  /* ignore */
+                }
                 return {
                   partIndex: index,
                   part,
@@ -449,7 +488,9 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
           })
 
           // Group consecutive web_search items
-          const groupedItems: Array<PartItem | { type: 'grouped_web_searches'; items: PartItem[] }> = []
+          const groupedItems: Array<
+            PartItem | { type: 'grouped_web_searches'; items: PartItem[] }
+          > = []
           let currentGroup: PartItem[] = []
 
           const isWebSearch = (item: PartItem): boolean => {
@@ -514,12 +555,14 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
 
           return groupedItems.map((gItem) => {
             if ('items' in gItem) {
-               const group = gItem as { type: 'grouped_web_searches'; items: PartItem[] }
-               const toolCallItems = group.items.filter((item) => item.type === 'tool_call')
+              const group = gItem as { type: 'grouped_web_searches'; items: PartItem[] }
+              const toolCallItems = group.items.filter((item) => item.type === 'tool_call')
 
               // 1. Determine merged status
               let mergedStatus: ToolCall['status'] = 'done'
-              if (toolCallItems.some((item) => !item.isClosed || item.toolCall?.status === 'writing')) {
+              if (
+                toolCallItems.some((item) => !item.isClosed || item.toolCall?.status === 'writing')
+              ) {
                 mergedStatus = 'writing'
               } else if (toolCallItems.some((item) => item.toolCall?.status === 'running')) {
                 mergedStatus = 'running'
@@ -608,9 +651,7 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
                 <div key={`text-${item.partIndex}`} className="prose prose-invert max-w-none">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
-                    rehypePlugins={[
-                      createStreamingFadeRehypePlugin(streamStats, startOffset)
-                    ]}
+                    rehypePlugins={[createStreamingFadeRehypePlugin(streamStats, startOffset)]}
                     components={markdownComponents}
                   >
                     {part}
@@ -622,39 +663,39 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
           })
         })()}
 
-          {!msg.content.includes('[PRISM_EXECUTE_TOOL]') && nativeToolCalls.length > 0 && (
-            <div className="flex flex-col gap-2 mt-1 w-full">
-              {nativeToolCalls.filter(isTransientLauncherToolCall).map((tc, idx) => (
-                <ActionLoader key={`native-tc-${idx}`} toolCall={tc} />
-              ))}
-            </div>
+        {!msg.content.includes('[PRISM_EXECUTE_TOOL]') && nativeToolCalls.length > 0 && (
+          <div className="flex flex-col gap-2 mt-1 w-full">
+            {nativeToolCalls.filter(isTransientLauncherToolCall).map((tc, idx) => (
+              <ActionLoader key={`native-tc-${idx}`} toolCall={tc} />
+            ))}
+          </div>
+        )}
+
+        {msg.isWritingToolCall &&
+          !msg.content.includes('[PRISM_EXECUTE_TOOL]') &&
+          !msg.content.includes('<mini_app>') &&
+          nativeToolCalls.length === 0 && (
+            <ActionLoader
+              key="writing-tc"
+              toolCall={{
+                name: msg.toolType || 'task',
+                status: 'writing',
+                args: {}
+              }}
+            />
           )}
 
-          {msg.isWritingToolCall &&
-            !msg.content.includes('[PRISM_EXECUTE_TOOL]') &&
-            !msg.content.includes('<mini_app>') &&
-            nativeToolCalls.length === 0 && (
-              <ActionLoader
-                key="writing-tc"
-                toolCall={{
-                  name: msg.toolType || 'task',
-                  status: 'writing',
-                  args: {}
-                }}
-              />
-            )}
+        {msg.isStreaming && activeToolLabel && (
+          <div className="flex items-center gap-1.5 mt-1 select-none">
+            <ToolCallIndicator overrideLabel={activeToolLabel} />
+          </div>
+        )}
 
-          {msg.isStreaming && activeToolLabel && (
-            <div className="flex items-center gap-1.5 mt-1 select-none">
-              <ToolCallIndicator overrideLabel={activeToolLabel} />
-            </div>
-          )}
-
-          {msg.isStreaming && !activeToolLabel && inactivityLabel && (
-            <div className="flex items-center gap-1.5 mt-1.5 select-none">
-              <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
-            </div>
-          )}
+        {msg.isStreaming && !activeToolLabel && inactivityLabel && (
+          <div className="flex items-center gap-1.5 mt-1.5 select-none">
+            <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
+          </div>
+        )}
       </div>
     </StreamContext.Provider>
   )
@@ -708,11 +749,7 @@ export function QuickLauncher(): React.JSX.Element {
     }
   )
 
-  const activeMode = isYoutubeMode
-    ? 'youtube'
-    : isSearchEnabled
-      ? 'search'
-      : 'default'
+  const activeMode = isYoutubeMode ? 'youtube' : isSearchEnabled ? 'search' : 'default'
   const activeBadges: LauncherBadge[] = [
     ...(isYoutubeMode ? (['youtube'] as const) : []),
     ...(isSearchEnabled ? (['search'] as const) : [])
@@ -1236,8 +1273,6 @@ export function QuickLauncher(): React.JSX.Element {
     default: 'border-white/[0.09] bg-white/[0.045] text-text-primary'
   }[activeMode]
 
-  const activeTheme = (document.documentElement.getAttribute('data-theme') as any) || 'marine'
-
   return (
     <div
       className="quick-launcher-overlay flex h-screen w-screen flex-col items-center justify-start p-8 pt-[20vh] font-sans relative overflow-hidden"
@@ -1340,7 +1375,7 @@ export function QuickLauncher(): React.JSX.Element {
         {quickLauncherMode === 'advanced' && (
           <div
             className={clsx(
-              'model-menu-panel absolute left-0 top-full z-50 mt-3 w-80 origin-top overflow-hidden rounded-[24px] py-2 transition-all duration-200',
+              'model-menu-panel absolute left-0 top-full z-50 mt-3 w-80 origin-top overflow-hidden rounded-xl py-2 transition-all duration-200',
               isModelSelectorOpen
                 ? 'translate-y-0 scale-100 opacity-100'
                 : 'pointer-events-none -translate-y-2 scale-[0.98] opacity-0'
@@ -1390,7 +1425,6 @@ export function QuickLauncher(): React.JSX.Element {
                   >
                     {model.name}
                   </span>
-
                 </span>
                 {activeModelId === model.id && (
                   <Check size={15} className="mt-0.5 text-accent-secondary" />
@@ -1402,14 +1436,9 @@ export function QuickLauncher(): React.JSX.Element {
 
         {/* Input Bar */}
         <div className="relative w-full">
-          {activeTheme === 'terno' && (
-            <div className="absolute inset-0 pointer-events-none flex items-center justify-center -z-10 animate-slow-pulse">
-              <div className="w-[520px] h-[120px] rounded-full bg-white opacity-[0.4] blur-[70px]" />
-            </div>
-          )}
           <div
             className={clsx(
-              'relative flex flex-col w-full gap-3 overflow-hidden rounded-[28px] border border-white/[0.08] bg-[#0c0d12]/80 backdrop-blur-xl px-5 py-3 transition-all duration-300 input-border-glow quick-launcher-input-bar shadow-[0_16px_48px_rgba(0,0,0,0.4)]',
+              'relative flex w-full flex-col gap-3 overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-lowest)] px-5 py-3 transition-all duration-300 input-border-glow quick-launcher-input-bar shadow-[0_18px_48px_rgba(0,0,0,0.5)]',
               modeClasses,
               ((isModelSelectorOpen && quickLauncherMode === 'advanced') || isFocused) &&
                 'prism-glow active'
@@ -1457,8 +1486,9 @@ export function QuickLauncher(): React.JSX.Element {
                     )
                   }}
                   className={clsx(
-                    'flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-transparent bg-white/[0.04] px-3 text-xs font-semibold text-text-secondary transition-all duration-200 hover:bg-white/[0.08] hover:text-text-primary cursor-pointer',
-                    isModelSelectorOpen && 'bg-accent-primary/10 text-accent-primary border-accent-primary/20'
+                    'flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border-default)] bg-[var(--surface)] px-3 text-xs font-semibold text-text-secondary transition-colors duration-200 hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)] hover:text-text-primary cursor-pointer',
+                    isModelSelectorOpen &&
+                      'bg-accent-primary/10 text-accent-primary border-accent-primary/20'
                   )}
                 >
                   <Command size={14} weight="bold" />
@@ -1479,8 +1509,12 @@ export function QuickLauncher(): React.JSX.Element {
                   />
                 </button>
               ) : (
-                <div className="flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-transparent bg-white/[0.04] px-3 text-xs font-semibold text-text-secondary select-none">
-                  <Sparkles size={14} weight="bold" className="text-accent-secondary animate-pulse" />
+                <div className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border-default)] bg-[var(--surface)] px-3 text-xs font-semibold text-text-secondary select-none">
+                  <Sparkles
+                    size={14}
+                    weight="bold"
+                    className="text-accent-secondary animate-pulse"
+                  />
                   <span>Prism 6</span>
                 </div>
               )}
@@ -1506,16 +1540,16 @@ export function QuickLauncher(): React.JSX.Element {
                         : isSearchEnabled
                           ? 'Search the web'
                           : quickLauncherMode === 'simple'
-                                ? 'Ask quick AI or search files/apps...'
-                                : 'What should Prism do?'
+                            ? 'Ask quick AI or search files/apps...'
+                            : 'What should Prism do?'
                   }
                   className={clsx(
                     'w-full border-none bg-transparent text-[19px] font-medium outline-none transition-colors duration-200 placeholder:text-text-muted',
                     activeMode === 'youtube'
                       ? 'text-accent-primary placeholder:text-accent-primary/40'
                       : activeMode === 'search'
-                          ? 'text-accent-secondary placeholder:text-accent-secondary/40'
-                          : 'text-text-primary'
+                        ? 'text-accent-secondary placeholder:text-accent-secondary/40'
+                        : 'text-text-primary'
                   )}
                 />
               </form>
@@ -1532,12 +1566,12 @@ export function QuickLauncher(): React.JSX.Element {
                   }}
                   disabled={isTranscribing}
                   className={clsx(
-                    'flex h-10 w-10 items-center justify-center rounded-[16px] border transition-all duration-200',
+                    'flex h-10 w-10 items-center justify-center rounded-lg border transition-all duration-200',
                     isRecording
                       ? 'border-status-error/30 bg-status-error/20 text-status-error animate-pulse'
                       : isTranscribing
                         ? 'border-accent-primary/30 bg-accent-primary/20 text-accent-primary cursor-wait'
-                        : 'border-white/[0.08] bg-[#1e2026] text-text-secondary hover:bg-[#25272e] hover:text-text-primary'
+                        : 'border-[var(--border-default)] bg-[var(--surface)] text-text-secondary hover:bg-[var(--surface-raised)] hover:text-text-primary'
                   )}
                   title={isRecording ? 'Stop and review' : 'Start Dictation'}
                 >
@@ -1559,7 +1593,7 @@ export function QuickLauncher(): React.JSX.Element {
                     type="button"
                     onClick={() => stopRecording('send')}
                     disabled={isTranscribing}
-                    className="flex h-10 w-10 items-center justify-center rounded-[16px] border border-text-primary/20 bg-text-primary text-black transition-all duration-200 hover:bg-white active:scale-95"
+                    className="flex h-10 w-10 items-center justify-center rounded-lg border border-white bg-white text-black transition-colors duration-200 hover:bg-neutral-200 active:scale-95"
                     title="Stop and send"
                   >
                     <SendHorizontal size={17} weight="fill" />
@@ -1571,8 +1605,8 @@ export function QuickLauncher(): React.JSX.Element {
               {activeBadges.length > 0 && (
                 <div
                   className={clsx(
-                    'relative z-10 flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[16px] border px-2',
-                    'border-white/[0.15] bg-[#22242d]'
+                    'relative z-10 flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-2',
+                    'border-[var(--border-default)] bg-[var(--surface)]'
                   )}
                 >
                   {activeBadges.map((badge) =>
@@ -1592,7 +1626,7 @@ export function QuickLauncher(): React.JSX.Element {
 
         {/* Suggestion list panel (When chat overlay is NOT open) */}
         {unifiedSuggestions.length > 0 && !isMiniChatOpen && (
-          <div className="premium-panel-soft absolute left-0 top-[calc(100%+12px)] z-50 w-full overflow-hidden rounded-[24px] animate-soft-pop max-h-[300px] overflow-y-auto">
+          <div className="premium-panel-soft absolute left-0 top-[calc(100%+12px)] z-50 max-h-[300px] w-full overflow-y-auto rounded-xl animate-soft-pop">
             <div className="border-b border-white/[0.055] px-4 py-3 text-xs font-semibold text-text-secondary/70">
               Suggested Results and Commands
             </div>
@@ -1654,9 +1688,9 @@ export function QuickLauncher(): React.JSX.Element {
 
         {/* Mini-Chat Overlay (Simple Mode Only) */}
         {quickLauncherMode === 'simple' && isMiniChatOpen && (
-          <div className="premium-panel-soft absolute left-0 top-[calc(100%+12px)] z-50 w-full overflow-hidden rounded-[28px] animate-soft-pop flex flex-col h-[400px] border border-white/[0.06]">
+          <div className="premium-panel-soft absolute left-0 top-[calc(100%+12px)] z-50 flex h-[400px] w-full flex-col overflow-hidden rounded-xl border border-[var(--border-default)] animate-soft-pop">
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-white/[0.055] px-6 py-4 bg-[#18191f]">
+            <div className="flex items-center justify-between border-b border-[var(--border-default)] bg-[var(--surface-raised)] px-6 py-4">
               <div className="flex items-center gap-2">
                 <MessageSquare size={16} className="text-accent-secondary" />
                 <span className="text-sm font-semibold text-text-primary">Prism Launcher Chat</span>
@@ -1696,13 +1730,13 @@ export function QuickLauncher(): React.JSX.Element {
                         </div>
                       )}
                       {msg.content && (
-                        <div className="flex flex-col rounded-[20px] px-4 py-3 text-sm leading-relaxed font-normal shadow-md bg-[#1b2c27] text-text-primary rounded-tr-sm border border-accent-secondary/20 w-full">
+                        <div className="flex w-full flex-col rounded-xl rounded-tr-sm border border-accent-secondary/20 bg-accent-secondary/[0.06] px-4 py-3 text-sm font-normal leading-relaxed text-text-primary">
                           {msg.content}
                         </div>
                       )}
                     </div>
                   ) : msg.isError ? (
-                    <div className="flex flex-col w-full rounded-[20px] border border-status-error/25 shadow-md px-4 py-3 text-sm leading-relaxed font-normal bg-[#2d1b1c] text-status-error prose prose-invert">
+                    <div className="prose prose-invert flex w-full flex-col rounded-xl border border-status-error/25 bg-status-error/[0.07] px-4 py-3 text-sm font-normal leading-relaxed text-status-error">
                       {msg.content}
                     </div>
                   ) : (
@@ -1714,7 +1748,7 @@ export function QuickLauncher(): React.JSX.Element {
             </div>
 
             {/* Footer / Input info */}
-            <div className="px-6 py-3 bg-[#15161b] border-t border-white/[0.04] text-[11px] text-text-secondary/50 flex justify-between items-center">
+            <div className="flex items-center justify-between border-t border-[var(--border-subtle)] bg-[var(--surface)] px-6 py-3 text-[11px] text-text-secondary/50">
               <span>Press Enter to send inline</span>
               <span>Simple Mode (Prism 6)</span>
             </div>

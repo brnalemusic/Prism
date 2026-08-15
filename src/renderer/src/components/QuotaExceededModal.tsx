@@ -1,13 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import {
-  Sparkle,
-  Clock,
-  Key,
-  X,
-  ArrowRight,
-  User
-} from '@phosphor-icons/react'
+import { Sparkle, Clock, Key, X, ArrowRight, User } from '@phosphor-icons/react'
 import type { UserAiUsageStatus } from '../../../shared/types'
 
 interface QuotaExceededModalProps {
@@ -45,7 +38,8 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
     if (isOpen) {
       setAiUsage(null)
       setIsAiUsageUnavailable(false)
-      window.api.getUserAiUsage()
+      window.api
+        .getUserAiUsage()
         .then((usage) => {
           if (usage) {
             setAiUsage(usage)
@@ -73,9 +67,9 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
   if (!isOpen) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-fade-in">
+    <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-fade-in">
       <div
-        className="relative w-full max-w-md overflow-hidden rounded-3xl border border-accent-primary/30 bg-card-bg/95 p-6 shadow-[0_0_50px_rgba(34,197,94,0.12)] text-text-primary backdrop-blur-2xl animate-soft-pop"
+        className="prism-modal-panel relative w-full max-w-md overflow-y-auto p-6 text-text-primary animate-soft-pop"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Glow Accents */}
@@ -100,9 +94,7 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
             <h3 className="text-base font-bold text-white tracking-wide">
               Prism Cloud Quota Limit
             </h3>
-            <p className="text-xs text-text-secondary">
-              Free tier request limit reached
-            </p>
+            <p className="text-xs text-text-secondary">Free tier request limit reached</p>
           </div>
         </div>
 
@@ -112,7 +104,8 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
             You've reached your Prism Cloud AI request limit for the current time window.
           </p>
           <p className="leading-relaxed">
-            Your quota will automatically reset once the current window expires. In the meantime, you can add your custom API keys in Settings for unlimited requests.
+            Your quota will automatically reset once the current window expires. In the meantime,
+            you can add your custom API keys in Settings for unlimited requests.
           </p>
         </div>
 

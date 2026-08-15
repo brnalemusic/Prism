@@ -1,7 +1,18 @@
 import React, { useState, useEffect } from 'react'
 import { ProviderConfig } from '../../../shared/types'
 import { ApiProviderWizardModal } from './ApiProviderWizardModal'
-import { Plus, PencilSimple, Trash, CheckCircle, Warning, Key, Globe, Stack, ShieldCheck, LockKey } from '@phosphor-icons/react'
+import {
+  Plus,
+  PencilSimple,
+  Trash,
+  CheckCircle,
+  Warning,
+  Key,
+  Globe,
+  Stack,
+  ShieldCheck,
+  LockKey
+} from '@phosphor-icons/react'
 
 export const ApiManagerSettings: React.FC = () => {
   const [providers, setProviders] = useState<ProviderConfig[]>([])
@@ -31,11 +42,12 @@ export const ApiManagerSettings: React.FC = () => {
   useEffect(() => {
     loadProviders()
 
-    const removeListener = window.api && typeof window.api.onConfigChanged === 'function'
-      ? window.api.onConfigChanged(() => {
-          loadProviders()
-        })
-      : undefined
+    const removeListener =
+      window.api && typeof window.api.onConfigChanged === 'function'
+        ? window.api.onConfigChanged(() => {
+            loadProviders()
+          })
+        : undefined
 
     return () => {
       if (removeListener) removeListener()
@@ -111,7 +123,9 @@ export const ApiManagerSettings: React.FC = () => {
     <div className="space-y-6 animate-soft-pop">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold text-text-primary tracking-tight">API Keys & Providers Manager</h2>
+          <h2 className="text-lg font-bold text-text-primary tracking-tight">
+            API Keys & Providers Manager
+          </h2>
           <p className="text-xs text-text-secondary/70 mt-0.5">
             Configure custom OpenAI-compatible endpoints, API keys, and active models.
           </p>
@@ -141,7 +155,7 @@ export const ApiManagerSettings: React.FC = () => {
       {isLoading ? (
         <div className="text-center py-12 text-text-muted text-xs">Loading providers...</div>
       ) : providers.length === 0 ? (
-        <div className="p-8 border border-dashed border-white/[0.12] rounded-[20px] text-center space-y-3 bg-white/[0.02]">
+        <div className="space-y-3 rounded-xl border border-dashed border-[var(--border-default)] bg-[var(--surface)] p-8 text-center">
           <div className="w-10 h-10 rounded-2xl bg-accent-primary/10 text-accent-primary flex items-center justify-center mx-auto border border-accent-primary/20">
             <Key size={20} weight="bold" />
           </div>
@@ -171,12 +185,14 @@ export const ApiManagerSettings: React.FC = () => {
             return (
               <div
                 key={cardKey}
-                className="p-4 sm:p-5 bg-white/[0.035] border border-white/[0.08] rounded-[20px] space-y-3.5 hover:border-white/[0.16] transition-all"
+                className="space-y-3.5 rounded-xl border border-[var(--border-default)] bg-[var(--surface)] p-4 transition-colors hover:border-[var(--border-strong)] sm:p-5"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1 min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-sm font-bold text-text-primary truncate">{p.name || 'Unnamed Provider'}</h3>
+                      <h3 className="text-sm font-bold text-text-primary truncate">
+                        {p.name || 'Unnamed Provider'}
+                      </h3>
                       {p.isOfficial || p.id === 'prism_provider' ? (
                         <span
                           title="Official Prism System Provider"
@@ -242,9 +258,13 @@ export const ApiManagerSettings: React.FC = () => {
                 <div className="flex items-center justify-between text-xs text-text-secondary/80 pt-2.5 border-t border-white/[0.04]">
                   <span className="flex items-center gap-1.5">
                     <Stack size={14} className="text-accent-secondary" />
-                    <strong className="text-text-primary font-medium">{enabledCount}</strong> of {modelsList.length} Models Active
+                    <strong className="text-text-primary font-medium">
+                      {enabledCount}
+                    </strong> of {modelsList.length} Models Active
                   </span>
-                  <span className="capitalize text-text-muted text-[11px] font-medium">{completionLabel}</span>
+                  <span className="capitalize text-text-muted text-[11px] font-medium">
+                    {completionLabel}
+                  </span>
                 </div>
               </div>
             )

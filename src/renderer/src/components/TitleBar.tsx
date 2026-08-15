@@ -75,11 +75,11 @@ export function TitleBar({
   }
 
   return (
-    <div className="fixed left-0 top-0 z-[100] flex h-10 w-full select-none items-center justify-between border-b border-white/[0.055] bg-background-main/80 px-4 shadow-[0_1px_0_rgba(255,255,255,0.018)] backdrop-blur-md drag-region">
+    <div className="fixed left-0 top-0 z-[100] flex h-10 w-full select-none items-center justify-between border-b border-[var(--border-subtle)] bg-black px-3 drag-region">
       {isMac ? <div className="pl-[72px] no-drag-region" /> : <div className="no-drag-region" />}
 
       {title && (
-        <div className="absolute left-1/2 top-1/2 flex max-w-[46vw] -translate-x-1/2 -translate-y-1/2 items-center justify-center truncate whitespace-nowrap text-[12.5px] font-medium text-text-primary/90 pointer-events-none select-none">
+        <div className="absolute left-1/2 top-1/2 flex max-w-[46vw] -translate-x-1/2 -translate-y-1/2 items-center justify-center truncate whitespace-nowrap text-xs font-medium text-text-secondary pointer-events-none select-none">
           {isStreaming ? <StreamTitleWrapper title={title} /> : title}
         </div>
       )}
@@ -88,14 +88,14 @@ export function TitleBar({
         <div className="flex items-center no-drag-region">
           <button
             onClick={handleMinimize}
-            className="flex h-8 w-10 items-center justify-center rounded-lg text-text-muted transition-all duration-200 hover:bg-white/[0.055] hover:text-text-secondary active:scale-95"
+            className="flex h-8 w-10 items-center justify-center rounded-md text-text-muted transition-colors duration-200 hover:bg-[var(--surface-raised)] hover:text-text-primary"
             title="Minimize"
           >
             <Minus size={14} />
           </button>
           <button
             onClick={handleMaximize}
-            className="flex h-8 w-10 items-center justify-center rounded-lg text-text-muted transition-all duration-200 hover:bg-white/[0.055] hover:text-text-secondary active:scale-95"
+            className="flex h-8 w-10 items-center justify-center rounded-md text-text-muted transition-colors duration-200 hover:bg-[var(--surface-raised)] hover:text-text-primary"
             title={isMaximized ? 'Restore' : 'Maximize'}
           >
             {isMaximized ? (
@@ -131,7 +131,7 @@ export function TitleBar({
           </button>
           <button
             onClick={handleClose}
-            className="flex h-8 w-10 items-center justify-center rounded-lg text-text-muted transition-all duration-200 hover:bg-[#e81123]/90 hover:text-white active:scale-95"
+            className="flex h-8 w-10 items-center justify-center rounded-md text-text-muted transition-colors duration-200 hover:bg-[#e81123] hover:text-white"
             title="Close"
           >
             <X size={14} />

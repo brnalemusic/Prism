@@ -34,6 +34,8 @@ import {
   ArrowSquareOut,
   CheckCircle,
   X,
+  CaretDown,
+  ArrowClockwise,
   FilePpt,
   FilePdf
 } from '@phosphor-icons/react'
@@ -66,6 +68,20 @@ interface NavSection {
   id: SectionId
   label: string
   icon: React.ReactNode
+}
+
+function DiscordIcon({ size = 18 }: { size?: number }): React.JSX.Element {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 256 199"
+      width={size}
+      height={size}
+      fill="currentColor"
+    >
+      <path d="M216.856 16.597A208.502 208.502 0 0 0 164.042 0c-2.275 4.113-4.933 9.645-6.766 14.046-19.692-2.961-39.203-2.961-58.533 0-1.832-4.4-4.55-9.933-6.846-14.046a207.809 207.809 0 0 0-52.855 16.638C5.618 67.147-3.443 116.4 1.087 164.956c22.169 16.555 43.653 26.612 64.775 33.193A161.094 161.094 0 0 0 79.735 175.3a136.413 136.413 0 0 1-21.846-10.632 108.636 108.636 0 0 0 5.356-4.237c42.122 19.702 87.89 19.702 129.51 0a131.6 131.6 0 0 0 5.356 4.237 136.075 136.075 0 0 1-21.887 10.632 156.776 156.776 0 0 0 13.873 22.846c21.122-6.58 42.605-16.638 64.774-33.193 5.485-57.818-10.985-107.031-48.423-148.358zM85.474 135.04c-11.832 0-21.606-10.793-21.606-24.088 0-13.296 9.57-24.088 21.606-24.088 12.036 0 21.809 10.954 21.606 24.088 0 13.295-9.57 24.088-21.606 24.088zm85.05 0c-11.833 0-21.607-10.793-21.607-24.088 0-13.296 9.57-24.088 21.607-24.088 12.036 0 21.81 10.954 21.607 24.088 0 13.295-9.773 24.088-21.607 24.088z" />
+    </svg>
+  )
 }
 
 const STATIC_TOOLS = [
@@ -124,7 +140,13 @@ function formatToolName(name: string): string {
     .join(' ')
 }
 
-export function SettingsView({ onClose, onOpenAuthModal }: { onClose?: () => void; onOpenAuthModal?: () => void }): React.JSX.Element {
+export function SettingsView({
+  onClose,
+  onOpenAuthModal
+}: {
+  onClose?: () => void
+  onOpenAuthModal?: () => void
+}): React.JSX.Element {
   const [config, setConfig] = useState<Config>({
     providers: [],
     launcherShortcut: 'CommandOrControl+Space',
@@ -152,6 +174,8 @@ export function SettingsView({ onClose, onOpenAuthModal }: { onClose?: () => voi
     Array<{ id: string; name: string; path: string }>
   >([])
   const [activeSection, setActiveSection] = useState<SectionId>('shortcuts')
+  const [isSectionMenuOpen, setIsSectionMenuOpen] = useState(false)
+  const [showDiscordToken, setShowDiscordToken] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
 
   const [editingWorkflow, setEditingWorkflow] = useState<SlashWorkflow | null>(null)
@@ -163,60 +187,61 @@ export function SettingsView({ onClose, onOpenAuthModal }: { onClose?: () => voi
   const [formTools, setFormTools] = useState<string[]>([])
   const [formError, setFormError] = useState('')
 
-  const [availableTools, setAvailableTools] = useState<
-    Array<{ name: string; label: string; desc: string }>
-  >(STATIC_TOOLS)
+  const [availableTools, setAvailableTools] =
+    useState<Array<{ name: string; label: string; desc: string }>>(STATIC_TOOLS)
 
   // --- Easter Egg State ---
   const [easterEggClicks, setEasterEggClicks] = useState(0)
   const [lastClickTimestamp, setLastClickTimestamp] = useState(0)
   const [isEasterEggOpen, setIsEasterEggOpen] = useState(false)
 
-function useLicenseCountdown(expiresAt?: string): string {
-  const [timeLeft, setTimeLeft] = useState('')
+  function useLicenseCountdown(expiresAt?: string): string {
+    const [timeLeft, setTimeLeft] = useState('')
 
-  useEffect(() => {
-    if (!expiresAt) {
-      setTimeLeft('')
-      return
-    }
-
-    const update = () => {
-      const now = Date.now()
-      const expiry = new Date(expiresAt).getTime()
-      const diff = expiry - now
-
-      if (diff <= 0) {
-        setTimeLeft('Expired')
+    useEffect(() => {
+      if (!expiresAt) {
+        setTimeLeft('')
         return
       }
 
-      const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-      const seconds = Math.floor((diff % (1000 * 60)) / 1000)
+      const update = () => {
+        const now = Date.now()
+        const expiry = new Date(expiresAt).getTime()
+        const diff = expiry - now
 
-      const pad = (n: number) => String(n).padStart(2, '0')
+        if (diff <= 0) {
+          setTimeLeft('Expired')
+          return
+        }
 
-      if (days > 0) {
-        setTimeLeft(`${days}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`)
-      } else if (hours > 0) {
-        setTimeLeft(`${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`)
-      } else {
-        setTimeLeft(`${pad(minutes)}m ${pad(seconds)}s`)
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+        const seconds = Math.floor((diff % (1000 * 60)) / 1000)
+
+        const pad = (n: number) => String(n).padStart(2, '0')
+
+        if (days > 0) {
+          setTimeLeft(`${days}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`)
+        } else if (hours > 0) {
+          setTimeLeft(`${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`)
+        } else {
+          setTimeLeft(`${pad(minutes)}m ${pad(seconds)}s`)
+        }
       }
-    }
 
-    update()
-    const timer = setInterval(update, 1000)
-    return () => clearInterval(timer)
-  }, [expiresAt])
+      update()
+      const timer = setInterval(update, 1000)
+      return () => clearInterval(timer)
+    }, [expiresAt])
 
-  return timeLeft
-}
+    return timeLeft
+  }
 
   // --- License Management State ---
-  const [licenseInfo, setLicenseInfo] = useState<import('../../../shared/types').LicenseInfo | null>(null)
+  const [licenseInfo, setLicenseInfo] = useState<
+    import('../../../shared/types').LicenseInfo | null
+  >(null)
   const [inputLicenseKey, setInputLicenseKey] = useState('')
   const [showKeyText, setShowKeyText] = useState(false)
   const [activating, setActivating] = useState(false)
@@ -231,6 +256,7 @@ function useLicenseCountdown(expiresAt?: string): string {
   const [authUser, setAuthUser] = useState<import('../../../shared/types').UserProfile | null>(null)
   const [plans, setPlans] = useState<import('../../../shared/types').SubscriptionPlan[]>([])
   const [isLoadingPlans, setIsLoadingPlans] = useState(false)
+  const [plansError, setPlansError] = useState<string | null>(null)
   const [checkoutLoadingPlanId, setCheckoutLoadingPlanId] = useState<string | null>(null)
   const [stripeCheckoutStage, setStripeCheckoutStage] = useState<'opening' | 'polling'>('opening')
   // Maps planId -> Stripe session_id after a real checkout is opened
@@ -257,25 +283,37 @@ function useLicenseCountdown(expiresAt?: string): string {
   const countdownText = useLicenseCountdown(licenseInfo?.expiresAt)
 
   useEffect(() => {
-    window.api.getAuthUser().then((u) => setAuthUser(u)).catch(() => setAuthUser(null))
+    window.api
+      .getAuthUser()
+      .then((u) => setAuthUser(u))
+      .catch(() => setAuthUser(null))
   }, [])
 
   useEffect(() => {
-    window.api.getLicenseInfo().then((info) => setLicenseInfo(info)).catch(() => setLicenseInfo(null))
+    window.api
+      .getLicenseInfo()
+      .then((info) => setLicenseInfo(info))
+      .catch(() => setLicenseInfo(null))
   }, [config?.licenseKey])
 
-  useEffect(() => {
-    if (activeSection === 'license') {
-      setIsLoadingPlans(true)
-      window.api
-        .getSubscriptionPlans()
-        .then((fetchedPlans) => setPlans(fetchedPlans))
-        .catch((err) => console.error('Failed to load subscription plans from Supabase:', err))
-        .finally(() => setIsLoadingPlans(false))
+  const loadSubscriptionPlans = async (): Promise<void> => {
+    setIsLoadingPlans(true)
+    setPlansError(null)
+    try {
+      const fetchedPlans = await window.api.getSubscriptionPlans()
+      setPlans(fetchedPlans)
+    } catch (err) {
+      console.error('Failed to load subscription plans from Supabase:', err)
+      setPlans([])
+      setPlansError('Pricing could not be loaded. Check your connection and try again.')
+    } finally {
+      setIsLoadingPlans(false)
     }
-  }, [activeSection])
+  }
 
-  const handleBuyPlan = async (plan: import('../../../shared/types').SubscriptionPlan): Promise<void> => {
+  const handleBuyPlan = async (
+    plan: import('../../../shared/types').SubscriptionPlan
+  ): Promise<void> => {
     setCheckoutLoadingPlanId(plan.id)
     setLicenseError(null)
     setCheckoutMessage(null)
@@ -349,10 +387,14 @@ function useLicenseCountdown(expiresAt?: string): string {
     }
   }
 
-  const handleVerifyAndActivate = async (plan: import('../../../shared/types').SubscriptionPlan): Promise<void> => {
+  const handleVerifyAndActivate = async (
+    plan: import('../../../shared/types').SubscriptionPlan
+  ): Promise<void> => {
     const sessionId = pendingSessionIds[plan.id]
     if (!sessionId) {
-      setLicenseError('No Stripe payment session found. Please click "Buy via Stripe" first and complete checkout.')
+      setLicenseError(
+        'No Stripe payment session found. Please click "Buy via Stripe" first and complete checkout.'
+      )
       return
     }
 
@@ -378,7 +420,9 @@ function useLicenseCountdown(expiresAt?: string): string {
           setIsActivationModalOpen(true)
         }
       } else {
-        setLicenseError(res.error || 'Payment verification failed. Please ensure checkout was completed.')
+        setLicenseError(
+          res.error || 'Payment verification failed. Please ensure checkout was completed.'
+        )
       }
     } catch (err: any) {
       setLicenseError(err?.message || 'Error confirming payment.')
@@ -523,9 +567,12 @@ function useLicenseCountdown(expiresAt?: string): string {
           quickLauncherMode: cfg.quickLauncherMode ?? 'simple',
           screenshotShortcut: cfg.screenshotShortcut || 'Ctrl+Alt+Space',
           newChatShortcut: cfg.newChatShortcut || prev.newChatShortcut || 'CommandOrControl+N',
-          dictationShortcut: cfg.dictationShortcut || prev.dictationShortcut || 'CommandOrControl+D',
-          webSearchShortcut: cfg.webSearchShortcut || prev.webSearchShortcut || 'CommandOrControl+S',
-          youtubeModeShortcut: cfg.youtubeModeShortcut || prev.youtubeModeShortcut || 'CommandOrControl+Y',
+          dictationShortcut:
+            cfg.dictationShortcut || prev.dictationShortcut || 'CommandOrControl+D',
+          webSearchShortcut:
+            cfg.webSearchShortcut || prev.webSearchShortcut || 'CommandOrControl+S',
+          youtubeModeShortcut:
+            cfg.youtubeModeShortcut || prev.youtubeModeShortcut || 'CommandOrControl+Y',
           appVersion: cfg.appVersion || '',
           ttsVoice: cfg.ttsVoice || 'Aoede',
           theme: cfg.theme || 'marine',
@@ -540,8 +587,6 @@ function useLicenseCountdown(expiresAt?: string): string {
     })
     return () => removeConfigListener()
   }, [])
-
-
 
   const handleSave = async (): Promise<void> => {
     setIsSaving(true)
@@ -583,22 +628,14 @@ function useLicenseCountdown(expiresAt?: string): string {
 
   const handleSectionChange = (id: SectionId): void => {
     setActiveSection(id)
+    setIsSectionMenuOpen(false)
+    if (id === 'license') {
+      void loadSubscriptionPlans()
+    }
     if (contentRef.current) {
       contentRef.current.scrollTop = 0
     }
   }
-
-  const DiscordIcon = ({ size = 18 }: { size?: number }) => (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 256 199"
-      width={size}
-      height={size}
-      fill="currentColor"
-    >
-      <path d="M216.856 16.597A208.502 208.502 0 0 0 164.042 0c-2.275 4.113-4.933 9.645-6.766 14.046-19.692-2.961-39.203-2.961-58.533 0-1.832-4.4-4.55-9.933-6.846-14.046a207.809 207.809 0 0 0-52.855 16.638C5.618 67.147-3.443 116.4 1.087 164.956c22.169 16.555 43.653 26.612 64.775 33.193A161.094 161.094 0 0 0 79.735 175.3a136.413 136.413 0 0 1-21.846-10.632 108.636 108.636 0 0 0 5.356-4.237c42.122 19.702 87.89 19.702 129.51 0a131.6 131.6 0 0 0 5.356 4.237 136.075 136.075 0 0 1-21.887 10.632 156.776 156.776 0 0 0 13.873 22.846c21.122-6.58 42.605-16.638 64.774-33.193 5.485-57.818-10.985-107.031-48.423-148.358zM85.474 135.04c-11.832 0-21.606-10.793-21.606-24.088 0-13.296 9.57-24.088 21.606-24.088 12.036 0 21.809 10.954 21.606 24.088 0 13.295-9.57 24.088-21.606 24.088zm85.05 0c-11.833 0-21.607-10.793-21.607-24.088 0-13.296 9.57-24.088 21.607-24.088 12.036 0 21.81 10.954 21.607 24.088 0 13.295-9.773 24.088-21.607 24.088z" />
-    </svg>
-  )
 
   const sections: NavSection[] = [
     { id: 'shortcuts', label: 'Shortcuts', icon: <Keyboard size={18} weight="bold" /> },
@@ -615,10 +652,12 @@ function useLicenseCountdown(expiresAt?: string): string {
     { id: 'about', label: 'About', icon: <Info size={18} weight="bold" /> }
   ]
 
+  const activeNavSection = sections.find((section) => section.id === activeSection) || sections[0]
+
   // ─── Section renderers ──────────────────────────────────
 
   const renderShortcuts = (): React.JSX.Element => (
-    <div className="space-y-6 animate-soft-pop">
+    <div className="space-y-8 animate-soft-pop">
       <SectionHeader
         title="Keyboard Shortcuts"
         subtitle="Configure global hotkeys and local interface hotkeys to control Prism."
@@ -656,7 +695,9 @@ function useLicenseCountdown(expiresAt?: string): string {
                 <Camera size={16} />
               </div>
               <div className="flex flex-col min-w-0">
-                <span className="text-xs font-semibold text-text-primary">Screenshot &amp; Ask</span>
+                <span className="text-xs font-semibold text-text-primary">
+                  Screenshot &amp; Ask
+                </span>
                 <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
                   Capture a screen region to analyze with AI
                 </span>
@@ -734,8 +775,6 @@ function useLicenseCountdown(expiresAt?: string): string {
               onChange={(v) => setConfig({ ...config, webSearchShortcut: v })}
             />
           </div>
-
-
 
           {/* Voice Dictation Card */}
           <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
@@ -837,23 +876,6 @@ function useLicenseCountdown(expiresAt?: string): string {
             onModelChange={(m) => setConfig({ ...config, searchModel: m } as any)}
           />
         </div>
-
-        {/* Prism Gateway (Discord) Text Model */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035]">
-          <div>
-            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-              <DiscordIcon size={16} />
-              Prism Gateway (Discord) Text Model
-            </h3>
-            <p className="text-xs text-text-secondary/60 mt-1">
-              Model used for generating text responses in Discord chat, DMs, and threads.
-            </p>
-          </div>
-          <ModelSelector
-            selectedModel={(config as any).discordGatewayModel || ''}
-            onModelChange={(m) => setConfig({ ...config, discordGatewayModel: m } as any)}
-          />
-        </div>
       </div>
     </div>
   )
@@ -862,88 +884,68 @@ function useLicenseCountdown(expiresAt?: string): string {
     <div className="space-y-8 animate-soft-pop">
       <SectionHeader title="Appearance" subtitle="Customize Prism's theme and interface scaling." />
 
-      {/* Accent Color */}
       <div className="space-y-3">
-        <div>
-          <h3 className="text-sm font-semibold text-text-primary">Accent Color</h3>
-          <p className="text-xs text-text-secondary/60 mt-0.5">
-            Controls the secondary colors across Prism's interface.
-          </p>
-        </div>
-        <div className="rounded-[20px] border border-white/[0.08] bg-white/[0.025] p-5">
-          <div className="grid grid-cols-4 gap-3">
-            {([
-              { id: 'fire',   label: 'Fire Red',       primary: '#ff3b2f', secondary: '#ff6b35' },
-              { id: 'lava',   label: 'Lava Orange',    primary: '#ff6b00', secondary: '#ffae42' },
-              { id: 'gold',   label: 'Corporate Gold', primary: '#f5c518', secondary: '#ffe066' },
-              { id: 'forest', label: 'Forest Green',   primary: '#22c55e', secondary: '#86efac' },
-              { id: 'marine', label: 'Sea Blue',       primary: '#38bdf8', secondary: '#7dd3fc' },
-              { id: 'indigo', label: 'Indigo',         primary: '#6366f1', secondary: '#a5b4fc' },
-              { id: 'violet', label: 'Soft Violet',    primary: '#a855f7', secondary: '#d8b4fe' },
-              { id: 'white',  label: 'Classic White',  primary: '#ffffff', secondary: '#e4e4e7' },
-            ] as const).map(({ id, label, primary, secondary }) => {
-              const isActive = (config.theme || 'marine') === id
-              return (
-                <button
-                  key={id}
-                  title={label}
-                  onClick={() => {
-                    setConfig({ ...config, theme: id })
-                    document.documentElement.setAttribute('data-theme', id)
-                    window.api.saveConfig({ theme: id })
-                  }}
-                  className="group flex flex-col items-center gap-2 focus:outline-none"
+        <SettingsGroupLabel
+          title="Theme"
+          description="Changes the accent and the tonal sidebar while keeping the workspace pure black."
+        />
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {(
+            [
+              { id: 'marine', label: 'Marine', accent: '#38bdf8', sidebar: '#030D15' },
+              { id: 'fire', label: 'Fire', accent: '#ff3b2f', sidebar: '#150607' },
+              { id: 'lava', label: 'Lava', accent: '#ff6b00', sidebar: '#160900' },
+              { id: 'gold', label: 'Gold', accent: '#f5c518', sidebar: '#151100' },
+              { id: 'forest', label: 'Forest', accent: '#22c55e', sidebar: '#04120A' },
+              { id: 'indigo', label: 'Indigo', accent: '#6366f1', sidebar: '#070918' },
+              { id: 'violet', label: 'Violet', accent: '#a855f7', sidebar: '#100718' },
+              { id: 'white', label: 'White', accent: '#ffffff', sidebar: '#080808' }
+            ] as const
+          ).map(({ id, label, accent, sidebar }) => {
+            const isActive = (config.theme || 'marine') === id
+            return (
+              <button
+                key={id}
+                title={label}
+                onClick={() => {
+                  setConfig({ ...config, theme: id })
+                  document.documentElement.setAttribute('data-theme', id)
+                  window.api.saveConfig({ theme: id })
+                }}
+                className={clsx(
+                  'group flex min-w-0 items-center gap-3 rounded-xl border p-3 text-left transition-colors focus:outline-none',
+                  isActive
+                    ? 'border-accent-primary/60 bg-accent-primary/[0.07]'
+                    : 'border-[var(--border-default)] bg-[var(--surface)] hover:border-[var(--border-strong)]'
+                )}
+              >
+                <div
+                  className="relative h-9 w-9 shrink-0 rounded-lg border border-white/10"
+                  style={{ background: sidebar }}
                 >
-                  {/* Swatch circle */}
-                  <div
-                    className="relative flex items-center justify-center transition-transform duration-150 group-hover:scale-110 active:scale-95"
-                    style={{ width: 48, height: 48 }}
-                  >
-                    {/* Glow ring when active */}
-                    {isActive && (
-                      <div
-                        className="absolute inset-0 rounded-full"
-                        style={{
-                          boxShadow: `0 0 0 2px ${primary}, 0 0 14px ${primary}55`,
-                          borderRadius: '50%',
-                        }}
-                      />
-                    )}
-                    {/* Color circle */}
-                    <div
-                      className="rounded-full transition-all duration-150"
-                      style={{
-                        width: isActive ? 36 : 40,
-                        height: isActive ? 36 : 40,
-                        background: `radial-gradient(circle at 35% 35%, ${secondary}, ${primary})`,
-                        boxShadow: isActive
-                          ? `0 4px 16px ${primary}66`
-                          : `0 2px 8px ${primary}33`,
-                      }}
-                    />
-                    {/* Active check */}
-                    {isActive && (
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                          <path d="M2.5 7L5.5 10L11.5 4" stroke="rgba(0,0,0,0.7)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                  {/* Label */}
                   <span
-                    className="text-[10px] font-medium leading-tight text-center transition-colors duration-150"
-                    style={{ color: isActive ? primary : 'var(--text-muted)' }}
-                  >
-                    {label}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
+                    className="absolute bottom-1.5 left-1.5 h-2.5 w-2.5 rounded-full"
+                    style={{ background: accent }}
+                  />
+                  {isActive && (
+                    <span className="absolute right-1.5 top-1.5 text-white">
+                      <Check size={12} weight="bold" />
+                    </span>
+                  )}
+                </div>
+                <span
+                  className={clsx(
+                    'truncate text-xs font-medium',
+                    isActive ? 'text-text-primary' : 'text-text-secondary'
+                  )}
+                >
+                  {label}
+                </span>
+              </button>
+            )
+          })}
         </div>
       </div>
-
 
       <div className="h-px bg-white/[0.04]" />
 
@@ -1244,7 +1246,6 @@ function useLicenseCountdown(expiresAt?: string): string {
             checked={config.autoLaunch}
             onChange={() => setConfig({ ...config, autoLaunch: !config.autoLaunch })}
           />
-
         </div>
       </div>
 
@@ -1265,41 +1266,134 @@ function useLicenseCountdown(expiresAt?: string): string {
   )
 
   const renderDiscord = (): React.JSX.Element => (
-    <div className="space-y-6 animate-soft-pop">
-      <SectionHeader title="Discord Gateway" subtitle="Connect Prism to a Discord bot to respond to chat and voice requests." />
-      
-      <div className="flex flex-col gap-1.5 p-1">
-        <ToggleRow
-          title="Enable Discord Gateway"
-          description="Allows Prism to connect to Discord using the provided Bot Token."
-          checked={config.discordGatewayEnabled ?? false}
-          onChange={() => setConfig({ ...config, discordGatewayEnabled: !config.discordGatewayEnabled })}
-        />
-        
-        {config.discordGatewayEnabled && (
-          <div className="space-y-4 pt-4 border-t border-white/[0.04] mt-4">
-            <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-text-primary">Bot Token</span>
-              <input
-                type="password"
-                value={config.discordBotToken || ''}
-                onChange={(e) => setConfig({ ...config, discordBotToken: e.target.value })}
-                placeholder="Enter your Discord Bot Token..."
-                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:border-accent-primary/50"
-              />
-              <span className="text-[11px] text-text-secondary/70 mt-1 block">Your Bot Token from the Discord Developer Portal.</span>
+    <div className="space-y-8 animate-soft-pop">
+      <SectionHeader
+        title="Discord Gateway"
+        subtitle="Configure the bot connection and route text and realtime voice requests."
+      />
+
+      <section className="settings-card settings-discord-status">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="settings-icon-box">
+            <DiscordIcon size={19} />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-text-primary">Gateway status</h3>
+              <span
+                className={clsx(
+                  'settings-status-badge',
+                  config.discordGatewayEnabled
+                    ? config.discordBotToken?.trim()
+                      ? 'is-ready'
+                      : 'is-warning'
+                    : ''
+                )}
+              >
+                {config.discordGatewayEnabled
+                  ? config.discordBotToken?.trim()
+                    ? 'Configured'
+                    : 'Token required'
+                  : 'Disabled'}
+              </span>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-text-primary">Voice Model (Gemini Live)</span>
+            <p className="mt-1 max-w-xl text-xs leading-relaxed text-text-secondary">
+              Prism starts or stops the Discord client after these settings are saved. Configured
+              does not guarantee that Discord accepted the credentials.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={config.discordGatewayEnabled ?? false}
+          aria-label="Enable Discord Gateway"
+          onClick={() =>
+            setConfig({ ...config, discordGatewayEnabled: !config.discordGatewayEnabled })
+          }
+          className={clsx('settings-switch', config.discordGatewayEnabled && 'is-enabled')}
+        >
+          <span />
+        </button>
+      </section>
+
+      <section className="space-y-3">
+        <SettingsGroupLabel
+          title="Bot credentials"
+          description="Use the token generated for your application in the Discord Developer Portal."
+        />
+        <div className="settings-card">
+          <label className="settings-field-label" htmlFor="discord-bot-token">
+            Bot token
+          </label>
+          <div className="relative mt-2">
+            <input
+              id="discord-bot-token"
+              type={showDiscordToken ? 'text' : 'password'}
+              value={config.discordBotToken || ''}
+              onChange={(e) => setConfig({ ...config, discordBotToken: e.target.value })}
+              placeholder="Enter your Discord bot token"
+              autoComplete="off"
+              spellCheck={false}
+              className="settings-text-input pr-11 font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => setShowDiscordToken((value) => !value)}
+              className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-[var(--surface-raised)] hover:text-text-primary"
+              title={showDiscordToken ? 'Hide bot token' : 'Show bot token'}
+              aria-label={showDiscordToken ? 'Hide bot token' : 'Show bot token'}
+            >
+              {showDiscordToken ? <EyeSlash size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
+            The token is stored through Prism configuration and is never displayed by default.
+          </p>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <SettingsGroupLabel
+          title="Model routing"
+          description="Choose independent models for Discord text messages and realtime voice sessions."
+        />
+        <div className="settings-routing-grid">
+          <div className="settings-card settings-model-card">
+            <div>
+              <span className="settings-field-label">Text responses</span>
+              <h3 className="mt-2 text-sm font-semibold text-text-primary">Gateway text model</h3>
+              <p className="mt-1 text-xs leading-relaxed text-text-secondary">
+                Handles server messages, direct messages, threads, and tool-driven text responses.
+              </p>
+            </div>
+            <div className="settings-model-selector">
               <ModelSelector
-                selectedModel={(config as any).discordGatewayVoiceModel || ''}
-                onModelChange={(m) => setConfig({ ...config, discordGatewayVoiceModel: m } as any)}
+                selectedModel={config.discordGatewayModel || ''}
+                onModelChange={(model) => setConfig({ ...config, discordGatewayModel: model })}
+                align="left"
               />
-              <span className="text-[11px] text-text-secondary/70 mt-1 block">Used for the prism=join voice command. Ensure this model supports realtime streaming (Live API).</span>
             </div>
           </div>
-        )}
-      </div>
+
+          <div className="settings-card settings-model-card">
+            <div>
+              <span className="settings-field-label">Realtime voice</span>
+              <h3 className="mt-2 text-sm font-semibold text-text-primary">Gemini Live model</h3>
+              <p className="mt-1 text-xs leading-relaxed text-text-secondary">
+                Handles sessions started by the prism=join command and must support the Live API.
+              </p>
+            </div>
+            <div className="settings-model-selector">
+              <ModelSelector
+                selectedModel={config.discordGatewayVoiceModel || ''}
+                onModelChange={(model) => setConfig({ ...config, discordGatewayVoiceModel: model })}
+                align="left"
+              />
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   )
 
@@ -1353,15 +1447,17 @@ function useLicenseCountdown(expiresAt?: string): string {
       />
 
       {licenseInfo?.isActivated ? (
-        <div className="flex flex-col gap-4 rounded-[20px] border border-accent-primary/30 bg-accent-primary/[0.04] p-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+        <div className="settings-card border-accent-primary/35">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-3 sm:justify-end">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
                 <Certificate size={22} weight="bold" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-base font-bold text-text-primary">{licenseInfo.licensee}</span>
+                  <span className="text-base font-bold text-text-primary">
+                    {licenseInfo.licensee}
+                  </span>
                   <span className="font-mono text-[10px] font-bold tracking-widest text-accent-primary bg-accent-primary/15 border border-accent-primary/30 px-2 py-0.5 rounded-full uppercase">
                     {licenseInfo.type}
                   </span>
@@ -1386,46 +1482,84 @@ function useLicenseCountdown(expiresAt?: string): string {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-white/[0.06] pt-4 mt-1">
+          <div className="settings-license-facts mt-4">
             <div className="flex flex-col">
               <span className="text-[11px] font-medium text-text-muted">License ID</span>
-              <span className="text-xs font-mono font-semibold text-text-primary mt-0.5">{licenseInfo.id}</span>
+              <span className="text-xs font-mono font-semibold text-text-primary mt-0.5">
+                {licenseInfo.id}
+              </span>
             </div>
             <div className="flex flex-col">
               <span className="text-[11px] font-medium text-text-muted">Seats Authorized</span>
-              <span className="text-xs font-semibold text-text-primary mt-0.5">{licenseInfo.seats} Seat(s)</span>
+              <span className="text-xs font-semibold text-text-primary mt-0.5">
+                {licenseInfo.seats} Seat(s)
+              </span>
             </div>
             <div className="flex flex-col">
               <span className="text-[11px] font-medium text-text-muted">Expiration Date</span>
               <span className="text-xs font-semibold text-text-primary mt-0.5">
-                {new Date(licenseInfo.expiresAt).toLocaleDateString()} ({new Date(licenseInfo.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                {new Date(licenseInfo.expiresAt).toLocaleDateString()} (
+                {new Date(licenseInfo.expiresAt).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+                )
               </span>
             </div>
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-10">
           {/* Dynamic Commercial Plans Grid (Fetched from Supabase) */}
-          <div className="flex flex-col gap-3">
+          <section className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-bold text-text-primary flex items-center gap-2">
-                  <Sparkle size={16} className="text-accent-primary animate-pulse" />
-                  Commercial Enterprise Plans
+                <span className="text-sm font-semibold text-text-primary">
+                  Choose an Enterprise plan
                 </span>
                 <span className="text-xs text-text-secondary/70">
-                  Select an Enterprise plan below. All prices and terms are fetched live from Supabase.
+                  Select an Enterprise plan below. All prices and terms are fetched live from
+                  Supabase.
                 </span>
               </div>
             </div>
 
             {isLoadingPlans ? (
-              <div className="flex items-center justify-center p-8 border border-white/[0.08] bg-white/[0.02] rounded-[20px]">
+              <div className="settings-card flex min-h-28 items-center justify-center">
                 <CircleNotch size={24} className="animate-spin text-accent-primary" />
-                <span className="text-xs text-text-secondary ml-3">Loading live pricing from Supabase...</span>
+                <span className="text-xs text-text-secondary ml-3">
+                  Loading live pricing from Supabase...
+                </span>
+              </div>
+            ) : plansError ? (
+              <div className="settings-card flex min-h-32 flex-col items-center justify-center gap-3 text-center">
+                <Warning size={22} className="text-status-error" />
+                <div>
+                  <p className="text-sm font-semibold text-text-primary">Pricing is unavailable</p>
+                  <p className="mt-1 text-xs text-text-secondary">{plansError}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadSubscriptionPlans()}
+                  className="settings-secondary-button"
+                >
+                  <ArrowClockwise size={14} />
+                  Retry
+                </button>
+              </div>
+            ) : plans.length === 0 ? (
+              <div className="settings-card flex min-h-32 flex-col items-center justify-center gap-2 text-center">
+                <CreditCard size={22} className="text-text-muted" />
+                <p className="text-sm font-semibold text-text-primary">
+                  No plans are currently available
+                </p>
+                <p className="max-w-md text-xs text-text-secondary">
+                  Prism did not receive an active commercial plan. Try again later or activate an
+                  existing key below.
+                </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="settings-plan-grid">
                 {plans.map((plan) => {
                   const isPopular = plan.badge === 'Best Value' || plan.id === 'enterprise_yearly'
                   const isLoadingThis = checkoutLoadingPlanId === plan.id
@@ -1435,14 +1569,12 @@ function useLicenseCountdown(expiresAt?: string): string {
                     <div
                       key={plan.id}
                       className={clsx(
-                        'relative flex flex-col justify-between p-5 rounded-[20px] border transition-all duration-200',
-                        isPopular
-                          ? 'border-accent-primary/40 bg-accent-primary/[0.05] shadow-lg shadow-accent-primary/5'
-                          : 'border-white/[0.08] bg-white/[0.035] hover:border-white/[0.15]'
+                        'settings-plan-card',
+                        isPopular ? 'is-featured' : 'hover:border-[var(--border-strong)]'
                       )}
                     >
                       {plan.badge && (
-                        <div className="absolute -top-3 right-4 px-2.5 py-0.5 rounded-full bg-accent-primary text-[10px] font-mono font-bold uppercase tracking-wider text-white shadow-sm">
+                        <div className="absolute -top-2.5 right-4 rounded bg-accent-primary px-2 py-1 font-mono text-[9px] font-semibold uppercase tracking-[0.06em] text-black">
                           {plan.badge}
                         </div>
                       )}
@@ -1453,17 +1585,27 @@ function useLicenseCountdown(expiresAt?: string): string {
                           {plan.description}
                         </p>
 
-                        <div className="flex items-baseline gap-1 my-2">
+                        <div className="flex items-baseline gap-1 my-3">
                           <span className="text-2xl font-extrabold text-text-primary font-mono">
-                            ${plan.priceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            $
+                            {plan.priceUsd.toLocaleString('en-US', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2
+                            })}
                           </span>
                           <span className="text-xs text-text-muted font-medium">
                             / {plan.billingInterval}
                           </span>
                         </div>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-text-muted">
+                          <span>
+                            {plan.seats} {plan.seats === 1 ? 'seat' : 'seats'}
+                          </span>
+                          <span>{plan.durationDays} days</span>
+                        </div>
                       </div>
 
-                      <div className="flex flex-col gap-2 pt-3 border-t border-white/[0.06] mt-3">
+                      <div className="flex flex-col gap-2 pt-3 border-t border-[var(--border-subtle)] mt-4">
                         {authUser ? (
                           <>
                             {/* Buy via Stripe — only for authenticated users */}
@@ -1471,21 +1613,31 @@ function useLicenseCountdown(expiresAt?: string): string {
                               onClick={() => handleBuyPlan(plan)}
                               disabled={isLoadingThis || hasPendingSession}
                               className={clsx(
-                                'w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all shadow-sm',
+                                'w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-semibold transition-colors',
                                 hasPendingSession
-                                  ? 'opacity-40 cursor-not-allowed bg-white/5 border border-white/10 text-text-muted'
+                                  ? 'opacity-40 cursor-not-allowed bg-[var(--surface-lowest)] border border-[var(--border-default)] text-text-muted'
                                   : isPopular
-                                  ? 'bg-accent-primary hover:bg-accent-primary/90 text-white cursor-pointer'
-                                  : 'bg-white/10 hover:bg-white/15 text-text-primary border border-white/10 cursor-pointer'
+                                    ? 'bg-white hover:bg-neutral-200 text-black cursor-pointer'
+                                    : 'bg-[var(--surface-raised)] hover:border-[var(--border-strong)] text-text-primary border border-[var(--border-default)] cursor-pointer'
                               )}
-                              title={hasPendingSession ? 'Payment session already opened — verify below' : undefined}
+                              title={
+                                hasPendingSession
+                                  ? 'Payment session already opened — verify below'
+                                  : undefined
+                              }
                             >
                               {isLoadingThis ? (
                                 <CircleNotch size={15} className="animate-spin" />
                               ) : (
                                 <CreditCard size={15} />
                               )}
-                              <span>{isLoadingThis ? 'Opening Checkout...' : hasPendingSession ? 'Checkout Opened' : 'Buy via Stripe'}</span>
+                              <span>
+                                {isLoadingThis
+                                  ? 'Opening Checkout...'
+                                  : hasPendingSession
+                                    ? 'Checkout Opened'
+                                    : 'Buy via Stripe'}
+                              </span>
                             </button>
 
                             {/* Verify & Activate — only enabled after a real session exists */}
@@ -1498,7 +1650,11 @@ function useLicenseCountdown(expiresAt?: string): string {
                                   ? 'text-status-success hover:text-status-success/80 cursor-pointer bg-status-success/10 hover:bg-status-success/15'
                                   : 'text-text-muted opacity-40 cursor-not-allowed'
                               )}
-                              title={!hasPendingSession ? 'Complete Stripe checkout first' : 'Verify payment and activate license'}
+                              title={
+                                !hasPendingSession
+                                  ? 'Complete Stripe checkout first'
+                                  : 'Verify payment and activate license'
+                              }
                             >
                               <CheckCircle size={13} />
                               Verify & Activate Plan
@@ -1524,7 +1680,7 @@ function useLicenseCountdown(expiresAt?: string): string {
                 })}
               </div>
             )}
-          </div>
+          </section>
 
           {/* Checkout Status Banner */}
           {checkoutMessage && (
@@ -1538,7 +1694,7 @@ function useLicenseCountdown(expiresAt?: string): string {
           )}
 
           {/* Manual Offline Key Activation Card */}
-          <div className="relative flex flex-col gap-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-5 overflow-hidden mt-2">
+          <section className="relative settings-card overflow-hidden">
             {/* Loading overlay ONLY for offline key activation — not for Stripe */}
             {activating && (
               <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/85 backdrop-blur-md animate-soft-pop p-6 text-center">
@@ -1555,7 +1711,10 @@ function useLicenseCountdown(expiresAt?: string): string {
             )}
 
             <div className="flex flex-col gap-1">
-              <span className="text-sm font-bold text-text-primary">Already have a License Key?</span>
+              <span className="settings-field-label">Existing license</span>
+              <span className="mt-1 text-sm font-semibold text-text-primary">
+                Activate with a license key
+              </span>
               <span className="text-xs text-text-secondary/70">
                 Paste your PRISM-ENTERPRISE key below to activate offline or custom licenses.
               </span>
@@ -1569,7 +1728,7 @@ function useLicenseCountdown(expiresAt?: string): string {
                   placeholder="Paste PRISM-ENTERPRISE key here"
                   rows={4}
                   style={{ WebkitTextSecurity: showKeyText ? 'none' : 'disc' } as any}
-                  className="w-full rounded-xl border border-white/[0.1] bg-black/40 p-3 pr-10 font-mono text-xs text-text-primary placeholder:text-text-muted/40 focus:border-accent-primary focus:outline-none transition-colors custom-scrollbar min-h-[110px]"
+                  className="settings-text-input min-h-[104px] resize-none pr-11 font-mono text-xs custom-scrollbar"
                 />
                 <button
                   type="button"
@@ -1595,7 +1754,7 @@ function useLicenseCountdown(expiresAt?: string): string {
                 </span>
               )}
 
-              <div className="flex items-center justify-between mt-2">
+              <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <a
                   href="https://github.com/brnalemusic"
                   target="_blank"
@@ -1608,14 +1767,14 @@ function useLicenseCountdown(expiresAt?: string): string {
                 <button
                   onClick={handleActivateLicense}
                   disabled={activating || !inputLicenseKey.trim()}
-                  className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-accent-primary hover:bg-accent-primary/90 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-all cursor-pointer shadow-sm"
+                  className="settings-primary-button disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {activating && <CircleNotch size={14} className="animate-spin" />}
                   <span>{activating ? 'Validating...' : 'Activate Key'}</span>
                 </button>
               </div>
             </div>
-          </div>
+          </section>
         </div>
       )}
 
@@ -1628,39 +1787,38 @@ function useLicenseCountdown(expiresAt?: string): string {
       )}
 
       {/* Stripe Payment Verification Modal — global portal */}
-      {stripeVerifying && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-xl animate-fade-in p-4">
-          <div className="flex flex-col items-center gap-5 p-8 rounded-[28px] border border-white/10 bg-[#0c0d14]/95 shadow-[0_30px_90px_-10px_rgba(0,0,0,0.95)] text-center max-w-sm w-full animate-soft-pop">
-            <div className="w-14 h-14 rounded-2xl bg-accent-primary/15 border border-accent-primary/30 flex items-center justify-center">
-              <CircleNotch size={28} className="animate-spin text-accent-primary" />
+      {stripeVerifying &&
+        createPortal(
+          <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-fade-in">
+            <div className="prism-modal-panel flex w-full max-w-sm flex-col items-center gap-5 p-8 text-center animate-soft-pop">
+              <div className="w-14 h-14 rounded-2xl bg-accent-primary/15 border border-accent-primary/30 flex items-center justify-center">
+                <CircleNotch size={28} className="animate-spin text-accent-primary" />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <h3 className="text-lg font-bold text-text-primary">
+                  {stripeCheckoutStage === 'opening' ? 'Preparing Checkout' : 'Completing Checkout'}
+                </h3>
+                <p className="text-xs text-text-secondary/80 leading-relaxed max-w-xs">
+                  {stripeCheckoutStage === 'opening'
+                    ? 'Creating your secure checkout session.'
+                    : 'Please complete your payment in the browser window.'}
+                </p>
+              </div>
+
+              <button
+                onClick={() => {
+                  stopSettingsPolling()
+                  setStripeVerifying(false)
+                }}
+                className="text-xs font-medium text-text-muted hover:text-text-primary transition-colors py-1 cursor-pointer"
+              >
+                Cancel
+              </button>
             </div>
-
-            <div className="flex flex-col gap-2">
-              <h3 className="text-lg font-bold text-text-primary">
-                {stripeCheckoutStage === 'opening' ? 'Preparing Checkout' : 'Completing Checkout'}
-              </h3>
-              <p className="text-xs text-text-secondary/80 leading-relaxed max-w-xs">
-                {stripeCheckoutStage === 'opening'
-                  ? 'Creating your secure checkout session.'
-                  : 'Please complete your payment in the browser window.'}
-              </p>
-            </div>
-
-            <button
-              onClick={() => {
-                stopSettingsPolling()
-                setStripeVerifying(false)
-              }}
-              className="text-xs font-medium text-text-muted hover:text-text-primary transition-colors py-1 cursor-pointer"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>,
-        document.body
-      )}
-
-
+          </div>,
+          document.body
+        )}
     </div>
   )
 
@@ -2039,7 +2197,8 @@ function useLicenseCountdown(expiresAt?: string): string {
             </div>
             <h3 className="text-sm font-semibold text-text-primary">PowerPoint Skill</h3>
             <p className="text-xs text-text-secondary/60 mt-1">
-              Allows the AI to learn presentation design guidelines and build 16:9 .pptx slide decks.
+              Allows the AI to learn presentation design guidelines and build 16:9 .pptx slide
+              decks.
             </p>
           </div>
         </div>
@@ -2099,7 +2258,8 @@ function useLicenseCountdown(expiresAt?: string): string {
             </div>
             <h3 className="text-sm font-semibold text-text-primary">Browser Skill</h3>
             <p className="text-xs text-text-secondary/60 mt-1">
-              Enables integrated Playwright browser automation, navigation, typing, and page snapshots.
+              Enables integrated Playwright browser automation, navigation, typing, and page
+              snapshots.
             </p>
           </div>
         </div>
@@ -2137,17 +2297,20 @@ function useLicenseCountdown(expiresAt?: string): string {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden animate-soft-pop">
-      {/* ─── Sticky Header ─── */}
-      <div className="shrink-0 flex items-center justify-between px-6 md:px-8 py-4 border-b border-white/[0.04] bg-background-main/80 backdrop-blur-md z-10">
-        <h1 className="text-lg font-semibold text-text-primary">Settings</h1>
+    <div className="settings-shell flex h-full flex-1 flex-col overflow-hidden bg-black animate-soft-pop">
+      <header className="z-20 flex h-16 shrink-0 items-center justify-between border-b border-[var(--border-default)] bg-black px-4 sm:px-6">
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold text-text-primary sm:text-lg">Settings</h1>
+          <p className="hidden text-xs text-text-muted sm:block">
+            Configure how Prism works for you.
+          </p>
+        </div>
 
-        <div className="flex items-center gap-3">
-          {/* Status message */}
+        <div className="flex items-center gap-2">
           {message.text && (
             <span
               className={clsx(
-                'flex items-center gap-1.5 text-xs font-semibold animate-soft-pop',
+                'hidden items-center gap-1.5 text-xs font-medium animate-soft-pop md:flex',
                 message.type === 'success' ? 'text-status-success' : 'text-status-error'
               )}
             >
@@ -2160,112 +2323,120 @@ function useLicenseCountdown(expiresAt?: string): string {
             </span>
           )}
 
-          {/* Reset button */}
           <button
             onClick={handleReset}
-            className="hidden sm:flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-secondary/70 transition-colors hover:bg-white/[0.04] hover:text-text-primary"
+            className="settings-secondary-button hidden sm:inline-flex"
             title="Restore default settings"
           >
             <RotateCcw size={14} />
             Reset
           </button>
 
-          {/* Save button — always visible */}
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="flex items-center gap-2 rounded-2xl bg-text-primary px-5 py-2 text-sm font-semibold text-black transition-all hover:bg-white disabled:opacity-50 active:scale-[0.97]"
-          >
-            <Save size={16} />
+          <button onClick={handleSave} disabled={isSaving} className="settings-primary-button">
+            <Save size={15} />
             {isSaving ? 'Saving...' : 'Save'}
           </button>
 
           {onClose && (
             <button
               onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-xl text-text-secondary hover:bg-white/[0.05] hover:text-text-primary transition-all duration-200 active:scale-95 cursor-pointer"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-text-secondary transition-colors hover:border-[var(--border-default)] hover:bg-[var(--surface-raised)] hover:text-text-primary"
               title="Close settings"
             >
-              <X size={18} weight="bold" />
+              <X size={17} weight="bold" />
             </button>
           )}
         </div>
-      </div>
+      </header>
 
-      {/* ─── Body: Nav + Content ─── */}
-      <div className="flex-1 flex min-h-0 flex-col md:flex-row">
-        {/* ─── Sidebar Nav (md+) ─── */}
-        <nav className="hidden md:flex shrink-0 w-48 flex-col gap-1 p-4 border-r border-white/[0.04]">
-          {sections.map((s) => (
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <nav className="hidden w-60 shrink-0 flex-col gap-1 border-r border-[var(--border-default)] bg-[var(--sidebar-bg)] p-4 lg:flex">
+          <span className="settings-field-label mb-2 px-3">Preferences</span>
+          {sections.map((section) => (
             <button
-              key={s.id}
-              onClick={() => handleSectionChange(s.id)}
+              key={section.id}
+              onClick={() => handleSectionChange(section.id)}
               className={clsx(
-                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all duration-200 w-full text-left',
-                activeSection === s.id
-                  ? 'bg-white/[0.06] text-text-primary font-medium'
-                  : 'text-text-secondary hover:bg-white/[0.03] hover:text-text-primary'
+                'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
+                activeSection === section.id
+                  ? 'bg-[var(--sidebar-surface)] font-medium text-text-primary'
+                  : 'text-text-secondary hover:bg-[var(--sidebar-hover)] hover:text-text-primary'
               )}
             >
               <span
                 className={clsx(
-                  'transition-colors duration-200',
-                  activeSection === s.id ? 'text-accent-primary' : 'text-text-muted'
+                  'transition-colors',
+                  activeSection === section.id ? 'text-accent-primary' : 'text-text-muted'
                 )}
               >
-                {s.icon}
+                {section.icon}
               </span>
-              {s.label}
+              {section.label}
             </button>
           ))}
-
-          {/* Mobile-only reset at bottom */}
-          <div className="mt-auto pt-4">
-            <button
-              onClick={handleReset}
-              className="flex sm:hidden items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-secondary/70 transition-colors hover:bg-white/[0.04] hover:text-text-primary w-full"
-            >
-              <RotateCcw size={14} />
-              Restore Defaults
-            </button>
-          </div>
         </nav>
 
-        {/* ─── Horizontal Tabs (mobile < md) ─── */}
-        <div className="md:hidden shrink-0 border-b border-white/[0.04] overflow-x-auto">
-          <div className="flex gap-1 px-4 py-2 min-w-max">
-            {sections.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => handleSectionChange(s.id)}
-                className={clsx(
-                  'flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium transition-all duration-200 whitespace-nowrap',
-                  activeSection === s.id
-                    ? 'bg-white/[0.06] text-text-primary'
-                    : 'text-text-secondary hover:bg-white/[0.03] hover:text-text-primary'
-                )}
-              >
-                <span
+        <div className="relative shrink-0 border-b border-[var(--border-default)] bg-[var(--surface-lowest)] p-3 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setIsSectionMenuOpen((current) => !current)}
+            className="flex w-full items-center justify-between rounded-lg border border-[var(--border-default)] bg-[var(--surface)] px-3 py-2.5 text-sm text-text-primary"
+            aria-expanded={isSectionMenuOpen}
+            aria-haspopup="menu"
+          >
+            <span className="flex items-center gap-2.5">
+              <span className="text-accent-primary">{activeNavSection.icon}</span>
+              {activeNavSection.label}
+            </span>
+            <CaretDown
+              size={15}
+              className={clsx(
+                'text-text-muted transition-transform',
+                isSectionMenuOpen && 'rotate-180'
+              )}
+            />
+          </button>
+
+          {isSectionMenuOpen && (
+            <div
+              role="menu"
+              className="absolute left-3 right-3 top-[calc(100%-4px)] z-30 grid max-h-[min(420px,55vh)] grid-cols-2 gap-1 overflow-y-auto rounded-xl border border-[var(--border-strong)] bg-[var(--surface-raised)] p-2 shadow-2xl sm:grid-cols-3"
+            >
+              {sections.map((section) => (
+                <button
+                  key={section.id}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => handleSectionChange(section.id)}
                   className={clsx(
-                    'transition-colors duration-200',
-                    activeSection === s.id ? 'text-accent-primary' : 'text-text-muted'
+                    'flex items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs transition-colors',
+                    activeSection === section.id
+                      ? 'bg-accent-primary/10 font-medium text-text-primary'
+                      : 'text-text-secondary hover:bg-white/[0.05] hover:text-text-primary'
                   )}
                 >
-                  {s.icon}
-                </span>
-                {s.label}
-              </button>
-            ))}
-          </div>
+                  <span
+                    className={
+                      activeSection === section.id ? 'text-accent-primary' : 'text-text-muted'
+                    }
+                  >
+                    {section.icon}
+                  </span>
+                  {section.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* ─── Content Panel ─── */}
-        <div ref={contentRef} className="flex-1 overflow-y-auto p-6 md:p-8 lg:p-10">
-          <div className="max-w-3xl">{renderActiveSection()}</div>
-        </div>
+        <main
+          ref={contentRef}
+          className="settings-content flex-1 overflow-y-auto p-5 sm:p-7 lg:p-10"
+        >
+          <div className="mx-auto w-full max-w-4xl">{renderActiveSection()}</div>
+        </main>
       </div>
 
-      {/* ─── Easter Egg Quantum Physics Game Overlay ─── */}
       {isEasterEggOpen && <QuantumPhysicsGame onClose={() => setIsEasterEggOpen(false)} />}
     </div>
   )
@@ -2281,9 +2452,24 @@ function SectionHeader({
   subtitle: string
 }): React.JSX.Element {
   return (
-    <div className="mb-2">
-      <h2 className="text-xl font-semibold text-text-primary">{title}</h2>
-      <p className="text-sm text-text-secondary/60 mt-1">{subtitle}</p>
+    <div className="mb-1 border-b border-[var(--border-subtle)] pb-5">
+      <h2 className="text-2xl font-semibold tracking-[-0.03em] text-text-primary">{title}</h2>
+      <p className="mt-1.5 max-w-2xl text-sm leading-6 text-text-secondary">{subtitle}</p>
+    </div>
+  )
+}
+
+function SettingsGroupLabel({
+  title,
+  description
+}: {
+  title: string
+  description?: string
+}): React.JSX.Element {
+  return (
+    <div className="mb-3">
+      <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
+      {description && <p className="mt-1 text-xs leading-5 text-text-muted">{description}</p>}
     </div>
   )
 }
@@ -2300,26 +2486,18 @@ function ToggleRow({
   onChange: () => void
 }): React.JSX.Element {
   return (
-    <div className="flex items-center justify-between rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-4 gap-4">
+    <div className="settings-card flex items-center justify-between gap-4">
       <div className="flex flex-col gap-1 min-w-0">
-        <span className="text-sm font-bold text-text-primary">{title}</span>
-        <span className="text-xs text-text-secondary/70 leading-tight">{description}</span>
+        <span className="text-sm font-semibold text-text-primary">{title}</span>
+        <span className="text-xs leading-5 text-text-secondary">{description}</span>
       </div>
       <button
         onClick={onChange}
         role="switch"
         aria-checked={checked}
-        className={clsx(
-          'relative flex h-7 w-12 items-center rounded-full px-1 transition-all duration-200 hover:opacity-90 shrink-0',
-          checked ? 'bg-accent-primary' : 'bg-white/[0.12]'
-        )}
+        className={clsx('settings-switch', checked && 'is-enabled')}
       >
-        <div
-          className={clsx(
-            'h-5 w-5 rounded-full bg-white shadow-md transition-all duration-200',
-            checked ? 'translate-x-5' : 'translate-x-0'
-          )}
-        />
+        <span />
       </button>
     </div>
   )

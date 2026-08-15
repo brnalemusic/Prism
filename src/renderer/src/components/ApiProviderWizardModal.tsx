@@ -161,8 +161,8 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
       ]
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] overflow-y-auto bg-black/80 backdrop-blur-xl p-4 sm:p-6 flex flex-col animate-soft-pop">
-      <div className="m-auto bg-surface border border-white/[0.12] rounded-[24px] w-full max-w-xl overflow-hidden shadow-[0_25px_60px_rgba(0,0,0,0.7)] flex flex-col max-h-[85vh]">
+    <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex flex-col overflow-y-auto p-4 sm:p-6 animate-soft-pop">
+      <div className="prism-modal-panel m-auto flex max-h-[calc(100vh-32px)] w-full max-w-xl flex-col overflow-hidden">
         {/* Header — ALWAYS FIXED AND VISIBLE WITH SHRINK-0 */}
         <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-white/[0.08] bg-white/[0.02]">
           <div className="flex flex-wrap items-center gap-2.5 min-w-0">

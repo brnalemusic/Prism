@@ -1,6 +1,13 @@
 import React, { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { CreditCard, LockKey, ShieldCheck, CheckCircle as CheckCircle2, CircleNotch, X } from '@phosphor-icons/react'
+import {
+  CreditCard,
+  LockKey,
+  ShieldCheck,
+  CheckCircle as CheckCircle2,
+  CircleNotch,
+  X
+} from '@phosphor-icons/react'
 import type { SubscriptionPlan, UserProfile } from '../../../shared/types'
 
 interface StripeCheckoutModalProps {
@@ -17,7 +24,9 @@ export const StripeCheckoutModal: React.FC<StripeCheckoutModalProps> = ({
   onConfirmPayment
 }) => {
   const [email, setEmail] = useState(userProfile?.email || 'customer@prism.app')
-  const [companyName, setCompanyName] = useState(userProfile?.companyName || userProfile?.fullName || 'Enterprise Licensee')
+  const [companyName, setCompanyName] = useState(
+    userProfile?.companyName || userProfile?.fullName || 'Enterprise Licensee'
+  )
   const [cardNumber, setCardNumber] = useState('4242 •••• •••• 4242')
   const [cardExpiry, setCardExpiry] = useState('12/28')
   const [cardCvc, setCardCvc] = useState('123')
@@ -34,11 +43,10 @@ export const StripeCheckoutModal: React.FC<StripeCheckoutModalProps> = ({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-xl p-4 animate-soft-pop">
-      <div className="relative flex flex-col w-full max-w-lg rounded-[28px] border border-white/[0.12] bg-[#0F1015]/95 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] overflow-hidden text-text-primary">
-        
+    <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-soft-pop">
+      <div className="prism-modal-panel relative flex max-h-[calc(100vh-32px)] w-full max-w-lg flex-col overflow-y-auto text-text-primary">
         {/* Stripe Brand Header Bar */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.08] bg-[#635BFF]/10">
+        <div className="flex items-center justify-between border-b border-[var(--border-default)] bg-[var(--surface)] px-6 py-4">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#635BFF] text-white shadow-sm font-extrabold text-sm">
               S
@@ -74,7 +82,11 @@ export const StripeCheckoutModal: React.FC<StripeCheckoutModalProps> = ({
             </div>
             <div className="flex flex-col items-end">
               <span className="font-mono text-xl font-extrabold text-accent-primary">
-                ${plan.priceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                $
+                {plan.priceUsd.toLocaleString('en-US', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2
+                })}
               </span>
               <span className="text-[10px] text-text-muted font-medium uppercase tracking-wider">
                 USD / {plan.billingInterval}
@@ -96,7 +108,9 @@ export const StripeCheckoutModal: React.FC<StripeCheckoutModalProps> = ({
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-semibold text-text-muted">Company / Licensee Name</label>
+              <label className="text-[11px] font-semibold text-text-muted">
+                Company / Licensee Name
+              </label>
               <input
                 type="text"
                 required
@@ -167,7 +181,12 @@ export const StripeCheckoutModal: React.FC<StripeCheckoutModalProps> = ({
                 <>
                   <CheckCircle2 size={16} />
                   <span>
-                    Pay ${plan.priceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} & Activate
+                    Pay $
+                    {plan.priceUsd.toLocaleString('en-US', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2
+                    })}{' '}
+                    & Activate
                   </span>
                 </>
               )}

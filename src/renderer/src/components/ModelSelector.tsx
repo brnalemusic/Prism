@@ -1,5 +1,11 @@
 import { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
-import { CaretDown as ChevronDown, Check, MagnifyingGlass, CheckCircle, Warning } from '@phosphor-icons/react'
+import {
+  CaretDown as ChevronDown,
+  Check,
+  MagnifyingGlass,
+  CheckCircle,
+  Warning
+} from '@phosphor-icons/react'
 import { clsx } from 'clsx'
 import { isShortcutPressed } from '../utils'
 
@@ -41,7 +47,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
       }
     }))
 
-    const loadActiveModels = async () => {
+    const loadActiveModels = async (): Promise<void> => {
       try {
         const list = await window.api.getActiveModels()
         setActiveModels(list || [])
@@ -106,7 +112,10 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
     // Find currently selected model display item
     const selectedItem = activeModels.find(
-      (item) => item.fullKey === selectedModel || item.model.id === selectedModel || item.model.name === selectedModel
+      (item) =>
+        item.fullKey === selectedModel ||
+        item.model.id === selectedModel ||
+        item.model.name === selectedModel
     )
 
     const rawDisplayName = selectedItem
@@ -148,25 +157,34 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
           disabled={disabled}
           onClick={() => setIsOpen(!isOpen)}
           className={clsx(
-            'flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-semibold outline-none transition-all duration-200 border border-transparent hover:bg-white/[0.05] hover:border-white/[0.09]',
-            isOpen ? 'bg-white/[0.08] text-text-primary border-white/10' : 'bg-transparent text-text-primary',
+            'flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs sm:text-sm font-semibold outline-none transition-colors duration-200 border hover:bg-[var(--surface-raised)] hover:border-[var(--border-strong)]',
+            isOpen
+              ? 'bg-[var(--surface-raised)] text-text-primary border-[var(--border-strong)]'
+              : 'bg-transparent text-text-primary border-[var(--border-default)]',
             disabled && 'cursor-not-allowed opacity-50'
           )}
         >
-          <span className="text-xs sm:text-[13.5px] font-bold tracking-wide truncate max-w-[160px] sm:max-w-[220px]">{displayName}</span>
+          <span className="text-xs sm:text-[13.5px] font-bold tracking-wide truncate max-w-[160px] sm:max-w-[220px]">
+            {displayName}
+          </span>
           <ChevronDown
             size={13}
-            className={clsx('text-text-muted transition-transform duration-200 shrink-0', isOpen && 'rotate-180')}
+            className={clsx(
+              'text-text-muted transition-transform duration-200 shrink-0',
+              isOpen && 'rotate-180'
+            )}
           />
         </button>
 
         {isOpen && (
-          <div className={clsx(
-            "absolute top-full mt-2 w-72 sm:w-80 z-[100] rounded-2xl border border-white/[0.12] bg-surface backdrop-blur-2xl shadow-2xl overflow-hidden flex flex-col max-h-96 animate-soft-pop",
-            align === 'left' ? 'left-0' : 'right-0'
-          )}>
+          <div
+            className={clsx(
+              'absolute top-full mt-2 w-72 sm:w-80 z-[100] rounded-xl border border-[var(--border-strong)] bg-[var(--surface-raised)] shadow-[0_18px_45px_rgba(0,0,0,0.55)] overflow-hidden flex flex-col max-h-96 animate-soft-pop',
+              align === 'left' ? 'left-0' : 'right-0'
+            )}
+          >
             {/* Search Box */}
-            <div className="p-2.5 border-b border-white/[0.08] bg-black/20">
+            <div className="border-b border-[var(--border-default)] bg-black p-2.5">
               <div className="relative">
                 <MagnifyingGlass size={14} className="absolute left-3 top-2.5 text-text-muted" />
                 <input
@@ -174,7 +192,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search models or providers..."
-                  className="w-full pl-9 pr-3 py-1.5 bg-white/[0.04] border border-white/[0.1] rounded-xl text-xs text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-primary"
+                  className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--surface-lowest)] py-1.5 pl-9 pr-3 text-xs text-text-primary placeholder-text-muted focus:border-accent-primary focus:outline-none"
                   autoFocus
                 />
               </div>
@@ -184,14 +202,17 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
             <div className="p-2 overflow-y-auto space-y-3 flex-1">
               {filteredGroupKeys.length === 0 ? (
                 <div className="py-6 text-center text-xs text-text-muted">
-                  {activeModels.length === 0 ? 'No active models found in API Settings.' : 'No models match search.'}
+                  {activeModels.length === 0
+                    ? 'No active models found in API Settings.'
+                    : 'No models match search.'}
                 </div>
               ) : (
                 filteredGroupKeys.map((pName) => {
                   const items = grouped[pName].filter(
                     (i) =>
                       i.model.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                      (i.model.name && i.model.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+                      (i.model.name &&
+                        i.model.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
                       pName.toLowerCase().includes(searchQuery.toLowerCase())
                   )
                   if (!items.length) return null
@@ -204,11 +225,19 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
                           {pName}
                           {isTrusted ? (
                             <span title="This provider is trusted by Prism.">
-                              <CheckCircle size={12} weight="fill" className="text-status-success cursor-help" />
+                              <CheckCircle
+                                size={12}
+                                weight="fill"
+                                className="text-status-success cursor-help"
+                              />
                             </span>
                           ) : (
                             <span title="This provider is not trusted by Prism.">
-                              <Warning size={12} weight="fill" className="text-status-warning cursor-help" />
+                              <Warning
+                                size={12}
+                                weight="fill"
+                                className="text-status-warning cursor-help"
+                              />
                             </span>
                           )}
                         </span>
@@ -232,7 +261,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
                               setIsOpen(false)
                             }}
                             className={clsx(
-                              'w-full flex items-center justify-between px-3 py-2 rounded-xl text-left text-xs transition-all',
+                              'w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-xs transition-colors',
                               isSelected
                                 ? 'bg-accent-primary/15 text-accent-primary font-bold border border-accent-primary/30'
                                 : 'text-text-secondary hover:bg-white/[0.06] hover:text-text-primary border border-transparent'
@@ -241,10 +270,18 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
                             <div className="truncate pr-2">
                               <div className="truncate font-semibold">{mainLabel}</div>
                               {item.model.name && mainLabel !== subLabel && (
-                                <div className="text-[10px] text-text-muted font-mono truncate">{subLabel}</div>
+                                <div className="text-[10px] text-text-muted font-mono truncate">
+                                  {subLabel}
+                                </div>
                               )}
                             </div>
-                            {isSelected && <Check size={14} weight="bold" className="text-accent-primary shrink-0" />}
+                            {isSelected && (
+                              <Check
+                                size={14}
+                                weight="bold"
+                                className="text-accent-primary shrink-0"
+                              />
+                            )}
                           </button>
                         )
                       })}

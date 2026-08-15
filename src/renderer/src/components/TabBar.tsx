@@ -1,7 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { Plus, X, Columns, ChatTeardropText, StopCircle, GlobeSimple, CaretDown, SquaresFour } from '@phosphor-icons/react'
+import {
+  Plus,
+  X,
+  Columns,
+  ChatTeardropText,
+  StopCircle,
+  GlobeSimple,
+  CaretDown,
+  SquaresFour
+} from '@phosphor-icons/react'
 import { ModelSelector } from './ModelSelector'
 import type { TabSession } from '../types/tab'
 
@@ -117,7 +126,7 @@ export const TabBar: React.FC<TabBarProps> = ({
   const isContextTabVisible = contextMenu ? visibleTabIds.includes(contextMenu.tabId) : false
 
   return (
-    <div className="flex h-11 w-full items-center justify-between border-b border-white/[0.06] bg-background-main/90 px-3 select-none backdrop-blur-md z-30 relative">
+    <div className="flex h-12 w-full items-center justify-between border-b border-[var(--border-subtle)] bg-black px-4 select-none z-30 relative">
       {/* Tabs Container */}
       <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-3 py-1 overflow-hidden">
         {tabs.map((tab) => {
@@ -164,16 +173,16 @@ export const TabBar: React.FC<TabBarProps> = ({
                 setDraggedTabId(null)
               }}
               className={clsx(
-                'group relative flex h-8 items-center gap-2 rounded-xl px-2.5 text-xs font-medium transition-all duration-200 cursor-pointer shrink flex-1 min-w-[80px] max-w-[170px] border animate-tab-appear',
+                'group relative flex h-8 items-center gap-2 rounded-lg px-2.5 text-xs font-medium transition-colors duration-200 cursor-pointer shrink flex-1 min-w-[80px] max-w-[180px] border animate-tab-appear',
                 isDragging
                   ? 'opacity-30 scale-95 border-dashed border-accent-primary/40 bg-white/[0.02]'
                   : isDragOver
                     ? 'bg-accent-primary/15 border-accent-primary text-text-primary shadow-[0_0_12px_rgba(255,255,255,0.15)] scale-[1.03] z-10'
                     : isActive
-                      ? 'bg-white/[0.08] text-text-primary border-accent-primary/40 shadow-sm'
+                      ? 'bg-[var(--surface-raised)] text-text-primary border-accent-primary/45'
                       : isVisible
-                        ? 'bg-white/[0.04] text-text-secondary hover:bg-white/[0.06] border-white/[0.08]'
-                        : 'bg-transparent text-text-muted hover:bg-white/[0.025] hover:text-text-secondary border-transparent'
+                        ? 'bg-[var(--surface)] text-text-secondary hover:bg-[var(--surface-raised)] border-[var(--border-default)]'
+                        : 'bg-transparent text-text-muted hover:bg-[var(--surface)] hover:text-text-secondary border-transparent'
               )}
             >
               {/* Status icon / spinner */}
@@ -182,14 +191,22 @@ export const TabBar: React.FC<TabBarProps> = ({
                   <GlobeSimple
                     size={14}
                     className={clsx(
-                      isActive ? 'text-accent-primary' : isVisible ? 'text-text-secondary' : 'text-text-muted'
+                      isActive
+                        ? 'text-accent-primary'
+                        : isVisible
+                          ? 'text-text-secondary'
+                          : 'text-text-muted'
                     )}
                   />
                 ) : (
                   <ChatTeardropText
                     size={14}
                     className={clsx(
-                      isActive ? 'text-accent-primary' : isVisible ? 'text-text-secondary' : 'text-text-muted'
+                      isActive
+                        ? 'text-accent-primary'
+                        : isVisible
+                          ? 'text-text-secondary'
+                          : 'text-text-muted'
                     )}
                   />
                 )}
@@ -221,7 +238,7 @@ export const TabBar: React.FC<TabBarProps> = ({
 
         {/* Attached Plus (+) & Dropdown Button Group */}
         <div ref={plusBtnGroupRef} className="shrink-0 flex items-center">
-          <div className="flex items-center rounded-xl border border-white/[0.06] bg-white/[0.02] transition-all duration-200 hover:border-white/[0.12] overflow-hidden">
+          <div className="flex items-center rounded-lg border border-[var(--border-default)] bg-[var(--surface)] transition-colors duration-200 hover:border-[var(--border-strong)] overflow-hidden">
             {/* Left Button: Plus (+) */}
             <button
               type="button"
@@ -248,7 +265,13 @@ export const TabBar: React.FC<TabBarProps> = ({
                 isPlusMenuOpen && 'bg-white/[0.08] text-text-primary'
               )}
             >
-              <CaretDown size={12} className={clsx('transition-transform duration-200', isPlusMenuOpen && 'rotate-180')} />
+              <CaretDown
+                size={12}
+                className={clsx(
+                  'transition-transform duration-200',
+                  isPlusMenuOpen && 'rotate-180'
+                )}
+              />
             </button>
           </div>
         </div>
@@ -256,155 +279,158 @@ export const TabBar: React.FC<TabBarProps> = ({
 
       {/* Model Selector Dropdown */}
       <div className="shrink-0 flex items-center">
-        <ModelSelector
-          selectedModel={selectedModel}
-          onModelChange={onModelChange}
-          align="right"
-        />
+        <ModelSelector selectedModel={selectedModel} onModelChange={onModelChange} align="right" />
       </div>
 
       {/* Plus / New Options Dropdown Menu (Rendered at top-level via Portal) */}
-      {isPlusMenuOpen && plusMenuPos && createPortal(
-        <div
-          ref={plusMenuRef}
-          className="fixed z-[99999] w-44 rounded-2xl border border-white/[0.12] bg-surface/95 backdrop-blur-2xl shadow-2xl p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
-          style={{
-            left: `${Math.min(plusMenuPos.x, window.innerWidth - 180)}px`,
-            top: `${Math.min(plusMenuPos.y, window.innerHeight - 120)}px`
-          }}
-        >
-          {/* New tab */}
-          <button
-            type="button"
-            disabled={isMaxTabs}
-            onClick={() => {
-              handleNewTabClick()
-              setIsPlusMenuOpen(false)
+      {isPlusMenuOpen &&
+        plusMenuPos &&
+        createPortal(
+          <div
+            ref={plusMenuRef}
+            className="fixed z-[99999] w-44 rounded-xl border border-[var(--border-default)] bg-[var(--surface-raised)] shadow-[0_20px_48px_rgba(0,0,0,0.5)] p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
+            style={{
+              left: `${Math.min(plusMenuPos.x, window.innerWidth - 180)}px`,
+              top: `${Math.min(plusMenuPos.y, window.innerHeight - 120)}px`
             }}
-            className={clsx(
-              'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full cursor-pointer',
-              isMaxTabs
-                ? 'opacity-40 cursor-not-allowed text-text-muted'
-                : 'text-text-secondary hover:bg-white/[0.08] hover:text-text-primary'
-            )}
           >
-            <Plus size={14} className="text-accent-primary shrink-0" />
-            <span>New tab</span>
-          </button>
+            {/* New tab */}
+            <button
+              type="button"
+              disabled={isMaxTabs}
+              onClick={() => {
+                handleNewTabClick()
+                setIsPlusMenuOpen(false)
+              }}
+              className={clsx(
+                'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full cursor-pointer',
+                isMaxTabs
+                  ? 'opacity-40 cursor-not-allowed text-text-muted'
+                  : 'text-text-secondary hover:bg-white/[0.08] hover:text-text-primary'
+              )}
+            >
+              <Plus size={14} className="text-accent-primary shrink-0" />
+              <span>New tab</span>
+            </button>
 
-          {/* AI Browser */}
-          <button
-            type="button"
-            disabled={tabs.some((t) => t.tabType === 'browser')}
-            onClick={() => {
-              if (!tabs.some((t) => t.tabType === 'browser')) {
-                onOpenBrowserTab()
+            {/* AI Browser */}
+            <button
+              type="button"
+              disabled={tabs.some((t) => t.tabType === 'browser')}
+              onClick={() => {
+                if (!tabs.some((t) => t.tabType === 'browser')) {
+                  onOpenBrowserTab()
+                }
+                setIsPlusMenuOpen(false)
+              }}
+              title={
+                tabs.some((t) => t.tabType === 'browser')
+                  ? 'An AI Browser tab is already open'
+                  : 'AI Browser'
               }
-              setIsPlusMenuOpen(false)
-            }}
-            title={tabs.some((t) => t.tabType === 'browser') ? 'An AI Browser tab is already open' : 'AI Browser'}
-            className={clsx(
-              'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full',
-              tabs.some((t) => t.tabType === 'browser')
-                ? 'opacity-40 cursor-not-allowed text-text-muted'
-                : 'text-text-secondary hover:bg-white/[0.08] hover:text-text-primary cursor-pointer'
-            )}
-          >
-            <GlobeSimple size={14} className="text-accent-primary shrink-0" />
-            <span className="flex-1">AI Browser</span>
-            {tabs.some((t) => t.tabType === 'browser') && (
-              <span className="text-[10px] opacity-60 font-normal">Active</span>
-            )}
-          </button>
-        </div>,
-        document.body
-      )}
+              className={clsx(
+                'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full',
+                tabs.some((t) => t.tabType === 'browser')
+                  ? 'opacity-40 cursor-not-allowed text-text-muted'
+                  : 'text-text-secondary hover:bg-white/[0.08] hover:text-text-primary cursor-pointer'
+              )}
+            >
+              <GlobeSimple size={14} className="text-accent-primary shrink-0" />
+              <span className="flex-1">AI Browser</span>
+              {tabs.some((t) => t.tabType === 'browser') && (
+                <span className="text-[10px] opacity-60 font-normal">Active</span>
+              )}
+            </button>
+          </div>,
+          document.body
+        )}
 
       {/* Custom Right-Click Context Menu for Tabs (Rendered via Portal) */}
-      {contextMenu && contextTab && createPortal(
-        <div
-          ref={menuRef}
-          className="fixed z-[99999] w-48 rounded-2xl border border-white/[0.12] bg-surface/95 backdrop-blur-2xl shadow-2xl p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
-          style={{
-            left: `${Math.min(contextMenu.x, window.innerWidth - 200)}px`,
-            top: `${Math.min(contextMenu.y, window.innerHeight - 160)}px`
-          }}
-        >
-          {/* Split View Toggle */}
-          <button
-            type="button"
-            disabled={!isContextTabVisible && visibleCount >= 4}
-            onClick={() => {
-              onToggleSplitTab(contextTab.id)
-              setContextMenu(null)
+      {contextMenu &&
+        contextTab &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className="fixed z-[99999] w-48 rounded-xl border border-[var(--border-default)] bg-[var(--surface-raised)] shadow-[0_20px_48px_rgba(0,0,0,0.5)] p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
+            style={{
+              left: `${Math.min(contextMenu.x, window.innerWidth - 200)}px`,
+              top: `${Math.min(contextMenu.y, window.innerHeight - 160)}px`
             }}
-            className={clsx(
-              'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full cursor-pointer',
-              !isContextTabVisible && visibleCount >= 4
-                ? 'opacity-40 cursor-not-allowed text-text-muted'
-                : 'text-text-secondary hover:bg-white/[0.08] hover:text-text-primary'
-            )}
           >
-            <Columns size={14} className="text-accent-primary shrink-0" />
-            <span>{isContextTabVisible ? 'Remove from split view' : 'Split view'}</span>
-          </button>
+            {/* Split View Toggle */}
+            <button
+              type="button"
+              disabled={!isContextTabVisible && visibleCount >= 4}
+              onClick={() => {
+                onToggleSplitTab(contextTab.id)
+                setContextMenu(null)
+              }}
+              className={clsx(
+                'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full cursor-pointer',
+                !isContextTabVisible && visibleCount >= 4
+                  ? 'opacity-40 cursor-not-allowed text-text-muted'
+                  : 'text-text-secondary hover:bg-white/[0.08] hover:text-text-primary'
+              )}
+            >
+              <Columns size={14} className="text-accent-primary shrink-0" />
+              <span>{isContextTabVisible ? 'Remove from split view' : 'Split view'}</span>
+            </button>
 
-          {/* Stop Agent (Always present) */}
-          <button
-            type="button"
-            onClick={() => {
-              onStopAgent(contextTab.id)
-              setContextMenu(null)
-            }}
-            className={clsx(
-              'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full cursor-pointer',
-              contextTab.isProcessing
-                ? 'text-status-error hover:bg-status-error/10'
-                : 'text-text-muted hover:bg-white/[0.05] hover:text-text-secondary'
-            )}
-            title={contextTab.isProcessing ? 'Stop agent processing' : 'Agent is not processing'}
-          >
-            <StopCircle size={14} className="shrink-0" />
-            <span>Stop agent</span>
-          </button>
+            {/* Stop Agent (Always present) */}
+            <button
+              type="button"
+              onClick={() => {
+                onStopAgent(contextTab.id)
+                setContextMenu(null)
+              }}
+              className={clsx(
+                'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full cursor-pointer',
+                contextTab.isProcessing
+                  ? 'text-status-error hover:bg-status-error/10'
+                  : 'text-text-muted hover:bg-white/[0.05] hover:text-text-secondary'
+              )}
+              title={contextTab.isProcessing ? 'Stop agent processing' : 'Agent is not processing'}
+            >
+              <StopCircle size={14} className="shrink-0" />
+              <span>Stop agent</span>
+            </button>
 
-          <div className="h-[1px] bg-white/[0.06] my-0.5" />
+            <div className="h-[1px] bg-white/[0.06] my-0.5" />
 
-          {/* Close Tab */}
-          <button
-            type="button"
-            onClick={() => {
-              onCloseTab(contextTab.id)
-              setContextMenu(null)
-            }}
-            className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-colors w-full cursor-pointer"
-          >
-            <X size={14} className="shrink-0" />
-            <span>Close tab</span>
-          </button>
+            {/* Close Tab */}
+            <button
+              type="button"
+              onClick={() => {
+                onCloseTab(contextTab.id)
+                setContextMenu(null)
+              }}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-colors w-full cursor-pointer"
+            >
+              <X size={14} className="shrink-0" />
+              <span>Close tab</span>
+            </button>
 
-          {/* Close Other Tabs */}
-          <button
-            type="button"
-            disabled={tabs.length <= 1}
-            onClick={() => {
-              onCloseOtherTabs(contextTab.id)
-              setContextMenu(null)
-            }}
-            className={clsx(
-              'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full cursor-pointer',
-              tabs.length <= 1
-                ? 'opacity-40 cursor-not-allowed text-text-muted'
-                : 'text-status-error hover:bg-status-error/10'
-            )}
-          >
-            <SquaresFour size={14} className="shrink-0" />
-            <span>Close other tabs</span>
-          </button>
-        </div>,
-        document.body
-      )}
+            {/* Close Other Tabs */}
+            <button
+              type="button"
+              disabled={tabs.length <= 1}
+              onClick={() => {
+                onCloseOtherTabs(contextTab.id)
+                setContextMenu(null)
+              }}
+              className={clsx(
+                'flex items-center gap-2.5 px-3 py-2 rounded-xl text-left font-medium transition-colors w-full cursor-pointer',
+                tabs.length <= 1
+                  ? 'opacity-40 cursor-not-allowed text-text-muted'
+                  : 'text-status-error hover:bg-status-error/10'
+              )}
+            >
+              <SquaresFour size={14} className="shrink-0" />
+              <span>Close other tabs</span>
+            </button>
+          </div>,
+          document.body
+        )}
     </div>
   )
 }
-

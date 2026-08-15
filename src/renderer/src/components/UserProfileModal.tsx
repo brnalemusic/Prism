@@ -69,7 +69,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   useEffect(() => {
     if (isOpen && user) {
       setIsAiUsageUnavailable(false)
-      window.api.getUserAiUsage()
+      window.api
+        .getUserAiUsage()
         .then((usage) => {
           if (usage) {
             cachedAiUsage = usage
@@ -91,9 +92,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
   if (!isOpen || !user) return null
 
-  const isEnterprise =
-    user.accountType === 'enterprise' ||
-    user.accountType === 'company'
+  const isEnterprise = user.accountType === 'enterprise' || user.accountType === 'company'
 
   const initials = user.fullName
     ? user.fullName
@@ -110,7 +109,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       const signedOut = await window.api.authLogout()
       if (!signedOut) {
         setLoading(false)
-        setErrorMsg('Unable to securely sign out while the local license entitlement is still active. Please reconnect and try again.')
+        setErrorMsg(
+          'Unable to securely sign out while the local license entitlement is still active. Please reconnect and try again.'
+        )
         return
       }
       setLoading(false)
@@ -150,12 +151,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 animate-soft-pop">
-      <div className="relative flex flex-col w-full max-w-[480px] max-h-[90vh] overflow-y-auto rounded-[28px] border border-white/[0.12] bg-[#0E0F12]/95 p-6 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] space-y-5 text-text-primary scrollbar-none">
-        {/* Ambient glow background */}
-        <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-accent-primary/10 blur-3xl" />
-        <div className="pointer-events-none absolute -left-20 -bottom-20 h-56 w-56 rounded-full bg-purple-600/10 blur-3xl" />
-
+    <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-soft-pop">
+      <div className="prism-modal-panel profile-modal-panel relative flex max-h-[calc(100vh-32px)] w-full max-w-[520px] flex-col overflow-y-auto p-6 text-text-primary scrollbar-none">
         {/* Close button */}
         <button
           onClick={onClose}
@@ -166,12 +163,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
         {/* Top Header */}
         <div className="flex items-center gap-4 pt-1">
-          <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-primary/30 to-purple-600/30 border border-white/20 text-accent-primary font-bold text-lg shadow-inner">
+          <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-[var(--border-strong)] bg-[var(--surface-raised)] text-lg font-semibold text-accent-primary">
             {user.avatarUrl ? (
               <img
                 src={user.avatarUrl}
                 alt={user.fullName || user.email}
-                className="h-full w-full rounded-2xl object-cover"
+                className="h-full w-full rounded-xl object-cover"
               />
             ) : (
               <span>{initials}</span>
@@ -222,104 +219,107 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         )}
 
         {/* Prism Cloud AI Quota Cards (Segregated by Model) */}
-        {!isEditing && (() => {
-          const flashUsage =
-            aiUsage?.models?.['gemini-3-flash-preview'] ||
-            aiUsage?.models?.['gemini-3-flash'] ||
-            aiUsage?.modelList?.find((m) => m.modelId.includes('flash') && !m.modelId.includes('lite'))
+        {!isEditing &&
+          (() => {
+            const flashUsage =
+              aiUsage?.models?.['gemini-3-flash-preview'] ||
+              aiUsage?.models?.['gemini-3-flash'] ||
+              aiUsage?.modelList?.find(
+                (m) => m.modelId.includes('flash') && !m.modelId.includes('lite')
+              )
 
-          const liteUsage =
-            aiUsage?.models?.['gemini-3.1-flash-lite'] ||
-            aiUsage?.modelList?.find((m) => m.modelId.includes('lite'))
+            const liteUsage =
+              aiUsage?.models?.['gemini-3.1-flash-lite'] ||
+              aiUsage?.modelList?.find((m) => m.modelId.includes('lite'))
 
-          return (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between px-1">
-                <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider">
-                  <Sparkle size={15} className="text-accent-primary" weight="fill" />
-                  <span>Prism AI Model Quotas</span>
-                </div>
-                <span className="text-[10px] font-mono text-text-muted">Live DB Metrics</span>
-              </div>
-
-              {/* Gemini 3 Flash Card */}
-              <div className="rounded-2xl border border-accent-primary/20 bg-accent-primary/[0.04] p-4 space-y-3 shadow-sm">
-                <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
-                    <span className="text-xs font-bold text-white">Gemini 3 Flash</span>
+            return (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between px-1">
+                  <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider">
+                    <Sparkle size={15} className="text-accent-primary" weight="fill" />
+                    <span>Prism AI Model Quotas</span>
                   </div>
-                  <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 text-cyan-400">
-                    <ScrambleText
-                      text={flashUsage ? `${flashUsage.tier.toUpperCase()} TIER` : 'QUOTA'}
-                      triggerKey={isOpen}
-                    />
-                  </span>
+                  <span className="text-[10px] font-mono text-text-muted">Live DB Metrics</span>
                 </div>
 
-                {/* 5-Hour Progress */}
-                <AnimatedQuotaBar
-                  label="5-Hour Quota"
-                  resetSeconds={flashUsage?.reset5hSeconds}
-                  targetPercentage={flashUsage?.percentage5h}
-                  isUnavailable={isAiUsageUnavailable}
-                  barGradient="from-accent-primary to-cyan-400"
-                  formatResetTime={formatResetTime}
-                />
-
-                {/* Weekly Progress */}
-                <AnimatedQuotaBar
-                  label="Weekly Quota"
-                  resetSeconds={flashUsage?.reset1wSeconds}
-                  targetPercentage={flashUsage?.percentage1w}
-                  isUnavailable={isAiUsageUnavailable}
-                  barGradient="from-cyan-400 to-emerald-400"
-                  formatResetTime={formatResetTime}
-                />
-              </div>
-
-              {/* Gemini 3.1 Flash-Lite Card */}
-              <div className="rounded-2xl border border-purple-500/20 bg-purple-500/[0.04] p-4 space-y-3 shadow-sm">
-                <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-purple-400 animate-pulse" />
-                    <span className="text-xs font-bold text-white">Gemini 3.1 Flash-Lite</span>
+                {/* Gemini 3 Flash Card */}
+                <div className="rounded-2xl border border-accent-primary/20 bg-accent-primary/[0.04] p-4 space-y-3 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+                      <span className="text-xs font-bold text-white">Gemini 3 Flash</span>
+                    </div>
+                    <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 text-cyan-400">
+                      <ScrambleText
+                        text={flashUsage ? `${flashUsage.tier.toUpperCase()} TIER` : 'QUOTA'}
+                        triggerKey={isOpen}
+                      />
+                    </span>
                   </div>
-                  <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-purple-500/30 bg-purple-500/10 text-purple-400">
-                    <ScrambleText
-                      text={liteUsage ? `${liteUsage.tier.toUpperCase()} TIER` : 'QUOTA'}
-                      triggerKey={isOpen}
-                    />
-                  </span>
+
+                  {/* 5-Hour Progress */}
+                  <AnimatedQuotaBar
+                    label="5-Hour Quota"
+                    resetSeconds={flashUsage?.reset5hSeconds}
+                    targetPercentage={flashUsage?.percentage5h}
+                    isUnavailable={isAiUsageUnavailable}
+                    barGradient="from-accent-primary to-cyan-400"
+                    formatResetTime={formatResetTime}
+                  />
+
+                  {/* Weekly Progress */}
+                  <AnimatedQuotaBar
+                    label="Weekly Quota"
+                    resetSeconds={flashUsage?.reset1wSeconds}
+                    targetPercentage={flashUsage?.percentage1w}
+                    isUnavailable={isAiUsageUnavailable}
+                    barGradient="from-cyan-400 to-emerald-400"
+                    formatResetTime={formatResetTime}
+                  />
                 </div>
 
-                {/* 5-Hour Progress */}
-                <AnimatedQuotaBar
-                  label="5-Hour Quota"
-                  resetSeconds={liteUsage?.reset5hSeconds}
-                  targetPercentage={liteUsage?.percentage5h}
-                  isUnavailable={isAiUsageUnavailable}
-                  barGradient="from-purple-500 to-indigo-400"
-                  formatResetTime={formatResetTime}
-                />
+                {/* Gemini 3.1 Flash-Lite Card */}
+                <div className="rounded-2xl border border-purple-500/20 bg-purple-500/[0.04] p-4 space-y-3 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-purple-400 animate-pulse" />
+                      <span className="text-xs font-bold text-white">Gemini 3.1 Flash-Lite</span>
+                    </div>
+                    <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-purple-500/30 bg-purple-500/10 text-purple-400">
+                      <ScrambleText
+                        text={liteUsage ? `${liteUsage.tier.toUpperCase()} TIER` : 'QUOTA'}
+                        triggerKey={isOpen}
+                      />
+                    </span>
+                  </div>
 
-                {/* Weekly Progress */}
-                <AnimatedQuotaBar
-                  label="Weekly Quota"
-                  resetSeconds={liteUsage?.reset1wSeconds}
-                  targetPercentage={liteUsage?.percentage1w}
-                  isUnavailable={isAiUsageUnavailable}
-                  barGradient="from-indigo-400 to-accent-primary"
-                  formatResetTime={formatResetTime}
-                />
+                  {/* 5-Hour Progress */}
+                  <AnimatedQuotaBar
+                    label="5-Hour Quota"
+                    resetSeconds={liteUsage?.reset5hSeconds}
+                    targetPercentage={liteUsage?.percentage5h}
+                    isUnavailable={isAiUsageUnavailable}
+                    barGradient="from-purple-500 to-indigo-400"
+                    formatResetTime={formatResetTime}
+                  />
+
+                  {/* Weekly Progress */}
+                  <AnimatedQuotaBar
+                    label="Weekly Quota"
+                    resetSeconds={liteUsage?.reset1wSeconds}
+                    targetPercentage={liteUsage?.percentage1w}
+                    isUnavailable={isAiUsageUnavailable}
+                    barGradient="from-indigo-400 to-accent-primary"
+                    formatResetTime={formatResetTime}
+                  />
+                </div>
               </div>
-            </div>
-          )
-        })()}
+            )
+          })()}
 
         {/* Details or Edit Form */}
         {!isEditing ? (
-          <div className="space-y-3 rounded-2xl border border-white/[0.08] bg-black/40 p-4 text-xs">
+          <div className="space-y-3 rounded-xl border border-[var(--border-default)] bg-black p-4 text-xs">
             <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5">
               <div className="flex items-center gap-2 text-text-muted">
                 <User size={15} />
@@ -401,15 +401,21 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 disabled={loading}
                 className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-bold text-white bg-accent-primary hover:bg-accent-primary/90 rounded-xl transition-all cursor-pointer disabled:opacity-50"
               >
-                {loading ? <CircleNotch size={16} className="animate-spin" /> : <><Check size={14} /> Save</>}
+                {loading ? (
+                  <CircleNotch size={16} className="animate-spin" />
+                ) : (
+                  <>
+                    <Check size={14} /> Save
+                  </>
+                )}
               </button>
             </div>
           </form>
         )}
 
         {/* Footer actions */}
-        <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-3 border-t border-[var(--border-default)] pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleSignOut}
               disabled={loading}
@@ -429,10 +435,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             </button>
           </div>
 
-          <button
-            onClick={onClose}
-            className="py-2 px-4 text-xs font-medium text-text-secondary hover:text-white bg-white/[0.05] hover:bg-white/[0.1] rounded-xl transition-all cursor-pointer"
-          >
+          <button onClick={onClose} className="settings-secondary-button">
             Close
           </button>
         </div>

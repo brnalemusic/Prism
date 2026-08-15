@@ -43,7 +43,7 @@ export function DoneSummary({
   sessionId: string
 }): React.JSX.Element {
   return (
-    <div className="premium-panel-soft w-full max-w-xl rounded-2xl border border-status-success/20 bg-status-success/[0.015] p-5 shadow-lg backdrop-blur-md transition-all duration-500 my-3 select-text">
+    <div className="premium-panel-soft my-3 w-full max-w-xl rounded-xl border border-status-success/20 bg-status-success/[0.015] p-5 transition-all duration-500 select-text">
       <div className="flex items-center gap-2.5 border-b border-white/[0.05] pb-3 mb-4 select-none">
         <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-status-success/15 text-status-success">
           <Check size={16} weight="bold" />
@@ -114,7 +114,7 @@ export function QuestionnaireCard({
   return (
     <div className="w-[70%] mx-auto relative">
       {/* Card */}
-      <div className="relative overflow-hidden rounded-t-2xl rounded-b-none border border-b-0 border-white/[0.08] bg-background-secondary/90 backdrop-blur-2xl shadow-[0_-8px_32px_rgba(0,0,0,0.45)] px-5 py-4">
+      <div className="relative overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-[var(--border-default)] bg-[var(--surface-lowest)] px-5 py-4">
         {/* Background accent glow */}
         <div className="absolute -top-20 -right-20 w-48 h-48 rounded-full bg-accent-primary/8 blur-[60px] pointer-events-none" />
 
@@ -142,9 +142,7 @@ export function QuestionnaireCard({
           <div
             className="h-full bg-gradient-to-r from-accent-primary to-accent-secondary rounded-full transition-all duration-500 ease-out"
             style={{
-              width: isReviewStep
-                ? '100%'
-                : `${((currentStep + 1) / totalSteps) * 100}%`
+              width: isReviewStep ? '100%' : `${((currentStep + 1) / totalSteps) * 100}%`
             }}
           />
         </div>
@@ -423,7 +421,9 @@ export function QuestionnaireWizard({
       const val = answers[q.id] || ''
       if (q.type === 'multiple-choice') {
         const opt = q.options?.find((o) => o.value === val)
-        finalResponses[q.id] = opt?.allow_custom_input ? customValues[q.id] || '' : opt?.label || val
+        finalResponses[q.id] = opt?.allow_custom_input
+          ? customValues[q.id] || ''
+          : opt?.label || val
       } else {
         finalResponses[q.id] = val
       }

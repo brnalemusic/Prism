@@ -225,7 +225,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     const renderSlashMenu = (): React.JSX.Element | null => {
       if (!showSlashMenu) return null
       return (
-        <div className="premium-panel-soft mb-3 w-full overflow-hidden rounded-[22px] border border-white/[0.08] bg-background-main/95 backdrop-blur-md shadow-2xl animate-soft-pop z-30">
+        <div className="premium-panel-soft z-30 mb-3 w-full overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--surface-raised)] shadow-[0_16px_40px_rgba(0,0,0,0.5)] animate-soft-pop">
           <div className="border-b border-white/[0.055] px-4 py-3 text-xs font-semibold text-text-secondary/70">
             Workflows
           </div>
@@ -410,14 +410,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       }
       window.addEventListener('keydown', handleGlobalKeyDown)
       return () => window.removeEventListener('keydown', handleGlobalKeyDown)
-    }, [
-      config,
-      selectedModel,
-      isSearchEnabled,
-      setIsSearchEnabled,
-      setText,
-      isRecording
-    ])
+    }, [config, selectedModel, isSearchEnabled, setIsSearchEnabled, setText, isRecording])
 
     useEffect(() => {
       const handleClickOutside = (event: MouseEvent): void => {
@@ -871,9 +864,12 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
               onClick={() => setShowModeMenu(!showModeMenu)}
               className={clsx(
                 'flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs select-none transition-all duration-200 cursor-pointer outline-none hover:scale-[1.02] active:scale-[0.98]',
-                sessionMode === 'conversation' && 'border-white/[0.04] bg-white/[0.02] text-text-secondary hover:bg-white/[0.05]',
-                sessionMode === 'execution' && 'border-accent-primary/10 bg-accent-primary/5 text-accent-primary hover:bg-accent-primary/10',
-                sessionMode === 'discipline' && 'border-accent-primary/15 bg-accent-primary/5 text-accent-primary max-w-[160px] hover:bg-accent-primary/10'
+                sessionMode === 'conversation' &&
+                  'border-white/[0.04] bg-white/[0.02] text-text-secondary hover:bg-white/[0.05]',
+                sessionMode === 'execution' &&
+                  'border-accent-primary/10 bg-accent-primary/5 text-accent-primary hover:bg-accent-primary/10',
+                sessionMode === 'discipline' &&
+                  'border-accent-primary/15 bg-accent-primary/5 text-accent-primary max-w-[160px] hover:bg-accent-primary/10'
               )}
               title="Click to change Session Mode"
             >
@@ -893,7 +889,9 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 <>
                   <Folder size={14} weight="fill" className="text-accent-primary" />
                   <span className="text-[11px] font-medium truncate">
-                    {disciplinePath ? (disciplinePath.split(/[\\/]/).pop() || disciplinePath) : 'Discipline'}
+                    {disciplinePath
+                      ? disciplinePath.split(/[\\/]/).pop() || disciplinePath
+                      : 'Discipline'}
                   </span>
                 </>
               )}
@@ -905,7 +903,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.04] mb-1">
                   Select Session Mode
                 </div>
-                
+
                 {/* Conversation Mode Option */}
                 <button
                   type="button"
@@ -921,10 +919,17 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 font-semibold text-xs">
-                      <ChatTeardropText size={14} className={sessionMode === 'conversation' ? 'text-text-primary' : 'text-text-muted'} />
+                      <ChatTeardropText
+                        size={14}
+                        className={
+                          sessionMode === 'conversation' ? 'text-text-primary' : 'text-text-muted'
+                        }
+                      />
                       <span>Conversation</span>
                     </div>
-                    {sessionMode === 'conversation' && <Check size={12} className="animate-fade-in" />}
+                    {sessionMode === 'conversation' && (
+                      <Check size={12} className="animate-fade-in" />
+                    )}
                   </div>
                   <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
                     Chat only. Safe environment, no tool or CLI command execution.
@@ -946,7 +951,13 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 font-semibold text-xs">
-                      <Lightning size={14} weight="fill" className={sessionMode === 'execution' ? 'text-accent-primary' : 'text-text-muted'} />
+                      <Lightning
+                        size={14}
+                        weight="fill"
+                        className={
+                          sessionMode === 'execution' ? 'text-accent-primary' : 'text-text-muted'
+                        }
+                      />
                       <span>Execution</span>
                     </div>
                     {sessionMode === 'execution' && <Check size={12} className="animate-fade-in" />}
@@ -971,10 +982,18 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 font-semibold text-xs">
-                      <Folder size={14} weight="fill" className={sessionMode === 'discipline' ? 'text-accent-primary' : 'text-text-muted'} />
+                      <Folder
+                        size={14}
+                        weight="fill"
+                        className={
+                          sessionMode === 'discipline' ? 'text-accent-primary' : 'text-text-muted'
+                        }
+                      />
                       <span>Discipline</span>
                     </div>
-                    {sessionMode === 'discipline' && <Check size={12} className="animate-fade-in" />}
+                    {sessionMode === 'discipline' && (
+                      <Check size={12} className="animate-fade-in" />
+                    )}
                   </div>
                   <div className="text-[10px] text-text-secondary/70 leading-normal font-medium mt-0.5">
                     Project Focus. Run commands & modify files directly inside a project folder.
@@ -986,7 +1005,9 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                   <div className="mt-2 border-t border-white/[0.04] pt-2 px-1 animate-session-mode-expand">
                     <div className="flex flex-col gap-1.5 bg-white/[0.02] border border-white/[0.04] rounded-xl p-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-text-secondary/60 font-semibold uppercase tracking-wider">Project Folder</span>
+                        <span className="text-[10px] text-text-secondary/60 font-semibold uppercase tracking-wider">
+                          Project Folder
+                        </span>
                         <button
                           type="button"
                           onClick={onSelectFolder}
@@ -995,10 +1016,15 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                           {disciplinePath ? 'Change' : 'Browse'}
                         </button>
                       </div>
-                      <div className="flex items-center gap-1.5 text-[11px] text-text-secondary truncate" title={disciplinePath || 'No folder selected'}>
+                      <div
+                        className="flex items-center gap-1.5 text-[11px] text-text-secondary truncate"
+                        title={disciplinePath || 'No folder selected'}
+                      >
                         <Folder size={12} className="text-accent-primary shrink-0" />
                         <span className="truncate font-medium">
-                          {disciplinePath ? (disciplinePath.split(/[\\/]/).pop() || disciplinePath) : 'Select a folder to operate in'}
+                          {disciplinePath
+                            ? disciplinePath.split(/[\\/]/).pop() || disciplinePath
+                            : 'Select a folder to operate in'}
                         </span>
                       </div>
                       {disciplinePath && (
@@ -1066,7 +1092,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
 
           <div
             className={clsx(
-              'premium-panel flex-1 flex flex-col rounded-[22px] border p-4 transition-all duration-300 relative input-border-glow',
+              'premium-panel flex-1 flex flex-col rounded-2xl border p-4 transition-all duration-300 relative input-border-glow',
               modeStyles,
               isFocused && 'prism-glow active',
               disabled && 'opacity-60'
@@ -1135,7 +1161,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             )}
 
             {isKeyMissing && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center rounded-[22px] bg-background-main/35 backdrop-blur-sm">
+              <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-black/85">
                 <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.055] px-3 py-2 text-xs font-semibold text-text-secondary">
                   <Lock size={14} />
                   API key required
@@ -1158,9 +1184,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 disabled={disabled}
                 className={clsx(
                   'w-full flex-1 resize-none bg-transparent py-2 text-lg font-medium outline-none border-0 border-transparent m-0 shadow-none leading-relaxed placeholder:text-text-muted disabled:cursor-not-allowed cursor-text text-text-primary selection:bg-accent-primary/30 whitespace-pre-wrap break-words',
-                  activeMode === 'search'
-                    ? 'caret-accent-secondary'
-                    : 'caret-white'
+                  activeMode === 'search' ? 'caret-accent-secondary' : 'caret-white'
                 )}
               />
             </div>
@@ -1188,7 +1212,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
         <div className="relative">
           <div
             className={clsx(
-              'relative rounded-[28px] border border-white/[0.08] bg-[#0c0d12]/80 backdrop-blur-xl transition-all duration-300 input-border-glow flex flex-col overflow-visible px-4 pt-3.5 pb-2.5 shadow-[0_16px_48px_rgba(0,0,0,0.45)]',
+              'relative rounded-2xl border border-[var(--border-default)] bg-[var(--surface-raised)] transition-all duration-300 input-border-glow flex flex-col overflow-visible px-4 pt-3.5 pb-2.5',
               modeStyles,
               isFocused && !disabled && 'prism-glow active',
               disabled && 'opacity-60'
@@ -1245,7 +1269,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
             )}
 
             {isKeyMissing && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center bg-background-main/35 backdrop-blur-sm rounded-[22px]">
+              <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-black/85">
                 <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.055] px-3 py-2 text-xs font-semibold text-text-secondary">
                   <Lock size={14} />
                   API key required
@@ -1278,9 +1302,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
                 disabled={disabled}
                 className={clsx(
                   'relative z-10 w-full resize-none bg-transparent text-base font-medium outline-none border-0 border-transparent m-0 shadow-none leading-relaxed placeholder:text-text-muted disabled:cursor-not-allowed cursor-text block min-h-[48px] max-h-[300px] text-text-primary selection:bg-accent-primary/30 whitespace-pre-wrap break-words',
-                  activeMode === 'search'
-                    ? 'caret-accent-secondary'
-                    : 'caret-white'
+                  activeMode === 'search' ? 'caret-accent-secondary' : 'caret-white'
                 )}
                 rows={1}
               />

@@ -37,7 +37,7 @@ export const PdfArtifactCard: React.FC<PdfArtifactCardProps> = ({
   }
 
   return (
-    <div className="w-full my-2 overflow-hidden rounded-xl border border-white/[0.08] bg-background-secondary/80 backdrop-blur-xl shadow-lg transition-all duration-200 hover:border-white/[0.15]">
+    <div className="my-2 w-full overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--surface)] transition-colors duration-200 hover:border-[var(--border-strong)]">
       {/* Header Bar */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] bg-white/[0.02]">
         <div className="flex items-center gap-2.5 min-w-0">

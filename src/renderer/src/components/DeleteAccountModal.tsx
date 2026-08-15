@@ -1,6 +1,15 @@
 import React, { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Trash, WarningCircle, CheckCircle, CircleNotch, EnvelopeSimple, PaperPlaneRight, Key } from '@phosphor-icons/react'
+import {
+  X,
+  Trash,
+  WarningCircle,
+  CheckCircle,
+  CircleNotch,
+  EnvelopeSimple,
+  PaperPlaneRight,
+  Key
+} from '@phosphor-icons/react'
 import type { UserProfile } from '../../../shared/types'
 
 interface DeleteAccountModalProps {
@@ -45,11 +54,15 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({
       setLoading(false)
       if (res.success) {
         setStep('sent')
-        setSuccessMsg(`Confirmation email sent to ${user.email}! Open your email and click the confirmation link to permanently delete your account.`)
+        setSuccessMsg(
+          `Confirmation email sent to ${user.email}! Open your email and click the confirmation link to permanently delete your account.`
+        )
       } else {
         const err = res.error || 'Failed to send confirmation email.'
         if (err.toLowerCase().includes('rate limit')) {
-          setErrorMsg('Supabase email limit reached (too many emails sent recently). Confirm account deletion with your password below:')
+          setErrorMsg(
+            'Supabase email limit reached (too many emails sent recently). Confirm account deletion with your password below:'
+          )
           setConfirmMode('password')
         } else {
           setErrorMsg(err)
@@ -59,7 +72,9 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({
       setLoading(false)
       const errMsg = err?.message || 'Failed to send confirmation email.'
       if (errMsg.toLowerCase().includes('rate limit')) {
-        setErrorMsg('Supabase email limit reached. Confirm account deletion with your password below:')
+        setErrorMsg(
+          'Supabase email limit reached. Confirm account deletion with your password below:'
+        )
         setConfirmMode('password')
       } else {
         setErrorMsg(errMsg)
@@ -131,12 +146,8 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 animate-soft-pop">
-      <div className="relative flex flex-col w-full max-w-md rounded-[28px] border border-red-500/30 bg-[#0E0F12]/95 p-6 shadow-[0_25px_60px_-15px_rgba(220,38,38,0.3)] overflow-hidden space-y-5 text-text-primary">
-        {/* Ambient red glow background */}
-        <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-red-600/15 blur-3xl" />
-        <div className="pointer-events-none absolute -left-20 -bottom-20 h-56 w-56 rounded-full bg-red-900/10 blur-3xl" />
-
+    <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-soft-pop">
+      <div className="prism-modal-panel danger-modal-panel relative flex max-h-[calc(100vh-32px)] w-full max-w-md flex-col overflow-y-auto border-red-500/35 p-6 text-text-primary">
         {/* Close button */}
         <button
           onClick={handleCloseModal}
@@ -147,8 +158,8 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({
 
         {/* Modal Header */}
         <div className="flex items-center gap-3.5 pt-1">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-500/15 border border-red-500/30 text-red-400">
-            <Trash size={24} weight="fill" />
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-red-500/30 bg-red-500/10 text-red-400">
+            <Trash size={20} weight="duotone" />
           </div>
           <div>
             <h2 className="text-lg font-bold text-white tracking-tight">Delete Account</h2>
@@ -175,7 +186,8 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({
         <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.05] p-3.5 space-y-1.5 text-xs text-red-200">
           <span className="font-bold block text-white">Warning: This action is permanent!</span>
           <p className="text-[11px] text-red-200/80 leading-relaxed">
-            Deleting your account will remove your profile, licenses, and access to Prism Cloud models. This action CANNOT be reversed.
+            Deleting your account will remove your profile, licenses, and access to Prism Cloud
+            models. This action CANNOT be reversed.
           </p>
         </div>
 
@@ -184,7 +196,10 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({
           <div className="flex w-full rounded-xl bg-white/[0.04] p-1 border border-white/[0.06] select-none text-xs">
             <button
               type="button"
-              onClick={() => { setConfirmMode('email'); setErrorMsg(null); }}
+              onClick={() => {
+                setConfirmMode('email')
+                setErrorMsg(null)
+              }}
               className={`flex-1 py-1.5 font-semibold rounded-lg transition-all cursor-pointer ${
                 confirmMode === 'email'
                   ? 'bg-red-600/80 text-white shadow-md'
@@ -195,7 +210,10 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => { setConfirmMode('password'); setErrorMsg(null); }}
+              onClick={() => {
+                setConfirmMode('password')
+                setErrorMsg(null)
+              }}
               className={`flex-1 py-1.5 font-semibold rounded-lg transition-all cursor-pointer ${
                 confirmMode === 'password'
                   ? 'bg-red-600/80 text-white shadow-md'
@@ -212,10 +230,14 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({
           <form onSubmit={handleRequestEmail} className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
-                Type your email to confirm (<span className="text-white select-all">{user.email}</span>):
+                Type your email to confirm (
+                <span className="text-white select-all">{user.email}</span>):
               </label>
               <div className="relative">
-                <EnvelopeSimple size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted" />
+                <EnvelopeSimple
+                  size={18}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted"
+                />
                 <input
                   type="email"
                   placeholder={user.email}
@@ -262,7 +284,10 @@ export const DeleteAccountModal: React.FC<DeleteAccountModalProps> = ({
                 Enter your account password to confirm deletion:
               </label>
               <div className="relative">
-                <Key size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted" />
+                <Key
+                  size={18}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted"
+                />
                 <input
                   type="password"
                   placeholder="Account password"

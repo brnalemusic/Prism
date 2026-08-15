@@ -141,10 +141,7 @@ export const BrowserPane = React.memo(function BrowserPane({
                 `Navigated to ${target} successfully. Page title: "${title}"`
               )
             } else {
-              window.api.sendBrowserExecResult(
-                requestId,
-                'Browser session active and ready.'
-              )
+              window.api.sendBrowserExecResult(requestId, 'Browser session active and ready.')
             }
             break
           }
@@ -519,15 +516,15 @@ export const BrowserPane = React.memo(function BrowserPane({
     <div
       onPointerDown={() => window.api.resetBrowserIdle()}
       onKeyDown={() => window.api.resetBrowserIdle()}
-      className="relative flex flex-col h-full w-full overflow-hidden rounded-[14px] bg-[#0a0b0e] select-none"
+      className="relative flex h-full w-full flex-col overflow-hidden rounded-xl border border-[var(--border-default)] bg-black select-none"
     >
       {/* Outer Glow Border ring when AI is active (center is 100% masked/transparent) */}
       {isAiActive && (
         <div
-          className="absolute inset-0 rounded-[14px] pointer-events-none z-30 p-[2px] shadow-[0_0_18px_rgba(168,85,247,0.4)]"
+          className="absolute inset-0 z-30 rounded-xl p-[2px] pointer-events-none"
           style={{
             background:
-              'linear-gradient(var(--prism-angle, 0deg), #a855f7, #3b82f6, #06b6d4, #10b981, #f59e0b, #ef4444, #a855f7)',
+              'linear-gradient(var(--prism-angle, 0deg), transparent, var(--accent-primary), transparent)',
             WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
             WebkitMaskComposite: 'xor',
             maskComposite: 'exclude',
@@ -537,7 +534,7 @@ export const BrowserPane = React.memo(function BrowserPane({
       )}
 
       {/* Browser Controls Header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.06] bg-white/[0.02] shrink-0 z-10 relative">
+      <div className="relative z-10 flex shrink-0 items-center gap-2 border-b border-[var(--border-default)] bg-[var(--surface-lowest)] px-3 py-2">
         <div className="flex items-center gap-1">
           <button
             onClick={handleGoBack}
@@ -572,12 +569,20 @@ export const BrowserPane = React.memo(function BrowserPane({
             handleNavigateSubmit(e)
           }}
           className="flex-1 flex items-center min-w-0"
-          title={isAiActive ? 'Navigation is locked while AI is controlling browser' : (currentTitle || 'Current Page')}
+          title={
+            isAiActive
+              ? 'Navigation is locked while AI is controlling browser'
+              : currentTitle || 'Current Page'
+          }
         >
-          <div className={clsx(
-            "flex items-center gap-2 w-full px-2.5 py-1 rounded-lg border transition-all",
-            isAiActive ? "bg-white/[0.02] border-white/[0.03] opacity-60 cursor-not-allowed" : "bg-white/[0.04] border-white/[0.06] focus-within:border-accent-primary/50"
-          )}>
+          <div
+            className={clsx(
+              'flex items-center gap-2 w-full px-2.5 py-1 rounded-lg border transition-colors',
+              isAiActive
+                ? 'bg-black border-[var(--border-subtle)] opacity-60 cursor-not-allowed'
+                : 'bg-black border-[var(--border-default)] focus-within:border-accent-primary/50'
+            )}
+          >
             <GlobeSimple size={13} className="text-text-secondary shrink-0" />
             <input
               type="text"
@@ -635,7 +640,7 @@ export const BrowserPane = React.memo(function BrowserPane({
 
       {/* Floating AI Controlling Badge */}
       {isAiActive && (
-        <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-white/[0.08] bg-black/70 backdrop-blur-md shadow-lg pointer-events-none">
+        <div className="absolute left-1/2 top-12 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-[var(--border-strong)] bg-black px-3 py-1.5 pointer-events-none">
           <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-accent-primary animate-pulse" />
           <span className="text-[11px] font-medium text-white/80 whitespace-nowrap">
             AI is controlling this browser session
@@ -646,7 +651,7 @@ export const BrowserPane = React.memo(function BrowserPane({
       {/* Main Webview Container */}
       <div className="relative flex-1 overflow-hidden bg-white">
         {sessionClosed ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-text-secondary bg-[#0a0b0e]">
+          <div className="flex h-full flex-col items-center justify-center gap-3 bg-black text-text-secondary">
             <GlobeSimple size={32} className="opacity-30" />
             <span className="text-sm font-medium opacity-50">Browser session closed</span>
           </div>
@@ -705,8 +710,8 @@ export const BrowserPane = React.memo(function BrowserPane({
 
       {/* Script Log Terminal Drawer */}
       {isTerminalOpen && scriptLogs.length > 0 && (
-        <div className="border-t border-white/[0.06] bg-[#080a0d] shrink-0 max-h-[200px] overflow-y-auto z-10">
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.04] sticky top-0 bg-[#080a0d] z-10">
+        <div className="z-10 max-h-[200px] shrink-0 overflow-y-auto border-t border-[var(--border-default)] bg-black">
+          <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-[var(--border-subtle)] bg-black px-3 py-2">
             <Terminal size={12} className="text-accent-primary/70" />
             <span className="text-[11px] font-mono font-semibold text-accent-primary/70 uppercase tracking-wider">
               Script Log

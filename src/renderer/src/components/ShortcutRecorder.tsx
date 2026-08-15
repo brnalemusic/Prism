@@ -118,7 +118,7 @@ export function ShortcutRecorder({ value, onChange }: ShortcutRecorderProps): Re
             }
             return (
               <span key={idx} className="flex items-center gap-1.5">
-                <kbd className="px-2 py-1 text-xs font-mono font-bold rounded bg-white/10 border border-white/20 shadow-sm text-accent-primary">
+                <kbd className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-2 py-1 font-mono text-xs font-semibold text-accent-primary">
                   {displayKey}
                 </kbd>
                 {idx < recordedKeys.length - 1 && (
@@ -152,7 +152,7 @@ export function ShortcutRecorder({ value, onChange }: ShortcutRecorderProps): Re
       <div className="flex items-center gap-1.5 select-none">
         {parts.map((part, idx) => (
           <span key={idx} className="flex items-center gap-1.5">
-            <kbd className="px-2 py-1 text-xs font-mono font-bold rounded bg-white/10 border border-white/20 shadow-sm text-text-primary">
+            <kbd className="rounded-md border border-[var(--border-strong)] bg-[var(--surface-raised)] px-2 py-1 font-mono text-xs font-semibold text-text-primary">
               {part}
             </kbd>
             {idx < parts.length - 1 && (
@@ -170,10 +170,10 @@ export function ShortcutRecorder({ value, onChange }: ShortcutRecorderProps): Re
         ref={containerRef}
         onClick={startRecording}
         className={clsx(
-          'premium-control relative group flex cursor-pointer items-center justify-between rounded-[18px] border px-4 py-3 transition-all',
+          'relative group flex min-h-12 cursor-pointer items-center justify-between rounded-lg border bg-[var(--surface-lowest)] px-4 py-3 transition-colors',
           isRecording
-            ? 'border-accent-primary/40 bg-accent-primary/[0.07] ring-2 ring-accent-primary/15'
-            : 'border-white/[0.08] hover:border-accent-primary/35'
+            ? 'border-accent-primary/50 bg-accent-primary/[0.07] ring-2 ring-accent-primary/10'
+            : 'border-[var(--border-default)] hover:border-[var(--border-strong)]'
         )}
       >
         <div className="flex items-center gap-3">
@@ -194,7 +194,7 @@ export function ShortcutRecorder({ value, onChange }: ShortcutRecorderProps): Re
                 e.stopPropagation()
                 stopRecording()
               }}
-              className="rounded-xl p-1 transition-colors hover:bg-white/[0.08]"
+              className="rounded-md p-1 transition-colors hover:bg-white/[0.08]"
             >
               <X size={14} />
             </button>
@@ -206,7 +206,7 @@ export function ShortcutRecorder({ value, onChange }: ShortcutRecorderProps): Re
                 e.stopPropagation()
                 onChange('')
               }}
-              className="rounded-xl p-1 text-text-secondary/40 opacity-0 transition-colors hover:bg-white/[0.08] hover:text-text-primary group-hover:opacity-100"
+              className="rounded-md p-1 text-text-secondary/40 opacity-0 transition-colors hover:bg-white/[0.08] hover:text-text-primary group-hover:opacity-100"
             >
               <X size={14} />
             </button>

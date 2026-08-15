@@ -32,7 +32,13 @@ import { useActiveToolLabel } from './hooks/useActiveToolLabel'
 import { TabBar } from './components/TabBar'
 import { ChatPane } from './components/ChatPane'
 import { EmptyTabState } from './components/EmptyTabState'
-import type { TabSession, Message, AttachedFile, StreamingToolCall, ToolCallItem } from './types/tab'
+import type {
+  TabSession,
+  Message,
+  AttachedFile,
+  StreamingToolCall,
+  ToolCallItem
+} from './types/tab'
 import {
   StreamContext,
   StaticMarkdownComponents,
@@ -41,7 +47,15 @@ import {
   CodeBlock
 } from './components/AnimatedStreamingText'
 import clsx from 'clsx'
-import { Quotes, Brain, FilePdf, FilePpt, CheckCircle, XCircle, GlobeSimple } from '@phosphor-icons/react'
+import {
+  Quotes,
+  Brain,
+  FilePdf,
+  FilePpt,
+  CheckCircle,
+  XCircle,
+  GlobeSimple
+} from '@phosphor-icons/react'
 
 import { ScreenshotModal } from './components/ScreenshotModal'
 import { YoutubeAppModal } from './components/YoutubeAppModal'
@@ -203,7 +217,9 @@ function consolidateToolCalls(
           parsedArgs = JSON.parse(stc.arguments)
         } catch {
           try {
-            const filePathMatch = stc.arguments.match(/"(?:filePath|path|TargetFile|absolutePath|AbsolutePath|sourcePath)"\s*:\s*"([^"]*)/i)
+            const filePathMatch = stc.arguments.match(
+              /"(?:filePath|path|TargetFile|absolutePath|AbsolutePath|sourcePath)"\s*:\s*"([^"]*)/i
+            )
             const commandMatch = stc.arguments.match(/"(?:command|CommandLine)"\s*:\s*"([^"]*)/i)
             const queryMatch = stc.arguments.match(/"query"\s*:\s*"([^"]*)/i)
             const titleMatch = stc.arguments.match(/"title"\s*:\s*"([^"]*)/i)
@@ -211,7 +227,9 @@ function consolidateToolCalls(
             if (commandMatch) parsedArgs.command = commandMatch[1]
             if (queryMatch) parsedArgs.query = queryMatch[1]
             if (titleMatch) parsedArgs.title = titleMatch[1]
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
 
         const countStreamingLines = (raw: string): number => {
@@ -223,8 +241,15 @@ function consolidateToolCalls(
         let streamingRemovedLines = 0
         const tcName = stc.name || ''
 
-        const isFileWrite = tcName === 'computer_use_create_file' || tcName === 'computer_use_save_file' || tcName === 'computer_use_append_file' || tcName === 'write_to_file'
-        const isFileEdit = tcName === 'computer_use_edit_file' || tcName === 'replace_file_content' || tcName === 'multi_replace_file_content'
+        const isFileWrite =
+          tcName === 'computer_use_create_file' ||
+          tcName === 'computer_use_save_file' ||
+          tcName === 'computer_use_append_file' ||
+          tcName === 'write_to_file'
+        const isFileEdit =
+          tcName === 'computer_use_edit_file' ||
+          tcName === 'replace_file_content' ||
+          tcName === 'multi_replace_file_content'
 
         if (isFileWrite || isFileEdit) {
           const raw = stc.arguments
@@ -321,7 +346,9 @@ const AiMessage = React.memo(function AiMessage({
     const filteredThoughts = (msg.thoughts || '')
       .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?\[\/PRISM_EXECUTE_TOOL\]/g, (match) => {
         try {
-          const json = match.replace('[PRISM_EXECUTE_TOOL]', '').replace('[/PRISM_EXECUTE_TOOL]', '')
+          const json = match
+            .replace('[PRISM_EXECUTE_TOOL]', '')
+            .replace('[/PRISM_EXECUTE_TOOL]', '')
           const parsed = JSON.parse(json)
           if (passiveTools.includes(parsed.type)) return ''
         } catch {}
@@ -457,9 +484,13 @@ const AiMessage = React.memo(function AiMessage({
               if (parsed && typeof parsed === 'object') {
                 writingToolArgs = parsed as Record<string, unknown>
               }
-            } catch { /* ignore */ }
+            } catch {
+              /* ignore */
+            }
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
         return {
           partIndex: index,
           part,
@@ -539,7 +570,9 @@ const AiMessage = React.memo(function AiMessage({
             const toolCallItems = group.items.filter((item) => item.type === 'tool_call')
 
             let mergedStatus: ToolCallItem['status'] = 'done'
-            if (toolCallItems.some((item) => !item.isClosed || item.toolCall?.status === 'writing')) {
+            if (
+              toolCallItems.some((item) => !item.isClosed || item.toolCall?.status === 'writing')
+            ) {
               mergedStatus = 'writing'
             } else if (toolCallItems.some((item) => item.toolCall?.status === 'running')) {
               mergedStatus = 'running'
@@ -553,11 +586,17 @@ const AiMessage = React.memo(function AiMessage({
             if (!shouldShowInlineTool(mergedStatus, firstItem.partIndex)) {
               return null
             }
-            if (shouldHideActiveBelow && (mergedStatus === 'writing' || mergedStatus === 'running')) {
+            if (
+              shouldHideActiveBelow &&
+              (mergedStatus === 'writing' || mergedStatus === 'running')
+            ) {
               return null
             }
             return (
-              <div key={`tc-group-${firstItem.partIndex}-${gIdx}`} className="flex items-center gap-1.5">
+              <div
+                key={`tc-group-${firstItem.partIndex}-${gIdx}`}
+                className="flex items-center gap-1.5"
+              >
                 <ToolCallIndicator tools={[{ name: 'web_search', status: mergedStatus }]} />
               </div>
             )
@@ -616,7 +655,9 @@ const AiMessage = React.memo(function AiMessage({
                   const pathMatch =
                     resText.match(/(?:Saved at|File path):\s*(.+)/i) ||
                     (tc.args?.path ? [null, String(tc.args.path)] : null)
-                  const filePath = pathMatch ? pathMatch[1].trim() : (tc.args?.path as string | undefined)
+                  const filePath = pathMatch
+                    ? pathMatch[1].trim()
+                    : (tc.args?.path as string | undefined)
 
                   const filename =
                     (tc.args?.filename as string) ||
@@ -643,7 +684,9 @@ const AiMessage = React.memo(function AiMessage({
                   const pathMatch =
                     resText.match(/(?:Saved at|File path):\s*(.+)/i) ||
                     (tc.args?.path ? [null, String(tc.args.path)] : null)
-                  const filePath = pathMatch ? pathMatch[1].trim() : (tc.args?.path as string | undefined)
+                  const filePath = pathMatch
+                    ? pathMatch[1].trim()
+                    : (tc.args?.path as string | undefined)
 
                   const filename =
                     (tc.args?.filename as string) ||
@@ -804,33 +847,32 @@ const AiMessage = React.memo(function AiMessage({
             }
 
             return (
-              <div key={miniAppId} className="w-full flex flex-col gap-2 my-2 select-none animate-fade-in">
+              <div
+                key={miniAppId}
+                className="w-full flex flex-col gap-2 my-2 select-none animate-fade-in"
+              >
                 <div className="flex items-center gap-2 text-[13px] text-text-secondary font-medium">
                   {status === 'error' || status === 'cancelled' ? (
                     <>
                       <XCircle size={14} className="text-status-error shrink-0" />
                       <span>
-                        Failed to create mini app: <span className="font-semibold text-text-primary">{title}</span>
+                        Failed to create mini app:{' '}
+                        <span className="font-semibold text-text-primary">{title}</span>
                       </span>
                     </>
                   ) : (
                     <>
                       <CheckCircle size={14} className="text-status-success shrink-0" />
                       <span>
-                        Created mini app: <span className="font-semibold text-text-primary">{title}</span>
+                        Created mini app:{' '}
+                        <span className="font-semibold text-text-primary">{title}</span>
                       </span>
                     </>
                   )}
                 </div>
                 {status === 'done' && (
                   <div className="w-full px-0">
-                    <MiniAppRenderer
-                      id={miniAppId}
-                      title={title}
-                      html={html}
-                      css={css}
-                      js={js}
-                    />
+                    <MiniAppRenderer id={miniAppId} title={title} html={html} css={css} js={js} />
                   </div>
                 )}
               </div>
@@ -868,16 +910,17 @@ const AiMessage = React.memo(function AiMessage({
             {cleanTextForCopy && <CopyMessageButton text={cleanTextForCopy} />}
             {cleanTextForCopy && <TtsButton text={cleanTextForCopy} />}
             {/* Browser session button — shows when message has browser tool calls */}
-            {onOpenBrowserTab && (msg.toolCalls || []).some((tc) => BROWSER_TOOL_NAMES.has(tc.name)) && (
-              <button
-                onClick={onOpenBrowserTab}
-                title="View AI browser session"
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-text-primary hover:bg-white/[0.06] transition-all duration-150 cursor-pointer"
-              >
-                <GlobeSimple size={13} />
-                <span>Browser</span>
-              </button>
-            )}
+            {onOpenBrowserTab &&
+              (msg.toolCalls || []).some((tc) => BROWSER_TOOL_NAMES.has(tc.name)) && (
+                <button
+                  onClick={onOpenBrowserTab}
+                  title="View AI browser session"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-text-primary hover:bg-white/[0.06] transition-all duration-150 cursor-pointer"
+                >
+                  <GlobeSimple size={13} />
+                  <span>Browser</span>
+                </button>
+              )}
           </div>
         )}
       </div>
@@ -953,15 +996,17 @@ const AiMessageRow = React.memo(function AiMessageRow({
       {/* 2. Finished State Indicator (Static Gray Text) */}
       {!isActive && (
         <>
-          {hasTools ? (
-            <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
-              Worked for {workedSec > 0 ? workedSec : 1} {workedSec === 1 ? 'second' : 'seconds'}
-            </div>
-          ) : hasThinking ? (
-            <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
-              Thought for {thinkingSec} {thinkingSec === 1 ? 'second' : 'seconds'}
-            </div>
-          ) : null /* Instant message: no header */}
+          {
+            hasTools ? (
+              <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
+                Worked for {workedSec > 0 ? workedSec : 1} {workedSec === 1 ? 'second' : 'seconds'}
+              </div>
+            ) : hasThinking ? (
+              <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
+                Thought for {thinkingSec} {thinkingSec === 1 ? 'second' : 'seconds'}
+              </div>
+            ) : null /* Instant message: no header */
+          }
         </>
       )}
 
@@ -1159,7 +1204,12 @@ function RealApp(): React.JSX.Element {
     if (authUser) return false
     if (!config?.providers) return true
     return !config.providers.some(
-      (p) => p && p.apiKey && p.apiKey.trim() !== '' && Array.isArray(p.models) && p.models.some((m) => m && m.enabled)
+      (p) =>
+        p &&
+        p.apiKey &&
+        p.apiKey.trim() !== '' &&
+        Array.isArray(p.models) &&
+        p.models.some((m) => m && m.enabled)
     )
   }, [config, authUser])
 
@@ -1534,8 +1584,6 @@ function RealApp(): React.JSX.Element {
     return () => removeListener()
   }, [handleOpenBrowserTab])
 
-
-
   const pendingBrowserCloseRef = useRef<boolean>(false)
 
   const handleCloseTab = useCallback((tabId: string) => {
@@ -1583,16 +1631,10 @@ function RealApp(): React.JSX.Element {
 
       const nextTabs = prevTabs.filter((tab) => !deletedTabIds.has(tab.id))
       const fallback = nextTabs[0]
-      setActiveTabId((activeId) =>
-        deletedTabIds.has(activeId) ? fallback?.id || '' : activeId
-      )
+      setActiveTabId((activeId) => (deletedTabIds.has(activeId) ? fallback?.id || '' : activeId))
       setVisibleTabIds((visibleIds) => {
         const nextVisibleIds = visibleIds.filter((id) => !deletedTabIds.has(id))
-        return nextVisibleIds.length > 0
-          ? nextVisibleIds
-          : fallback
-            ? [fallback.id]
-            : []
+        return nextVisibleIds.length > 0 ? nextVisibleIds : fallback ? [fallback.id] : []
       })
       return nextTabs
     })
@@ -1737,7 +1779,8 @@ function RealApp(): React.JSX.Element {
           return c.parts
             .map((part: any) => {
               if (typeof part === 'string') return part
-              if (part && typeof part === 'object' && typeof part.text === 'string') return part.text
+              if (part && typeof part === 'object' && typeof part.text === 'string')
+                return part.text
               return ''
             })
             .filter(Boolean)
@@ -1777,7 +1820,10 @@ function RealApp(): React.JSX.Element {
         return `${existing}\n\n${incoming}`
       }
 
-      const combineThinkingDuration = (existing?: number, incoming?: number): number | undefined => {
+      const combineThinkingDuration = (
+        existing?: number,
+        incoming?: number
+      ): number | undefined => {
         if (existing === undefined) return incoming
         if (incoming === undefined) return existing
         return existing + incoming
@@ -1804,7 +1850,10 @@ function RealApp(): React.JSX.Element {
           const toolResult =
             typeof c.content === 'string' ? c.content : JSON.stringify(c.content || '')
 
-          const lastAi = messages.slice().reverse().find((m) => m.role === 'ai')
+          const lastAi = messages
+            .slice()
+            .reverse()
+            .find((m) => m.role === 'ai')
           if (lastAi) {
             if (!lastAi.toolCalls) lastAi.toolCalls = []
             const targetTc = lastAi.toolCalls.find(
@@ -1831,7 +1880,10 @@ function RealApp(): React.JSX.Element {
 
         // 2. Tag-based tool execution result (role === 'user' starting with "Tool Execution Result for ")
         if (role === 'user' && rawText.startsWith('Tool Execution Result for ')) {
-          const lastAi = messages.slice().reverse().find((m) => m.role === 'ai')
+          const lastAi = messages
+            .slice()
+            .reverse()
+            .find((m) => m.role === 'ai')
           if (lastAi) {
             if (!lastAi.toolCalls) lastAi.toolCalls = []
             const emptyTc = lastAi.toolCalls.find((tc) => tc.result === undefined)
@@ -1970,10 +2022,7 @@ function RealApp(): React.JSX.Element {
               lastMsg.thinkingDuration,
               thinkingDuration
             )
-            lastMsg.workedDuration = combineWorkedDuration(
-              lastMsg.workedDuration,
-              workedDuration
-            )
+            lastMsg.workedDuration = combineWorkedDuration(lastMsg.workedDuration, workedDuration)
             if (toolCalls.length > 0) {
               if (!lastMsg.toolCalls) {
                 lastMsg.toolCalls = toolCalls
@@ -2075,9 +2124,7 @@ function RealApp(): React.JSX.Element {
       return
     }
     return window.api.onArtifactsUpdate(({ chatId, artifacts }) => {
-      setTabs((prevTabs) =>
-        prevTabs.map((t) => (t.chatId === chatId ? { ...t, artifacts } : t))
-      )
+      setTabs((prevTabs) => prevTabs.map((t) => (t.chatId === chatId ? { ...t, artifacts } : t)))
     })
   }, [])
 
@@ -2190,26 +2237,32 @@ function RealApp(): React.JSX.Element {
     )
   }, [])
 
-  const getReasoningLevelForModel = useCallback((modelKey: string) => {
-    if (!isPrismCloudGeminiModel(modelKey)) return 'off'
-    if (!config?.modelReasoningLevels) return 'minimal'
-    const cleanKey = modelKey.replace('prism_provider:', '')
-    return (
-      config.modelReasoningLevels[modelKey] ||
-      config.modelReasoningLevels[cleanKey] ||
-      getDefaultThinkingLevelForModel(modelKey)
-    )
-  }, [config])
+  const getReasoningLevelForModel = useCallback(
+    (modelKey: string) => {
+      if (!isPrismCloudGeminiModel(modelKey)) return 'off'
+      if (!config?.modelReasoningLevels) return 'minimal'
+      const cleanKey = modelKey.replace('prism_provider:', '')
+      return (
+        config.modelReasoningLevels[modelKey] ||
+        config.modelReasoningLevels[cleanKey] ||
+        getDefaultThinkingLevelForModel(modelKey)
+      )
+    },
+    [config]
+  )
 
-  const handleReasoningLevelChange = useCallback(async (modelKey: string, level: string) => {
-    if (!isPrismCloudGeminiModel(modelKey)) return
-    const updatedLevels = {
-      ...(config?.modelReasoningLevels || {}),
-      [modelKey]: level
-    }
-    setConfig((prev) => (prev ? { ...prev, modelReasoningLevels: updatedLevels } : prev))
-    await window.api.saveConfig({ modelReasoningLevels: updatedLevels })
-  }, [config])
+  const handleReasoningLevelChange = useCallback(
+    async (modelKey: string, level: string) => {
+      if (!isPrismCloudGeminiModel(modelKey)) return
+      const updatedLevels = {
+        ...(config?.modelReasoningLevels || {}),
+        [modelKey]: level
+      }
+      setConfig((prev) => (prev ? { ...prev, modelReasoningLevels: updatedLevels } : prev))
+      await window.api.saveConfig({ modelReasoningLevels: updatedLevels })
+    },
+    [config]
+  )
 
   // Keyboard shortcut listener for new chat / new tab & close tab
   useEffect(() => {
@@ -2247,7 +2300,9 @@ function RealApp(): React.JSX.Element {
 
   // Refs used to batch rapid onChatChunk events into a single React re-render
   // per animation frame, preventing excessive GC pressure during heavy streaming.
-  const pendingChunkRef = useRef<Parameters<Parameters<typeof window.api.onChatChunk>[0]>[0] | null>(null)
+  const pendingChunkRef = useRef<
+    Parameters<Parameters<typeof window.api.onChatChunk>[0]>[0] | null
+  >(null)
   const rafIdRef = useRef<number | null>(null)
 
   // IPC Event Listeners for background stream updates
@@ -2280,7 +2335,9 @@ function RealApp(): React.JSX.Element {
       )
     })
 
-    const flushChunk = (data: Parameters<Parameters<typeof window.api.onChatChunk>[0]>[0]): void => {
+    const flushChunk = (
+      data: Parameters<Parameters<typeof window.api.onChatChunk>[0]>[0]
+    ): void => {
       const {
         chatId,
         thoughts,
@@ -2313,7 +2370,10 @@ function RealApp(): React.JSX.Element {
               }
 
               const workStartTime = lastMsg.workStartTime || Date.now()
-              const currentWorkedDuration = Math.max(1, Math.round((Date.now() - workStartTime) / 1000))
+              const currentWorkedDuration = Math.max(
+                1,
+                Math.round((Date.now() - workStartTime) / 1000)
+              )
 
               let duration = lastMsg.thinkingDuration
               let startTime = lastMsg.thinkingStartTime
@@ -2373,7 +2433,6 @@ function RealApp(): React.JSX.Element {
       }
     })
 
-
     const removeChatEndListener = window.api.onChatEnd((data) => {
       // Flush any pending chunk before processing end-of-stream,
       // then cancel the RAF so a stale chunk can't overwrite the final state.
@@ -2387,7 +2446,13 @@ function RealApp(): React.JSX.Element {
         flushChunk(pendingData)
       }
 
-      const { chatId, thoughts, finalResponse, thinkingDuration: eventDuration, workedDuration: eventWorkedDuration } = data as typeof data & { workedDuration?: number }
+      const {
+        chatId,
+        thoughts,
+        finalResponse,
+        thinkingDuration: eventDuration,
+        workedDuration: eventWorkedDuration
+      } = data as typeof data & { workedDuration?: number }
       setRunningChats((prev) => {
         const next = { ...prev }
         delete next[chatId]
@@ -2408,7 +2473,8 @@ function RealApp(): React.JSX.Element {
                 )
                 for (const stc of completedStreaming) {
                   const alreadyExists = promotedToolCalls.some(
-                    (tc) => tc.name === stc.name && (tc.status === 'running' || tc.status === 'done')
+                    (tc) =>
+                      tc.name === stc.name && (tc.status === 'running' || tc.status === 'done')
                   )
                   if (!alreadyExists) {
                     let parsedArgs: Record<string, unknown> = {}
@@ -2440,11 +2506,11 @@ function RealApp(): React.JSX.Element {
               })
 
               let duration = eventDuration !== undefined ? eventDuration : lastMsg.thinkingDuration
-              if (
-                duration === undefined &&
-                lastMsg.thinkingStartTime
-              ) {
-                const roundDur = Math.max(1, Math.round((Date.now() - lastMsg.thinkingStartTime) / 1000))
+              if (duration === undefined && lastMsg.thinkingStartTime) {
+                const roundDur = Math.max(
+                  1,
+                  Math.round((Date.now() - lastMsg.thinkingStartTime) / 1000)
+                )
                 duration = (lastMsg.thinkingDuration || 0) + roundDur
               }
 
@@ -2551,7 +2617,11 @@ function RealApp(): React.JSX.Element {
                 setIsQuotaModalOpen(true)
                 separatorContent =
                   'Prism Cloud Quota Exceeded: Your Prism Cloud request limit has been reached. Please wait for the reset window or switch to a custom API key in Settings.'
-              } else if (error.startsWith('API Error') || error.startsWith('Provider API Error') || isPrismCloudError) {
+              } else if (
+                error.startsWith('API Error') ||
+                error.startsWith('Provider API Error') ||
+                isPrismCloudError
+              ) {
                 separatorContent = error
               } else {
                 const apiErrorMatch = error.match(/^API_KEY_ERROR:(\d{3}):(.+)$/)
@@ -2657,9 +2727,7 @@ function RealApp(): React.JSX.Element {
         if (BROWSER_TOOL_NAMES.has(data.name)) {
           const sourceTab = newTabs.find((t) => t.chatId === chatId)
           if (sourceTab) {
-            const existingBrowserTab = newTabs.find(
-              (t) => t.tabType === 'browser'
-            )
+            const existingBrowserTab = newTabs.find((t) => t.tabType === 'browser')
             if (existingBrowserTab) {
               if (existingBrowserTab.browserSourceTabId !== sourceTab.id) {
                 existingBrowserTab.browserSourceTabId = sourceTab.id
@@ -2958,7 +3026,7 @@ function RealApp(): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background-main font-sans selection:bg-accent-primary/30 pt-10">
+    <div className="flex h-screen w-screen overflow-hidden bg-black font-sans selection:bg-accent-primary/30 pt-10">
       {!bootComplete && (
         <LoadingScreen
           onComplete={(connectionFailed?: boolean) => {
@@ -2983,14 +3051,16 @@ function RealApp(): React.JSX.Element {
         onOpenChat={handleLoadChat}
       />
       {isSettingsModalOpen && (
-        <div className="fixed inset-0 z-[100] overflow-y-auto p-2.5 sm:p-6 md:p-8 flex flex-col animate-soft-pop">
+        <div className="fixed inset-0 z-[100] overflow-y-auto p-3 sm:p-5 md:p-6 flex flex-col animate-soft-pop">
           <div
-            className="fixed inset-0 bg-black/65 backdrop-blur-xl"
+            className="fixed inset-0 bg-black/84 backdrop-blur-[8px]"
             onClick={() => setIsSettingsModalOpen(false)}
           />
-          <div className="m-auto relative w-full max-w-5xl h-[92vh] sm:h-[85vh] overflow-hidden rounded-[24px] sm:rounded-[30px] border border-white/[0.12] bg-surface shadow-2xl flex flex-col z-10">
-            <SettingsView onClose={() => setIsSettingsModalOpen(false)} onOpenAuthModal={() => setIsAuthModalOpen(true)} />
-
+          <div className="m-auto relative w-full max-w-[1120px] h-[calc(100vh-24px)] sm:h-[min(88vh,860px)] overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-black shadow-[0_28px_80px_rgba(0,0,0,0.72)] flex flex-col z-10">
+            <SettingsView
+              onClose={() => setIsSettingsModalOpen(false)}
+              onOpenAuthModal={() => setIsAuthModalOpen(true)}
+            />
           </div>
         </div>
       )}
@@ -3038,119 +3108,124 @@ function RealApp(): React.JSX.Element {
           tabs.length === 0 ? (
             <EmptyTabState onNewTab={handleNewChat} />
           ) : (
-            <div className={clsx('grid flex-1 w-full h-full p-2.5 gap-2.5 overflow-hidden', gridLayoutClass)}>
-            {tabs.map((tab) => {
-              const visibleIndex = visibleTabs.findIndex((vt) => vt.id === tab.id)
-              const isVisible = visibleIndex !== -1
+            <div
+              className={clsx(
+                'grid flex-1 w-full h-full overflow-hidden',
+                visibleTabs.length > 1 ? 'p-2.5 gap-2.5' : 'p-0 gap-0',
+                gridLayoutClass
+              )}
+            >
+              {tabs.map((tab) => {
+                const visibleIndex = visibleTabs.findIndex((vt) => vt.id === tab.id)
+                const isVisible = visibleIndex !== -1
 
-              if (!isVisible && tab.tabType !== 'browser') {
-                return null
-              }
+                if (!isVisible && tab.tabType !== 'browser') {
+                  return null
+                }
 
-              return (
-                <div
-                  key={tab.id}
-                  className={clsx(
-                    'h-full w-full overflow-hidden',
-                    isVisible ? getPaneSpanClass(visibleIndex, visibleTabs.length) : 'hidden'
-                  )}
-                  aria-hidden={!isVisible}
-                >
-                  {tab.tabType === 'browser' ? (
-                    <BrowserPane
-                      isAiActive={
-                        tab.browserSourceTabId
-                          ? !!(tabs.find((t) => t.id === tab.browserSourceTabId)?.isProcessing)
-                          : Object.values(runningChats).some(Boolean)
-                      }
-                      isSplitView={visibleTabs.length > 1}
-                      onCloseSplit={() => handleToggleSplitTab(tab.id)}
-                    />
-                  ) : (
-                    <ChatPane
-                      tab={{ ...tab, selectedModel: selectedModel || tab.selectedModel }}
-                      isFocused={tab.id === activeTabId}
-                      isSplitView={visibleTabs.length > 1}
-                      todo={tab.chatId ? chatTodos[tab.chatId] || null : null}
-                      config={config}
-                      isKeyMissing={isKeyMissing}
-                      isOnline={isOnline}
-                      onFocus={handleSelectTab}
-                      onCloseTab={handleCloseTab}
-                      onToggleSplitTab={handleToggleSplitTab}
-                      onSwapSplitTabs={handleSwapSplitTabs}
-                      onSend={(text, file, overrideModel, overrideMode, forceYoutube) => {
-                        handleSend(text, file, overrideModel, overrideMode, forceYoutube)
-                      }}
-                      onCancel={() => {
-                        if (tab.chatId) {
-                          window.api.cancelChat(tab.chatId)
+                return (
+                  <div
+                    key={tab.id}
+                    className={clsx(
+                      'h-full w-full overflow-hidden',
+                      isVisible ? getPaneSpanClass(visibleIndex, visibleTabs.length) : 'hidden'
+                    )}
+                    aria-hidden={!isVisible}
+                  >
+                    {tab.tabType === 'browser' ? (
+                      <BrowserPane
+                        isAiActive={
+                          tab.browserSourceTabId
+                            ? !!tabs.find((t) => t.id === tab.browserSourceTabId)?.isProcessing
+                            : Object.values(runningChats).some(Boolean)
                         }
-                      }}
-                      onModelChange={handleModelChange}
-                      onReasoningLevelChange={(model, level) => {
-                        handleReasoningLevelChange(model, level)
-                      }}
-                      onModeChange={(mode) => {
-                        const newDisciplinePath = mode === 'discipline' ? tab.disciplinePath : ''
-                        setTabs((prev) =>
-                          prev.map((t) =>
-                            t.id === tab.id
-                              ? { ...t, sessionMode: mode, disciplinePath: newDisciplinePath }
-                              : t
-                          )
-                        )
-                        window.api.setSessionMode(mode, newDisciplinePath)
-                      }}
-                      onSelectFolder={async () => {
-                        const selected = await window.api.selectFolder()
-                        if (selected) {
+                        isSplitView={visibleTabs.length > 1}
+                        onCloseSplit={() => handleToggleSplitTab(tab.id)}
+                      />
+                    ) : (
+                      <ChatPane
+                        tab={{ ...tab, selectedModel: selectedModel || tab.selectedModel }}
+                        isFocused={tab.id === activeTabId}
+                        isSplitView={visibleTabs.length > 1}
+                        todo={tab.chatId ? chatTodos[tab.chatId] || null : null}
+                        config={config}
+                        isKeyMissing={isKeyMissing}
+                        isOnline={isOnline}
+                        onFocus={handleSelectTab}
+                        onCloseTab={handleCloseTab}
+                        onToggleSplitTab={handleToggleSplitTab}
+                        onSwapSplitTabs={handleSwapSplitTabs}
+                        onSend={(text, file, overrideModel, overrideMode, forceYoutube) => {
+                          handleSend(text, file, overrideModel, overrideMode, forceYoutube)
+                        }}
+                        onCancel={() => {
+                          if (tab.chatId) {
+                            window.api.cancelChat(tab.chatId)
+                          }
+                        }}
+                        onModelChange={handleModelChange}
+                        onReasoningLevelChange={(model, level) => {
+                          handleReasoningLevelChange(model, level)
+                        }}
+                        onModeChange={(mode) => {
+                          const newDisciplinePath = mode === 'discipline' ? tab.disciplinePath : ''
                           setTabs((prev) =>
                             prev.map((t) =>
                               t.id === tab.id
-                                ? { ...t, disciplinePath: selected, sessionMode: 'discipline' }
+                                ? { ...t, sessionMode: mode, disciplinePath: newDisciplinePath }
                                 : t
                             )
                           )
-                          window.api.setSessionMode('discipline', selected)
+                          window.api.setSessionMode(mode, newDisciplinePath)
+                        }}
+                        onSelectFolder={async () => {
+                          const selected = await window.api.selectFolder()
+                          if (selected) {
+                            setTabs((prev) =>
+                              prev.map((t) =>
+                                t.id === tab.id
+                                  ? { ...t, disciplinePath: selected, sessionMode: 'discipline' }
+                                  : t
+                              )
+                            )
+                            window.api.setSessionMode('discipline', selected)
+                          }
+                        }}
+                        onUpdateTabInput={(id, text) => {
+                          setTabs((prev) =>
+                            prev.map((t) => (t.id === id ? { ...t, inputText: text } : t))
+                          )
+                        }}
+                        onUpdateTabFile={(id, file) => {
+                          setTabs((prev) =>
+                            prev.map((t) => (t.id === id ? { ...t, attachedFile: file } : t))
+                          )
+                        }}
+                        onToggleSearch={(enabled) => handleToggleSearch(tab.id, enabled)}
+                        onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
+                        onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
+                        activeWorkflow={activeWorkflow}
+                        setActiveWorkflow={setActiveWorkflow}
+                        renderedMessages={
+                          <TabMessagesList
+                            messages={tab.messages}
+                            currentChatId={tab.chatId}
+                            handleLoadChat={handleLoadChat}
+                            onOpenBrowserTab={() => handleOpenBrowserTab(tab.id)}
+                          />
                         }
-                      }}
-                      onUpdateTabInput={(id, text) => {
-                        setTabs((prev) =>
-                          prev.map((t) => (t.id === id ? { ...t, inputText: text } : t))
-                        )
-                      }}
-                      onUpdateTabFile={(id, file) => {
-                        setTabs((prev) =>
-                          prev.map((t) => (t.id === id ? { ...t, attachedFile: file } : t))
-                        )
-                      }}
-                      onToggleSearch={(enabled) => handleToggleSearch(tab.id, enabled)}
-                      onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
-                      onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
-                      activeWorkflow={activeWorkflow}
-                      setActiveWorkflow={setActiveWorkflow}
-                      renderedMessages={
-                        <TabMessagesList
-                          messages={tab.messages}
-                          currentChatId={tab.chatId}
-                          handleLoadChat={handleLoadChat}
-                          onOpenBrowserTab={() => handleOpenBrowserTab(tab.id)}
-                        />
-                      }
-                    />
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )
-      ) : (
+                      />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )
+        ) : (
           <div className="flex-1 flex items-center justify-center text-text-secondary">
             View coming soon...
           </div>
         )}
-
 
         <DownloadProgressOverlay
           downloads={visibleDownloads}

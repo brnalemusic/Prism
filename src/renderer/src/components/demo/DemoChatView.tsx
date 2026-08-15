@@ -84,7 +84,9 @@ const DemoAiMessage = memo(function DemoAiMessage({
       <div className="flex w-full flex-col gap-3 text-text-primary">
         {message.isThinking ? (
           <div className="w-full mb-1 select-none">
-            <span className="thinking-shimmer-text text-[12.5px] font-medium inline-block">Thinking</span>
+            <span className="thinking-shimmer-text text-[12.5px] font-medium inline-block">
+              Thinking
+            </span>
           </div>
         ) : message.thoughts ? (
           <div className="w-full mb-1 select-none text-[12px] text-text-secondary/60 font-medium">
@@ -236,7 +238,7 @@ export function DemoChatView({ script, onBack, onDownload }: DemoChatViewProps):
 
   return (
     <main className="relative z-10 flex h-full min-h-0 flex-col pt-12">
-      <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/[0.06] bg-background-main/46 px-4 backdrop-blur-md sm:px-6">
+      <div className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--border-default)] bg-black px-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-2">
           <button
             onClick={onBack}
@@ -260,7 +262,7 @@ export function DemoChatView({ script, onBack, onDownload }: DemoChatViewProps):
           </button>
           <button
             onClick={onDownload}
-            className="flex h-8 items-center gap-2 rounded-lg bg-accent-secondary px-3 text-xs font-semibold text-background-main transition-opacity hover:opacity-90"
+            className="flex h-8 items-center gap-2 rounded-lg border border-white bg-white px-3 text-xs font-semibold text-black transition-colors hover:bg-neutral-200"
           >
             <DownloadSimple size={15} weight="bold" />
             Download Prism
@@ -293,7 +295,7 @@ export function DemoChatView({ script, onBack, onDownload }: DemoChatViewProps):
       </div>
 
       <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-background-main via-background-main/90 to-transparent px-4 pb-5 pt-14">
-        <div className="pointer-events-auto mx-auto flex max-w-[860px] items-center justify-between gap-3 rounded-lg border border-white/[0.07] bg-background-secondary/88 px-4 py-3 shadow-[0_18px_44px_rgba(0,0,0,0.32)] backdrop-blur-xl">
+        <div className="pointer-events-auto mx-auto flex max-w-[860px] items-center justify-between gap-3 rounded-xl border border-[var(--border-default)] bg-[var(--surface-lowest)] px-4 py-3 shadow-[0_18px_44px_rgba(0,0,0,0.32)]">
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-text-primary">
               {isDone ? 'Demo complete' : 'Playing scripted conversation'}
@@ -306,7 +308,7 @@ export function DemoChatView({ script, onBack, onDownload }: DemoChatViewProps):
           </div>
           <button
             onClick={onDownload}
-            className="flex h-9 shrink-0 items-center gap-2 rounded-lg bg-accent-secondary px-4 text-sm font-semibold text-background-main transition-opacity hover:opacity-90"
+            className="flex h-9 shrink-0 items-center gap-2 rounded-lg border border-white bg-white px-4 text-sm font-semibold text-black transition-colors hover:bg-neutral-200"
           >
             <DownloadSimple size={16} weight="bold" />
             Download

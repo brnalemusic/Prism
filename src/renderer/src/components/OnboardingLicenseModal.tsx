@@ -39,7 +39,9 @@ export function OnboardingLicenseModal({
 
   // Stripe automated verification & polling state
   const [stripeVerifying, setStripeVerifying] = useState(false)
-  const [stripeVerifyStep, setStripeVerifyStep] = useState<'opening' | 'polling' | 'success' | 'error'>('opening')
+  const [stripeVerifyStep, setStripeVerifyStep] = useState<
+    'opening' | 'polling' | 'success' | 'error'
+  >('opening')
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const isPaymentVerificationInFlightRef = useRef(false)
 
@@ -158,8 +160,8 @@ export function OnboardingLicenseModal({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[9990] flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-2xl animate-fade-in">
-      <div className="relative flex flex-col w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-[32px] border border-white/10 bg-[#0c0d14]/95 shadow-[0_30px_90px_-15px_rgba(0,0,0,0.9)] p-6 sm:p-8 custom-scrollbar">
+    <div className="prism-modal-backdrop fixed inset-0 z-[9990] flex items-center justify-center p-4 sm:p-6 animate-fade-in">
+      <div className="prism-modal-panel relative flex max-h-[calc(100vh-32px)] w-full max-w-2xl flex-col overflow-y-auto p-6 sm:p-8 custom-scrollbar">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -181,8 +183,11 @@ export function OnboardingLicenseModal({
           </h2>
 
           <p className="text-xs sm:text-sm text-text-secondary/80 max-w-lg leading-relaxed">
-            Prism is <strong className="text-status-success font-semibold">100% free for personal and individual use</strong>.
-            If you use Prism within a company or enterprise, a paid license is required.
+            Prism is{' '}
+            <strong className="text-status-success font-semibold">
+              100% free for personal and individual use
+            </strong>
+            . If you use Prism within a company or enterprise, a paid license is required.
           </p>
         </div>
 
@@ -209,10 +214,10 @@ export function OnboardingLicenseModal({
                 <div
                   key={plan.id}
                   className={clsx(
-                    'relative flex flex-col justify-between p-6 rounded-[24px] border transition-all duration-200',
+                    'relative flex flex-col justify-between p-6 rounded-xl border transition-colors duration-200',
                     isPopular
-                      ? 'border-accent-primary/40 bg-accent-primary/[0.07] shadow-xl shadow-accent-primary/5'
-                      : 'border-white/[0.08] bg-white/[0.03] hover:border-white/[0.15]'
+                      ? 'border-accent-primary/40 bg-accent-primary/[0.07]'
+                      : 'border-[var(--border-default)] bg-[var(--surface)] hover:border-[var(--border-strong)]'
                   )}
                 >
                   {plan.badge && (
@@ -230,11 +235,21 @@ export function OnboardingLicenseModal({
 
                     <div className="flex items-baseline gap-1 my-2">
                       <span className="text-3xl font-extrabold text-text-primary font-mono tracking-tight">
-                        ${plan.priceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        $
+                        {plan.priceUsd.toLocaleString('en-US', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2
+                        })}
                       </span>
                       <span className="text-xs text-text-muted font-medium">
                         / {plan.billingInterval}
                       </span>
+                    </div>
+                    <div className="flex flex-wrap gap-3 font-mono text-[10px] text-text-muted">
+                      <span>
+                        {plan.seats} {plan.seats === 1 ? 'seat' : 'seats'}
+                      </span>
+                      <span>{plan.durationDays} days</span>
                     </div>
                   </div>
 
@@ -244,10 +259,10 @@ export function OnboardingLicenseModal({
                         onClick={() => startPaymentFlowAndPolling(plan)}
                         disabled={isLoadingThis || stripeVerifying}
                         className={clsx(
-                          'w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer',
+                          'w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg text-xs font-bold transition-colors cursor-pointer',
                           isPopular
-                            ? 'bg-accent-primary hover:bg-accent-primary/90 text-white shadow-accent-primary/20'
-                            : 'bg-white/10 hover:bg-white/15 text-text-primary border border-white/10'
+                            ? 'bg-white hover:bg-neutral-200 text-black'
+                            : 'bg-[var(--surface-raised)] hover:border-[var(--border-strong)] text-text-primary border border-[var(--border-default)]'
                         )}
                       >
                         {isLoadingThis ? (
@@ -311,8 +326,8 @@ export function OnboardingLicenseModal({
 
       {/* Global Automated Payment Verification Portal Overlay */}
       {stripeVerifying && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/85 backdrop-blur-xl animate-fade-in p-4">
-          <div className="flex flex-col items-center gap-5 p-8 rounded-[28px] border border-white/10 bg-[#0c0d14]/95 shadow-[0_30px_90px_-10px_rgba(0,0,0,0.95)] text-center max-w-sm w-full animate-soft-pop">
+        <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-fade-in">
+          <div className="prism-modal-panel flex w-full max-w-sm flex-col items-center gap-5 p-8 text-center animate-soft-pop">
             {/* Animated Indicator */}
             {stripeVerifyStep === 'success' ? (
               <div className="w-14 h-14 rounded-2xl bg-status-success/15 border border-status-success/30 flex items-center justify-center text-status-success animate-bounce">

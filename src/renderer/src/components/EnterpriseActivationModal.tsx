@@ -58,8 +58,8 @@ export const EnterpriseActivationModal: React.FC<EnterpriseActivationModalProps>
   const countdownText = useLicenseCountdown(licenseInfo.expiresAt)
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 animate-soft-pop">
-      <div className="relative flex flex-col w-full max-w-md rounded-[28px] border border-white/[0.12] bg-[#0E0F12]/95 p-6 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] overflow-hidden space-y-5 text-text-primary">
+    <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-soft-pop">
+      <div className="prism-modal-panel relative flex max-h-[calc(100vh-32px)] w-full max-w-md flex-col overflow-y-auto p-6 text-text-primary">
         {/* Glow ambient background effect */}
         <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-accent-primary/10 blur-3xl" />
         <div className="pointer-events-none absolute -left-20 -bottom-20 h-56 w-56 rounded-full bg-accent-primary/5 blur-3xl" />
@@ -122,25 +122,24 @@ export const EnterpriseActivationModal: React.FC<EnterpriseActivationModalProps>
             <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">
               License Type
             </span>
-            <span className="font-mono font-bold text-accent-primary">
-              {licenseInfo.type}
-            </span>
+            <span className="font-mono font-bold text-accent-primary">{licenseInfo.type}</span>
           </div>
 
           <div className="flex flex-col gap-0.5">
             <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">
               Seats Authorized
             </span>
-            <span className="font-semibold text-text-primary">
-              {licenseInfo.seats} Seat(s)
-            </span>
+            <span className="font-semibold text-text-primary">{licenseInfo.seats} Seat(s)</span>
           </div>
 
           <div className="flex flex-col gap-0.5">
             <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">
               License ID
             </span>
-            <span className="font-mono text-[11px] text-text-secondary truncate" title={licenseInfo.id}>
+            <span
+              className="font-mono text-[11px] text-text-secondary truncate"
+              title={licenseInfo.id}
+            >
               {licenseInfo.id}
             </span>
           </div>
