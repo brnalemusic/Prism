@@ -700,10 +700,15 @@ const api = {
   deactivateLicense: (): Promise<boolean> => ipcRenderer.invoke('deactivate-license'),
   getLicenseInfo: (): Promise<import('../shared/types').LicenseInfo | null> =>
     ipcRenderer.invoke('get-license-info'),
-  authLogin: (data: import('../shared/types').LoginData): Promise<import('../shared/types').AuthResponse> =>
-    ipcRenderer.invoke('auth-login', data),
-  authSignUp: (data: import('../shared/types').SignUpData): Promise<import('../shared/types').AuthResponse> =>
-    ipcRenderer.invoke('auth-signup', data),
+  authBeginWebLogin: (): Promise<import('../shared/types').WebLoginBeginResult> =>
+    ipcRenderer.invoke('auth-begin-web-login'),
+  authCancelWebLogin: (): Promise<boolean> => ipcRenderer.invoke('auth-cancel-web-login'),
+  authGetActivationStatus: (): Promise<import('../shared/types').ActivationStatusResult> =>
+    ipcRenderer.invoke('auth-get-activation-status'),
+  authActivateAccount: (
+    code: string
+  ): Promise<import('../shared/types').AccountActivationResult> =>
+    ipcRenderer.invoke('auth-activate-account', code),
   authLogout: (): Promise<boolean> => ipcRenderer.invoke('auth-logout'),
   getAuthUser: (): Promise<import('../shared/types').UserProfile | null> =>
     ipcRenderer.invoke('auth-get-user'),
@@ -714,8 +719,6 @@ const api = {
   ): Promise<import('../shared/types').AuthResponse> => ipcRenderer.invoke('auth-update-profile', updates),
   getUserAiUsage: (): Promise<import('../shared/types').UserAiUsageStatus | null> =>
     ipcRenderer.invoke('auth-get-ai-usage'),
-  authResendConfirmation: (email: string): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke('auth-resend-confirmation', email),
   authRequestDeleteAccountEmail: (email: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('auth-request-delete-email', email),
   authConfirmDeleteAccount: (otpCode: string): Promise<{ success: boolean; error?: string }> =>
@@ -731,6 +734,11 @@ const api = {
     ): void => callback(user)
     ipcRenderer.on('auth-session-updated', listener)
     return () => ipcRenderer.removeListener('auth-session-updated', listener)
+  },
+  onAuthCallbackReceived: (callback: () => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent): void => callback()
+    ipcRenderer.on('auth-callback-received', listener)
+    return () => ipcRenderer.removeListener('auth-callback-received', listener)
   },
   getSubscriptionPlans: (): Promise<import('../shared/types').SubscriptionPlan[]> =>
     ipcRenderer.invoke('get-subscription-plans'),

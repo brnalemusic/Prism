@@ -1194,6 +1194,15 @@ function RealApp(): React.JSX.Element {
     if (window.api?.onAuthSessionUpdated) {
       const unsub = window.api.onAuthSessionUpdated((user) => {
         setAuthUser(user)
+        if (user) {
+          setTimeout(() => {
+            setIsAuthModalOpen(false)
+            setIsApiKeyModalOpen(false)
+            setIsProviderLockOpen(false)
+            isOnboardingRef.current = false
+            setIsProfileModalOpen(true)
+          }, 600)
+        }
       })
       return unsub
     }
@@ -2609,7 +2618,13 @@ function RealApp(): React.JSX.Element {
                 lowerErr.includes('prism provider') ||
                 lowerErr.includes('prism_provider')
 
+              const isAccountInactive =
+                lowerErr.includes('account_inactive') ||
+                lowerErr.includes('require an active account') ||
+                lowerErr.includes('activate your account')
+
               const isQuotaExceeded =
+                !isAccountInactive &&
                 isPrismCloudError &&
                 (lowerErr.includes('quota') ||
                   lowerErr.includes('limit reached') ||
@@ -2617,7 +2632,11 @@ function RealApp(): React.JSX.Element {
                   lowerErr.includes('rate limit'))
 
               let separatorContent: string
-              if (isQuotaExceeded) {
+              if (isAccountInactive) {
+                setIsProfileModalOpen(true)
+                separatorContent =
+                  'Account Activation Required: Prism Cloud models require an active account. Please activate your account in Profile Settings.'
+              } else if (isQuotaExceeded) {
                 setIsQuotaModalOpen(true)
                 separatorContent =
                   'Prism Cloud Quota Exceeded: Your Prism Cloud request limit has been reached. Please wait for the reset window or switch to a custom API key in Settings.'

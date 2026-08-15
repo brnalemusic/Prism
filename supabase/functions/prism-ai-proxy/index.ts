@@ -3,17 +3,32 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-const PRISM_CLOUD_MODELS = new Set(['gemini-3.1-flash-lite', 'gemini-3-flash-preview'])
+const PRISM_CLOUD_MODELS = new Set(['gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-3-flash'])
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type, x-prism-skip-increment, x-goog-api-key, x-goog-api-client'
+const ALLOWED_ORIGINS = new Set([
+  'https://prismagent.vercel.app',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000'
+])
+
+function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin') ?? ''
+  const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : '*'
+  return {
+    'Access-Control-Allow-Origin': allowOrigin,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers':
+      'authorization, x-client-info, apikey, content-type, x-prism-skip-increment, x-goog-api-key, x-goog-api-client',
+    'Access-Control-Max-Age': '86400'
+  }
 }
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req)
+
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -30,28 +45,54 @@ serve(async (req) => {
     }
 
     const authHeader = req.headers.get('Authorization') ?? ''
-    const jwt = authHeader.replace(/^Bearer\s+/i, '')
+    const jwt = authHeader.replace(/^Bearer\s+/i, '').trim()
 
     if (!jwt) {
       return new Response(
-        JSON.stringify({ error: 'Authentication required to access Prism Cloud models.' }),
+        JSON.stringify({ error: 'Authentication required to access Prism Cloud models.', code: 'AUTH_REQUIRED' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
-    // 1. Verify user JWT token & email confirmation
+    // 1. Verify user JWT token
     const { data: userData, error: userErr } = await supabase.auth.getUser(jwt)
     if (userErr || !userData?.user) {
       return new Response(
-        JSON.stringify({ error: 'Invalid or expired session. Please log in again.' }),
+        JSON.stringify({ error: 'Invalid or expired session. Please log in again.', code: 'AUTH_REQUIRED' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
     const userId = userData.user.id
 
-    // Usage status is read through this authenticated endpoint so the client
-    // cannot choose another user's ID in a direct database RPC request.
+    // 2. SERVER-SIDE ENFORCEMENT: Check Account Activation Status
+    const { data: activation, error: actErr } = await supabase
+      .from('account_activations')
+      .select('status')
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (actErr) {
+      console.error('[prism-ai-proxy] Error checking activation status:', actErr)
+    }
+
+    const isActivated = activation?.status === 'active'
+
+    if (!isActivated) {
+      return new Response(
+        JSON.stringify({
+          error: 'Prism Cloud models require an active account. Please activate your account in Settings.',
+          code: 'ACCOUNT_INACTIVE',
+          accountInactive: true
+        }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+        }
+      )
+    }
+
+    // 3. Usage status check
     if (isUsageStatus) {
       const { data: statusResult, error: statusErr } = await supabase.rpc(
         'get_user_ai_usage_status',
@@ -72,8 +113,7 @@ serve(async (req) => {
       })
     }
 
-    // Warm-up is authenticated but deliberately non-billable. It primes the
-    // Edge Function and the upstream Gemini route before the first AI prompt.
+    // 4. Warm-up
     if (isWarmup) {
       const { data: keys, error: keysErr } = await supabase
         .from('prism_api_keys')
@@ -116,92 +156,7 @@ serve(async (req) => {
       })
     }
 
-    // 2. Check rate limit — skip increment for non-billable requests (e.g. title generation)
-    const skipIncrement = req.headers.get('X-Prism-Skip-Increment') === 'true'
-
-    if (skipIncrement) {
-      // Read-only quota check: verify user is within limits without incrementing
-      const { data: statusResult, error: statusErr } = await supabase.rpc(
-        'get_user_ai_usage_status',
-        {
-          p_user_id: userId
-        }
-      )
-
-      if (statusErr) {
-        console.error('[prism-ai-proxy] RPC usage status check error:', statusErr)
-        return new Response(JSON.stringify({ error: 'Failed to verify account status.' }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        })
-      }
-
-      // Block non-billable requests too when user has zero quota remaining
-      const remaining5h = statusResult?.remaining_5h ?? 0
-      const remaining1w = statusResult?.remaining_1w ?? 0
-      if (remaining5h <= 0 || remaining1w <= 0) {
-        return new Response(
-          JSON.stringify({ error: 'Prism Cloud quota limit reached.', limitExceeded: true }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        )
-      }
-    } else {
-      // Normal billable request: check AND increment usage counter
-      const { data: usageResult, error: usageErr } = await supabase.rpc(
-        'check_and_increment_ai_usage',
-        {
-          p_user_id: userId
-        }
-      )
-
-      if (usageErr) {
-        console.error('[prism-ai-proxy] RPC usage check error:', usageErr)
-        return new Response(JSON.stringify({ error: 'Failed to process account rate limit.' }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        })
-      }
-
-      if (!usageResult?.allowed) {
-        // Use server-returned limits in the message — never hardcoded values
-        const max5h = usageResult?.max_5h ?? '?'
-        const max7d = usageResult?.max_7d ?? '?'
-        const tier = usageResult?.tier ?? 'free'
-
-        const reasonMsg =
-          usageResult?.reason === '5h_limit_exceeded'
-            ? `Prism Cloud quota limit reached (${max5h} requests per 5 hours for ${tier} tier). Please try again later.`
-            : `Prism Cloud weekly quota limit reached (${max7d} requests per 7 days for ${tier} tier). Please try again later.`
-
-        return new Response(
-          JSON.stringify({ error: reasonMsg, limitExceeded: true, usage: usageResult }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        )
-      }
-    }
-
-    // 3. Retrieve active Gemini API keys from secure database
-    const { data: keys, error: keysErr } = await supabase
-      .from('prism_api_keys')
-      .select('key_value')
-      .eq('is_active', true)
-
-    if (keysErr || !keys || keys.length === 0) {
-      console.error('[prism-ai-proxy] Error retrieving API keys:', keysErr)
-      return new Response(
-        JSON.stringify({
-          error: 'Prism Cloud service is currently unavailable. No API key found.'
-        }),
-        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Shuffle available keys to balance load and provide seamless fallback
-    const availableKeys = keys.map((k) => k.key_value)
-    const shuffledKeys = [...availableKeys].sort(() => Math.random() - 0.5)
-
-    // 4. Accept the native Gemini GenerateContent request emitted by @google/genai.
-    const bodyPayload = await req.json()
+    // 5. Parse Gemini model route
     const nativeRoute = requestUrl.pathname.match(
       /\/models\/([a-zA-Z0-9._/-]+):(streamGenerateContent|generateContent)$/
     )
@@ -227,6 +182,86 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+
+    // 6. Check rate limit
+    const skipIncrement = req.headers.get('X-Prism-Skip-Increment') === 'true'
+
+    if (skipIncrement) {
+      const { data: statusResult, error: statusErr } = await supabase.rpc(
+        'get_user_ai_usage_status',
+        { p_user_id: userId }
+      )
+
+      if (statusErr) {
+        console.error('[prism-ai-proxy] RPC usage status check error:', statusErr)
+        return new Response(JSON.stringify({ error: 'Failed to verify account status.' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      const rawList: any[] = Array.isArray(statusResult) ? statusResult : [statusResult]
+      const modelMetric = rawList.find((m) => m.model_id === rawModelId) || rawList[0]
+      const remaining5h = modelMetric?.remaining_5h ?? 0
+      const remaining1w = modelMetric?.remaining_1w ?? 0
+
+      if (remaining5h <= 0 || remaining1w <= 0) {
+        return new Response(
+          JSON.stringify({ error: 'Prism Cloud quota limit reached.', limitExceeded: true }),
+          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+    } else {
+      const { data: usageResult, error: usageErr } = await supabase.rpc(
+        'check_and_increment_ai_usage',
+        { p_user_id: userId, p_model: rawModelId }
+      )
+
+      if (usageErr) {
+        console.error('[prism-ai-proxy] RPC usage check error:', usageErr)
+        return new Response(JSON.stringify({ error: 'Failed to process account rate limit.' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      if (!usageResult?.allowed) {
+        const max5h = usageResult?.max_5h ?? '?'
+        const max7d = usageResult?.max_7d ?? '?'
+        const tier = usageResult?.tier ?? 'free'
+
+        const reasonMsg =
+          usageResult?.reason === '5h_limit_exceeded'
+            ? `Prism Cloud quota limit reached (${max5h} requests per 5 hours for ${tier} tier). Please try again later.`
+            : `Prism Cloud weekly quota limit reached (${max7d} requests per 7 days for ${tier} tier). Please try again later.`
+
+        return new Response(
+          JSON.stringify({ error: reasonMsg, limitExceeded: true, usage: usageResult }),
+          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+    }
+
+    // 7. Retrieve active Gemini API keys
+    const { data: keys, error: keysErr } = await supabase
+      .from('prism_api_keys')
+      .select('key_value')
+      .eq('is_active', true)
+
+    if (keysErr || !keys || keys.length === 0) {
+      console.error('[prism-ai-proxy] Error retrieving API keys:', keysErr)
+      return new Response(
+        JSON.stringify({
+          error: 'Prism Cloud service is currently unavailable. No API key found.'
+        }),
+        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    const availableKeys = keys.map((k) => k.key_value)
+    const shuffledKeys = [...availableKeys].sort(() => Math.random() - 0.5)
+
+    const bodyPayload = await req.json()
     const action = nativeRoute[2]
     const streamQuery = action === 'streamGenerateContent' ? '?alt=sse' : ''
     const targetEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${rawModelId}:${action}${streamQuery}`
@@ -235,7 +270,6 @@ serve(async (req) => {
     let keyIndex = 0
     const failureDetails: Array<{ index: number; status: number; reason: string }> = []
 
-    // Attempt request with automatic fallback across all keys if rate limit / error occurs
     for (const key of shuffledKeys) {
       keyIndex++
       try {
@@ -250,7 +284,6 @@ serve(async (req) => {
         })
 
         if (geminiRes.ok) {
-          // Success! Return SSE stream back to client
           return new Response(geminiRes.body, {
             status: 200,
             headers: {
@@ -262,7 +295,6 @@ serve(async (req) => {
           })
         }
 
-        // Key returned error (e.g. 429 rate limit or 500) -> Log full error body and fallback
         lastErrorText = await geminiRes.text().catch(() => '')
         const truncatedBody =
           lastErrorText.length > 500 ? lastErrorText.slice(0, 500) + '...' : lastErrorText
@@ -271,8 +303,6 @@ serve(async (req) => {
         )
         failureDetails.push({ index: keyIndex, status: geminiRes.status, reason: truncatedBody })
 
-        // Invalid native payloads are deterministic and must be returned to the
-        // client so the tool loop can correct them. Rotating keys cannot help.
         if (geminiRes.status >= 400 && geminiRes.status < 500 && geminiRes.status !== 429) {
           return new Response(
             lastErrorText || JSON.stringify({ error: 'Invalid Gemini request.' }),
@@ -295,7 +325,6 @@ serve(async (req) => {
       }
     }
 
-    // All keys exhausted — log detailed failure breakdown
     const statusCounts = failureDetails.reduce(
       (acc, d) => {
         acc[d.status] = (acc[d.status] || 0) + 1
@@ -306,7 +335,6 @@ serve(async (req) => {
     console.error(
       `[prism-ai-proxy] ALL ${shuffledKeys.length} keys failed | Model: ${rawModelId} | Breakdown: ${JSON.stringify(statusCounts)}`
     )
-    console.error(`[prism-ai-proxy] Last error body: ${lastErrorText.slice(0, 1000)}`)
 
     return new Response(
       JSON.stringify({

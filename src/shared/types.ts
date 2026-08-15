@@ -196,6 +196,29 @@ export interface UserProfile {
   avatarUrl?: string
   createdAt?: string
   updatedAt?: string
+  activationStatus?: 'active' | 'inactive'
+  activatedAt?: string | null
+}
+
+export interface WebLoginBeginResult {
+  success: boolean
+  url?: string
+  error?: string
+}
+
+export interface ActivationStatusResult {
+  status: 'active' | 'inactive'
+  activatedAt?: string | null
+  error?: string
+}
+
+export interface AccountActivationResult {
+  success: boolean
+  status?: 'active' | 'inactive'
+  activatedAt?: string | null
+  error?: string
+  code?: string
+  retryAfter?: number
 }
 
 export interface AuthState {

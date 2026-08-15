@@ -255,8 +255,12 @@ export interface PrismAPI {
   activateLicense: (key: string) => Promise<import('../shared/types').ActivationResult>
   deactivateLicense: () => Promise<boolean>
   getLicenseInfo: () => Promise<import('../shared/types').LicenseInfo | null>
-  authLogin: (data: import('../shared/types').LoginData) => Promise<import('../shared/types').AuthResponse>
-  authSignUp: (data: import('../shared/types').SignUpData) => Promise<import('../shared/types').AuthResponse>
+  authBeginWebLogin: () => Promise<import('../shared/types').WebLoginBeginResult>
+  authCancelWebLogin: () => Promise<boolean>
+  authGetActivationStatus: () => Promise<import('../shared/types').ActivationStatusResult>
+  authActivateAccount: (
+    code: string
+  ) => Promise<import('../shared/types').AccountActivationResult>
   authLogout: () => Promise<boolean>
   getAuthUser: () => Promise<import('../shared/types').UserProfile | null>
   authResetPassword: (email: string) => Promise<{ success: boolean; error?: string }>
@@ -264,13 +268,13 @@ export interface PrismAPI {
     updates: Partial<import('../shared/types').UserProfile>
   ) => Promise<import('../shared/types').AuthResponse>
   getUserAiUsage: () => Promise<import('../shared/types').UserAiUsageStatus | null>
-  authResendConfirmation: (email: string) => Promise<{ success: boolean; error?: string }>
   authRequestDeleteAccountEmail: (email: string) => Promise<{ success: boolean; error?: string }>
   authConfirmDeleteAccount: (otpCode: string) => Promise<{ success: boolean; error?: string }>
   authConfirmDeleteAccountWithPassword: (password: string) => Promise<{ success: boolean; error?: string }>
   onAuthSessionUpdated: (
     callback: (user: import('../shared/types').UserProfile | null) => void
   ) => () => void
+  onAuthCallbackReceived: (callback: () => void) => () => void
   getSubscriptionPlans: () => Promise<import('../shared/types').SubscriptionPlan[]>
   createCheckoutSession: (
     planId: string,
@@ -283,7 +287,6 @@ export interface PrismAPI {
     company?: string
   ) => Promise<import('../shared/types').PaymentVerificationResult>
 }
-
 
 declare global {
   interface Window {

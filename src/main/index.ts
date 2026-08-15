@@ -71,7 +71,7 @@ import {
   closePrismCloudTransport,
   checkInternetConnectivity
 } from './connection'
-import type { ApplicationInfo, AuthResponse } from '../shared/types'
+import type { ApplicationInfo } from '../shared/types'
 import { IS_DEMO } from '../shared/demo'
 import { safeSend } from './safeSend'
 
@@ -90,14 +90,15 @@ if (process.platform === 'win32') {
 
 import {
   initializeAuthSession,
-  authSignUp,
-  authLogin,
+  authBeginWebLogin,
+  authCancelWebLogin,
+  getAccountActivationStatus,
+  activateAccountWithCode,
   authLogout,
   getCurrentAuthUser,
   authResetPassword,
   authUpdateProfile,
   getUserAiUsage,
-  authResendConfirmationEmail,
   handleDeepLinkAuth,
   getAuthAccessToken,
   isUserAuthenticated,
@@ -233,27 +234,7 @@ function scheduleDiscordGatewayStart(): void {
   setTimeout(() => reconcileDiscordGateway(currentConfig), 0)
 }
 
-async function finalizeAuthenticatedIpcResponse(result: AuthResponse): Promise<AuthResponse> {
-  if (!result.success || !result.user) return result
 
-  const token = await getAuthAccessToken()
-  if (!token) {
-    await closePrismCloudTransport()
-    return {
-      success: false,
-      error: 'Authentication did not create a valid session. Please try again.'
-    }
-  }
-
-  initializePrismCloudTransport()
-  markConnectionActive()
-  currentConfig = loadConfig()
-  safeSend(mainWindow, 'auth-session-updated', result.user)
-  safeSend(launcherWindow, 'auth-session-updated', result.user)
-  safeSend(mainWindow, 'config-changed', currentConfig)
-  safeSend(launcherWindow, 'config-changed', currentConfig)
-  return result
-}
 let tray: Tray | null = null
 let isQuitting = false
 let cachedApps: ApplicationInfo[] = []
@@ -887,13 +868,18 @@ if (process.defaultApp) {
 
 async function processDeepLinkUrl(urlStr: string): Promise<void> {
   if (!urlStr || !urlStr.startsWith('prism://')) return
-  console.log('[Auth] Processing deep link URL:', urlStr)
+  console.log('[Auth] Processing OAuth deep link callback')
+  safeSend(mainWindow, 'auth-callback-received')
+  safeSend(launcherWindow, 'auth-callback-received')
   const updatedUser = await handleDeepLinkAuth(urlStr)
   if (updatedUser) {
+    initializePrismCloudTransport()
+    markConnectionActive()
     currentConfig = loadConfig()
-    mainWindow?.webContents.send('auth-session-updated', updatedUser)
-    mainWindow?.webContents.send('config-changed', currentConfig)
-    launcherWindow?.webContents.send('config-changed', currentConfig)
+    safeSend(mainWindow, 'auth-session-updated', updatedUser)
+    safeSend(launcherWindow, 'auth-session-updated', updatedUser)
+    safeSend(mainWindow, 'config-changed', currentConfig)
+    safeSend(launcherWindow, 'config-changed', currentConfig)
 
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
@@ -1444,13 +1430,29 @@ if (!gotTheLock) {
     })
 
 
-    // Supabase Auth IPC Handlers
-    ipcMain.handle('auth-login', async (_event, data) => {
-      return await finalizeAuthenticatedIpcResponse(await authLogin(data))
+    // Supabase Auth IPC Handlers (OAuth 2.1 Web Login & Activation)
+    ipcMain.handle('auth-begin-web-login', async () => {
+      return await authBeginWebLogin()
     })
 
-    ipcMain.handle('auth-signup', async (_event, data) => {
-      return await finalizeAuthenticatedIpcResponse(await authSignUp(data))
+    ipcMain.handle('auth-cancel-web-login', async () => {
+      return await authCancelWebLogin()
+    })
+
+    ipcMain.handle('auth-get-activation-status', async () => {
+      return await getAccountActivationStatus()
+    })
+
+    ipcMain.handle('auth-activate-account', async (_event, code: string) => {
+      const res = await activateAccountWithCode(code)
+      if (res.success) {
+        const user = await getCurrentAuthUser()
+        if (user) {
+          safeSend(mainWindow, 'auth-session-updated', user)
+          safeSend(launcherWindow, 'auth-session-updated', user)
+        }
+      }
+      return res
     })
 
     ipcMain.handle('auth-logout', async () => {
@@ -1480,10 +1482,6 @@ if (!gotTheLock) {
 
     ipcMain.handle('auth-get-ai-usage', async () => {
       return await getUserAiUsage()
-    })
-
-    ipcMain.handle('auth-resend-confirmation', async (_event, email: string) => {
-      return await authResendConfirmationEmail(email)
     })
 
     ipcMain.handle('auth-request-delete-email', async (_event, email: string) => {

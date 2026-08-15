@@ -1,0 +1,34 @@
+project_id = "jfqyqkkdmoqdpejzxdhd"
+
+[functions.account-status]
+verify_jwt = true
+
+[functions.generate-activation-code]
+verify_jwt = true
+
+[functions.activate-account]
+verify_jwt = true
+
+[functions.prism-ai-proxy]
+verify_jwt = true
+
+[functions.activate-local-license]
+verify_jwt = true
+
+[functions.deactivate-local-license]
+verify_jwt = true
+
+[functions.create-checkout-session]
+verify_jwt = true
+
+[functions.verify-payment]
+verify_jwt = true
+
+[functions.payment-success]
+verify_jwt = false
+
+[functions.payment-cancel]
+verify_jwt = false
+
+[functions.delete-account]
+verify_jwt = false

@@ -1,17 +1,129 @@
 import { createClient, SupabaseClient, Session, User } from '@supabase/supabase-js'
-import { safeStorage, app } from 'electron'
+import { safeStorage, app, shell, net } from 'electron'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { UserProfile, AuthResponse, SignUpData, LoginData, UserAiUsageStatus, ModelAiUsageStatus } from '../shared/types'
+import * as crypto from 'node:crypto'
+import type {
+  UserProfile,
+  AuthResponse,
+  UserAiUsageStatus,
+  ModelAiUsageStatus,
+  WebLoginBeginResult,
+  ActivationStatusResult,
+  AccountActivationResult
+} from '../shared/types'
 import { getLicenseInfo, syncLocalLicenseWithSupabase, revokeLocalLicenseFromSupabase } from './license'
 
 // Supabase Configuration for Prism Agent Project
 const SUPABASE_URL = 'https://jfqyqkkdmoqdpejzxdhd.supabase.co'
 const SUPABASE_ANON_KEY = 'sb_publishable_WcCSfH1dSXUzHDjlQGk2kw_4TQcAt4Q'
+const PRISM_WEB_BASE_URL = 'https://prismagent.vercel.app'
 const PRISM_CLOUD_USAGE_URL = `${SUPABASE_URL}/functions/v1/prism-ai-proxy/usage`
 const SUPABASE_REQUEST_TIMEOUT_MS = 12_000
+const OAUTH_FLOW_EXPIRY_MS = 5 * 60 * 1000 // 5 minutes TTL
 
 let supabase: SupabaseClient | null = null
+
+interface PendingOAuthSession {
+  verifier: string
+  state: string
+  createdAt: number
+}
+
+let inMemoryOAuthSession: PendingOAuthSession | null = null
+
+function base64UrlEncode(buffer: Buffer): string {
+  return buffer
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+}
+
+function generateCodeVerifier(): string {
+  return base64UrlEncode(crypto.randomBytes(48))
+}
+
+function generateCodeChallenge(verifier: string): string {
+  const hash = crypto.createHash('sha256').update(verifier).digest()
+  return base64UrlEncode(hash)
+}
+
+function generateOAuthState(): string {
+  return base64UrlEncode(crypto.randomBytes(32))
+}
+
+function constantTimeEqualStrings(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false
+  const bufA = Buffer.from(a, 'utf8')
+  const bufB = Buffer.from(b, 'utf8')
+  return crypto.timingSafeEqual(bufA, bufB)
+}
+
+function getOAuthStateFilePath(): string {
+  const userDataPath = app.getPath('userData')
+  return path.join(userDataPath, 'prism_oauth_pending.enc')
+}
+
+function savePendingOAuthSession(pending: PendingOAuthSession | null): void {
+  inMemoryOAuthSession = pending
+  const filePath = getOAuthStateFilePath()
+  if (!pending) {
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath)
+      } catch (err) {
+        console.error('[Auth] Failed to delete pending OAuth file:', err)
+      }
+    }
+    return
+  }
+
+  try {
+    const rawData = JSON.stringify(pending)
+    if (safeStorage.isEncryptionAvailable()) {
+      const encrypted = safeStorage.encryptString(rawData)
+      fs.writeFileSync(filePath, encrypted)
+    } else {
+      fs.writeFileSync(filePath, Buffer.from(rawData, 'utf8').toString('base64'), 'utf8')
+    }
+  } catch (err) {
+    console.error('[Auth] Failed to save pending OAuth state:', err)
+  }
+}
+
+function loadPendingOAuthSession(): PendingOAuthSession | null {
+  if (inMemoryOAuthSession) {
+    if (Date.now() - inMemoryOAuthSession.createdAt < OAUTH_FLOW_EXPIRY_MS) {
+      return inMemoryOAuthSession
+    }
+    savePendingOAuthSession(null)
+    return null
+  }
+
+  const filePath = getOAuthStateFilePath()
+  if (!fs.existsSync(filePath)) return null
+
+  try {
+    const fileBuffer = fs.readFileSync(filePath)
+    let rawJson = ''
+    if (safeStorage.isEncryptionAvailable()) {
+      rawJson = safeStorage.decryptString(fileBuffer)
+    } else {
+      rawJson = Buffer.from(fileBuffer.toString('utf8'), 'base64').toString('utf8')
+    }
+    const session = JSON.parse(rawJson) as PendingOAuthSession
+    if (Date.now() - session.createdAt < OAUTH_FLOW_EXPIRY_MS) {
+      inMemoryOAuthSession = session
+      return session
+    }
+    savePendingOAuthSession(null)
+    return null
+  } catch (err) {
+    console.error('[Auth] Failed to load pending OAuth session:', err)
+    return null
+  }
+}
 
 function fetchSupabaseWithTimeout(
   input: Parameters<typeof fetch>[0],
@@ -20,7 +132,8 @@ function fetchSupabaseWithTimeout(
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), SUPABASE_REQUEST_TIMEOUT_MS)
 
-  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timeout))
+  const fetchFn = typeof net !== 'undefined' && net.fetch ? (net.fetch as unknown as typeof fetch) : fetch
+  return fetchFn(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timeout))
 }
 
 function getSupabaseClient(): SupabaseClient {
@@ -76,7 +189,6 @@ function saveSessionSecurely(session: Session | null): void {
       const encrypted = safeStorage.encryptString(rawData)
       fs.writeFileSync(filePath, encrypted)
     } else {
-      // Fallback if safeStorage is not supported
       fs.writeFileSync(filePath, Buffer.from(rawData, 'utf8').toString('base64'), 'utf8')
     }
   } catch (err) {
@@ -146,8 +258,6 @@ async function ensureActiveSession(): Promise<{ session: Session | null; user: U
 async function ensureProfileRow(user: User): Promise<void> {
   const { session } = await ensureActiveSession()
   if (!session?.access_token) {
-    // Session is not authenticated yet (e.g. pending email confirmation).
-    // Database trigger `on_auth_user_created` handles the initial profile row creation in Supabase Postgres.
     return
   }
 
@@ -168,8 +278,6 @@ async function ensureProfileRow(user: User): Promise<void> {
 
     if (error) {
       console.warn('[Auth] ensureProfileRow upsert warning:', error.message)
-    } else {
-      console.log('[Auth] Profile row successfully synced for user:', user.id)
     }
   } catch (err) {
     console.warn('[Auth] ensureProfileRow unexpected error:', err)
@@ -185,6 +293,8 @@ async function buildUserProfile(user: User): Promise<UserProfile> {
   let companyName = user.user_metadata?.company_name || ''
   let accountType = user.user_metadata?.account_type || 'individual'
   let avatarUrl = user.user_metadata?.avatar_url || ''
+  let activationStatus: 'active' | 'inactive' = 'inactive'
+  let activatedAt: string | null = null
   const emailConfirmed = true
 
   try {
@@ -200,11 +310,15 @@ async function buildUserProfile(user: User): Promise<UserProfile> {
       if (profile.account_type) accountType = profile.account_type
       if (profile.avatar_url) avatarUrl = profile.avatar_url
     } else {
-      // Row is missing in public.profiles table -> try creating/upserting it
       await ensureProfileRow(user)
     }
+
+    // Fetch account activation status
+    const statusRes = await getAccountActivationStatus()
+    activationStatus = statusRes.status
+    activatedAt = statusRes.activatedAt ?? null
   } catch (e) {
-    console.warn('[Auth] Could not fetch profile table row:', e)
+    console.warn('[Auth] Could not fetch profile / activation data:', e)
   }
 
   return {
@@ -214,7 +328,9 @@ async function buildUserProfile(user: User): Promise<UserProfile> {
     companyName,
     accountType,
     emailConfirmed,
-    avatarUrl
+    avatarUrl,
+    activationStatus,
+    activatedAt
   }
 }
 
@@ -233,7 +349,6 @@ export async function initializeAuthSession(): Promise<UserProfile | null> {
 
 /**
  * Keeps local-license entitlement tied to the current Prism installation.
- * Stripe entitlements are intentionally unaffected by this reconciliation.
  */
 async function reconcileLocalLicenseEntitlement(accessToken: string): Promise<void> {
   if (getLicenseInfo()?.isActivated) {
@@ -248,157 +363,223 @@ async function reconcileLocalLicenseEntitlement(accessToken: string): Promise<vo
   })
 }
 
-/** Completes the authenticated-session work shared by Sign In and Sign Up. */
-async function completeAuthenticatedSession(user: User, session: Session): Promise<AuthResponse> {
-  if (!session.access_token) {
-    return { success: false, error: 'Authentication did not return an active session token.' }
-  }
-
-  saveSessionSecurely(session)
-  await reconcileLocalLicenseEntitlement(session.access_token)
-  await ensureProfileRow(user)
-
-  return {
-    success: true,
-    user: await buildUserProfile(user)
-  }
-}
-
 /**
- * Handles user Sign Up
+ * Begins the OAuth 2.1 Authorization Code + PKCE flow in the user's default browser.
  */
-export async function authSignUp(data: SignUpData): Promise<AuthResponse> {
-  const client = getSupabaseClient()
+export async function authBeginWebLogin(): Promise<WebLoginBeginResult> {
   try {
-    // 1. If account was already registered during a previous attempt, attempt direct login
-    const { data: directLoginRes } = await client.auth.signInWithPassword({
-      email: data.email.trim(),
-      password: data.password
+    const verifier = generateCodeVerifier()
+    const challenge = generateCodeChallenge(verifier)
+    const state = generateOAuthState()
+
+    savePendingOAuthSession({
+      verifier,
+      state,
+      createdAt: Date.now()
     })
 
-    if (directLoginRes?.user && directLoginRes?.session) {
-      return await completeAuthenticatedSession(directLoginRes.user, directLoginRes.session)
+    const consentUrl = new URL(`${PRISM_WEB_BASE_URL}/oauth/consent`)
+    consentUrl.searchParams.set('client_id', 'prism-desktop')
+    consentUrl.searchParams.set('response_type', 'code')
+    consentUrl.searchParams.set('redirect_uri', 'prism://auth-callback')
+    consentUrl.searchParams.set('code_challenge', challenge)
+    consentUrl.searchParams.set('code_challenge_method', 'S256')
+    consentUrl.searchParams.set('state', state)
+
+    const finalUrl = consentUrl.toString()
+    await shell.openExternal(finalUrl)
+
+    return {
+      success: true,
+      url: finalUrl
     }
-
-    // 2. Otherwise attempt standard signUp
-    const { data: authRes, error } = await client.auth.signUp({
-      email: data.email.trim(),
-      password: data.password,
-      options: {
-        emailRedirectTo: 'prism://auth-callback',
-        data: {
-          full_name: data.fullName.trim(),
-          company_name: (data.companyName || '').trim(),
-          account_type: data.accountType || (data.companyName ? 'enterprise' : 'individual')
-        }
-      }
-    })
-
-    if (error) {
-      const isAlreadyRegistered =
-        error.message.toLowerCase().includes('already') ||
-        error.message.toLowerCase().includes('registered') ||
-        error.message.toLowerCase().includes('exists')
-
-      if (isAlreadyRegistered) {
-        return {
-          success: false,
-          error: 'An account with this email already exists. Please switch to Sign In.'
-        }
-      }
-
-      console.warn('[Auth] Standard signup failed or rate limited by email dispatch. Invoking admin-signup Edge Function fallback...')
-      const { data: fnData, error: fnErr } = await client.functions.invoke('admin-signup', {
-        body: {
-          email: data.email.trim(),
-          password: data.password,
-          fullName: data.fullName.trim(),
-          companyName: (data.companyName || '').trim(),
-          accountType: data.accountType || (data.companyName ? 'enterprise' : 'individual')
-        }
-      })
-
-      if (fnData?.isAlreadyRegistered) {
-        return {
-          success: false,
-          error: 'An account with this email already exists. Please switch to Sign In.'
-        }
-      }
-
-      if (!fnErr && fnData?.success) {
-        console.log('[Auth] Admin signup created account successfully! Signing in...')
-        return await authLogin({
-          email: data.email.trim(),
-          password: data.password
-        })
-      }
-
-      return { success: false, error: error.message }
-    }
-
-    if (!authRes.user) {
-      return { success: false, error: 'Failed to create user account.' }
-    }
-
-    if (authRes.session) {
-      return await completeAuthenticatedSession(authRes.user, authRes.session)
-    }
-
-    // Email-confirmation projects can create a user without returning a session.
-    // Complete the same authenticated Sign In flow before exposing the account to the UI.
-    return await authLogin({
-      email: data.email.trim(),
-      password: data.password
-    })
   } catch (err: any) {
+    console.error('[Auth] Error beginning web login:', err)
     return {
       success: false,
-      error: err?.message || 'An unexpected error occurred during sign up.'
+      error: err?.message || 'Failed to open web browser for sign in.'
     }
   }
 }
 
 /**
- * Handles user Login (Sign In)
+ * Cancels pending OAuth login flow.
  */
-export async function authLogin(data: LoginData): Promise<AuthResponse> {
+export async function authCancelWebLogin(): Promise<boolean> {
+  savePendingOAuthSession(null)
+  return true
+}
+
+/**
+ * Handles incoming deep link URL (e.g. prism://auth-callback?code=...&state=...)
+ */
+export async function handleDeepLinkAuth(urlStr: string): Promise<UserProfile | null> {
+  if (!urlStr || !urlStr.startsWith('prism://auth-callback')) {
+    // If it's another prism deep link e.g. delete account
+    if (urlStr.includes('action=delete-account') || urlStr.includes('delete-account')) {
+      return null
+    }
+    return null
+  }
+
   const client = getSupabaseClient()
   try {
-    let { data: authRes, error } = await client.auth.signInWithPassword({
-      email: data.email.trim(),
-      password: data.password
+    const parsedUrl = new URL(urlStr)
+    const code = parsedUrl.searchParams.get('code')
+    const incomingState = parsedUrl.searchParams.get('state')
+    const errorParam = parsedUrl.searchParams.get('error')
+    const errorDescription = parsedUrl.searchParams.get('error_description')
+
+    if (errorParam) {
+      console.warn('[Auth] OAuth flow denied or returned error:', errorParam, errorDescription)
+      savePendingOAuthSession(null)
+      return null
+    }
+
+    if (!code || !incomingState) {
+      console.warn('[Auth] Callback missing authorization code or state parameter.')
+      return null
+    }
+
+    const pending = loadPendingOAuthSession()
+    if (!pending) {
+      console.warn('[Auth] No active OAuth login attempt found or session expired.')
+      return null
+    }
+
+    const isStateValid = constantTimeEqualStrings(pending.state, incomingState)
+    if (!isStateValid) {
+      console.error('[Auth] State parameter mismatch in OAuth callback. Possible CSRF or forged link.')
+      savePendingOAuthSession(null)
+      return null
+    }
+
+    // Exchange authorization code + PKCE verifier for tokens at Supabase desktop-oauth-token endpoint
+    const tokenEndpoint = `${SUPABASE_URL}/functions/v1/desktop-oauth-token`
+    const tokenResponse = await fetchSupabaseWithTimeout(tokenEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({
+        grant_type: 'authorization_code',
+        code: code.trim(),
+        code_verifier: pending.verifier,
+        redirect_uri: 'prism://auth-callback',
+        client_id: 'prism-desktop'
+      })
     })
 
-    if (error && error.message.toLowerCase().includes('not confirmed')) {
-      console.warn('[Auth] Login returned "Email not confirmed". Invoking admin-signup to unblock user...')
-      await client.functions.invoke('admin-signup', {
-        body: {
-          action: 'confirm-unconfirmed-user',
-          email: data.email.trim()
-        }
-      })
-      const retryRes = await client.auth.signInWithPassword({
-        email: data.email.trim(),
-        password: data.password
-      })
-      authRes = retryRes.data
-      error = retryRes.error
+    // Consume pending state
+    savePendingOAuthSession(null)
+
+    if (!tokenResponse.ok) {
+      const errBody = await tokenResponse.text().catch(() => '')
+      console.error('[Auth] Token exchange failed with status', tokenResponse.status, errBody)
+      return null
     }
+
+    const tokenData = await tokenResponse.json()
+    if (!tokenData?.access_token || !tokenData?.refresh_token) {
+      console.error('[Auth] Token endpoint response missing required tokens.')
+      return null
+    }
+
+    const { data: sessionData, error: sessionErr } = await client.auth.setSession({
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token
+    })
+
+    if (sessionErr || !sessionData.session || !sessionData.user) {
+      console.error('[Auth] Failed to set session after token exchange:', sessionErr)
+      return null
+    }
+
+    saveSessionSecurely(sessionData.session)
+    await reconcileLocalLicenseEntitlement(sessionData.session.access_token)
+    await ensureProfileRow(sessionData.user)
+
+    return await buildUserProfile(sessionData.user)
+  } catch (err) {
+    console.error('[Auth] Error handling OAuth deep link callback:', err)
+  }
+  return null
+}
+
+/**
+ * Gets account activation status for current logged-in user
+ */
+export async function getAccountActivationStatus(): Promise<ActivationStatusResult> {
+  const token = await getAuthAccessToken()
+  if (!token) {
+    return { status: 'inactive', error: 'Authentication required.' }
+  }
+
+  const client = getSupabaseClient()
+  try {
+    const { data, error } = await client.functions.invoke<ActivationStatusResult>('account-status', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+
+    if (error || !data) {
+      return { status: 'inactive', error: error?.message || 'Activation status is temporarily unavailable.' }
+    }
+
+    return {
+      status: data.status || 'inactive',
+      activatedAt: data.activatedAt ?? null
+    }
+  } catch (err: any) {
+    return { status: 'inactive', error: err?.message || 'Error checking activation status.' }
+  }
+}
+
+/**
+ * Activates user account with a 6-digit code (format XXX-XXX)
+ */
+export async function activateAccountWithCode(code: string): Promise<AccountActivationResult> {
+  const token = await getAuthAccessToken()
+  if (!token) {
+    return { success: false, error: 'Please sign in to activate your account.' }
+  }
+
+  const client = getSupabaseClient()
+  try {
+    const { data, error } = await client.functions.invoke<AccountActivationResult>('activate-account', {
+      headers: { Authorization: `Bearer ${token}` },
+      body: { code }
+    })
 
     if (error) {
-      return { success: false, error: error.message }
+      return {
+        success: false,
+        error: error.message || 'Failed to activate account.',
+        code: (error as any).code,
+        retryAfter: (error as any).retryAfter
+      }
     }
 
-    if (!authRes.user || !authRes.session) {
-      return { success: false, error: 'Invalid login credentials or session failed.' }
+    if (data?.status === 'active') {
+      const { user } = await ensureActiveSession()
+      if (user) {
+        await buildUserProfile(user)
+      }
+      return {
+        success: true,
+        status: 'active',
+        activatedAt: data.activatedAt
+      }
     }
 
-    return await completeAuthenticatedSession(authRes.user, authRes.session)
-  } catch (err: any) {
     return {
       success: false,
-      error: err?.message || 'An unexpected error occurred during login.'
+      error: data?.error || 'Invalid or expired activation code.',
+      code: data?.code,
+      retryAfter: data?.retryAfter
     }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to complete activation request.' }
   }
 }
 
@@ -425,7 +606,6 @@ export async function authLogout(): Promise<boolean> {
   }
 }
 
-
 /**
  * Gets currently logged-in user profile
  */
@@ -451,118 +631,13 @@ export async function isUserEmailVerified(): Promise<boolean> {
 }
 
 /**
- * Resends confirmation email for unverified user account
- */
-export async function authResendConfirmationEmail(email: string): Promise<{ success: boolean; error?: string }> {
-  const client = getSupabaseClient()
-  try {
-    const { error } = await client.auth.resend({
-      type: 'signup',
-      email: email.trim(),
-      options: {
-        emailRedirectTo: 'prism://auth-callback'
-      }
-    })
-    if (error) {
-      return { success: false, error: error.message }
-    }
-    return { success: true }
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'Failed to resend verification email.' }
-  }
-}
-
-/**
- * Handles incoming deep link URL (e.g. prism://auth-callback#access_token=... or ?token_hash=...)
- */
-export async function handleDeepLinkAuth(urlStr: string): Promise<UserProfile | null> {
-  const client = getSupabaseClient()
-  try {
-    let accessToken = ''
-    let refreshToken = ''
-    let tokenHash = ''
-    let type = ''
-
-    if (urlStr.includes('#')) {
-      const hashPart = urlStr.split('#')[1]
-      const params = new URLSearchParams(hashPart)
-      accessToken = params.get('access_token') || ''
-      refreshToken = params.get('refresh_token') || ''
-    }
-
-    if (urlStr.includes('?')) {
-      const queryPart = urlStr.split('?')[1].split('#')[0]
-      const params = new URLSearchParams(queryPart)
-      if (!accessToken) accessToken = params.get('access_token') || ''
-      if (!refreshToken) refreshToken = params.get('refresh_token') || ''
-      tokenHash = params.get('token_hash') || params.get('token') || ''
-      type = params.get('type') || 'signup'
-    }
-
-    const isDeleteAction = urlStr.includes('action=delete-account') || urlStr.includes('delete-account')
-
-    let activeUser: User | null = null
-    let activeSessionToken: string | null = null
-
-    if (accessToken && refreshToken) {
-      const { data, error } = await client.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken
-      })
-      if (!error && data.session && data.user) {
-        activeUser = data.user
-        activeSessionToken = data.session.access_token
-        saveSessionSecurely(data.session)
-      }
-    } else if (tokenHash) {
-      const { data, error } = await client.auth.verifyOtp({
-        token_hash: tokenHash,
-        type: (type as any) || 'recovery'
-      })
-      if (!error && data.session && data.user) {
-        activeUser = data.user
-        activeSessionToken = data.session.access_token
-        saveSessionSecurely(data.session)
-      }
-    }
-
-    if (activeUser && isDeleteAction) {
-      console.log('[Auth] Deep link triggered account deletion for user:', activeUser.id)
-      const token = activeSessionToken || (await getAuthAccessToken())
-      if (token) {
-        const { data: fnData, error: fnErr } = await client.functions.invoke('delete-account', {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        if (fnErr || (fnData && !fnData.success)) {
-          console.error('[Auth] Error executing delete-account function via deep link:', fnErr || fnData?.error)
-        } else {
-          console.log('[Auth] Account successfully deleted via email confirmation link!')
-        }
-      }
-      await authLogout()
-      saveSessionSecurely(null)
-      return null
-    }
-
-    if (activeUser) {
-      await reconcileLocalLicenseEntitlement(activeSessionToken!)
-      await ensureProfileRow(activeUser)
-      return await buildUserProfile(activeUser)
-    }
-  } catch (err) {
-    console.error('[Auth] Error handling deep link auth:', err)
-  }
-  return null
-}
-
-/**
  * Requests password reset email
  */
 export async function authResetPassword(email: string): Promise<{ success: boolean; error?: string }> {
   const client = getSupabaseClient()
   try {
     const { error } = await client.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: 'prism://auth-callback'
+      redirectTo: `${PRISM_WEB_BASE_URL}/auth/reset-password`
     })
     if (error) {
       return { success: false, error: error.message }
@@ -586,7 +661,6 @@ export async function authUpdateProfile(updates: Partial<UserProfile>): Promise<
 
   const userId = user.id
   try {
-    // 1. Update public.profiles table
     const profileUpdates: Record<string, any> = {
       id: userId,
       email: user.email || '',
@@ -603,7 +677,6 @@ export async function authUpdateProfile(updates: Partial<UserProfile>): Promise<
       return { success: false, error: profileErr.message }
     }
 
-    // 2. Also sync auth user_metadata
     const userMetaUpdates: Record<string, any> = {}
     if (updates.fullName !== undefined) userMetaUpdates.full_name = updates.fullName
     if (updates.companyName !== undefined) userMetaUpdates.company_name = updates.companyName
@@ -676,7 +749,6 @@ export async function getAuthAccessToken(): Promise<string | null> {
   }
 }
 
-
 /**
  * Gets current AI quota usage status for the logged-in user
  */
@@ -685,7 +757,7 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
   if (!user || !session?.access_token) return null
 
   try {
-    const response = await fetch(`${PRISM_CLOUD_USAGE_URL}?model=all`, {
+    const response = await fetchSupabaseWithTimeout(`${PRISM_CLOUD_USAGE_URL}?model=all`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${session.access_token}`,
@@ -741,7 +813,6 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
         modelsMap[m.modelId] = m
       }
 
-      // Select primary reference model for top-level backward compatibility
       const primary =
         modelsMap['gemini-3-flash-preview'] ||
         modelsMap['gemini-3-flash'] ||
@@ -765,7 +836,11 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
       }
     }
 
-    console.error('[Auth] Prism Cloud usage request failed:', response.status)
+    if (response.status === 403) {
+      console.log('[Auth] Prism Cloud usage returned 403 (Account Inactive)')
+    } else {
+      console.error('[Auth] Prism Cloud usage request failed with status:', response.status)
+    }
   } catch (err) {
     console.error('[Auth] Error fetching user AI usage status:', err)
   }
@@ -774,13 +849,13 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
 }
 
 /**
- * Sends account deletion confirmation email with prism://auth-callback?action=delete-account redirect URL
+ * Sends account deletion confirmation email
  */
 export async function authRequestDeleteAccountEmail(email: string): Promise<{ success: boolean; error?: string }> {
   const client = getSupabaseClient()
   try {
     const { error } = await client.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: 'prism://auth-callback?action=delete-account'
+      redirectTo: `${PRISM_WEB_BASE_URL}/account/settings?action=delete-account`
     })
 
     if (error) {

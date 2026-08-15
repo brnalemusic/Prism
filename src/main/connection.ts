@@ -1,5 +1,6 @@
 import * as dotenv from 'dotenv'
 import * as path from 'path'
+import { net } from 'electron'
 import { Agent, fetch as undiciFetch, setGlobalDispatcher } from 'undici'
 import { isGoogleHost } from './ai/trustedRegistry'
 import { loadConfig } from './config'
@@ -131,7 +132,8 @@ export async function testGeminiConnection(_overrideKey?: string): Promise<Conne
 
     const controller = new AbortController()
     timeout = setTimeout(() => controller.abort(), 8000)
-    const response = await fetch(`${baseUrl}/models`, { method: 'GET', headers, signal: controller.signal })
+    const fetchFn = typeof net !== 'undefined' && net.fetch ? (net.fetch as unknown as typeof fetch) : fetch
+    const response = await fetchFn(`${baseUrl}/models`, { method: 'GET', headers, signal: controller.signal })
     if (response.ok || response.status === 404) return { ok: true }
     if (response.status === 401 || response.status === 403) {
       return { ok: false, errorType: 'invalid-key', message: `API key for provider "${activeProvider.name}" is invalid or expired.` }
@@ -147,6 +149,11 @@ export async function testGeminiConnection(_overrideKey?: string): Promise<Conne
 function classifyError(primary: unknown, providerName?: string): ConnectionTestResult {
   const message = primary instanceof Error ? primary.message : String(primary)
   const text = message.toLowerCase()
+  if (/und_err_destroyed|client is destroyed|destroyed/.test(text)) {
+    prismCloudAgent = null
+    initializePrismCloudTransport()
+    return { ok: false, errorType: 'server', message: 'Refreshing cloud connection pool. Please retry.' }
+  }
   if (/api key not valid|api_key_invalid|unauthorized|401|permission_denied|api key expired/.test(text)) {
     return { ok: false, errorType: 'invalid-key', message: `API key for provider "${providerName || 'API'}" is invalid or expired.` }
   }
@@ -190,13 +197,21 @@ export async function closePrismCloudTransport(): Promise<void> {
 }
 
 export async function checkInternetConnectivity(): Promise<boolean> {
+  if (typeof net !== 'undefined' && typeof net.isOnline === 'function') {
+    if (!net.isOnline()) return false
+  }
+
   let timeout: ReturnType<typeof setTimeout> | null = null
   try {
     const controller = new AbortController()
     timeout = setTimeout(() => controller.abort(), 5000)
-    const res = await fetch('https://www.google.com/generate_204', { method: 'HEAD', signal: controller.signal, cache: 'no-store' })
+    const fetchFn = typeof net !== 'undefined' && net.fetch ? (net.fetch as unknown as typeof fetch) : fetch
+    const res = await fetchFn('https://www.google.com/generate_204', { method: 'HEAD', signal: controller.signal, cache: 'no-store' })
     return res.ok || res.status === 204
   } catch {
+    if (typeof net !== 'undefined' && typeof net.isOnline === 'function') {
+      return net.isOnline()
+    }
     return false
   } finally {
     if (timeout) clearTimeout(timeout)

@@ -13,7 +13,10 @@ import {
   PencilSimple,
   Check,
   Sparkle,
-  Trash
+  Trash,
+  ArrowSquareOut,
+  Key,
+  ShieldWarning
 } from '@phosphor-icons/react'
 import { DeleteAccountModal } from './DeleteAccountModal'
 import { ScrambleText } from './ScrambleText'
@@ -43,6 +46,12 @@ function formatResetTime(seconds?: number): string {
   return `Resets in ${minutes}m`
 }
 
+function formatActivationInput(val: string): string {
+  const digits = val.replace(/\D/g, '').slice(0, 6)
+  if (digits.length <= 3) return digits
+  return `${digits.slice(0, 3)}-${digits.slice(3)}`
+}
+
 let cachedAiUsage: UserAiUsageStatus | null = null
 
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({
@@ -59,6 +68,15 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [isAiUsageUnavailable, setIsAiUsageUnavailable] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
 
+  // Activation flow state
+  const [activationCode, setActivationCode] = useState('')
+  const [activating, setActivating] = useState(false)
+  const [activationError, setActivationError] = useState<string | null>(null)
+  const [activationSuccess, setActivationSuccess] = useState<string | null>(null)
+  const [rateLimitSeconds, setRateLimitSeconds] = useState<number>(0)
+
+  const isActivated = user?.activationStatus === 'active'
+
   useEffect(() => {
     if (user) {
       setFullName(user.fullName || '')
@@ -66,8 +84,17 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     }
   }, [user])
 
+  // Countdown timer for rate limiting
   useEffect(() => {
-    if (isOpen && user) {
+    if (rateLimitSeconds <= 0) return
+    const interval = setInterval(() => {
+      setRateLimitSeconds((prev) => (prev <= 1 ? 0 : prev - 1))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [rateLimitSeconds])
+
+  useEffect(() => {
+    if (isOpen && user && isActivated) {
       setIsAiUsageUnavailable(false)
       window.api
         .getUserAiUsage()
@@ -84,7 +111,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           if (!cachedAiUsage) setIsAiUsageUnavailable(true)
         })
     }
-  }, [isOpen, user])
+  }, [isOpen, user, isActivated])
 
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
@@ -150,6 +177,51 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     }
   }
 
+  const handleActivateAccount = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setActivationError(null)
+    setActivationSuccess(null)
+
+    const cleanedCode = activationCode.trim()
+    if (!/^\d{3}-\d{3}$/.test(cleanedCode)) {
+      setActivationError('Please enter a valid 6-digit code in XXX-XXX format.')
+      return
+    }
+
+    if (rateLimitSeconds > 0) {
+      setActivationError(`Rate limit exceeded. Please wait ${rateLimitSeconds}s before trying again.`)
+      return
+    }
+
+    setActivating(true)
+    try {
+      const res = await window.api.authActivateAccount(cleanedCode)
+      setActivating(false)
+
+      if (res.success && res.status === 'active') {
+        setActivationSuccess('Account activated successfully! Prism Cloud models are now active.')
+        setActivationCode('')
+        onProfileUpdated({
+          ...user,
+          activationStatus: 'active',
+          activatedAt: res.activatedAt ?? new Date().toISOString()
+        })
+      } else {
+        if (res.retryAfter) {
+          setRateLimitSeconds(res.retryAfter)
+        }
+        setActivationError(res.error || 'Invalid or expired activation code.')
+      }
+    } catch (err: any) {
+      setActivating(false)
+      setActivationError(err?.message || 'Failed to activate account.')
+    }
+  }
+
+  const handleOpenWebSettings = () => {
+    void window.api.openExternalUrl('https://prismagent.vercel.app/account/settings')
+  }
+
   return createPortal(
     <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-soft-pop">
       <div className="prism-modal-panel profile-modal-panel relative flex max-h-[calc(100vh-32px)] w-full max-w-[520px] flex-col overflow-y-auto p-6 text-text-primary scrollbar-none">
@@ -196,30 +268,105 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 {isEnterprise ? 'ENTERPRISE ACCOUNT' : 'INDIVIDUAL ACCOUNT'}
               </span>
 
-              <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-400">
-                ACCOUNT ACTIVE
-              </span>
+              {isActivated ? (
+                <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-400">
+                  ACCOUNT ACTIVE
+                </span>
+              ) : (
+                <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-amber-500/40 bg-amber-500/15 text-amber-300">
+                  ACTIVATION REQUIRED
+                </span>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Banners */}
+        {/* Status Banners */}
         {errorMsg && (
-          <div className="flex items-start gap-2.5 rounded-xl border border-status-error/30 bg-status-error/10 p-3 text-xs text-status-error animate-soft-pop">
+          <div className="flex items-start gap-2.5 rounded-xl border border-status-error/30 bg-status-error/10 p-3 text-xs text-status-error animate-soft-pop my-2">
             <WarningCircle size={18} weight="fill" className="shrink-0 mt-0.5" />
             <span className="leading-tight">{errorMsg}</span>
           </div>
         )}
 
         {successMsg && (
-          <div className="flex items-start gap-2.5 rounded-xl border border-status-success/30 bg-status-success/10 p-3 text-xs text-status-success animate-soft-pop">
+          <div className="flex items-start gap-2.5 rounded-xl border border-status-success/30 bg-status-success/10 p-3 text-xs text-status-success animate-soft-pop my-2">
             <CheckCircle size={18} weight="fill" className="shrink-0 mt-0.5" />
             <span className="leading-tight">{successMsg}</span>
           </div>
         )}
 
+        {/* Account Activation Section (If Inactive) */}
+        {!isActivated && (
+          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/[0.06] p-4 space-y-3 my-3 animate-soft-pop">
+            <div className="flex items-center justify-between border-b border-amber-500/20 pb-2">
+              <div className="flex items-center gap-2">
+                <ShieldWarning size={18} className="text-amber-400" weight="fill" />
+                <span className="text-xs font-bold text-amber-200 uppercase tracking-wide">
+                  Prism Cloud Activation
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenWebSettings}
+                className="flex items-center gap-1 text-[11px] text-amber-300 hover:text-amber-100 font-semibold transition-colors cursor-pointer"
+              >
+                <span>Get code on Web</span>
+                <ArrowSquareOut size={13} />
+              </button>
+            </div>
+
+            <p className="text-xs text-text-secondary leading-relaxed">
+              Prism Cloud AI models require account activation. Generate a 1-minute activation code in your web account settings and enter it below.
+            </p>
+
+            <form onSubmit={handleActivateAccount} className="space-y-2 pt-1">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Key size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted" />
+                  <input
+                    type="text"
+                    value={activationCode}
+                    onChange={(e) => setActivationCode(formatActivationInput(e.target.value))}
+                    placeholder="XXX-XXX"
+                    maxLength={7}
+                    className="w-full rounded-xl border border-white/10 bg-black/50 py-2 pl-10 pr-3 font-mono text-sm tracking-widest text-white placeholder:text-text-muted/50 focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={activating || activationCode.length < 7 || rateLimitSeconds > 0}
+                  className="flex items-center justify-center gap-1.5 rounded-xl bg-amber-400 px-4 py-2 text-xs font-bold text-black hover:bg-amber-300 transition-all cursor-pointer disabled:opacity-40"
+                >
+                  {activating ? (
+                    <CircleNotch size={16} className="animate-spin" />
+                  ) : rateLimitSeconds > 0 ? (
+                    <span>Wait {rateLimitSeconds}s</span>
+                  ) : (
+                    <span>Activate</span>
+                  )}
+                </button>
+              </div>
+
+              {activationError && (
+                <div className="flex items-center gap-1.5 text-xs text-status-error pt-1 animate-soft-pop">
+                  <WarningCircle size={14} weight="fill" className="shrink-0" />
+                  <span>{activationError}</span>
+                </div>
+              )}
+
+              {activationSuccess && (
+                <div className="flex items-center gap-1.5 text-xs text-emerald-400 pt-1 animate-soft-pop">
+                  <CheckCircle size={14} weight="fill" className="shrink-0" />
+                  <span>{activationSuccess}</span>
+                </div>
+              )}
+            </form>
+          </div>
+        )}
+
         {/* Prism Cloud AI Quota Cards (Segregated by Model) */}
-        {!isEditing &&
+        {!isEditing && isActivated && (
           (() => {
             const flashUsage =
               aiUsage?.models?.['gemini-3-flash-preview'] ||
@@ -233,7 +380,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               aiUsage?.modelList?.find((m) => m.modelId.includes('lite'))
 
             return (
-              <div className="space-y-3">
+              <div className="space-y-3 my-2">
                 <div className="flex items-center justify-between px-1">
                   <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider">
                     <Sparkle size={15} className="text-accent-primary" weight="fill" />
@@ -257,7 +404,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     </span>
                   </div>
 
-                  {/* 5-Hour Progress */}
                   <AnimatedQuotaBar
                     label="5-Hour Quota"
                     resetSeconds={flashUsage?.reset5hSeconds}
@@ -267,7 +413,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     formatResetTime={formatResetTime}
                   />
 
-                  {/* Weekly Progress */}
                   <AnimatedQuotaBar
                     label="Weekly Quota"
                     resetSeconds={flashUsage?.reset1wSeconds}
@@ -293,7 +438,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     </span>
                   </div>
 
-                  {/* 5-Hour Progress */}
                   <AnimatedQuotaBar
                     label="5-Hour Quota"
                     resetSeconds={liteUsage?.reset5hSeconds}
@@ -303,7 +447,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     formatResetTime={formatResetTime}
                   />
 
-                  {/* Weekly Progress */}
                   <AnimatedQuotaBar
                     label="Weekly Quota"
                     resetSeconds={liteUsage?.reset1wSeconds}
@@ -315,11 +458,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 </div>
               </div>
             )
-          })()}
+          })()
+        )}
 
         {/* Details or Edit Form */}
         {!isEditing ? (
-          <div className="space-y-3 rounded-xl border border-[var(--border-default)] bg-black p-4 text-xs">
+          <div className="space-y-3 rounded-xl border border-[var(--border-default)] bg-black p-4 text-xs my-2">
             <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5">
               <div className="flex items-center gap-2 text-text-muted">
                 <User size={15} />
@@ -348,7 +492,15 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               </span>
             </div>
 
-            <div className="pt-1 flex items-center justify-end">
+            <div className="pt-1 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={handleOpenWebSettings}
+                className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-white transition-colors cursor-pointer"
+              >
+                <ArrowSquareOut size={14} /> Manage web settings
+              </button>
+
               <button
                 type="button"
                 onClick={() => {
@@ -363,7 +515,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             </div>
           </div>
         ) : (
-          <form onSubmit={handleSaveProfile} className="space-y-3.5 animate-soft-pop">
+          <form onSubmit={handleSaveProfile} className="space-y-3.5 animate-soft-pop my-2">
             <div className="space-y-1">
               <label className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">
                 Full Name
@@ -399,7 +551,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-bold text-white bg-accent-primary hover:bg-accent-primary/90 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-bold text-black bg-accent-primary hover:bg-accent-primary/90 rounded-xl transition-all cursor-pointer disabled:opacity-50"
               >
                 {loading ? (
                   <CircleNotch size={16} className="animate-spin" />
