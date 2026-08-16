@@ -111,13 +111,10 @@ export const PRISM_PROVIDER: ProviderConfig = {
   isTrusted: true,
   isOfficial: true,
   models: [
-    { id: 'gemini-3.1-flash-lite', name: 'gemini-3.1-flash-lite', enabled: true, isTrusted: true },
-    {
-      id: 'models/gemini-3-flash-preview',
-      name: 'models/gemini-3-flash-preview',
-      enabled: true,
-      isTrusted: true
-    }
+    { id: 'prism-ai/arcadia-1.0-mini', name: 'Arcadia-1.0 Mini', enabled: true, isTrusted: true },
+    { id: 'prism-ai/arcadia-1.0-flash', name: 'Arcadia-1.0 Flash', enabled: true, isTrusted: true },
+    { id: 'prism-ai/arcadia-1.0-pro', name: 'Arcadia-1.0 Pro', enabled: true, isTrusted: true },
+    { id: 'prism-ai/arcadia-1.1-flash', name: 'Arcadia-1.1 Flash', enabled: true, isTrusted: true }
   ]
 }
 

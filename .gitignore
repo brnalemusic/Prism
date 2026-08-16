@@ -35,6 +35,7 @@ scratch/
 electron.vite.config.*.mjs
 import*.py
 supabase/.temp
+supabase/migrations
 
 # License Security & Keys
 scripts/license-keys/

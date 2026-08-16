@@ -15,7 +15,8 @@ import {
   ChatCircle as MessageSquare,
   Microphone,
   PaperPlaneRight as SendHorizontal,
-  StopCircle
+  StopCircle,
+  Crown
 } from '@phosphor-icons/react'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 import { MODELS } from '../constants'
@@ -718,6 +719,19 @@ export function QuickLauncher(): React.JSX.Element {
   const [attachedScreenshot, setAttachedScreenshot] = useState<string | null>(null)
   const [glowState, setGlowState] = useState<'idle' | 'processing' | 'glow-master'>('idle')
   const [launcherOpacity, setLauncherOpacity] = useState(1)
+  const [isEnterprise, setIsEnterprise] = useState(false)
+
+  useEffect(() => {
+    window.api
+      .getUserAiUsage()
+      .then((usage) => {
+        const isEnt =
+          usage?.tier?.toLowerCase().startsWith('enterprise') ||
+          Boolean(usage?.modelList?.some((m) => m.tier?.toLowerCase().startsWith('enterprise')))
+        setIsEnterprise(isEnt)
+      })
+      .catch(() => setIsEnterprise(false))
+  }, [])
 
   // Local Apps & Files Suggestions
   const [apps, setApps] = useState<ApplicationInfo[]>([])
@@ -1385,52 +1399,71 @@ export function QuickLauncher(): React.JSX.Element {
               <Cpu size={14} className="text-accent-primary" />
               Prism engines
             </div>
-            {MODELS.map((model, index) => (
-              <button
-                key={model.id}
-                onMouseEnter={() => setSelectedIndex(index)}
-                onClick={() => {
-                  setActiveModelId(model.id)
-                  window.api.setModel(model.id)
-                  setIsModelSelectorOpen(false)
-                }}
-                className={clsx(
-                  'relative flex w-full items-start gap-3 px-4 py-3 text-left transition-all duration-200',
-                  model.id === 'prism-5'
-                    ? [
-                        'prism-5-model-option prism-5-menu-option',
-                        selectedIndex === index && 'prism-5-model-option-active'
-                      ]
-                    : selectedIndex === index
-                      ? 'bg-[#1c1d24]'
-                      : 'hover:bg-[#15161c]'
-                )}
-              >
-                <span
+            {MODELS.map((model, index) => {
+              const isArcadia11 =
+                model.id === 'prism-ai/arcadia-1.1-flash' || model.id === 'arcadia-1.1-flash'
+              const isLocked = isArcadia11 && !isEnterprise
+
+              return (
+                <button
+                  key={model.id}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                  onClick={() => {
+                    if (isLocked) {
+                      setIsModelSelectorOpen(false)
+                      void window.api.openExternalUrl('https://prismagent.vercel.app/pricing')
+                      return
+                    }
+                    setActiveModelId(model.id)
+                    window.api.setModel(model.id)
+                    setIsModelSelectorOpen(false)
+                  }}
                   className={clsx(
-                    'mt-1 h-2.5 w-2.5 shrink-0 rounded-full',
+                    'relative flex w-full items-start gap-3 px-4 py-3 text-left transition-all duration-200 cursor-pointer',
                     model.id === 'prism-5'
-                      ? ['prism-5-dot', activeModelId === model.id ? 'opacity-100' : 'opacity-70']
-                      : activeModelId === model.id
-                        ? 'bg-accent-secondary'
-                        : 'bg-white/[0.18]'
+                      ? [
+                          'prism-5-model-option prism-5-menu-option',
+                          selectedIndex === index && 'prism-5-model-option-active'
+                        ]
+                      : selectedIndex === index
+                        ? 'bg-[#1c1d24]'
+                        : 'hover:bg-[#15161c]'
                   )}
-                />
-                <span className="min-w-0 flex-1">
+                >
                   <span
                     className={clsx(
-                      'block text-sm font-semibold',
-                      model.id === 'prism-5' ? 'prism-5-title-gradient' : 'text-text-primary'
+                      'mt-1 h-2.5 w-2.5 shrink-0 rounded-full',
+                      model.id === 'prism-5'
+                        ? ['prism-5-dot', activeModelId === model.id ? 'opacity-100' : 'opacity-70']
+                        : isLocked
+                          ? 'bg-yellow-500'
+                          : activeModelId === model.id
+                            ? 'bg-accent-secondary'
+                            : 'bg-white/[0.18]'
                     )}
-                  >
-                    {model.name}
+                  />
+                  <span className="min-w-0 flex-1 flex items-center justify-between gap-2">
+                    <span
+                      className={clsx(
+                        'block text-sm font-semibold truncate',
+                        model.id === 'prism-5' ? 'prism-5-title-gradient' : 'text-text-primary'
+                      )}
+                    >
+                      {model.name}
+                    </span>
+                    {isLocked && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 flex items-center gap-1 shrink-0">
+                        <Crown size={10} weight="fill" />
+                        <span>Enterprise</span>
+                      </span>
+                    )}
                   </span>
-                </span>
-                {activeModelId === model.id && (
-                  <Check size={15} className="mt-0.5 text-accent-secondary" />
-                )}
-              </button>
-            ))}
+                  {activeModelId === model.id && (
+                    <Check size={15} className="mt-0.5 text-accent-secondary" />
+                  )}
+                </button>
+              )
+            })}
           </div>
         )}
 

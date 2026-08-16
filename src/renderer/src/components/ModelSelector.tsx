@@ -4,7 +4,8 @@ import {
   Check,
   MagnifyingGlass,
   CheckCircle,
-  Warning
+  Warning,
+  Crown
 } from '@phosphor-icons/react'
 import { clsx } from 'clsx'
 import { isShortcutPressed } from '../utils'
@@ -25,6 +26,7 @@ interface ActiveModelItem {
 interface ModelSelectorProps {
   selectedModel: string
   onModelChange: (modelKey: string) => void
+  onOpenUpgradePlans?: () => void
   disabled?: boolean
   align?: 'left' | 'right'
 }
@@ -34,11 +36,12 @@ export interface ModelSelectorHandle {
 }
 
 export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>(
-  ({ selectedModel, onModelChange, disabled, align = 'right' }, ref) => {
+  ({ selectedModel, onModelChange, onOpenUpgradePlans, disabled, align = 'right' }, ref) => {
     const [isOpen, setIsOpen] = useState(false)
     const [shortcut, setShortcut] = useState('CommandOrControl+M')
     const [searchQuery, setSearchQuery] = useState('')
     const [activeModels, setActiveModels] = useState<ActiveModelItem[]>([])
+    const [isEnterprise, setIsEnterprise] = useState(false)
     const containerRef = useRef<HTMLDivElement>(null)
 
     useImperativeHandle(ref, () => ({
@@ -46,6 +49,18 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         if (!disabled) setIsOpen(true)
       }
     }))
+
+    const checkEnterpriseStatus = async (): Promise<void> => {
+      try {
+        const usage = await window.api.getUserAiUsage()
+        const isEnt =
+          usage?.tier?.toLowerCase().startsWith('enterprise') ||
+          Boolean(usage?.modelList?.some((m) => m.tier?.toLowerCase().startsWith('enterprise')))
+        setIsEnterprise(isEnt)
+      } catch {
+        setIsEnterprise(false)
+      }
+    }
 
     const loadActiveModels = async (): Promise<void> => {
       try {
@@ -58,6 +73,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
     useEffect(() => {
       loadActiveModels()
+      checkEnterpriseStatus()
 
       window.api.getConfig().then((config) => {
         if (config.modelSelectionShortcut) setShortcut(config.modelSelectionShortcut)
@@ -76,6 +92,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
     useEffect(() => {
       if (isOpen) {
         loadActiveModels()
+        checkEnterpriseStatus()
       } else {
         setSearchQuery('')
       }
@@ -157,7 +174,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
           disabled={disabled}
           onClick={() => setIsOpen(!isOpen)}
           className={clsx(
-            'flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs sm:text-sm font-semibold outline-none transition-colors duration-200 border hover:bg-[var(--surface-raised)] hover:border-[var(--border-strong)]',
+            'flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs sm:text-sm font-semibold outline-none transition-colors duration-200 border hover:bg-[var(--surface-raised)] hover:border-[var(--border-strong)] cursor-pointer',
             isOpen
               ? 'bg-[var(--surface-raised)] text-text-primary border-[var(--border-strong)]'
               : 'bg-transparent text-text-primary border-[var(--border-default)]',
@@ -251,37 +268,62 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
                         const mainLabel = getModelOnly(item.model.name || item.model.id)
                         const subLabel = getModelOnly(item.model.id)
+                        const isArcadia11 =
+                          item.model.id === 'prism-ai/arcadia-1.1-flash' ||
+                          item.model.id === 'arcadia-1.1-flash' ||
+                          item.fullKey.includes('arcadia-1.1-flash')
+
+                        const isLocked = isArcadia11 && !isEnterprise
 
                         return (
                           <button
                             key={item.fullKey}
                             type="button"
                             onClick={() => {
+                              if (isLocked) {
+                                setIsOpen(false)
+                                if (onOpenUpgradePlans) {
+                                  onOpenUpgradePlans()
+                                }
+                                return
+                              }
                               onModelChange(item.fullKey)
                               setIsOpen(false)
                             }}
                             className={clsx(
-                              'w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-xs transition-colors',
+                              'w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-xs transition-colors cursor-pointer',
                               isSelected
                                 ? 'bg-accent-primary/15 text-accent-primary font-bold border border-accent-primary/30'
-                                : 'text-text-secondary hover:bg-white/[0.06] hover:text-text-primary border border-transparent'
+                                : isLocked
+                                  ? 'text-text-secondary hover:bg-yellow-500/[0.08] hover:text-yellow-300 border border-transparent'
+                                  : 'text-text-secondary hover:bg-white/[0.06] hover:text-text-primary border border-transparent'
                             )}
                           >
                             <div className="truncate pr-2">
-                              <div className="truncate font-semibold">{mainLabel}</div>
+                              <div className="truncate font-semibold flex items-center gap-1.5">
+                                <span>{mainLabel}</span>
+                              </div>
                               {item.model.name && mainLabel !== subLabel && (
                                 <div className="text-[10px] text-text-muted font-mono truncate">
                                   {subLabel}
                                 </div>
                               )}
                             </div>
-                            {isSelected && (
-                              <Check
-                                size={14}
-                                weight="bold"
-                                className="text-accent-primary shrink-0"
-                              />
-                            )}
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {isLocked && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 flex items-center gap-1 shrink-0">
+                                  <Crown size={10} weight="fill" />
+                                  <span>Enterprise</span>
+                                </span>
+                              )}
+                              {isSelected && (
+                                <Check
+                                  size={14}
+                                  weight="bold"
+                                  className="text-accent-primary shrink-0"
+                                />
+                              )}
+                            </div>
                           </button>
                         )
                       })}

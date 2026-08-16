@@ -4,8 +4,14 @@ import { PrismThinkingLevel } from './types'
 const prismThinkingLevels = new Set<PrismThinkingLevel>(['minimal', 'low', 'medium', 'high'])
 
 const prismCloudThinkingCapabilities = new Map<string, ReadonlySet<PrismThinkingLevel>>([
-  ['gemini-3.1-flash-lite', prismThinkingLevels],
-  ['gemini-3-flash-preview', prismThinkingLevels]
+  ['prism-ai/arcadia-1.0-mini', prismThinkingLevels],
+  ['prism-ai/arcadia-1.0-flash', prismThinkingLevels],
+  ['prism-ai/arcadia-1.0-pro', prismThinkingLevels],
+  ['prism-ai/arcadia-1.1-flash', prismThinkingLevels],
+  ['arcadia-1.0-mini', prismThinkingLevels],
+  ['arcadia-1.0-flash', prismThinkingLevels],
+  ['arcadia-1.0-pro', prismThinkingLevels],
+  ['arcadia-1.1-flash', prismThinkingLevels]
 ])
 
 export function isPrismCloudProvider(provider: ProviderConfig): boolean {

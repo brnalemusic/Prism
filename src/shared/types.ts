@@ -295,6 +295,7 @@ export interface ModelAiUsageStatus {
 }
 
 export interface UserAiUsageStatus {
+  tier?: string
   percentageRemaining: number
   percentage5h: number
   percentage1w: number

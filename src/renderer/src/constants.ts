@@ -5,17 +5,18 @@ export interface Model {
 }
 
 export const MODEL_CATEGORIES: Record<string, string> = {
-  gemini: 'Gemini',
+  arcadia: 'Prism AI (Arcadia)',
   'nvidia-nim': 'NVIDIA NIM',
   'openai-compatible': 'OpenAI Compatible'
 }
 
 export const MODELS: Model[] = [
+  { id: 'prism-ai/arcadia-1.0-mini', name: 'Arcadia-1.0 Mini', category: 'arcadia' },
+  { id: 'prism-ai/arcadia-1.0-flash', name: 'Arcadia-1.0 Flash', category: 'arcadia' },
+  { id: 'prism-ai/arcadia-1.0-pro', name: 'Arcadia-1.0 Pro', category: 'arcadia' },
+  { id: 'prism-ai/arcadia-1.1-flash', name: 'Arcadia-1.1 Flash', category: 'arcadia' },
   { id: 'deepseek-ai/deepseek-v4-flash', name: 'Deepseek V4 Flash', category: 'nvidia-nim' },
   { id: 'deepseek-ai/deepseek-v4-pro', name: 'Deepseek V4 Pro', category: 'nvidia-nim' },
-  { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash-Lite', category: 'gemini' },
-  { id: 'models/gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', category: 'gemini' },
-  { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', category: 'gemini' },
   { id: 'z-ai/glm-5.2', name: 'GLM-5.2', category: 'nvidia-nim' },
   { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', category: 'nvidia-nim' },
   { id: 'minimaxai/minimax-m3', name: 'MiniMax M3', category: 'nvidia-nim' },
@@ -27,21 +28,29 @@ export interface ThinkingLevelOption {
   name: string
 }
 
-export function isPrismCloudGeminiModel(modelId: string): boolean {
+export function isPrismCloudModel(modelId: string): boolean {
   if (!modelId.startsWith('prism_provider:')) return false
   const cleanId = modelId.replace('prism_provider:', '').replace(/^models\//, '')
   return (
-    cleanId === 'gemini-3.1-flash-lite' ||
-    cleanId === 'gemini-3-flash-preview'
+    cleanId === 'prism-ai/arcadia-1.0-mini' ||
+    cleanId === 'prism-ai/arcadia-1.0-flash' ||
+    cleanId === 'prism-ai/arcadia-1.0-pro' ||
+    cleanId === 'prism-ai/arcadia-1.1-flash' ||
+    cleanId === 'arcadia-1.0-mini' ||
+    cleanId === 'arcadia-1.0-flash' ||
+    cleanId === 'arcadia-1.0-pro' ||
+    cleanId === 'arcadia-1.1-flash'
   )
 }
 
+export const isPrismCloudGeminiModel = isPrismCloudModel
+
 /**
  * Returns available thinking levels for a given model.
- * Thinking levels are supported strictly for Prism Cloud Gemini 3 / 3.1 models.
+ * Thinking levels are supported for Prism Cloud Arcadia models.
  */
 export function getThinkingLevelsForModel(modelId: string): ThinkingLevelOption[] {
-  if (isPrismCloudGeminiModel(modelId)) {
+  if (isPrismCloudModel(modelId)) {
     return [
       { id: 'minimal', name: 'Minimal' },
       { id: 'low', name: 'Low' },
@@ -54,6 +63,5 @@ export function getThinkingLevelsForModel(modelId: string): ThinkingLevelOption[
 }
 
 export function getDefaultThinkingLevelForModel(modelId: string): string {
-  return isPrismCloudGeminiModel(modelId) ? 'minimal' : 'off'
+  return isPrismCloudModel(modelId) ? 'minimal' : 'off'
 }
-

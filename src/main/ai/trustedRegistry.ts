@@ -45,6 +45,14 @@ export const TRUSTED_PROVIDERS: TrustedProviderMeta[] = [
 ]
 
 export const TRUSTED_MODELS_LIST: string[] = [
+  'prism-ai/arcadia-1.0-mini',
+  'prism-ai/arcadia-1.0-flash',
+  'prism-ai/arcadia-1.0-pro',
+  'prism-ai/arcadia-1.1-flash',
+  'arcadia-1.0-mini',
+  'arcadia-1.0-flash',
+  'arcadia-1.0-pro',
+  'arcadia-1.1-flash',
   'gpt-5.6-sol',
   'gpt-5.6-terra',
   'gpt-5.6-luna',

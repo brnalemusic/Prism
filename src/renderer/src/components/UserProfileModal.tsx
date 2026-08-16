@@ -19,9 +19,7 @@ import {
   ShieldWarning
 } from '@phosphor-icons/react'
 import { DeleteAccountModal } from './DeleteAccountModal'
-import { ScrambleText } from './ScrambleText'
-import { AnimatedQuotaBar } from './AnimatedQuotaBar'
-import type { UserProfile, UserAiUsageStatus } from '../../../shared/types'
+import type { UserProfile } from '../../../shared/types'
 
 interface UserProfileModalProps {
   isOpen: boolean
@@ -31,28 +29,11 @@ interface UserProfileModalProps {
   onProfileUpdated: (user: UserProfile) => void
 }
 
-function formatResetTime(seconds?: number): string {
-  if (!seconds || seconds <= 0) return 'Resets soon'
-  const days = Math.floor(seconds / 86400)
-  const hours = Math.floor((seconds % 86400) / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-
-  if (days > 0) {
-    return `Resets in ${days}d ${hours}h`
-  }
-  if (hours > 0) {
-    return `Resets in ${hours}h ${minutes}m`
-  }
-  return `Resets in ${minutes}m`
-}
-
 function formatActivationInput(val: string): string {
   const digits = val.replace(/\D/g, '').slice(0, 6)
   if (digits.length <= 3) return digits
   return `${digits.slice(0, 3)}-${digits.slice(3)}`
 }
-
-let cachedAiUsage: UserAiUsageStatus | null = null
 
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   isOpen,
@@ -64,8 +45,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [isEditing, setIsEditing] = useState(false)
   const [fullName, setFullName] = useState(user?.fullName || '')
   const [companyName, setCompanyName] = useState(user?.companyName || '')
-  const [aiUsage, setAiUsage] = useState<UserAiUsageStatus | null>(cachedAiUsage)
-  const [isAiUsageUnavailable, setIsAiUsageUnavailable] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
 
   // Activation flow state
@@ -92,26 +71,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     }, 1000)
     return () => clearInterval(interval)
   }, [rateLimitSeconds])
-
-  useEffect(() => {
-    if (isOpen && user && isActivated) {
-      setIsAiUsageUnavailable(false)
-      window.api
-        .getUserAiUsage()
-        .then((usage) => {
-          if (usage) {
-            cachedAiUsage = usage
-            setAiUsage(usage)
-          } else {
-            if (!cachedAiUsage) setIsAiUsageUnavailable(true)
-          }
-        })
-        .catch((err) => {
-          console.error('Failed to load AI usage:', err)
-          if (!cachedAiUsage) setIsAiUsageUnavailable(true)
-        })
-    }
-  }, [isOpen, user, isActivated])
 
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
@@ -365,100 +324,36 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           </div>
         )}
 
-        {/* Prism Cloud AI Quota Cards (Segregated by Model) */}
+        {/* Prism Cloud AI Quota Action Card */}
         {!isEditing && isActivated && (
-          (() => {
-            const flashUsage =
-              aiUsage?.models?.['gemini-3-flash-preview'] ||
-              aiUsage?.models?.['gemini-3-flash'] ||
-              aiUsage?.modelList?.find(
-                (m) => m.modelId.includes('flash') && !m.modelId.includes('lite')
-              )
-
-            const liteUsage =
-              aiUsage?.models?.['gemini-3.1-flash-lite'] ||
-              aiUsage?.modelList?.find((m) => m.modelId.includes('lite'))
-
-            return (
-              <div className="space-y-3 my-2">
-                <div className="flex items-center justify-between px-1">
-                  <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider">
-                    <Sparkle size={15} className="text-accent-primary" weight="fill" />
-                    <span>Prism AI Model Quotas</span>
-                  </div>
-                  <span className="text-[10px] font-mono text-text-muted">Live DB Metrics</span>
-                </div>
-
-                {/* Gemini 3 Flash Card */}
-                <div className="rounded-2xl border border-accent-primary/20 bg-accent-primary/[0.04] p-4 space-y-3 shadow-sm">
-                  <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
-                      <span className="text-xs font-bold text-white">Gemini 3 Flash</span>
-                    </div>
-                    <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 text-cyan-400">
-                      <ScrambleText
-                        text={flashUsage ? `${flashUsage.tier.toUpperCase()} TIER` : 'QUOTA'}
-                        triggerKey={isOpen}
-                      />
-                    </span>
-                  </div>
-
-                  <AnimatedQuotaBar
-                    label="5-Hour Quota"
-                    resetSeconds={flashUsage?.reset5hSeconds}
-                    targetPercentage={flashUsage?.percentage5h}
-                    isUnavailable={isAiUsageUnavailable}
-                    barGradient="from-accent-primary to-cyan-400"
-                    formatResetTime={formatResetTime}
-                  />
-
-                  <AnimatedQuotaBar
-                    label="Weekly Quota"
-                    resetSeconds={flashUsage?.reset1wSeconds}
-                    targetPercentage={flashUsage?.percentage1w}
-                    isUnavailable={isAiUsageUnavailable}
-                    barGradient="from-cyan-400 to-emerald-400"
-                    formatResetTime={formatResetTime}
-                  />
-                </div>
-
-                {/* Gemini 3.1 Flash-Lite Card */}
-                <div className="rounded-2xl border border-purple-500/20 bg-purple-500/[0.04] p-4 space-y-3 shadow-sm">
-                  <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full bg-purple-400 animate-pulse" />
-                      <span className="text-xs font-bold text-white">Gemini 3.1 Flash-Lite</span>
-                    </div>
-                    <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-purple-500/30 bg-purple-500/10 text-purple-400">
-                      <ScrambleText
-                        text={liteUsage ? `${liteUsage.tier.toUpperCase()} TIER` : 'QUOTA'}
-                        triggerKey={isOpen}
-                      />
-                    </span>
-                  </div>
-
-                  <AnimatedQuotaBar
-                    label="5-Hour Quota"
-                    resetSeconds={liteUsage?.reset5hSeconds}
-                    targetPercentage={liteUsage?.percentage5h}
-                    isUnavailable={isAiUsageUnavailable}
-                    barGradient="from-purple-500 to-indigo-400"
-                    formatResetTime={formatResetTime}
-                  />
-
-                  <AnimatedQuotaBar
-                    label="Weekly Quota"
-                    resetSeconds={liteUsage?.reset1wSeconds}
-                    targetPercentage={liteUsage?.percentage1w}
-                    isUnavailable={isAiUsageUnavailable}
-                    barGradient="from-indigo-400 to-accent-primary"
-                    formatResetTime={formatResetTime}
-                  />
-                </div>
+          <div className="rounded-2xl border border-accent-primary/20 bg-accent-primary/[0.04] p-4 my-2 shadow-sm space-y-3">
+            <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5">
+              <div className="flex items-center gap-2">
+                <Sparkle size={16} className="text-accent-primary" weight="fill" />
+                <span className="text-xs font-bold text-white tracking-wide">
+                  Prism Cloud AI Limits & Quotas
+                </span>
               </div>
-            )
-          })()
+              <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-accent-primary/30 bg-accent-primary/10 text-accent-primary">
+                Cloud Managed
+              </span>
+            </div>
+
+            <p className="text-xs text-text-secondary leading-relaxed">
+              Live model capacity, 5-hour rolling reset windows, and weekly allocations across all Arcadia models are managed securely on Prism Cloud.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => {
+                void window.api.openExternalUrl('https://prismagent.vercel.app/account/quota')
+              }}
+              className="w-full flex items-center justify-center gap-2 rounded-xl border border-accent-primary/40 bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary hover:text-white py-2.5 text-xs font-semibold transition-all duration-200 cursor-pointer shadow-sm"
+            >
+              <span>View Quotas & Limits in Prism Cloud</span>
+              <ArrowSquareOut size={14} weight="bold" />
+            </button>
+          </div>
         )}
 
         {/* Details or Edit Form */}

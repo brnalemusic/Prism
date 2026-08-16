@@ -28,7 +28,7 @@ import {
   updateChatSessionTitle,
   listChatSessions
 } from './history'
-import { resolveProviderAndModel } from './ai/providerManager'
+import { resolveProviderAndModel, PRISM_PROVIDER_ID } from './ai/providerManager'
 import { getChatModel, activeRuns } from './ai/chatHandler'
 import { runToolOrchestration } from './ai/toolOrchestrator'
 import { OpenAiMessage } from './ai/types'
@@ -1761,7 +1761,16 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
     userMessage: { role: 'user', content: userText }
   })
 
-  const baseSystemPrompt = getSystemToolsPrompt(model.id, 'main', undefined, 'execution', '')
+  const isCloud = provider?.id === PRISM_PROVIDER_ID || provider?.name === 'Prism Cloud'
+  const baseSystemPrompt = getSystemToolsPrompt(
+    model.id,
+    'main',
+    undefined,
+    'execution',
+    '',
+    model.name,
+    isCloud
+  )
   const botName = client?.user?.username || 'AI'
   const discordSystemPrompt = `${baseSystemPrompt}\n\n# Discord Gateway Mode\nYou are ${botName} running on Discord via Prism Gateway. Adopt the name ${botName} and NOT Prism. Keep responses concise due to Discord limits (max 2000 chars). Use simple Markdown only (bold, italics, H1-H3, code blocks). Do not use HTML or Markdown tables.`
 

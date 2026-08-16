@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { loadConfig } from '../config'
-import { resolveProviderAndModel } from './providerManager'
+import { resolveProviderAndModel, PRISM_PROVIDER_ID } from './providerManager'
 import { OpenAiMessage } from './types'
 import { getNativeToolsForOpenAi } from './chatHandler'
 import { getSystemToolsPrompt } from '../systemTools'
@@ -30,11 +30,14 @@ export async function handleLauncherChatMessage(
   launcherAbortController = abortController
 
   const config = loadConfig()
-  const modelSelection = config.quickLauncherModel || config.lastSelectedChatModel
-  const { provider, model } = resolveProviderAndModel(modelSelection)
+  const currentSelectedChatModel =
+    config.quickLauncherModel || config.lastSelectedChatModel || config.defaultModel || ''
+  const { provider, model } = resolveProviderAndModel(currentSelectedChatModel)
 
-  if (!provider || !provider.apiKey || !model) {
-    safeSend(window, 'launcher-reply-error', { error: 'No active AI Provider configured' })
+  if (!provider || !model) {
+    safeSend(window, 'launcher-reply-error', {
+      error: 'No active AI model or API key configured. Open settings to configure.'
+    })
     return
   }
 
@@ -44,9 +47,18 @@ export async function handleLauncherChatMessage(
   safeSend(window, 'launcher-reply-start')
 
   try {
+    const isPrismCloud = provider?.id === PRISM_PROVIDER_ID || provider?.name === 'Prism Cloud'
     const systemPrompt: OpenAiMessage = {
       role: 'system',
-      content: getSystemToolsPrompt(model.id, 'launcher')
+      content: getSystemToolsPrompt(
+        model.id,
+        'launcher',
+        undefined,
+        'execution',
+        '',
+        model.name,
+        isPrismCloud
+      )
     }
 
     const launcherTools = getNativeToolsForOpenAi('launcher')

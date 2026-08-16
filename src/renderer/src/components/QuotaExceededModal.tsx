@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { Sparkle, Clock, Key, X, ArrowRight, User } from '@phosphor-icons/react'
+import { Sparkle, Clock, Key, X, ArrowRight, Crown } from '@phosphor-icons/react'
 import type { UserAiUsageStatus } from '../../../shared/types'
 
 interface QuotaExceededModalProps {
   isOpen: boolean
   onClose: () => void
   onOpenSettings: () => void
-  onOpenProfile: () => void
+  onOpenUpgradePlans?: () => void
 }
 
 function formatResetTime(seconds?: number): string {
@@ -29,7 +29,7 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
   isOpen,
   onClose,
   onOpenSettings,
-  onOpenProfile
+  onOpenUpgradePlans
 }) => {
   const [aiUsage, setAiUsage] = useState<UserAiUsageStatus | null>(null)
   const [isAiUsageUnavailable, setIsAiUsageUnavailable] = useState(false)
@@ -66,20 +66,24 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
 
   if (!isOpen) return null
 
+  const isEnterprise =
+    aiUsage?.tier?.toLowerCase().startsWith('enterprise') ||
+    Boolean(aiUsage?.modelList?.some((m) => m.tier?.toLowerCase().startsWith('enterprise')))
+
   return createPortal(
-    <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-fade-in">
+    <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
       <div
         className="prism-modal-panel relative w-full max-w-md overflow-y-auto p-6 text-text-primary animate-soft-pop"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Glow Accents */}
         <div className="pointer-events-none absolute -top-24 -left-24 h-48 w-48 rounded-full bg-accent-primary/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-24 -right-24 h-48 w-48 rounded-full bg-purple-500/15 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 -right-24 h-48 w-48 rounded-full bg-yellow-500/15 blur-3xl" />
 
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 flex h-8 w-8 items-center justify-center rounded-xl bg-white/[0.06] text-text-muted hover:bg-white/10 hover:text-text-primary transition-all duration-200"
+          className="absolute top-4 right-4 flex h-8 w-8 items-center justify-center rounded-xl bg-white/[0.06] text-text-muted hover:bg-white/10 hover:text-text-primary transition-all duration-200 cursor-pointer"
           title="Close"
         >
           <X size={16} weight="bold" />
@@ -94,7 +98,9 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
             <h3 className="text-base font-bold text-white tracking-wide">
               Prism Cloud Quota Limit
             </h3>
-            <p className="text-xs text-text-secondary">Free tier request limit reached</p>
+            <p className="text-xs text-text-secondary">
+              {isEnterprise ? 'Enterprise rolling capacity reached' : 'Free tier request limit reached'}
+            </p>
           </div>
         </div>
 
@@ -104,8 +110,8 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
             You've reached your Prism Cloud AI request limit for the current time window.
           </p>
           <p className="leading-relaxed">
-            Your quota will automatically reset once the current window expires. In the meantime,
-            you can add your custom API keys in Settings for unlimited requests.
+            Your quota will automatically reset once the current rolling window expires. In the meantime,
+            you can connect a BYOK provider in Settings for unlimited requests.
           </p>
         </div>
 
@@ -140,6 +146,7 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
 
         {/* Action Buttons */}
         <div className="space-y-2.5">
+          {/* 1. Use a BYOK provider */}
           <button
             onClick={() => {
               onClose()
@@ -148,29 +155,31 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent-primary px-4 py-2.5 text-xs font-semibold text-black hover:bg-accent-primary/90 transition-all duration-200 shadow-[0_0_20px_rgba(34,197,94,0.3)] cursor-pointer"
           >
             <Key size={16} weight="bold" />
-            <span>Use Custom API Keys in Settings</span>
+            <span>Use a BYOK provider</span>
             <ArrowRight size={14} weight="bold" />
           </button>
 
-          <div className="flex items-center gap-2">
+          {/* 2. Upgrade my Plan (hidden if already Enterprise) */}
+          {!isEnterprise && onOpenUpgradePlans && (
             <button
               onClick={() => {
                 onClose()
-                onOpenProfile()
+                onOpenUpgradePlans()
               }}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-medium text-text-secondary hover:bg-white/10 hover:text-white transition-all duration-200 cursor-pointer"
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-yellow-500/40 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 hover:text-yellow-300 px-4 py-2.5 text-xs font-semibold transition-all duration-200 cursor-pointer shadow-sm"
             >
-              <User size={14} />
-              <span>View Quota Details</span>
+              <Crown size={16} weight="fill" />
+              <span>Upgrade my Plan</span>
             </button>
+          )}
 
-            <button
-              onClick={onClose}
-              className="flex flex-1 items-center justify-center rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-xs font-medium text-text-muted hover:bg-white/[0.06] hover:text-text-primary transition-all duration-200 cursor-pointer"
-            >
-              Close
-            </button>
-          </div>
+          {/* 3. Close */}
+          <button
+            onClick={onClose}
+            className="flex w-full items-center justify-center rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-xs font-medium text-text-muted hover:bg-white/[0.06] hover:text-text-primary transition-all duration-200 cursor-pointer"
+          >
+            Close
+          </button>
         </div>
       </div>
     </div>,

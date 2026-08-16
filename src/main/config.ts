@@ -140,14 +140,41 @@ const VALID_THEMES = new Set([
 const VALID_SESSION_MODES = new Set(['conversation', 'execution', 'discipline'])
 const VALID_PRISM_THINKING_LEVELS = new Set(['minimal', 'low', 'medium', 'high'])
 const PRISM_CLOUD_MODEL_IDS = new Set([
-  'gemini-3.1-flash-lite',
-  'models/gemini-3-flash-preview',
-  'gemini-3-flash-preview'
+  'prism-ai/arcadia-1.0-mini',
+  'prism-ai/arcadia-1.0-flash',
+  'prism-ai/arcadia-1.0-pro',
+  'prism-ai/arcadia-1.1-flash',
+  'arcadia-1.0-mini',
+  'arcadia-1.0-flash',
+  'arcadia-1.0-pro',
+  'arcadia-1.1-flash'
 ])
+
+export function migrateLegacyModelKey(key: string): string {
+  if (!key || typeof key !== 'string') return ''
+  if (
+    key === 'gemini-3.1-flash-lite' ||
+    key === 'prism_provider:gemini-3.1-flash-lite'
+  ) {
+    return 'prism_provider:prism-ai/arcadia-1.0-mini'
+  }
+  if (
+    key === 'models/gemini-3-flash-preview' ||
+    key === 'gemini-3-flash-preview' ||
+    key === 'gemini-3-flash' ||
+    key === 'prism_provider:models/gemini-3-flash-preview' ||
+    key === 'prism_provider:gemini-3-flash-preview' ||
+    key === 'prism_provider:gemini-3-flash'
+  ) {
+    return 'prism_provider:prism-ai/arcadia-1.0-flash'
+  }
+  return key
+}
 
 export function normalizeReasoningLevels(levels?: Record<string, string>): Record<string, string> {
   const normalized: Record<string, string> = {}
-  for (const [modelKey, level] of Object.entries(levels || {})) {
+  for (const [rawModelKey, level] of Object.entries(levels || {})) {
+    const modelKey = migrateLegacyModelKey(rawModelKey)
     const cleanKey = modelKey.startsWith('prism_provider:')
       ? modelKey.slice('prism_provider:'.length)
       : modelKey
@@ -268,11 +295,18 @@ function normalizeConfig(config: AppConfig): AppConfig {
     youtubeModeShortcut: config.youtubeModeShortcut || DEFAULT_CONFIG.youtubeModeShortcut,
     providers,
     lastSelectedChatModel:
-      typeof config.lastSelectedChatModel === 'string' ? config.lastSelectedChatModel : '',
+      typeof config.lastSelectedChatModel === 'string'
+        ? migrateLegacyModelKey(config.lastSelectedChatModel)
+        : '',
     sttModel: typeof config.sttModel === 'string' ? config.sttModel : '',
     quickLauncherModel:
-      typeof config.quickLauncherModel === 'string' ? config.quickLauncherModel : '',
-    searchModel: typeof config.searchModel === 'string' ? config.searchModel : '',
+      typeof config.quickLauncherModel === 'string'
+        ? migrateLegacyModelKey(config.quickLauncherModel)
+        : '',
+    searchModel:
+      typeof config.searchModel === 'string'
+        ? migrateLegacyModelKey(config.searchModel)
+        : '',
     discordBotToken: typeof config.discordBotToken === 'string' ? config.discordBotToken : '',
     discordGatewayEnabled: typeof config.discordGatewayEnabled === 'boolean' ? config.discordGatewayEnabled : false,
     discordGatewayModel: typeof config.discordGatewayModel === 'string' ? config.discordGatewayModel : '',

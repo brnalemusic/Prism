@@ -142,10 +142,12 @@ function formatToolName(name: string): string {
 
 export function SettingsView({
   onClose,
-  onOpenAuthModal
+  onOpenAuthModal,
+  initialSection = 'shortcuts'
 }: {
   onClose?: () => void
   onOpenAuthModal?: () => void
+  initialSection?: SectionId
 }): React.JSX.Element {
   const [config, setConfig] = useState<Config>({
     providers: [],
@@ -173,10 +175,19 @@ export function SettingsView({
   const [availableTerminals, setAvailableTerminals] = useState<
     Array<{ id: string; name: string; path: string }>
   >([])
-  const [activeSection, setActiveSection] = useState<SectionId>('shortcuts')
+  const [activeSection, setActiveSection] = useState<SectionId>(initialSection)
   const [isSectionMenuOpen, setIsSectionMenuOpen] = useState(false)
   const [showDiscordToken, setShowDiscordToken] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (initialSection) {
+      setActiveSection(initialSection)
+      if (initialSection === 'license') {
+        void loadSubscriptionPlans()
+      }
+    }
+  }, [initialSection])
 
   const [editingWorkflow, setEditingWorkflow] = useState<SlashWorkflow | null>(null)
   const [isAddingWorkflow, setIsAddingWorkflow] = useState(false)

@@ -2004,6 +2004,16 @@ export async function webSearchContinuous(
 
   return sections.join('\n\n---\n\n')
 }
+const ARCADIA_MODEL_NAMES: Record<string, string> = {
+  'prism-ai/arcadia-1.0-mini': 'Arcadia-1.0 Mini',
+  'prism-ai/arcadia-1.0-flash': 'Arcadia-1.0 Flash',
+  'prism-ai/arcadia-1.0-pro': 'Arcadia-1.0 Pro',
+  'prism-ai/arcadia-1.1-flash': 'Arcadia-1.1 Flash',
+  'arcadia-1.0-mini': 'Arcadia-1.0 Mini',
+  'arcadia-1.0-flash': 'Arcadia-1.0 Flash',
+  'arcadia-1.0-pro': 'Arcadia-1.0 Pro',
+  'arcadia-1.1-flash': 'Arcadia-1.1 Flash'
+}
 
 /**
  * Returns the system prompt configured with the correct model identity.
@@ -2013,7 +2023,9 @@ export function getSystemToolsPrompt(
   target: 'main' | 'subagent' | 'both' | 'launcher' = 'main',
   _allowedTools?: string[],
   sessionMode: SessionMode = 'execution',
-  disciplinePath?: string
+  disciplinePath?: string,
+  modelDisplayName?: string,
+  isPrismCloud?: boolean
 ): string {
   let shellName = process.platform === 'win32' ? 'powershell.exe' : '/bin/sh'
   try {
@@ -2025,7 +2037,36 @@ export function getSystemToolsPrompt(
   const terminalSummary = getLocalCommandSandboxSummary(shellName)
   const shellSyntax = getShellSyntaxSummary(shellName)
   const name = 'Prism AI'
-  const modelName = modelKey || 'AI Assistant'
+
+  const cleanModelId = modelKey
+    ? modelKey.startsWith('prism_provider:')
+      ? modelKey.replace('prism_provider:', '')
+      : modelKey
+    : 'unknown'
+
+  const isCloud =
+    isPrismCloud ??
+    (cleanModelId.startsWith('prism-ai/') ||
+      cleanModelId.startsWith('arcadia-') ||
+      Boolean(ARCADIA_MODEL_NAMES[cleanModelId]))
+
+  const resolvedArcadiaName =
+    modelDisplayName ||
+    ARCADIA_MODEL_NAMES[cleanModelId] ||
+    (cleanModelId.includes('1.0-mini')
+      ? 'Arcadia-1.0 Mini'
+      : cleanModelId.includes('1.0-pro')
+        ? 'Arcadia-1.0 Pro'
+        : cleanModelId.includes('1.1-flash')
+          ? 'Arcadia-1.1 Flash'
+          : cleanModelId.includes('1.0-flash') || cleanModelId.includes('arcadia')
+            ? 'Arcadia-1.0 Flash'
+            : '')
+
+  const modelIdentity =
+    isCloud && resolvedArcadiaName
+      ? `${cleanModelId} (${resolvedArcadiaName})`
+      : cleanModelId
 
   const username = os.userInfo().username
   const platform = process.platform
@@ -2051,7 +2092,8 @@ export function getSystemToolsPrompt(
 
   if (target === 'launcher') {
     return `# Identity & Context
-Role: Prism AI (${modelName}) in Quick Launcher.
+Role: Prism AI in Quick Launcher.
+Model: ${modelIdentity}
 Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
 # Rules
@@ -2063,7 +2105,8 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | 
 
   if (sessionMode === 'conversation' && target === 'main') {
     return `# Identity & Context
-Role: ${name} (${modelName}) in Conversation Mode.
+Role: ${name} in Conversation Mode.
+Model: ${modelIdentity}
 Context: ${date} | ${platform} | Home: ${homeDir} | CWD: ${cwd}
 
 # Rules
@@ -2092,7 +2135,8 @@ Context: ${date} | ${platform} | Home: ${homeDir} | CWD: ${cwd}
     : '- **Auto-Open & Links:** Open URLs/links in OS system browser via `open_browser_link` by default. Use integrated AI browser tools only if user explicitly requests in-app/AI browser (requires `read_skill` with `integrated_browser_skill.md`).'
 
   return `# Identity & Context
-Role: ${name} (${modelName}), Desktop AI Assistant.
+Role: ${name}, Desktop AI Assistant.
+Model: ${modelIdentity}
 Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
 # Rules & Protocols

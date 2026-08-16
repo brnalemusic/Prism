@@ -20,6 +20,7 @@ interface TabBarProps {
   visibleTabIds: string[]
   selectedModel: string
   onModelChange: (modelKey: string) => void
+  onOpenUpgradePlans?: () => void
   onSelectTab: (id: string) => void
   onCloseTab: (id: string) => void
   onCloseOtherTabs: (keepTabId: string) => void
@@ -42,6 +43,7 @@ export const TabBar: React.FC<TabBarProps> = ({
   visibleTabIds,
   selectedModel,
   onModelChange,
+  onOpenUpgradePlans,
   onSelectTab,
   onCloseTab,
   onCloseOtherTabs,
@@ -279,7 +281,12 @@ export const TabBar: React.FC<TabBarProps> = ({
 
       {/* Model Selector Dropdown */}
       <div className="shrink-0 flex items-center">
-        <ModelSelector selectedModel={selectedModel} onModelChange={onModelChange} align="right" />
+        <ModelSelector
+          selectedModel={selectedModel}
+          onModelChange={onModelChange}
+          onOpenUpgradePlans={onOpenUpgradePlans}
+          align="right"
+        />
       </div>
 
       {/* Plus / New Options Dropdown Menu (Rendered at top-level via Portal) */}

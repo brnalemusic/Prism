@@ -771,24 +771,28 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
       const rawList: any[] = Array.isArray(rpcData) ? rpcData : [rpcData]
 
       const modelList: ModelAiUsageStatus[] = rawList.map((item) => {
-        const modelId = item.model_id || 'legacy'
+        const modelId = item.model_id || 'prism-ai/arcadia-1.0-flash'
         const modelName =
-          modelId === 'gemini-3-flash-preview' || modelId === 'gemini-3-flash'
-            ? 'Gemini 3 Flash'
-            : modelId === 'gemini-3.1-flash-lite'
-              ? 'Gemini 3.1 Flash-Lite'
-              : 'Legacy Model'
+          modelId === 'prism-ai/arcadia-1.0-mini'
+            ? 'Arcadia-1.0 Mini'
+            : modelId === 'prism-ai/arcadia-1.0-flash'
+              ? 'Arcadia-1.0 Flash'
+              : modelId === 'prism-ai/arcadia-1.0-pro'
+                ? 'Arcadia-1.0 Pro'
+                : modelId === 'prism-ai/arcadia-1.1-flash'
+                  ? 'Arcadia-1.1 Flash'
+                  : modelId
 
-        const max5h = item.max_5h || (modelId === 'gemini-3.1-flash-lite' ? 180 : 20)
-        const max1w = item.max_1w || item.max_7d || (modelId === 'gemini-3.1-flash-lite' ? 720 : 80)
+        const max5h = item.max_5h || 0
+        const max1w = item.max_1w || item.max_7d || 0
         const count5h = item.count_5h ?? 0
         const count1w = item.count_1w ?? 0
         const remaining5h = item.remaining_5h ?? Math.max(0, max5h - count5h)
         const remaining1w = item.remaining_1w ?? Math.max(0, max1w - count1w)
 
-        const percentage5h = Math.round((remaining5h / max5h) * 100)
-        const percentage1w = Math.round((remaining1w / max1w) * 100)
-        const percentageRemaining = Math.min(percentage5h, percentage1w)
+        const percentage5h = max5h > 0 ? Math.round((remaining5h / max5h) * 100) : 0
+        const percentage1w = max1w > 0 ? Math.round((remaining1w / max1w) * 100) : 0
+        const percentageRemaining = max5h > 0 && max1w > 0 ? Math.min(percentage5h, percentage1w) : 0
 
         return {
           modelId,
@@ -814,21 +818,23 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
       }
 
       const primary =
-        modelsMap['gemini-3-flash-preview'] ||
-        modelsMap['gemini-3-flash'] ||
-        modelsMap['legacy'] ||
+        modelsMap['prism-ai/arcadia-1.0-flash'] ||
+        modelsMap['prism-ai/arcadia-1.0-mini'] ||
         modelList[0]
 
+      const tier = modelList[0]?.tier || 'free'
+
       return {
+        tier,
         percentageRemaining: primary ? primary.percentageRemaining : 100,
         percentage5h: primary ? primary.percentage5h : 100,
         percentage1w: primary ? primary.percentage1w : 100,
         count5h: primary ? primary.count5h : 0,
         count1w: primary ? primary.count1w : 0,
-        remaining5h: primary ? primary.remaining5h : 20,
-        remaining1w: primary ? primary.remaining1w : 80,
-        max5h: primary ? primary.max5h : 20,
-        max1w: primary ? primary.max1w : 80,
+        remaining5h: primary ? primary.remaining5h : 60,
+        remaining1w: primary ? primary.remaining1w : 240,
+        max5h: primary ? primary.max5h : 60,
+        max1w: primary ? primary.max1w : 240,
         reset5hSeconds: primary ? primary.reset5hSeconds : 0,
         reset1wSeconds: primary ? primary.reset1wSeconds : 0,
         models: modelsMap,

@@ -10,7 +10,7 @@ import {
   loadChatSession,
   updateChatSessionTitle
 } from '../history'
-import { resolveProviderAndModel } from './providerManager'
+import { resolveProviderAndModel, PRISM_PROVIDER_ID } from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
 import { ActiveRun, OpenAiMessage, OpenAiToolDefinition } from './types'
 import { safeSend, broadcastIpc } from '../safeSend'
@@ -253,12 +253,15 @@ export async function handleChatMessage(
       firstMsgText.toLowerCase().startsWith(w.command.toLowerCase())
     )
 
+    const isPrismCloud = provider?.id === PRISM_PROVIDER_ID || provider?.name === 'Prism Cloud'
     const systemPrompt = getSystemToolsPrompt(
       model.id,
       'main',
       matchedWorkflow?.toolConstraints,
       currentSessionMode,
-      currentDisciplinePath
+      currentDisciplinePath,
+      model.name,
+      isPrismCloud
     )
     let fullPrompt = systemPrompt
     if (matchedWorkflow) {

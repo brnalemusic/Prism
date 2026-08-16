@@ -62,6 +62,7 @@ import { YoutubeAppModal } from './components/YoutubeAppModal'
 import { AuthModal } from './components/AuthModal'
 import { UserProfileModal } from './components/UserProfileModal'
 import { QuotaExceededModal } from './components/QuotaExceededModal'
+import { PrismPlansModal } from './components/PrismPlansModal'
 import { OnboardingLicenseModal } from './components/OnboardingLicenseModal'
 import { AppConfig, SlashWorkflow } from '../../main/config'
 import type { DownloadProgress, SessionMode, TodoState, UserProfile } from '../../shared/types'
@@ -1172,21 +1173,69 @@ function RealApp(): React.JSX.Element {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [chatTodos, setChatTodos] = useState<Record<string, TodoState>>({})
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
+  const [settingsInitialSection, setSettingsInitialSection] = useState<
+    | 'shortcuts'
+    | 'providers'
+    | 'intelligence'
+    | 'skills'
+    | 'runtime'
+    | 'appearance'
+    | 'voice'
+    | 'workflows'
+    | 'system'
+    | 'discord'
+    | 'license'
+    | 'about'
+  >('shortcuts')
 
   // Auth State
   const [authUser, setAuthUser] = useState<UserProfile | null>(null)
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false)
   const [isQuotaModalOpen, setIsQuotaModalOpen] = useState(false)
+  const [isPlansModalOpen, setIsPlansModalOpen] = useState(false)
+  const [isEnterpriseUser, setIsEnterpriseUser] = useState(false)
   const [isOnboardingLicenseModalOpen, setIsOnboardingLicenseModalOpen] = useState(false)
   const [isProviderLockOpen, setIsProviderLockOpen] = useState(false)
 
   useEffect(() => {
+    const onOpenPlans = (): void => setIsPlansModalOpen(true)
+    const onOpenLicense = (): void => {
+      setIsPlansModalOpen(false)
+      setSettingsInitialSection('license')
+      setIsSettingsModalOpen(true)
+    }
+    window.addEventListener('prism:open-plans', onOpenPlans)
+    window.addEventListener('prism:open-license', onOpenLicense)
+    return () => {
+      window.removeEventListener('prism:open-plans', onOpenPlans)
+      window.removeEventListener('prism:open-license', onOpenLicense)
+    }
+  }, [])
+
+  const checkEnterpriseStatus = useCallback(async () => {
+    try {
+      const usage = await window.api.getUserAiUsage()
+      const isEnt =
+        usage?.tier?.toLowerCase().startsWith('enterprise') ||
+        Boolean(usage?.modelList?.some((m) => m.tier?.toLowerCase().startsWith('enterprise')))
+      setIsEnterpriseUser(isEnt)
+    } catch {
+      setIsEnterpriseUser(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    checkEnterpriseStatus()
+
     if (window.api?.getAuthUser) {
       window.api
         .getAuthUser()
         .then((user) => {
-          if (user) setAuthUser(user)
+          if (user) {
+            setAuthUser(user)
+            checkEnterpriseStatus()
+          }
         })
         .catch((err) => console.error('[Auth] Initial getAuthUser failed:', err))
     }
@@ -1194,6 +1243,7 @@ function RealApp(): React.JSX.Element {
     if (window.api?.onAuthSessionUpdated) {
       const unsub = window.api.onAuthSessionUpdated((user) => {
         setAuthUser(user)
+        checkEnterpriseStatus()
         if (user) {
           setTimeout(() => {
             setIsAuthModalOpen(false)
@@ -1207,7 +1257,7 @@ function RealApp(): React.JSX.Element {
       return unsub
     }
     return () => {}
-  }, [])
+  }, [checkEnterpriseStatus])
 
   const isKeyMissing = useMemo(() => {
     if (authUser) return false
@@ -2233,12 +2283,25 @@ function RealApp(): React.JSX.Element {
   const handleSendRef = useRef(handleSend)
   handleSendRef.current = handleSend
 
-  const handleModelChange = useCallback((modelKey: string) => {
-    setSelectedModel(modelKey)
-    window.api.setModel(modelKey)
-    setTabs((prev) => prev.map((t) => ({ ...t, selectedModel: modelKey })))
-    window.api.saveConfig({ lastSelectedChatModel: modelKey })
-  }, [])
+  const handleModelChange = useCallback(
+    (modelKey: string) => {
+      const isArcadia11 =
+        modelKey === 'prism-ai/arcadia-1.1-flash' ||
+        modelKey === 'arcadia-1.1-flash' ||
+        modelKey.includes('arcadia-1.1-flash')
+
+      if (isArcadia11 && !isEnterpriseUser) {
+        setIsPlansModalOpen(true)
+        return
+      }
+
+      setSelectedModel(modelKey)
+      window.api.setModel(modelKey)
+      setTabs((prev) => prev.map((t) => ({ ...t, selectedModel: modelKey })))
+      window.api.saveConfig({ lastSelectedChatModel: modelKey })
+    },
+    [isEnterpriseUser]
+  )
 
   const handleToggleSearch = useCallback((tabId: string, enabled?: boolean) => {
     setTabs((prev) =>
@@ -3081,6 +3144,7 @@ function RealApp(): React.JSX.Element {
           />
           <div className="m-auto relative w-full max-w-[1120px] h-[calc(100vh-24px)] sm:h-[min(88vh,860px)] overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-black shadow-[0_28px_80px_rgba(0,0,0,0.72)] flex flex-col z-10">
             <SettingsView
+              initialSection={settingsInitialSection}
               onClose={() => setIsSettingsModalOpen(false)}
               onOpenAuthModal={() => setIsAuthModalOpen(true)}
             />
@@ -3111,6 +3175,7 @@ function RealApp(): React.JSX.Element {
           visibleTabIds={visibleTabIds}
           selectedModel={selectedModel || activeTab.selectedModel}
           onModelChange={handleModelChange}
+          onOpenUpgradePlans={() => setIsPlansModalOpen(true)}
           onSelectTab={handleSelectTab}
           onCloseTab={handleCloseTab}
           onCloseOtherTabs={handleCloseOtherTabs}
@@ -3348,12 +3413,24 @@ function RealApp(): React.JSX.Element {
         onClose={() => setIsQuotaModalOpen(false)}
         onOpenSettings={() => {
           setIsQuotaModalOpen(false)
+          setSettingsInitialSection('providers')
           setIsSettingsModalOpen(true)
         }}
-        onOpenProfile={() => {
+        onOpenUpgradePlans={() => {
           setIsQuotaModalOpen(false)
-          setIsProfileModalOpen(true)
+          setIsPlansModalOpen(true)
         }}
+      />
+
+      <PrismPlansModal
+        isOpen={isPlansModalOpen}
+        onClose={() => setIsPlansModalOpen(false)}
+        onOpenLicenseSettings={() => {
+          setIsPlansModalOpen(false)
+          setSettingsInitialSection('license')
+          setIsSettingsModalOpen(true)
+        }}
+        isEnterprise={isEnterpriseUser}
       />
 
       <ApiKeyModal
