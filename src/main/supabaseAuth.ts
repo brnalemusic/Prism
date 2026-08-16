@@ -756,6 +756,59 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
   const { session, user } = await ensureActiveSession()
   if (!user || !session?.access_token) return null
 
+  // 1. Determine if the user has an enterprise tier from profile metadata or database
+  let isEnterpriseAccount = false
+  const metadataAccountType = String(user.user_metadata?.account_type || '').toLowerCase()
+  if (metadataAccountType === 'enterprise' || metadataAccountType === 'company') {
+    isEnterpriseAccount = true
+  }
+
+  try {
+    const client = getSupabaseClient()
+    const { data: profile } = await client
+      .from('user_profiles')
+      .select('account_type')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (profile?.account_type) {
+      const pType = String(profile.account_type).toLowerCase()
+      if (pType === 'enterprise' || pType === 'company') {
+        isEnterpriseAccount = true
+      }
+    }
+
+    const nowIso = new Date().toISOString()
+    const { data: entLicenses } = await client
+      .from('user_licenses')
+      .select('id, plan_id, type, license_key')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+      .limit(5)
+
+    if (entLicenses && entLicenses.length > 0) {
+      const hasEntLicense = entLicenses.some((l: any) =>
+        String(l.plan_id || '').toLowerCase().startsWith('enterprise') ||
+        String(l.type || '').toUpperCase() === 'ENTERPRISE' ||
+        String(l.license_key || '').toUpperCase().includes('ENTERPRISE')
+      )
+      if (hasEntLicense) {
+        isEnterpriseAccount = true
+      }
+    }
+  } catch (dbErr) {
+    console.warn('[Auth] Error querying enterprise status from database in getUserAiUsage:', dbErr)
+  }
+
+  const localLicense = getLicenseInfo()
+  if (
+    localLicense?.isActivated &&
+    (localLicense.type?.toUpperCase() === 'ENTERPRISE' || localLicense.type?.toUpperCase() === 'COMPANY')
+  ) {
+    isEnterpriseAccount = true
+  }
+
   try {
     const response = await fetchSupabaseWithTimeout(`${PRISM_CLOUD_USAGE_URL}?model=all`, {
       method: 'POST',
@@ -783,8 +836,8 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
                   ? 'Arcadia-1.1 Flash'
                   : modelId
 
-        const max5h = item.max_5h || 0
-        const max1w = item.max_1w || item.max_7d || 0
+        const max5h = item.max_5h || (isEnterpriseAccount ? 300 : 60)
+        const max1w = item.max_1w || item.max_7d || (isEnterpriseAccount ? 1200 : 240)
         const count5h = item.count_5h ?? 0
         const count1w = item.count_1w ?? 0
         const remaining5h = item.remaining_5h ?? Math.max(0, max5h - count5h)
@@ -794,10 +847,13 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
         const percentage1w = max1w > 0 ? Math.round((remaining1w / max1w) * 100) : 0
         const percentageRemaining = max5h > 0 && max1w > 0 ? Math.min(percentage5h, percentage1w) : 0
 
+        const itemTier = String(item.tier || 'free').toLowerCase()
+        const effectiveTier = isEnterpriseAccount ? 'enterprise' : itemTier
+
         return {
           modelId,
           modelName,
-          tier: item.tier || 'free',
+          tier: effectiveTier,
           count5h,
           count1w,
           remaining5h,
@@ -817,12 +873,34 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
         modelsMap[m.modelId] = m
       }
 
+      if (isEnterpriseAccount && !modelsMap['prism-ai/arcadia-1.1-flash']) {
+        const arcadia11: ModelAiUsageStatus = {
+          modelId: 'prism-ai/arcadia-1.1-flash',
+          modelName: 'Arcadia-1.1 Flash',
+          tier: 'enterprise',
+          count5h: 0,
+          count1w: 0,
+          remaining5h: 300,
+          remaining1w: 1200,
+          max5h: 300,
+          max1w: 1200,
+          percentage5h: 100,
+          percentage1w: 100,
+          percentageRemaining: 100,
+          reset5hSeconds: 0,
+          reset1wSeconds: 0
+        }
+        modelsMap['prism-ai/arcadia-1.1-flash'] = arcadia11
+        modelList.push(arcadia11)
+      }
+
       const primary =
+        modelsMap['prism-ai/arcadia-1.1-flash'] ||
         modelsMap['prism-ai/arcadia-1.0-flash'] ||
         modelsMap['prism-ai/arcadia-1.0-mini'] ||
         modelList[0]
 
-      const tier = modelList[0]?.tier || 'free'
+      const tier = isEnterpriseAccount ? 'enterprise' : (modelList[0]?.tier || 'free')
 
       return {
         tier,
@@ -831,10 +909,10 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
         percentage1w: primary ? primary.percentage1w : 100,
         count5h: primary ? primary.count5h : 0,
         count1w: primary ? primary.count1w : 0,
-        remaining5h: primary ? primary.remaining5h : 60,
-        remaining1w: primary ? primary.remaining1w : 240,
-        max5h: primary ? primary.max5h : 60,
-        max1w: primary ? primary.max1w : 240,
+        remaining5h: primary ? primary.remaining5h : (isEnterpriseAccount ? 300 : 60),
+        remaining1w: primary ? primary.remaining1w : (isEnterpriseAccount ? 1200 : 240),
+        max5h: primary ? primary.max5h : (isEnterpriseAccount ? 300 : 60),
+        max1w: primary ? primary.max1w : (isEnterpriseAccount ? 1200 : 240),
         reset5hSeconds: primary ? primary.reset5hSeconds : 0,
         reset1wSeconds: primary ? primary.reset1wSeconds : 0,
         models: modelsMap,
@@ -849,6 +927,41 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
     }
   } catch (err) {
     console.error('[Auth] Error fetching user AI usage status:', err)
+  }
+
+  if (isEnterpriseAccount) {
+    const arcadia11: ModelAiUsageStatus = {
+      modelId: 'prism-ai/arcadia-1.1-flash',
+      modelName: 'Arcadia-1.1 Flash',
+      tier: 'enterprise',
+      count5h: 0,
+      count1w: 0,
+      remaining5h: 300,
+      remaining1w: 1200,
+      max5h: 300,
+      max1w: 1200,
+      percentage5h: 100,
+      percentage1w: 100,
+      percentageRemaining: 100,
+      reset5hSeconds: 0,
+      reset1wSeconds: 0
+    }
+    return {
+      tier: 'enterprise',
+      percentageRemaining: 100,
+      percentage5h: 100,
+      percentage1w: 100,
+      count5h: 0,
+      count1w: 0,
+      remaining5h: 300,
+      remaining1w: 1200,
+      max5h: 300,
+      max1w: 1200,
+      reset5hSeconds: 0,
+      reset1wSeconds: 0,
+      models: { 'prism-ai/arcadia-1.1-flash': arcadia11 },
+      modelList: [arcadia11]
+    }
   }
 
   return null

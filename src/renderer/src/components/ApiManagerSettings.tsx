@@ -179,7 +179,11 @@ export const ApiManagerSettings: React.FC = () => {
             if (!p) return null
             const modelsList = Array.isArray(p.models) ? p.models : []
             const enabledCount = modelsList.filter((m) => m && m.enabled).length
-            const completionLabel = (p.completionType || 'chat_completions').replace(/_/g, ' ')
+            const isPrismCloud = p.isOfficial || p.id === 'prism_provider'
+            const completionLabel =
+              isPrismCloud && (p.completionType === 'gemini_native' || !p.completionType)
+                ? 'Arcadia Native'
+                : (p.completionType || 'chat_completions').replace(/_/g, ' ')
             const cardKey = p.id || `prov_${idx}`
 
             return (

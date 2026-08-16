@@ -27,6 +27,7 @@ interface ModelSelectorProps {
   selectedModel: string
   onModelChange: (modelKey: string) => void
   onOpenUpgradePlans?: () => void
+  isEnterprise?: boolean
   disabled?: boolean
   align?: 'left' | 'right'
 }
@@ -36,13 +37,25 @@ export interface ModelSelectorHandle {
 }
 
 export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>(
-  ({ selectedModel, onModelChange, onOpenUpgradePlans, disabled, align = 'right' }, ref) => {
+  (
+    {
+      selectedModel,
+      onModelChange,
+      onOpenUpgradePlans,
+      isEnterprise: isEnterpriseProp,
+      disabled,
+      align = 'right'
+    },
+    ref
+  ) => {
     const [isOpen, setIsOpen] = useState(false)
     const [shortcut, setShortcut] = useState('CommandOrControl+M')
     const [searchQuery, setSearchQuery] = useState('')
     const [activeModels, setActiveModels] = useState<ActiveModelItem[]>([])
-    const [isEnterprise, setIsEnterprise] = useState(false)
+    const [isEnterpriseInternal, setIsEnterpriseInternal] = useState(false)
     const containerRef = useRef<HTMLDivElement>(null)
+
+    const isEnterprise = isEnterpriseProp ?? isEnterpriseInternal
 
     useImperativeHandle(ref, () => ({
       open: () => {
@@ -52,13 +65,36 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
     const checkEnterpriseStatus = async (): Promise<void> => {
       try {
-        const usage = await window.api.getUserAiUsage()
-        const isEnt =
+        const [usage, license, user] = await Promise.all([
+          window.api.getUserAiUsage().catch(() => null),
+          window.api.getLicenseInfo ? window.api.getLicenseInfo().catch(() => null) : Promise.resolve(null),
+          window.api.getAuthUser ? window.api.getAuthUser().catch(() => null) : Promise.resolve(null)
+        ])
+
+        const isUsageEnt =
           usage?.tier?.toLowerCase().startsWith('enterprise') ||
-          Boolean(usage?.modelList?.some((m) => m.tier?.toLowerCase().startsWith('enterprise')))
-        setIsEnterprise(isEnt)
+          usage?.tier?.toLowerCase() === 'company' ||
+          Boolean(
+            usage?.modelList?.some(
+              (m) =>
+                m.tier?.toLowerCase().startsWith('enterprise') ||
+                m.tier?.toLowerCase() === 'company'
+            )
+          )
+
+        const isLicenseEnt = Boolean(
+          license?.isActivated &&
+            (license?.type?.toUpperCase() === 'ENTERPRISE' ||
+              license?.type?.toUpperCase() === 'COMPANY')
+        )
+
+        const isUserEnt =
+          user?.accountType?.toLowerCase() === 'enterprise' ||
+          user?.accountType?.toLowerCase() === 'company'
+
+        setIsEnterpriseInternal(isUsageEnt || isLicenseEnt || isUserEnt)
       } catch {
-        setIsEnterprise(false)
+        setIsEnterpriseInternal(false)
       }
     }
 
@@ -84,8 +120,14 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         loadActiveModels()
       })
 
+      const unsubscribeAuth = window.api.onAuthSessionUpdated?.(() => {
+        checkEnterpriseStatus()
+        loadActiveModels()
+      })
+
       return () => {
         unsubscribeConfig()
+        unsubscribeAuth?.()
       }
     }, [])
 

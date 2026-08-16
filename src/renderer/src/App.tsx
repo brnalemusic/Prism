@@ -1215,10 +1215,34 @@ function RealApp(): React.JSX.Element {
 
   const checkEnterpriseStatus = useCallback(async () => {
     try {
-      const usage = await window.api.getUserAiUsage()
-      const isEnt =
+      const [usage, license, user] = await Promise.all([
+        window.api.getUserAiUsage().catch(() => null),
+        window.api.getLicenseInfo ? window.api.getLicenseInfo().catch(() => null) : Promise.resolve(null),
+        window.api.getAuthUser ? window.api.getAuthUser().catch(() => null) : Promise.resolve(null)
+      ])
+
+      const isUsageEnt =
         usage?.tier?.toLowerCase().startsWith('enterprise') ||
-        Boolean(usage?.modelList?.some((m) => m.tier?.toLowerCase().startsWith('enterprise')))
+        usage?.tier?.toLowerCase() === 'company' ||
+        Boolean(
+          usage?.modelList?.some(
+            (m) =>
+              m.tier?.toLowerCase().startsWith('enterprise') ||
+              m.tier?.toLowerCase() === 'company'
+          )
+        )
+
+      const isLicenseEnt = Boolean(
+        license?.isActivated &&
+          (license?.type?.toUpperCase() === 'ENTERPRISE' ||
+            license?.type?.toUpperCase() === 'COMPANY')
+      )
+
+      const isUserEnt =
+        user?.accountType?.toLowerCase() === 'enterprise' ||
+        user?.accountType?.toLowerCase() === 'company'
+
+      const isEnt = isUsageEnt || isLicenseEnt || isUserEnt
       setIsEnterpriseUser(isEnt)
     } catch {
       setIsEnterpriseUser(false)
@@ -3176,6 +3200,7 @@ function RealApp(): React.JSX.Element {
           selectedModel={selectedModel || activeTab.selectedModel}
           onModelChange={handleModelChange}
           onOpenUpgradePlans={() => setIsPlansModalOpen(true)}
+          isEnterprise={isEnterpriseUser}
           onSelectTab={handleSelectTab}
           onCloseTab={handleCloseTab}
           onCloseOtherTabs={handleCloseOtherTabs}

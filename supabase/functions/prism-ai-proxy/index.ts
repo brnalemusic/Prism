@@ -257,23 +257,45 @@ serve(async (req) => {
     }
 
     // 6. Enterprise Entitlement Validation in Proxy (Defense in Depth)
+    let isEnterpriseEntitled = false
     if (rawModelId === 'prism-ai/arcadia-1.1-flash') {
       const nowIso = new Date().toISOString()
       const { data: entLicenses, error: entErr } = await supabase
         .from('user_licenses')
-        .select('id, plan_id')
+        .select('id, plan_id, type, license_key')
         .eq('user_id', userId)
         .eq('status', 'active')
-        .like('plan_id', 'enterprise%')
         .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
-        .limit(1)
+        .limit(5)
 
       if (entErr) {
         console.error('[prism-ai-proxy] Error checking Enterprise license:', entErr)
       }
 
-      const hasEnterpriseLicense = Boolean(entLicenses && entLicenses.length > 0)
-      if (!hasEnterpriseLicense) {
+      const hasLicense = Boolean(
+        entLicenses &&
+        entLicenses.some((l: any) =>
+          String(l.plan_id || '').toLowerCase().startsWith('enterprise') ||
+          String(l.type || '').toUpperCase() === 'ENTERPRISE' ||
+          String(l.license_key || '').toUpperCase().includes('ENTERPRISE')
+        )
+      )
+
+      const { data: userProfile, error: profileErr } = await supabase
+        .from('user_profiles')
+        .select('account_type')
+        .eq('id', userId)
+        .maybeSingle()
+
+      if (profileErr) {
+        console.error('[prism-ai-proxy] Error checking user profile:', profileErr)
+      }
+
+      const pType = String(userProfile?.account_type || '').toLowerCase()
+      const isProfileEnterprise = pType === 'enterprise' || pType === 'company'
+
+      isEnterpriseEntitled = hasLicense || isProfileEnterprise
+      if (!isEnterpriseEntitled) {
         return new Response(
           JSON.stringify({
             error: 'Arcadia-1.1 Flash is exclusive to Enterprise subscribers.',
@@ -336,15 +358,17 @@ serve(async (req) => {
 
       if (!usageResult?.allowed) {
         if (usageResult?.reason === 'enterprise_required') {
-          return new Response(
-            JSON.stringify({
-              error: 'Arcadia-1.1 Flash is exclusive to Enterprise subscribers.',
-              code: 'ENTERPRISE_REQUIRED',
-              enterpriseRequired: true
-            }),
-            { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          )
-        }
+          if (!isEnterpriseEntitled) {
+            return new Response(
+              JSON.stringify({
+                error: 'Arcadia-1.1 Flash is exclusive to Enterprise subscribers.',
+                code: 'ENTERPRISE_REQUIRED',
+                enterpriseRequired: true
+              }),
+              { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            )
+          }
+        } else {
 
         const max5h = usageResult?.max_5h ?? '?'
         const max7d = usageResult?.max_7d ?? '?'

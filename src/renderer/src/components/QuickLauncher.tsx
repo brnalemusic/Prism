@@ -721,17 +721,50 @@ export function QuickLauncher(): React.JSX.Element {
   const [launcherOpacity, setLauncherOpacity] = useState(1)
   const [isEnterprise, setIsEnterprise] = useState(false)
 
-  useEffect(() => {
-    window.api
-      .getUserAiUsage()
-      .then((usage) => {
-        const isEnt =
-          usage?.tier?.toLowerCase().startsWith('enterprise') ||
-          Boolean(usage?.modelList?.some((m) => m.tier?.toLowerCase().startsWith('enterprise')))
-        setIsEnterprise(isEnt)
-      })
-      .catch(() => setIsEnterprise(false))
+  const checkEnterpriseStatus = useCallback(async () => {
+    try {
+      const [usage, license, user] = await Promise.all([
+        window.api.getUserAiUsage().catch(() => null),
+        window.api.getLicenseInfo ? window.api.getLicenseInfo().catch(() => null) : Promise.resolve(null),
+        window.api.getAuthUser ? window.api.getAuthUser().catch(() => null) : Promise.resolve(null)
+      ])
+
+      const isUsageEnt =
+        usage?.tier?.toLowerCase().startsWith('enterprise') ||
+        usage?.tier?.toLowerCase() === 'company' ||
+        Boolean(
+          usage?.modelList?.some(
+            (m) =>
+              m.tier?.toLowerCase().startsWith('enterprise') ||
+              m.tier?.toLowerCase() === 'company'
+          )
+        )
+
+      const isLicenseEnt = Boolean(
+        license?.isActivated &&
+          (license?.type?.toUpperCase() === 'ENTERPRISE' ||
+            license?.type?.toUpperCase() === 'COMPANY')
+      )
+
+      const isUserEnt =
+        user?.accountType?.toLowerCase() === 'enterprise' ||
+        user?.accountType?.toLowerCase() === 'company'
+
+      setIsEnterprise(isUsageEnt || isLicenseEnt || isUserEnt)
+    } catch {
+      setIsEnterprise(false)
+    }
   }, [])
+
+  useEffect(() => {
+    checkEnterpriseStatus()
+    const unsubscribeAuth = window.api.onAuthSessionUpdated?.(() => {
+      checkEnterpriseStatus()
+    })
+    return () => {
+      unsubscribeAuth?.()
+    }
+  }, [checkEnterpriseStatus])
 
   // Local Apps & Files Suggestions
   const [apps, setApps] = useState<ApplicationInfo[]>([])

@@ -21,6 +21,7 @@ interface TabBarProps {
   selectedModel: string
   onModelChange: (modelKey: string) => void
   onOpenUpgradePlans?: () => void
+  isEnterprise?: boolean
   onSelectTab: (id: string) => void
   onCloseTab: (id: string) => void
   onCloseOtherTabs: (keepTabId: string) => void
@@ -44,6 +45,7 @@ export const TabBar: React.FC<TabBarProps> = ({
   selectedModel,
   onModelChange,
   onOpenUpgradePlans,
+  isEnterprise,
   onSelectTab,
   onCloseTab,
   onCloseOtherTabs,
@@ -285,6 +287,7 @@ export const TabBar: React.FC<TabBarProps> = ({
           selectedModel={selectedModel}
           onModelChange={onModelChange}
           onOpenUpgradePlans={onOpenUpgradePlans}
+          isEnterprise={isEnterprise}
           align="right"
         />
       </div>
