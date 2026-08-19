@@ -25,6 +25,11 @@ import { PdfArtifactCard } from './components/PdfArtifactCard'
 import { PptxArtifactCard } from './components/PptxArtifactCard'
 import { TtsButton } from './components/TtsButton'
 import { CopyMessageButton } from './components/CopyMessageButton'
+import {
+  PrismSuggestion,
+  stripPrismSuggestionMarkup,
+  SuggestionRuntimeContext
+} from './components/PrismSuggestion'
 import { UpdaterView } from './components/UpdaterView'
 import { isShortcutPressed } from './utils'
 import { useInactivityLabel } from './hooks/useInactivityLabel'
@@ -197,6 +202,10 @@ const MarkdownComponents: Components = {
   code: (props) => <CodeBlock {...props} />
 }
 
+const PrismSuggestionMarkdownComponents = {
+  'prism-suggestion': PrismSuggestion
+} as unknown as Components
+
 function consolidateToolCalls(
   toolCalls?: ToolCallItem[],
   streamingToolCalls?: StreamingToolCall[]
@@ -302,6 +311,9 @@ interface AiMessageProps {
   handleLoadChat?: (id: string) => void
   markdownComponents: Components
   onOpenBrowserTab?: () => void
+  onSendSuggestion?: (payload: string, suggestionKey: string) => boolean
+  suggestionMessageKey: string
+  isSuggestionSendDisabled: boolean
   inactivityLabel?: string | null
   activeToolLabel?: string | null
 }
@@ -328,6 +340,9 @@ const AiMessage = React.memo(function AiMessage({
   handleLoadChat,
   markdownComponents,
   onOpenBrowserTab,
+  onSendSuggestion,
+  suggestionMessageKey,
+  isSuggestionSendDisabled,
   inactivityLabel,
   activeToolLabel
 }: AiMessageProps) {
@@ -561,370 +576,389 @@ const AiMessage = React.memo(function AiMessage({
     .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)/g, '')
     .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/g, '')
     .trim()
+  const cleanTextForCopyWithSuggestions = stripPrismSuggestionMarkup(cleanTextForCopy)
+
+  const suggestionRuntime = useMemo(
+    () => ({
+      messageKey: suggestionMessageKey,
+      isSendDisabled: isSuggestionSendDisabled,
+      onSendSuggestion
+    }),
+    [suggestionMessageKey, isSuggestionSendDisabled, onSendSuggestion]
+  )
 
   return (
     <StreamContext.Provider value={streamStats}>
-      <div className="flex flex-col w-full gap-1.5">
-        {groupedItems.map((gItem, gIdx) => {
-          if ('items' in gItem) {
-            const group = gItem as { type: 'grouped_web_searches'; items: PartItem[] }
-            const toolCallItems = group.items.filter((item) => item.type === 'tool_call')
+      <SuggestionRuntimeContext.Provider value={suggestionRuntime}>
+        <div className="flex flex-col w-full gap-1.5">
+          {groupedItems.map((gItem, gIdx) => {
+            if ('items' in gItem) {
+              const group = gItem as { type: 'grouped_web_searches'; items: PartItem[] }
+              const toolCallItems = group.items.filter((item) => item.type === 'tool_call')
 
-            let mergedStatus: ToolCallItem['status'] = 'done'
-            if (
-              toolCallItems.some((item) => !item.isClosed || item.toolCall?.status === 'writing')
-            ) {
-              mergedStatus = 'writing'
-            } else if (toolCallItems.some((item) => item.toolCall?.status === 'running')) {
-              mergedStatus = 'running'
-            } else if (toolCallItems.some((item) => item.toolCall?.status === 'error')) {
-              mergedStatus = 'error'
-            } else if (toolCallItems.some((item) => item.toolCall?.status === 'cancelled')) {
-              mergedStatus = 'cancelled'
+              let mergedStatus: ToolCallItem['status'] = 'done'
+              if (
+                toolCallItems.some((item) => !item.isClosed || item.toolCall?.status === 'writing')
+              ) {
+                mergedStatus = 'writing'
+              } else if (toolCallItems.some((item) => item.toolCall?.status === 'running')) {
+                mergedStatus = 'running'
+              } else if (toolCallItems.some((item) => item.toolCall?.status === 'error')) {
+                mergedStatus = 'error'
+              } else if (toolCallItems.some((item) => item.toolCall?.status === 'cancelled')) {
+                mergedStatus = 'cancelled'
+              }
+
+              const firstItem = group.items[0]
+              if (!shouldShowInlineTool(mergedStatus, firstItem.partIndex)) {
+                return null
+              }
+              if (
+                shouldHideActiveBelow &&
+                (mergedStatus === 'writing' || mergedStatus === 'running')
+              ) {
+                return null
+              }
+              return (
+                <div
+                  key={`tc-group-${firstItem.partIndex}-${gIdx}`}
+                  className="flex items-center gap-1.5"
+                >
+                  <ToolCallIndicator tools={[{ name: 'web_search', status: mergedStatus }]} />
+                </div>
+              )
             }
 
-            const firstItem = group.items[0]
-            if (!shouldShowInlineTool(mergedStatus, firstItem.partIndex)) {
-              return null
-            }
-            if (
-              shouldHideActiveBelow &&
-              (mergedStatus === 'writing' || mergedStatus === 'running')
-            ) {
-              return null
-            }
-            return (
-              <div
-                key={`tc-group-${firstItem.partIndex}-${gIdx}`}
-                className="flex items-center gap-1.5"
-              >
-                <ToolCallIndicator tools={[{ name: 'web_search', status: mergedStatus }]} />
-              </div>
-            )
-          }
+            const item = gItem as PartItem
+            const { part, startOffset } = item
 
-          const item = gItem as PartItem
-          const { part, startOffset } = item
+            if (item.type === 'tool_call') {
+              if (item.isClosed) {
+                const tc = item.toolCall
+                if (tc) {
+                  if (tc.name === 'to_ask') {
+                    // Only render the read-only done-state summary inline in chat;
+                    // the active wizard is rendered by ChatPane above the InputBar.
+                    return (
+                      <QuestionnaireRenderer
+                        key={`tc-${item.partIndex}`}
+                        toolCall={{
+                          name: tc.name,
+                          status: tc.status,
+                          args: tc.args || {}
+                        }}
+                        chatId={currentChatId || ''}
+                      />
+                    )
+                  }
+                  if (tc.name === 'render_chat_history') {
+                    return (
+                      <RenderChatHistory
+                        key={`tc-${item.partIndex}`}
+                        chatId={String(tc.args?.query || '')}
+                        onOpenChat={handleLoadChat || (() => {})}
+                      />
+                    )
+                  }
+                  if (tc.name === 'malformed_tool_call') {
+                    return (
+                      <MalformedToolCallWarning
+                        key={`tc-${item.partIndex}`}
+                        toolCall={{
+                          name: tc.name,
+                          status: tc.status,
+                          args: tc.args || {}
+                        }}
+                      />
+                    )
+                  }
+                  if (tc.name === 'write_pdf' || tc.name === 'edit_pdf') {
+                    const resText = tc.result || ''
+                    const idMatch =
+                      resText.match(/ID:\s*(#?\d{6})/i) ||
+                      (tc.args?.id ? [null, String(tc.args.id)] : null)
+                    const artifactId = idMatch ? idMatch[1].replace('#', '') : undefined
 
-          if (item.type === 'tool_call') {
-            if (item.isClosed) {
-              const tc = item.toolCall
-              if (tc) {
-                if (tc.name === 'to_ask') {
-                  // Only render the read-only done-state summary inline in chat;
-                  // the active wizard is rendered by ChatPane above the InputBar.
+                    const pathMatch =
+                      resText.match(/(?:Saved at|File path):\s*(.+)/i) ||
+                      (tc.args?.path ? [null, String(tc.args.path)] : null)
+                    const filePath = pathMatch
+                      ? pathMatch[1].trim()
+                      : (tc.args?.path as string | undefined)
+
+                    const filename =
+                      (tc.args?.filename as string) ||
+                      (filePath ? filePath.split(/[\\/]/).pop() : undefined) ||
+                      'document.pdf'
+
+                    return (
+                      <PdfArtifactCard
+                        key={`tc-${item.partIndex}`}
+                        id={artifactId}
+                        filename={filename}
+                        path={filePath}
+                        toolName={tc.name}
+                      />
+                    )
+                  }
+                  if (tc.name === 'write_pptx' || tc.name === 'edit_pptx') {
+                    const resText = tc.result || ''
+                    const idMatch =
+                      resText.match(/ID:\s*(#?\d{6})/i) ||
+                      (tc.args?.id ? [null, String(tc.args.id)] : null)
+                    const artifactId = idMatch ? idMatch[1].replace('#', '') : undefined
+
+                    const pathMatch =
+                      resText.match(/(?:Saved at|File path):\s*(.+)/i) ||
+                      (tc.args?.path ? [null, String(tc.args.path)] : null)
+                    const filePath = pathMatch
+                      ? pathMatch[1].trim()
+                      : (tc.args?.path as string | undefined)
+
+                    const filename =
+                      (tc.args?.filename as string) ||
+                      (filePath ? filePath.split(/[\\/]/).pop() : undefined) ||
+                      'presentation.pptx'
+
+                    return (
+                      <PptxArtifactCard
+                        key={`tc-${item.partIndex}`}
+                        id={artifactId}
+                        filename={filename}
+                        path={filePath}
+                        toolName={tc.name}
+                      />
+                    )
+                  }
+                  if (!shouldShowInlineTool(tc.status, item.partIndex)) {
+                    return null
+                  }
+                  if (
+                    shouldHideActiveBelow &&
+                    (tc.status === 'writing' || tc.status === 'running')
+                  ) {
+                    return null
+                  }
                   return (
-                    <QuestionnaireRenderer
-                      key={`tc-${item.partIndex}`}
-                      toolCall={{
-                        name: tc.name,
-                        status: tc.status,
-                        args: tc.args || {}
-                      }}
-                      chatId={currentChatId || ''}
-                    />
+                    <div key={`tc-${item.partIndex}`} className="flex items-center gap-1.5">
+                      <ToolCallIndicator tools={[{ name: tc.name, status: tc.status }]} />
+                    </div>
                   )
                 }
-                if (tc.name === 'render_chat_history') {
-                  return (
-                    <RenderChatHistory
-                      key={`tc-${item.partIndex}`}
-                      chatId={String(tc.args?.query || '')}
-                      onOpenChat={handleLoadChat || (() => {})}
-                    />
-                  )
-                }
-                if (tc.name === 'malformed_tool_call') {
-                  return (
-                    <MalformedToolCallWarning
-                      key={`tc-${item.partIndex}`}
-                      toolCall={{
-                        name: tc.name,
-                        status: tc.status,
-                        args: tc.args || {}
-                      }}
-                    />
-                  )
-                }
-                if (tc.name === 'write_pdf' || tc.name === 'edit_pdf') {
-                  const resText = tc.result || ''
-                  const idMatch =
-                    resText.match(/ID:\s*(#?\d{6})/i) ||
-                    (tc.args?.id ? [null, String(tc.args.id)] : null)
-                  const artifactId = idMatch ? idMatch[1].replace('#', '') : undefined
-
-                  const pathMatch =
-                    resText.match(/(?:Saved at|File path):\s*(.+)/i) ||
-                    (tc.args?.path ? [null, String(tc.args.path)] : null)
-                  const filePath = pathMatch
-                    ? pathMatch[1].trim()
-                    : (tc.args?.path as string | undefined)
-
-                  const filename =
-                    (tc.args?.filename as string) ||
-                    (filePath ? filePath.split(/[\\/]/).pop() : undefined) ||
-                    'document.pdf'
-
-                  return (
-                    <PdfArtifactCard
-                      key={`tc-${item.partIndex}`}
-                      id={artifactId}
-                      filename={filename}
-                      path={filePath}
-                      toolName={tc.name}
-                    />
-                  )
-                }
-                if (tc.name === 'write_pptx' || tc.name === 'edit_pptx') {
-                  const resText = tc.result || ''
-                  const idMatch =
-                    resText.match(/ID:\s*(#?\d{6})/i) ||
-                    (tc.args?.id ? [null, String(tc.args.id)] : null)
-                  const artifactId = idMatch ? idMatch[1].replace('#', '') : undefined
-
-                  const pathMatch =
-                    resText.match(/(?:Saved at|File path):\s*(.+)/i) ||
-                    (tc.args?.path ? [null, String(tc.args.path)] : null)
-                  const filePath = pathMatch
-                    ? pathMatch[1].trim()
-                    : (tc.args?.path as string | undefined)
-
-                  const filename =
-                    (tc.args?.filename as string) ||
-                    (filePath ? filePath.split(/[\\/]/).pop() : undefined) ||
-                    'presentation.pptx'
-
-                  return (
-                    <PptxArtifactCard
-                      key={`tc-${item.partIndex}`}
-                      id={artifactId}
-                      filename={filename}
-                      path={filePath}
-                      toolName={tc.name}
-                    />
-                  )
-                }
-                if (!shouldShowInlineTool(tc.status, item.partIndex)) {
-                  return null
-                }
-                if (shouldHideActiveBelow && (tc.status === 'writing' || tc.status === 'running')) {
-                  return null
-                }
+              } else {
+                if (!shouldShowInlineTool('writing', item.partIndex)) return null
+                if (shouldHideActiveBelow) return null
+                const isSearch =
+                  item.writingToolName === 'web_search' ||
+                  item.writingToolName === 'search_chat_history' ||
+                  item.writingToolName === 'search'
+                const toolType = isSearch ? 'search' : 'task'
                 return (
-                  <div key={`tc-${item.partIndex}`} className="flex items-center gap-1.5">
-                    <ToolCallIndicator tools={[{ name: tc.name, status: tc.status }]} />
+                  <div key={`writing-tc-${item.partIndex}`} className="flex items-center gap-1.5">
+                    <ToolCallIndicator
+                      tools={[{ name: item.writingToolName || toolType, status: 'writing' }]}
+                    />
                   </div>
                 )
               }
-            } else {
-              if (!shouldShowInlineTool('writing', item.partIndex)) return null
-              if (shouldHideActiveBelow) return null
-              const isSearch =
-                item.writingToolName === 'web_search' ||
-                item.writingToolName === 'search_chat_history' ||
-                item.writingToolName === 'search'
-              const toolType = isSearch ? 'search' : 'task'
+              return null
+            } else if (item.type === 'mini_app') {
+              if (item.isClosed) {
+                const titleMatch = part.match(/<title>([\s\S]*?)<\/title>/i)
+                const htmlMatch = part.match(/<html>([\s\S]*?)<\/html>/i)
+                const cssMatch = part.match(/<css>([\s\S]*?)<\/css>/i)
+                const jsMatch = part.match(/<js>([\s\S]*?)<\/js>/i)
+
+                const contentHash = part.length.toString(36)
+                const miniAppId = `mini-app-${item.partIndex}-${contentHash}`
+
+                return (
+                  <div key={miniAppId} className="w-full my-4 px-0">
+                    <MiniAppRenderer
+                      id={miniAppId}
+                      title={titleMatch ? titleMatch[1].trim() : 'Mini App'}
+                      html={htmlMatch ? htmlMatch[1].trim() : ''}
+                      css={cssMatch ? cssMatch[1].trim() : ''}
+                      js={jsMatch ? jsMatch[1].trim() : ''}
+                    />
+                  </div>
+                )
+              } else {
+                if (!shouldShowInlineTool('writing', item.partIndex)) return null
+                if (shouldHideActiveBelow) return null
+                return (
+                  <div key={`writing-ma-${item.partIndex}`} className="flex items-center gap-1.5">
+                    <ToolCallIndicator tools={[{ name: 'mini-app', status: 'writing' }]} />
+                  </div>
+                )
+              }
+            }
+
+            if (!part || part.trim() === '') return null
+
+            return (
+              <div
+                key={`text-${item.partIndex}`}
+                className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
+              >
+                <ReactMarkdown
+                  remarkPlugins={[
+                    remarkGfm,
+                    remarkMath,
+                    disableIndentedCode as unknown as import('unified').Pluggable
+                  ]}
+                  rehypePlugins={[
+                    rehypeRaw,
+                    rehypeParseMath,
+                    rehypeKatex,
+                    createStreamingFadeRehypePlugin(streamStats, startOffset)
+                  ]}
+                  components={markdownComponents}
+                >
+                  {part}
+                </ReactMarkdown>
+              </div>
+            )
+          })}
+
+          {nativeToolCalls.map((tc, idx) => {
+            if (tc.name === 'to_ask') {
+              // Render done-state summary inline; active wizard is handled by ChatPane.
               return (
-                <div key={`writing-tc-${item.partIndex}`} className="flex items-center gap-1.5">
-                  <ToolCallIndicator
-                    tools={[{ name: item.writingToolName || toolType, status: 'writing' }]}
-                  />
+                <QuestionnaireRenderer
+                  key={`native-tc-${idx}`}
+                  toolCall={{
+                    name: tc.name,
+                    status: tc.status,
+                    args: tc.args || {}
+                  }}
+                  chatId={currentChatId || ''}
+                />
+              )
+            }
+            if (tc.name === 'render_chat_history') {
+              return (
+                <RenderChatHistory
+                  key={`native-tc-${idx}`}
+                  chatId={String(tc.args?.query || '')}
+                  onOpenChat={handleLoadChat || (() => {})}
+                />
+              )
+            }
+            if (tc.name === 'malformed_tool_call') {
+              return (
+                <MalformedToolCallWarning
+                  key={`native-tc-${idx}`}
+                  toolCall={{
+                    name: tc.name,
+                    status: tc.status,
+                    args: tc.args || {}
+                  }}
+                />
+              )
+            }
+            if (tc.name === 'create_mini_app') {
+              const title = (tc.args.title || 'Mini App') as string
+              const html = (tc.args.html || tc.args.code || '') as string
+              const css = (tc.args.css || '') as string
+              const js = (tc.args.js || tc.args.javascript || '') as string
+              const status = tc.status
+
+              const miniAppId = `mini-app-native-${idx}-${title.replace(/\s+/g, '-').toLowerCase()}`
+
+              if (status === 'writing' || status === 'running') {
+                if (shouldHideIndicator(status)) return null
+                if (shouldHideActiveBelow) return null
+                return (
+                  <div key={miniAppId} className="flex items-center gap-1.5 mt-1">
+                    <ToolCallIndicator tools={[{ name: 'create_mini_app', status }]} />
+                  </div>
+                )
+              }
+
+              return (
+                <div
+                  key={miniAppId}
+                  className="w-full flex flex-col gap-2 my-2 select-none animate-fade-in"
+                >
+                  <div className="flex items-center gap-2 text-[13px] text-text-secondary font-medium">
+                    {status === 'error' || status === 'cancelled' ? (
+                      <>
+                        <XCircle size={14} className="text-status-error shrink-0" />
+                        <span>
+                          Failed to create mini app:{' '}
+                          <span className="font-semibold text-text-primary">{title}</span>
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle size={14} className="text-status-success shrink-0" />
+                        <span>
+                          Created mini app:{' '}
+                          <span className="font-semibold text-text-primary">{title}</span>
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  {status === 'done' && (
+                    <div className="w-full px-0">
+                      <MiniAppRenderer id={miniAppId} title={title} html={html} css={css} js={js} />
+                    </div>
+                  )}
                 </div>
               )
             }
             return null
-          } else if (item.type === 'mini_app') {
-            if (item.isClosed) {
-              const titleMatch = part.match(/<title>([\s\S]*?)<\/title>/i)
-              const htmlMatch = part.match(/<html>([\s\S]*?)<\/html>/i)
-              const cssMatch = part.match(/<css>([\s\S]*?)<\/css>/i)
-              const jsMatch = part.match(/<js>([\s\S]*?)<\/js>/i)
+          })}
 
-              const contentHash = part.length.toString(36)
-              const miniAppId = `mini-app-${item.partIndex}-${contentHash}`
-
-              return (
-                <div key={miniAppId} className="w-full my-4 px-0">
-                  <MiniAppRenderer
-                    id={miniAppId}
-                    title={titleMatch ? titleMatch[1].trim() : 'Mini App'}
-                    html={htmlMatch ? htmlMatch[1].trim() : ''}
-                    css={cssMatch ? cssMatch[1].trim() : ''}
-                    js={jsMatch ? jsMatch[1].trim() : ''}
-                  />
-                </div>
-              )
-            } else {
-              if (!shouldShowInlineTool('writing', item.partIndex)) return null
-              if (shouldHideActiveBelow) return null
-              return (
-                <div key={`writing-ma-${item.partIndex}`} className="flex items-center gap-1.5">
-                  <ToolCallIndicator tools={[{ name: 'mini-app', status: 'writing' }]} />
-                </div>
-              )
-            }
-          }
-
-          if (!part || part.trim() === '') return null
-
-          return (
-            <div
-              key={`text-${item.partIndex}`}
-              className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
-            >
-              <ReactMarkdown
-                remarkPlugins={[
-                  remarkGfm,
-                  remarkMath,
-                  disableIndentedCode as unknown as import('unified').Pluggable
-                ]}
-                rehypePlugins={[
-                  rehypeRaw,
-                  rehypeParseMath,
-                  rehypeKatex,
-                  createStreamingFadeRehypePlugin(streamStats, startOffset)
-                ]}
-                components={markdownComponents}
-              >
-                {part}
-              </ReactMarkdown>
+          {visibleNativeTools.length > 0 && (
+            <div className="flex items-center gap-1.5 mt-1">
+              <ToolCallIndicator
+                tools={visibleNativeTools.map((tc) => ({
+                  name: tc.name,
+                  status: tc.status
+                }))}
+              />
             </div>
-          )
-        })}
+          )}
 
-        {nativeToolCalls.map((tc, idx) => {
-          if (tc.name === 'to_ask') {
-            // Render done-state summary inline; active wizard is handled by ChatPane.
-            return (
-              <QuestionnaireRenderer
-                key={`native-tc-${idx}`}
-                toolCall={{
-                  name: tc.name,
-                  status: tc.status,
-                  args: tc.args || {}
-                }}
-                chatId={currentChatId || ''}
-              />
-            )
-          }
-          if (tc.name === 'render_chat_history') {
-            return (
-              <RenderChatHistory
-                key={`native-tc-${idx}`}
-                chatId={String(tc.args?.query || '')}
-                onOpenChat={handleLoadChat || (() => {})}
-              />
-            )
-          }
-          if (tc.name === 'malformed_tool_call') {
-            return (
-              <MalformedToolCallWarning
-                key={`native-tc-${idx}`}
-                toolCall={{
-                  name: tc.name,
-                  status: tc.status,
-                  args: tc.args || {}
-                }}
-              />
-            )
-          }
-          if (tc.name === 'create_mini_app') {
-            const title = (tc.args.title || 'Mini App') as string
-            const html = (tc.args.html || tc.args.code || '') as string
-            const css = (tc.args.css || '') as string
-            const js = (tc.args.js || tc.args.javascript || '') as string
-            const status = tc.status
+          {msg.isStreaming && activeToolLabel && (
+            <div className="flex items-center gap-1.5 mt-1 select-none">
+              <ToolCallIndicator overrideLabel={activeToolLabel} />
+            </div>
+          )}
 
-            const miniAppId = `mini-app-native-${idx}-${title.replace(/\s+/g, '-').toLowerCase()}`
+          {msg.isStreaming && !activeToolLabel && inactivityLabel && (
+            <div className="flex items-center gap-1.5 mt-1.5 select-none">
+              <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
+            </div>
+          )}
 
-            if (status === 'writing' || status === 'running') {
-              if (shouldHideIndicator(status)) return null
-              if (shouldHideActiveBelow) return null
-              return (
-                <div key={miniAppId} className="flex items-center gap-1.5 mt-1">
-                  <ToolCallIndicator tools={[{ name: 'create_mini_app', status }]} />
-                </div>
-              )
-            }
-
-            return (
-              <div
-                key={miniAppId}
-                className="w-full flex flex-col gap-2 my-2 select-none animate-fade-in"
-              >
-                <div className="flex items-center gap-2 text-[13px] text-text-secondary font-medium">
-                  {status === 'error' || status === 'cancelled' ? (
-                    <>
-                      <XCircle size={14} className="text-status-error shrink-0" />
-                      <span>
-                        Failed to create mini app:{' '}
-                        <span className="font-semibold text-text-primary">{title}</span>
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle size={14} className="text-status-success shrink-0" />
-                      <span>
-                        Created mini app:{' '}
-                        <span className="font-semibold text-text-primary">{title}</span>
-                      </span>
-                    </>
-                  )}
-                </div>
-                {status === 'done' && (
-                  <div className="w-full px-0">
-                    <MiniAppRenderer id={miniAppId} title={title} html={html} css={css} js={js} />
-                  </div>
-                )}
-              </div>
-            )
-          }
-          return null
-        })}
-
-        {visibleNativeTools.length > 0 && (
-          <div className="flex items-center gap-1.5 mt-1">
-            <ToolCallIndicator
-              tools={visibleNativeTools.map((tc) => ({
-                name: tc.name,
-                status: tc.status
-              }))}
-            />
-          </div>
-        )}
-
-        {msg.isStreaming && activeToolLabel && (
-          <div className="flex items-center gap-1.5 mt-1 select-none">
-            <ToolCallIndicator overrideLabel={activeToolLabel} />
-          </div>
-        )}
-
-        {msg.isStreaming && !activeToolLabel && inactivityLabel && (
-          <div className="flex items-center gap-1.5 mt-1.5 select-none">
-            <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
-          </div>
-        )}
-
-        {/* Copy & TTS buttons + browser session button */}
-        {!msg.isStreaming && (
-          <div className="flex items-center gap-1.5 mt-0.5 select-none opacity-60 hover:opacity-100 transition-opacity">
-            {cleanTextForCopy && <CopyMessageButton text={cleanTextForCopy} />}
-            {cleanTextForCopy && <TtsButton text={cleanTextForCopy} />}
-            {/* Browser session button — shows when message has browser tool calls */}
-            {onOpenBrowserTab &&
-              (msg.toolCalls || []).some((tc) => BROWSER_TOOL_NAMES.has(tc.name)) && (
-                <button
-                  onClick={onOpenBrowserTab}
-                  title="View AI browser session"
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-text-primary hover:bg-white/[0.06] transition-all duration-150 cursor-pointer"
-                >
-                  <GlobeSimple size={13} />
-                  <span>Browser</span>
-                </button>
+          {/* Copy & TTS buttons + browser session button */}
+          {!msg.isStreaming && (
+            <div className="flex items-center gap-1.5 mt-0.5 select-none opacity-60 hover:opacity-100 transition-opacity">
+              {cleanTextForCopyWithSuggestions && (
+                <CopyMessageButton text={cleanTextForCopyWithSuggestions} />
               )}
-          </div>
-        )}
-      </div>
+              {cleanTextForCopyWithSuggestions && (
+                <TtsButton text={cleanTextForCopyWithSuggestions} />
+              )}
+              {/* Browser session button — shows when message has browser tool calls */}
+              {onOpenBrowserTab &&
+                (msg.toolCalls || []).some((tc) => BROWSER_TOOL_NAMES.has(tc.name)) && (
+                  <button
+                    onClick={onOpenBrowserTab}
+                    title="View AI browser session"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-text-secondary hover:text-text-primary hover:bg-white/[0.06] transition-all duration-150 cursor-pointer"
+                  >
+                    <GlobeSimple size={13} />
+                    <span>Browser</span>
+                  </button>
+                )}
+            </div>
+          )}
+        </div>
+      </SuggestionRuntimeContext.Provider>
     </StreamContext.Provider>
   )
 })
@@ -936,6 +970,9 @@ interface AiMessageRowProps {
   handleLoadChat?: (id: string) => void
   markdownComponents: Components
   onOpenBrowserTab?: () => void
+  onSendSuggestion?: (payload: string, suggestionKey: string) => boolean
+  suggestionMessageKey: string
+  isSuggestionSendDisabled: boolean
 }
 
 const AiMessageRow = React.memo(function AiMessageRow({
@@ -944,7 +981,10 @@ const AiMessageRow = React.memo(function AiMessageRow({
   currentChatId,
   handleLoadChat,
   markdownComponents,
-  onOpenBrowserTab
+  onOpenBrowserTab,
+  onSendSuggestion,
+  suggestionMessageKey,
+  isSuggestionSendDisabled
 }: AiMessageRowProps) {
   const inactivityLabel = useInactivityLabel(msg)
   const { activeToolLabel } = useActiveToolLabel(msg)
@@ -953,7 +993,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
     .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)/g, '')
     .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/g, '')
     .trim()
-  const hasContent = cleanContentText !== ''
+  const hasContent = stripPrismSuggestionMarkup(cleanContentText) !== ''
 
   const isRunningTool = !!(
     activeToolLabel ||
@@ -1029,6 +1069,9 @@ const AiMessageRow = React.memo(function AiMessageRow({
             handleLoadChat={handleLoadChat}
             markdownComponents={markdownComponents}
             onOpenBrowserTab={onOpenBrowserTab}
+            onSendSuggestion={onSendSuggestion}
+            suggestionMessageKey={suggestionMessageKey}
+            isSuggestionSendDisabled={isSuggestionSendDisabled}
             inactivityLabel={inactivityLabel}
             activeToolLabel={activeToolLabel}
           />
@@ -1040,19 +1083,26 @@ const AiMessageRow = React.memo(function AiMessageRow({
 
 const TabMessagesList = React.memo(function TabMessagesList({
   messages,
+  tabId,
   currentChatId,
   handleLoadChat,
-  onOpenBrowserTab
+  onOpenBrowserTab,
+  isSuggestionSendDisabled,
+  onSendSuggestion
 }: {
   messages: Message[]
+  tabId: string
   currentChatId?: string
   handleLoadChat: (id: string) => void
   onOpenBrowserTab?: () => void
+  isSuggestionSendDisabled: boolean
+  onSendSuggestion: (tabId: string, payload: string, suggestionKey: string) => boolean
 }) {
   const markdownComponents = useMemo(
     () => ({
       ...MarkdownComponents,
-      ...StaticMarkdownComponents
+      ...StaticMarkdownComponents,
+      ...PrismSuggestionMarkdownComponents
     }),
     []
   )
@@ -1118,6 +1168,11 @@ const TabMessagesList = React.memo(function TabMessagesList({
             handleLoadChat={handleLoadChat}
             markdownComponents={markdownComponents}
             onOpenBrowserTab={onOpenBrowserTab}
+            onSendSuggestion={(payload, suggestionKey) =>
+              onSendSuggestion(tabId, payload, suggestionKey)
+            }
+            suggestionMessageKey={`${currentChatId || tabId}:${i}`}
+            isSuggestionSendDisabled={isSuggestionSendDisabled}
           />
         )
       })}
@@ -1217,7 +1272,9 @@ function RealApp(): React.JSX.Element {
     try {
       const [usage, license, user] = await Promise.all([
         window.api.getUserAiUsage().catch(() => null),
-        window.api.getLicenseInfo ? window.api.getLicenseInfo().catch(() => null) : Promise.resolve(null),
+        window.api.getLicenseInfo
+          ? window.api.getLicenseInfo().catch(() => null)
+          : Promise.resolve(null),
         window.api.getAuthUser ? window.api.getAuthUser().catch(() => null) : Promise.resolve(null)
       ])
 
@@ -1227,15 +1284,14 @@ function RealApp(): React.JSX.Element {
         Boolean(
           usage?.modelList?.some(
             (m) =>
-              m.tier?.toLowerCase().startsWith('enterprise') ||
-              m.tier?.toLowerCase() === 'company'
+              m.tier?.toLowerCase().startsWith('enterprise') || m.tier?.toLowerCase() === 'company'
           )
         )
 
       const isLicenseEnt = Boolean(
         license?.isActivated &&
-          (license?.type?.toUpperCase() === 'ENTERPRISE' ||
-            license?.type?.toUpperCase() === 'COMPANY')
+        (license?.type?.toUpperCase() === 'ENTERPRISE' ||
+          license?.type?.toUpperCase() === 'COMPANY')
       )
 
       const isUserEnt =
@@ -2215,42 +2271,31 @@ function RealApp(): React.JSX.Element {
     })
   }, [])
 
-  // Sending message logic for active tab
-  const handleSend = useCallback(
-    (
-      text: string,
-      file?: AttachedFile | null,
-      overrideModel?: string,
-      overrideSessionMode?: SessionMode,
-      forceYoutube?: boolean
-    ): void => {
-      const targetTabId = activeTabIdRef.current
-      const currentTab = tabsRef.current.find((t) => t.id === targetTabId)
-      if (!currentTab) return
-      if (currentTab.isProcessing) return
-      if (!isOnlineRef.current) return
+  interface SendMessageOptions {
+    file?: AttachedFile | null
+    overrideModel?: string
+    overrideSessionMode?: SessionMode
+    forceYoutube?: boolean
+    isSuggestion?: boolean
+  }
 
-      let chatId = currentTab.chatId
-      if (!chatId) {
-        chatId = Date.now().toString()
+  const sendMessageToTab = useCallback(
+    (targetTabId: string, text: string, options: SendMessageOptions = {}): boolean => {
+      const currentTab = tabsRef.current.find((tab) => tab.id === targetTabId)
+      if (!currentTab || currentTab.isProcessing || !isOnlineRef.current || !text.trim()) {
+        return false
       }
 
-      setTabs((prev) =>
-        prev.map((t) => (t.id === targetTabId ? { ...t, chatId, isProcessing: true } : t))
-      )
-
-      setRunningChats((prev) => ({ ...prev, [chatId!]: true }))
-
-      const activeFile = file || currentTab.attachedFile
+      const isSuggestion = options.isSuggestion === true
+      const chatId = currentTab.chatId || Date.now().toString()
+      const activeFile = isSuggestion ? undefined : options.file || currentTab.attachedFile
       const activeScreenshot = activeFile?.mimeType.startsWith('image/')
         ? activeFile.data
         : undefined
-
       const displayContent = text
         .replace(/<attached_file[^>]*\/>/gi, '')
         .replace(/^\[FORCE_SEARCH\]\s*/i, '')
         .trim()
-
       const userMessage: Message = {
         role: 'user',
         content: displayContent,
@@ -2259,49 +2304,83 @@ function RealApp(): React.JSX.Element {
       }
 
       setTabs((prev) =>
-        prev.map((t) => {
-          if (t.id === targetTabId) {
-            return {
-              ...t,
-              messages: [...t.messages, userMessage],
-              inputText: '',
-              attachedFile: null,
-              isSearchEnabled: false
-            }
+        prev.map((tab) => {
+          if (tab.id !== targetTabId) return tab
+
+          const updatedTab = {
+            ...tab,
+            chatId,
+            isProcessing: true,
+            messages: [...tab.messages, userMessage]
           }
-          return t
+
+          return isSuggestion
+            ? updatedTab
+            : {
+                ...updatedTab,
+                inputText: '',
+                attachedFile: null,
+                isSearchEnabled: false
+              }
         })
       )
+      setRunningChats((prev) => ({ ...prev, [chatId]: true }))
 
       let apiMessage = text
-      if (activeFile && !activeFile.mimeType.startsWith('image/')) {
+      if (!isSuggestion && activeFile && !activeFile.mimeType.startsWith('image/')) {
         apiMessage = `<attached_file name="${activeFile.name}" mime="${activeFile.mimeType}" /> ${apiMessage}`
       }
-
-      if (currentTab.isSearchEnabled && !apiMessage.startsWith('[FORCE_SEARCH]')) {
+      if (!isSuggestion && currentTab.isSearchEnabled && !apiMessage.startsWith('[FORCE_SEARCH]')) {
         apiMessage = `[FORCE_SEARCH] ${apiMessage}`
       }
 
+      const sessionMode = options.overrideSessionMode || currentTab.sessionMode
+      const modelKey = options.overrideModel || currentTab.selectedModel
       window.api.sendChatMessage({
         message: apiMessage,
         chatId,
         screenshot: activeScreenshot || undefined,
         attachedFile: activeFile || undefined,
-        quote: quotedTextRef.current || undefined,
-        appMode: forceYoutube ? 'youtube' : undefined,
-        sessionMode: overrideSessionMode || currentTab.sessionMode,
-        disciplinePath:
-          (overrideSessionMode || currentTab.sessionMode) === 'discipline'
-            ? currentTab.disciplinePath
-            : '',
-        modelKey: overrideModel || currentTab.selectedModel,
-        reasoningLevel: getReasoningLevelForModel(overrideModel || currentTab.selectedModel)
+        quote: isSuggestion ? undefined : quotedTextRef.current || undefined,
+        appMode: options.forceYoutube ? 'youtube' : undefined,
+        sessionMode,
+        disciplinePath: sessionMode === 'discipline' ? currentTab.disciplinePath : '',
+        modelKey,
+        reasoningLevel: getReasoningLevelForModel(modelKey)
       })
 
-      setQuotedText(null)
-      setActiveWorkflow(null)
+      if (!isSuggestion) {
+        setQuotedText(null)
+        setActiveWorkflow(null)
+      }
+      return true
     },
     []
+  )
+
+  // Sending message logic for the active tab.
+  const handleSend = useCallback(
+    (
+      text: string,
+      file?: AttachedFile | null,
+      overrideModel?: string,
+      overrideSessionMode?: SessionMode,
+      forceYoutube?: boolean
+    ): void => {
+      sendMessageToTab(activeTabIdRef.current, text, {
+        file,
+        overrideModel,
+        overrideSessionMode,
+        forceYoutube
+      })
+    },
+    [sendMessageToTab]
+  )
+
+  const handleSuggestionSend = useCallback(
+    (tabId: string, payload: string, _suggestionKey: string): boolean =>
+      sendMessageToTab(tabId, payload, { isSuggestion: true }),
+    [sendMessageToTab]
   )
 
   const handleSendRef = useRef(handleSend)
@@ -3322,9 +3401,12 @@ function RealApp(): React.JSX.Element {
                         renderedMessages={
                           <TabMessagesList
                             messages={tab.messages}
+                            tabId={tab.id}
                             currentChatId={tab.chatId}
                             handleLoadChat={handleLoadChat}
                             onOpenBrowserTab={() => handleOpenBrowserTab(tab.id)}
+                            isSuggestionSendDisabled={tab.isProcessing || !isOnline}
+                            onSendSuggestion={handleSuggestionSend}
                           />
                         }
                       />

@@ -15,11 +15,24 @@ import * as path from 'path'
 import * as os from 'os'
 import PptxGenJS from 'pptxgenjs'
 import { toolsManifest, getToolDefinition } from './toolsManifest'
-import { BrowserAction, DownloadProgress, SessionMode, TodoState, ArtifactItem } from '../shared/types'
+import {
+  BrowserAction,
+  DownloadProgress,
+  SessionMode,
+  TodoState,
+  ArtifactItem
+} from '../shared/types'
 
 import { loadConfig, saveConfig, SlashWorkflow } from './config'
 import { requestDiscordVoiceLeave } from './discordGateway'
-import { searchChatHistory, searchChatMemory, loadChatSession, getChatArtifacts, saveChatArtifact, saveChatTodo } from './history'
+import {
+  searchChatHistory,
+  searchChatMemory,
+  loadChatSession,
+  getChatArtifacts,
+  saveChatArtifact,
+  saveChatTodo
+} from './history'
 import { getSkillsSystemPromptSnippetSync, readSkill } from './skillsManager'
 import {
   chromium,
@@ -37,10 +50,7 @@ import {
   runGuardedTerminalCommand
 } from './localCommandSandbox'
 import { safeSend } from './safeSend'
-import {
-  SystemToolOutput,
-  ToolImageAttachment
-} from './toolAttachments'
+import { SystemToolOutput, ToolImageAttachment } from './toolAttachments'
 
 function getDownloadsFolder(): string {
   try {
@@ -170,7 +180,11 @@ export function setupSessionDownloadHandler(targetSession: Electron.Session): vo
     const downloadsFolder = getDownloadsFolder()
     const filename = normalizeDownloadFilename(item.getFilename())
     const targetPath = path.join(downloadsFolder, filename)
-    const id = resolveDownloadProgressId(item.getURL(), filename, createDownloadId('electron-download'))
+    const id = resolveDownloadProgressId(
+      item.getURL(),
+      filename,
+      createDownloadId('electron-download')
+    )
     const totalBytes = item.getTotalBytes()
 
     item.setSavePath(targetPath)
@@ -233,7 +247,9 @@ export function setupSessionDownloadHandler(targetSession: Electron.Session): vo
   })
 }
 
-export async function waitForDownloadCompletion(timeoutMs = 4000): Promise<DownloadCompletionResult | null> {
+export async function waitForDownloadCompletion(
+  timeoutMs = 4000
+): Promise<DownloadCompletionResult | null> {
   const existingResult = getCompletedDownload()
   if (existingResult) return existingResult
 
@@ -253,7 +269,9 @@ export async function waitForDownloadCompletion(timeoutMs = 4000): Promise<Downl
 
     // Guard against runaway growth — evict oldest listener if at capacity
     if (downloadCompleteListeners.length >= MAX_DOWNLOAD_LISTENERS) {
-      console.warn(`[Download] Listener cap (${MAX_DOWNLOAD_LISTENERS}) reached, evicting oldest listener`)
+      console.warn(
+        `[Download] Listener cap (${MAX_DOWNLOAD_LISTENERS}) reached, evicting oldest listener`
+      )
       downloadCompleteListeners.shift()
     }
     downloadCompleteListeners.push(onComplete)
@@ -1300,7 +1318,6 @@ async function launchBrowser(headless: boolean = true): Promise<Browser> {
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   }
 
-
   // 1. Google Chrome
   try {
     console.log('launchBrowser: Trying system Google Chrome...')
@@ -1382,12 +1399,16 @@ export function setBrowserActionEmitter(fn: (action: BrowserAction) => void): vo
  * Captures the current page screenshot and emits a BrowserAction event to the renderer.
  * Silently skips if there is no emitter or no active page.
  */
-async function emitBrowserAction(actionData: Omit<BrowserAction, 'timestamp' | 'screenshot'>): Promise<void> {
+async function emitBrowserAction(
+  actionData: Omit<BrowserAction, 'timestamp' | 'screenshot'>
+): Promise<void> {
   if (!_browserActionEmitter) return
   try {
     let screenshot: string | undefined
     if (persistentPage && !persistentPage.isClosed()) {
-      let buf = await persistentPage.screenshot({ type: 'jpeg', quality: 70, timeout: 3000 }).catch(() => null)
+      let buf = await persistentPage
+        .screenshot({ type: 'jpeg', quality: 70, timeout: 3000 })
+        .catch(() => null)
       if (!buf) {
         buf = await persistentPage.screenshot({ type: 'png', timeout: 3000 }).catch(() => null)
       }
@@ -1408,8 +1429,6 @@ async function emitBrowserAction(actionData: Omit<BrowserAction, 'timestamp' | '
     console.warn('emitBrowserAction error:', err)
   }
 }
-
-
 
 export function _setupBrowserAbortHandler(signal?: AbortSignal): (() => void) | null {
   if (!signal || signal.aborted) {
@@ -1574,7 +1593,8 @@ export async function sendBrowserCommandToRenderer(
         return
       }
       const currentWins = BrowserWindow.getAllWindows()
-      const win = currentWins.find((w) => !w.webContents.getURL().includes('#launcher')) || currentWins[0]
+      const win =
+        currentWins.find((w) => !w.webContents.getURL().includes('#launcher')) || currentWins[0]
       if (win) {
         safeSend(win, 'browser-exec-command', { requestId, command })
       }
@@ -1596,7 +1616,9 @@ export async function openBrowser(url?: string, signal?: AbortSignal): Promise<s
   isPersistentBrowserActive = true
   emitBrowserAction({ type: 'open', url }).catch(() => {})
   const result = await sendBrowserCommandToRenderer({ type: 'open', url }, signal)
-  return typeof result === 'string' ? result : 'Browser session opened successfully. Use browser_snapshot or detailed_dom_page to inspect page content.'
+  return typeof result === 'string'
+    ? result
+    : 'Browser session opened successfully. Use browser_snapshot or detailed_dom_page to inspect page content.'
 }
 
 export async function browserNavigate(url: string, signal?: AbortSignal): Promise<string> {
@@ -1629,7 +1651,11 @@ export async function browserClick(elementId: string, signal?: AbortSignal): Pro
   )
 }
 
-export async function browserType(elementId: string, text: string, signal?: AbortSignal): Promise<string> {
+export async function browserType(
+  elementId: string,
+  text: string,
+  signal?: AbortSignal
+): Promise<string> {
   if (!isPersistentBrowserActive) {
     return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
@@ -1646,7 +1672,11 @@ export async function browserPress(key: string, signal?: AbortSignal): Promise<s
   return typeof result === 'string' ? result : `Pressed key "${key}" successfully.`
 }
 
-export async function browserScroll(direction: 'up' | 'down', amount?: number, signal?: AbortSignal): Promise<string> {
+export async function browserScroll(
+  direction: 'up' | 'down',
+  amount?: number,
+  signal?: AbortSignal
+): Promise<string> {
   if (!isPersistentBrowserActive) {
     return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
@@ -1697,7 +1727,11 @@ export async function closePersistentBrowser(): Promise<string> {
   return 'Browser session closed successfully.'
 }
 
-export async function webScript(url: string, script: string, signal?: AbortSignal): Promise<string> {
+export async function webScript(
+  url: string,
+  script: string,
+  signal?: AbortSignal
+): Promise<string> {
   if (!isPersistentBrowserActive) {
     return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
   }
@@ -1851,7 +1885,13 @@ export async function webSearchSingle(query: string, signal?: AbortSignal): Prom
     })
 
     // Handle Google's redirect consent walls or overlay banners
-    const currentHost = (() => { try { return new URL(page.url()).hostname } catch { return '' } })()
+    const currentHost = (() => {
+      try {
+        return new URL(page.url()).hostname
+      } catch {
+        return ''
+      }
+    })()
     if (currentHost === 'consent.google.com') {
       console.log('webSearchSingle: Redirected to Google consent page. Clicking accept...')
       await handleConsentBanners(page)
@@ -2037,6 +2077,8 @@ export function getSystemToolsPrompt(
   const terminalSummary = getLocalCommandSandboxSummary(shellName)
   const shellSyntax = getShellSyntaxSummary(shellName)
   const name = 'Prism AI'
+  const inlineSuggestionsRule =
+    '- Inline suggestions: when useful, use `<prism-suggestion send="full user message">visible optional follow-up</prism-suggestion>`; multiple allowed, never required.'
 
   const cleanModelId = modelKey
     ? modelKey.startsWith('prism_provider:')
@@ -2064,14 +2106,12 @@ export function getSystemToolsPrompt(
             : '')
 
   const modelIdentity =
-    isCloud && resolvedArcadiaName
-      ? `${cleanModelId} (${resolvedArcadiaName})`
-      : cleanModelId
+    isCloud && resolvedArcadiaName ? `${cleanModelId} (${resolvedArcadiaName})` : cleanModelId
 
   const username = os.userInfo().username
   const platform = process.platform
   const homeDir = os.homedir()
-  
+
   let cwd = process.cwd()
   if (sessionMode === 'discipline' && disciplinePath) {
     cwd = disciplinePath
@@ -2111,7 +2151,8 @@ Context: ${date} | ${platform} | Home: ${homeDir} | CWD: ${cwd}
 
 # Rules
 - Conversation Mode: No tool access. Reply using text/Markdown.
-- Match user language. Be direct, factual, and concise.`
+- Match user language. Be direct, factual, and concise.
+${inlineSuggestionsRule}`
   }
 
   const disciplineRule =
@@ -2153,7 +2194,8 @@ ${browserRule}
   - Do not invent tool results, paths, or citations.
 - **Search:** Use web_search and saw_link_from_url. For Deep Research: 1. Search context, 2. Present plan & await user approval, 3. 10+ iterations, 4. Output Markdown report.
 - **Prism Docs:** Use internal_docs_list, internal_docs_read, internal_docs_search for Prism system queries.
-- **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}${skillsSection}`
+- **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}
+${inlineSuggestionsRule}${skillsSection}`
 }
 
 export interface InstalledApplicationResult {
@@ -2171,7 +2213,9 @@ export async function searchInstalledApplications(
   const extensions = new Set<string>()
   if (process.platform === 'win32') {
     if (process.env.ProgramData) {
-      roots.push(path.join(process.env.ProgramData, 'Microsoft', 'Windows', 'Start Menu', 'Programs'))
+      roots.push(
+        path.join(process.env.ProgramData, 'Microsoft', 'Windows', 'Start Menu', 'Programs')
+      )
     }
     if (process.env.APPDATA) {
       roots.push(path.join(process.env.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs'))
@@ -2182,7 +2226,10 @@ export async function searchInstalledApplications(
     roots.push('/Applications', path.join(os.homedir(), 'Applications'))
     extensions.add('.app')
   } else {
-    roots.push('/usr/share/applications', path.join(os.homedir(), '.local', 'share', 'applications'))
+    roots.push(
+      '/usr/share/applications',
+      path.join(os.homedir(), '.local', 'share', 'applications')
+    )
     extensions.add('.desktop')
   }
 
@@ -2325,11 +2372,17 @@ export async function captureAppScreenshot(): Promise<ScreenshotCapture> {
       thumbnailSize: { width: SCREENSHOT_MAX_EDGE, height: SCREENSHOT_MAX_EDGE }
     })
     let timeout: NodeJS.Timeout | undefined
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      (timeout = setTimeout(
-        () => reject(new Error(`Screenshot capture timed out after ${SCREENSHOT_CAPTURE_TIMEOUT_MS / 1000} seconds`)),
-        SCREENSHOT_CAPTURE_TIMEOUT_MS
-      ))
+    const timeoutPromise = new Promise<never>(
+      (_, reject) =>
+        (timeout = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Screenshot capture timed out after ${SCREENSHOT_CAPTURE_TIMEOUT_MS / 1000} seconds`
+              )
+            ),
+          SCREENSHOT_CAPTURE_TIMEOUT_MS
+        ))
     )
     const sources = await Promise.race([sourcesPromise, timeoutPromise]).finally(() => {
       if (timeout) clearTimeout(timeout)
@@ -2349,20 +2402,28 @@ export async function captureAppScreenshot(): Promise<ScreenshotCapture> {
     }
 
     if (targetSource.thumbnail.isEmpty()) {
-      return screenshotCaptureFailure('The selected screen source returned an empty image.', startedAt, {
-        sourceId: targetSource.id,
-        displayId: targetSource.display_id || undefined
-      })
+      return screenshotCaptureFailure(
+        'The selected screen source returned an empty image.',
+        startedAt,
+        {
+          sourceId: targetSource.id,
+          displayId: targetSource.display_id || undefined
+        }
+      )
     }
 
     const image = resizeScreenshotForVision(targetSource.thumbnail)
     const { width, height } = image.getSize()
     if (width <= 0 || height <= 0) {
-      return screenshotCaptureFailure('The selected screen source has invalid dimensions.', startedAt, {
-        sourceId: targetSource.id,
-        width,
-        height
-      })
+      return screenshotCaptureFailure(
+        'The selected screen source has invalid dimensions.',
+        startedAt,
+        {
+          sourceId: targetSource.id,
+          width,
+          height
+        }
+      )
     }
 
     const buffer = image.toJPEG(SCREENSHOT_JPEG_QUALITY)
@@ -2516,11 +2577,27 @@ export async function executeSystemTool(
       )
     }
     case 'computer_use_edit_file':
-      return await computerEditFile(args.path, args.startLine, args.endLine, args.newContent, signal)
+      return await computerEditFile(
+        args.path,
+        args.startLine,
+        args.endLine,
+        args.newContent,
+        signal
+      )
     case 'computer_use_copy_file':
-      return await computerCopyFile(args.sourcePath || '', args.destinationPath || '', args.overwrite, signal)
+      return await computerCopyFile(
+        args.sourcePath || '',
+        args.destinationPath || '',
+        args.overwrite,
+        signal
+      )
     case 'computer_use_move_file':
-      return await computerMoveFile(args.sourcePath || '', args.destinationPath || '', args.overwrite, signal)
+      return await computerMoveFile(
+        args.sourcePath || '',
+        args.destinationPath || '',
+        args.overwrite,
+        signal
+      )
     case 'computer_use_get_file_info':
       return await computerGetFileInfo(args.path, signal)
     case 'computer_use_list_directory':
@@ -2538,9 +2615,13 @@ export async function executeSystemTool(
         const searchEnabled = args.searchEnabled === true
 
         const wins = BrowserWindow.getAllWindows()
-        const mainWin = wins.find(
-          (w) => !w.webContents.getURL().includes('#launcher') && !w.webContents.getURL().includes('#subagents') && !w.webContents.getURL().includes('#mini-app')
-        ) || wins[0]
+        const mainWin =
+          wins.find(
+            (w) =>
+              !w.webContents.getURL().includes('#launcher') &&
+              !w.webContents.getURL().includes('#subagents') &&
+              !w.webContents.getURL().includes('#mini-app')
+          ) || wins[0]
 
         if (!mainWin) {
           return 'Error: No main application window found.'
@@ -2628,8 +2709,7 @@ export async function executeSystemTool(
     }
 
     // Todo system
-    case 'create_todo':
-    {
+    case 'create_todo': {
       let taskTitles: string[] = args.tasks
 
       if (taskTitles.length < 1) {
@@ -2658,7 +2738,10 @@ export async function executeSystemTool(
       try {
         const wins = BrowserWindow.getAllWindows()
         for (const win of wins) {
-          if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
+          if (
+            !win.webContents.getURL().includes('#launcher') &&
+            !win.webContents.getURL().includes('#subagents')
+          ) {
             safeSend(win, 'chat-todo-update', todo)
           }
         }
@@ -2667,8 +2750,7 @@ export async function executeSystemTool(
       return `Todo list created with ${taskTitles.length} tasks. ${buildTodoReminder(todoChatId)}`
     }
 
-    case 'edit_todo':
-    {
+    case 'edit_todo': {
       const todoChatId = chatId || _currentSessionIdForTodo
       let todo = getTodoForChat(todoChatId)
       if (!todo || !todo.active) {
@@ -2719,7 +2801,8 @@ export async function executeSystemTool(
         // Try matching by title (exact or substring)
         const lowerRaw = rawId.toLowerCase()
         taskIndex = todo.tasks.findIndex(
-          (t) => t.title.toLowerCase().includes(lowerRaw) || lowerRaw.includes(t.title.toLowerCase())
+          (t) =>
+            t.title.toLowerCase().includes(lowerRaw) || lowerRaw.includes(t.title.toLowerCase())
         )
       }
 
@@ -2749,7 +2832,10 @@ export async function executeSystemTool(
       try {
         const wins = BrowserWindow.getAllWindows()
         for (const win of wins) {
-          if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
+          if (
+            !win.webContents.getURL().includes('#launcher') &&
+            !win.webContents.getURL().includes('#subagents')
+          ) {
             safeSend(win, 'chat-todo-update', todo)
           }
         }
@@ -3048,7 +3134,10 @@ export async function executeSystemTool(
         try {
           const wins = BrowserWindow.getAllWindows()
           for (const win of wins) {
-            if (!win.webContents.getURL().includes('#launcher') && !win.webContents.getURL().includes('#subagents')) {
+            if (
+              !win.webContents.getURL().includes('#launcher') &&
+              !win.webContents.getURL().includes('#subagents')
+            ) {
               safeSend(win, 'show-questionnaire', {
                 sessionId,
                 questions: args.questions || []
@@ -3256,7 +3345,8 @@ export async function executeSystemTool(
         let targetArtifact = existingArtifacts.find(
           (a) =>
             (targetId && a.id === targetId) ||
-            (targetPathArg && path.normalize(a.path).toLowerCase() === path.normalize(targetPathArg).toLowerCase())
+            (targetPathArg &&
+              path.normalize(a.path).toLowerCase() === path.normalize(targetPathArg).toLowerCase())
         )
 
         let targetPath = ''
@@ -3354,7 +3444,8 @@ export async function executeSystemTool(
         let targetArtifact = existingArtifacts.find(
           (a) =>
             (targetId && a.id === targetId) ||
-            (targetPathArg && path.normalize(a.path).toLowerCase() === path.normalize(targetPathArg).toLowerCase())
+            (targetPathArg &&
+              path.normalize(a.path).toLowerCase() === path.normalize(targetPathArg).toLowerCase())
         )
 
         let targetPath = ''
@@ -3632,7 +3723,10 @@ function parseCssColorToHex(colorStr: string): string | null {
   if (hexMatch) {
     let hex = hexMatch[1]
     if (hex.length === 3) {
-      hex = hex.split('').map((c) => c + c).join('')
+      hex = hex
+        .split('')
+        .map((c) => c + c)
+        .join('')
     }
     return hex
   }
@@ -3677,7 +3771,10 @@ async function compileHtmlToPdf(html: string, outputPath: string): Promise<void>
           preferCSSPageSize: true
         })
       } catch (printErr) {
-        console.warn('Electron printToPDF failed on first attempt, retrying after pause...', printErr)
+        console.warn(
+          'Electron printToPDF failed on first attempt, retrying after pause...',
+          printErr
+        )
         await new Promise((r) => setTimeout(r, 400))
         pdfBuffer = await win.webContents.printToPDF({
           printBackground: true,
@@ -3761,4 +3858,3 @@ ipcMain.handle('show-artifact-in-folder', async (_event, filePath: string) => {
   if (!filePath) return
   shell.showItemInFolder(filePath)
 })
-
