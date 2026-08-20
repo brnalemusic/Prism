@@ -13,7 +13,7 @@ import TodoPanel from './TodoPanel'
 import { QuestionnaireWizard } from './QuestionnaireRenderer'
 import type { TabSession } from '../types/tab'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
-import type { TodoState } from '../../../shared/types'
+import type { TerminalProcessSnapshot, TodoState } from '../../../shared/types'
 import { getDefaultThinkingLevelForModel } from '../constants'
 
 interface ChatPaneProps {
@@ -21,6 +21,7 @@ interface ChatPaneProps {
   isFocused: boolean
   isSplitView: boolean
   todo: TodoState | null
+  terminalProcesses: TerminalProcessSnapshot[]
   config: AppConfig | null
   isKeyMissing: boolean
   isOnline: boolean
@@ -57,6 +58,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     isFocused,
     isSplitView,
     todo,
+    terminalProcesses,
     config,
     isKeyMissing,
     isOnline,
@@ -289,7 +291,11 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
 
                   <div className="w-full flex flex-col gap-0">
                     {/* AI Todo & Artifacts panel docked above InputBar (landing state) */}
-                    <TodoPanel todo={todo} artifacts={tab.artifacts} />
+                    <TodoPanel
+                      todo={todo}
+                      artifacts={tab.artifacts}
+                      terminalProcesses={terminalProcesses}
+                    />
                     {/* Questionnaire wizard card docked above InputBar (landing state) */}
                     {activeQuestionnaire && (
                       <QuestionnaireWizard
@@ -334,7 +340,9 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       onModeChange={onModeChange}
                       onSelectFolder={onSelectFolder}
                       disabledSkills={tab.disabledSkills}
-                      onDisabledSkillsChange={(skills) => onUpdateTabDisabledSkills?.(tab.id, skills)}
+                      onDisabledSkillsChange={(skills) =>
+                        onUpdateTabDisabledSkills?.(tab.id, skills)
+                      }
                     />
                   </div>
                 </div>
@@ -372,7 +380,11 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
 
               <div className="pointer-events-auto max-w-[800px] mx-auto flex flex-col gap-0">
                 {/* AI Todo & Artifacts panel docked above InputBar */}
-                <TodoPanel todo={todo} artifacts={tab.artifacts} />
+                <TodoPanel
+                  todo={todo}
+                  artifacts={tab.artifacts}
+                  terminalProcesses={terminalProcesses}
+                />
                 {/* Questionnaire wizard card docked above InputBar */}
                 {activeQuestionnaire && (
                   <QuestionnaireWizard

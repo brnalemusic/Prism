@@ -15,7 +15,25 @@ export interface ToolUpdate {
     output?: string
     // New: continuous web_search progress
     searchTitle?: string
+    outputChunk?: string
+    runId?: string
   }
+}
+
+export type TerminalProcessStatus = 'running' | 'completed' | 'failed' | 'killed'
+
+export interface TerminalProcessSnapshot {
+  runId: string
+  chatId: string
+  command: string
+  status: TerminalProcessStatus
+  exitCode: number | null
+  startedAt: number
+  completedAt: number | null
+  isBackgrounded: boolean
+  awaitingInput: boolean
+  detectedPrompt?: string
+  outputTruncated: boolean
 }
 
 export type DownloadProgressStatus =

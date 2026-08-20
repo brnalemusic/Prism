@@ -48,11 +48,13 @@ export interface ToolOrchestrationResult {
 }
 
 export interface BackgroundProcessNotification {
+  kind: 'input_requested' | 'completed'
   runId: string
   command: string
   status: string
   exitCode: number | null
   output: string
+  detectedPrompt?: string
 }
 
 export interface ToolOrchestratorOptions {
@@ -129,6 +131,22 @@ function withFinalInstruction(messages: OpenAiMessage[], instruction: string): O
   return output
 }
 
+export function createTerminalNotificationMessage(
+  notification: BackgroundProcessNotification
+): OpenAiMessage {
+  const content =
+    notification.kind === 'input_requested'
+      ? `[SYSTEM NOTIFICATION: Terminal command (Run ID: ${notification.runId}, Command: "${notification.command}") is waiting for input. Detected prompt: ${notification.detectedPrompt || '(Prompt text unavailable).'}\n\nComplete terminal output so far:\n${notification.output}\n\nContinue the current task. Use send_terminal_input with this Run ID to answer the terminal. Do not ask the user unless the requested value requires a genuine user decision.]`
+      : `[SYSTEM NOTIFICATION: Background terminal command (Run ID: ${notification.runId}, Command: "${notification.command}") finished with status "${notification.status}" (Exit Code: ${notification.exitCode ?? 'N/A'}). Output:\n${notification.output}]`
+
+  return {
+    role: 'user',
+    content,
+    isSystemNotification: true,
+    hidden: true
+  }
+}
+
 export async function runToolOrchestration(
   options: ToolOrchestratorOptions
 ): Promise<ToolOrchestrationResult> {
@@ -137,6 +155,17 @@ export async function runToolOrchestration(
   const executedTools: ExecutedToolCall[] = []
   let accumulatedText = ''
   let accumulatedReasoning = ''
+
+  const appendPendingNotifications = (): number => {
+    if (!options.getPendingNotifications) return 0
+    const pending = options.getPendingNotifications()
+    for (const notification of pending) {
+      const notificationMessage = createTerminalNotificationMessage(notification)
+      options.messages.push(notificationMessage)
+      options.onHistoryMessage?.(notificationMessage)
+    }
+    return pending.length
+  }
 
   const streamRound = async (
     round: number,
@@ -224,19 +253,7 @@ export async function runToolOrchestration(
   for (let round = 1; round <= maxRounds; round++) {
     abortIfNeeded(options.signal)
 
-    if (options.getPendingNotifications) {
-      const pending = options.getPendingNotifications()
-      for (const notif of pending) {
-        const notifMsg: OpenAiMessage = {
-          role: 'user',
-          content: `[SYSTEM NOTIFICATION: Background terminal command (Run ID: ${notif.runId}, Command: "${notif.command}") finished with status "${notif.status}" (Exit Code: ${notif.exitCode ?? 'N/A'}). Output:\n${notif.output}]`,
-          isSystemNotification: true,
-          hidden: true
-        }
-        options.messages.push(notifMsg)
-        options.onHistoryMessage?.(notifMsg)
-      }
-    }
+    appendPendingNotifications()
 
     const currentTools = options.getToolsForRound ? options.getToolsForRound() : options.tools
     const streamed = await streamRound(round, false, options.messages, currentTools)
@@ -251,6 +268,7 @@ export async function runToolOrchestration(
     options.onHistoryMessage?.(assistantMessage)
 
     if (streamed.result.toolCalls.length === 0) {
+      if (appendPendingNotifications() > 0) continue
       return {
         accumulatedText,
         accumulatedReasoning,

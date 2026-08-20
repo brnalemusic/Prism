@@ -70,7 +70,13 @@ import { QuotaExceededModal } from './components/QuotaExceededModal'
 import { PrismPlansModal } from './components/PrismPlansModal'
 import { OnboardingLicenseModal } from './components/OnboardingLicenseModal'
 import { AppConfig, SlashWorkflow } from '../../main/config'
-import type { DownloadProgress, SessionMode, TodoState, UserProfile } from '../../shared/types'
+import type {
+  DownloadProgress,
+  SessionMode,
+  TerminalProcessSnapshot,
+  TodoState,
+  UserProfile
+} from '../../shared/types'
 import { getDefaultThinkingLevelForModel, isPrismCloudGeminiModel } from './constants'
 import { applyToolCallEnd, applyToolCallStart, isToolErrorResult } from './toolCallState'
 
@@ -1227,6 +1233,9 @@ function RealApp(): React.JSX.Element {
   const [activeWorkflow, setActiveWorkflow] = useState<SlashWorkflow | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [chatTodos, setChatTodos] = useState<Record<string, TodoState>>({})
+  const [terminalProcesses, setTerminalProcesses] = useState<
+    Record<string, TerminalProcessSnapshot[]>
+  >({})
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
   const [settingsInitialSection, setSettingsInitialSection] = useState<
     | 'shortcuts'
@@ -2256,6 +2265,9 @@ function RealApp(): React.JSX.Element {
         setChatTodos((prev) => ({ ...prev, [chatId]: todo }))
       }
 
+      const processes = await window.api.getTerminalProcessesForChat(chatId)
+      setTerminalProcesses((prev) => ({ ...prev, [chatId]: processes }))
+
       if (window.api?.getArtifactsForChat) {
         const artifacts = await window.api.getArtifactsForChat(chatId)
         if (artifacts && artifacts.length > 0) {
@@ -3033,6 +3045,22 @@ function RealApp(): React.JSX.Element {
       }
     })
 
+    const removeTerminalProcessListener = window.api.onTerminalProcessUpdate((snapshot) => {
+      if (!snapshot.isBackgrounded) return
+      setTerminalProcesses((prev) => {
+        const current = prev[snapshot.chatId] || []
+        const existingIndex = current.findIndex((process) => process.runId === snapshot.runId)
+        const next = [...current]
+        if (existingIndex === -1) {
+          next.push(snapshot)
+        } else {
+          next[existingIndex] = snapshot
+        }
+        next.sort((left, right) => left.startedAt - right.startedAt)
+        return { ...prev, [snapshot.chatId]: next }
+      })
+    })
+
     const removeOpenMainAppListener = window.api.onOpenMainAppWithInstructions((data) => {
       const { instructions, model } = data
 
@@ -3101,6 +3129,7 @@ function RealApp(): React.JSX.Element {
       removeToolUpdateListener()
       removeTitleReceivedListener()
       removeTodoUpdateListener()
+      removeTerminalProcessListener()
       removeOpenMainAppListener()
     }
   }, [])
@@ -3348,6 +3377,7 @@ function RealApp(): React.JSX.Element {
                         isFocused={tab.id === activeTabId}
                         isSplitView={visibleTabs.length > 1}
                         todo={tab.chatId ? chatTodos[tab.chatId] || null : null}
+                        terminalProcesses={tab.chatId ? terminalProcesses[tab.chatId] || [] : []}
                         config={config}
                         isKeyMissing={isKeyMissing}
                         isOnline={isOnline}

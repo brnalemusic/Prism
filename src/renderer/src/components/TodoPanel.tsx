@@ -9,27 +9,49 @@ import {
   FilePdf,
   FilePpt,
   FolderOpen,
-  ArrowSquareOut
+  ArrowSquareOut,
+  Terminal,
+  XCircle
 } from '@phosphor-icons/react'
-import type { TodoState, ArtifactItem } from '../../../shared/types'
+import type { TodoState, ArtifactItem, TerminalProcessSnapshot } from '../../../shared/types'
 
 interface TodoPanelProps {
   todo?: TodoState | null
   artifacts?: ArtifactItem[]
+  terminalProcesses?: TerminalProcessSnapshot[]
 }
 
-function TodoPanel({ todo, artifacts = [] }: TodoPanelProps): React.ReactElement | null {
+type PanelTab = 'todo' | 'artifacts' | 'terminal'
+
+function TodoPanel({
+  todo,
+  artifacts = [],
+  terminalProcesses = []
+}: TodoPanelProps): React.ReactElement | null {
   const hasTodo = !!(todo && todo.tasks.length > 0)
   const hasArtifacts = artifacts.length > 0
+  const hasTerminal = terminalProcesses.length > 0
 
-  if (!hasTodo && !hasArtifacts) return null
-
-  const [activeTab, setActiveTab] = useState<'todo' | 'artifacts'>(() => {
+  const [activeTab, setActiveTab] = useState<PanelTab>(() => {
     if (!hasTodo && hasArtifacts) return 'artifacts'
+    if (!hasTodo && !hasArtifacts && hasTerminal) return 'terminal'
     return 'todo'
   })
-
   const [isExpanded, setIsExpanded] = useState(false)
+  const latestTerminal = terminalProcesses[terminalProcesses.length - 1]
+
+  if (!hasTodo && !hasArtifacts && !hasTerminal) return null
+
+  const displayedTab: PanelTab =
+    (activeTab === 'todo' && hasTodo) ||
+    (activeTab === 'artifacts' && hasArtifacts) ||
+    (activeTab === 'terminal' && hasTerminal)
+      ? activeTab
+      : hasTodo
+        ? 'todo'
+        : hasArtifacts
+          ? 'artifacts'
+          : 'terminal'
 
   // Todo progress stats
   const totalTasks = todo?.tasks.length || 0
@@ -47,20 +69,54 @@ function TodoPanel({ todo, artifacts = [] }: TodoPanelProps): React.ReactElement
       : 'AI has started a to-do list'
 
   const latestArtifact = artifacts.length > 0 ? artifacts[artifacts.length - 1] : null
+  const activeTerminalCount = terminalProcesses.filter(
+    (process) => process.status === 'running'
+  ).length
+  const waitingTerminalCount = terminalProcesses.filter((process) => process.awaitingInput).length
 
-  const handleOpenFile = (pathStr: string) => {
+  const terminalStatusLabel = (process: TerminalProcessSnapshot): string => {
+    if (process.awaitingInput) return 'Waiting for input'
+    if (process.status === 'completed') return 'Completed'
+    if (process.status === 'failed') return 'Failed'
+    if (process.status === 'killed') return 'Stopped'
+    return 'Running'
+  }
+  const panelTitle =
+    displayedTab === 'todo' ? 'AI Tasks' : displayedTab === 'artifacts' ? 'Artifacts' : 'Terminal'
+  const panelCount =
+    displayedTab === 'todo'
+      ? `${doneCount}/${totalTasks}`
+      : displayedTab === 'artifacts'
+        ? artifacts.length.toString()
+        : waitingTerminalCount > 0
+          ? `${waitingTerminalCount} waiting`
+          : activeTerminalCount > 0
+            ? `${activeTerminalCount} active`
+            : terminalProcesses.length.toString()
+  const panelCompactText =
+    displayedTab === 'todo'
+      ? compactText
+      : displayedTab === 'artifacts'
+        ? latestArtifact
+          ? `Latest: ${latestArtifact.filename} (#${latestArtifact.id})`
+          : 'No artifacts generated'
+        : latestTerminal
+          ? `${terminalStatusLabel(latestTerminal)} · ${latestTerminal.command}`
+          : 'No background terminal commands'
+
+  const handleOpenFile = (pathStr: string): void => {
     if (window.api?.openArtifactFile) {
       window.api.openArtifactFile(pathStr)
     }
   }
 
-  const handleOpenFolder = (pathStr: string) => {
+  const handleOpenFolder = (pathStr: string): void => {
     if (window.api?.showArtifactInFolder) {
       window.api.showArtifactInFolder(pathStr)
     }
   }
 
-  const statusIcon = (status: string, index: number) => {
+  const statusIcon = (status: string, index: number): React.ReactNode => {
     switch (status) {
       case 'done':
         return (
@@ -101,7 +157,7 @@ function TodoPanel({ todo, artifacts = [] }: TodoPanelProps): React.ReactElement
             title={isExpanded ? 'Click to collapse panel' : 'Click to expand panel'}
           >
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-primary/15 text-accent-primary shrink-0">
-              {activeTab === 'todo' ? (
+              {displayedTab === 'todo' ? (
                 workingTask ? (
                   <CircleNotch
                     size={15}
@@ -113,28 +169,32 @@ function TodoPanel({ todo, artifacts = [] }: TodoPanelProps): React.ReactElement
                 ) : (
                   <ListChecks size={15} className="text-accent-primary" weight="bold" />
                 )
-              ) : (
+              ) : displayedTab === 'artifacts' ? (
                 <FilePdf size={15} className="text-red-400" weight="bold" />
+              ) : latestTerminal?.awaitingInput ? (
+                <Terminal size={15} className="text-status-warning" weight="bold" />
+              ) : latestTerminal?.status === 'failed' ? (
+                <XCircle size={15} className="text-status-error" weight="fill" />
+              ) : latestTerminal?.status === 'completed' ? (
+                <CheckCircle size={15} className="text-status-success" weight="fill" />
+              ) : (
+                <CircleNotch size={15} className="animate-spin text-accent-primary" weight="bold" />
               )}
             </div>
 
             <div className="flex flex-col min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-text-primary tracking-wide">
-                  {activeTab === 'todo' ? 'AI Tasks' : 'Artifacts'}
+                  {panelTitle}
                 </span>
                 <span className="text-[10px] text-text-muted bg-white/[0.06] px-1.5 py-0.5 rounded-md font-mono">
-                  {activeTab === 'todo' ? `${doneCount}/${totalTasks}` : artifacts.length}
+                  {panelCount}
                 </span>
               </div>
 
               {!isExpanded && (
                 <p className="text-xs text-text-secondary truncate mt-0.5 font-medium leading-tight">
-                  {activeTab === 'todo'
-                    ? compactText
-                    : latestArtifact
-                      ? `Latest: ${latestArtifact.filename} (#${latestArtifact.id})`
-                      : 'No artifacts generated'}
+                  {panelCompactText}
                 </p>
               )}
             </div>
@@ -153,7 +213,7 @@ function TodoPanel({ todo, artifacts = [] }: TodoPanelProps): React.ReactElement
                   }}
                   className={clsx(
                     'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-all cursor-pointer',
-                    activeTab === 'todo'
+                    displayedTab === 'todo'
                       ? 'bg-accent-primary/20 text-accent-primary border border-accent-primary/30 shadow-sm'
                       : 'text-text-muted hover:text-text-primary'
                   )}
@@ -172,13 +232,34 @@ function TodoPanel({ todo, artifacts = [] }: TodoPanelProps): React.ReactElement
                   }}
                   className={clsx(
                     'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-all cursor-pointer',
-                    activeTab === 'artifacts'
+                    displayedTab === 'artifacts'
                       ? 'bg-accent-primary/20 text-accent-primary border border-accent-primary/30 shadow-sm'
                       : 'text-text-muted hover:text-text-primary'
                   )}
                 >
                   <FilePdf size={13} weight="bold" />
                   <span>Artifacts</span>
+                </button>
+              )}
+
+              {hasTerminal && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setActiveTab('terminal')
+                  }}
+                  className={clsx(
+                    'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-all cursor-pointer',
+                    displayedTab === 'terminal'
+                      ? 'bg-accent-primary/20 text-accent-primary border border-accent-primary/30 shadow-sm'
+                      : waitingTerminalCount > 0
+                        ? 'text-status-warning hover:text-text-primary'
+                        : 'text-text-muted hover:text-text-primary'
+                  )}
+                >
+                  <Terminal size={13} weight="bold" />
+                  <span>Terminal</span>
                 </button>
               )}
             </div>
@@ -201,7 +282,7 @@ function TodoPanel({ todo, artifacts = [] }: TodoPanelProps): React.ReactElement
         {isExpanded && (
           <div className="flex flex-col border-t border-white/[0.05] animate-fade-in">
             {/* TO-DO TAB CONTENT */}
-            {activeTab === 'todo' && hasTodo && (
+            {displayedTab === 'todo' && hasTodo && (
               <div className="flex flex-col">
                 {/* Full progress bar */}
                 <div className="w-full h-1 bg-white/[0.06] overflow-hidden">
@@ -247,7 +328,7 @@ function TodoPanel({ todo, artifacts = [] }: TodoPanelProps): React.ReactElement
             )}
 
             {/* ARTIFACTS TAB CONTENT */}
-            {activeTab === 'artifacts' && hasArtifacts && (
+            {displayedTab === 'artifacts' && hasArtifacts && (
               <div className="flex flex-col p-4">
                 <div className="flex flex-col gap-2 max-h-[35vh] overflow-y-auto no-scrollbar">
                   {artifacts.map((art) => (
@@ -305,6 +386,97 @@ function TodoPanel({ todo, artifacts = [] }: TodoPanelProps): React.ReactElement
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* TERMINAL TAB CONTENT */}
+            {displayedTab === 'terminal' && hasTerminal && (
+              <div className="flex flex-col p-4">
+                <div className="flex flex-col gap-2 max-h-[35vh] overflow-y-auto no-scrollbar">
+                  {[...terminalProcesses].reverse().map((process) => {
+                    const statusLabel = terminalStatusLabel(process)
+                    const isFailed = process.status === 'failed' || process.status === 'killed'
+                    return (
+                      <div
+                        key={process.runId}
+                        className={clsx(
+                          'flex items-start gap-3 rounded-xl border px-3.5 py-3 transition-all',
+                          process.awaitingInput
+                            ? 'border-status-warning/30 bg-status-warning/[0.06]'
+                            : isFailed
+                              ? 'border-status-error/25 bg-status-error/[0.05]'
+                              : process.status === 'completed'
+                                ? 'border-status-success/20 bg-status-success/[0.04]'
+                                : 'border-accent-primary/25 bg-accent-primary/[0.05]'
+                        )}
+                      >
+                        <div
+                          className={clsx(
+                            'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg',
+                            process.awaitingInput
+                              ? 'bg-status-warning/15 text-status-warning'
+                              : isFailed
+                                ? 'bg-status-error/15 text-status-error'
+                                : process.status === 'completed'
+                                  ? 'bg-status-success/15 text-status-success'
+                                  : 'bg-accent-primary/15 text-accent-primary'
+                          )}
+                        >
+                          {process.awaitingInput ? (
+                            <Terminal size={14} weight="bold" />
+                          ) : process.status === 'running' ? (
+                            <CircleNotch size={14} className="animate-spin" weight="bold" />
+                          ) : process.status === 'completed' ? (
+                            <CheckCircle size={14} weight="fill" />
+                          ) : (
+                            <XCircle size={14} weight="fill" />
+                          )}
+                        </div>
+
+                        <div className="flex min-w-0 flex-1 flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="min-w-0 flex-1 truncate font-mono text-xs font-medium text-text-primary select-text"
+                              title={process.command}
+                            >
+                              {process.command}
+                            </span>
+                            <span
+                              className={clsx(
+                                'shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold',
+                                process.awaitingInput
+                                  ? 'bg-status-warning/15 text-status-warning'
+                                  : isFailed
+                                    ? 'bg-status-error/15 text-status-error'
+                                    : process.status === 'completed'
+                                      ? 'bg-status-success/15 text-status-success'
+                                      : 'bg-accent-primary/15 text-accent-primary'
+                              )}
+                            >
+                              {statusLabel}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2 text-[10px] font-mono text-text-muted">
+                            <span>Run ID: {process.runId}</span>
+                            {process.exitCode !== null && (
+                              <span>Exit code: {process.exitCode}</span>
+                            )}
+                          </div>
+
+                          {process.awaitingInput && process.detectedPrompt && (
+                            <p
+                              className="truncate text-[11px] text-status-warning/90 select-text"
+                              title={process.detectedPrompt}
+                            >
+                              Prompt: {process.detectedPrompt}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}

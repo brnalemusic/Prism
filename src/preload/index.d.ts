@@ -10,7 +10,8 @@ import type {
   ApplicationInfo,
   FileSearchResult,
   SessionMode,
-  TodoState
+  TodoState,
+  TerminalProcessSnapshot
 } from '../shared/types'
 import type {
   DemoDownloadResult,
@@ -102,22 +103,14 @@ export interface PrismAPI {
   demoInstallDependency: (dependencyId: string) => Promise<DemoProcessResult>
   onDemoDependencyProgress: (callback: (data: DemoDependencyProgress) => void) => () => void
   onLauncherMessage: (
-    callback: (data: {
-      message: string
-      screenshot?: string
-      appMode?: string
-    }) => void
+    callback: (data: { message: string; screenshot?: string; appMode?: string }) => void
   ) => () => void
   onLauncherFocus: (callback: () => void) => () => void
   onModelChanged: (callback: (modelKey: string) => void) => () => void
   onConfigChanged: (callback: (config: AppConfig) => void) => () => void
   onChatSessionCreated: (callback: (data: { id: string }) => void) => () => void
   onChatTitleReceived: (callback: (data: { id: string; title: string }) => void) => () => void
-  submitLauncher: (data: {
-    message: string
-    screenshot?: string
-    appMode?: string
-  }) => void
+  submitLauncher: (data: { message: string; screenshot?: string; appMode?: string }) => void
   hideLauncher: () => void
   minimizeApp: () => void
   maximizeApp: () => void
@@ -190,13 +183,11 @@ export interface PrismAPI {
   onLauncherToolStart: (
     callback: (data: { callId: string; name: string; args: Record<string, unknown> }) => void
   ) => () => void
-  onLauncherToolEnd: (callback: (data: { callId: string; name: string; result: string }) => void) => () => void
+  onLauncherToolEnd: (
+    callback: (data: { callId: string; name: string; result: string }) => void
+  ) => () => void
   onOpenMainAppWithInstructions: (
-    callback: (data: {
-      instructions: string
-      model: string
-      searchEnabled?: boolean
-    }) => void
+    callback: (data: { instructions: string; model: string; searchEnabled?: boolean }) => void
   ) => () => void
   submitQuestionnaire: (data: {
     chatId: string
@@ -223,9 +214,16 @@ export interface PrismAPI {
   ) => () => void
   onAiSearchError: (callback: (data: { error: string }) => void) => () => void
   onAiSearchToolStart: (
-    callback: (data: { callId: string; name: string; args: Record<string, unknown>; timestamp?: number }) => void
+    callback: (data: {
+      callId: string
+      name: string
+      args: Record<string, unknown>
+      timestamp?: number
+    }) => void
   ) => () => void
-  onAiSearchToolEnd: (callback: (data: { callId: string; name: string; result: string }) => void) => () => void
+  onAiSearchToolEnd: (
+    callback: (data: { callId: string; name: string; result: string }) => void
+  ) => () => void
   getUpdaterState: () => Promise<any>
   downloadUpdate: () => void
   installUpdate: () => void
@@ -236,18 +234,47 @@ export interface PrismAPI {
   onTodoUpdate: (callback: (data: TodoState) => void) => () => void
   onTodoComplete: (callback: (data: { chatId: string }) => void) => () => void
   getTodoForChat: (chatId: string) => Promise<TodoState | null>
-  onArtifactsUpdate: (callback: (data: { chatId: string; artifacts: import('../shared/types').ArtifactItem[] }) => void) => () => void
+  onTerminalProcessUpdate: (callback: (data: TerminalProcessSnapshot) => void) => () => void
+  getTerminalProcessesForChat: (chatId: string) => Promise<TerminalProcessSnapshot[]>
+  onArtifactsUpdate: (
+    callback: (data: {
+      chatId: string
+      artifacts: import('../shared/types').ArtifactItem[]
+    }) => void
+  ) => () => void
   getArtifactsForChat: (chatId: string) => Promise<import('../shared/types').ArtifactItem[]>
   openArtifactFile: (filePath: string) => Promise<void>
   showArtifactInFolder: (filePath: string) => Promise<void>
   getProviders: () => Promise<import('../shared/types').ProviderConfig[]>
   saveProviders: (providers: import('../shared/types').ProviderConfig[]) => Promise<boolean>
   deleteProvider: (providerId: string) => Promise<boolean>
-  fetchProviderModels: (params: { baseUrl: string; apiKey: string; completionType: import('../shared/types').CompletionType }) => Promise<{ success: boolean; models: import('../shared/types').ProviderModel[]; error?: string }>
-  getActiveModels: () => Promise<Array<{ providerId: string; providerName: string; isProviderTrusted: boolean; model: import('../shared/types').ProviderModel; fullKey: string }>>
-  onToolCallDelta: (callback: (delta: import('../shared/types').StreamToolCallDelta & { chatId: string }) => void) => () => void
-  onBrowserAction: (callback: (action: import('../shared/types').BrowserAction) => void) => () => void
-  onBrowserExecCommand: (callback: (data: { requestId: string; command: any }) => void) => () => void
+  fetchProviderModels: (params: {
+    baseUrl: string
+    apiKey: string
+    completionType: import('../shared/types').CompletionType
+  }) => Promise<{
+    success: boolean
+    models: import('../shared/types').ProviderModel[]
+    error?: string
+  }>
+  getActiveModels: () => Promise<
+    Array<{
+      providerId: string
+      providerName: string
+      isProviderTrusted: boolean
+      model: import('../shared/types').ProviderModel
+      fullKey: string
+    }>
+  >
+  onToolCallDelta: (
+    callback: (delta: import('../shared/types').StreamToolCallDelta & { chatId: string }) => void
+  ) => () => void
+  onBrowserAction: (
+    callback: (action: import('../shared/types').BrowserAction) => void
+  ) => () => void
+  onBrowserExecCommand: (
+    callback: (data: { requestId: string; command: any }) => void
+  ) => () => void
   sendBrowserExecResult: (requestId: string, result: any) => void
   openBrowser: (url?: string) => Promise<string>
   openExternalUrl: (url: string) => Promise<import('../shared/types').OpenExternalUrlResult>
@@ -259,9 +286,7 @@ export interface PrismAPI {
   authBeginWebLogin: () => Promise<import('../shared/types').WebLoginBeginResult>
   authCancelWebLogin: () => Promise<boolean>
   authGetActivationStatus: () => Promise<import('../shared/types').ActivationStatusResult>
-  authActivateAccount: (
-    code: string
-  ) => Promise<import('../shared/types').AccountActivationResult>
+  authActivateAccount: (code: string) => Promise<import('../shared/types').AccountActivationResult>
   authLogout: () => Promise<boolean>
   getAuthUser: () => Promise<import('../shared/types').UserProfile | null>
   authResetPassword: (email: string) => Promise<{ success: boolean; error?: string }>
@@ -271,7 +296,9 @@ export interface PrismAPI {
   getUserAiUsage: () => Promise<import('../shared/types').UserAiUsageStatus | null>
   authRequestDeleteAccountEmail: (email: string) => Promise<{ success: boolean; error?: string }>
   authConfirmDeleteAccount: (otpCode: string) => Promise<{ success: boolean; error?: string }>
-  authConfirmDeleteAccountWithPassword: (password: string) => Promise<{ success: boolean; error?: string }>
+  authConfirmDeleteAccountWithPassword: (
+    password: string
+  ) => Promise<{ success: boolean; error?: string }>
   onAuthSessionUpdated: (
     callback: (user: import('../shared/types').UserProfile | null) => void
   ) => () => void

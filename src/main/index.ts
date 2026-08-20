@@ -53,14 +53,17 @@ import {
 } from './systemTools'
 import { asDataUrl } from './toolAttachments'
 
-import {
-  initAppScanner,
-  registerAppsUpdatedCallback,
-  forceRescan,
-  getAppsList
-} from './appScanner'
+import { initAppScanner, registerAppsUpdatedCallback, forceRescan, getAppsList } from './appScanner'
 import { loadConfig, saveConfig, AppConfig } from './config'
-import { activateLicenseKey, deactivateLicense, getLicenseInfo, startLicenseExpirationMonitor, syncLocalLicenseWithSupabase, revokeLocalLicenseFromSupabase, verifyLicenseKey } from './license'
+import {
+  activateLicenseKey,
+  deactivateLicense,
+  getLicenseInfo,
+  startLicenseExpirationMonitor,
+  syncLocalLicenseWithSupabase,
+  revokeLocalLicenseFromSupabase,
+  verifyLicenseKey
+} from './license'
 import { toolsManifest } from './toolsManifest'
 import { listChatSessions, loadChatSession, deleteChatSession, searchChatsOffline } from './history'
 import {
@@ -74,6 +77,7 @@ import {
 import type { ApplicationInfo } from '../shared/types'
 import { IS_DEMO } from '../shared/demo'
 import { safeSend } from './safeSend'
+import { getTerminalProcessesForChat } from './terminalProcessManager'
 
 if (process.platform === 'win32') {
   try {
@@ -234,7 +238,6 @@ function scheduleDiscordGatewayStart(): void {
   setTimeout(() => reconcileDiscordGateway(currentConfig), 0)
 }
 
-
 let tray: Tray | null = null
 let isQuitting = false
 let cachedApps: ApplicationInfo[] = []
@@ -296,11 +299,7 @@ function updateNativeIcons(): void {
     tray.setImage(appIcon.resize({ width: 16, height: 16 }))
   }
 
-  const windows = [
-    mainWindow,
-    launcherWindow,
-    ...miniAppWindows.values()
-  ]
+  const windows = [mainWindow, launcherWindow, ...miniAppWindows.values()]
 
   windows.forEach((window) => {
     if (window && !window.isDestroyed() && !appIcon.isEmpty()) {
@@ -539,7 +538,11 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.type === 'keyDown' && (input.control || input.meta) && input.key.toLowerCase() === 'w') {
+    if (
+      input.type === 'keyDown' &&
+      (input.control || input.meta) &&
+      input.key.toLowerCase() === 'w'
+    ) {
       event.preventDefault()
       safeSend(mainWindow, 'close-tab-shortcut')
     }
@@ -627,9 +630,7 @@ function createWindow(): void {
       const devOrigin = process.env['ELECTRON_RENDERER_URL']
         ? new URL(process.env['ELECTRON_RENDERER_URL']).origin
         : null
-      const isTrusted = is.dev
-        ? target.origin === devOrigin
-        : target.protocol === 'file:'
+      const isTrusted = is.dev ? target.origin === devOrigin : target.protocol === 'file:'
 
       if (!isTrusted) {
         event.preventDefault()
@@ -784,7 +785,9 @@ export function createVoiceOverlayWindowInstance(): void {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     voiceOverlayWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#voice-overlay`)
   } else {
-    voiceOverlayWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: 'voice-overlay' })
+    voiceOverlayWindow.loadFile(join(__dirname, '../renderer/index.html'), {
+      hash: 'voice-overlay'
+    })
   }
 }
 
@@ -891,7 +894,9 @@ async function processDeepLinkUrl(urlStr: string): Promise<void> {
 
 app.on('open-url', (event, urlStr) => {
   event.preventDefault()
-  processDeepLinkUrl(urlStr).catch((err) => console.error('[Auth] Failed to process open-url:', err))
+  processDeepLinkUrl(urlStr).catch((err) =>
+    console.error('[Auth] Failed to process open-url:', err)
+  )
 })
 
 const gotTheLock = app.requestSingleInstanceLock()
@@ -903,7 +908,9 @@ if (!gotTheLock) {
     console.log('Second instance event received')
     const deepLink = commandLine.find((arg) => arg.startsWith('prism://'))
     if (deepLink) {
-      processDeepLinkUrl(deepLink).catch((err) => console.error('[Auth] Failed to process deep link:', err))
+      processDeepLinkUrl(deepLink).catch((err) =>
+        console.error('[Auth] Failed to process deep link:', err)
+      )
     }
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
@@ -926,7 +933,9 @@ if (!gotTheLock) {
       ? process.argv.find((arg) => arg.startsWith('prism://'))
       : undefined
     if (initialDeepLink) {
-      processDeepLinkUrl(initialDeepLink).catch((err) => console.error('[Auth] Failed to process initial deep link:', err))
+      processDeepLinkUrl(initialDeepLink).catch((err) =>
+        console.error('[Auth] Failed to process initial deep link:', err)
+      )
     }
 
     if (!IS_DEMO) {
@@ -1050,7 +1059,9 @@ if (!gotTheLock) {
     ipcMain.on('voice-overlay-ready', () => {
       void import('./discordGateway')
         .then(({ replayVoiceOverlayState }) => replayVoiceOverlayState())
-        .catch((error) => console.error('[Discord Gateway] Failed to restore overlay state:', error))
+        .catch((error) =>
+          console.error('[Discord Gateway] Failed to restore overlay state:', error)
+        )
     })
 
     ipcMain.handle('search-chats-offline', (_event, query: string) => {
@@ -1072,6 +1083,10 @@ if (!gotTheLock) {
 
     ipcMain.handle('get-todo-for-chat', (_event, id: string) => {
       return getTodoForChat(id)
+    })
+
+    ipcMain.handle('get-terminal-processes-for-chat', (_event, id: string) => {
+      return getTerminalProcessesForChat(id)
     })
 
     ipcMain.handle('get-chat-model', (_event, id: string) => {
@@ -1307,9 +1322,12 @@ if (!gotTheLock) {
       return success
     })
 
-    ipcMain.handle('fetch-provider-models', async (_event, { baseUrl, apiKey, completionType }: any) => {
-      return await fetchModelsFromProvider(baseUrl, apiKey, completionType)
-    })
+    ipcMain.handle(
+      'fetch-provider-models',
+      async (_event, { baseUrl, apiKey, completionType }: any) => {
+        return await fetchModelsFromProvider(baseUrl, apiKey, completionType)
+      }
+    )
 
     ipcMain.handle('get-active-models', () => {
       return getActiveModels()
@@ -1354,7 +1372,8 @@ if (!gotTheLock) {
       if (!token && isUserAuthenticated()) {
         return {
           success: false,
-          error: 'Your Prism session could not be validated. Please check your connection and try again.'
+          error:
+            'Your Prism session could not be validated. Please check your connection and try again.'
         }
       }
 
@@ -1407,28 +1426,39 @@ if (!gotTheLock) {
     ipcMain.handle('create-checkout-session', async (_event, planId: string, email?: string) => {
       const token = await getAuthAccessToken()
       if (!token) {
-        return { success: false, error: 'Please sign in before purchasing an Enterprise subscription.' }
+        return {
+          success: false,
+          error: 'Please sign in before purchasing an Enterprise subscription.'
+        }
       }
       return await createStripeCheckoutSession(planId, email, token)
     })
 
-    ipcMain.handle('verify-and-activate-payment', async (_event, planId: string, sessionId: string, email: string, company?: string) => {
-      if (!sessionId) {
-        return { success: false, error: 'No Stripe session ID provided. Please complete checkout first.' }
+    ipcMain.handle(
+      'verify-and-activate-payment',
+      async (_event, planId: string, sessionId: string, email: string, company?: string) => {
+        if (!sessionId) {
+          return {
+            success: false,
+            error: 'No Stripe session ID provided. Please complete checkout first.'
+          }
+        }
+        const token = await getAuthAccessToken()
+        if (!token) {
+          return {
+            success: false,
+            error: 'Please sign in before verifying an Enterprise subscription.'
+          }
+        }
+        const res = await verifyAndActivatePayment(planId, sessionId, email, company, token)
+        if (res.success) {
+          currentConfig = loadConfig()
+          safeSend(mainWindow, 'config-changed', currentConfig)
+          safeSend(launcherWindow, 'config-changed', currentConfig)
+        }
+        return res
       }
-      const token = await getAuthAccessToken()
-      if (!token) {
-        return { success: false, error: 'Please sign in before verifying an Enterprise subscription.' }
-      }
-      const res = await verifyAndActivatePayment(planId, sessionId, email, company, token)
-      if (res.success) {
-        currentConfig = loadConfig()
-        safeSend(mainWindow, 'config-changed', currentConfig)
-        safeSend(launcherWindow, 'config-changed', currentConfig)
-      }
-      return res
-    })
-
+    )
 
     // Supabase Auth IPC Handlers (OAuth 2.1 Web Login & Activation)
     ipcMain.handle('auth-begin-web-login', async () => {
@@ -1524,7 +1554,6 @@ if (!gotTheLock) {
       safeSend(mainWindow, 'config-changed', currentConfig)
       safeSend(launcherWindow, 'config-changed', currentConfig)
     })
-
 
     ipcMain.on('update-config-from-tools', (_event, config: AppConfig) => {
       currentConfig = config

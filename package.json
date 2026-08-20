@@ -44,6 +44,7 @@
         "lightningcss": "^1.32.0",
         "lightningcss-win32-x64-msvc": "^1.32.0",
         "mime-types": "^3.0.2",
+        "node-pty": "^1.1.0",
         "openai": "^6.45.0",
         "opusscript": "^0.0.8",
         "pdf-parse": "^2.4.5",

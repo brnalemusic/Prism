@@ -19,7 +19,7 @@ module.exports = {
     '!electron-builder*.yml',
     '!electron-builder*.js'
   ],
-  asarUnpack: ['resources/**'],
+  asarUnpack: ['resources/**', 'node_modules/node-pty/**'],
   extraResources: [
     { from: 'resources/icon.ico', to: 'resources/icon.ico' },
     { from: 'resources/icon.png', to: 'resources/icon.png' },

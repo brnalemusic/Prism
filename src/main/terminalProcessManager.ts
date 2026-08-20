@@ -1,5 +1,9 @@
-import { spawn, type ChildProcess, type SpawnOptions } from 'child_process'
+import { spawn } from 'child_process'
 import { EventEmitter } from 'events'
+import type { IpcMainEvent } from 'electron'
+import * as pty from 'node-pty'
+import type { TerminalProcessSnapshot, TerminalProcessStatus } from '../shared/types'
+import { broadcastIpc, safeSend } from './safeSend'
 
 export interface KeyModifierOptions {
   ctrl?: boolean
@@ -17,16 +21,32 @@ export interface TerminalProcessSession {
   runId: string
   chatId: string
   command: string
-  child: ChildProcess
-  status: 'running' | 'completed' | 'failed' | 'killed'
+  process: pty.IPty
+  status: TerminalProcessStatus
   outputBuffer: string
+  outputTruncated: boolean
   exitCode: number | null
   error?: string
   startedAt: number
   completedAt: number | null
   isBackgrounded: boolean
-  notified: boolean
+  awaitingInput: boolean
+  detectedPrompt?: string
+  lastPromptFingerprint?: string
+  promptDetectionTimer?: NodeJS.Timeout
+  completionNotificationQueued: boolean
   eventEmitter: EventEmitter
+}
+
+export interface TerminalProcessNotification {
+  id: string
+  kind: 'input_requested' | 'completed'
+  runId: string
+  command: string
+  status: TerminalProcessStatus
+  exitCode: number | null
+  output: string
+  detectedPrompt?: string
 }
 
 export interface InitialExecutionResult {
@@ -38,20 +58,171 @@ export interface InitialExecutionResult {
 }
 
 const MAX_OUTPUT_BUFFER = 100_000
+const PROMPT_DEBOUNCE_MS = 350
+const PROMPT_CANDIDATE_LIMIT = 500
 const sessions = new Map<string, TerminalProcessSession>()
 const processEvents = new EventEmitter()
+const pendingNotifications = new Map<string, TerminalProcessNotification[]>()
 
 function stripAnsi(str: string): string {
-  return str.replace(
-    // eslint-disable-next-line no-control-regex
-    /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
-    ''
-  )
+  return str
+    .replace(
+      // eslint-disable-next-line no-control-regex
+      /\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g,
+      ''
+    )
+    .replace(
+      // eslint-disable-next-line no-control-regex
+      /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
+      ''
+    )
 }
 
-function truncateOutput(output: string): string {
-  if (output.length <= MAX_OUTPUT_BUFFER) return output
-  return output.substring(0, MAX_OUTPUT_BUFFER) + '\n\n... (Output truncated for performance)'
+function appendOutput(session: TerminalProcessSession, rawText: string): void {
+  const nextOutput = session.outputBuffer + rawText
+  if (nextOutput.length <= MAX_OUTPUT_BUFFER) {
+    session.outputBuffer = nextOutput
+    return
+  }
+
+  session.outputTruncated = true
+  session.outputBuffer = nextOutput.slice(-MAX_OUTPUT_BUFFER)
+}
+
+function getCleanOutput(session: TerminalProcessSession): string {
+  const cleanOutput = stripAnsi(session.outputBuffer)
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .trim()
+  if (!session.outputTruncated) return cleanOutput
+  return `[Earlier terminal output was truncated after ${MAX_OUTPUT_BUFFER} retained characters.]\n${cleanOutput}`
+}
+
+function createSnapshot(session: TerminalProcessSession): TerminalProcessSnapshot {
+  return {
+    runId: session.runId,
+    chatId: session.chatId,
+    command: session.command,
+    status: session.status,
+    exitCode: session.exitCode,
+    startedAt: session.startedAt,
+    completedAt: session.completedAt,
+    isBackgrounded: session.isBackgrounded,
+    awaitingInput: session.awaitingInput,
+    ...(session.detectedPrompt ? { detectedPrompt: session.detectedPrompt } : {}),
+    outputTruncated: session.outputTruncated
+  }
+}
+
+function publishSnapshot(session: TerminalProcessSession): void {
+  broadcastIpc('terminal-process-update', createSnapshot(session))
+}
+
+function enqueueNotification(chatId: string, notification: TerminalProcessNotification): void {
+  const pending = pendingNotifications.get(chatId) || []
+  pending.push(notification)
+  pendingNotifications.set(chatId, pending)
+  processEvents.emit('notification-pending', notification, chatId)
+}
+
+const PROMPT_WORD_PATTERN =
+  /(?:enter|input|password|passphrase|continue|select|choose|press|confirm|proceed|overwrite|retry|type|digite|informe|senha|continuar|selecione|escolha|pressione|confirme|prosseguir|sobrescrever|tentar|introduzca|ingrese|contrase(?:n|ñ)a|continuar|seleccione|elija|presione|confirme|saisissez|entrez|mot de passe|continuer|selectionnez|sélectionnez|choisissez|appuyez|confirmez|eingeben|passwort|fortfahren|auswahlen|auswählen|drucken|drücken|bestatigen|bestätigen|inserisci|password|continua|seleziona|scegli|premi|conferma)(?:\s+[^\r\n]{0,160})?\s*$/iu
+const DIRECT_PROMPT_PATTERN =
+  /^(?:please\s+)?(?:enter|input|type|password|passphrase|continue|select|choose|press|confirm|proceed|overwrite|retry|digite|informe|senha|continuar|selecione|escolha|pressione|confirme|prosseguir|sobrescrever|tentar|introduzca|ingrese|contrase(?:n|ñ)a|seleccione|elija|presione|confirme|saisissez|entrez|mot de passe|continuer|selectionnez|sélectionnez|choisissez|appuyez|confirmez|eingeben|passwort|fortfahren|auswahlen|auswählen|drucken|drücken|bestatigen|bestätigen|inserisci|continua|seleziona|scegli|premi|conferma)\b[^\r\n]{0,180}[?:]?\s*$/iu
+const MENU_INSTRUCTION_PATTERN =
+  /(?:use (?:the )?(?:arrow|up and down) keys|move with (?:the )?arrow keys|navigate with (?:the )?arrow keys|press (?:enter|return) to select|space to select|utilize as setas|use as setas|teclas de seta|flechas para|touches fléchées|pfeiltasten|tasti freccia)/iu
+const MENU_CURSOR_PATTERN = /^\s*(?:❯|›|»|●|○|◉|◯|▶|▷|>)\s+\S/u
+
+function detectPromptCandidate(output: string): string | null {
+  const cleanOutput = stripAnsi(output).replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const endsWithLineBreak = /\n\s*$/.test(cleanOutput)
+  const lines = cleanOutput.split('\n')
+  const nonEmptyLines = lines.filter((line) => line.trim().length > 0)
+  const candidate = (nonEmptyLines[nonEmptyLines.length - 1] || '').trim()
+  if (!candidate || candidate.length > PROMPT_CANDIDATE_LIMIT) return null
+
+  const recentBlock = nonEmptyLines.slice(-12).join('\n').slice(-PROMPT_CANDIDATE_LIMIT)
+  const hasMenuInstruction = MENU_INSTRUCTION_PATTERN.test(recentBlock)
+  const hasMenuCursor = nonEmptyLines.slice(-12).some((line) => MENU_CURSOR_PATTERN.test(line))
+  const hasMenuQuestion = nonEmptyLines
+    .slice(-12)
+    .some((line) => /(?:^|\s)\?\s*\S/u.test(line) || PROMPT_WORD_PATTERN.test(line.trim()))
+  if (hasMenuInstruction || (hasMenuCursor && hasMenuQuestion)) return recentBlock
+
+  const hasPromptPunctuation = /(?:\?|:|›|»|>)\s*$/u.test(candidate)
+  const hasChoiceMarker =
+    /(?:\[[^\]\r\n]{1,40}(?:\/|\|)[^\]\r\n]{1,40}\]|\([^()\r\n]{1,40}(?:\/|\|)[^()\r\n]{1,40}\))\s*[?:>]?\s*$/u.test(
+      candidate
+    )
+  const hasPromptWords = PROMPT_WORD_PATTERN.test(candidate)
+
+  if (hasChoiceMarker) return candidate
+  if (DIRECT_PROMPT_PATTERN.test(candidate)) return candidate
+  if (!endsWithLineBreak && (hasPromptPunctuation || hasPromptWords)) return candidate
+  return null
+}
+
+function markInputRequested(session: TerminalProcessSession, detectedPrompt: string): void {
+  if (session.status !== 'running' || session.awaitingInput) return
+
+  const fingerprint = `${detectedPrompt}\u0000${session.outputBuffer.length}`
+  if (session.lastPromptFingerprint === fingerprint) return
+
+  session.lastPromptFingerprint = fingerprint
+  session.awaitingInput = true
+  session.detectedPrompt = detectedPrompt
+  session.isBackgrounded = true
+
+  const notification: TerminalProcessNotification = {
+    id: `${session.runId}:input:${Date.now()}`,
+    kind: 'input_requested',
+    runId: session.runId,
+    command: session.command,
+    status: session.status,
+    exitCode: session.exitCode,
+    output: getCleanOutput(session) || '(No output produced yet).',
+    detectedPrompt
+  }
+
+  enqueueNotification(session.chatId, notification)
+  session.eventEmitter.emit('input-requested', notification)
+  processEvents.emit('input-requested', session, notification)
+  publishSnapshot(session)
+}
+
+function scheduleInputDetection(session: TerminalProcessSession): void {
+  if (session.status !== 'running' || session.awaitingInput) return
+  if (session.promptDetectionTimer) clearTimeout(session.promptDetectionTimer)
+
+  session.promptDetectionTimer = setTimeout(() => {
+    session.promptDetectionTimer = undefined
+    const candidate = detectPromptCandidate(session.outputBuffer)
+    if (candidate) markInputRequested(session, candidate)
+  }, PROMPT_DEBOUNCE_MS)
+}
+
+function markBackgrounded(session: TerminalProcessSession): void {
+  if (session.isBackgrounded) return
+  session.isBackgrounded = true
+  publishSnapshot(session)
+}
+
+function queueCompletionNotification(session: TerminalProcessSession): void {
+  if (!session.isBackgrounded || session.completionNotificationQueued) return
+  session.completionNotificationQueued = true
+  enqueueNotification(session.chatId, {
+    id: `${session.runId}:completed:${Date.now()}`,
+    kind: 'completed',
+    runId: session.runId,
+    command: session.command,
+    status: session.status,
+    exitCode: session.exitCode,
+    output:
+      getCleanOutput(session) ||
+      (session.status === 'completed'
+        ? 'Executed successfully (no output).'
+        : `Failed with exit code ${session.exitCode}.`)
+  })
 }
 
 /**
@@ -82,7 +253,10 @@ export function parseKeySequence(keyToken: string): string {
   if (!trimmed) return ''
 
   // Split by '+' or '-' to extract modifiers and base key
-  const parts = trimmed.split(/[-+]/).map((p) => p.trim()).filter(Boolean)
+  const parts = trimmed
+    .split(/[-+]/)
+    .map((p) => p.trim())
+    .filter(Boolean)
   if (parts.length === 0) return ''
 
   let ctrl = false
@@ -94,7 +268,12 @@ export function parseKeySequence(keyToken: string): string {
     const partLower = parts[i].toLowerCase()
     if (partLower === 'ctrl' || partLower === 'control') {
       ctrl = true
-    } else if (partLower === 'alt' || partLower === 'meta' || partLower === 'opt' || partLower === 'option') {
+    } else if (
+      partLower === 'alt' ||
+      partLower === 'meta' ||
+      partLower === 'opt' ||
+      partLower === 'option'
+    ) {
       alt = true
     } else if (partLower === 'shift') {
       shift = true
@@ -151,7 +330,7 @@ export function parseKeySequence(keyToken: string): string {
 
   // Control and Navigation Keys
   if (baseLower === 'enter' || baseLower === 'return') {
-    return alt ? '\x1b\r\n' : '\r\n'
+    return alt ? '\x1b\r' : '\r'
   }
   if (baseLower === 'tab') {
     if (shift) return '\x1b[Z'
@@ -190,9 +369,18 @@ export function parseKeySequence(keyToken: string): string {
   if (fMatch) {
     const fNum = parseInt(fMatch[1], 10)
     const fCodes: Record<number, string> = {
-      1: 'P', 2: 'Q', 3: 'R', 4: 'S',
-      5: '15~', 6: '17~', 7: '18~', 8: '19~',
-      9: '20~', 10: '21~', 11: '23~', 12: '24~'
+      1: 'P',
+      2: 'Q',
+      3: 'R',
+      4: 'S',
+      5: '15~',
+      6: '17~',
+      7: '18~',
+      8: '19~',
+      9: '20~',
+      10: '21~',
+      11: '23~',
+      12: '24~'
     }
     const code = fCodes[fNum]
     if (code) {
@@ -214,11 +402,11 @@ export interface SpawnTerminalOptions {
   cwd?: string
   apiKey?: string
   signal?: AbortSignal
-  event?: any
+  event?: IpcMainEvent
 }
 
 /**
- * Spawns a shell process with bidirectional standard streams and lifecycle tracking.
+ * Spawns a shell process inside a pseudoterminal with bidirectional lifecycle tracking.
  */
 export function spawnGuardedTerminalProcess(
   command: string,
@@ -241,15 +429,15 @@ export function spawnGuardedTerminalProcess(
   }
 
   let spawnArgs: string[] = []
-  let spawnFile = shellToUse
+  const spawnFile = shellToUse
 
   const lowerShell = shellToUse.toLowerCase()
   if (isWindows) {
     if (lowerShell.includes('powershell') || lowerShell.includes('pwsh')) {
       const utf8Prefix = `$OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; chcp 65001 | Out-Null; `
-      spawnArgs = ['-NoProfile', '-NonInteractive', '-Command', `${utf8Prefix}${command}`]
+      spawnArgs = ['-NoLogo', '-NoProfile', '-Command', `${utf8Prefix}${command}`]
     } else if (lowerShell.includes('cmd')) {
-      spawnArgs = ['/c', `chcp 65001 > nul & ${command}`]
+      spawnArgs = ['/d', '/s', '/c', `chcp 65001 > nul & ${command}`]
     } else if (lowerShell.includes('bash')) {
       spawnArgs = ['-c', command]
     } else {
@@ -259,68 +447,66 @@ export function spawnGuardedTerminalProcess(
     spawnArgs = ['-c', command]
   }
 
-  const spawnOptions: SpawnOptions = {
+  const terminalProcess = pty.spawn(spawnFile, spawnArgs, {
+    name: 'xterm-256color',
+    cols: 120,
+    rows: 30,
     cwd: options.cwd,
     env,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true
-  }
-
-  const child = spawn(spawnFile, spawnArgs, spawnOptions)
+    ...(isWindows ? { useConpty: true } : {})
+  })
   const eventEmitter = new EventEmitter()
 
   const session: TerminalProcessSession = {
     runId,
     chatId: options.chatId,
     command,
-    child,
+    process: terminalProcess,
     status: 'running',
     outputBuffer: '',
+    outputTruncated: false,
     exitCode: null,
     startedAt: Date.now(),
     completedAt: null,
     isBackgrounded: false,
-    notified: false,
+    awaitingInput: false,
+    completionNotificationQueued: false,
     eventEmitter
   }
 
   sessions.set(sessionKey, session)
 
-  const appendChunk = (chunk: Buffer | string): void => {
-    const rawText = chunk.toString()
-    session.outputBuffer = truncateOutput(session.outputBuffer + rawText)
+  const appendChunk = (rawText: string): void => {
+    appendOutput(session, rawText)
 
     if (options.event && options.chatId) {
-      try {
-        options.event.sender.send('chat-tool-update', {
-          toolCallName: 'execute_terminal_command',
-          update: { outputChunk: rawText, runId: session.runId },
-          chatId: options.chatId
-        })
-      } catch {}
+      safeSend(options.event.sender, 'chat-tool-update', {
+        toolCallName: 'execute_terminal_command',
+        update: { outputChunk: rawText, runId: session.runId },
+        chatId: options.chatId
+      })
     }
 
     eventEmitter.emit('data', rawText)
+    scheduleInputDetection(session)
   }
 
-  child.stdout?.on('data', appendChunk)
-  child.stderr?.on('data', appendChunk)
-
-  child.on('error', (err) => {
-    session.status = 'failed'
-    session.error = err.message
-    session.completedAt = Date.now()
-    eventEmitter.emit('error', err)
-    processEvents.emit('process-ended', session)
-  })
-
-  child.on('close', (code) => {
-    if (session.status !== 'killed') {
-      session.status = code === 0 ? 'completed' : 'failed'
-      session.exitCode = code
+  terminalProcess.onData(appendChunk)
+  terminalProcess.onExit(({ exitCode }) => {
+    if (session.promptDetectionTimer) {
+      clearTimeout(session.promptDetectionTimer)
+      session.promptDetectionTimer = undefined
     }
+    if (session.status !== 'killed') {
+      session.status = exitCode === 0 ? 'completed' : 'failed'
+    }
+    session.exitCode = exitCode
+    session.awaitingInput = false
+    session.detectedPrompt = undefined
     session.completedAt = Date.now()
-    eventEmitter.emit('close', code)
+    eventEmitter.emit('close', exitCode)
+    queueCompletionNotification(session)
+    publishSnapshot(session)
     processEvents.emit('process-ended', session)
   })
 
@@ -356,9 +542,9 @@ export async function executeTerminalWithInitialWait(
     const timeoutTimer = setTimeout(() => {
       if (resolved) return
       resolved = true
-      session.isBackgrounded = true
+      markBackgrounded(session)
 
-      const cleanOutput = stripAnsi(session.outputBuffer).trim()
+      const cleanOutput = getCleanOutput(session)
       const outputSnippet = cleanOutput
         ? `\n\nOutput so far:\n${cleanOutput}`
         : '\n\nOutput so far: (No output produced yet).'
@@ -376,13 +562,32 @@ export async function executeTerminalWithInitialWait(
       })
     }, initialTimeoutMs)
 
+    session.eventEmitter.once('input-requested', (notification: TerminalProcessNotification) => {
+      if (resolved) return
+      clearTimeout(timeoutTimer)
+      resolved = true
+
+      resolve({
+        completed: false,
+        runId: session.runId,
+        output:
+          `Terminal input is required. The command is still running in the background with Run ID: ${session.runId}.\n\n` +
+          `Detected prompt: ${notification.detectedPrompt || '(Prompt text unavailable).'}\n\n` +
+          `The complete output-so-far snapshot has been queued as a system notification. Use send_terminal_input to answer without asking the user unless their decision is genuinely required.`
+      })
+    })
+
     session.eventEmitter.once('close', (code) => {
       if (resolved) return
       clearTimeout(timeoutTimer)
       resolved = true
 
-      const cleanOutput = stripAnsi(session.outputBuffer).trim()
-      const finalOutput = cleanOutput || (code === 0 ? 'Command executed successfully (no output).' : `Command failed with exit code ${code}.`)
+      const cleanOutput = getCleanOutput(session)
+      const finalOutput =
+        cleanOutput ||
+        (code === 0
+          ? 'Command executed successfully (no output).'
+          : `Command failed with exit code ${code}.`)
 
       resolve({
         completed: true,
@@ -390,19 +595,6 @@ export async function executeTerminalWithInitialWait(
         output: finalOutput,
         exitCode: code,
         isError: code !== 0
-      })
-    })
-
-    session.eventEmitter.once('error', (err) => {
-      if (resolved) return
-      clearTimeout(timeoutTimer)
-      resolved = true
-
-      resolve({
-        completed: true,
-        runId: session.runId,
-        output: `Error executing command: ${err.message}`,
-        isError: true
       })
     })
   })
@@ -417,9 +609,10 @@ export function readTerminalOutput(runId: string, chatId?: string): string {
     return `Error: No terminal process found with Run ID "${runId}".`
   }
 
-  const cleanOutput = stripAnsi(targetSession.outputBuffer).trim()
+  const cleanOutput = getCleanOutput(targetSession)
   const statusStr = targetSession.status.toUpperCase()
-  const exitCodeStr = targetSession.exitCode !== null ? ` (Exit Code: ${targetSession.exitCode})` : ''
+  const exitCodeStr =
+    targetSession.exitCode !== null ? ` (Exit Code: ${targetSession.exitCode})` : ''
 
   return (
     `[Terminal Process Run ID: ${targetSession.runId} | Status: ${statusStr}${exitCodeStr}]\n` +
@@ -444,10 +637,6 @@ export async function sendTerminalInput(
     return `Error: Terminal process with Run ID "${runId}" is not running (Current status: ${targetSession.status}).`
   }
 
-  if (!targetSession.child.stdin || targetSession.child.stdin.destroyed) {
-    return `Error: Standard input (stdin) for Run ID "${runId}" is not writable.`
-  }
-
   let payload = ''
 
   // 1. Process simulated key sequence if provided
@@ -462,7 +651,7 @@ export async function sendTerminalInput(
     payload += options.input
     const shouldPressEnter = options.pressEnter !== false
     if (shouldPressEnter && !payload.endsWith('\n') && !payload.endsWith('\r')) {
-      payload += '\n'
+      payload += '\r'
     }
   }
 
@@ -470,10 +659,13 @@ export async function sendTerminalInput(
     return `Error: No input text or key sequence was specified.`
   }
 
-  const initialBufferLength = targetSession.outputBuffer.length
+  const initialBuffer = targetSession.outputBuffer
+  targetSession.awaitingInput = false
+  targetSession.detectedPrompt = undefined
+  publishSnapshot(targetSession)
 
   try {
-    targetSession.child.stdin.write(payload)
+    targetSession.process.write(payload)
   } catch (err) {
     return `Error writing to stdin: ${err instanceof Error ? err.message : String(err)}`
   }
@@ -481,13 +673,17 @@ export async function sendTerminalInput(
   // Wait a short window (1.5s) to capture immediate response from the terminal
   await new Promise((r) => setTimeout(r, 1500))
 
-  const newOutput = targetSession.outputBuffer.substring(initialBufferLength)
-  const cleanNewOutput = stripAnsi(newOutput).trim()
+  const newOutput = targetSession.outputBuffer.startsWith(initialBuffer)
+    ? targetSession.outputBuffer.slice(initialBuffer.length)
+    : targetSession.outputBuffer
+  const cleanNewOutput = stripAnsi(newOutput).replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
   const statusStr = targetSession.status.toUpperCase()
 
   return (
     `Input sent successfully to Run ID ${targetSession.runId} (Status: ${statusStr}).\n` +
-    (cleanNewOutput ? `New terminal output:\n${cleanNewOutput}` : `(No new output produced after input).`)
+    (cleanNewOutput
+      ? `New terminal output:\n${cleanNewOutput}`
+      : `(No new output produced after input).`)
   )
 }
 
@@ -506,10 +702,15 @@ export function killTerminalProcess(runId: string, chatId?: string): string {
 
   try {
     targetSession.status = 'killed'
-    if (process.platform === 'win32' && targetSession.child.pid) {
-      spawn('taskkill', ['/pid', targetSession.child.pid.toString(), '/T', '/F'])
+    targetSession.awaitingInput = false
+    targetSession.detectedPrompt = undefined
+    publishSnapshot(targetSession)
+    if (process.platform === 'win32' && targetSession.process.pid) {
+      spawn('taskkill', ['/pid', targetSession.process.pid.toString(), '/T', '/F'], {
+        windowsHide: true
+      })
     } else {
-      targetSession.child.kill('SIGTERM')
+      targetSession.process.kill()
     }
     return `Successfully terminated terminal process with Run ID "${runId}".`
   } catch (err) {
@@ -518,44 +719,29 @@ export function killTerminalProcess(runId: string, chatId?: string): string {
 }
 
 /**
- * Returns pending background process completion notifications for a given chat.
- * Marks them as notified so they are not delivered more than once.
+ * Drains queued terminal input/completion notifications for a chat.
  */
-export function getPendingProcessNotifications(chatId: string): Array<{
-  runId: string
-  command: string
-  status: string
-  exitCode: number | null
-  output: string
-}> {
-  const results: Array<{
-    runId: string
-    command: string
-    status: string
-    exitCode: number | null
-    output: string
-  }> = []
+export function getPendingProcessNotifications(chatId: string): TerminalProcessNotification[] {
+  const pending = pendingNotifications.get(chatId) || []
+  pendingNotifications.delete(chatId)
+  return pending
+}
 
-  for (const session of sessions.values()) {
-    if (
-      session.chatId === chatId &&
-      session.isBackgrounded &&
-      !session.notified &&
-      (session.status === 'completed' || session.status === 'failed' || session.status === 'killed')
-    ) {
-      session.notified = true
-      const cleanOutput = stripAnsi(session.outputBuffer).trim()
-      results.push({
-        runId: session.runId,
-        command: session.command,
-        status: session.status,
-        exitCode: session.exitCode,
-        output: cleanOutput || (session.status === 'completed' ? 'Executed successfully (no output).' : `Failed with exit code ${session.exitCode}.`)
-      })
-    }
+export function getTerminalProcessesForChat(chatId: string): TerminalProcessSnapshot[] {
+  return Array.from(sessions.values())
+    .filter((session) => session.chatId === chatId && session.isBackgrounded)
+    .sort((left, right) => left.startedAt - right.startedAt)
+    .map(createSnapshot)
+}
+
+export function onTerminalNotificationPending(
+  callback: (chatId: string, notification: TerminalProcessNotification) => void
+): () => void {
+  const handler = (notification: TerminalProcessNotification, chatId: string): void => {
+    callback(chatId, notification)
   }
-
-  return results
+  processEvents.on('notification-pending', handler)
+  return () => processEvents.off('notification-pending', handler)
 }
 
 /**
@@ -565,7 +751,7 @@ export function onBackgroundProcessEnded(
   callback: (session: TerminalProcessSession) => void
 ): () => void {
   const handler = (session: TerminalProcessSession): void => {
-    if (session.isBackgrounded && !session.notified) {
+    if (session.isBackgrounded) {
       callback(session)
     }
   }

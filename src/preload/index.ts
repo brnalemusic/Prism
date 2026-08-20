@@ -10,7 +10,8 @@ import type {
   FileSearchResult,
   SessionMode,
   TodoState,
-  AttachedFile
+  AttachedFile,
+  TerminalProcessSnapshot
 } from '../shared/types'
 import type { ChatSession } from '../main/history'
 import type {
@@ -22,7 +23,6 @@ import type {
   DemoDependencyProgress
 } from '../shared/demo'
 import mime from 'mime-types'
-
 
 // Initialize Zoom Factor
 const DEFAULT_ZOOM = 1.0
@@ -81,11 +81,7 @@ window.addEventListener('keydown', (event) => {
     keyCode === 107
 
   const isMinus =
-    key === '-' ||
-    key === '_' ||
-    code === 'Minus' ||
-    code === 'NumpadSubtract' ||
-    keyCode === 109
+    key === '-' || key === '_' || code === 'Minus' || code === 'NumpadSubtract' || keyCode === 109
 
   const isZero =
     key === '0' || code === 'Digit0' || code === 'Numpad0' || keyCode === 48 || keyCode === 96
@@ -192,7 +188,13 @@ const api = {
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { callId: string; name: string; args: Record<string, unknown>; timestamp?: number; chatId: string }
+      data: {
+        callId: string
+        name: string
+        args: Record<string, unknown>
+        timestamp?: number
+        chatId: string
+      }
     ): void => callback(data)
     ipcRenderer.on('chat-tool-start', listener)
     return () => ipcRenderer.removeListener('chat-tool-start', listener)
@@ -223,8 +225,10 @@ const api = {
   onDiscordVoiceSpeaking: (
     callback: (data: { chatId: string; speaking: boolean }) => void
   ): (() => void) => {
-    const listener = (_event: IpcRendererEvent, data: { chatId: string; speaking: boolean }): void =>
-      callback(data)
+    const listener = (
+      _event: IpcRendererEvent,
+      data: { chatId: string; speaking: boolean }
+    ): void => callback(data)
     ipcRenderer.on('discord-voice-speaking', listener)
     return () => ipcRenderer.removeListener('discord-voice-speaking', listener)
   },
@@ -278,11 +282,7 @@ const api = {
     return () => ipcRenderer.removeListener('demo-dependency-progress', listener)
   },
   onLauncherMessage: (
-    callback: (data: {
-      message: string
-      screenshot?: string
-      appMode?: string
-    }) => void
+    callback: (data: { message: string; screenshot?: string; appMode?: string }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
@@ -317,11 +317,8 @@ const api = {
     ipcRenderer.on('chat-title-received', listener)
     return () => ipcRenderer.removeListener('chat-title-received', listener)
   },
-  submitLauncher: (data: {
-    message: string
-    screenshot?: string
-    appMode?: string
-  }): void => ipcRenderer.send('launcher-submit', data),
+  submitLauncher: (data: { message: string; screenshot?: string; appMode?: string }): void =>
+    ipcRenderer.send('launcher-submit', data),
   hideLauncher: (): void => ipcRenderer.send('hide-launcher'),
   minimizeApp: (): void => ipcRenderer.send('minimize-app'),
   maximizeApp: (): void => ipcRenderer.send('maximize-app'),
@@ -358,7 +355,8 @@ const api = {
   captureWindow: (sourceId: string): Promise<string> =>
     ipcRenderer.invoke('capture-window', sourceId),
   getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('get-config'),
-  saveConfig: (config: Partial<AppConfig>): Promise<boolean> => ipcRenderer.invoke('save-config', config),
+  saveConfig: (config: Partial<AppConfig>): Promise<boolean> =>
+    ipcRenderer.invoke('save-config', config),
   selectFolder: (): Promise<string | null> => ipcRenderer.invoke('select-folder'),
   setSessionMode: (mode: SessionMode, disciplinePath?: string): void =>
     ipcRenderer.send('set-session-mode', { mode, disciplinePath }),
@@ -373,7 +371,8 @@ const api = {
   getChats: (): Promise<Omit<ChatSession, 'messages'>[]> => ipcRenderer.invoke('get-chats'),
   loadChat: (id: string): Promise<any[]> => ipcRenderer.invoke('load-chat', id),
   isChatRunning: (id: string): Promise<boolean> => ipcRenderer.invoke('is-chat-running', id),
-  getChatModel: (id: string): Promise<string | undefined> => ipcRenderer.invoke('get-chat-model', id),
+  getChatModel: (id: string): Promise<string | undefined> =>
+    ipcRenderer.invoke('get-chat-model', id),
   deleteChat: (id: string): Promise<boolean> => ipcRenderer.invoke('delete-chat', id),
   getRunningChats: (): Promise<string[]> => ipcRenderer.invoke('get-running-chats'),
   setThinkMode: (val: boolean): void => ipcRenderer.send('set-think-mode', val),
@@ -414,6 +413,7 @@ const api = {
     ipcRenderer.removeAllListeners('window-maximized-change')
     ipcRenderer.removeAllListeners('chat-todo-update')
     ipcRenderer.removeAllListeners('chat-todo-complete')
+    ipcRenderer.removeAllListeners('terminal-process-update')
     ipcRenderer.removeAllListeners('browser-action')
   },
 
@@ -502,18 +502,18 @@ const api = {
     ipcRenderer.on('launcher-tool-start', listener)
     return () => ipcRenderer.removeListener('launcher-tool-start', listener)
   },
-  onLauncherToolEnd: (callback: (data: { callId: string; name: string; result: string }) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, data: { callId: string; name: string; result: string }): void =>
-      callback(data)
+  onLauncherToolEnd: (
+    callback: (data: { callId: string; name: string; result: string }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: { callId: string; name: string; result: string }
+    ): void => callback(data)
     ipcRenderer.on('launcher-tool-end', listener)
     return () => ipcRenderer.removeListener('launcher-tool-end', listener)
   },
   onOpenMainAppWithInstructions: (
-    callback: (data: {
-      instructions: string
-      model: string
-      searchEnabled?: boolean
-    }) => void
+    callback: (data: { instructions: string; model: string; searchEnabled?: boolean }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
@@ -584,7 +584,12 @@ const api = {
     return () => ipcRenderer.removeListener('ai-search-reply-error', listener)
   },
   onAiSearchToolStart: (
-    callback: (data: { callId: string; name: string; args: Record<string, unknown>; timestamp?: number }) => void
+    callback: (data: {
+      callId: string
+      name: string
+      args: Record<string, unknown>
+      timestamp?: number
+    }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
@@ -593,9 +598,13 @@ const api = {
     ipcRenderer.on('ai-search-tool-start', listener)
     return () => ipcRenderer.removeListener('ai-search-tool-start', listener)
   },
-  onAiSearchToolEnd: (callback: (data: { callId: string; name: string; result: string }) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, data: { callId: string; name: string; result: string }): void =>
-      callback(data)
+  onAiSearchToolEnd: (
+    callback: (data: { callId: string; name: string; result: string }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: { callId: string; name: string; result: string }
+    ): void => callback(data)
     ipcRenderer.on('ai-search-tool-end', listener)
     return () => ipcRenderer.removeListener('ai-search-tool-end', listener)
   },
@@ -637,8 +646,20 @@ const api = {
   getTodoForChat: (chatId: string): Promise<TodoState | null> => {
     return ipcRenderer.invoke('get-todo-for-chat', chatId)
   },
+  onTerminalProcessUpdate: (callback: (data: TerminalProcessSnapshot) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: TerminalProcessSnapshot): void =>
+      callback(data)
+    ipcRenderer.on('terminal-process-update', listener)
+    return () => ipcRenderer.removeListener('terminal-process-update', listener)
+  },
+  getTerminalProcessesForChat: (chatId: string): Promise<TerminalProcessSnapshot[]> => {
+    return ipcRenderer.invoke('get-terminal-processes-for-chat', chatId)
+  },
   onArtifactsUpdate: (
-    callback: (data: { chatId: string; artifacts: import('../shared/types').ArtifactItem[] }) => void
+    callback: (data: {
+      chatId: string
+      artifacts: import('../shared/types').ArtifactItem[]
+    }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
@@ -676,13 +697,19 @@ const api = {
     ipcRenderer.on('chat-tool-call-delta', listener)
     return () => ipcRenderer.removeListener('chat-tool-call-delta', listener)
   },
-  onBrowserAction: (callback: (action: import('../shared/types').BrowserAction) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, action: import('../shared/types').BrowserAction): void =>
-      callback(action)
+  onBrowserAction: (
+    callback: (action: import('../shared/types').BrowserAction) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      action: import('../shared/types').BrowserAction
+    ): void => callback(action)
     ipcRenderer.on('browser-action', listener)
     return () => ipcRenderer.removeListener('browser-action', listener)
   },
-  onBrowserExecCommand: (callback: (data: { requestId: string; command: any }) => void): (() => void) => {
+  onBrowserExecCommand: (
+    callback: (data: { requestId: string; command: any }) => void
+  ): (() => void) => {
     const listener = (_event: IpcRendererEvent, data: { requestId: string; command: any }): void =>
       callback(data)
     ipcRenderer.on('browser-exec-command', listener)
@@ -706,9 +733,7 @@ const api = {
   authCancelWebLogin: (): Promise<boolean> => ipcRenderer.invoke('auth-cancel-web-login'),
   authGetActivationStatus: (): Promise<import('../shared/types').ActivationStatusResult> =>
     ipcRenderer.invoke('auth-get-activation-status'),
-  authActivateAccount: (
-    code: string
-  ): Promise<import('../shared/types').AccountActivationResult> =>
+  authActivateAccount: (code: string): Promise<import('../shared/types').AccountActivationResult> =>
     ipcRenderer.invoke('auth-activate-account', code),
   authLogout: (): Promise<boolean> => ipcRenderer.invoke('auth-logout'),
   getAuthUser: (): Promise<import('../shared/types').UserProfile | null> =>
@@ -717,14 +742,17 @@ const api = {
     ipcRenderer.invoke('auth-reset-password', email),
   authUpdateProfile: (
     updates: Partial<import('../shared/types').UserProfile>
-  ): Promise<import('../shared/types').AuthResponse> => ipcRenderer.invoke('auth-update-profile', updates),
+  ): Promise<import('../shared/types').AuthResponse> =>
+    ipcRenderer.invoke('auth-update-profile', updates),
   getUserAiUsage: (): Promise<import('../shared/types').UserAiUsageStatus | null> =>
     ipcRenderer.invoke('auth-get-ai-usage'),
   authRequestDeleteAccountEmail: (email: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('auth-request-delete-email', email),
   authConfirmDeleteAccount: (otpCode: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('auth-confirm-delete-account', otpCode),
-  authConfirmDeleteAccountWithPassword: (password: string): Promise<{ success: boolean; error?: string }> =>
+  authConfirmDeleteAccountWithPassword: (
+    password: string
+  ): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('auth-confirm-delete-password', password),
   onAuthSessionUpdated: (
     callback: (user: import('../shared/types').UserProfile | null) => void

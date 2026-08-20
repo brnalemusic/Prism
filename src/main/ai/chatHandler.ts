@@ -16,12 +16,11 @@ import { ActiveRun, OpenAiMessage, OpenAiToolDefinition } from './types'
 import { safeSend, broadcastIpc } from '../safeSend'
 import { getOpenAiToolDefinitions } from '../toolRuntime'
 import { normalizePrismThinkingLevel } from './prismThinking'
-import { runToolOrchestration } from './toolOrchestrator'
+import { createTerminalNotificationMessage, runToolOrchestration } from './toolOrchestrator'
 import { markConnectionActive } from '../connection'
 import {
   getPendingProcessNotifications,
-  onBackgroundProcessEnded,
-  type TerminalProcessSession
+  onTerminalNotificationPending
 } from '../terminalProcessManager'
 
 export const activeRuns = new Map<string, ActiveRun>()
@@ -294,7 +293,12 @@ export async function handleChatMessage(
       let tools =
         currentSessionMode === 'conversation'
           ? []
-          : getNativeToolsForOpenAi('main', matchedWorkflow?.toolConstraints, chatId, disabledSkills)
+          : getNativeToolsForOpenAi(
+              'main',
+              matchedWorkflow?.toolConstraints,
+              chatId,
+              disabledSkills
+            )
       if (isForceSearch) {
         const allTools = getNativeToolsForOpenAi('main', undefined, chatId, disabledSkills)
         const searchTools = allTools.filter((t) =>
@@ -446,6 +450,7 @@ export async function handleChatMessage(
     }
   } finally {
     activeRuns.delete(chatId)
+    setImmediate(() => void wakeUpChatFromPendingTerminalNotifications(chatId))
   }
 }
 
@@ -510,33 +515,24 @@ async function generateTitleInBackground(
   }
 }
 
-function stripAnsi(str: string): string {
-  return str.replace(
-    // eslint-disable-next-line no-control-regex
-    /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
-    ''
-  )
-}
-
-async function wakeUpChatFromBackground(session: TerminalProcessSession): Promise<void> {
-  const chatId = session.chatId
+async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promise<void> {
   if (!chatId || activeRuns.has(chatId)) return
 
   const chatSession = loadChatSession(chatId)
   if (!chatSession || !chatSession.messages || chatSession.messages.length === 0) return
 
-  session.notified = true
+  const selectedModel = chatSession.model || currentSelectedChatModel
+  const { provider, model } = resolveProviderAndModel(selectedModel)
+  if (!provider || !provider.apiKey || !model) return
 
-  const cleanOutput = stripAnsi(session.outputBuffer).trim()
-  const notifMsg: OpenAiMessage = {
-    role: 'user',
-    content: `[SYSTEM NOTIFICATION: Background terminal command (Run ID: ${session.runId}, Command: "${session.command}") finished with status "${session.status}" (Exit Code: ${session.exitCode ?? 'N/A'}). Output:\n${cleanOutput || '(No output produced).'}]`,
-    isSystemNotification: true,
-    hidden: true
-  }
-
+  const pendingNotifications = getPendingProcessNotifications(chatId)
+  if (pendingNotifications.length === 0) return
   const historyMessages = hydrateHistoryToolAttachments(chatId, chatSession.messages)
-  historyMessages.push(prepareHistoryMessage(chatId, notifMsg))
+  for (const notification of pendingNotifications) {
+    historyMessages.push(
+      prepareHistoryMessage(chatId, createTerminalNotificationMessage(notification))
+    )
+  }
   saveChatSession(
     chatId,
     historyMessages,
@@ -545,10 +541,6 @@ async function wakeUpChatFromBackground(session: TerminalProcessSession): Promis
     chatSession.disciplinePath,
     chatSession.model
   )
-
-  const selectedModel = chatSession.model || currentSelectedChatModel
-  const { provider, model } = resolveProviderAndModel(selectedModel)
-  if (!provider || !provider.apiKey || !model) return
 
   markConnectionActive()
 
@@ -734,10 +726,13 @@ async function wakeUpChatFromBackground(session: TerminalProcessSession): Promis
     }
   } finally {
     activeRuns.delete(chatId)
+    setImmediate(() => void wakeUpChatFromPendingTerminalNotifications(chatId))
   }
 }
 
-// Global listener for background terminal processes completion
-onBackgroundProcessEnded((session) => {
-  wakeUpChatFromBackground(session)
+// Wake an idle chat immediately; active chats drain the queue between tool rounds.
+onTerminalNotificationPending((chatId) => {
+  if (!activeRuns.has(chatId)) {
+    void wakeUpChatFromPendingTerminalNotifications(chatId)
+  }
 })
