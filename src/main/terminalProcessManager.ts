@@ -227,9 +227,14 @@ export function spawnGuardedTerminalProcess(
   const isWindows = process.platform === 'win32'
   const shellToUse = options.shell || (isWindows ? 'powershell.exe' : '/bin/sh')
   const runId = generateRunId(options.chatId)
-  const sessionKey = getSessionKey(options.chatId, runId)
-
-  const env = { ...process.env }
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    PYTHONIOENCODING: 'utf-8',
+    PYTHONUTF8: '1',
+    PYTHONLEGACYWINDOWSSTDIO: '0',
+    LANG: 'en_US.UTF-8',
+    LC_ALL: 'en_US.UTF-8'
+  }
   if (options.apiKey) {
     env.GEMINI_API_KEY = options.apiKey
   }
