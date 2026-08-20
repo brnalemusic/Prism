@@ -2041,6 +2041,10 @@ function RealApp(): React.JSX.Element {
 
         // 3. User Message
         if (role === 'user') {
+          if (c.hidden || c.isSystemNotification || rawText.startsWith('[SYSTEM NOTIFICATION:')) {
+            continue
+          }
+
           const displayText = rawText
             .replace(/^\[FORCE_SEARCH\]\s*/i, '')
             .replace(/<attached_file[^>]*\/>/gi, '')

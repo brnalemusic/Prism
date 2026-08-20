@@ -47,12 +47,21 @@ export interface ToolOrchestrationResult {
   executedTools: ExecutedToolCall[]
 }
 
+export interface BackgroundProcessNotification {
+  runId: string
+  command: string
+  status: string
+  exitCode: number | null
+  output: string
+}
+
 export interface ToolOrchestratorOptions {
   provider: ProviderConfig
   modelId: string
   messages: OpenAiMessage[]
   tools: OpenAiToolDefinition[]
   getToolsForRound?: () => OpenAiToolDefinition[]
+  getPendingNotifications?: () => BackgroundProcessNotification[]
   signal: AbortSignal
   reasoningLevel?: string
   maxRounds?: number
@@ -214,6 +223,21 @@ export async function runToolOrchestration(
 
   for (let round = 1; round <= maxRounds; round++) {
     abortIfNeeded(options.signal)
+
+    if (options.getPendingNotifications) {
+      const pending = options.getPendingNotifications()
+      for (const notif of pending) {
+        const notifMsg: OpenAiMessage = {
+          role: 'user',
+          content: `[SYSTEM NOTIFICATION: Background terminal command (Run ID: ${notif.runId}, Command: "${notif.command}") finished with status "${notif.status}" (Exit Code: ${notif.exitCode ?? 'N/A'}). Output:\n${notif.output}]`,
+          isSystemNotification: true,
+          hidden: true
+        }
+        options.messages.push(notifMsg)
+        options.onHistoryMessage?.(notifMsg)
+      }
+    }
+
     const currentTools = options.getToolsForRound ? options.getToolsForRound() : options.tools
     const streamed = await streamRound(round, false, options.messages, currentTools)
     accumulatedText = joinOutput(accumulatedText, streamed.result.text)

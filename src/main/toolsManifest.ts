@@ -71,6 +71,33 @@ export const toolsManifest: ToolDefinition[] = [
     ['command']
   ),
   tool(
+    'read_terminal_output',
+    'Read the accumulated terminal output so far for a background or interactive terminal command using its six-digit Run ID.',
+    { runId: stringSchema('Six-digit Run ID of the terminal process.') },
+    ['runId']
+  ),
+  tool(
+    'send_terminal_input',
+    'Send input text and/or simulated keyboard key combinations (such as Arrow keys, Enter, Ctrl+B, Shift+Alt+L, etc.) to the standard input (stdin) of a running terminal command.',
+    {
+      runId: stringSchema('Six-digit Run ID of the terminal process.'),
+      input: stringSchema('Optional text to write to stdin. Confirmed with Enter automatically by default.'),
+      keys: {
+        type: 'array',
+        description: 'Optional list of key names or modifier combinations to press in order, e.g. ["ArrowUp", "ArrowUp", "Enter"], ["Ctrl+B"], ["Shift+Alt+L"], ["Tab"], ["Escape"], ["Ctrl+C"].',
+        items: stringSchema('Key name or combo string.')
+      },
+      pressEnter: booleanSchema('Whether to automatically confirm input text with Enter/newline. Default is true.', true)
+    },
+    ['runId']
+  ),
+  tool(
+    'kill_terminal_process',
+    'Terminate/kill a running background terminal command using its six-digit Run ID.',
+    { runId: stringSchema('Six-digit Run ID of the terminal process to terminate.') },
+    ['runId']
+  ),
+  tool(
     'computer_use_create_file',
     'Create a new file. Fails if the file already exists.',
     { path: pathArg, content: contentArg },
@@ -137,7 +164,7 @@ export const toolsManifest: ToolDefinition[] = [
   ),
   tool(
     'computer_use_read_file',
-    'Read a bounded line range from a UTF-8 text file.',
+    'Read a bounded line range from a text file, or extract and read structured text from PDF (.pdf), PowerPoint (.pptx), and Word (.docx) documents.',
     {
       path: pathArg,
       startLine: integerSchema('First line to read, using one-based indexing.', {

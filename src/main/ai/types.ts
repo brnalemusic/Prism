@@ -86,6 +86,8 @@ export interface OpenAiMessage {
   }
   reasoning_content?: string
   thinking_duration?: number
+  isSystemNotification?: boolean
+  hidden?: boolean
   provider_metadata?: {
     gemini?: {
       content: GeminiContentData

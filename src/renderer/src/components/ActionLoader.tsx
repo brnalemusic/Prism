@@ -28,6 +28,9 @@ const TOOL_LABELS: Record<string, string> = {
   read_skill: 'Reading skill',
   execute_terminal_command: 'Running terminal command',
   run_command: 'Running terminal command',
+  read_terminal_output: 'Reading terminal output',
+  send_terminal_input: 'Sending terminal input',
+  kill_terminal_process: 'Stopping terminal process',
   create_mini_app: 'Creating mini app',
   write_pdf: 'Creating PDF',
   edit_pdf: 'Updating PDF artifact',
@@ -400,6 +403,19 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
   } else if (toolCall.name === 'execute_terminal_command' || toolCall.name === 'run_command') {
     displayTitle = 'Terminal'
     displayDetail = getStringArg(toolCall.args, 'command') || getStringArg(toolCall.args, 'CommandLine') || 'Running command.'
+  } else if (toolCall.name === 'read_terminal_output') {
+    displayTitle = 'Terminal Output'
+    displayDetail = `Reading Run ID: ${getStringArg(toolCall.args, 'runId') || '...'}`
+  } else if (toolCall.name === 'send_terminal_input') {
+    const keys = Array.isArray(toolCall.args.keys) ? (toolCall.args.keys as string[]).join(', ') : ''
+    const input = getStringArg(toolCall.args, 'input')
+    displayTitle = keys ? 'Terminal Keypress' : 'Terminal Input'
+    displayDetail = keys
+      ? `Keys: [${keys}] (Run ID: ${getStringArg(toolCall.args, 'runId')})`
+      : `"${input}" (Run ID: ${getStringArg(toolCall.args, 'runId')})`
+  } else if (toolCall.name === 'kill_terminal_process') {
+    displayTitle = 'Stop Terminal'
+    displayDetail = `Terminating Run ID: ${getStringArg(toolCall.args, 'runId')}`
   } else if (toolCall.name === 'computer_use_create_file' || toolCall.name === 'computer_use_save_file' || toolCall.name === 'write_to_file') {
     displayTitle = 'Creating File'
     displayDetail = getStringArg(toolCall.args, 'path') || getStringArg(toolCall.args, 'filePath') || getStringArg(toolCall.args, 'TargetFile') || 'Writing file.'
@@ -536,7 +552,10 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
         toolCall.name === 'computer_use_read_file'
       const isTerminal =
         toolCall.name === 'execute_terminal_command' ||
-        toolCall.name === 'run_command'
+        toolCall.name === 'run_command' ||
+        toolCall.name === 'read_terminal_output' ||
+        toolCall.name === 'send_terminal_input' ||
+        toolCall.name === 'kill_terminal_process'
 
       if (isSearch)
         return <MagnifyingGlass size={size} weight="regular" className="animate-pulse" />
@@ -549,7 +568,13 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
     if (toolCall.name === 'web_search' || toolCall.name === 'search_chat_history')
       return <MagnifyingGlass size={size} weight="regular" className="animate-pulse" />
     if (isYoutube) return <PlayCircle size={size} weight="regular" className="animate-pulse" />
-    if (toolCall.name === 'execute_terminal_command' || toolCall.name === 'run_command')
+    if (
+      toolCall.name === 'execute_terminal_command' ||
+      toolCall.name === 'run_command' ||
+      toolCall.name === 'read_terminal_output' ||
+      toolCall.name === 'send_terminal_input' ||
+      toolCall.name === 'kill_terminal_process'
+    )
       return <Terminal size={size} weight="regular" />
     if (toolCall.name === 'open_browser_link' || toolCall.name === 'open_application')
       return <ArrowUpRight size={size} weight="regular" />
@@ -732,7 +757,12 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
   const { displayTitle, displayDetail, tone, isDone, isWriting, isRunning, statusLabel, renderIcon } =
     useToolCallMeta(toolCall, writingArgs)
 
-  const isTerminal = toolCall.name === 'execute_terminal_command' || toolCall.name === 'run_command'
+  const isTerminal =
+    toolCall.name === 'execute_terminal_command' ||
+    toolCall.name === 'run_command' ||
+    toolCall.name === 'read_terminal_output' ||
+    toolCall.name === 'send_terminal_input' ||
+    toolCall.name === 'kill_terminal_process'
   const canExpand = isDone || isTerminal
 
   const toneColors = {
@@ -946,7 +976,12 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
   const { displayTitle, displayDetail, tone, isDone, statusLabel, renderIcon } =
     useToolCallMeta(toolCall, writingArgs)
 
-  const isTerminal = toolCall.name === 'execute_terminal_command' || toolCall.name === 'run_command'
+  const isTerminal =
+    toolCall.name === 'execute_terminal_command' ||
+    toolCall.name === 'run_command' ||
+    toolCall.name === 'read_terminal_output' ||
+    toolCall.name === 'send_terminal_input' ||
+    toolCall.name === 'kill_terminal_process'
   const canExpand = isDone || isTerminal
 
   const toneColors = {

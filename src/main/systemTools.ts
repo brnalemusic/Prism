@@ -53,6 +53,12 @@ import {
   getShellSyntaxSummary,
   runGuardedTerminalCommand
 } from './localCommandSandbox'
+import {
+  readTerminalOutput,
+  sendTerminalInput,
+  killTerminalProcess
+} from './terminalProcessManager'
+import { isExtractableDocument, extractDocumentText } from './documentExtractor'
 import { safeSend } from './safeSend'
 import { SystemToolOutput, ToolImageAttachment } from './toolAttachments'
 
@@ -1195,7 +1201,16 @@ export async function computerReadFile(
 ): Promise<string> {
   try {
     const fullPath = resolveRequiredPath(filePath, 'path')
-    const content = await fs.readFile(fullPath, { encoding: 'utf8', signal })
+    let content = ''
+    let documentHeader = ''
+
+    if (isExtractableDocument(fullPath)) {
+      const extracted = await extractDocumentText(fullPath)
+      content = extracted.text
+      documentHeader = ` [${extracted.type.toUpperCase()} | Total ${extracted.unitLabel}: ${extracted.totalUnits}]`
+    } else {
+      content = await fs.readFile(fullPath, { encoding: 'utf8', signal })
+    }
 
     const lines = content.split('\n')
     const totalLines = lines.length
@@ -1221,7 +1236,7 @@ export async function computerReadFile(
     const showingStart = startLine
     const showingEnd = endIdx + 1
 
-    const header = `File: ${fullPath}\nTotal lines: ${totalLines}\nShowing lines: ${showingStart} to ${showingEnd}\n\n`
+    const header = `File: ${fullPath}${documentHeader}\nTotal lines: ${totalLines}\nShowing lines: ${showingStart} to ${showingEnd}\n\n`
     return header + body
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error
@@ -2623,6 +2638,20 @@ export async function executeSystemTool(
     // Terminal
     case 'execute_terminal_command':
       return await runTerminalCommand(args.command || '', apiKey, signal, event, chatId)
+    case 'read_terminal_output':
+      return readTerminalOutput(args.runId || '', chatId)
+    case 'send_terminal_input':
+      return await sendTerminalInput(
+        args.runId || '',
+        {
+          input: args.input,
+          keys: Array.isArray(args.keys) ? args.keys : undefined,
+          pressEnter: args.pressEnter !== false
+        },
+        chatId
+      )
+    case 'kill_terminal_process':
+      return killTerminalProcess(args.runId || '', chatId)
 
     // Discord Tools
     case 'discord_leave_voice':

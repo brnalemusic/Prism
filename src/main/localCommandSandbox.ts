@@ -1,11 +1,8 @@
-import { exec, type ExecOptions } from 'child_process'
 import * as os from 'os'
 import * as path from 'path'
+import { executeTerminalWithInitialWait } from './terminalProcessManager'
 
 const MAX_COMMAND_LENGTH = 20_000
-const MAX_OUTPUT = 50_000
-const MAX_PROCESS_BUFFER = 10 * 1024 * 1024
-const PROCESS_TIMEOUT_MS = 5 * 60 * 1000
 
 const COMMAND_SEPARATOR = String.raw`(?:^|[\s;&|{}()\\/]\s*)`
 const COMMAND_END = String.raw`(?:\s|$|[;&|])`
@@ -15,33 +12,11 @@ interface CommandRule {
   reason: string
 }
 
-interface RunOptions {
-  shell?: string
-  apiKey?: string
-  signal?: AbortSignal
-  cwd?: string
-  event?: any
-  chatId?: string
-}
-
 class CommandBlockedError extends Error {
   constructor(reason: string) {
     super(reason)
     this.name = 'CommandBlockedError'
   }
-}
-
-function stripAnsi(str: string): string {
-  return str.replace(
-    // eslint-disable-next-line no-control-regex
-    /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
-    ''
-  )
-}
-
-function truncateOutput(output: string): string {
-  if (output.length <= MAX_OUTPUT) return output
-  return output.substring(0, MAX_OUTPUT) + '\n\n... (Output truncated for performance)'
 }
 
 function commandRule(command: string): RegExp {
@@ -352,15 +327,13 @@ function assertCommandAllowed(command: string): void {
   }
 }
 
-function getWindowsShellPrefix(shellToUse: string, command: string): string {
-  const lowerShell = shellToUse.toLowerCase()
-  if (lowerShell.includes('powershell') || lowerShell.includes('pwsh')) {
-    return `$OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; chcp 65001 | Out-Null; ${command}`
-  }
-  if (lowerShell.includes('cmd')) {
-    return `chcp 65001 > nul & ${command}`
-  }
-  return command
+export interface RunOptions {
+  shell?: string
+  apiKey?: string
+  signal?: AbortSignal
+  cwd?: string
+  event?: any
+  chatId?: string
 }
 
 export function getShellSyntaxSummary(shellName: string): string {
@@ -391,71 +364,21 @@ export async function runGuardedTerminalCommand(
 
   const isWindows = process.platform === 'win32'
   const shellToUse = options.shell || (isWindows ? 'powershell.exe' : undefined)
-  const env = { ...process.env }
 
-  if (options.apiKey) {
-    env.GEMINI_API_KEY = options.apiKey
-  }
+  const result = await executeTerminalWithInitialWait(
+    command,
+    {
+      chatId: options.chatId || 'default',
+      shell: shellToUse,
+      cwd: options.cwd,
+      apiKey: options.apiKey,
+      signal: options.signal,
+      event: options.event
+    },
+    5000
+  )
 
-  let normalizedCommand = command
-  const execOptions: ExecOptions = {
-    env,
-    signal: options.signal,
-    maxBuffer: MAX_PROCESS_BUFFER,
-    timeout: PROCESS_TIMEOUT_MS,
-    cwd: options.cwd
-  }
-
-  if (isWindows && shellToUse) {
-    execOptions.shell = shellToUse
-    normalizedCommand = getWindowsShellPrefix(shellToUse, command)
-  } else if (shellToUse) {
-    execOptions.shell = shellToUse
-  }
-
-  return new Promise((resolve, reject) => {
-    const child = exec(normalizedCommand, execOptions, (error, stdout, stderr) => {
-      const stdoutStr = stdout.toString()
-      const stderrStr = stderr.toString()
-
-      if (error) {
-        if (error.name === 'AbortError') {
-          reject(error)
-          return
-        }
-
-        if ('killed' in error && error.killed) {
-          resolve('Error executing command: command timed out and was stopped by Prism.')
-          return
-        }
-
-        resolve(`Error executing command: ${stripAnsi(error.message)}\n${stripAnsi(stderrStr)}`)
-        return
-      }
-
-      const cleanStdout = stripAnsi(stdoutStr)
-      const cleanStderr = stripAnsi(stderrStr)
-      const output = cleanStdout || cleanStderr || 'Command executed successfully (no output).'
-      resolve(truncateOutput(output))
-    })
-
-    if (options.event && options.chatId) {
-      child.stdout?.on('data', (chunk) => {
-        options.event.sender.send('chat-tool-update', {
-          toolCallName: 'execute_terminal_command',
-          update: { outputChunk: chunk.toString() },
-          chatId: options.chatId
-        })
-      })
-      child.stderr?.on('data', (chunk) => {
-        options.event.sender.send('chat-tool-update', {
-          toolCallName: 'execute_terminal_command',
-          update: { outputChunk: chunk.toString() },
-          chatId: options.chatId
-        })
-      })
-    }
-  })
+  return result.output
 }
 
 export function assertSafeFileMutationPath(fullPath: string, label: string): void {

@@ -18,6 +18,11 @@ import { getOpenAiToolDefinitions } from '../toolRuntime'
 import { normalizePrismThinkingLevel } from './prismThinking'
 import { runToolOrchestration } from './toolOrchestrator'
 import { markConnectionActive } from '../connection'
+import {
+  getPendingProcessNotifications,
+  onBackgroundProcessEnded,
+  type TerminalProcessSession
+} from '../terminalProcessManager'
 
 export const activeRuns = new Map<string, ActiveRun>()
 export const lastScreenshots = new Map<string, string>()
@@ -334,6 +339,7 @@ export async function handleChatMessage(
       messages: messagesForApi,
       tools: openAiTools,
       getToolsForRound: () => getToolsForSessionMode(),
+      getPendingNotifications: () => getPendingProcessNotifications(chatId),
       signal: abortController.signal,
       reasoningLevel,
       onStreamEvent: (streamEvent, state) => {
@@ -503,3 +509,235 @@ async function generateTitleInBackground(
     broadcastIpc('chat-title-received', { id: chatId, title: 'New Conversation' })
   }
 }
+
+function stripAnsi(str: string): string {
+  return str.replace(
+    // eslint-disable-next-line no-control-regex
+    /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
+    ''
+  )
+}
+
+async function wakeUpChatFromBackground(session: TerminalProcessSession): Promise<void> {
+  const chatId = session.chatId
+  if (!chatId || activeRuns.has(chatId)) return
+
+  const chatSession = loadChatSession(chatId)
+  if (!chatSession || !chatSession.messages || chatSession.messages.length === 0) return
+
+  session.notified = true
+
+  const cleanOutput = stripAnsi(session.outputBuffer).trim()
+  const notifMsg: OpenAiMessage = {
+    role: 'user',
+    content: `[SYSTEM NOTIFICATION: Background terminal command (Run ID: ${session.runId}, Command: "${session.command}") finished with status "${session.status}" (Exit Code: ${session.exitCode ?? 'N/A'}). Output:\n${cleanOutput || '(No output produced).'}]`,
+    isSystemNotification: true,
+    hidden: true
+  }
+
+  const historyMessages = hydrateHistoryToolAttachments(chatId, chatSession.messages)
+  historyMessages.push(prepareHistoryMessage(chatId, notifMsg))
+  saveChatSession(
+    chatId,
+    historyMessages,
+    undefined,
+    chatSession.sessionMode,
+    chatSession.disciplinePath,
+    chatSession.model
+  )
+
+  const selectedModel = chatSession.model || currentSelectedChatModel
+  const { provider, model } = resolveProviderAndModel(selectedModel)
+  if (!provider || !provider.apiKey || !model) return
+
+  markConnectionActive()
+
+  broadcastIpc('chat-reply-start', { chatId })
+
+  const abortController = new AbortController()
+  activeRuns.set(chatId, {
+    chatId,
+    abortController,
+    streamedText: '',
+    status: 'running'
+  })
+
+  try {
+    const config = loadConfig()
+    const disabledSkills = chatSession.disabledSkills || config.disabledSkills || []
+    const isPrismCloud = provider.id === PRISM_PROVIDER_ID || provider.name === 'Prism Cloud'
+
+    const cleanModelId = model.id.startsWith('prism_provider:')
+      ? model.id.replace('prism_provider:', '')
+      : model.id
+    const cleanSelectedKey = selectedModel.startsWith('prism_provider:')
+      ? selectedModel.replace('prism_provider:', '')
+      : selectedModel
+
+    const configLevel =
+      config.modelReasoningLevels?.[selectedModel] ||
+      config.modelReasoningLevels?.[cleanSelectedKey] ||
+      config.modelReasoningLevels?.[model.id] ||
+      config.modelReasoningLevels?.[cleanModelId]
+
+    const reasoningLevel = normalizePrismThinkingLevel(provider, model.id, configLevel)
+
+    const systemPrompt = getSystemToolsPrompt(
+      model.id,
+      'main',
+      undefined,
+      chatSession.sessionMode,
+      chatSession.disciplinePath,
+      model.name,
+      isPrismCloud,
+      disabledSkills
+    )
+
+    const openAiTools =
+      chatSession.sessionMode === 'conversation'
+        ? []
+        : getNativeToolsForOpenAi('main', undefined, chatId, disabledSkills)
+
+    const messagesForApi: OpenAiMessage[] = [
+      { role: 'system', content: systemPrompt },
+      ...convertHistoryToOpenAi(historyMessages)
+    ]
+
+    const turnStartTime = Date.now()
+    const thinkingTimes = new Map<number, { startedAt?: number; endedAt?: number }>()
+    let totalThinkingDuration = 0
+
+    const parseThoughtAndContent = (
+      rawText: string,
+      extraReasoning: string
+    ): { thoughts: string; content: string } => {
+      let thoughts = extraReasoning || ''
+      let content = rawText
+      const thinkMatch = rawText.match(/<think>([\s\S]*?)(?:<\/think>|$)/i)
+      if (thinkMatch) {
+        thoughts = thoughts ? `${thoughts}\n${thinkMatch[1]}` : thinkMatch[1]
+        content = rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*/gi, '')
+      }
+      return { thoughts, content }
+    }
+
+    const orchestration = await runToolOrchestration({
+      provider,
+      modelId: model.id,
+      messages: messagesForApi,
+      tools: openAiTools,
+      getToolsForRound: () =>
+        chatSession.sessionMode === 'conversation'
+          ? []
+          : getNativeToolsForOpenAi('main', undefined, chatId, disabledSkills),
+      getPendingNotifications: () => getPendingProcessNotifications(chatId),
+      signal: abortController.signal,
+      reasoningLevel,
+      onStreamEvent: (streamEvent, state) => {
+        const timing = thinkingTimes.get(state.round) || {}
+        if (streamEvent.type === 'reasoning' && !timing.startedAt) timing.startedAt = Date.now()
+        if (streamEvent.type !== 'reasoning' && timing.startedAt && !timing.endedAt) {
+          timing.endedAt = Date.now()
+        }
+        thinkingTimes.set(state.round, timing)
+
+        if (streamEvent.type === 'tool') {
+          broadcastIpc('chat-tool-call-delta', { chatId, ...streamEvent.delta })
+          return
+        }
+        const combinedText = state.accumulatedText
+          ? `${state.accumulatedText}\n\n${state.currentText}`
+          : state.currentText
+        const combinedReasoning = state.accumulatedReasoning
+          ? `${state.accumulatedReasoning}\n\n${state.currentReasoning}`
+          : state.currentReasoning
+        const parsed = parseThoughtAndContent(combinedText, combinedReasoning)
+        broadcastIpc('chat-reply-chunk', {
+          chatId,
+          thoughts: parsed.thoughts,
+          finalResponse: parsed.content,
+          isThinking: streamEvent.type === 'reasoning',
+          isWritingToolCall: state.streamingToolCalls.length > 0
+        })
+      },
+      decorateAssistantMessage: (assistantMessage, _result, state) => {
+        const timing = thinkingTimes.get(state.round)
+        if (timing?.startedAt) {
+          const duration = Math.max(
+            1,
+            Math.round(((timing.endedAt || Date.now()) - timing.startedAt) / 1000)
+          )
+          assistantMessage.thinking_duration = duration
+          totalThinkingDuration += duration
+        }
+        return assistantMessage
+      },
+      createToolContext: ({ callId, name }) => ({
+        apiKey: provider.apiKey,
+        signal: abortController.signal,
+        chatId,
+        disabledSkills,
+        onStart: (args) =>
+          broadcastIpc('chat-tool-start', {
+            callId,
+            name,
+            args,
+            timestamp: Date.now(),
+            chatId
+          })
+      }),
+      onToolResult: (call) =>
+        broadcastIpc('chat-tool-end', {
+          callId: call.callId,
+          name: call.name,
+          result: call.modelContent,
+          chatId
+        }),
+      onHistoryMessage: (historyMessage) => {
+        historyMessages.push(prepareHistoryMessage(chatId, historyMessage))
+        saveChatSession(
+          chatId,
+          historyMessages,
+          undefined,
+          chatSession.sessionMode,
+          chatSession.disciplinePath,
+          selectedModel
+        )
+      },
+      finalInstruction:
+        '# Tool loop limit reached\nThe maximum of 100 tool rounds has been reached. ' +
+        'Do not call more tools. Explain what was completed, what remains, and the last tool result.'
+    })
+
+    const finalOutput = parseThoughtAndContent(
+      orchestration.accumulatedText,
+      orchestration.accumulatedReasoning
+    )
+    const totalWorkedDuration = Math.max(1, Math.round((Date.now() - turnStartTime) / 1000))
+    broadcastIpc('chat-reply-end', {
+      thoughts: finalOutput.thoughts,
+      finalResponse: finalOutput.content,
+      rawText: finalOutput.content,
+      isThinking: false,
+      thinkingDuration: totalThinkingDuration || undefined,
+      workedDuration: totalWorkedDuration || undefined,
+      chatId,
+      ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})
+    })
+  } catch (error: unknown) {
+    const caughtError = error instanceof Error ? error : new Error(String(error))
+    if (abortController.signal.aborted || caughtError.name === 'AbortError') {
+      broadcastIpc('chat-reply-error', { error: 'Message cancelled by user', chatId })
+    } else {
+      console.error(`[Background Wakeup] Error in chat ${chatId}:`, caughtError)
+      broadcastIpc('chat-reply-error', { error: caughtError.message, chatId })
+    }
+  } finally {
+    activeRuns.delete(chatId)
+  }
+}
+
+// Global listener for background terminal processes completion
+onBackgroundProcessEnded((session) => {
+  wakeUpChatFromBackground(session)
+})
