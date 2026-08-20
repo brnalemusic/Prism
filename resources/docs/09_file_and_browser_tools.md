@@ -35,7 +35,6 @@ Prism embeds a stateful Playwright Chromium browser engine for live web navigati
 | `browser_press` | `key` | Press keyboard key (e.g. `Enter`, `Tab`, `Escape`) |
 | `browser_scroll` | `direction`, `amount` | Scroll active page up or down |
 | `browser_back` | `{}` | Go back in browser navigation history |
-| `browser_screenshot` | `{}` | Take visual screenshot of active browser view |
 | `browser_close` | `{}` | Close browser automation session |
 | `web_script` | `url`, `script` | Execute JavaScript snippet inside page DOM |
 | `detailed_dom_page` | `url` | Fetch full HTML structure of target URL |

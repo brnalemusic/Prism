@@ -1148,7 +1148,8 @@ if (!gotTheLock) {
     ipcMain.on('launcher-chat-message', (event, data) => {
       const win = launcherWindow || BrowserWindow.fromWebContents(event.sender)!
       const msg = typeof data === 'string' ? data : data.message
-      handleLauncherChatMessage(win, msg)
+      const appMode = typeof data === 'object' ? data.appMode : undefined
+      handleLauncherChatMessage(win, msg, appMode)
     })
 
     ipcMain.on('launcher-chat-clear', () => {

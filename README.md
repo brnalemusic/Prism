@@ -139,7 +139,7 @@ Prism allows AI models to interact safely with your computer through a hardened 
 Prism embeds a high-performance Playwright Chromium engine capable of navigating, inspecting, and operating web pages autonomously.
 
 - **Semantic Snapshot Engine (`browser_snapshot`):** Extracts an accessible DOM tree with unique element IDs for rapid, robust AI interaction.
-- **Full Action Suite:** `open_browser`, `browser_navigate`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_back`, `browser_screenshot`, and `web_script` (direct JavaScript injection).
+- **Full Action Suite:** `open_browser`, `browser_navigate`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_back`, `detailed_dom_page`, and `web_script` (direct JavaScript injection).
 - **CDPSession Download Tracker:** Automatically monitors file downloads via Chrome DevTools Protocol with live progress overlays in the user interface.
 - **Interactive Split Views (`BrowserPane`):** View the live browser session alongside your chat conversation.
 
@@ -239,7 +239,6 @@ Prism equips connected AI models with a comprehensive manifest of native system 
 │ browser_press                 │ Dispatches keyboard keys (Enter, Tab, Escape, etc.) to the browser     │
 │ browser_scroll                │ Scrolls the active page up or down                                     │
 │ browser_back                  │ Navigates backward in browser history                                  │
-│ browser_screenshot            │ Captures a high-resolution screenshot of the browser page              │
 │ web_script                    │ Executes custom JavaScript in the active browser page context          │
 │ detailed_dom_page             │ Inspects the detailed HTML structure of the active page                │
 │ write_pdf                     │ Compiles HTML+CSS into a print-ready A4 PDF document                   │

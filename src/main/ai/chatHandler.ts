@@ -15,6 +15,7 @@ import { streamOpenAiCompletion } from './openaiClient'
 import { ActiveRun, OpenAiMessage, OpenAiToolDefinition } from './types'
 import { safeSend, broadcastIpc } from '../safeSend'
 import { getOpenAiToolDefinitions } from '../toolRuntime'
+import { unlockBrowserToolsForSession } from '../skillsManager'
 import { normalizePrismThinkingLevel } from './prismThinking'
 import { createTerminalNotificationMessage, runToolOrchestration } from './toolOrchestrator'
 import { markConnectionActive } from '../connection'
@@ -268,6 +269,16 @@ export async function handleChatMessage(
       firstMsgText.toLowerCase().startsWith(w.command.toLowerCase())
     )
 
+    const appMode = typeof data === 'object' ? data.appMode : undefined
+    const isYoutubeMode =
+      appMode === 'youtube' ||
+      /^Search YouTube for:/i.test(firstMsgText) ||
+      /^\/youtube\b/i.test(firstMsgText)
+
+    if (isYoutubeMode) {
+      unlockBrowserToolsForSession(chatId)
+    }
+
     const isPrismCloud = provider?.id === PRISM_PROVIDER_ID || provider?.name === 'Prism Cloud'
     const systemPrompt = getSystemToolsPrompt(
       model.id,
@@ -283,8 +294,25 @@ export async function handleChatMessage(
     if (matchedWorkflow) {
       fullPrompt += `\n\n# Active Workflow: ${matchedWorkflow.name}\n${matchedWorkflow.systemInstruction}`
     }
-    if (isForceSearch) {
+    if (isForceSearch && !isYoutubeMode) {
       fullPrompt += `\n\n# Web Search Requirement\nThe user has explicitly enabled Web Search for this prompt. You MUST use the 'web_search' tool to search the internet for current up-to-date information before returning your response.`
+    }
+    if (isYoutubeMode) {
+      fullPrompt += `\n\n# YouTube Video Search Protocol (Active YouTube App Mode)
+You are acting as the specialized YouTube Assistant. The user wants to find YouTube videos.
+STRICT EXECUTION PROTOCOL:
+1. NEVER USE GENERAL INTERNET SEARCH: Do NOT call 'web_search' or search the general internet. You MUST search directly on the official YouTube website.
+2. USE INTEGRATED AI BROWSER: You MUST use the integrated AI Browser tools (open_browser, browser_navigate, browser_snapshot, detailed_dom_page, browser_click, browser_type, browser_press, etc.) to navigate directly to YouTube search results (e.g. 'https://www.youtube.com/results?search_query=' + encodeURIComponent(keywords)) and inspect YouTube's official website.
+3. DOM-ONLY INSPECTION: Inspect the page content and read video titles, channel names, upload details, and video URLs using 'browser_snapshot' or 'detailed_dom_page'. (Taking browser screenshots is discontinued and strictly disallowed).
+4. OUTPUT FORMAT & HTML BUTTONS: When you find the video(s), output a customized Markdown response matching this exact structure:
+   - Header with movie/video emoji (e.g. '🎬 **<Video Title>**' or '### 🎬 <Video Title>').
+   - A concise description text explaining what was found, customized to the user's prompt and instructions (e.g. 'Found the verification video for Geometry Dash level **Thinking Space II** (by CairoX, verified by Zoink).').
+   - Truly clickable HTML <a> buttons linking directly to the video URLs (MAXIMUM 3 buttons):
+     - Primary button (bold red style): <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-block; background-color: #ff0000; color: #ffffff; padding: 8px 16px; border-radius: 8px; font-weight: bold; text-decoration: none; margin-right: 8px; margin-top: 6px;">Watch Video / Showcase Title</a>
+     - Alternative video button(s) (up to 2, dark charcoal style): <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-block; background-color: #272727; color: #ffffff; padding: 8px 16px; border-radius: 8px; font-weight: 500; text-decoration: none; margin-right: 8px; margin-top: 6px;">Alternative View</a>
+   - AT THE END of your message, you MUST include the exact suggestion chip:
+     <prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>
+5. OPENING THE FOUND VIDEO: If the user sends "Open the YouTube video that you've found for me." or asks to open/play the video, immediately call 'open_browser_link' with the target video URL to open it in their browser.`
     }
 
     setCurrentSessionIdForTodo(chatId)
@@ -299,7 +327,33 @@ export async function handleChatMessage(
               chatId,
               disabledSkills
             )
-      if (isForceSearch) {
+      if (isYoutubeMode) {
+        tools = tools.filter(
+          (t) => t.function.name !== 'web_search' && t.function.name !== 'saw_link_from_url'
+        )
+        const allTools = getNativeToolsForOpenAi('main', undefined, chatId, disabledSkills)
+        const browserTools = allTools.filter((t) =>
+          [
+            'open_browser',
+            'browser_navigate',
+            'browser_snapshot',
+            'detailed_dom_page',
+            'browser_click',
+            'browser_type',
+            'browser_press',
+            'browser_scroll',
+            'browser_back',
+            'web_script',
+            'open_browser_link'
+          ].includes(t.function.name)
+        )
+        const existingNames = new Set(tools.map((t) => t.function.name))
+        for (const tool of browserTools) {
+          if (!existingNames.has(tool.function.name)) {
+            tools.push(tool)
+          }
+        }
+      } else if (isForceSearch) {
         const allTools = getNativeToolsForOpenAi('main', undefined, chatId, disabledSkills)
         const searchTools = allTools.filter((t) =>
           ['web_search', 'saw_link_from_url', 'open_browser_link'].includes(t.function.name)

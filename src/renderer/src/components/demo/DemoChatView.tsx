@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
 import { ArrowLeft, ArrowClockwise, DownloadSimple } from '@phosphor-icons/react'
 import clsx from 'clsx'
 import type { DemoEvent, DemoScript } from '../../../../shared/demo'
@@ -282,7 +283,11 @@ export function DemoChatView({ script, onBack, onDownload }: DemoChatViewProps):
               >
                 {message.role === 'user' ? (
                   <div className="premium-panel-soft max-w-[92%] rounded-[18px] rounded-tr-md px-4 py-3 text-sm text-text-primary sm:max-w-[78%] md:text-base lg:max-w-[68%]">
-                    {message.content}
+                    <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0">
+                      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                 ) : (
                   <DemoAiMessage message={message} />

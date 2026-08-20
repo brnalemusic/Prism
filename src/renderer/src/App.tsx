@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useState, useEffect, useRef, useCallback, useMem
 import ReactMarkdown, { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
+import remarkBreaks from 'remark-breaks'
 import rehypeRaw from 'rehype-raw'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
@@ -173,7 +174,7 @@ function rehypeParseMath(): (tree: HastNode) => void {
 }
 
 const MarkdownComponents: Components = {
-  a: ({ href, children, ...props }: React.ComponentPropsWithoutRef<'a'>) => {
+  a: ({ href, children, className, style, ...props }: React.ComponentPropsWithoutRef<'a'>) => {
     const imageExtensions = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i
     if (href && imageExtensions.test(href)) {
       return (
@@ -184,12 +185,25 @@ const MarkdownComponents: Components = {
         />
       )
     }
+    const hasCustomBgOrStyle = Boolean(
+      style?.backgroundColor ||
+        style?.background ||
+        style?.padding ||
+        style?.display ||
+        className?.includes('bg-') ||
+        className?.includes('button') ||
+        className?.includes('btn')
+    )
     return (
       <a
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-accent-primary hover:underline"
+        style={style}
+        className={clsx(
+          !hasCustomBgOrStyle && 'text-accent-primary hover:underline',
+          className
+        )}
         {...props}
       >
         {children}
@@ -333,7 +347,6 @@ const BROWSER_TOOL_NAMES = new Set([
   'browser_back',
   'browser_press',
   'web_script',
-  'browser_screenshot',
   'browser_snapshot',
   'close_browser',
   'browser_close',
@@ -811,6 +824,7 @@ const AiMessage = React.memo(function AiMessage({
                   remarkPlugins={[
                     remarkGfm,
                     remarkMath,
+                    remarkBreaks,
                     disableIndentedCode as unknown as import('unified').Pluggable
                   ]}
                   rehypePlugins={[
@@ -1087,6 +1101,84 @@ const AiMessageRow = React.memo(function AiMessageRow({
   )
 })
 
+interface UserMessageRowProps {
+  msg: Message
+  i: number
+  markdownComponents: Components
+  onSendSuggestion?: (payload: string, suggestionKey: string) => boolean
+  suggestionMessageKey: string
+  isSuggestionSendDisabled: boolean
+}
+
+const UserMessageRow = React.memo(function UserMessageRow({
+  msg,
+  i,
+  markdownComponents,
+  onSendSuggestion,
+  suggestionMessageKey,
+  isSuggestionSendDisabled
+}: UserMessageRowProps) {
+  const suggestionRuntime = useMemo(
+    () => ({
+      messageKey: suggestionMessageKey,
+      isSendDisabled: isSuggestionSendDisabled,
+      onSendSuggestion
+    }),
+    [suggestionMessageKey, isSuggestionSendDisabled, onSendSuggestion]
+  )
+
+  return (
+    <div
+      key={i}
+      className="w-full flex flex-col items-end px-4 py-2.5 transition-all duration-700 animate-message"
+    >
+      <div className="rounded-[18px] bg-white/[0.026] border border-white/[0.065] px-4.5 py-3 text-[14.5px] leading-relaxed text-text-primary max-w-[75%] shadow-md select-text">
+        {msg.file && !msg.file.mimeType.startsWith('image/') && (
+          <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.05] mb-2 select-none">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/[0.03] text-text-secondary">
+              {msg.file.mimeType === 'application/pdf' ? (
+                <FilePdf size={16} />
+              ) : msg.file.mimeType.includes('presentation') ? (
+                <FilePpt size={16} />
+              ) : (
+                <Brain size={16} />
+              )}
+            </div>
+            <span className="text-xs font-medium text-text-primary truncate max-w-[200px]">
+              {msg.file.name}
+            </span>
+          </div>
+        )}
+        {msg.screenshot && (
+          <img
+            src={msg.screenshot}
+            alt="User Attachment"
+            className="max-w-full h-auto rounded-xl mb-2 border border-white/[0.08]"
+          />
+        )}
+        {msg.content && (
+          <SuggestionRuntimeContext.Provider value={suggestionRuntime}>
+            <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base break-words">
+              <ReactMarkdown
+                remarkPlugins={[
+                  remarkGfm,
+                  remarkMath,
+                  remarkBreaks,
+                  disableIndentedCode as unknown as import('unified').Pluggable
+                ]}
+                rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
+                components={markdownComponents}
+              >
+                {msg.content}
+              </ReactMarkdown>
+            </div>
+          </SuggestionRuntimeContext.Provider>
+        )}
+      </div>
+    </div>
+  )
+})
+
 const TabMessagesList = React.memo(function TabMessagesList({
   messages,
   tabId,
@@ -1131,37 +1223,17 @@ const TabMessagesList = React.memo(function TabMessagesList({
 
         if (msg.role === 'user') {
           return (
-            <div
+            <UserMessageRow
               key={i}
-              className="w-full flex flex-col items-end px-4 py-2.5 transition-all duration-700 animate-message"
-            >
-              <div className="rounded-[18px] bg-white/[0.026] border border-white/[0.065] px-4.5 py-3 text-[14.5px] leading-relaxed text-text-primary max-w-[75%] shadow-md select-text">
-                {msg.file && !msg.file.mimeType.startsWith('image/') && (
-                  <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.05] mb-2 select-none">
-                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/[0.03] text-text-secondary">
-                      {msg.file.mimeType === 'application/pdf' ? (
-                        <FilePdf size={16} />
-                      ) : msg.file.mimeType.includes('presentation') ? (
-                        <FilePpt size={16} />
-                      ) : (
-                        <Brain size={16} />
-                      )}
-                    </div>
-                    <span className="text-xs font-medium text-text-primary truncate max-w-[200px]">
-                      {msg.file.name}
-                    </span>
-                  </div>
-                )}
-                {msg.screenshot && (
-                  <img
-                    src={msg.screenshot}
-                    alt="User Attachment"
-                    className="max-w-full h-auto rounded-xl mb-2 border border-white/[0.08]"
-                  />
-                )}
-                <div>{msg.content}</div>
-              </div>
-            </div>
+              msg={msg}
+              i={i}
+              markdownComponents={markdownComponents}
+              onSendSuggestion={(payload, suggestionKey) =>
+                onSendSuggestion(tabId, payload, suggestionKey)
+              }
+              suggestionMessageKey={`${currentChatId || tabId}:user:${i}`}
+              isSuggestionSendDisabled={isSuggestionSendDisabled}
+            />
           )
         }
 
@@ -1721,9 +1793,9 @@ function RealApp(): React.JSX.Element {
     })
   }, [])
 
-  // Auto-open browser session tab instantly as soon as AI triggers a browser session
+  // Auto-open browser session tab instantly as soon as AI triggers a browser session or command
   useEffect(() => {
-    const removeListener = window.api.onBrowserAction((action) => {
+    const removeActionListener = window.api.onBrowserAction((action) => {
       if (action.type === 'close') return
       const currentTabs = tabsRef.current
       const processingTab =
@@ -1733,7 +1805,23 @@ function RealApp(): React.JSX.Element {
         handleOpenBrowserTab(processingTab.id)
       }
     })
-    return () => removeListener()
+
+    const removeExecListener = window.api.onBrowserExecCommand(({ command }) => {
+      if (command && command.type !== 'close') {
+        const hasBrowserTab = tabsRef.current.some((t) => t.tabType === 'browser')
+        if (!hasBrowserTab) {
+          const activeSourceTab =
+            tabsRef.current.find((t) => t.isProcessing) ||
+            tabsRef.current.find((t) => t.id === activeTabIdRef.current)
+          handleOpenBrowserTab(activeSourceTab?.id)
+        }
+      }
+    })
+
+    return () => {
+      removeActionListener()
+      removeExecListener()
+    }
   }, [handleOpenBrowserTab])
 
   const pendingBrowserCloseRef = useRef<boolean>(false)

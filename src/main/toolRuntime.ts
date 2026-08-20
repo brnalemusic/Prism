@@ -96,7 +96,6 @@ const BROWSER_TOOLS = new Set([
   'browser_press',
   'browser_scroll',
   'browser_back',
-  'browser_screenshot',
   'web_script',
   'detailed_dom_page'
 ])
@@ -362,7 +361,7 @@ export class ToolLoopGuard {
 
   register(toolName: string, args: unknown): ToolError | null {
     const fingerprintArgs =
-      toolName === 'computer_use_see_screen' || toolName === 'browser_screenshot' ? {} : args
+      toolName === 'computer_use_see_screen' ? {} : args
     const fingerprint = JSON.stringify([toolName, stableValue(fingerprintArgs)])
     const count = (this.attempts.get(fingerprint) || 0) + 1
     this.attempts.set(fingerprint, count)

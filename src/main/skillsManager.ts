@@ -338,3 +338,30 @@ export function getUnlockedToolsForSession(chatId?: string): Set<string> {
   const sessionKey = chatId || 'default'
   return unlockedToolsBySession.get(sessionKey) || new Set<string>()
 }
+
+/**
+ * Automatically unlocks browser automation tools for a session (e.g. YouTube app mode).
+ */
+export function unlockBrowserToolsForSession(chatId?: string): void {
+  const sessionKey = chatId || 'default'
+  if (!unlockedToolsBySession.has(sessionKey)) {
+    unlockedToolsBySession.set(sessionKey, new Set<string>())
+  }
+  const sessionSet = unlockedToolsBySession.get(sessionKey)!
+  const browserTools = [
+    'open_browser',
+    'browser_navigate',
+    'browser_snapshot',
+    'browser_click',
+    'browser_type',
+    'browser_press',
+    'browser_scroll',
+    'browser_back',
+    'web_script',
+    'detailed_dom_page'
+  ]
+  for (const tool of browserTools) {
+    sessionSet.add(tool)
+  }
+}
+

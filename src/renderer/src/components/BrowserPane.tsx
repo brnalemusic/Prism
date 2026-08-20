@@ -95,6 +95,57 @@ export const BrowserPane = React.memo(function BrowserPane({
     return () => removeListener()
   }, [])
 
+  const commandQueueRef = useRef<Promise<void>>(Promise.resolve())
+
+  // Helper to wait for webview reference to be mounted and ready
+  const getReadyWebview = useCallback(async (timeoutMs = 3500): Promise<any> => {
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+      if (webviewRef.current) {
+        return webviewRef.current
+      }
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    return null
+  }, [])
+
+  // Helper to wait for in-flight navigation to settle before executing DOM queries
+  const waitForDomSettled = useCallback(async (wv: any, maxMs = 2500) => {
+    const start = Date.now()
+    while (Date.now() - start < maxMs) {
+      try {
+        if (!wv.isLoading || !wv.isLoading()) break
+      } catch {
+        break
+      }
+      await new Promise((r) => setTimeout(r, 100))
+    }
+  }, [])
+
+  // Helper to execute JS on webview with automatic retry for transient navigation context errors
+  const safeExecuteJs = useCallback(async (wv: any, code: string, maxRetries = 2): Promise<any> => {
+    let lastError: any = null
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await wv.executeJavaScript(code)
+      } catch (err: any) {
+        lastError = err
+        const msg = String(err?.message || err)
+        if (
+          msg.includes('Execution context was destroyed') ||
+          msg.includes('ERR_ABORTED') ||
+          msg.includes('Target closed') ||
+          msg.includes('Inspected target navigated')
+        ) {
+          await new Promise((r) => setTimeout(r, 300))
+          continue
+        }
+        throw err
+      }
+    }
+    throw lastError
+  }, [])
+
   // Listen for AI command execution requests directly on this webview instance
   useEffect(() => {
     const removeExecListener = window.api.onBrowserExecCommand(async ({ requestId, command }) => {
@@ -105,331 +156,465 @@ export const BrowserPane = React.memo(function BrowserPane({
         if (first) handledRequestIdsRef.current.delete(first)
       }
 
-      const webview = webviewRef.current
-      if (!webview) {
-        window.api.sendBrowserExecResult(requestId, 'Error: Webview not mounted')
-        return
-      }
-
-      try {
-        switch (command.type) {
-          case 'open':
-          case 'navigate': {
-            if (command.url) {
-              let target = command.url.trim()
-              if (!/^https?:\/\//i.test(target)) target = 'https://' + target
-              setCurrentUrl(target)
-              setInputUrl(target)
-              try {
-                if (webview.getURL && webview.getURL() !== target) {
-                  await webview.loadURL(target)
-                }
-              } catch (loadErr: any) {
-                if (
-                  loadErr?.code === 'ERR_ABORTED' ||
-                  loadErr?.errno === -3 ||
-                  String(loadErr).includes('ERR_ABORTED')
-                ) {
-                  console.log('webview.loadURL superseded in-flight load (ERR_ABORTED -3)')
-                } else {
-                  throw loadErr
-                }
-              }
-              const title = webview.getTitle ? webview.getTitle() || '' : ''
-              window.api.sendBrowserExecResult(
-                requestId,
-                `Navigated to ${target} successfully. Page title: "${title}"`
-              )
-            } else {
-              window.api.sendBrowserExecResult(requestId, 'Browser session active and ready.')
-            }
-            break
+      // Enqueue command execution to prevent race conditions and concurrent collisions
+      commandQueueRef.current = commandQueueRef.current
+        .then(async () => {
+          // If session was closed, resurrect it immediately for any non-close command
+          if (command.type !== 'close') {
+            setSessionClosed(false)
           }
 
-          case 'click': {
-            const elementId = command.elementId || ''
-            const code = `
-              (() => {
-                const el = document.querySelector('[data-prism-id="${elementId}"]') ||
-                           document.getElementById('${elementId}') ||
-                           document.querySelector('${elementId}')
-                if (!el) return { success: false, error: 'Element data-prism-id="${elementId}" not found on page.' }
-                
-                const rect = el.getBoundingClientRect()
-                el.click()
-                return {
-                  success: true,
-                  url: window.location.href,
-                  title: document.title,
-                  box: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
-                  vp: { width: window.innerWidth, height: window.innerHeight }
-                }
-              })()
-            `
-            const res = await webview.executeJavaScript(code)
-            if (res?.success) {
-              if (res.box && res.vp) {
-                rippleKeyRef.current += 1
-                setClickRipple({
-                  x: (res.box.x + res.box.width / 2) / res.vp.width,
-                  y: (res.box.y + res.box.height / 2) / res.vp.height,
-                  key: rippleKeyRef.current
-                })
-                setTimeout(() => setClickRipple(null), 1200)
-              }
-              window.api.sendBrowserExecResult(
-                requestId,
-                `Clicked element "${elementId}" successfully. Page title: "${res.title || ''}"`
-              )
-            } else {
-              window.api.sendBrowserExecResult(
-                requestId,
-                res?.error || `Error clicking element "${elementId}"`
-              )
-            }
-            break
+          // Handle health-check ping command
+          if (command.type === 'ping') {
+            const wv = await getReadyWebview(2000)
+            const activeUrl = wv?.getURL ? wv.getURL() || currentUrl : currentUrl
+            const activeTitle = wv?.getTitle ? wv.getTitle() || currentTitle : currentTitle
+            window.api.sendBrowserExecResult(requestId, {
+              success: true,
+              isReady: !!wv,
+              url: activeUrl,
+              title: activeTitle
+            })
+            return
           }
 
-          case 'type': {
-            const elementId = command.elementId || ''
-            const text = JSON.stringify(command.text || '')
-            const code = `
-              (() => {
-                const el = document.querySelector('[data-prism-id="${elementId}"]') ||
-                           document.getElementById('${elementId}')
-                if (!el) return { success: false, error: 'Element data-prism-id="${elementId}" not found on page.' }
-                el.value = ${text}
-                el.dispatchEvent(new Event('input', { bubbles: true }))
-                el.dispatchEvent(new Event('change', { bubbles: true }))
-                return { success: true }
-              })()
-            `
-            const res = await webview.executeJavaScript(code)
-            if (res?.success) {
-              window.api.sendBrowserExecResult(
-                requestId,
-                `Typed text into element "${elementId}" successfully.`
-              )
-            } else {
-              window.api.sendBrowserExecResult(
-                requestId,
-                res?.error || `Error typing into element "${elementId}"`
-              )
-            }
-            break
-          }
-
-          case 'press': {
-            const key = command.key || 'Enter'
-            const code = `
-              (() => {
-                const active = document.activeElement || document.body
-                active.dispatchEvent(new KeyboardEvent('keydown', { key: '${key}', bubbles: true }))
-                active.dispatchEvent(new KeyboardEvent('keyup', { key: '${key}', bubbles: true }))
-                return true
-              })()
-            `
-            await webview.executeJavaScript(code)
-            window.api.sendBrowserExecResult(requestId, `Pressed key "${key}" successfully.`)
-            break
-          }
-
-          case 'scroll': {
-            const dir = command.direction === 'down' ? 1 : -1
-            const amount = command.amount ? Number(command.amount) : 500
-            const code = `window.scrollBy(0, ${dir * amount})`
-            await webview.executeJavaScript(code)
+          // Await webview mount readiness with polling
+          const webview = await getReadyWebview(4000)
+          if (!webview) {
             window.api.sendBrowserExecResult(
               requestId,
-              `Scrolled page ${command.direction} successfully.`
+              'Error: AI Browser is initializing or webview is not ready yet. Please try again.'
             )
-            break
+            return
           }
 
-          case 'back': {
-            if (webview.canGoBack()) {
-              webview.goBack()
-              window.api.sendBrowserExecResult(
-                requestId,
-                'Navigated back in browser history successfully.'
-              )
-            } else {
-              window.api.sendBrowserExecResult(requestId, 'Cannot navigate back: no history.')
-            }
-            break
-          }
-
-          case 'script': {
-            const scriptCode = command.script || ''
-            if (command.url) {
-              let target = command.url.trim()
-              if (!/^https?:\/\//i.test(target)) target = 'https://' + target
-              setCurrentUrl(target)
-              setInputUrl(target)
-              await webview.loadURL(target)
-            }
-            const evalCode = `
-              (async () => {
-                try {
-                  const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor
-                  const fn = new AsyncFunction(${JSON.stringify(scriptCode)})
-                  const res = await fn()
-                  if (res !== undefined) return res
-                } catch {}
-                try { return eval(${JSON.stringify(scriptCode)}) } catch (e) { return 'Error: ' + e.message }
-              })()
-            `
-            const scriptRes = await webview.executeJavaScript(evalCode)
-            const resultStr =
-              scriptRes === undefined
-                ? 'undefined (executed successfully)'
-                : typeof scriptRes === 'object'
-                  ? JSON.stringify(scriptRes, null, 2)
-                  : String(scriptRes)
-
-            setScriptLogs((prev) => [
-              ...prev.slice(-49),
-              { script: scriptCode, result: resultStr, timestamp: Date.now() }
-            ])
-            setIsTerminalOpen(true)
-            window.api.sendBrowserExecResult(requestId, resultStr)
-            break
-          }
-
-          case 'snapshot': {
-            const code = `
-              (() => {
-                const interactiveElementsSelector =
-                  'a, button, input, textarea, select, details, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="textbox"], [role="menuitem"], [role="tab"], [role="option"], [contenteditable="true"]'
-                const interactiveEls = Array.from(document.querySelectorAll(interactiveElementsSelector))
-
-                let nextId = 1
-                interactiveEls.forEach((el) => {
-                  const rect = el.getBoundingClientRect()
-                  if (rect.width > 0 && rect.height > 0) {
-                    el.setAttribute('data-prism-id', String(nextId++))
+          try {
+            switch (command.type) {
+              case 'open':
+              case 'navigate': {
+                if (command.url) {
+                  let target = command.url.trim()
+                  if (!/^https?:\/\//i.test(target)) target = 'https://' + target
+                  setCurrentUrl(target)
+                  setInputUrl(target)
+                  try {
+                    if (webview.getURL && webview.getURL() !== target) {
+                      await webview.loadURL(target)
+                    }
+                  } catch (loadErr: any) {
+                    if (
+                      loadErr?.code === 'ERR_ABORTED' ||
+                      loadErr?.errno === -3 ||
+                      String(loadErr).includes('ERR_ABORTED')
+                    ) {
+                      console.log('webview.loadURL superseded in-flight load (ERR_ABORTED -3)')
+                    } else {
+                      throw loadErr
+                    }
                   }
-                })
-
-                const isVisible = (el) => {
-                  if (!el.getBoundingClientRect) return false
-                  const rect = el.getBoundingClientRect()
-                  const style = window.getComputedStyle(el)
-                  return (
-                    rect.width > 0 &&
-                    rect.height > 0 &&
-                    style.display !== 'none' &&
-                    style.visibility !== 'hidden' &&
-                    style.opacity !== '0'
+                  await waitForDomSettled(webview, 1500)
+                  const title = webview.getTitle ? webview.getTitle() || '' : ''
+                  window.api.sendBrowserExecResult(
+                    requestId,
+                    `Navigated to ${target} successfully. Page title: "${title}"`
+                  )
+                } else {
+                  window.api.sendBrowserExecResult(
+                    requestId,
+                    `Browser session active and ready. Current URL: ${currentUrl}`
                   )
                 }
-
-                const cleanNode = (node) => {
-                  if (node.nodeType === Node.TEXT_NODE) {
-                    const val = node.nodeValue ? node.nodeValue.trim() : ''
-                    return val ? val : ''
-                  }
-                  if (node.nodeType !== Node.ELEMENT_NODE) return ''
-                  const el = node
-                  if (!isVisible(el)) return ''
-
-                  const tagName = el.tagName.toLowerCase()
-                  if (['script', 'style', 'iframe', 'noscript', 'svg', 'path', 'link', 'meta', 'head'].includes(tagName)) return ''
-
-                  const prismId = el.getAttribute('data-prism-id')
-                  const idAttr = prismId ? ' data-prism-id="' + prismId + '"' : ''
-
-                  if (['input', 'textarea', 'select'].includes(tagName)) {
-                    const idStr = el.id ? ' id="' + el.id + '"' : ''
-                    const typeStr = el.getAttribute('type') ? ' type="' + el.getAttribute('type') + '"' : ''
-                    const placeholderStr = el.getAttribute('placeholder') ? ' placeholder="' + el.getAttribute('placeholder') + '"' : ''
-                    const valStr = el.value ? ' value="' + el.value + '"' : ''
-                    return '<' + tagName + idAttr + idStr + typeStr + placeholderStr + valStr + '></' + tagName + '>\\n'
-                  }
-
-                  if (tagName === 'button') {
-                    const idStr = el.id ? ' id="' + el.id + '"' : ''
-                    return '<button' + idAttr + idStr + '>' + (el.innerText ? el.innerText.trim() : '') + '</button>\\n'
-                  }
-
-                  if (tagName === 'a') {
-                    const idStr = el.id ? ' id="' + el.id + '"' : ''
-                    const href = el.getAttribute('href') || ''
-                    return '<a' + idAttr + idStr + ' href="' + href + '">' + (el.innerText ? el.innerText.trim() : href) + '</a>\\n'
-                  }
-
-                  let childrenContent = ''
-                  el.childNodes.forEach((child) => {
-                    childrenContent += cleanNode(child)
-                  })
-                  childrenContent = childrenContent.trim()
-                  if (childrenContent) {
-                    return '<' + tagName + idAttr + '>\\n' + childrenContent + '\\n</' + tagName + '>\\n'
-                  }
-                  return ''
-                }
-
-                return cleanNode(document.body)
-              })()
-            `
-            const domText = await webview.executeJavaScript(code)
-            window.api.sendBrowserExecResult(
-              requestId,
-              typeof domText === 'string' ? domText : JSON.stringify(domText)
-            )
-            break
-          }
-
-          case 'screenshot': {
-            let base64: string | undefined
-            let width: number | undefined
-            let height: number | undefined
-            let byteLength: number | undefined
-            try {
-              if (webview.capturePage) {
-                const image = await webview.capturePage()
-                const { width: sourceWidth, height: sourceHeight } = image.getSize()
-                const visionImage =
-                  Math.max(sourceWidth, sourceHeight) > 1440
-                    ? sourceWidth >= sourceHeight
-                      ? image.resize({ width: 1440, quality: 'best' })
-                      : image.resize({ height: 1440, quality: 'best' })
-                    : image
-                const size = visionImage.getSize()
-                width = size.width
-                height = size.height
-                const encoded = visionImage.toJPEG(80)
-                byteLength = encoded.length
-                base64 = encoded.toString('base64')
+                break
               }
-            } catch {}
-            window.api.sendBrowserExecResult(requestId, {
-              result: 'Screenshot captured successfully.',
-              base64,
-              mimeType: 'image/jpeg',
-              width,
-              height,
-              byteLength
-            })
-            break
-          }
 
-          case 'close': {
-            setSessionClosed(true)
-            window.api.sendBrowserExecResult(requestId, 'Browser session closed.')
-            break
-          }
+              case 'click': {
+                await waitForDomSettled(webview, 2000)
+                const elementId = JSON.stringify(command.elementId || '')
+                const code = `
+                  (() => {
+                    const rawId = ${elementId};
+                    const el = document.querySelector('[data-prism-id="' + rawId + '"]') ||
+                               document.getElementById(rawId) ||
+                               document.querySelector(rawId);
+                    if (!el) {
+                      return {
+                        success: false,
+                        error: 'Element with ID "' + rawId + '" not found. Please take a fresh browser_snapshot to get updated element IDs.'
+                      };
+                    }
+                    
+                    try {
+                      el.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+                    } catch {}
+                    try {
+                      if (typeof el.focus === 'function') el.focus();
+                    } catch {}
 
-          default:
-            window.api.sendBrowserExecResult(requestId, `Unknown command: ${command.type}`)
-        }
-      } catch (err: any) {
-        window.api.sendBrowserExecResult(requestId, `Error: ${err?.message || String(err)}`)
-      }
+                    const rect = el.getBoundingClientRect();
+                    const clientX = rect.left + rect.width / 2;
+                    const clientY = rect.top + rect.height / 2;
+
+                    const pointerDown = new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX, clientY, view: window });
+                    const mouseDown = new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX, clientY, view: window });
+                    const pointerUp = new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX, clientY, view: window });
+                    const mouseUp = new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX, clientY, view: window });
+                    const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, clientX, clientY, view: window });
+
+                    el.dispatchEvent(pointerDown);
+                    el.dispatchEvent(mouseDown);
+                    el.dispatchEvent(pointerUp);
+                    el.dispatchEvent(mouseUp);
+                    el.dispatchEvent(clickEvent);
+
+                    if (typeof el.click === 'function') {
+                      try { el.click(); } catch {}
+                    }
+
+                    return {
+                      success: true,
+                      url: window.location.href,
+                      title: document.title,
+                      box: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+                      vp: { width: window.innerWidth || 1280, height: window.innerHeight || 720 }
+                    };
+                  })()
+                `
+                const res = await safeExecuteJs(webview, code)
+                if (res?.success) {
+                  if (res.box && res.vp && res.vp.width > 0 && res.vp.height > 0) {
+                    rippleKeyRef.current += 1
+                    setClickRipple({
+                      x: Math.max(0, Math.min(1, (res.box.x + res.box.width / 2) / res.vp.width)),
+                      y: Math.max(0, Math.min(1, (res.box.y + res.box.height / 2) / res.vp.height)),
+                      key: rippleKeyRef.current
+                    })
+                    setTimeout(() => setClickRipple(null), 1200)
+                  }
+                  window.api.sendBrowserExecResult(
+                    requestId,
+                    `Clicked element ${elementId} successfully. Page title: "${res.title || ''}"`
+                  )
+                } else {
+                  window.api.sendBrowserExecResult(
+                    requestId,
+                    res?.error || `Error clicking element ${elementId}`
+                  )
+                }
+                break
+              }
+
+              case 'type': {
+                await waitForDomSettled(webview, 2000)
+                const elementId = JSON.stringify(command.elementId || '')
+                const text = JSON.stringify(command.text || '')
+                const code = `
+                  (() => {
+                    const rawId = ${elementId};
+                    const val = ${text};
+                    const el = document.querySelector('[data-prism-id="' + rawId + '"]') ||
+                               document.getElementById(rawId) ||
+                               document.querySelector(rawId);
+                    if (!el) {
+                      return {
+                        success: false,
+                        error: 'Element with ID "' + rawId + '" not found. Please take a fresh browser_snapshot to get updated element IDs.'
+                      };
+                    }
+
+                    try {
+                      el.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+                    } catch {}
+                    try {
+                      if (typeof el.focus === 'function') el.focus();
+                    } catch {}
+
+                    // Use prototype descriptor setter for full React/Vue/Angular controlled component compatibility
+                    const nativeInputSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+                    const nativeTextAreaSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+
+                    if (el.tagName === 'INPUT' && nativeInputSetter) {
+                      nativeInputSetter.call(el, val);
+                    } else if (el.tagName === 'TEXTAREA' && nativeTextAreaSetter) {
+                      nativeTextAreaSetter.call(el, val);
+                    } else {
+                      el.value = val;
+                      if (el.isContentEditable) {
+                        el.innerText = val;
+                      }
+                    }
+
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    return { success: true };
+                  })()
+                `
+                const res = await safeExecuteJs(webview, code)
+                if (res?.success) {
+                  window.api.sendBrowserExecResult(
+                    requestId,
+                    `Typed text into element ${elementId} successfully.`
+                  )
+                } else {
+                  window.api.sendBrowserExecResult(
+                    requestId,
+                    res?.error || `Error typing into element ${elementId}`
+                  )
+                }
+                break
+              }
+
+              case 'press': {
+                const key = command.key || 'Enter'
+                const keyJson = JSON.stringify(key)
+
+                // Try native webview input event first
+                try {
+                  if (typeof webview.sendInputEvent === 'function') {
+                    webview.sendInputEvent({ type: 'keyDown', keyCode: key })
+                    webview.sendInputEvent({ type: 'char', keyCode: key })
+                    webview.sendInputEvent({ type: 'keyUp', keyCode: key })
+                  }
+                } catch {}
+
+                const code = `
+                  (() => {
+                    const k = ${keyJson};
+                    const active = document.activeElement || document.body;
+                    active.dispatchEvent(new KeyboardEvent('keydown', { key: k, code: k, bubbles: true, cancelable: true }));
+                    active.dispatchEvent(new KeyboardEvent('keypress', { key: k, code: k, bubbles: true, cancelable: true }));
+                    active.dispatchEvent(new KeyboardEvent('keyup', { key: k, code: k, bubbles: true, cancelable: true }));
+                    
+                    if (k === 'Enter' && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
+                      const form = active.closest('form');
+                      if (form && typeof form.requestSubmit === 'function') {
+                        try { form.requestSubmit(); } catch {}
+                      }
+                    }
+                    return true;
+                  })()
+                `
+                await safeExecuteJs(webview, code).catch(() => {})
+                window.api.sendBrowserExecResult(requestId, `Pressed key "${key}" successfully.`)
+                break
+              }
+
+              case 'scroll': {
+                const dir = command.direction === 'down' ? 1 : -1
+                const amount = command.amount ? Number(command.amount) : 500
+                const code = `window.scrollBy(0, ${dir * amount})`
+                await safeExecuteJs(webview, code)
+                window.api.sendBrowserExecResult(
+                  requestId,
+                  `Scrolled page ${command.direction} successfully.`
+                )
+                break
+              }
+
+              case 'back': {
+                if (webview.canGoBack && webview.canGoBack()) {
+                  webview.goBack()
+                  window.api.sendBrowserExecResult(
+                    requestId,
+                    'Navigated back in browser history successfully.'
+                  )
+                } else {
+                  window.api.sendBrowserExecResult(requestId, 'Cannot navigate back: no history.')
+                }
+                break
+              }
+
+              case 'script': {
+                const scriptCode = command.script || ''
+                if (command.url) {
+                  let target = command.url.trim()
+                  if (!/^https?:\/\//i.test(target)) target = 'https://' + target
+                  setCurrentUrl(target)
+                  setInputUrl(target)
+                  await webview.loadURL(target)
+                  await waitForDomSettled(webview, 1500)
+                }
+                const evalCode = `
+                  (async () => {
+                    try {
+                      const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+                      const fn = new AsyncFunction(${JSON.stringify(scriptCode)});
+                      const res = await fn();
+                      if (res !== undefined) return res;
+                    } catch {}
+                    try { return eval(${JSON.stringify(scriptCode)}); } catch (e) { return 'Error: ' + e.message; }
+                  })()
+                `
+                const scriptRes = await safeExecuteJs(webview, evalCode)
+                const resultStr =
+                  scriptRes === undefined
+                    ? 'undefined (executed successfully)'
+                    : typeof scriptRes === 'object'
+                      ? JSON.stringify(scriptRes, null, 2)
+                      : String(scriptRes)
+
+                setScriptLogs((prev) => [
+                  ...prev.slice(-49),
+                  { script: scriptCode, result: resultStr, timestamp: Date.now() }
+                ])
+                setIsTerminalOpen(true)
+                window.api.sendBrowserExecResult(requestId, resultStr)
+                break
+              }
+
+              case 'snapshot': {
+                await waitForDomSettled(webview, 1500)
+                const isFullJson = JSON.stringify(command.full === true)
+                const code = `
+                  (() => {
+                    const isFull = ${isFullJson};
+                    const interactiveElementsSelector =
+                      'a, button, input, textarea, select, details, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="textbox"], [role="menuitem"], [role="tab"], [role="option"], [contenteditable="true"]';
+                    const interactiveEls = Array.from(document.querySelectorAll(interactiveElementsSelector));
+
+                    let nextId = 1;
+                    interactiveEls.forEach((el) => {
+                      const rect = el.getBoundingClientRect();
+                      if (rect.width > 0 && rect.height > 0) {
+                        el.setAttribute('data-prism-id', String(nextId++));
+                      }
+                    });
+
+                    const isVisible = (el) => {
+                      if (!el.getBoundingClientRect) return false;
+                      const rect = el.getBoundingClientRect();
+                      const style = window.getComputedStyle(el);
+                      return (
+                        rect.width > 0 &&
+                        rect.height > 0 &&
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        style.opacity !== '0'
+                      );
+                    };
+
+                    const cleanNode = (node) => {
+                      if (node.nodeType === Node.TEXT_NODE) {
+                        const val = node.nodeValue ? node.nodeValue.trim() : '';
+                        return val ? val : '';
+                      }
+                      if (node.nodeType !== Node.ELEMENT_NODE) return '';
+                      const el = node;
+                      if (!isVisible(el)) return '';
+
+                      const tagName = el.tagName.toLowerCase();
+                      if (['script', 'style', 'iframe', 'noscript', 'svg', 'path', 'link', 'meta', 'head'].includes(tagName)) return '';
+
+                      const prismId = el.getAttribute('data-prism-id');
+                      const idAttr = prismId ? ' data-prism-id="' + prismId + '"' : '';
+
+                      if (['input', 'textarea', 'select'].includes(tagName)) {
+                        const idStr = el.id ? ' id="' + el.id + '"' : '';
+                        const typeStr = el.getAttribute('type') ? ' type="' + el.getAttribute('type') + '"' : '';
+                        const placeholderStr = el.getAttribute('placeholder') ? ' placeholder="' + el.getAttribute('placeholder') + '"' : '';
+                        const valStr = el.value ? ' value="' + el.value + '"' : '';
+                        return '<' + tagName + idAttr + idStr + typeStr + placeholderStr + valStr + '></' + tagName + '>\\n';
+                      }
+
+                      if (tagName === 'button') {
+                        const idStr = el.id ? ' id="' + el.id + '"' : '';
+                        return '<button' + idAttr + idStr + '>' + (el.innerText ? el.innerText.trim() : '') + '</button>\\n';
+                      }
+
+                      if (tagName === 'a') {
+                        const idStr = el.id ? ' id="' + el.id + '"' : '';
+                        const href = el.getAttribute('href') || '';
+                        return '<a' + idAttr + idStr + ' href="' + href + '">' + (el.innerText ? el.innerText.trim() : href) + '</a>\\n';
+                      }
+
+                      if (isFull && ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'td', 'th'].includes(tagName)) {
+                        const txt = el.innerText ? el.innerText.trim() : '';
+                        if (txt && !el.querySelector('a, button, input, textarea, select')) {
+                          return '<' + tagName + idAttr + '>' + txt + '</' + tagName + '>\\n';
+                        }
+                      }
+
+                      let childrenContent = '';
+                      el.childNodes.forEach((child) => {
+                        childrenContent += cleanNode(child);
+                      });
+                      childrenContent = childrenContent.trim();
+                      if (childrenContent) {
+                        return '<' + tagName + idAttr + '>\\n' + childrenContent + '\\n</' + tagName + '>\\n';
+                      }
+                      return '';
+                    };
+
+                    const pageUrl = window.location.href;
+                    const pageTitle = document.title;
+                    const bodyContent = cleanNode(document.body);
+                    return '[Current Page URL: ' + pageUrl + ']\\n[Current Page Title: ' + pageTitle + ']\\n\\n' + bodyContent;
+                  })()
+                `
+                const domText = await safeExecuteJs(webview, code)
+                window.api.sendBrowserExecResult(
+                  requestId,
+                  typeof domText === 'string' ? domText : JSON.stringify(domText)
+                )
+                break
+              }
+
+              case 'screenshot': {
+                let base64: string | undefined
+                let width: number | undefined
+                let height: number | undefined
+                let byteLength: number | undefined
+                try {
+                  if (webview.capturePage) {
+                    const image = await webview.capturePage()
+                    const { width: sourceWidth, height: sourceHeight } = image.getSize()
+                    const visionImage =
+                      Math.max(sourceWidth, sourceHeight) > 1440
+                        ? sourceWidth >= sourceHeight
+                          ? image.resize({ width: 1440, quality: 'best' })
+                          : image.resize({ height: 1440, quality: 'best' })
+                        : image
+                    const size = visionImage.getSize()
+                    width = size.width
+                    height = size.height
+                    const encoded = visionImage.toJPEG(80)
+                    byteLength = encoded.length
+                    base64 = encoded.toString('base64')
+                  }
+                } catch {}
+                window.api.sendBrowserExecResult(requestId, {
+                  result: 'Screenshot captured successfully.',
+                  base64,
+                  mimeType: 'image/jpeg',
+                  width,
+                  height,
+                  byteLength
+                })
+                break
+              }
+
+              case 'close': {
+                setSessionClosed(true)
+                window.api.sendBrowserExecResult(requestId, 'Browser session closed.')
+                break
+              }
+
+              default:
+                window.api.sendBrowserExecResult(requestId, `Unknown command: ${command.type}`)
+            }
+          } catch (err: any) {
+            window.api.sendBrowserExecResult(requestId, `Error: ${err?.message || String(err)}`)
+          }
+        })
+        .catch((err) => {
+          window.api.sendBrowserExecResult(
+            requestId,
+            `Error executing command: ${err?.message || String(err)}`
+          )
+        })
     })
 
     return () => removeExecListener()
-  }, [])
+  }, [getReadyWebview, waitForDomSettled, safeExecuteJs, currentUrl, currentTitle])
 
   // Sync webview navigation events with address bar state
   useEffect(() => {
@@ -481,29 +666,37 @@ export const BrowserPane = React.memo(function BrowserPane({
     if (!/^https?:\/\//i.test(target)) {
       target = 'https://' + target
     }
+    setSessionClosed(false)
     setCurrentUrl(target)
     setInputUrl(target)
-    if (webviewRef.current) {
-      webviewRef.current.loadURL(target).catch(() => {})
-    }
+    setTimeout(() => {
+      if (webviewRef.current) {
+        webviewRef.current.loadURL(target).catch(() => {})
+      }
+    }, 50)
   }
 
   const handleGoBack = () => {
+    setSessionClosed(false)
     if (webviewRef.current && webviewRef.current.canGoBack()) {
       webviewRef.current.goBack()
     }
   }
 
   const handleGoForward = () => {
+    setSessionClosed(false)
     if (webviewRef.current && webviewRef.current.canGoForward()) {
       webviewRef.current.goForward()
     }
   }
 
   const handleReload = () => {
-    if (webviewRef.current) {
-      webviewRef.current.reload()
-    }
+    setSessionClosed(false)
+    setTimeout(() => {
+      if (webviewRef.current) {
+        webviewRef.current.reload()
+      }
+    }, 50)
   }
 
   const handleOpenInSystemBrowser = useCallback(() => {
@@ -654,6 +847,20 @@ export const BrowserPane = React.memo(function BrowserPane({
           <div className="flex h-full flex-col items-center justify-center gap-3 bg-black text-text-secondary">
             <GlobeSimple size={32} className="opacity-30" />
             <span className="text-sm font-medium opacity-50">Browser session closed</span>
+            <button
+              onClick={() => {
+                setSessionClosed(false)
+                setTimeout(() => {
+                  if (webviewRef.current) {
+                    webviewRef.current.loadURL(currentUrl || 'https://google.com').catch(() => {})
+                  }
+                }, 50)
+              }}
+              className="mt-1 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border-default)] bg-[var(--surface-lowest)] hover:bg-white/[0.06] text-xs font-medium text-text-primary transition-colors cursor-pointer"
+            >
+              <ArrowClockwise size={13} />
+              <span>Reopen Browser Session</span>
+            </button>
           </div>
         ) : (
           <div className="relative w-full h-full">

@@ -1543,6 +1543,19 @@ ipcMain.on('browser-exec-result', (_event, data: { requestId: string; result: an
   }
 })
 
+let browserCommandQueue = Promise.resolve<any>(undefined)
+
+/**
+ * Serializes all browser commands through a lightweight Promise chain mutex
+ * to guarantee no concurrent command collisions or race conditions.
+ */
+export async function queueBrowserCommand<T>(fn: () => Promise<T>): Promise<T> {
+  const run = () => fn()
+  const next = browserCommandQueue.then(run, run)
+  browserCommandQueue = next.catch(() => {})
+  return next
+}
+
 export async function sendBrowserCommandToRenderer(
   command: {
     type:
@@ -1557,6 +1570,7 @@ export async function sendBrowserCommandToRenderer(
       | 'snapshot'
       | 'screenshot'
       | 'close'
+      | 'ping'
     url?: string
     elementId?: string
     text?: string
@@ -1571,16 +1585,16 @@ export async function sendBrowserCommandToRenderer(
   const wins = BrowserWindow.getAllWindows()
   const targetWin = wins.find((w) => !w.webContents.getURL().includes('#launcher')) || wins[0]
   if (!targetWin) {
-    return 'Error: No renderer window available'
+    return 'Error: No active Prism window available to execute browser command.'
   }
 
   const requestId = `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
   return new Promise((resolve, reject) => {
-    let sendInterval: NodeJS.Timeout | undefined
+    let retryTimer: NodeJS.Timeout | undefined
 
     const cleanup = () => {
-      if (sendInterval) clearInterval(sendInterval)
+      if (retryTimer) clearTimeout(retryTimer)
       clearTimeout(timeout)
       if (signal) signal.removeEventListener('abort', onAbort)
       activeBrowserCmdResolvers.delete(requestId)
@@ -1599,75 +1613,114 @@ export async function sendBrowserCommandToRenderer(
     const timeout = setTimeout(() => {
       cleanup()
       resolve(`Error: Browser action "${command.type}" timed out.`)
-    }, 30000)
+    }, 25000)
 
     activeBrowserCmdResolvers.set(requestId, (result) => {
       cleanup()
       resolve(result)
     })
 
-    sendInterval = setInterval(() => {
-      if (!activeBrowserCmdResolvers.has(requestId)) {
-        if (sendInterval) clearInterval(sendInterval)
-        return
+    // Single follow-up retry after 1200ms in case webview was still mounting during initial dispatch
+    retryTimer = setTimeout(() => {
+      if (activeBrowserCmdResolvers.has(requestId)) {
+        const currentWins = BrowserWindow.getAllWindows()
+        const win =
+          currentWins.find((w) => !w.webContents.getURL().includes('#launcher')) || currentWins[0]
+        if (win) {
+          safeSend(win, 'browser-exec-command', { requestId, command })
+        }
       }
-      const currentWins = BrowserWindow.getAllWindows()
-      const win =
-        currentWins.find((w) => !w.webContents.getURL().includes('#launcher')) || currentWins[0]
-      if (win) {
-        safeSend(win, 'browser-exec-command', { requestId, command })
-      }
-    }, 250)
+    }, 1200)
 
     safeSend(targetWin, 'browser-exec-command', { requestId, command })
   })
 }
 
-export async function openBrowser(url?: string, signal?: AbortSignal): Promise<string> {
+/**
+ * Actively checks the health and readiness of the browser session.
+ * Automatically attaches to an existing browser tab if open, or auto-initializes
+ * a fresh session if closed or unmounted.
+ */
+export async function ensureBrowserSessionActive(
+  signal?: AbortSignal,
+  preferredUrl?: string
+): Promise<void> {
+  if (signal?.aborted) throw new Error('AbortError')
+
+  // Check if browser session is already live and responsive in the renderer
   if (isPersistentBrowserActive) {
-    if (url) {
-      emitBrowserAction({ type: 'navigate', url }).catch(() => {})
-      await sendBrowserCommandToRenderer({ type: 'navigate', url }, signal)
-      return `Browser session is already open and active. Navigated to: ${url}. Do NOT call open_browser again. To inspect or read the current page content, immediately use browser_snapshot (or detailed_dom_page or browser_screenshot).`
-    }
-    return 'Browser session is already open and active. Do NOT call open_browser again. To inspect or read the currently open browser page content, immediately use browser_snapshot (or detailed_dom_page or browser_screenshot).'
+    try {
+      const pingResult = await sendBrowserCommandToRenderer({ type: 'ping' }, signal)
+      if (typeof pingResult === 'object' && pingResult?.isReady) {
+        return
+      }
+    } catch {}
   }
+
+  // Session was not active or webview was unmounted - auto-open / auto-attach seamlessly
   isPersistentBrowserActive = true
-  emitBrowserAction({ type: 'open', url }).catch(() => {})
-  const result = await sendBrowserCommandToRenderer({ type: 'open', url }, signal)
-  return typeof result === 'string'
-    ? result
-    : 'Browser session opened successfully. Use browser_snapshot or detailed_dom_page to inspect page content.'
+  emitBrowserAction({ type: 'open', url: preferredUrl }).catch(() => {})
+  await sendBrowserCommandToRenderer({ type: 'open', url: preferredUrl }, signal).catch(() => {})
+}
+
+export async function openBrowser(url?: string, signal?: AbortSignal): Promise<string> {
+  return queueBrowserCommand(async () => {
+    // Actively probe renderer to see if a session is already alive
+    let isAlreadyAlive = false
+    try {
+      const pingResult = await sendBrowserCommandToRenderer({ type: 'ping' }, signal)
+      if (typeof pingResult === 'object' && pingResult?.isReady) {
+        isAlreadyAlive = true
+      }
+    } catch {}
+
+    isPersistentBrowserActive = true
+
+    if (isAlreadyAlive) {
+      if (url) {
+        emitBrowserAction({ type: 'navigate', url }).catch(() => {})
+        await sendBrowserCommandToRenderer({ type: 'navigate', url }, signal)
+        return `Browser session attached and active. Navigated to: ${url}. Page is ready for inspection via browser_snapshot.`
+      }
+      return 'Browser session attached and active. Page is ready for inspection via browser_snapshot.'
+    }
+
+    emitBrowserAction({ type: 'open', url }).catch(() => {})
+    const result = await sendBrowserCommandToRenderer({ type: 'open', url }, signal)
+    return typeof result === 'string'
+      ? result
+      : 'Browser session opened successfully. Use browser_snapshot to inspect page content.'
+  })
 }
 
 export async function browserNavigate(url: string, signal?: AbortSignal): Promise<string> {
-  if (!isPersistentBrowserActive) {
-    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-  }
-  emitBrowserAction({ type: 'navigate', url }).catch(() => {})
-  return waitForDownloadOrActionResult(
-    sendBrowserCommandToRenderer({ type: 'navigate', url }, signal)
-  )
+  return queueBrowserCommand(async () => {
+    await ensureBrowserSessionActive(signal, url)
+    emitBrowserAction({ type: 'navigate', url }).catch(() => {})
+    return waitForDownloadOrActionResult(
+      sendBrowserCommandToRenderer({ type: 'navigate', url }, signal)
+    )
+  })
 }
 
 export async function browserSnapshot(full?: boolean, signal?: AbortSignal): Promise<string> {
-  if (!isPersistentBrowserActive) {
-    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-  }
-  const result = await sendBrowserCommandToRenderer(
-    { type: 'snapshot', full: full === true },
-    signal
-  )
-  return typeof result === 'string' ? result : JSON.stringify(result)
+  return queueBrowserCommand(async () => {
+    await ensureBrowserSessionActive(signal)
+    const result = await sendBrowserCommandToRenderer(
+      { type: 'snapshot', full: full === true },
+      signal
+    )
+    return typeof result === 'string' ? result : JSON.stringify(result)
+  })
 }
 
 export async function browserClick(elementId: string, signal?: AbortSignal): Promise<string> {
-  if (!isPersistentBrowserActive) {
-    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-  }
-  return waitForDownloadOrActionResult(
-    sendBrowserCommandToRenderer({ type: 'click', elementId }, signal)
-  )
+  return queueBrowserCommand(async () => {
+    await ensureBrowserSessionActive(signal)
+    return waitForDownloadOrActionResult(
+      sendBrowserCommandToRenderer({ type: 'click', elementId }, signal)
+    )
+  })
 }
 
 export async function browserType(
@@ -1675,20 +1728,20 @@ export async function browserType(
   text: string,
   signal?: AbortSignal
 ): Promise<string> {
-  if (!isPersistentBrowserActive) {
-    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-  }
-  return waitForDownloadOrActionResult(
-    sendBrowserCommandToRenderer({ type: 'type', elementId, text }, signal)
-  )
+  return queueBrowserCommand(async () => {
+    await ensureBrowserSessionActive(signal)
+    return waitForDownloadOrActionResult(
+      sendBrowserCommandToRenderer({ type: 'type', elementId, text }, signal)
+    )
+  })
 }
 
 export async function browserPress(key: string, signal?: AbortSignal): Promise<string> {
-  if (!isPersistentBrowserActive) {
-    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-  }
-  const result = await sendBrowserCommandToRenderer({ type: 'press', key }, signal)
-  return typeof result === 'string' ? result : `Pressed key "${key}" successfully.`
+  return queueBrowserCommand(async () => {
+    await ensureBrowserSessionActive(signal)
+    const result = await sendBrowserCommandToRenderer({ type: 'press', key }, signal)
+    return typeof result === 'string' ? result : `Pressed key "${key}" successfully.`
+  })
 }
 
 export async function browserScroll(
@@ -1696,54 +1749,53 @@ export async function browserScroll(
   amount?: number,
   signal?: AbortSignal
 ): Promise<string> {
-  if (!isPersistentBrowserActive) {
-    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-  }
-  const result = await sendBrowserCommandToRenderer({ type: 'scroll', direction, amount }, signal)
-  return typeof result === 'string' ? result : `Scrolled page ${direction} successfully.`
+  return queueBrowserCommand(async () => {
+    await ensureBrowserSessionActive(signal)
+    const result = await sendBrowserCommandToRenderer({ type: 'scroll', direction, amount }, signal)
+    return typeof result === 'string' ? result : `Scrolled page ${direction} successfully.`
+  })
 }
 
 export async function browserBack(signal?: AbortSignal): Promise<string> {
-  if (!isPersistentBrowserActive) {
-    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-  }
-  const result = await sendBrowserCommandToRenderer({ type: 'back' }, signal)
-  return typeof result === 'string' ? result : 'Navigated back in browser history successfully.'
+  return queueBrowserCommand(async () => {
+    await ensureBrowserSessionActive(signal)
+    const result = await sendBrowserCommandToRenderer({ type: 'back' }, signal)
+    return typeof result === 'string' ? result : 'Navigated back in browser history successfully.'
+  })
 }
 
 export async function browserScreenshot(
   signal?: AbortSignal
 ): Promise<{ result: string; attachment?: ToolImageAttachment }> {
-  if (!isPersistentBrowserActive) {
-    return {
-      result:
-        'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-    }
-  }
-  const res = await sendBrowserCommandToRenderer({ type: 'screenshot' }, signal)
-  if (typeof res === 'object' && typeof res?.base64 === 'string' && res.base64) {
-    return {
-      result: 'Screenshot captured successfully and attached to context.',
-      attachment: {
-        kind: 'image',
-        mimeType: res.mimeType === 'image/png' ? 'image/png' : 'image/jpeg',
-        data: res.base64,
-        ...(typeof res.width === 'number' && res.width > 0 ? { width: res.width } : {}),
-        ...(typeof res.height === 'number' && res.height > 0 ? { height: res.height } : {}),
-        ...(typeof res.byteLength === 'number' && res.byteLength > 0
-          ? { byteLength: res.byteLength }
-          : {})
+  return queueBrowserCommand(async () => {
+    await ensureBrowserSessionActive(signal)
+    const res = await sendBrowserCommandToRenderer({ type: 'screenshot' }, signal)
+    if (typeof res === 'object' && typeof res?.base64 === 'string' && res.base64) {
+      return {
+        result: 'Screenshot captured successfully and attached to context.',
+        attachment: {
+          kind: 'image',
+          mimeType: res.mimeType === 'image/png' ? 'image/png' : 'image/jpeg',
+          data: res.base64,
+          ...(typeof res.width === 'number' && res.width > 0 ? { width: res.width } : {}),
+          ...(typeof res.height === 'number' && res.height > 0 ? { height: res.height } : {}),
+          ...(typeof res.byteLength === 'number' && res.byteLength > 0
+            ? { byteLength: res.byteLength }
+            : {})
+        }
       }
     }
-  }
-  return { result: typeof res === 'string' ? res : 'Screenshot captured successfully.' }
+    return { result: typeof res === 'string' ? res : 'Screenshot captured successfully.' }
+  })
 }
 
 export async function closePersistentBrowser(): Promise<string> {
-  isPersistentBrowserActive = false
-  await sendBrowserCommandToRenderer({ type: 'close' }).catch(() => {})
-  _browserActionEmitter?.({ type: 'close', timestamp: Date.now() })
-  return 'Browser session closed successfully.'
+  return queueBrowserCommand(async () => {
+    isPersistentBrowserActive = false
+    await sendBrowserCommandToRenderer({ type: 'close' }).catch(() => {})
+    _browserActionEmitter?.({ type: 'close', timestamp: Date.now() })
+    return 'Browser session closed successfully.'
+  })
 }
 
 export async function webScript(
@@ -1751,20 +1803,20 @@ export async function webScript(
   script: string,
   signal?: AbortSignal
 ): Promise<string> {
-  if (!isPersistentBrowserActive) {
-    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-  }
-  return waitForDownloadOrActionResult(
-    sendBrowserCommandToRenderer({ type: 'script', url, script }, signal)
-  )
+  return queueBrowserCommand(async () => {
+    await ensureBrowserSessionActive(signal, url)
+    return waitForDownloadOrActionResult(
+      sendBrowserCommandToRenderer({ type: 'script', url, script }, signal)
+    )
+  })
 }
 
 export async function detailedDomPage(url?: string, signal?: AbortSignal): Promise<string> {
-  if (!isPersistentBrowserActive) {
-    return 'Error: No active browser session. You must call "open_browser" first to initialize the browser session before using this tool.'
-  }
-  const result = await sendBrowserCommandToRenderer({ type: 'snapshot', url, full: true }, signal)
-  return typeof result === 'string' ? result : JSON.stringify(result)
+  return queueBrowserCommand(async () => {
+    await ensureBrowserSessionActive(signal, url)
+    const result = await sendBrowserCommandToRenderer({ type: 'snapshot', url, full: true }, signal)
+    return typeof result === 'string' ? result : JSON.stringify(result)
+  })
 }
 
 /**
@@ -2283,6 +2335,7 @@ ${browserRule}
   - Do not invent tool results, paths, or citations.
 - **Search:** Use web_search and saw_link_from_url. For Deep Research: 1. Search context, 2. Present plan & await user approval, 3. 10+ iterations, 4. Output Markdown report.
 - **Prism Docs:** Use internal_docs_list, internal_docs_read, internal_docs_search for Prism system queries.
+- **YouTube Assistant Protocol:** When searching for YouTube videos, search directly on the official YouTube website using the integrated AI Browser tools (open_browser, browser_navigate, browser_snapshot, detailed_dom_page). Never use general web search for YouTube requests. Inspect the page DOM (browser screenshots are discontinued). Output structured Markdown with 🎬 emoji, customized description, up to 3 clickable HTML <a> button links (primary bold red, alternatives dark charcoal), and the chip \`<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>\`.
 - **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}
 ${inlineSuggestionsRule}${skillsSection}${disabledSkillsSection}`
 }
@@ -2627,7 +2680,6 @@ export async function executeSystemTool(
       'browser_press',
       'browser_scroll',
       'browser_back',
-      'browser_screenshot',
       'web_script',
       'detailed_dom_page'
     ].includes(toolName)
@@ -2804,14 +2856,14 @@ export async function executeSystemTool(
     case 'browser_back':
       return await browserBack(signal)
     case 'browser_screenshot': {
-      const screenshotResult = await browserScreenshot(signal)
-      if (screenshotResult.attachment) {
+      const screenRes = await browserScreenshot(signal)
+      if (screenRes.attachment) {
         return {
-          output: screenshotResult.result,
-          attachments: [screenshotResult.attachment]
+          output: screenRes.result,
+          attachments: [screenRes.attachment]
         }
       }
-      return screenshotResult.result
+      return screenRes.result
     }
     // Web scripting & DOM
     case 'web_script':

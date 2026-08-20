@@ -8,6 +8,8 @@ import { safeSend } from '../safeSend'
 import { runToolOrchestration } from './toolOrchestrator'
 import { markConnectionActive } from '../connection'
 
+import { unlockBrowserToolsForSession } from '../skillsManager'
+
 let launcherHistory: OpenAiMessage[] = []
 let launcherAbortController: AbortController | null = null
 
@@ -21,7 +23,8 @@ export function clearLauncherChat(): void {
 
 export async function handleLauncherChatMessage(
   window: BrowserWindow,
-  message: string
+  message: string,
+  appMode?: string
 ): Promise<void> {
   if (launcherAbortController) {
     launcherAbortController.abort()
@@ -48,20 +51,54 @@ export async function handleLauncherChatMessage(
 
   try {
     const isPrismCloud = provider?.id === PRISM_PROVIDER_ID || provider?.name === 'Prism Cloud'
-    const systemPrompt: OpenAiMessage = {
-      role: 'system',
-      content: getSystemToolsPrompt(
-        model.id,
-        'launcher',
-        undefined,
-        'execution',
-        '',
-        model.name,
-        isPrismCloud
-      )
+    const isYoutubeMode =
+      appMode === 'youtube' ||
+      /^Search YouTube for:/i.test(message.trim()) ||
+      /^\/youtube\b/i.test(message.trim())
+
+    if (isYoutubeMode) {
+      unlockBrowserToolsForSession('launcher')
     }
 
-    const launcherTools = getNativeToolsForOpenAi('launcher')
+    let systemContent = getSystemToolsPrompt(
+      model.id,
+      'launcher',
+      undefined,
+      'execution',
+      '',
+      model.name,
+      isPrismCloud
+    )
+
+    if (isYoutubeMode) {
+      systemContent += `\n\n# YouTube Video Search Protocol (Active YouTube App Mode)
+You are acting as the specialized YouTube Assistant. The user wants to find YouTube videos.
+STRICT EXECUTION PROTOCOL:
+1. NEVER USE GENERAL INTERNET SEARCH: Do NOT call 'web_search'. Search directly on the official YouTube website.
+2. USE INTEGRATED AI BROWSER: Use integrated AI Browser tools (open_browser, browser_navigate, browser_snapshot, detailed_dom_page, browser_click, browser_type, browser_press, etc.) to navigate to YouTube ('https://www.youtube.com/results?search_query=' + encodeURIComponent(keywords)) and inspect results.
+3. DOM-ONLY INSPECTION: Read video titles, channels, and video URLs using 'browser_snapshot' or 'detailed_dom_page'. (Taking browser screenshots is discontinued and disallowed).
+4. OUTPUT FORMAT & HTML BUTTONS: When you find the video(s), output customized Markdown with this exact structure:
+   - Header with movie/video emoji (e.g. '🎬 **<Video Title>**' or '### 🎬 <Video Title>').
+   - Short description explaining what was found customized to the user request.
+   - Clickable styled HTML <a> buttons linking to the video(s) (MAXIMUM 3 buttons):
+     - Primary button (bold red style): <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-block; background-color: #ff0000; color: #ffffff; padding: 8px 16px; border-radius: 8px; font-weight: bold; text-decoration: none; margin-right: 8px; margin-top: 6px;">Watch Video / Showcase Title</a>
+     - Alternative video button(s) (up to 2, dark charcoal style): <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-block; background-color: #272727; color: #ffffff; padding: 8px 16px; border-radius: 8px; font-weight: 500; text-decoration: none; margin-right: 8px; margin-top: 6px;">Alternative View</a>
+   - AT THE END of your message, include the exact suggestion chip:
+     <prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>
+5. OPENING THE VIDEO: If asked to open the video or if "Open the YouTube video that you've found for me." is received, immediately open it via 'open_browser_link'.`
+    }
+
+    const systemPrompt: OpenAiMessage = {
+      role: 'system',
+      content: systemContent
+    }
+
+    let launcherTools = getNativeToolsForOpenAi('launcher', undefined, 'launcher')
+    if (isYoutubeMode) {
+      launcherTools = launcherTools.filter(
+        (t) => t.function.name !== 'web_search' && t.function.name !== 'saw_link_from_url'
+      )
+    }
     const messages: OpenAiMessage[] = [systemPrompt, ...launcherHistory]
     const parseThoughtAndContent = (
       rawText: string,

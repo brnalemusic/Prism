@@ -11,7 +11,6 @@ unlocked_tools:
   - browser_press
   - browser_scroll
   - browser_back
-  - browser_screenshot
   - web_script
   - detailed_dom_page
 ---
@@ -29,15 +28,15 @@ The Prism platform features two distinct browser interaction modes:
    - **Tool**: `open_browser_link({ url: "https://..." })`. Does NOT require this skill file to be read.
 
 2. **Prism Integrated AI Browser (`open_browser` and `browser_*` tools)**:
-   - **Purpose**: An embedded, persistent, Playwright-controlled Chromium instance running inside Prism for autonomous web navigation, interactive form filling, live DOM inspection, and visual snapshotting.
+   - **Purpose**: An embedded, persistent, Playwright-controlled Chromium instance running inside Prism for autonomous web navigation, interactive form filling, and live DOM inspection.
    - **When to Use**: ONLY when the user EXPLICITLY requests the AI in-app browser using terms such as *"navegador integrado"*, *"navegador da IA"*, *"seu navegador"*, *"navegador do Prism"*, *"navegador in-app"*, *"AI Browser"*, *"browser interno"*, etc.
-   - **Activation**: Requires reading this skill file (`integrated_browser_skill.md`), which unlocks the 11 integrated browser execution tools for the session.
+   - **Activation**: Requires reading this skill file (`integrated_browser_skill.md`), which unlocks the 10 integrated browser execution tools for the session.
 
 ---
 
 ## 2. Unlocked Native Tool Schemas (JSON Definitions)
 
-Reading this skill unlocks the 11 integrated browser tools. You are now authorized to invoke these tools directly:
+Reading this skill unlocks the 10 integrated browser tools. You are now authorized to invoke these tools directly:
 
 ```json
 [
@@ -144,17 +143,6 @@ Reading this skill unlocks the 11 integrated browser tools. You are now authoriz
     "function": {
       "name": "browser_back",
       "description": "Navigate back in the active browser history.",
-      "parameters": {
-        "type": "object",
-        "properties": {}
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "browser_screenshot",
-      "description": "Capture a screenshot of the active browser page.",
       "parameters": {
         "type": "object",
         "properties": {}
@@ -293,13 +281,13 @@ web_script({
 
 ---
 
-## 7. Visual Inspection & Screenshot Verification
+## 7. DOM-Only Page Inspection & Structure Extraction
 
-### 7.1 Using `browser_screenshot`
-When visual layout, UI styling, charts, image placement, or canvas elements need inspection:
-- Execute `browser_screenshot()`.
-- Prism will capture a full-resolution PNG screenshot of the current page viewport and return image metadata.
-- Use screenshots to verify layout correctness, visual alignment, modal overlay states, or graphical charts.
+### 7.1 Using `browser_snapshot` & `detailed_dom_page`
+Page inspection in the integrated AI Browser is performed strictly through semantic DOM extraction:
+- **`browser_snapshot({ full?: boolean })`**: Captures interactive accessibility nodes, buttons, inputs, links, and text content with numbered `elementId` tags.
+- **`detailed_dom_page({ url?: string })`**: Retrieves the complete structured DOM tree of the page, ideal for full-page audits, dense data tables, and deep content analysis.
+- **Note**: Taking visual screenshots of the browser is discontinued and disallowed. DOM inspection is the authoritative and only method to read page states.
 
 ---
 
@@ -349,8 +337,8 @@ If a page load times out or fails:
    `browser_scroll({ direction: "down", amount: 800 })`
 3. **Extract Structured Data**:
    `web_script({ script: "Array.from(document.querySelectorAll('article')).map(a => ({ title: a.querySelector('h2')?.innerText, url: a.querySelector('a')?.href }))" })`
-4. **Capture Visual Proof**:
-   `browser_screenshot()`
+4. **Inspect Full Page DOM**:
+   `detailed_dom_page()`
 
 ---
 

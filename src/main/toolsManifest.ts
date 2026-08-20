@@ -266,7 +266,6 @@ export const toolsManifest: ToolDefinition[] = [
     ['direction']
   ),
   tool('browser_back', 'Navigate back in the active browser history.'),
-  tool('browser_screenshot', 'Capture a screenshot of the active browser page.'),
   tool(
     'web_script',
     'Execute JavaScript in the active browser page.',

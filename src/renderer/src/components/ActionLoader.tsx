@@ -46,7 +46,6 @@ const TOOL_LABELS: Record<string, string> = {
   list_installed_applications: 'Searching apps',
   search_installed_applications: 'Searching apps',
   computer_use_see_screen: 'Taking screenshot',
-  browser_screenshot: 'Taking screenshot',
   discord_leave_voice: 'Leaving call',
   leave_voice: 'Leaving call',
   disconnect_voice: 'Leaving call'
@@ -484,8 +483,6 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
       displayDetail = direction ? `Scrolling ${direction}` : 'Scrolling page.'
     } else if (toolCall.name === 'browser_back') {
       displayDetail = 'Going back to previous page.'
-    } else if (toolCall.name === 'browser_screenshot') {
-      displayDetail = 'Taking screenshot.'
     } else if (toolCall.name === 'browser_close') {
       displayDetail = 'Closing browser.'
     } else if (toolCall.name === 'web_script') {

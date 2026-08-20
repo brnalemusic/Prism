@@ -75,3 +75,11 @@ Those are rules for Source Control and Git Control.
 2. NEVER leave a test-file, input or output, in the git scan.
     a. ALWAYS git-ignore test files (input or output) after using it.
     b. this also applies for test folders.
+
+### Documentation Rules
+
+1. ALWAYS reflects your changes on documentations like `README.md` or docs in `/resouces/docs/`.
+
+2. SEARCH for docs in Prism repo and change it if necessary.
+
+3. The files in `/resources/docs/` stands for Internal Documentation and Aknowledge for AI inside Prism. It's a Internal Knowledge for Prism AI so they know what is Prism and how this works behind the scenes. `README.md` stands for the public, documented README for users in GitHub.

@@ -29,6 +29,7 @@ import { applyToolCallEnd, applyToolCallStart } from '../toolCallState'
 
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
 import { ActionLoader, ToolCall, ToolCallIndicator } from './ActionLoader'
 import { useInactivityLabel } from '../hooks/useInactivityLabel'
 import { useActiveToolLabel } from '../hooks/useActiveToolLabel'
@@ -1796,8 +1797,13 @@ export function QuickLauncher(): React.JSX.Element {
                         </div>
                       )}
                       {msg.content && (
-                        <div className="flex w-full flex-col rounded-xl rounded-tr-sm border border-accent-secondary/20 bg-accent-secondary/[0.06] px-4 py-3 text-sm font-normal leading-relaxed text-text-primary">
-                          {msg.content}
+                        <div className="prose prose-invert max-w-none flex w-full flex-col rounded-xl rounded-tr-sm border border-accent-secondary/20 bg-accent-secondary/[0.06] px-4 py-3 text-sm font-normal leading-relaxed text-text-primary">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm, remarkBreaks]}
+                            components={markdownComponents}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
                         </div>
                       )}
                     </div>
