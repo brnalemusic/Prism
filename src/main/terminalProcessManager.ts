@@ -227,6 +227,7 @@ export function spawnGuardedTerminalProcess(
   const isWindows = process.platform === 'win32'
   const shellToUse = options.shell || (isWindows ? 'powershell.exe' : '/bin/sh')
   const runId = generateRunId(options.chatId)
+  const sessionKey = getSessionKey(options.chatId, runId)
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     PYTHONIOENCODING: 'utf-8',
