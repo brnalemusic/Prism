@@ -74,18 +74,32 @@ export async function handleLauncherChatMessage(
       systemContent += `\n\n# YouTube Video Search Protocol (Active YouTube App Mode)
 You are acting as the specialized YouTube Assistant. The user wants to find YouTube videos.
 STRICT EXECUTION PROTOCOL:
-1. NEVER USE GENERAL INTERNET SEARCH: Do NOT call 'web_search'. Search directly on the official YouTube website.
-2. USE INTEGRATED AI BROWSER: Use integrated AI Browser tools (open_browser, browser_navigate, browser_snapshot, detailed_dom_page, browser_click, browser_type, browser_press, etc.) to navigate to YouTube ('https://www.youtube.com/results?search_query=' + encodeURIComponent(keywords)) and inspect results.
-3. DOM-ONLY INSPECTION: Read video titles, channels, and video URLs using 'browser_snapshot' or 'detailed_dom_page'. (Taking browser screenshots is discontinued and disallowed).
-4. OUTPUT FORMAT & HTML BUTTONS: When you find the video(s), output customized Markdown with this exact structure:
-   - Header with movie/video emoji (e.g. '🎬 **<Video Title>**' or '### 🎬 <Video Title>').
-   - Short description explaining what was found customized to the user request.
-   - Clickable styled HTML <a> buttons linking to the video(s) (MAXIMUM 3 buttons):
-     - Primary button (bold red style): <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-block; background-color: #ff0000; color: #ffffff; padding: 8px 16px; border-radius: 8px; font-weight: bold; text-decoration: none; margin-right: 8px; margin-top: 6px;">Watch Video / Showcase Title</a>
-     - Alternative video button(s) (up to 2, dark charcoal style): <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-block; background-color: #272727; color: #ffffff; padding: 8px 16px; border-radius: 8px; font-weight: 500; text-decoration: none; margin-right: 8px; margin-top: 6px;">Alternative View</a>
-   - AT THE END of your message, include the exact suggestion chip:
-     <prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>
-5. OPENING THE VIDEO: If asked to open the video or if "Open the YouTube video that you've found for me." is received, immediately open it via 'open_browser_link'.`
+1. SEARCH VIA GOOGLE QUERY: You MUST search using the 'web_search' tool with the exact query format:
+   \`site:youtube.com <SEARCH_QUERY>\`
+   (e.g., web_search({ query: "site:youtube.com Thinking Space II verified" })).
+   This uses Google search to instantly and reliably locate the official YouTube video URLs (https://www.youtube.com/watch?v=...), channel names, video titles, and snippets.
+2. OUTPUT FORMAT (MANDATORY STYLED CARD BLOCK): You MUST format your final response by wrapping the title, description, and buttons in an HTML card container block, followed by the suggestion chip below it:
+
+<div style="border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 18px 20px; background: rgba(255, 255, 255, 0.03); margin: 12px 0;">
+  <div style="font-size: 16px; font-weight: bold; color: #ffffff; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+    🎬 <span>[Video Title / Clean Name]</span>
+  </div>
+  <div style="font-size: 14px; color: rgba(255, 255, 255, 0.75); line-height: 1.5; margin-bottom: 16px;">
+    [Customized description of what was found based on the user request].
+  </div>
+  <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+    <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-flex; align-items: center; justify-content: center; background-color: #ff0000; color: #ffffff; padding: 8px 18px; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 13.5px;">[Primary Action/Watch Label]</a>
+    <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-flex; align-items: center; justify-content: center; background-color: #272727; color: #ffffff; padding: 8px 18px; border-radius: 8px; font-weight: 600; text-decoration: none; font-size: 13.5px;">[Alternative Label]</a>
+  </div>
+</div>
+
+<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>
+
+STRICT BUTTON RULES:
+- Maximum 3 buttons total inside the flex container (1 primary in bold red #ff0000, up to 2 alternatives in dark charcoal #272727).
+- All buttons MUST be clickable <a> links with real href="https://www.youtube.com/watch?v=..." and target="_blank".
+- The <prism-suggestion> chip MUST be outside/below the card container.
+3. OPENING THE FOUND VIDEO: If the user sends "Open the YouTube video that you've found for me." or asks to open/play the video, immediately call 'open_browser_link' with the target video URL to open it in their browser.`
     }
 
     const systemPrompt: OpenAiMessage = {
@@ -93,12 +107,7 @@ STRICT EXECUTION PROTOCOL:
       content: systemContent
     }
 
-    let launcherTools = getNativeToolsForOpenAi('launcher', undefined, 'launcher')
-    if (isYoutubeMode) {
-      launcherTools = launcherTools.filter(
-        (t) => t.function.name !== 'web_search' && t.function.name !== 'saw_link_from_url'
-      )
-    }
+    const launcherTools = getNativeToolsForOpenAi('launcher', undefined, 'launcher')
     const messages: OpenAiMessage[] = [systemPrompt, ...launcherHistory]
     const parseThoughtAndContent = (
       rawText: string,
