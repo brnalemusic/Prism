@@ -6,13 +6,27 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 // ---------------------------------------------------------------------------
-// Private Upstream Mapping (STRICTLY INTERNAL TO TRUSTED BACKEND)
+// Private upstream routing is held only in the Edge Function Secret
+// ARCADIA_UPSTREAM_MAP_JSON. It must never be committed to source control.
 // ---------------------------------------------------------------------------
-const ARCADIA_UPSTREAM_MAP: Record<string, string> = {
-  'prism-ai/arcadia-1.0-mini': 'gemini-3.1-flash-lite',
-  'prism-ai/arcadia-1.0-flash': 'gemini-3-flash-preview',
-  'prism-ai/arcadia-1.0-pro': 'gemma-4-31b-it',
-  'prism-ai/arcadia-1.1-flash': 'gemini-3.5-flash'
+const ARCADIA_UPSTREAM_MAP_SECRET = 'ARCADIA_UPSTREAM_MAP_JSON'
+
+function loadArcadiaUpstreamMap(): Record<string, string> | null {
+  const raw = Deno.env.get(ARCADIA_UPSTREAM_MAP_SECRET)
+  if (!raw) return null
+
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+
+    const entries = Object.entries(parsed).filter(
+      ([publicModelId, upstreamModelId]) =>
+        publicModelId.startsWith('prism-ai/') && typeof upstreamModelId === 'string' && upstreamModelId.length > 0
+    )
+    return entries.length > 0 ? Object.fromEntries(entries) : null
+  } catch {
+    return null
+  }
 }
 
 const PUBLIC_ARCADIA_MODELS = [
@@ -245,8 +259,17 @@ serve(async (req) => {
       })
     }
 
-    // Validate against public Arcadia allowlist (Reject direct upstream names like gemini-*)
-    if (!(rawModelId in ARCADIA_UPSTREAM_MAP)) {
+    const arcadiaUpstreamMap = loadArcadiaUpstreamMap()
+    if (!arcadiaUpstreamMap) {
+      console.error('[prism-ai-proxy] Arcadia upstream routing secret is missing or invalid.')
+      return new Response(
+        JSON.stringify({ error: 'Prism Cloud model routing is temporarily unavailable.', code: 'ROUTING_UNAVAILABLE' }),
+        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Validate against the server-side Arcadia allowlist.
+    if (!(rawModelId in arcadiaUpstreamMap)) {
       return new Response(
         JSON.stringify({
           error: 'Model not supported. Please use an official Prism Arcadia model identifier.',
@@ -392,7 +415,7 @@ serve(async (req) => {
     }
 
     // 8. Resolve Private Upstream Model
-    const upstreamModelId = ARCADIA_UPSTREAM_MAP[rawModelId]
+    const upstreamModelId = arcadiaUpstreamMap[rawModelId]
     if (!upstreamModelId) {
       return new Response(
         JSON.stringify({ error: 'Internal routing error.', code: 'ROUTING_ERROR' }),
