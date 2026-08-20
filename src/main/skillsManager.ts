@@ -14,10 +14,9 @@ export interface SkillInfo {
 // Session map: chatId -> Set of unlocked tool names
 const unlockedToolsBySession = new Map<string, Set<string>>()
 
-export function isSkillFileDisabled(filename: string): boolean {
+export function isSkillFileDisabled(filename: string, disabledSkills?: string[]): boolean {
   try {
-    const config = loadConfig()
-    const disabled = config.disabledSkills || []
+    const disabled = disabledSkills ?? (loadConfig().disabledSkills || [])
     const lower = filename.toLowerCase()
     if (disabled.includes('pptx') && lower.includes('pptx')) return true
     if (disabled.includes('pdf') && lower.includes('pdf')) return true
@@ -73,12 +72,12 @@ export function getSkillsPath(): string {
 /**
  * Scans the skills directory dynamically and returns metadata for all available skill files (.md).
  */
-export async function listSkills(): Promise<SkillInfo[]> {
+export async function listSkills(disabledSkills?: string[]): Promise<SkillInfo[]> {
   const skillsPath = getSkillsPath()
   try {
     const files = await fs.readdir(skillsPath)
     const mdFiles = files
-      .filter((f) => f.endsWith('.md') && !isSkillFileDisabled(f))
+      .filter((f) => f.endsWith('.md') && !isSkillFileDisabled(f, disabledSkills))
       .sort()
 
     const skills: SkillInfo[] = []
@@ -161,13 +160,13 @@ function parseSkillMetadata(filename: string, content: string): SkillInfo {
 /**
  * Synchronous version of listSkills for synchronous prompt generation.
  */
-export function listSkillsSync(): SkillInfo[] {
+export function listSkillsSync(disabledSkills?: string[]): SkillInfo[] {
   const skillsPath = getSkillsPath()
   try {
     if (!fssync.existsSync(skillsPath)) return []
     const files = fssync.readdirSync(skillsPath)
     const mdFiles = files
-      .filter((f) => f.endsWith('.md') && !isSkillFileDisabled(f))
+      .filter((f) => f.endsWith('.md') && !isSkillFileDisabled(f, disabledSkills))
       .sort()
 
     const skills: SkillInfo[] = []
@@ -196,13 +195,13 @@ export function listSkillsSync(): SkillInfo[] {
 /**
  * Synchronously generates the Markdown snippet to inject dynamically into the System Prompt.
  */
-export function getSkillsSystemPromptSnippetSync(): string {
-  const skills = listSkillsSync()
+export function getSkillsSystemPromptSnippetSync(disabledSkills?: string[]): string {
+  const skills = listSkillsSync(disabledSkills)
   if (skills.length === 0) return ''
 
   const lines: string[] = [
     '# Available Skills',
-    'You have access to specialized skills. When requested to generate PDFs, PowerPoint presentations, or perform tasks covered by a skill, you MUST first call the `read_skill` tool with the corresponding skill filename to learn the required layout, best practices, and execution details:'
+    'You have access to specialized skills. When requested to perform tasks covered by an available skill, you MUST first call the `read_skill` tool with the corresponding skill filename to learn the required layout, best practices, and execution details:'
   ]
 
   for (const s of skills) {
@@ -215,8 +214,45 @@ export function getSkillsSystemPromptSnippetSync(): string {
 /**
  * Generates the Markdown snippet to inject dynamically into the System Prompt.
  */
-export async function getSkillsSystemPromptSnippet(): Promise<string> {
-  return getSkillsSystemPromptSnippetSync()
+export async function getSkillsSystemPromptSnippet(disabledSkills?: string[]): Promise<string> {
+  return getSkillsSystemPromptSnippetSync(disabledSkills)
+}
+
+/**
+ * Generates negative prompt constraints for disabled skills to strictly prevent the AI from generating restricted artifacts or using forbidden skills.
+ */
+export function getDisabledSkillsPromptSnippetSync(disabledSkills?: string[]): string {
+  let effectiveDisabled: string[] = []
+  try {
+    effectiveDisabled = disabledSkills ?? (loadConfig().disabledSkills || [])
+  } catch {
+    effectiveDisabled = disabledSkills || []
+  }
+  if (!effectiveDisabled || effectiveDisabled.length === 0) return ''
+
+  const rules: string[] = []
+
+  if (effectiveDisabled.includes('pdf')) {
+    rules.push(
+      '- **PDF Generation & Artifacts (DISABLED):** The user has disabled the PDF Document skill for this conversation. You MUST NOT compile, create, edit, or generate PDF files, PDF documents, or PDF artifacts through ANY tool, function, script, terminal command, or file writer (including `write_pdf`, `edit_pdf`, `computer_use_create_file`, `computer_use_save_file`, Python libraries, or CLI tools). If the user requests to generate, create, convert, or export a PDF, you MUST politely refuse and inform them that the PDF Skill is currently disabled in the conversation skills settings.'
+    )
+  }
+
+  if (effectiveDisabled.includes('pptx')) {
+    rules.push(
+      '- **PowerPoint (PPTX) Presentations (DISABLED):** The user has disabled the PowerPoint Presentation skill for this conversation. You MUST NOT compile, create, edit, or generate PowerPoint (.pptx/.ppt) presentations, slides, or slide artifacts through ANY tool, function, script, terminal command, or file writer (including `write_pptx`, `edit_pptx`, `computer_use_create_file`, `computer_use_save_file`, or CLI tools). If the user requests slides or a PowerPoint presentation, you MUST politely refuse and inform them that the PowerPoint Skill is currently disabled in the conversation skills settings.'
+    )
+  }
+
+  if (effectiveDisabled.includes('browser')) {
+    rules.push(
+      '- **Integrated AI Browser & Web Automation (DISABLED):** The user has disabled the Browser Use skill for this conversation. You MUST NOT use integrated browser automation tools (open_browser, browser_*, web_script, detailed_dom_page). Any URLs or links must only be opened in the OS system browser via `open_browser_link`.'
+    )
+  }
+
+  if (rules.length === 0) return ''
+
+  return ['# Disabled Skills & Restrictions (STRICT POLICY)', ...rules].join('\n')
 }
 
 /**
@@ -224,7 +260,8 @@ export async function getSkillsSystemPromptSnippet(): Promise<string> {
  */
 export async function readSkill(
   skillName: string,
-  chatId?: string
+  chatId?: string,
+  disabledSkills?: string[]
 ): Promise<{ success: boolean; content: string; unlockedTools: string[] }> {
   const skillsPath = getSkillsPath()
   const normalizedFilename = path.basename(skillName)
@@ -237,10 +274,10 @@ export async function readSkill(
     }
   }
 
-  if (isSkillFileDisabled(normalizedFilename)) {
+  if (isSkillFileDisabled(normalizedFilename, disabledSkills)) {
     return {
       success: false,
-      content: `Error: The skill "${skillName}" is currently disabled in settings.`,
+      content: `Error: The skill "${skillName}" is currently disabled for this conversation.`,
       unlockedTools: []
     }
   }

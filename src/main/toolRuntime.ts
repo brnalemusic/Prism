@@ -31,6 +31,7 @@ export interface ToolExecutionContext {
   apiKey?: string
   signal?: AbortSignal
   chatId?: string
+  disabledSkills?: string[]
   onStart?: (args: Record<string, unknown>) => void
 }
 
@@ -106,10 +107,13 @@ const SKILL_LOCKED_TOOLS = new Set([
   ...BROWSER_TOOLS
 ])
 
-function isToolAvailableForSession(toolName: string, chatId?: string): boolean {
+function isToolAvailableForSession(
+  toolName: string,
+  chatId?: string,
+  disabledSkills?: string[]
+): boolean {
   try {
-    const config = loadConfig()
-    const disabled = config.disabledSkills || []
+    const disabled = disabledSkills ?? (loadConfig().disabledSkills || [])
     if (disabled.includes('pptx') && PPTX_TOOLS.has(toolName)) return false
     if (disabled.includes('pdf') && PDF_TOOLS.has(toolName)) return false
     if (disabled.includes('browser') && BROWSER_TOOLS.has(toolName)) return false
@@ -129,12 +133,15 @@ function isToolAvailableForSession(toolName: string, chatId?: string): boolean {
   return isToolUnlockedForSession(toolName, chatId)
 }
 
-export function getOpenAiToolDefinitions(chatId?: string): Array<{
+export function getOpenAiToolDefinitions(
+  chatId?: string,
+  disabledSkills?: string[]
+): Array<{
   type: 'function'
   function: { name: string; description: string; parameters: Record<string, unknown> }
 }> {
   return toolsManifest
-    .filter((definition) => isToolAvailableForSession(definition.name, chatId))
+    .filter((definition) => isToolAvailableForSession(definition.name, chatId, disabledSkills))
     .map((definition) => ({
       type: 'function',
       function: {
@@ -145,13 +152,16 @@ export function getOpenAiToolDefinitions(chatId?: string): Array<{
     }))
 }
 
-export function getGeminiFunctionDeclarations(chatId?: string): Array<{
+export function getGeminiFunctionDeclarations(
+  chatId?: string,
+  disabledSkills?: string[]
+): Array<{
   name: string
   description: string
   parameters: Record<string, unknown>
 }> {
   return toolsManifest
-    .filter((definition) => isToolAvailableForSession(definition.name, chatId))
+    .filter((definition) => isToolAvailableForSession(definition.name, chatId, disabledSkills))
     .map((definition) => ({
       name: definition.name,
       description: definition.description,
@@ -404,7 +414,8 @@ export async function executeValidatedTool(
       context.event,
       context.apiKey,
       context.signal,
-      context.chatId
+      context.chatId,
+      context.disabledSkills
     )
     const { output, attachments } = normalizeSystemToolOutput(rawOutput)
     if (attachments.length > 0) {

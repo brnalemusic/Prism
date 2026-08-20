@@ -69,4 +69,5 @@ export interface TabSession {
   browserSourceTabId?: string
   artifacts?: ArtifactItem[]
   selectedArtifactId?: string | null
+  disabledSkills?: string[]
 }

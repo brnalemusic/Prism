@@ -68,6 +68,8 @@ interface InputBarProps {
   openaiModelName?: string
   reasoningLevel?: string
   onReasoningLevelChange?: (level: string) => void
+  disabledSkills?: string[]
+  onDisabledSkillsChange?: (skills: string[]) => void
 }
 
 export interface InputBarHandle {
@@ -101,7 +103,9 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       onModeChange,
       onSelectFolder,
       reasoningLevel = 'off',
-      onReasoningLevelChange
+      onReasoningLevelChange,
+      disabledSkills,
+      onDisabledSkillsChange
     },
     ref
   ) => {
@@ -112,17 +116,20 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     const [showModeMenu, setShowModeMenu] = useState(false)
 
     const isSkillEnabled = (skillKey: string): boolean => {
-      const disabled = config?.disabledSkills || []
-      return !disabled.includes(skillKey)
+      const currentDisabled = disabledSkills ?? config?.disabledSkills ?? []
+      return !currentDisabled.includes(skillKey)
     }
 
     const toggleSkill = (skillKey: string): void => {
-      const currentDisabled = config?.disabledSkills || []
+      const currentDisabled = disabledSkills ?? config?.disabledSkills ?? []
       let newDisabled: string[]
       if (currentDisabled.includes(skillKey)) {
         newDisabled = currentDisabled.filter((k) => k !== skillKey)
       } else {
         newDisabled = [...currentDisabled, skillKey]
+      }
+      if (onDisabledSkillsChange) {
+        onDisabledSkillsChange(newDisabled)
       }
       const updatedConfig = { ...config, disabledSkills: newDisabled } as AppConfig
       setConfig(updatedConfig)

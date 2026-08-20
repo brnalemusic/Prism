@@ -41,6 +41,7 @@ interface ChatPaneProps {
   onSelectFolder: () => void
   onUpdateTabInput: (id: string, text: string) => void
   onUpdateTabFile: (id: string, file: TabSession['attachedFile']) => void
+  onUpdateTabDisabledSkills?: (id: string, disabledSkills: string[]) => void
   onToggleSearch?: (enabled?: boolean) => void
   onOpenScreenshotModal: () => void
   onOpenYoutubeModal: () => void
@@ -70,6 +71,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     onSelectFolder,
     onUpdateTabInput,
     onUpdateTabFile,
+    onUpdateTabDisabledSkills,
     onToggleSearch,
     onOpenScreenshotModal,
     onOpenYoutubeModal,
@@ -331,6 +333,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       disciplinePath={tab.disciplinePath}
                       onModeChange={onModeChange}
                       onSelectFolder={onSelectFolder}
+                      disabledSkills={tab.disabledSkills}
+                      onDisabledSkillsChange={(skills) => onUpdateTabDisabledSkills?.(tab.id, skills)}
                     />
                   </div>
                 </div>
@@ -412,6 +416,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                   disciplinePath={tab.disciplinePath}
                   onModeChange={onModeChange}
                   onSelectFolder={onSelectFolder}
+                  disabledSkills={tab.disabledSkills}
+                  onDisabledSkillsChange={(skills) => onUpdateTabDisabledSkills?.(tab.id, skills)}
                 />
               </div>
             </div>

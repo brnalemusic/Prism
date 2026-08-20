@@ -33,7 +33,11 @@ import {
   saveChatArtifact,
   saveChatTodo
 } from './history'
-import { getSkillsSystemPromptSnippetSync, readSkill } from './skillsManager'
+import {
+  getSkillsSystemPromptSnippetSync,
+  getDisabledSkillsPromptSnippetSync,
+  readSkill
+} from './skillsManager'
 import {
   chromium,
   type Browser,
@@ -2058,6 +2062,68 @@ const ARCADIA_MODEL_NAMES: Record<string, string> = {
 /**
  * Returns the system prompt configured with the correct model identity.
  */
+export function isInternalDocDisabled(filename: string, disabledSkills: string[]): boolean {
+  const lower = filename.toLowerCase()
+  if (
+    disabledSkills.includes('pdf') &&
+    disabledSkills.includes('pptx') &&
+    lower.includes('14_pdf_and_pptx')
+  ) {
+    return true
+  }
+  if (
+    disabledSkills.includes('browser') &&
+    lower.includes('integrated_browser')
+  ) {
+    return true
+  }
+  return false
+}
+
+export function filterDisabledDocContent(
+  filename: string,
+  content: string,
+  disabledSkills: string[]
+): string {
+  let filtered = content
+  const lower = filename.toLowerCase()
+  if (disabledSkills.includes('pdf') && lower.includes('14_pdf_and_pptx')) {
+    filtered = filtered.replace(
+      /###?\s*3\.1\s*`write_pdf`[\s\S]*?(?=###?\s*3\.3|$)/i,
+      '### 3.1 `write_pdf`\n*(PDF skill disabled for this conversation)*\n\n'
+    )
+    filtered = filtered.replace(
+      /###?\s*4\.1\s*Infraestrutura de PDF[\s\S]*?(?=###?\s*4\.2|$)/i,
+      '### 4.1 Infraestrutura de PDF\n*(PDF skill disabled for this conversation)*\n\n'
+    )
+    filtered = filtered.replace(
+      /subgraph Geração de PDF[\s\S]*?end/i,
+      'subgraph Geração de PDF\n        D1[PDF Skill Desabilitada]\n    end'
+    )
+  }
+  if (disabledSkills.includes('pptx') && lower.includes('14_pdf_and_pptx')) {
+    filtered = filtered.replace(
+      /###?\s*3\.3\s*`write_pptx`[\s\S]*?(?=##\s*4|$)/i,
+      '### 3.3 `write_pptx`\n*(PowerPoint skill disabled for this conversation)*\n\n'
+    )
+    filtered = filtered.replace(
+      /###?\s*4\.2\s*Infraestrutura de PPTX[\s\S]*?(?=##\s*5|$)/i,
+      '### 4.2 Infraestrutura de PPTX\n*(PowerPoint skill disabled for this conversation)*\n\n'
+    )
+    filtered = filtered.replace(
+      /subgraph Geração de PPTX[\s\S]*?end/i,
+      'subgraph Geração de PPTX\n        E1[PowerPoint Skill Desabilitada]\n    end'
+    )
+  }
+  if (disabledSkills.includes('browser') && lower.includes('09_file_and_browser')) {
+    filtered = filtered.replace(
+      /##\s*2\.\s*Playwright Web Browser Tools[\s\S]*$/i,
+      '## 2. Playwright Web Browser Tools\n*(Browser Use skill disabled for this conversation)*\n'
+    )
+  }
+  return filtered
+}
+
 export function getSystemToolsPrompt(
   modelKey: string,
   target: 'main' | 'subagent' | 'both' | 'launcher' = 'main',
@@ -2065,7 +2131,8 @@ export function getSystemToolsPrompt(
   sessionMode: SessionMode = 'execution',
   disciplinePath?: string,
   modelDisplayName?: string,
-  isPrismCloud?: boolean
+  isPrismCloud?: boolean,
+  disabledSkills?: string[]
 ): string {
   let shellName = process.platform === 'win32' ? 'powershell.exe' : '/bin/sh'
   try {
@@ -2130,6 +2197,16 @@ export function getSystemToolsPrompt(
     second: '2-digit'
   })
 
+  let effectiveDisabledSkills = disabledSkills
+  if (effectiveDisabledSkills === undefined) {
+    try {
+      const config = loadConfig()
+      effectiveDisabledSkills = config.disabledSkills || []
+    } catch {
+      effectiveDisabledSkills = []
+    }
+  }
+
   if (target === 'launcher') {
     return `# Identity & Context
 Role: Prism AI in Quick Launcher.
@@ -2160,16 +2237,13 @@ ${inlineSuggestionsRule}`
       ? `\n- **Discipline Mode**: Operations/commands run in ${disciplinePath}. Modify relative to this path.`
       : ''
 
-  const skillsSnippet = getSkillsSystemPromptSnippetSync()
+  const skillsSnippet = getSkillsSystemPromptSnippetSync(effectiveDisabledSkills)
   const skillsSection = skillsSnippet ? `\n\n${skillsSnippet}` : ''
 
-  let isBrowserDisabled = false
-  try {
-    const config = loadConfig()
-    if (config.disabledSkills?.includes('browser')) {
-      isBrowserDisabled = true
-    }
-  } catch {}
+  const disabledSkillsSnippet = getDisabledSkillsPromptSnippetSync(effectiveDisabledSkills)
+  const disabledSkillsSection = disabledSkillsSnippet ? `\n\n${disabledSkillsSnippet}` : ''
+
+  const isBrowserDisabled = effectiveDisabledSkills.includes('browser')
 
   const browserRule = isBrowserDisabled
     ? '- **Auto-Open & Links:** Open URLs/links in OS system browser via `open_browser_link` by default.'
@@ -2195,7 +2269,7 @@ ${browserRule}
 - **Search:** Use web_search and saw_link_from_url. For Deep Research: 1. Search context, 2. Present plan & await user approval, 3. 10+ iterations, 4. Output Markdown report.
 - **Prism Docs:** Use internal_docs_list, internal_docs_read, internal_docs_search for Prism system queries.
 - **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}
-${inlineSuggestionsRule}${skillsSection}`
+${inlineSuggestionsRule}${skillsSection}${disabledSkillsSection}`
 }
 
 export interface InstalledApplicationResult {
@@ -2508,39 +2582,43 @@ export async function executeSystemTool(
   event?: any,
   apiKey?: string,
   signal?: AbortSignal,
-  chatId?: string
+  chatId?: string,
+  disabledSkills?: string[]
 ): Promise<SystemToolOutput> {
   if (chatId) {
     _currentSessionIdForTodo = chatId
   }
+  let disabled: string[] = []
   try {
     const config = loadConfig()
-    const disabled = config.disabledSkills || []
-    if (disabled.includes('pptx') && ['write_pptx', 'edit_pptx'].includes(toolName)) {
-      return `Error: PowerPoint (PPTX) skill is currently disabled in settings.`
-    }
-    if (disabled.includes('pdf') && ['write_pdf', 'edit_pdf'].includes(toolName)) {
-      return `Error: PDF Document skill is currently disabled in settings.`
-    }
-    if (
-      disabled.includes('browser') &&
-      [
-        'open_browser',
-        'browser_navigate',
-        'browser_snapshot',
-        'browser_click',
-        'browser_type',
-        'browser_press',
-        'browser_scroll',
-        'browser_back',
-        'browser_screenshot',
-        'web_script',
-        'detailed_dom_page'
-      ].includes(toolName)
-    ) {
-      return `Error: Browser Use skill is currently disabled in settings.`
-    }
-  } catch {}
+    disabled = disabledSkills ?? (config.disabledSkills || [])
+  } catch {
+    disabled = disabledSkills || []
+  }
+  if (disabled.includes('pptx') && ['write_pptx', 'edit_pptx'].includes(toolName)) {
+    return `Error: PowerPoint (PPTX) skill is currently disabled for this conversation.`
+  }
+  if (disabled.includes('pdf') && ['write_pdf', 'edit_pdf'].includes(toolName)) {
+    return `Error: PDF Document skill is currently disabled for this conversation.`
+  }
+  if (
+    disabled.includes('browser') &&
+    [
+      'open_browser',
+      'browser_navigate',
+      'browser_snapshot',
+      'browser_click',
+      'browser_type',
+      'browser_press',
+      'browser_scroll',
+      'browser_back',
+      'browser_screenshot',
+      'web_script',
+      'detailed_dom_page'
+    ].includes(toolName)
+  ) {
+    return `Error: Browser Use skill is currently disabled for this conversation.`
+  }
   switch (toolName) {
     // Terminal
     case 'execute_terminal_command':
@@ -2554,16 +2632,32 @@ export async function executeSystemTool(
       return 'Was not connected to any Discord voice channel.'
 
     // File operations
-    case 'computer_use_create_file':
+    case 'computer_use_create_file': {
+      const targetPath = (args.path || '').toString().toLowerCase()
+      if (disabled.includes('pdf') && targetPath.endsWith('.pdf')) {
+        return 'Error: Creating PDF files is prohibited because the PDF Skill is disabled for this conversation.'
+      }
+      if (disabled.includes('pptx') && (targetPath.endsWith('.pptx') || targetPath.endsWith('.ppt'))) {
+        return 'Error: Creating PowerPoint presentation files is prohibited because the PowerPoint Skill is disabled for this conversation.'
+      }
       return await computerCreateFile(args.path, args.content, signal)
+    }
     case 'computer_use_create_directory':
       return await computerCreateDirectory(args.path || '', signal)
     case 'computer_use_remove_file':
       return await computerRemoveFile(args.path, signal)
     case 'computer_use_remove_directory':
       return await computerRemoveDirectory(args.path || '', signal)
-    case 'computer_use_save_file':
+    case 'computer_use_save_file': {
+      const targetPath = (args.path || '').toString().toLowerCase()
+      if (disabled.includes('pdf') && targetPath.endsWith('.pdf')) {
+        return 'Error: Saving PDF files is prohibited because the PDF Skill is disabled for this conversation.'
+      }
+      if (disabled.includes('pptx') && (targetPath.endsWith('.pptx') || targetPath.endsWith('.ppt'))) {
+        return 'Error: Saving PowerPoint presentation files is prohibited because the PowerPoint Skill is disabled for this conversation.'
+      }
       return await computerSaveFile(args.path, args.content, signal)
+    }
     case 'computer_use_append_file':
       return await computerAppendToFile(args.path, args.content, signal)
     case 'computer_use_read_file': {
@@ -2994,7 +3088,10 @@ export async function executeSystemTool(
 
         try {
           const files = await fs.readdir(docsPath)
-          const mdFiles = files.filter((f) => f.endsWith('.md')).sort()
+          const mdFiles = files
+            .filter((f) => f.endsWith('.md'))
+            .filter((f) => !isInternalDocDisabled(f, disabled))
+            .sort()
           if (mdFiles.length === 0) return 'No internal documentation found.'
           return `Available internal documentation files:\n${mdFiles.map((f) => `- ${f}`).join('\n')}`
         } catch (e: any) {
@@ -3014,9 +3111,15 @@ export async function executeSystemTool(
           return 'Error: Invalid filename. Must be a .md file from the internal_docs_list.'
         }
 
-        const filePath = path.join(docsPath, path.basename(filename))
+        const baseFilename = path.basename(filename)
+        if (isInternalDocDisabled(baseFilename, disabled)) {
+          return `Error: Documentation file "${filename}" is unavailable because the corresponding skill is disabled for this conversation.`
+        }
+
+        const filePath = path.join(docsPath, baseFilename)
         try {
-          const content = await fs.readFile(filePath, 'utf-8')
+          let content = await fs.readFile(filePath, 'utf-8')
+          content = filterDisabledDocContent(baseFilename, content, disabled)
           return content
         } catch (e: any) {
           if (e.code === 'ENOENT') return `Error: Documentation file "${filename}" not found.`
@@ -3034,7 +3137,7 @@ export async function executeSystemTool(
         if (!skillName) {
           return 'Error: skill_name parameter is required.'
         }
-        const result = await readSkill(skillName, chatId)
+        const result = await readSkill(skillName, chatId, disabled)
         if (!result.success) {
           return result.content
         }
@@ -3072,7 +3175,10 @@ export async function executeSystemTool(
         }
 
         const files = await fs.readdir(docsPath)
-        const mdFiles = files.filter((f) => f.endsWith('.md')).sort()
+        const mdFiles = files
+          .filter((f) => f.endsWith('.md'))
+          .filter((f) => !isInternalDocDisabled(f, disabled))
+          .sort()
         if (mdFiles.length === 0) return 'No internal documentation files found to search.'
 
         const matches: { filename: string; lineNumber: number; content: string }[] = []
@@ -3081,7 +3187,8 @@ export async function executeSystemTool(
         for (const file of mdFiles) {
           const filePath = path.join(docsPath, file)
           try {
-            const content = await fs.readFile(filePath, 'utf-8')
+            let content = await fs.readFile(filePath, 'utf-8')
+            content = filterDisabledDocContent(file, content, disabled)
             const lines = content.split('\n')
             lines.forEach((line, idx) => {
               if (line.toLowerCase().includes(queryLower)) {

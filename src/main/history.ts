@@ -21,6 +21,7 @@ export interface ChatSession {
   artifacts?: ArtifactItem[]
   todo?: TodoState | null
   isDiscord?: boolean
+  disabledSkills?: string[]
 }
 
 const CHATS_DIR = path.join(
@@ -101,7 +102,8 @@ export function listChatSessions(): Omit<ChatSession, 'messages'>[] {
           sessionMode: session.sessionMode,
           disciplinePath: effectiveDisciplinePath,
           model: session.model,
-          isDiscord: session.isDiscord
+          isDiscord: session.isDiscord,
+          disabledSkills: session.disabledSkills
         }
       })
       .sort((a, b) => b.lastUpdated - a.lastUpdated)
@@ -326,7 +328,8 @@ export function saveChatSession(
   sessionMode?: SessionMode,
   disciplinePath?: string,
   model?: string,
-  isDiscord?: boolean
+  isDiscord?: boolean,
+  disabledSkills?: string[]
 ): boolean {
   ensureChatsDir()
   const cleanId = sanitizeId(id)
@@ -338,13 +341,15 @@ export function saveChatSession(
     let existingMode = sessionMode
     let existingPath = disciplinePath
     let existingModel = model
+    let existingDisabledSkills = disabledSkills
 
     // If title or modes not provided, try to keep the existing ones from the file
     if (
       sessionTitle === undefined ||
       existingMode === undefined ||
       existingPath === undefined ||
-      existingModel === undefined
+      existingModel === undefined ||
+      existingDisabledSkills === undefined
     ) {
       if (fs.existsSync(filePath)) {
         try {
@@ -367,6 +372,9 @@ export function saveChatSession(
           }
           if (isDiscord === undefined) {
             isDiscord = existingData.isDiscord
+          }
+          if (existingDisabledSkills === undefined) {
+            existingDisabledSkills = existingData.disabledSkills
           }
         } catch {
           /* ignore parse errors */
@@ -421,7 +429,8 @@ export function saveChatSession(
       model: existingModel,
       artifacts: existingArtifacts,
       todo: existingTodo,
-      isDiscord
+      isDiscord,
+      disabledSkills: existingDisabledSkills
     }
 
     fs.writeFileSync(filePath, JSON.stringify(session, null, 2))

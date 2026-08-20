@@ -70,10 +70,11 @@ export function cancelChatMessage(chatId?: string): void {
 export function getNativeToolsForOpenAi(
   _target: 'main' | 'launcher' = 'main',
   allowedTools?: string[],
-  chatId?: string
+  chatId?: string,
+  disabledSkills?: string[]
 ): OpenAiToolDefinition[] {
   void _target
-  const definitions = getOpenAiToolDefinitions(chatId)
+  const definitions = getOpenAiToolDefinitions(chatId, disabledSkills)
   if (allowedTools === undefined) return definitions
   const allowed = new Set(allowedTools)
   return definitions.filter((definition) => allowed.has(definition.function.name))
@@ -95,6 +96,7 @@ export async function handleChatMessage(
         disciplinePath?: string
         modelKey?: string
         reasoningLevel?: string
+        disabledSkills?: string[]
       }
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
@@ -195,6 +197,12 @@ export async function handleChatMessage(
 
   historyMessages.push(userMessage)
 
+  const config = loadConfig()
+  const disabledSkills =
+    typeof data === 'object' && Array.isArray(data.disabledSkills)
+      ? data.disabledSkills
+      : session?.disabledSkills || config.disabledSkills || []
+
   // Save session
   if (isFirstMessage) {
     saveChatSession(
@@ -203,7 +211,9 @@ export async function handleChatMessage(
       'New Conversation',
       currentSessionMode,
       currentDisciplinePath,
-      currentSelectedChatModel
+      currentSelectedChatModel,
+      false,
+      disabledSkills
     )
     broadcastIpc('chat-session-created', { id: chatId })
     // Background title generator
@@ -215,7 +225,9 @@ export async function handleChatMessage(
       undefined,
       currentSessionMode,
       currentDisciplinePath,
-      currentSelectedChatModel
+      currentSelectedChatModel,
+      undefined,
+      disabledSkills
     )
   }
 
@@ -231,7 +243,6 @@ export async function handleChatMessage(
 
   try {
     // Workflow matching: check if the user's message starts with a slash command
-    const config = loadConfig()
     const cleanModelId = model.id.startsWith('prism_provider:')
       ? model.id.replace('prism_provider:', '')
       : model.id
@@ -261,7 +272,8 @@ export async function handleChatMessage(
       currentSessionMode,
       currentDisciplinePath,
       model.name,
-      isPrismCloud
+      isPrismCloud,
+      disabledSkills
     )
     let fullPrompt = systemPrompt
     if (matchedWorkflow) {
@@ -277,9 +289,9 @@ export async function handleChatMessage(
       let tools =
         currentSessionMode === 'conversation'
           ? []
-          : getNativeToolsForOpenAi('main', matchedWorkflow?.toolConstraints, chatId)
+          : getNativeToolsForOpenAi('main', matchedWorkflow?.toolConstraints, chatId, disabledSkills)
       if (isForceSearch) {
-        const allTools = getNativeToolsForOpenAi('main', undefined, chatId)
+        const allTools = getNativeToolsForOpenAi('main', undefined, chatId, disabledSkills)
         const searchTools = allTools.filter((t) =>
           ['web_search', 'saw_link_from_url', 'open_browser_link'].includes(t.function.name)
         )
@@ -368,6 +380,7 @@ export async function handleChatMessage(
         apiKey: provider.apiKey,
         signal: abortController.signal,
         chatId,
+        disabledSkills,
         onStart: (args) =>
           broadcastIpc('chat-tool-start', {
             callId,

@@ -2205,6 +2205,7 @@ function RealApp(): React.JSX.Element {
       const loadedMode: SessionMode = historyItem?.sessionMode || 'execution'
       const loadedDisciplinePath: string =
         loadedMode === 'discipline' ? historyItem?.disciplinePath || '' : ''
+      const loadedDisabledSkills = historyItem?.disabledSkills
 
       setTabs((prevTabs) => {
         if (prevTabs.length === 0) {
@@ -2221,7 +2222,8 @@ function RealApp(): React.JSX.Element {
             isProcessing: false,
             isTodoOpen: false,
             selectedModel: selectedModelRef.current,
-            isSearchEnabled: false
+            isSearchEnabled: false,
+            disabledSkills: loadedDisabledSkills
           }
           setActiveTabId(newId)
           setVisibleTabIds([newId])
@@ -2235,7 +2237,8 @@ function RealApp(): React.JSX.Element {
               title,
               messages,
               sessionMode: loadedMode,
-              disciplinePath: loadedDisciplinePath
+              disciplinePath: loadedDisciplinePath,
+              disabledSkills: loadedDisabledSkills
             }
           }
           return t
@@ -2346,7 +2349,8 @@ function RealApp(): React.JSX.Element {
         sessionMode,
         disciplinePath: sessionMode === 'discipline' ? currentTab.disciplinePath : '',
         modelKey,
-        reasoningLevel: getReasoningLevelForModel(modelKey)
+        reasoningLevel: getReasoningLevelForModel(modelKey),
+        disabledSkills: currentTab.disabledSkills ?? config?.disabledSkills ?? []
       })
 
       if (!isSuggestion) {
@@ -3391,6 +3395,11 @@ function RealApp(): React.JSX.Element {
                         onUpdateTabFile={(id, file) => {
                           setTabs((prev) =>
                             prev.map((t) => (t.id === id ? { ...t, attachedFile: file } : t))
+                          )
+                        }}
+                        onUpdateTabDisabledSkills={(id, disabledSkills) => {
+                          setTabs((prev) =>
+                            prev.map((t) => (t.id === id ? { ...t, disabledSkills } : t))
                           )
                         }}
                         onToggleSearch={(enabled) => handleToggleSearch(tab.id, enabled)}

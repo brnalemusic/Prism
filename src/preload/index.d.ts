@@ -56,6 +56,7 @@ export interface PrismAPI {
     disciplinePath?: string
     modelKey?: string
     reasoningLevel?: string
+    disabledSkills?: string[]
   }) => void
 
   setModel: (modelKey: string) => void
