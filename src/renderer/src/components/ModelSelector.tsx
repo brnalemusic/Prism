@@ -238,7 +238,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         {isOpen && (
           <div
             className={clsx(
-              'absolute top-full mt-2 w-72 sm:w-80 z-[100] rounded-xl border border-[var(--border-strong)] bg-[var(--surface-raised)] shadow-[0_18px_45px_rgba(0,0,0,0.55)] overflow-hidden flex flex-col max-h-96 animate-soft-pop',
+              'absolute top-full mt-2 w-72 sm:w-80 z-[200] rounded-xl border border-[var(--border-strong)] bg-[var(--surface-raised)] shadow-[0_20px_50px_rgba(0,0,0,0.65)] overflow-hidden flex flex-col max-h-96 animate-soft-pop',
               align === 'left' ? 'left-0' : 'right-0'
             )}
           >

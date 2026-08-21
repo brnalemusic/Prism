@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   FloppyDisk as Save,
@@ -31,43 +31,52 @@ import {
   Clock,
   CreditCard,
   Sparkle,
-  ArrowSquareOut,
   CheckCircle,
   X,
   CaretDown,
   ArrowClockwise,
   FilePpt,
-  FilePdf
+  FilePdf,
+  MagnifyingGlass,
+  Sliders,
+  FolderOpen,
+  Waveform
 } from '@phosphor-icons/react'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import { EnterpriseActivationModal } from './EnterpriseActivationModal'
 import clsx from 'clsx'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
-
-type Config = AppConfig
-
+import type { SessionMode } from '../../../shared/types'
 import { ApiManagerSettings } from './ApiManagerSettings'
 import { ModelSelector } from './ModelSelector'
 import { QuantumPhysicsGame } from './QuantumPhysicsGame'
 
+type Config = AppConfig
+
 type SectionId =
+  | 'appearance'
   | 'shortcuts'
+  | 'system'
+  | 'voice'
   | 'providers'
   | 'intelligence'
-  | 'skills'
   | 'runtime'
-  | 'appearance'
-  | 'voice'
+  | 'skills'
   | 'workflows'
-  | 'system'
   | 'discord'
   | 'license'
   | 'about'
+
+type SectionCategory = 'general' | 'ai' | 'integrations'
 
 interface NavSection {
   id: SectionId
   label: string
   icon: React.ReactNode
+  category: SectionCategory
+  categoryLabel: string
+  description: string
+  keywords: string[]
 }
 
 function DiscordIcon({ size = 18 }: { size?: number }): React.JSX.Element {
@@ -140,10 +149,53 @@ function formatToolName(name: string): string {
     .join(' ')
 }
 
+function useLicenseCountdown(expiresAt?: string): string {
+  const [timeLeft, setTimeLeft] = useState('')
+
+  useEffect(() => {
+    if (!expiresAt) {
+      setTimeLeft('')
+      return
+    }
+
+    const update = () => {
+      const now = Date.now()
+      const expiry = new Date(expiresAt).getTime()
+      const diff = expiry - now
+
+      if (diff <= 0) {
+        setTimeLeft('Expired')
+        return
+      }
+
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000)
+
+      const pad = (n: number) => String(n).padStart(2, '0')
+
+      if (days > 0) {
+        setTimeLeft(`${days}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`)
+      } else if (hours > 0) {
+        setTimeLeft(`${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`)
+      } else {
+        setTimeLeft(`${pad(minutes)}m ${pad(seconds)}s`)
+      }
+    }
+
+    update()
+    const timer = setInterval(update, 1000)
+    return () => clearInterval(timer)
+  }, [expiresAt])
+
+  return timeLeft
+}
+
 export function SettingsView({
   onClose,
   onOpenAuthModal,
-  initialSection = 'shortcuts'
+  initialSection = 'appearance'
 }: {
   onClose?: () => void
   onOpenAuthModal?: () => void
@@ -170,13 +222,15 @@ export function SettingsView({
     sessionMode: 'execution',
     disciplinePath: ''
   })
+
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState({ text: '', type: '' })
   const [availableTerminals, setAvailableTerminals] = useState<
     Array<{ id: string; name: string; path: string }>
   >([])
   const [activeSection, setActiveSection] = useState<SectionId>(initialSection)
-  const [isSectionMenuOpen, setIsSectionMenuOpen] = useState(false)
+  const [searchNavQuery, setSearchNavQuery] = useState('')
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [showDiscordToken, setShowDiscordToken] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
 
@@ -189,6 +243,7 @@ export function SettingsView({
     }
   }, [initialSection])
 
+  // Workflow state
   const [editingWorkflow, setEditingWorkflow] = useState<SlashWorkflow | null>(null)
   const [isAddingWorkflow, setIsAddingWorkflow] = useState(false)
   const [formCommand, setFormCommand] = useState('')
@@ -197,59 +252,17 @@ export function SettingsView({
   const [formPrompt, setFormPrompt] = useState('')
   const [formTools, setFormTools] = useState<string[]>([])
   const [formError, setFormError] = useState('')
+  const [toolSearchQuery, setToolSearchQuery] = useState('')
 
   const [availableTools, setAvailableTools] =
     useState<Array<{ name: string; label: string; desc: string }>>(STATIC_TOOLS)
 
-  // --- Easter Egg State ---
+  // Easter Egg State
   const [easterEggClicks, setEasterEggClicks] = useState(0)
   const [lastClickTimestamp, setLastClickTimestamp] = useState(0)
   const [isEasterEggOpen, setIsEasterEggOpen] = useState(false)
 
-  function useLicenseCountdown(expiresAt?: string): string {
-    const [timeLeft, setTimeLeft] = useState('')
-
-    useEffect(() => {
-      if (!expiresAt) {
-        setTimeLeft('')
-        return
-      }
-
-      const update = () => {
-        const now = Date.now()
-        const expiry = new Date(expiresAt).getTime()
-        const diff = expiry - now
-
-        if (diff <= 0) {
-          setTimeLeft('Expired')
-          return
-        }
-
-        const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-        const seconds = Math.floor((diff % (1000 * 60)) / 1000)
-
-        const pad = (n: number) => String(n).padStart(2, '0')
-
-        if (days > 0) {
-          setTimeLeft(`${days}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`)
-        } else if (hours > 0) {
-          setTimeLeft(`${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`)
-        } else {
-          setTimeLeft(`${pad(minutes)}m ${pad(seconds)}s`)
-        }
-      }
-
-      update()
-      const timer = setInterval(update, 1000)
-      return () => clearInterval(timer)
-    }, [expiresAt])
-
-    return timeLeft
-  }
-
-  // --- License Management State ---
+  // License State
   const [licenseInfo, setLicenseInfo] = useState<
     import('../../../shared/types').LicenseInfo | null
   >(null)
@@ -260,19 +273,16 @@ export function SettingsView({
   const [licenseError, setLicenseError] = useState<string | null>(null)
   const [licenseSuccess, setLicenseSuccess] = useState<string | null>(null)
   const [isActivationModalOpen, setIsActivationModalOpen] = useState(false)
-  // Stripe-specific loading state — rendered as a global portal modal, separate from the offline card
   const [stripeVerifying, setStripeVerifying] = useState(false)
 
-  // --- Dynamic License Plans & Stripe Checkout State ---
+  // Stripe & Auth State
   const [authUser, setAuthUser] = useState<import('../../../shared/types').UserProfile | null>(null)
   const [plans, setPlans] = useState<import('../../../shared/types').SubscriptionPlan[]>([])
   const [isLoadingPlans, setIsLoadingPlans] = useState(false)
   const [plansError, setPlansError] = useState<string | null>(null)
   const [checkoutLoadingPlanId, setCheckoutLoadingPlanId] = useState<string | null>(null)
   const [stripeCheckoutStage, setStripeCheckoutStage] = useState<'opening' | 'polling'>('opening')
-  // Maps planId -> Stripe session_id after a real checkout is opened
   const [pendingSessionIds, setPendingSessionIds] = useState<Record<string, string>>({})
-  const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null)
 
   const settingsPollRef = useRef<NodeJS.Timeout | null>(null)
   const isPaymentVerificationInFlightRef = useRef(false)
@@ -314,7 +324,7 @@ export function SettingsView({
       const fetchedPlans = await window.api.getSubscriptionPlans()
       setPlans(fetchedPlans)
     } catch (err) {
-      console.error('Failed to load subscription plans from Supabase:', err)
+      console.error('Failed to load subscription plans:', err)
       setPlans([])
       setPlansError('Pricing could not be loaded. Check your connection and try again.')
     } finally {
@@ -327,7 +337,6 @@ export function SettingsView({
   ): Promise<void> => {
     setCheckoutLoadingPlanId(plan.id)
     setLicenseError(null)
-    setCheckoutMessage(null)
     setStripeVerifying(true)
     setStripeCheckoutStage('opening')
 
@@ -340,13 +349,12 @@ export function SettingsView({
         const openResult = await window.api.openExternalUrl(res.checkoutUrl)
         if (!openResult.success) {
           setStripeVerifying(false)
-          setLicenseError(openResult.error || 'Unable to open the checkout in your system browser.')
+          setLicenseError(openResult.error || 'Unable to open checkout in browser.')
           return
         }
         setPendingSessionIds((prev) => ({ ...prev, [plan.id]: res.sessionId! }))
         setStripeCheckoutStage('polling')
 
-        // Start automatic global polling every 2 seconds
         stopSettingsPolling()
         settingsPollRef.current = setInterval(async () => {
           if (isPaymentVerificationInFlightRef.current) return
@@ -362,7 +370,6 @@ export function SettingsView({
 
             if (verifyRes.success) {
               stopSettingsPolling()
-
               const info = await window.api.getLicenseInfo()
               if (info) setLicenseInfo(info)
 
@@ -379,7 +386,7 @@ export function SettingsView({
             console.warn('[SettingsStripePolling] Payment verification failed:', pollErr)
             stopSettingsPolling()
             setStripeVerifying(false)
-            setLicenseError('Unable to verify the payment. Please try again.')
+            setLicenseError('Unable to verify payment. Please try again.')
           } finally {
             isPaymentVerificationInFlightRef.current = false
           }
@@ -403,9 +410,7 @@ export function SettingsView({
   ): Promise<void> => {
     const sessionId = pendingSessionIds[plan.id]
     if (!sessionId) {
-      setLicenseError(
-        'No Stripe payment session found. Please click "Buy via Stripe" first and complete checkout.'
-      )
+      setLicenseError('No Stripe payment session found. Click "Buy via Stripe" first.')
       return
     }
 
@@ -424,16 +429,13 @@ export function SettingsView({
           delete next[plan.id]
           return next
         })
-        setCheckoutMessage(null)
         const info = await window.api.getLicenseInfo()
         if (info) {
           setLicenseInfo(info)
           setIsActivationModalOpen(true)
         }
       } else {
-        setLicenseError(
-          res.error || 'Payment verification failed. Please ensure checkout was completed.'
-        )
+        setLicenseError(res.error || 'Payment verification failed.')
       }
     } catch (err: any) {
       setLicenseError(err?.message || 'Error confirming payment.')
@@ -450,18 +452,18 @@ export function SettingsView({
 
     try {
       setActivationStepMessage('Connecting to Prism Licensing Engine...')
-      await new Promise((r) => setTimeout(r, 500))
+      await new Promise((r) => setTimeout(r, 400))
 
       setActivationStepMessage('Verifying Cryptographic Ed25519 Signature...')
-      await new Promise((r) => setTimeout(r, 600))
+      await new Promise((r) => setTimeout(r, 500))
 
       setActivationStepMessage('Validating Enterprise License Entitlements...')
       const res = await window.api.activateLicense(inputLicenseKey)
-      await new Promise((r) => setTimeout(r, 500))
+      await new Promise((r) => setTimeout(r, 400))
 
       if (res.success && res.info) {
         setLicenseInfo(res.info)
-        setLicenseSuccess(`Successfully activated Enterprise License for ${res.info.licensee}!`)
+        setLicenseSuccess(`Enterprise License activated for ${res.info.licensee}!`)
         setInputLicenseKey('')
         setIsActivationModalOpen(true)
       } else {
@@ -605,9 +607,9 @@ export function SettingsView({
     setIsSaving(false)
 
     if (success) {
-      setMessage({ text: 'Saved!', type: 'success' })
+      setMessage({ text: 'Settings saved successfully', type: 'success' })
     } else {
-      setMessage({ text: 'Error saving.', type: 'error' })
+      setMessage({ text: 'Failed to save settings', type: 'error' })
     }
 
     setTimeout(() => setMessage({ text: '', type: '' }), 3000)
@@ -639,7 +641,7 @@ export function SettingsView({
 
   const handleSectionChange = (id: SectionId): void => {
     setActiveSection(id)
-    setIsSectionMenuOpen(false)
+    setIsMobileMenuOpen(false)
     if (id === 'license') {
       void loadSubscriptionPlans()
     }
@@ -649,1190 +651,155 @@ export function SettingsView({
   }
 
   const sections: NavSection[] = [
-    { id: 'shortcuts', label: 'Shortcuts', icon: <Keyboard size={18} weight="bold" /> },
-    { id: 'providers', label: 'BYOK', icon: <Key size={18} weight="bold" /> },
-    { id: 'intelligence', label: 'Intelligence', icon: <Bot size={18} weight="bold" /> },
-    { id: 'skills', label: 'Skills', icon: <Sparkle size={18} weight="bold" /> },
-    { id: 'runtime', label: 'AI Runtime', icon: <Shield size={18} weight="bold" /> },
-    { id: 'appearance', label: 'Appearance', icon: <Palette size={18} weight="bold" /> },
-    { id: 'voice', label: 'Voice', icon: <Volume2 size={18} weight="bold" /> },
-    { id: 'workflows', label: 'Workflows', icon: <Lightning size={18} weight="bold" /> },
-    { id: 'system', label: 'System', icon: <Monitor size={18} weight="bold" /> },
-    { id: 'discord', label: 'Discord', icon: <DiscordIcon /> },
-    { id: 'license', label: 'License', icon: <Certificate size={18} weight="bold" /> },
-    { id: 'about', label: 'About', icon: <Info size={18} weight="bold" /> }
+    // General
+    {
+      id: 'appearance',
+      label: 'Appearance',
+      icon: <Palette size={17} weight="duotone" />,
+      category: 'general',
+      categoryLabel: 'General',
+      description: 'Color theme accents and desktop window scaling.',
+      keywords: ['theme', 'color', 'dark', 'light', 'zoom', 'scaling', 'ui', 'size']
+    },
+    {
+      id: 'shortcuts',
+      label: 'Shortcuts',
+      icon: <Keyboard size={17} weight="duotone" />,
+      category: 'general',
+      categoryLabel: 'General',
+      description: 'Global system hotkeys and in-app keyboard shortcuts.',
+      keywords: ['hotkeys', 'keybinds', 'keys', 'launcher', 'screenshot', 'dictation', 'search']
+    },
+    {
+      id: 'system',
+      label: 'System & Tray',
+      icon: <Monitor size={17} weight="duotone" />,
+      category: 'general',
+      categoryLabel: 'General',
+      description: 'Startup behavior, system tray minimize, and quick search mode.',
+      keywords: ['tray', 'minimize', 'startup', 'login', 'autostart', 'launcher mode', 'security']
+    },
+    {
+      id: 'voice',
+      label: 'Voice & TTS',
+      icon: <Volume2 size={17} weight="duotone" />,
+      category: 'general',
+      categoryLabel: 'General',
+      description: 'Text-to-speech voice profiles for spoken responses.',
+      keywords: ['voice', 'speech', 'audio', 'tts', 'talk', 'sound', 'speaker']
+    },
+
+    // AI & Runtime
+    {
+      id: 'providers',
+      label: 'BYOK Providers',
+      icon: <Key size={17} weight="duotone" />,
+      category: 'ai',
+      categoryLabel: 'AI & Runtime',
+      description: 'Custom API keys, OpenAI endpoints, and official providers.',
+      keywords: ['api', 'keys', 'openai', 'gemini', 'anthropic', 'openrouter', 'groq', 'nvidia', 'providers']
+    },
+    {
+      id: 'intelligence',
+      label: 'Intelligence Routing',
+      icon: <Bot size={17} weight="duotone" />,
+      category: 'ai',
+      categoryLabel: 'AI & Runtime',
+      description: 'Assign dedicated models for Dictation, Quick Search, and Search.',
+      keywords: ['models', 'dictator', 'stt', 'routing', 'quick launcher', 'search model', 'ai']
+    },
+    {
+      id: 'runtime',
+      label: 'AI Runtime & Sandbox',
+      icon: <TerminalWindow size={17} weight="duotone" />,
+      category: 'ai',
+      categoryLabel: 'AI & Runtime',
+      description: 'CLI shell selection, execution modes, and folder sandbox.',
+      keywords: ['terminal', 'shell', 'powershell', 'bash', 'cmd', 'sandbox', 'session mode', 'discipline']
+    },
+    {
+      id: 'skills',
+      label: 'AI Execution Skills',
+      icon: <Sparkle size={17} weight="duotone" />,
+      category: 'ai',
+      categoryLabel: 'AI & Runtime',
+      description: 'Modular execution skills for PowerPoint, PDF, and Browser automation.',
+      keywords: ['skills', 'pptx', 'powerpoint', 'pdf', 'browser', 'playwright', 'tools']
+    },
+    {
+      id: 'workflows',
+      label: 'Slash Workflows',
+      icon: <Lightning size={17} weight="duotone" />,
+      category: 'ai',
+      categoryLabel: 'AI & Runtime',
+      description: 'Custom prompt profiles triggered by typing slash commands.',
+      keywords: ['workflows', 'slash', 'commands', 'gems', 'custom prompt', 'prompts', 'templates']
+    },
+
+    // Integrations & Info
+    {
+      id: 'discord',
+      label: 'Discord Gateway',
+      icon: <DiscordIcon size={17} />,
+      category: 'integrations',
+      categoryLabel: 'Integrations & Info',
+      description: 'Connect Prism to Discord with text responses and Gemini Live voice.',
+      keywords: ['discord', 'bot', 'gateway', 'realtime voice', 'live', 'token']
+    },
+    {
+      id: 'license',
+      label: 'Enterprise License',
+      icon: <Certificate size={17} weight="duotone" />,
+      category: 'integrations',
+      categoryLabel: 'Integrations & Info',
+      description: 'Commercial license status, Supabase plans, and key activation.',
+      keywords: ['license', 'enterprise', 'stripe', 'subscription', 'plan', 'billing', 'activation']
+    },
+    {
+      id: 'about',
+      label: 'About Prism',
+      icon: <Info size={17} weight="duotone" />,
+      category: 'integrations',
+      categoryLabel: 'Integrations & Info',
+      description: 'Application version, runtime engine versions, and credits.',
+      keywords: ['about', 'version', 'electron', 'chromium', 'node', 'credits', 'easter egg']
+    }
   ]
 
-  const activeNavSection = sections.find((section) => section.id === activeSection) || sections[0]
-
-  // ─── Section renderers ──────────────────────────────────
-
-  const renderShortcuts = (): React.JSX.Element => (
-    <div className="space-y-8 animate-soft-pop">
-      <SectionHeader
-        title="Keyboard Shortcuts"
-        subtitle="Configure global hotkeys and local interface hotkeys to control Prism."
-      />
-
-      {/* Global Hotkeys Section */}
-      <div className="space-y-3">
-        <h3 className="text-xs font-bold text-text-secondary/40 uppercase tracking-wider">
-          Global System Hotkeys
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Quick Launcher Card */}
-          <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
-            <div className="flex items-start gap-3 mb-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
-                <Keyboard size={16} />
-              </div>
-              <div className="flex flex-col min-w-0">
-                <span className="text-xs font-semibold text-text-primary">Open Quick Launcher</span>
-                <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
-                  Toggle the launcher search bar from anywhere
-                </span>
-              </div>
-            </div>
-            <ShortcutRecorder
-              value={config.launcherShortcut}
-              onChange={(v) => setConfig({ ...config, launcherShortcut: v })}
-            />
-          </div>
-
-          {/* Screenshot & Ask Card */}
-          <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
-            <div className="flex items-start gap-3 mb-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
-                <Camera size={16} />
-              </div>
-              <div className="flex flex-col min-w-0">
-                <span className="text-xs font-semibold text-text-primary">
-                  Screenshot &amp; Ask
-                </span>
-                <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
-                  Capture a screen region to analyze with AI
-                </span>
-              </div>
-            </div>
-            <ShortcutRecorder
-              value={config.screenshotShortcut}
-              onChange={(v) => setConfig({ ...config, screenshotShortcut: v })}
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="h-px bg-white/[0.04]" />
-
-      {/* Local Hotkeys Section */}
-      <div className="space-y-3">
-        <h3 className="text-xs font-bold text-text-secondary/40 uppercase tracking-wider">
-          Interface &amp; Chat Hotkeys
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Start New Chat Card */}
-          <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
-            <div className="flex items-start gap-3 mb-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
-                <ChatTeardropText size={16} />
-              </div>
-              <div className="flex flex-col min-w-0">
-                <span className="text-xs font-semibold text-text-primary">Start New Chat</span>
-                <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
-                  Clear the current conversation thread instantly
-                </span>
-              </div>
-            </div>
-            <ShortcutRecorder
-              value={config.newChatShortcut}
-              onChange={(v) => setConfig({ ...config, newChatShortcut: v })}
-            />
-          </div>
-
-          {/* Model Selection Card */}
-          <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
-            <div className="flex items-start gap-3 mb-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
-                <Bot size={16} />
-              </div>
-              <div className="flex flex-col min-w-0">
-                <span className="text-xs font-semibold text-text-primary">Model Picker Toggle</span>
-                <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
-                  Quickly select a different Gemini model in search bar
-                </span>
-              </div>
-            </div>
-            <ShortcutRecorder
-              value={config.modelSelectionShortcut}
-              onChange={(v) => setConfig({ ...config, modelSelectionShortcut: v })}
-            />
-          </div>
-
-          {/* Toggle Web Search Card */}
-          <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
-            <div className="flex items-start gap-3 mb-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
-                <Globe size={16} />
-              </div>
-              <div className="flex flex-col min-w-0">
-                <span className="text-xs font-semibold text-text-primary">Toggle Web Search</span>
-                <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
-                  Enable or disable web search mode in input bar
-                </span>
-              </div>
-            </div>
-            <ShortcutRecorder
-              value={config.webSearchShortcut}
-              onChange={(v) => setConfig({ ...config, webSearchShortcut: v })}
-            />
-          </div>
-
-          {/* Voice Dictation Card */}
-          <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
-            <div className="flex items-start gap-3 mb-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
-                <Microphone size={16} />
-              </div>
-              <div className="flex flex-col min-w-0">
-                <span className="text-xs font-semibold text-text-primary">Voice Dictation</span>
-                <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
-                  Start or stop speech-to-text recording
-                </span>
-              </div>
-            </div>
-            <ShortcutRecorder
-              value={config.dictationShortcut}
-              onChange={(v) => setConfig({ ...config, dictationShortcut: v })}
-            />
-          </div>
-
-          {/* YouTube Mode Card */}
-          <div className="flex flex-col justify-between p-4 rounded-[20px] border border-white/[0.06] bg-white/[0.015] hover:bg-white/[0.035] hover:border-white/[0.1] transition-all">
-            <div className="flex items-start gap-3 mb-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
-                <YoutubeLogo size={16} />
-              </div>
-              <div className="flex flex-col min-w-0">
-                <span className="text-xs font-semibold text-text-primary">YouTube Mode Toggle</span>
-                <span className="text-[10px] text-text-secondary/55 leading-normal mt-0.5">
-                  Open YouTube video query assistant panel
-                </span>
-              </div>
-            </div>
-            <ShortcutRecorder
-              value={config.youtubeModeShortcut}
-              onChange={(v) => setConfig({ ...config, youtubeModeShortcut: v })}
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-
-  const renderIntelligence = (): React.JSX.Element => (
-    <div className="space-y-8 animate-soft-pop">
-      <SectionHeader
-        title="Feature Intelligence Model Assignments"
-        subtitle="Assign specific AI models for Dictation (STT), Quick Launcher, Search, Prism Gateway, and Subagents."
-      />
-
-      <div className="space-y-6">
-        {/* Speech-To-Text Dictator Model */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035]">
-          <div>
-            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-              <Microphone size={16} className="text-accent-primary" />
-              Dictator (Speech-To-Text / Audio) Model
-            </h3>
-            <p className="text-xs text-text-secondary/60 mt-1">
-              Used for audio transcription when recording voice input.
-            </p>
-          </div>
-          <ModelSelector
-            selectedModel={(config as any).sttModel || ''}
-            onModelChange={(m) => setConfig({ ...config, sttModel: m } as any)}
-          />
-        </div>
-
-        {/* Quick Launcher Model */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035]">
-          <div>
-            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-              <Lightning size={16} className="text-amber-400" />
-              Quick Launcher Assistant Model
-            </h3>
-            <p className="text-xs text-text-secondary/60 mt-1">
-              Used when asking fast questions in the Quick Launcher bar.
-            </p>
-          </div>
-          <ModelSelector
-            selectedModel={(config as any).quickLauncherModel || ''}
-            onModelChange={(m) => setConfig({ ...config, quickLauncherModel: m } as any)}
-          />
-        </div>
-
-        {/* Conversation Search Model */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-[20px] border border-white/[0.08] bg-white/[0.035]">
-          <div>
-            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-              <Globe size={16} className="text-emerald-400" />
-              Conversation Search Model
-            </h3>
-            <p className="text-xs text-text-secondary/60 mt-1">
-              Used for searching and synthesizing past conversation history.
-            </p>
-          </div>
-          <ModelSelector
-            selectedModel={(config as any).searchModel || ''}
-            onModelChange={(m) => setConfig({ ...config, searchModel: m } as any)}
-          />
-        </div>
-      </div>
-    </div>
-  )
-
-  const renderAppearance = (): React.JSX.Element => (
-    <div className="space-y-8 animate-soft-pop">
-      <SectionHeader title="Appearance" subtitle="Customize Prism's theme and interface scaling." />
-
-      <div className="space-y-3">
-        <SettingsGroupLabel
-          title="Theme"
-          description="Changes the accent and the tonal sidebar while keeping the workspace pure black."
-        />
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {(
-            [
-              { id: 'marine', label: 'Marine', accent: '#38bdf8', sidebar: '#030D15' },
-              { id: 'fire', label: 'Fire', accent: '#ff3b2f', sidebar: '#150607' },
-              { id: 'lava', label: 'Lava', accent: '#ff6b00', sidebar: '#160900' },
-              { id: 'gold', label: 'Gold', accent: '#f5c518', sidebar: '#151100' },
-              { id: 'forest', label: 'Forest', accent: '#22c55e', sidebar: '#04120A' },
-              { id: 'indigo', label: 'Indigo', accent: '#6366f1', sidebar: '#070918' },
-              { id: 'violet', label: 'Violet', accent: '#a855f7', sidebar: '#100718' },
-              { id: 'white', label: 'White', accent: '#ffffff', sidebar: '#080808' }
-            ] as const
-          ).map(({ id, label, accent, sidebar }) => {
-            const isActive = (config.theme || 'marine') === id
-            return (
-              <button
-                key={id}
-                title={label}
-                onClick={() => {
-                  setConfig({ ...config, theme: id })
-                  document.documentElement.setAttribute('data-theme', id)
-                  window.api.saveConfig({ theme: id })
-                }}
-                className={clsx(
-                  'group flex min-w-0 items-center gap-3 rounded-xl border p-3 text-left transition-colors focus:outline-none',
-                  isActive
-                    ? 'border-accent-primary/60 bg-accent-primary/[0.07]'
-                    : 'border-[var(--border-default)] bg-[var(--surface)] hover:border-[var(--border-strong)]'
-                )}
-              >
-                <div
-                  className="relative h-9 w-9 shrink-0 rounded-lg border border-white/10"
-                  style={{ background: sidebar }}
-                >
-                  <span
-                    className="absolute bottom-1.5 left-1.5 h-2.5 w-2.5 rounded-full"
-                    style={{ background: accent }}
-                  />
-                  {isActive && (
-                    <span className="absolute right-1.5 top-1.5 text-white">
-                      <Check size={12} weight="bold" />
-                    </span>
-                  )}
-                </div>
-                <span
-                  className={clsx(
-                    'truncate text-xs font-medium',
-                    isActive ? 'text-text-primary' : 'text-text-secondary'
-                  )}
-                >
-                  {label}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="h-px bg-white/[0.04]" />
-
-      {/* Interface Zoom */}
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-          <ZoomIcon size={16} className="text-accent-primary" />
-          Interface Zoom
-        </h3>
-        <p className="text-xs text-text-secondary/60">
-          Adjust the scaling of the application windows.
-        </p>
-
-        {/* Main zoom card */}
-        <div className="rounded-[20px] border border-white/[0.08] bg-white/[0.035] overflow-hidden">
-          {/* Top: large value display + fine controls */}
-          <div className="flex items-center gap-4 px-5 pt-5 pb-4">
-            {/* Decrement */}
-            <button
-              onClick={() => {
-                const val = Math.max(0.5, Math.round((config.zoomFactor - 0.05) * 100) / 100)
-                setConfig({ ...config, zoomFactor: val })
-              }}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-lg font-light text-text-primary hover:bg-white/[0.08] hover:text-accent-primary active:scale-90 transition-all focus:outline-none select-none"
-            >
-              −
-            </button>
-
-            {/* Centered percentage display */}
-            <div className="flex-1 flex flex-col items-center gap-1">
-              <span
-                className="text-4xl font-bold tabular-nums leading-none transition-all duration-150"
-                style={{ color: 'var(--accent-primary)' }}
-              >
-                {Math.round(config.zoomFactor * 100)}
-                <span className="text-lg font-semibold ml-0.5 opacity-70">%</span>
-              </span>
-              <span className="text-[10px] text-text-secondary/40 uppercase tracking-widest">
-                zoom level
-              </span>
-            </div>
-
-            {/* Increment */}
-            <button
-              onClick={() => {
-                const val = Math.min(3.0, Math.round((config.zoomFactor + 0.05) * 100) / 100)
-                setConfig({ ...config, zoomFactor: val })
-              }}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-lg font-light text-text-primary hover:bg-white/[0.08] hover:text-accent-primary active:scale-90 transition-all focus:outline-none select-none"
-            >
-              +
-            </button>
-          </div>
-
-          {/* Slider */}
-          <div className="px-5 pb-4">
-            <div className="relative flex items-center h-6">
-              {/* Track background */}
-              <div className="absolute inset-y-0 left-0 right-0 flex items-center">
-                <div className="w-full h-1.5 rounded-full bg-white/[0.07]" />
-              </div>
-              {/* Filled track */}
-              <div
-                className="absolute inset-y-0 left-0 flex items-center pointer-events-none"
-                style={{ width: `${((config.zoomFactor - 0.5) / (3.0 - 0.5)) * 100}%` }}
-              >
-                <div
-                  className="h-1.5 rounded-full w-full transition-all duration-75"
-                  style={{ background: 'var(--accent-primary)', opacity: 0.7 }}
-                />
-              </div>
-              <input
-                type="range"
-                min="0.5"
-                max="3.0"
-                step="0.05"
-                value={config.zoomFactor}
-                onChange={(e) => setConfig({ ...config, zoomFactor: parseFloat(e.target.value) })}
-                className="relative w-full appearance-none bg-transparent cursor-pointer focus:outline-none settings-zoom-slider"
-              />
-            </div>
-          </div>
-
-          {/* Preset chips */}
-          <div className="flex items-center gap-2 px-5 pb-5 flex-wrap">
-            {[50, 75, 100, 125, 150, 175, 200].map((preset) => {
-              const val = preset / 100
-              const isActive = Math.round(config.zoomFactor * 100) === preset
-              return (
-                <button
-                  key={preset}
-                  onClick={() => setConfig({ ...config, zoomFactor: val })}
-                  className={clsx(
-                    'rounded-lg px-3 py-1.5 text-xs font-semibold border transition-all duration-150 active:scale-95',
-                    isActive
-                      ? 'border-accent-primary/40 bg-accent-primary/[0.12] text-accent-primary'
-                      : 'border-white/[0.07] bg-white/[0.025] text-text-secondary/60 hover:bg-white/[0.06] hover:text-text-primary hover:border-white/[0.15]'
-                  )}
-                >
-                  {preset}%
-                </button>
-              )
-            })}
-            <button
-              onClick={() => setConfig({ ...config, zoomFactor: 1.0 })}
-              className="ml-auto flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold border border-white/[0.07] bg-white/[0.025] text-text-secondary/50 hover:bg-white/[0.06] hover:text-text-primary hover:border-white/[0.15] transition-all duration-150 active:scale-95"
-            >
-              <RotateCcw size={11} />
-              Reset
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-
-  const renderVoice = (): React.JSX.Element => (
-    <div className="space-y-6 animate-soft-pop">
-      <SectionHeader title="Voice" subtitle="Choose a TTS voice profile for spoken responses." />
-
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {[
-          { name: 'Aoede', desc: 'Warm & Default' },
-          { name: 'Puck', desc: 'Energetic male' },
-          { name: 'Charon', desc: 'Deep voice' },
-          { name: 'Kore', desc: 'Soft female' },
-          { name: 'Fenrir', desc: 'Sharp male' }
-        ].map((voice) => (
-          <button
-            key={voice.name}
-            onClick={() => setConfig({ ...config, ttsVoice: voice.name })}
-            className={clsx(
-              'flex flex-col items-center justify-center rounded-[20px] border p-5 text-center transition-all duration-200 active:scale-[0.98]',
-              config.ttsVoice === voice.name
-                ? 'border-accent-primary/30 bg-accent-primary/[0.09] text-accent-primary shadow-[0_0_15px_rgba(143,180,255,0.15)]'
-                : 'border-white/[0.08] bg-white/[0.035] text-text-primary hover:bg-white/[0.055]'
-            )}
-          >
-            <span className="text-sm font-semibold mb-1">{voice.name}</span>
-            <span className="text-[10px] text-text-secondary/60 leading-tight">{voice.desc}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-
-  const renderRuntime = (): React.JSX.Element => (
-    <div className="space-y-6 animate-soft-pop">
-      <SectionHeader
-        title="AI Runtime"
-        subtitle="Choose the host terminal Prism uses for guarded AI commands."
-      />
-
-      <div className="space-y-4">
-        <div className="rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-4">
-          <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
-              <TerminalWindow size={16} className="text-accent-primary" />
-              Local Command Sandbox
-            </h3>
-            <p className="text-xs text-text-secondary/60 mt-1 leading-normal">
-              Prism runs AI terminal commands in the selected system terminal, then blocks dangerous
-              system-level operations before execution.
-            </p>
-          </div>
-        </div>
-
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-semibold text-text-secondary/70">
-            Terminal CLI Shell
-          </span>
-          <select
-            value={config.terminalShell || 'powershell.exe'}
-            onChange={(e) => setConfig({ ...config, terminalShell: e.target.value })}
-            className="w-full rounded-[16px] border border-white/[0.08] bg-white/[0.035] px-3 py-2.5 text-xs text-text-primary focus:border-accent-primary/40 focus:outline-none"
-          >
-            {availableTerminals.map((term) => (
-              <option key={term.path} value={term.path} className="bg-[#13151a] text-text-primary">
-                {term.name} ({term.path})
-              </option>
-            ))}
-          </select>
-          {availableTerminals.length === 0 && (
-            <span className="text-[10px] text-text-secondary/50 leading-normal">
-              Checking installed terminals...
-            </span>
-          )}
-        </label>
-
-        <label className="flex flex-col gap-1.5 mt-4">
-          <span className="text-[11px] font-semibold text-text-secondary/70">
-            Default Session Mode
-          </span>
-          <select
-            value={config.sessionMode || 'execution'}
-            onChange={(e) => setConfig({ ...config, sessionMode: e.target.value as any })}
-            className="w-full rounded-[16px] border border-white/[0.08] bg-white/[0.035] px-3 py-2.5 text-xs text-text-primary focus:border-accent-primary/40 focus:outline-none"
-          >
-            <option value="conversation" className="bg-[#13151a] text-text-primary">
-              Conversation Mode (Chat only, no tools)
-            </option>
-            <option value="execution" className="bg-[#13151a] text-text-primary">
-              Execution Mode (Operate in USERPROFILE)
-            </option>
-            <option value="discipline" className="bg-[#13151a] text-text-primary">
-              Discipline Mode (Operate inside a project folder)
-            </option>
-          </select>
-        </label>
-
-        {config.sessionMode === 'discipline' && (
-          <div className="flex flex-col gap-1.5 mt-4 animate-fade-in">
-            <span className="text-[11px] font-semibold text-text-secondary/70">
-              Default Discipline Folder
-            </span>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                readOnly
-                value={config.disciplinePath || ''}
-                placeholder="No folder selected"
-                className="flex-grow rounded-[16px] border border-white/[0.08] bg-white/[0.035] px-3 py-2.5 text-xs text-text-primary focus:outline-none truncate"
-              />
-              <button
-                type="button"
-                onClick={async () => {
-                  const selected = await window.api.selectFolder()
-                  if (selected) {
-                    setConfig({ ...config, disciplinePath: selected })
-                  }
-                }}
-                className="rounded-[16px] bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 px-4 py-2.5 text-xs font-semibold text-text-primary transition-all active:scale-[0.98] cursor-pointer"
-              >
-                Browse
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-
-  const renderSystem = (): React.JSX.Element => (
-    <div className="space-y-8 animate-soft-pop">
-      <SectionHeader title="System" subtitle="Behavior preferences and API authentication." />
-
-      {/* Behavior toggles */}
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-text-primary">Behavior</h3>
-        <div className="space-y-3">
-          {/* Quick Launcher Mode */}
-          <div className="flex items-center justify-between rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-4 gap-4">
-            <div className="flex flex-col gap-1 min-w-0">
-              <span className="text-sm font-bold text-text-primary">Quick Search AI Mode</span>
-              <span className="text-xs text-text-secondary/70 leading-tight">
-                Simple (integrated floating Prism 6 AI) or Advanced (opens the in-app chat
-                directly).
-              </span>
-            </div>
-            <div className="flex gap-2 shrink-0">
-              <button
-                onClick={() => setConfig({ ...config, quickLauncherMode: 'simple' })}
-                className={clsx(
-                  'rounded-xl px-4 py-2 text-xs font-semibold border transition-all duration-200 active:scale-[0.98]',
-                  config.quickLauncherMode === 'simple'
-                    ? 'border-accent-primary bg-accent-primary/10 text-accent-primary'
-                    : 'border-white/10 bg-white/[0.03] text-text-secondary hover:bg-white/[0.06]'
-                )}
-              >
-                Simple
-              </button>
-              <button
-                onClick={() => setConfig({ ...config, quickLauncherMode: 'advanced' })}
-                className={clsx(
-                  'rounded-xl px-4 py-2 text-xs font-semibold border transition-all duration-200 active:scale-[0.98]',
-                  config.quickLauncherMode === 'advanced'
-                    ? 'border-accent-primary bg-accent-primary/10 text-accent-primary'
-                    : 'border-white/10 bg-white/[0.03] text-text-secondary hover:bg-white/[0.06]'
-                )}
-              >
-                Advanced
-              </button>
-            </div>
-          </div>
-
-          {/* Minimize to Tray */}
-          <ToggleRow
-            title="Minimize to Tray"
-            description="When clicking close, Prism will continue running in the system tray."
-            checked={config.minimizeToTray}
-            onChange={() => setConfig({ ...config, minimizeToTray: !config.minimizeToTray })}
-          />
-
-          {/* Start on Login */}
-          <ToggleRow
-            title="Start on Login"
-            description="Automatically start Prism when you sign in to your computer."
-            checked={config.autoLaunch}
-            onChange={() => setConfig({ ...config, autoLaunch: !config.autoLaunch })}
-          />
-        </div>
-      </div>
-
-      <div className="h-px bg-white/[0.04]" />
-
-      <div className="h-px bg-white/[0.04]" />
-
-      <div className="flex items-start gap-2 rounded-[18px] border border-accent-primary/10 bg-accent-primary/[0.045] p-3">
-        <div className="text-accent-secondary shrink-0 mt-0.5">
-          <Shield size={14} />
-        </div>
-        <p className="text-[11px] text-text-secondary/70 leading-normal">
-          Your keys are saved locally in an encrypted format. Prism does not collect or share your
-          API keys.
-        </p>
-      </div>
-    </div>
-  )
-
-  const renderDiscord = (): React.JSX.Element => (
-    <div className="space-y-8 animate-soft-pop">
-      <SectionHeader
-        title="Discord Gateway"
-        subtitle="Configure the bot connection and route text and realtime voice requests."
-      />
-
-      <section className="settings-card settings-discord-status">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="settings-icon-box">
-            <DiscordIcon size={19} />
-          </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-semibold text-text-primary">Gateway status</h3>
-              <span
-                className={clsx(
-                  'settings-status-badge',
-                  config.discordGatewayEnabled
-                    ? config.discordBotToken?.trim()
-                      ? 'is-ready'
-                      : 'is-warning'
-                    : ''
-                )}
-              >
-                {config.discordGatewayEnabled
-                  ? config.discordBotToken?.trim()
-                    ? 'Configured'
-                    : 'Token required'
-                  : 'Disabled'}
-              </span>
-            </div>
-            <p className="mt-1 max-w-xl text-xs leading-relaxed text-text-secondary">
-              Prism starts or stops the Discord client after these settings are saved. Configured
-              does not guarantee that Discord accepted the credentials.
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={config.discordGatewayEnabled ?? false}
-          aria-label="Enable Discord Gateway"
-          onClick={() =>
-            setConfig({ ...config, discordGatewayEnabled: !config.discordGatewayEnabled })
-          }
-          className={clsx('settings-switch', config.discordGatewayEnabled && 'is-enabled')}
-        >
-          <span />
-        </button>
-      </section>
-
-      <section className="space-y-3">
-        <SettingsGroupLabel
-          title="Bot credentials"
-          description="Use the token generated for your application in the Discord Developer Portal."
-        />
-        <div className="settings-card">
-          <label className="settings-field-label" htmlFor="discord-bot-token">
-            Bot token
-          </label>
-          <div className="relative mt-2">
-            <input
-              id="discord-bot-token"
-              type={showDiscordToken ? 'text' : 'password'}
-              value={config.discordBotToken || ''}
-              onChange={(e) => setConfig({ ...config, discordBotToken: e.target.value })}
-              placeholder="Enter your Discord bot token"
-              autoComplete="off"
-              spellCheck={false}
-              className="settings-text-input pr-11 font-mono"
-            />
-            <button
-              type="button"
-              onClick={() => setShowDiscordToken((value) => !value)}
-              className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-[var(--surface-raised)] hover:text-text-primary"
-              title={showDiscordToken ? 'Hide bot token' : 'Show bot token'}
-              aria-label={showDiscordToken ? 'Hide bot token' : 'Show bot token'}
-            >
-              {showDiscordToken ? <EyeSlash size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
-            The token is stored through Prism configuration and is never displayed by default.
-          </p>
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        <SettingsGroupLabel
-          title="Model routing"
-          description="Choose independent models for Discord text messages and realtime voice sessions."
-        />
-        <div className="settings-routing-grid">
-          <div className="settings-card settings-model-card">
-            <div>
-              <span className="settings-field-label">Text responses</span>
-              <h3 className="mt-2 text-sm font-semibold text-text-primary">Gateway text model</h3>
-              <p className="mt-1 text-xs leading-relaxed text-text-secondary">
-                Handles server messages, direct messages, threads, and tool-driven text responses.
-              </p>
-            </div>
-            <div className="settings-model-selector">
-              <ModelSelector
-                selectedModel={config.discordGatewayModel || ''}
-                onModelChange={(model) => setConfig({ ...config, discordGatewayModel: model })}
-                align="left"
-              />
-            </div>
-          </div>
-
-          <div className="settings-card settings-model-card">
-            <div>
-              <span className="settings-field-label">Realtime voice</span>
-              <h3 className="mt-2 text-sm font-semibold text-text-primary">Gemini Live model</h3>
-              <p className="mt-1 text-xs leading-relaxed text-text-secondary">
-                Handles sessions started by the prism=join command and must support the Live API.
-              </p>
-            </div>
-            <div className="settings-model-selector">
-              <ModelSelector
-                selectedModel={config.discordGatewayVoiceModel || ''}
-                onModelChange={(model) => setConfig({ ...config, discordGatewayVoiceModel: model })}
-                align="left"
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-  )
-
-  const renderAbout = (): React.JSX.Element => (
-    <div className="space-y-6 animate-soft-pop">
-      <SectionHeader title="About Prism" subtitle="Version information and runtime details." />
-
-      <div className="flex items-center justify-between rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-4">
-        <div className="flex flex-col gap-1">
-          <span className="text-sm font-bold text-text-primary">Prism Version</span>
-          <span className="text-xs text-text-secondary/70 leading-tight">
-            The current version of Prism desktop installed on your system.
-          </span>
-        </div>
-        <span
-          onClick={handleVersionClick}
-          className="text-xs font-semibold bg-accent-primary/10 border border-accent-primary/20 text-accent-primary rounded-xl px-3 py-1.5 shrink-0 select-none cursor-default"
-        >
-          {config.appVersion ? `v${config.appVersion}` : 'Loading...'}
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="flex flex-col items-center justify-center rounded-[20px] border border-white/[0.08] bg-white/[0.02] p-4 text-center">
-          <span className="text-xs text-text-secondary/60">Electron</span>
-          <span className="text-sm font-semibold text-text-primary mt-1">
-            v{window.electron?.process?.versions?.electron || '39.8.9'}
-          </span>
-        </div>
-        <div className="flex flex-col items-center justify-center rounded-[20px] border border-white/[0.08] bg-white/[0.02] p-4 text-center">
-          <span className="text-xs text-text-secondary/60">Chromium</span>
-          <span className="text-sm font-semibold text-text-primary mt-1">
-            v{window.electron?.process?.versions?.chrome || '132.0'}
-          </span>
-        </div>
-        <div className="flex flex-col items-center justify-center rounded-[20px] border border-white/[0.08] bg-white/[0.02] p-4 text-center">
-          <span className="text-xs text-text-secondary/60">Node.js</span>
-          <span className="text-sm font-semibold text-text-primary mt-1">
-            v{window.electron?.process?.versions?.node || '22.11.0'}
-          </span>
-        </div>
-      </div>
-    </div>
-  )
-
-  const renderLicense = (): React.JSX.Element => (
-    <div className="space-y-6 animate-soft-pop">
-      <SectionHeader
-        title="Enterprise License"
-        subtitle="Manage your Prism Enterprise license key and commercial activation status."
-      />
-
-      {licenseInfo?.isActivated ? (
-        <div className="settings-card border-accent-primary/35">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap items-center gap-3 sm:justify-end">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
-                <Certificate size={22} weight="bold" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-base font-bold text-text-primary">
-                    {licenseInfo.licensee}
-                  </span>
-                  <span className="font-mono text-[10px] font-bold tracking-widest text-accent-primary bg-accent-primary/15 border border-accent-primary/30 px-2 py-0.5 rounded-full uppercase">
-                    {licenseInfo.type}
-                  </span>
-                </div>
-                <span className="text-xs text-text-secondary">{licenseInfo.email}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              {countdownText && (
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent-primary/10 border border-accent-primary/25 text-accent-primary text-xs font-mono font-bold">
-                  <Clock size={14} className="animate-pulse" />
-                  <span>{countdownText}</span>
-                </div>
-              )}
-              <button
-                onClick={handleDeactivateLicense}
-                className="px-3.5 py-2 text-xs font-semibold text-status-error bg-status-error/10 hover:bg-status-error/20 border border-status-error/20 rounded-xl transition-all cursor-pointer"
-              >
-                Deactivate License
-              </button>
-            </div>
-          </div>
-
-          <div className="settings-license-facts mt-4">
-            <div className="flex flex-col">
-              <span className="text-[11px] font-medium text-text-muted">License ID</span>
-              <span className="text-xs font-mono font-semibold text-text-primary mt-0.5">
-                {licenseInfo.id}
-              </span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-[11px] font-medium text-text-muted">Seats Authorized</span>
-              <span className="text-xs font-semibold text-text-primary mt-0.5">
-                {licenseInfo.seats} Seat(s)
-              </span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-[11px] font-medium text-text-muted">Expiration Date</span>
-              <span className="text-xs font-semibold text-text-primary mt-0.5">
-                {new Date(licenseInfo.expiresAt).toLocaleDateString()} (
-                {new Date(licenseInfo.expiresAt).toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })}
-                )
-              </span>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-10">
-          {/* Dynamic Commercial Plans Grid (Fetched from Supabase) */}
-          <section className="flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-semibold text-text-primary">
-                  Choose an Enterprise plan
-                </span>
-                <span className="text-xs text-text-secondary/70">
-                  Select an Enterprise plan below. All prices and terms are fetched live from
-                  Supabase.
-                </span>
-              </div>
-            </div>
-
-            {isLoadingPlans ? (
-              <div className="settings-card flex min-h-28 items-center justify-center">
-                <CircleNotch size={24} className="animate-spin text-accent-primary" />
-                <span className="text-xs text-text-secondary ml-3">
-                  Loading live pricing from Supabase...
-                </span>
-              </div>
-            ) : plansError ? (
-              <div className="settings-card flex min-h-32 flex-col items-center justify-center gap-3 text-center">
-                <Warning size={22} className="text-status-error" />
-                <div>
-                  <p className="text-sm font-semibold text-text-primary">Pricing is unavailable</p>
-                  <p className="mt-1 text-xs text-text-secondary">{plansError}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void loadSubscriptionPlans()}
-                  className="settings-secondary-button"
-                >
-                  <ArrowClockwise size={14} />
-                  Retry
-                </button>
-              </div>
-            ) : plans.length === 0 ? (
-              <div className="settings-card flex min-h-32 flex-col items-center justify-center gap-2 text-center">
-                <CreditCard size={22} className="text-text-muted" />
-                <p className="text-sm font-semibold text-text-primary">
-                  No plans are currently available
-                </p>
-                <p className="max-w-md text-xs text-text-secondary">
-                  Prism did not receive an active commercial plan. Try again later or activate an
-                  existing key below.
-                </p>
-              </div>
-            ) : (
-              <div className="settings-plan-grid">
-                {plans.map((plan) => {
-                  const isPopular = plan.badge === 'Best Value' || plan.id === 'enterprise_yearly'
-                  const isLoadingThis = checkoutLoadingPlanId === plan.id
-                  const hasPendingSession = !!pendingSessionIds[plan.id]
-
-                  return (
-                    <div
-                      key={plan.id}
-                      className={clsx(
-                        'settings-plan-card',
-                        isPopular ? 'is-featured' : 'hover:border-[var(--border-strong)]'
-                      )}
-                    >
-                      {plan.badge && (
-                        <div className="absolute -top-2.5 right-4 rounded bg-accent-primary px-2 py-1 font-mono text-[9px] font-semibold uppercase tracking-[0.06em] text-black">
-                          {plan.badge}
-                        </div>
-                      )}
-
-                      <div className="flex flex-col gap-2">
-                        <span className="text-sm font-bold text-text-primary">{plan.name}</span>
-                        <p className="text-xs text-text-secondary/80 leading-relaxed min-h-[36px]">
-                          {plan.description}
-                        </p>
-
-                        <div className="flex items-baseline gap-1 my-3">
-                          <span className="text-2xl font-extrabold text-text-primary font-mono">
-                            $
-                            {plan.priceUsd.toLocaleString('en-US', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2
-                            })}
-                          </span>
-                          <span className="text-xs text-text-muted font-medium">
-                            / {plan.billingInterval}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-text-muted">
-                          <span>
-                            {plan.seats} {plan.seats === 1 ? 'seat' : 'seats'}
-                          </span>
-                          <span>{plan.durationDays} days</span>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col gap-2 pt-3 border-t border-[var(--border-subtle)] mt-4">
-                        {authUser ? (
-                          <>
-                            {/* Buy via Stripe — only for authenticated users */}
-                            <button
-                              onClick={() => handleBuyPlan(plan)}
-                              disabled={isLoadingThis || hasPendingSession}
-                              className={clsx(
-                                'w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-semibold transition-colors',
-                                hasPendingSession
-                                  ? 'opacity-40 cursor-not-allowed bg-[var(--surface-lowest)] border border-[var(--border-default)] text-text-muted'
-                                  : isPopular
-                                    ? 'bg-white hover:bg-neutral-200 text-black cursor-pointer'
-                                    : 'bg-[var(--surface-raised)] hover:border-[var(--border-strong)] text-text-primary border border-[var(--border-default)] cursor-pointer'
-                              )}
-                              title={
-                                hasPendingSession
-                                  ? 'Payment session already opened — verify below'
-                                  : undefined
-                              }
-                            >
-                              {isLoadingThis ? (
-                                <CircleNotch size={15} className="animate-spin" />
-                              ) : (
-                                <CreditCard size={15} />
-                              )}
-                              <span>
-                                {isLoadingThis
-                                  ? 'Opening Checkout...'
-                                  : hasPendingSession
-                                    ? 'Checkout Opened'
-                                    : 'Buy via Stripe'}
-                              </span>
-                            </button>
-
-                            {/* Verify & Activate — only enabled after a real session exists */}
-                            <button
-                              onClick={() => handleVerifyAndActivate(plan)}
-                              disabled={!hasPendingSession || stripeVerifying}
-                              className={clsx(
-                                'w-full flex items-center justify-center gap-1.5 text-[11px] font-semibold py-1.5 rounded-lg transition-all',
-                                hasPendingSession && !stripeVerifying
-                                  ? 'text-status-success hover:text-status-success/80 cursor-pointer bg-status-success/10 hover:bg-status-success/15'
-                                  : 'text-text-muted opacity-40 cursor-not-allowed'
-                              )}
-                              title={
-                                !hasPendingSession
-                                  ? 'Complete Stripe checkout first'
-                                  : 'Verify payment and activate license'
-                              }
-                            >
-                              <CheckCircle size={13} />
-                              Verify & Activate Plan
-                            </button>
-                          </>
-                        ) : (
-                          // Not logged in — prompt to sign in
-                          <div className="flex flex-col items-center gap-1.5 py-2">
-                            <span className="text-[11px] text-text-muted text-center leading-relaxed">
-                              Sign in to your Prism account to purchase a plan.
-                            </span>
-                            <button
-                              onClick={onOpenAuthModal}
-                              className="text-[11px] font-semibold text-accent-primary hover:underline cursor-pointer"
-                            >
-                              Sign In / Create Account →
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </section>
-
-          {/* Checkout Status Banner */}
-          {checkoutMessage && (
-            <div className="flex flex-col gap-2 p-4 rounded-xl border border-accent-primary/30 bg-accent-primary/[0.08] text-xs animate-soft-pop">
-              <div className="flex items-center gap-2 text-accent-primary font-semibold">
-                <ArrowSquareOut size={16} />
-                <span>Stripe Checkout Session Active</span>
-              </div>
-              <p className="text-text-secondary">{checkoutMessage}</p>
-            </div>
-          )}
-
-          {/* Manual Offline Key Activation Card */}
-          <section className="relative settings-card overflow-hidden">
-            {/* Loading overlay ONLY for offline key activation — not for Stripe */}
-            {activating && (
-              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/85 backdrop-blur-md animate-soft-pop p-6 text-center">
-                <CircleNotch size={28} className="animate-spin text-accent-primary" />
-                <div className="flex flex-col items-center gap-1">
-                  <span className="font-mono text-xs font-bold tracking-wider text-text-primary uppercase">
-                    Prism Enterprise Licensing
-                  </span>
-                  <span className="text-xs font-medium text-accent-primary animate-pulse">
-                    {activationStepMessage}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-col gap-1">
-              <span className="settings-field-label">Existing license</span>
-              <span className="mt-1 text-sm font-semibold text-text-primary">
-                Activate with a license key
-              </span>
-              <span className="text-xs text-text-secondary/70">
-                Paste your PRISM-ENTERPRISE key below to activate offline or custom licenses.
-              </span>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <div className="relative w-full">
-                <textarea
-                  value={inputLicenseKey}
-                  onChange={(e) => setInputLicenseKey(e.target.value)}
-                  placeholder="Paste PRISM-ENTERPRISE key here"
-                  rows={4}
-                  style={{ WebkitTextSecurity: showKeyText ? 'none' : 'disc' } as any}
-                  className="settings-text-input min-h-[104px] resize-none pr-11 font-mono text-xs custom-scrollbar"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowKeyText(!showKeyText)}
-                  className="absolute right-3 top-3 text-text-muted hover:text-text-primary transition-colors cursor-pointer p-1 rounded-md hover:bg-white/5"
-                  title={showKeyText ? 'Hide License Key' : 'Reveal License Key'}
-                >
-                  {showKeyText ? <EyeSlash size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-
-              {licenseError && (
-                <span className="text-xs font-medium text-status-error flex items-center gap-1.5 mt-1">
-                  <Warning size={14} />
-                  {licenseError}
-                </span>
-              )}
-
-              {licenseSuccess && (
-                <span className="text-xs font-medium text-status-success flex items-center gap-1.5 mt-1">
-                  <Check size={14} />
-                  {licenseSuccess}
-                </span>
-              )}
-
-              <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <a
-                  href="https://github.com/brnalemusic"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-accent-primary hover:underline"
-                >
-                  Need a commercial license? Contact Breno Alexandrē
-                </a>
-
-                <button
-                  onClick={handleActivateLicense}
-                  disabled={activating || !inputLicenseKey.trim()}
-                  className="settings-primary-button disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {activating && <CircleNotch size={14} className="animate-spin" />}
-                  <span>{activating ? 'Validating...' : 'Activate Key'}</span>
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {/* Confirmation Modal via React Portal */}
-      {isActivationModalOpen && licenseInfo && (
-        <EnterpriseActivationModal
-          licenseInfo={licenseInfo}
-          onClose={() => setIsActivationModalOpen(false)}
-        />
-      )}
-
-      {/* Stripe Payment Verification Modal — global portal */}
-      {stripeVerifying &&
-        createPortal(
-          <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-fade-in">
-            <div className="prism-modal-panel flex w-full max-w-sm flex-col items-center gap-5 p-8 text-center animate-soft-pop">
-              <div className="w-14 h-14 rounded-2xl bg-accent-primary/15 border border-accent-primary/30 flex items-center justify-center">
-                <CircleNotch size={28} className="animate-spin text-accent-primary" />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <h3 className="text-lg font-bold text-text-primary">
-                  {stripeCheckoutStage === 'opening' ? 'Preparing Checkout' : 'Completing Checkout'}
-                </h3>
-                <p className="text-xs text-text-secondary/80 leading-relaxed max-w-xs">
-                  {stripeCheckoutStage === 'opening'
-                    ? 'Creating your secure checkout session.'
-                    : 'Please complete your payment in the browser window.'}
-                </p>
-              </div>
-
-              <button
-                onClick={() => {
-                  stopSettingsPolling()
-                  setStripeVerifying(false)
-                }}
-                className="text-xs font-medium text-text-muted hover:text-text-primary transition-colors py-1 cursor-pointer"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>,
-          document.body
-        )}
-    </div>
-  )
-
+  // Filter sections by search query
+  const filteredSections = sections.filter((s) => {
+    if (!searchNavQuery.trim()) return true
+    const q = searchNavQuery.toLowerCase()
+    return (
+      s.label.toLowerCase().includes(q) ||
+      s.description.toLowerCase().includes(q) ||
+      s.keywords.some((k) => k.toLowerCase().includes(q)) ||
+      s.categoryLabel.toLowerCase().includes(q)
+    )
+  })
+
+  const activeNavSection = sections.find((s) => s.id === activeSection) || sections[0]
+
+  // --- Skills helpers ---
+  const isSkillEnabledInSettings = (skillKey: string): boolean => {
+    const disabled = config.disabledSkills || []
+    return !disabled.includes(skillKey)
+  }
+
+  const toggleSkillInSettings = (skillKey: string): void => {
+    const currentDisabled = config.disabledSkills || []
+    let newDisabled: string[]
+    if (currentDisabled.includes(skillKey)) {
+      newDisabled = currentDisabled.filter((k) => k !== skillKey)
+    } else {
+      newDisabled = [...currentDisabled, skillKey]
+    }
+    const updatedConfig = { ...config, disabledSkills: newDisabled }
+    setConfig(updatedConfig)
+    window.api.saveConfig({ disabledSkills: newDisabled })
+  }
+
+  // --- Workflows handlers ---
   const handleEditWorkflow = (w: SlashWorkflow): void => {
     setEditingWorkflow(w)
     setFormCommand(w.command)
@@ -1879,7 +846,6 @@ export function SettingsView({
 
     const wList = config.workflows || []
 
-    // Check duplicate
     const isDuplicate = wList.some(
       (w) =>
         w.command.toLowerCase() === formCommand.toLowerCase() &&
@@ -1908,8 +874,6 @@ export function SettingsView({
 
     const updatedConfig = { ...config, workflows: updatedWorkflows }
     setConfig(updatedConfig)
-
-    // Auto persist to disk
     window.api.saveConfig({ workflows: updatedWorkflows })
 
     setEditingWorkflow(null)
@@ -1923,105 +887,779 @@ export function SettingsView({
     window.api.saveConfig({ workflows: updatedWorkflows })
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // Section Renderers
+  // ─────────────────────────────────────────────────────────────
+
+  const renderAppearance = (): React.JSX.Element => (
+    <div className="space-y-8 animate-soft-pop">
+      <SectionHeader
+        title="Appearance & Scaling"
+        subtitle="Personalize Prism's ambient accent colors and interface scaling factor."
+      />
+
+      {/* Theme selection */}
+      <div className="space-y-3.5">
+        <SettingsGroupLabel
+          title="Color Theme"
+          description="Chooses the vibrant glow accent and tonal surfaces while keeping deep OLED blacks."
+        />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {(
+            [
+              { id: 'marine', label: 'Marine', accent: '#38bdf8', sidebar: '#030D15', tag: 'Default' },
+              { id: 'fire', label: 'Fire', accent: '#ff3b2f', sidebar: '#150607' },
+              { id: 'lava', label: 'Lava', accent: '#ff6b00', sidebar: '#160900' },
+              { id: 'gold', label: 'Gold', accent: '#f5c518', sidebar: '#151100' },
+              { id: 'forest', label: 'Forest', accent: '#22c55e', sidebar: '#04120A' },
+              { id: 'indigo', label: 'Indigo', accent: '#6366f1', sidebar: '#070918' },
+              { id: 'violet', label: 'Violet', accent: '#a855f7', sidebar: '#100718' },
+              { id: 'white', label: 'White', accent: '#ffffff', sidebar: '#080808' }
+            ] as Array<{
+              id: 'marine' | 'fire' | 'lava' | 'gold' | 'forest' | 'indigo' | 'violet' | 'white'
+              label: string
+              accent: string
+              sidebar: string
+              tag?: string
+            }>
+          ).map(({ id, label, accent, sidebar, tag }) => {
+            const isActive = (config.theme || 'marine') === id
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => {
+                  setConfig({ ...config, theme: id })
+                  document.documentElement.setAttribute('data-theme', id)
+                  window.api.saveConfig({ theme: id })
+                }}
+                className={clsx(
+                  'group relative flex items-center gap-3.5 rounded-xl border p-3.5 text-left transition-all duration-200 cursor-pointer outline-none active:scale-[0.98]',
+                  isActive
+                    ? 'border-accent-primary/60 bg-accent-primary/[0.08] shadow-[0_0_20px_var(--accent-glow)] ring-1 ring-accent-primary/30'
+                    : 'border-[var(--border-default)] bg-[var(--surface)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)]'
+                )}
+              >
+                <div
+                  className="relative h-10 w-10 shrink-0 rounded-lg border border-white/10 flex items-center justify-center transition-transform group-hover:scale-105"
+                  style={{ background: sidebar }}
+                >
+                  <span
+                    className="h-4 w-4 rounded-full shadow-md"
+                    style={{ background: accent }}
+                  />
+                  {isActive && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-accent-primary text-black">
+                      <Check size={10} weight="bold" />
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-col min-w-0">
+                  <span
+                    className={clsx(
+                      'text-xs font-semibold truncate',
+                      isActive ? 'text-text-primary' : 'text-text-secondary group-hover:text-text-primary'
+                    )}
+                  >
+                    {label}
+                  </span>
+                  <span className="text-[10px] text-text-muted font-mono mt-0.5">
+                    {tag ? tag : accent}
+                  </span>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="h-px bg-[var(--border-subtle)]" />
+
+      {/* Interface Zoom */}
+      <div className="space-y-4">
+        <SettingsGroupLabel
+          title="Interface Scaling"
+          description="Adjust the visual scaling factor of all Prism application windows and UI components."
+        />
+
+        <div className="settings-card space-y-5">
+          {/* Readout and fine adjustment */}
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
+                <ZoomIcon size={20} weight="duotone" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xs font-semibold text-text-primary">Current Scale</span>
+                <span className="text-[11px] text-text-muted">Default is 100% (1.0x)</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const val = Math.max(0.5, Math.round((config.zoomFactor - 0.05) * 100) / 100)
+                  setConfig({ ...config, zoomFactor: val })
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-default)] bg-[var(--surface-lowest)] text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)] active:scale-95 transition-all cursor-pointer select-none"
+                title="Decrease scale by 5%"
+              >
+                −
+              </button>
+
+              <span className="font-mono text-xl font-bold text-accent-primary min-w-[65px] text-center">
+                {Math.round(config.zoomFactor * 100)}%
+              </span>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const val = Math.min(3.0, Math.round((config.zoomFactor + 0.05) * 100) / 100)
+                  setConfig({ ...config, zoomFactor: val })
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-default)] bg-[var(--surface-lowest)] text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)] active:scale-95 transition-all cursor-pointer select-none"
+                title="Increase scale by 5%"
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          {/* Interactive Range Slider */}
+          <div className="space-y-1.5">
+            <div className="relative flex items-center h-6">
+              <div className="absolute inset-y-0 left-0 right-0 flex items-center">
+                <div className="w-full h-1.5 rounded-full bg-[var(--surface-raised)] border border-[var(--border-subtle)]" />
+              </div>
+              <div
+                className="absolute inset-y-0 left-0 flex items-center pointer-events-none"
+                style={{ width: `${((config.zoomFactor - 0.5) / (3.0 - 0.5)) * 100}%` }}
+              >
+                <div
+                  className="h-1.5 rounded-full w-full transition-all duration-75"
+                  style={{ background: 'var(--accent-primary)', opacity: 0.8 }}
+                />
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="3.0"
+                step="0.05"
+                value={config.zoomFactor}
+                onChange={(e) => setConfig({ ...config, zoomFactor: parseFloat(e.target.value) })}
+                className="relative w-full appearance-none bg-transparent cursor-pointer focus:outline-none settings-zoom-slider"
+              />
+            </div>
+
+            <div className="flex justify-between text-[10px] text-text-muted font-mono px-0.5">
+              <span>50%</span>
+              <span>100% (Default)</span>
+              <span>200%</span>
+              <span>300%</span>
+            </div>
+          </div>
+
+          {/* Presets chips */}
+          <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-[var(--border-subtle)]">
+            <span className="text-[11px] font-semibold text-text-muted mr-1 font-mono uppercase tracking-wider">
+              Presets:
+            </span>
+            {[50, 75, 100, 125, 150, 175, 200].map((preset) => {
+              const val = preset / 100
+              const isActive = Math.round(config.zoomFactor * 100) === preset
+              return (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setConfig({ ...config, zoomFactor: val })}
+                  className={clsx(
+                    'rounded-lg px-2.5 py-1 text-xs font-semibold font-mono border transition-all active:scale-95 cursor-pointer',
+                    isActive
+                      ? 'border-accent-primary bg-accent-primary/15 text-accent-primary shadow-[0_0_10px_var(--accent-glow)]'
+                      : 'border-[var(--border-default)] bg-[var(--surface-lowest)] text-text-secondary hover:bg-[var(--surface-raised)] hover:text-text-primary hover:border-[var(--border-strong)]'
+                  )}
+                >
+                  {preset}%
+                </button>
+              )
+            })}
+            <button
+              type="button"
+              onClick={() => setConfig({ ...config, zoomFactor: 1.0 })}
+              className="ml-auto flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-semibold border border-[var(--border-default)] bg-[var(--surface-lowest)] text-text-muted hover:text-text-primary hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)] transition-all active:scale-95 cursor-pointer"
+            >
+              <RotateCcw size={12} />
+              Reset (100%)
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  const renderShortcuts = (): React.JSX.Element => (
+    <div className="space-y-8 animate-soft-pop">
+      <SectionHeader
+        title="Keyboard Shortcuts"
+        subtitle="Configure system-wide hotkeys and local interface hotkeys to control Prism."
+      />
+
+      {/* Global Hotkeys */}
+      <div className="space-y-3.5">
+        <SettingsGroupLabel
+          title="Global System Hotkeys"
+          description="Trigger Prism actions from anywhere on your computer, even when the app is minimized."
+        />
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <ShortcutCard
+            icon={<Keyboard size={18} weight="duotone" className="text-accent-primary" />}
+            title="Open Quick Launcher"
+            description="Toggle the floating search and prompt bar instantly."
+            value={config.launcherShortcut}
+            onChange={(v) => setConfig({ ...config, launcherShortcut: v })}
+          />
+
+          <ShortcutCard
+            icon={<Camera size={18} weight="duotone" className="text-accent-primary" />}
+            title="Screenshot & Ask"
+            description="Capture a screen region to analyze with AI vision."
+            value={config.screenshotShortcut}
+            onChange={(v) => setConfig({ ...config, screenshotShortcut: v })}
+          />
+        </div>
+      </div>
+
+      <div className="h-px bg-[var(--border-subtle)]" />
+
+      {/* Interface Hotkeys */}
+      <div className="space-y-3.5">
+        <SettingsGroupLabel
+          title="In-App Interface Hotkeys"
+          description="Quick navigation and interaction shortcuts while inside the Prism workspace."
+        />
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <ShortcutCard
+            icon={<ChatTeardropText size={18} weight="duotone" className="text-accent-primary" />}
+            title="Start New Chat"
+            description="Create a fresh conversation thread in one stroke."
+            value={config.newChatShortcut}
+            onChange={(v) => setConfig({ ...config, newChatShortcut: v })}
+          />
+
+          <ShortcutCard
+            icon={<Bot size={18} weight="duotone" className="text-accent-primary" />}
+            title="Model Picker Toggle"
+            description="Open model switcher popover in the chat input."
+            value={config.modelSelectionShortcut}
+            onChange={(v) => setConfig({ ...config, modelSelectionShortcut: v })}
+          />
+
+          <ShortcutCard
+            icon={<Globe size={18} weight="duotone" className="text-accent-primary" />}
+            title="Toggle Web Search"
+            description="Switch live DuckDuckGo web search on or off."
+            value={config.webSearchShortcut}
+            onChange={(v) => setConfig({ ...config, webSearchShortcut: v })}
+          />
+
+          <ShortcutCard
+            icon={<Microphone size={18} weight="duotone" className="text-accent-primary" />}
+            title="Voice Dictation"
+            description="Start or stop speech-to-text recording mode."
+            value={config.dictationShortcut}
+            onChange={(v) => setConfig({ ...config, dictationShortcut: v })}
+          />
+
+          <ShortcutCard
+            icon={<YoutubeLogo size={18} weight="duotone" className="text-accent-primary" />}
+            title="YouTube Mode Toggle"
+            description="Open video analyzer panel for any YouTube URL."
+            value={config.youtubeModeShortcut}
+            onChange={(v) => setConfig({ ...config, youtubeModeShortcut: v })}
+          />
+        </div>
+      </div>
+    </div>
+  )
+
+  const renderIntelligence = (): React.JSX.Element => (
+    <div className="space-y-8 animate-soft-pop">
+      <SectionHeader
+        title="Intelligence Model Routing"
+        subtitle="Assign specific AI models for Dictation (STT), Quick Launcher, and Search features."
+      />
+
+      <div className="space-y-4">
+        {/* Dictator Model */}
+        <div className="settings-card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5 min-w-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
+              <Microphone size={20} weight="duotone" />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-semibold text-text-primary">
+                Dictator (Speech-To-Text / Audio) Model
+              </span>
+              <span className="text-xs text-text-secondary/70 mt-0.5 leading-relaxed">
+                Processes recorded audio when using the microphone dictation shortcut.
+              </span>
+            </div>
+          </div>
+          <div className="shrink-0">
+            <ModelSelector
+              selectedModel={(config as any).sttModel || ''}
+              onModelChange={(m) => setConfig({ ...config, sttModel: m } as any)}
+              align="right"
+            />
+          </div>
+        </div>
+
+        {/* Quick Launcher Model */}
+        <div className="settings-card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5 min-w-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              <Lightning size={20} weight="duotone" />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-semibold text-text-primary">
+                Quick Launcher Assistant Model
+              </span>
+              <span className="text-xs text-text-secondary/70 mt-0.5 leading-relaxed">
+                Answers fast floating queries when invoking the global launcher bar.
+              </span>
+            </div>
+          </div>
+          <div className="shrink-0">
+            <ModelSelector
+              selectedModel={(config as any).quickLauncherModel || ''}
+              onModelChange={(m) => setConfig({ ...config, quickLauncherModel: m } as any)}
+              align="right"
+            />
+          </div>
+        </div>
+
+        {/* Conversation Search Model */}
+        <div className="settings-card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5 min-w-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <Globe size={20} weight="duotone" />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-semibold text-text-primary">
+                Conversation Search Model
+              </span>
+              <span className="text-xs text-text-secondary/70 mt-0.5 leading-relaxed">
+                Searches semantic history and synthesizes prior discussions across chats.
+              </span>
+            </div>
+          </div>
+          <div className="shrink-0">
+            <ModelSelector
+              selectedModel={(config as any).searchModel || ''}
+              onModelChange={(m) => setConfig({ ...config, searchModel: m } as any)}
+              align="right"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  const renderVoice = (): React.JSX.Element => (
+    <div className="space-y-8 animate-soft-pop">
+      <SectionHeader
+        title="Voice & Text-To-Speech"
+        subtitle="Choose a natural speech synthesis voice profile for spoken model responses."
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+        {[
+          { name: 'Aoede', desc: 'Warm, natural & balanced (Default)', tag: 'Recommended' },
+          { name: 'Puck', desc: 'Energetic, expressive male voice', tag: 'Fast-paced' },
+          { name: 'Charon', desc: 'Deep, resonant and authoritative', tag: 'Deep Tone' },
+          { name: 'Kore', desc: 'Soft, calm and gentle female voice', tag: 'Calm' },
+          { name: 'Fenrir', desc: 'Sharp, distinct and articulate', tag: 'Crisp' }
+        ].map((voice) => {
+          const isActive = config.ttsVoice === voice.name
+          return (
+            <button
+              key={voice.name}
+              type="button"
+              onClick={() => setConfig({ ...config, ttsVoice: voice.name })}
+              className={clsx(
+                'group relative flex flex-col justify-between rounded-xl border p-4 text-left transition-all duration-200 cursor-pointer outline-none active:scale-[0.98]',
+                isActive
+                  ? 'border-accent-primary bg-accent-primary/[0.08] shadow-[0_0_20px_var(--accent-glow)] ring-1 ring-accent-primary/30'
+                  : 'border-[var(--border-default)] bg-[var(--surface)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)]'
+              )}
+            >
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <div
+                  className={clsx(
+                    'flex h-9 w-9 items-center justify-center rounded-lg border transition-colors',
+                    isActive
+                      ? 'border-accent-primary/30 bg-accent-primary/15 text-accent-primary'
+                      : 'border-[var(--border-default)] bg-[var(--surface-lowest)] text-text-muted group-hover:text-text-primary'
+                  )}
+                >
+                  <Waveform size={18} weight="duotone" />
+                </div>
+                {isActive && (
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-primary text-black">
+                    <Check size={12} weight="bold" />
+                  </span>
+                )}
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-text-primary">{voice.name}</span>
+                  {voice.tag && (
+                    <span className="font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--surface-lowest)] border border-[var(--border-default)] text-text-muted">
+                      {voice.tag}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-text-secondary/70 mt-1 leading-relaxed">{voice.desc}</p>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+
+  const renderRuntime = (): React.JSX.Element => (
+    <div className="space-y-8 animate-soft-pop">
+      <SectionHeader
+        title="AI Runtime & Sandbox"
+        subtitle="Configure the system terminal environment and workspace operation modes."
+      />
+
+      <div className="space-y-5">
+        {/* Terminal Shell Selection */}
+        <div className="settings-card space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
+              <TerminalWindow size={18} weight="duotone" />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-semibold text-text-primary">
+                Guarded Terminal CLI Shell
+              </span>
+              <span className="text-xs text-text-secondary/70 mt-0.5 leading-relaxed">
+                Prism validates terminal commands against security policies before execution.
+              </span>
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <CustomSelect
+              value={config.terminalShell || 'powershell.exe'}
+              onChange={(val) => setConfig({ ...config, terminalShell: val })}
+              options={
+                availableTerminals.length > 0
+                  ? availableTerminals.map((term) => ({
+                      value: term.path,
+                      label: `${term.name} (${term.path})`,
+                      icon: <TerminalWindow size={16} className="text-accent-primary" />
+                    }))
+                  : [
+                      {
+                        value: 'powershell.exe',
+                        label: 'PowerShell (powershell.exe)',
+                        icon: <TerminalWindow size={16} className="text-accent-primary" />
+                      },
+                      {
+                        value: 'cmd.exe',
+                        label: 'Command Prompt (cmd.exe)',
+                        icon: <TerminalWindow size={16} className="text-accent-primary" />
+                      }
+                    ]
+              }
+            />
+          </div>
+        </div>
+
+        {/* Session Mode Selector */}
+        <div className="settings-card space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
+              <Sliders size={18} weight="duotone" />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-semibold text-text-primary">
+                Default Workspace Session Mode
+              </span>
+              <span className="text-xs text-text-secondary/70 mt-0.5 leading-relaxed">
+                Determines how much filesystem access and execution power the AI has in new tabs.
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {[
+              {
+                id: 'conversation' as SessionMode,
+                title: 'Conversation',
+                badge: 'Chat Only',
+                desc: 'Standard AI conversation with all execution tools disabled.'
+              },
+              {
+                id: 'execution' as SessionMode,
+                title: 'Execution Mode',
+                badge: 'USERPROFILE',
+                desc: 'Full desktop tool execution operating in user profile.'
+              },
+              {
+                id: 'discipline' as SessionMode,
+                title: 'Discipline Mode',
+                badge: 'Project Folder',
+                desc: 'Restricts AI file creation and edits to a chosen directory.'
+              }
+            ].map((mode) => {
+              const isActive = (config.sessionMode || 'execution') === mode.id
+              return (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => setConfig({ ...config, sessionMode: mode.id })}
+                  className={clsx(
+                    'flex flex-col justify-between rounded-xl border p-4 text-left transition-all duration-200 cursor-pointer outline-none active:scale-[0.98]',
+                    isActive
+                      ? 'border-accent-primary bg-accent-primary/[0.08] shadow-[0_0_20px_var(--accent-glow)] ring-1 ring-accent-primary/30'
+                      : 'border-[var(--border-default)] bg-[var(--surface-lowest)] hover:border-[var(--border-strong)] hover:bg-[var(--surface)]'
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="text-xs font-bold text-text-primary">{mode.title}</span>
+                    <span className="font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--surface-raised)] border border-[var(--border-subtle)] text-accent-primary">
+                      {mode.badge}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-text-secondary/70 leading-relaxed">{mode.desc}</p>
+                </button>
+              )
+            })}
+          </div>
+
+          {config.sessionMode === 'discipline' && (
+            <div className="space-y-2 pt-2 border-t border-[var(--border-subtle)] animate-fade-in">
+              <span className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                <FolderOpen size={15} className="text-accent-primary" />
+                Discipline Working Directory
+              </span>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={config.disciplinePath || ''}
+                  placeholder="No project directory selected"
+                  className="settings-text-input flex-1 font-mono text-xs truncate"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const selected = await window.api.selectFolder()
+                    if (selected) {
+                      setConfig({ ...config, disciplinePath: selected })
+                    }
+                  }}
+                  className="settings-secondary-button shrink-0 cursor-pointer"
+                >
+                  <FolderOpen size={14} />
+                  Browse Folder
+                </button>
+                {config.disciplinePath && (
+                  <button
+                    type="button"
+                    onClick={() => setConfig({ ...config, disciplinePath: '' })}
+                    className="p-2.5 text-text-muted hover:text-text-primary hover:bg-[var(--surface-raised)] border border-[var(--border-default)] rounded-lg transition-colors cursor-pointer"
+                    title="Clear selected folder"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+
+  const renderSkills = (): React.JSX.Element => (
+    <div className="space-y-8 animate-soft-pop">
+      <SectionHeader
+        title="AI Execution Skills"
+        subtitle="Enable or disable specialized modular execution capabilities for documents and browser automation."
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* PowerPoint */}
+        <SkillCard
+          icon={<FilePpt size={22} weight="duotone" className="text-orange-400" />}
+          title="PowerPoint (.pptx)"
+          description="Enables the AI to generate polished 16:9 presentation slide decks with formatted layouts."
+          enabled={isSkillEnabledInSettings('pptx')}
+          onToggle={() => toggleSkillInSettings('pptx')}
+        />
+
+        {/* PDF */}
+        <SkillCard
+          icon={<FilePdf size={22} weight="duotone" className="text-rose-400" />}
+          title="PDF Documents"
+          description="Allows the AI to compile beautifully styled, printable A4 PDF reports and summaries."
+          enabled={isSkillEnabledInSettings('pdf')}
+          onToggle={() => toggleSkillInSettings('pdf')}
+        />
+
+        {/* Browser */}
+        <SkillCard
+          icon={<Globe size={22} weight="duotone" className="text-cyan-400" />}
+          title="Browser Automation"
+          description="Enables integrated Playwright headless browser navigation, element interactions, and page snapshots."
+          enabled={isSkillEnabledInSettings('browser')}
+          onToggle={() => toggleSkillInSettings('browser')}
+        />
+      </div>
+    </div>
+  )
+
   const renderWorkflows = (): React.JSX.Element => {
     if (isAddingWorkflow || editingWorkflow) {
+      const filteredTools = availableTools.filter(
+        (t) =>
+          !toolSearchQuery.trim() ||
+          t.label.toLowerCase().includes(toolSearchQuery.toLowerCase()) ||
+          t.desc.toLowerCase().includes(toolSearchQuery.toLowerCase()) ||
+          t.name.toLowerCase().includes(toolSearchQuery.toLowerCase())
+      )
+
       return (
         <div className="space-y-6 animate-soft-pop">
           <div className="flex items-center justify-between">
             <SectionHeader
-              title={isAddingWorkflow ? 'Add Custom Workflow' : 'Edit Custom Workflow'}
+              title={isAddingWorkflow ? 'Create Custom Workflow' : 'Edit Custom Workflow'}
               subtitle="Configure your dynamic Gems-style prompt profile and tool constraints."
             />
             <button
+              type="button"
               onClick={() => {
                 setEditingWorkflow(null)
                 setIsAddingWorkflow(false)
               }}
-              className="rounded-xl px-4 py-2 text-xs font-semibold border border-white/10 bg-white/[0.03] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary transition-all active:scale-[0.98] cursor-pointer"
+              className="settings-secondary-button cursor-pointer"
             >
               Back to List
             </button>
           </div>
 
           {formError && (
-            <div className="flex items-center gap-2 rounded-xl border border-status-error/15 bg-status-error/[0.08] p-3 text-xs text-status-error font-semibold">
-              <Warning size={14} />
+            <div className="flex items-center gap-2 rounded-xl border border-status-error/20 bg-status-error/10 p-3 text-xs text-status-error font-semibold">
+              <Warning size={15} weight="fill" />
               <span>{formError}</span>
             </div>
           )}
 
-          <div className="space-y-5">
+          <div className="settings-card space-y-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-semibold text-text-secondary/70">
-                  Trigger Command
-                </label>
+              <div className="space-y-1.5">
+                <label className="settings-field-label">Trigger Command</label>
                 <input
                   type="text"
                   value={formCommand}
                   onChange={(e) => setFormCommand(e.target.value)}
                   placeholder="e.g. /summarize"
                   disabled={!isAddingWorkflow}
-                  className="rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="settings-text-input font-mono text-xs disabled:opacity-50"
                 />
-                <span className="text-[10px] text-text-secondary/40 leading-normal">
-                  Must start with a slash (/) and cannot contain spaces. Cannot be modified after
-                  creation.
+                <span className="text-[10px] text-text-muted">
+                  Must start with / and contain no spaces.
                 </span>
               </div>
 
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-semibold text-text-secondary/70">
-                  Workflow Name
-                </label>
+              <div className="space-y-1.5">
+                <label className="settings-field-label">Workflow Name</label>
                 <input
                   type="text"
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  placeholder="e.g. Summarizer"
-                  className="rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
+                  placeholder="e.g. Executive Summarizer"
+                  className="settings-text-input text-xs font-semibold"
                 />
               </div>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <label className="text-xs font-semibold text-text-secondary/70">
-                Brief Description
-              </label>
+            <div className="space-y-1.5">
+              <label className="settings-field-label">Brief Description</label>
               <input
                 type="text"
                 value={formDescription}
                 onChange={(e) => setFormDescription(e.target.value)}
-                placeholder="e.g. Summarize text and check for spelling errors"
-                className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none"
+                placeholder="e.g. Summarize input texts and generate bulleted key points"
+                className="settings-text-input text-xs"
               />
             </div>
 
-            <div className="flex flex-col gap-2">
-              <label className="text-xs font-semibold text-text-secondary/70">
-                System Instructions
-              </label>
+            <div className="space-y-1.5">
+              <label className="settings-field-label">System Instructions / Prompt</label>
               <textarea
                 value={formPrompt}
                 onChange={(e) => setFormPrompt(e.target.value)}
                 rows={6}
-                placeholder="Write system instructions that explain to the model what role it should take, what it should do with the input, and how it should format the output."
-                className="w-full rounded-[18px] border border-white/[0.08] bg-white/[0.035] px-4 py-3 text-sm text-text-primary placeholder:text-text-muted transition-all focus:border-accent-primary/40 focus:outline-none resize-none font-medium leading-relaxed"
+                placeholder="Write system instructions explaining what role the AI should assume, how it should process inputs, and format outputs..."
+                className="settings-text-input text-xs resize-none font-sans leading-relaxed"
               />
             </div>
 
-            <div className="space-y-3">
-              <label className="text-xs font-semibold text-text-secondary/70 block">
-                Allowed Tools (Mechanical Constraints)
-              </label>
-              <span className="text-[10px] text-text-secondary/40 leading-normal block -mt-2 mb-2">
-                Check the tools the AI is allowed to use during this workflow. Unchecked tools will
-                be completely hidden from the AI prompt, and blocked during runtime. Leave all
-                unchecked to allow default conversational behavior without tools.
-              </span>
+            {/* Allowed Tools */}
+            <div className="space-y-3 pt-2 border-t border-[var(--border-subtle)]">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <span className="settings-field-label">Allowed Tools (Execution Constraints)</span>
+                  <span className="text-[11px] text-text-muted">
+                    Check tools allowed during this workflow. Leave all unchecked for pure chat.
+                  </span>
+                </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[220px] overflow-y-auto pr-2 custom-scrollbar border border-white/[0.06] rounded-[20px] bg-white/[0.015] p-3">
-                {availableTools.map((tool) => {
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFormTools(availableTools.map((t) => t.name))}
+                    className="text-[11px] font-semibold text-accent-primary hover:underline cursor-pointer"
+                  >
+                    Select All
+                  </button>
+                  <span className="text-text-muted">•</span>
+                  <button
+                    type="button"
+                    onClick={() => setFormTools([])}
+                    className="text-[11px] font-semibold text-text-muted hover:text-text-primary cursor-pointer"
+                  >
+                    Deselect All
+                  </button>
+                </div>
+              </div>
+
+              {/* Tool search */}
+              <div className="relative">
+                <MagnifyingGlass size={13} className="absolute left-3 top-2.5 text-text-muted" />
+                <input
+                  type="text"
+                  value={toolSearchQuery}
+                  onChange={(e) => setToolSearchQuery(e.target.value)}
+                  placeholder="Filter available tools..."
+                  className="settings-text-input pl-8 py-1.5 text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[220px] overflow-y-auto pr-1 custom-scrollbar">
+                {filteredTools.map((tool) => {
                   const isChecked = formTools.includes(tool.name)
                   return (
                     <button
@@ -2035,25 +1673,23 @@ export function SettingsView({
                         }
                       }}
                       className={clsx(
-                        'flex items-start gap-3 rounded-[16px] border p-3 text-left transition-all duration-150 active:scale-[0.98] cursor-pointer',
+                        'flex items-start gap-3 rounded-lg border p-3 text-left transition-all active:scale-[0.98] cursor-pointer',
                         isChecked
-                          ? 'border-accent-primary/30 bg-accent-primary/[0.07] text-text-primary'
-                          : 'border-white/[0.06] bg-white/[0.025] hover:bg-white/[0.045] text-text-secondary'
+                          ? 'border-accent-primary/40 bg-accent-primary/[0.07] text-text-primary'
+                          : 'border-[var(--border-default)] bg-[var(--surface-lowest)] hover:border-[var(--border-strong)] text-text-secondary'
                       )}
                     >
-                      <div className="flex items-center h-5 shrink-0">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          readOnly
-                          className="w-3.5 h-3.5 rounded border-white/20 bg-transparent text-accent-primary focus:ring-0 focus:ring-offset-0 cursor-pointer pointer-events-none accent-accent-primary"
-                        />
-                      </div>
-                      <div className="flex flex-col">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        readOnly
+                        className="mt-0.5 h-3.5 w-3.5 rounded border-white/20 bg-transparent text-accent-primary pointer-events-none accent-accent-primary shrink-0"
+                      />
+                      <div className="flex flex-col min-w-0">
                         <span className="text-xs font-semibold text-text-primary leading-tight">
                           {tool.label}
                         </span>
-                        <span className="text-[9px] text-text-secondary/60 leading-tight mt-0.5">
+                        <span className="text-[10px] text-text-muted leading-tight mt-0.5 truncate">
                           {tool.desc}
                         </span>
                       </div>
@@ -2063,12 +1699,13 @@ export function SettingsView({
               </div>
             </div>
 
-            <div className="pt-2">
+            <div className="pt-3 flex justify-end">
               <button
+                type="button"
                 onClick={handleSaveWorkflowForm}
-                className="flex items-center gap-2 rounded-2xl bg-text-primary px-6 py-2.5 text-sm font-semibold text-black hover:bg-white transition-all active:scale-[0.98] cursor-pointer"
+                className="settings-primary-button cursor-pointer"
               >
-                <Save size={16} />
+                <Save size={15} />
                 Save Workflow
               </button>
             </div>
@@ -2081,14 +1718,15 @@ export function SettingsView({
 
     return (
       <div className="space-y-6 animate-soft-pop">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <SectionHeader
             title="Slash Workflows"
-            subtitle="Create and customize prompt profiles triggered by typing slash commands in the message box."
+            subtitle="Custom prompt profiles triggered by typing slash commands in the message box."
           />
           <button
+            type="button"
             onClick={handleAddWorkflowClick}
-            className="flex items-center gap-1.5 rounded-2xl bg-accent-primary px-4 py-2.5 text-xs font-semibold text-black hover:bg-accent-primary/95 transition-all active:scale-[0.98] cursor-pointer"
+            className="settings-primary-button shrink-0 cursor-pointer"
           >
             <Plus size={14} weight="bold" />
             Add Workflow
@@ -2096,57 +1734,68 @@ export function SettingsView({
         </div>
 
         {wList.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-[24px] border border-dashed border-white/[0.08] bg-white/[0.015] p-10 text-center select-none">
-            <Lightning size={36} className="text-text-secondary/40 mb-3 animate-pulse" />
-            <span className="text-sm font-semibold text-text-secondary/70">
-              No Workflows Configured
-            </span>
-            <span className="text-xs text-text-secondary/40 mt-1 max-w-sm">
-              Click the &quot;Add Workflow&quot; button above to create your first customizable
-              Gems-style prompt profile!
-            </span>
+          <div className="settings-card flex flex-col items-center justify-center py-12 text-center border-dashed">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20 mb-3">
+              <Lightning size={24} weight="duotone" />
+            </div>
+            <span className="text-sm font-semibold text-text-primary">No Slash Workflows Configured</span>
+            <p className="text-xs text-text-secondary/70 mt-1 max-w-sm">
+              Create customized Gems-style prompt profiles triggered with a quick slash command.
+            </p>
+            <button
+              type="button"
+              onClick={handleAddWorkflowClick}
+              className="mt-4 settings-secondary-button cursor-pointer"
+            >
+              <Plus size={14} />
+              Create First Workflow
+            </button>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3">
             {wList.map((w) => (
               <div
                 key={w.id}
-                className="flex flex-col sm:flex-row sm:items-center justify-between rounded-[20px] border border-white/[0.08] bg-white/[0.035] p-4 gap-4 transition-all duration-200 hover:border-white/[0.12]"
+                className="settings-card flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors hover:border-[var(--border-strong)]"
               >
-                <div className="flex items-start gap-4">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
+                <div className="flex items-start gap-3.5 min-w-0">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
                     <Lightning size={20} weight="fill" />
                   </div>
                   <div className="flex flex-col min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-sm text-text-primary">{w.name}</span>
-                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-accent-primary/15 text-accent-primary border border-accent-primary/20">
+                      <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-full bg-accent-primary/15 text-accent-primary border border-accent-primary/30">
                         {w.command}
                       </span>
                       {w.toolConstraints && w.toolConstraints.length > 0 && (
-                        <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-accent-secondary/15 text-accent-secondary border border-accent-secondary/20 font-mono">
-                          {w.toolConstraints.length} tools
+                        <span className="font-mono text-[9px] px-2 py-0.5 rounded-full bg-[var(--surface-lowest)] text-text-muted border border-[var(--border-default)]">
+                          {w.toolConstraints.length} tools allowed
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-text-secondary/70 mt-1">{w.description}</span>
+                    <span className="text-xs text-text-secondary/70 mt-1 leading-relaxed truncate">
+                      {w.description || 'No description provided.'}
+                    </span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0 sm:self-center self-end">
+                <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
                   <button
+                    type="button"
                     onClick={() => handleEditWorkflow(w)}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/5 bg-white/[0.02] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary transition-all active:scale-[0.96] cursor-pointer"
+                    className="p-2 text-text-secondary hover:text-text-primary hover:bg-[var(--surface-raised)] rounded-lg transition-colors cursor-pointer"
                     title="Edit Workflow"
                   >
-                    <Pencil size={14} />
+                    <Pencil size={15} />
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleDeleteWorkflow(w.id)}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-status-error/10 bg-status-error/[0.02] text-status-error hover:bg-status-error/[0.08] transition-all active:scale-[0.96] cursor-pointer"
+                    className="p-2 text-status-error/70 hover:text-status-error hover:bg-status-error/10 rounded-lg transition-colors cursor-pointer"
                     title="Delete Workflow"
                   >
-                    <Trash size={14} />
+                    <Trash size={15} />
                   </button>
                 </div>
               </div>
@@ -2157,122 +1806,586 @@ export function SettingsView({
     )
   }
 
-  const isSkillEnabledInSettings = (skillKey: string): boolean => {
-    const disabled = config.disabledSkills || []
-    return !disabled.includes(skillKey)
-  }
-
-  const toggleSkillInSettings = (skillKey: string): void => {
-    const currentDisabled = config.disabledSkills || []
-    let newDisabled: string[]
-    if (currentDisabled.includes(skillKey)) {
-      newDisabled = currentDisabled.filter((k) => k !== skillKey)
-    } else {
-      newDisabled = [...currentDisabled, skillKey]
-    }
-    const updatedConfig = { ...config, disabledSkills: newDisabled }
-    setConfig(updatedConfig)
-    window.api.saveConfig({ disabledSkills: newDisabled })
-  }
-
-  const renderSkills = (): React.JSX.Element => (
-    <div className="space-y-6 animate-soft-pop">
+  const renderSystem = (): React.JSX.Element => (
+    <div className="space-y-8 animate-soft-pop">
       <SectionHeader
-        title="AI Skills"
-        subtitle="Enable or disable specialized AI skills and execution tools for PDF, PowerPoint, and Browser capabilities."
+        title="System & Behavior"
+        subtitle="Desktop environment preferences, startup lifecycle, and local data protection."
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* PowerPoint Skill */}
-        <div className="flex flex-col justify-between p-5 rounded-[20px] border border-white/[0.08] bg-white/[0.035] hover:bg-white/[0.05] transition-all">
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
-                <FilePpt size={20} weight="bold" />
-              </div>
-              <button
-                type="button"
-                onClick={() => toggleSkillInSettings('pptx')}
-                className={clsx(
-                  'w-10 h-5 rounded-full transition-colors relative flex items-center p-0.5 cursor-pointer',
-                  isSkillEnabledInSettings('pptx') ? 'bg-accent-primary' : 'bg-white/10'
-                )}
-              >
-                <div
-                  className={clsx(
-                    'w-4 h-4 rounded-full bg-white transition-transform',
-                    isSkillEnabledInSettings('pptx') ? 'translate-x-5' : 'translate-x-0'
-                  )}
-                />
-              </button>
-            </div>
-            <h3 className="text-sm font-semibold text-text-primary">PowerPoint Skill</h3>
-            <p className="text-xs text-text-secondary/60 mt-1">
-              Allows the AI to learn presentation design guidelines and build 16:9 .pptx slide
-              decks.
-            </p>
+      <div className="space-y-4">
+        {/* Quick Search Mode */}
+        <div className="settings-card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex flex-col gap-1 min-w-0">
+            <span className="text-sm font-semibold text-text-primary">Quick Search AI Mode</span>
+            <span className="text-xs text-text-secondary/70 leading-relaxed">
+              Choose between the lightweight floating AI query bar or opening the full chat tab.
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[var(--surface-lowest)] border border-[var(--border-default)] shrink-0">
+            <button
+              type="button"
+              onClick={() => setConfig({ ...config, quickLauncherMode: 'simple' })}
+              className={clsx(
+                'rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all cursor-pointer',
+                config.quickLauncherMode === 'simple'
+                  ? 'bg-accent-primary text-black font-bold shadow-sm'
+                  : 'text-text-secondary hover:text-text-primary'
+              )}
+            >
+              Simple Floating
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfig({ ...config, quickLauncherMode: 'advanced' })}
+              className={clsx(
+                'rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all cursor-pointer',
+                config.quickLauncherMode === 'advanced'
+                  ? 'bg-accent-primary text-black font-bold shadow-sm'
+                  : 'text-text-secondary hover:text-text-primary'
+              )}
+            >
+              Advanced Workspace
+            </button>
           </div>
         </div>
 
-        {/* PDF Skill */}
-        <div className="flex flex-col justify-between p-5 rounded-[20px] border border-white/[0.08] bg-white/[0.035] hover:bg-white/[0.05] transition-all">
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
-                <FilePdf size={20} weight="bold" />
-              </div>
-              <button
-                type="button"
-                onClick={() => toggleSkillInSettings('pdf')}
+        {/* Minimize to Tray */}
+        <ToggleRow
+          title="Minimize to System Tray"
+          description="When closing the main window, Prism remains running in the background tray."
+          checked={config.minimizeToTray}
+          onChange={() => setConfig({ ...config, minimizeToTray: !config.minimizeToTray })}
+        />
+
+        {/* Start on Login */}
+        <ToggleRow
+          title="Launch on System Startup"
+          description="Automatically launch Prism in the background when you log in to your computer."
+          checked={config.autoLaunch}
+          onChange={() => setConfig({ ...config, autoLaunch: !config.autoLaunch })}
+        />
+      </div>
+
+      <div className="flex items-start gap-3 rounded-xl border border-accent-primary/20 bg-accent-primary/[0.04] p-4">
+        <div className="text-accent-primary shrink-0 mt-0.5">
+          <Shield size={18} weight="duotone" />
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-xs font-bold text-text-primary">Encrypted Local Storage</span>
+          <p className="text-xs text-text-secondary/70 mt-0.5 leading-relaxed">
+            All user credentials, API keys, and custom configurations are stored encrypted locally on
+            your machine using native OS keychains. Prism never transmits your API keys to third parties.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+
+  const renderDiscord = (): React.JSX.Element => (
+    <div className="space-y-8 animate-soft-pop">
+      <SectionHeader
+        title="Discord Gateway"
+        subtitle="Connect Prism to Discord to power bots, direct messages, and Gemini Live realtime voice sessions."
+      />
+
+      <section className="settings-card settings-discord-status">
+        <div className="flex min-w-0 items-start gap-3.5">
+          <div className="settings-icon-box">
+            <DiscordIcon size={20} />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-text-primary">Gateway Service</h3>
+              <span
                 className={clsx(
-                  'w-10 h-5 rounded-full transition-colors relative flex items-center p-0.5 cursor-pointer',
-                  isSkillEnabledInSettings('pdf') ? 'bg-accent-primary' : 'bg-white/10'
+                  'settings-status-badge',
+                  config.discordGatewayEnabled
+                    ? config.discordBotToken?.trim()
+                      ? 'is-ready'
+                      : 'is-warning'
+                    : ''
                 )}
               >
-                <div
-                  className={clsx(
-                    'w-4 h-4 rounded-full bg-white transition-transform',
-                    isSkillEnabledInSettings('pdf') ? 'translate-x-5' : 'translate-x-0'
-                  )}
-                />
-              </button>
+                {config.discordGatewayEnabled
+                  ? config.discordBotToken?.trim()
+                    ? 'Connected / Ready'
+                    : 'Token Required'
+                  : 'Disabled'}
+              </span>
             </div>
-            <h3 className="text-sm font-semibold text-text-primary">PDF Skill</h3>
-            <p className="text-xs text-text-secondary/60 mt-1">
-              Allows the AI to learn document formatting rules and compile clean A4 PDF files.
+            <p className="mt-1 text-xs leading-relaxed text-text-secondary/70">
+              Prism manages the Discord client lifecycle automatically after changes are saved.
             </p>
           </div>
         </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={config.discordGatewayEnabled ?? false}
+          aria-label="Enable Discord Gateway"
+          onClick={() =>
+            setConfig({ ...config, discordGatewayEnabled: !config.discordGatewayEnabled })
+          }
+          className={clsx('settings-switch', config.discordGatewayEnabled && 'is-enabled')}
+        >
+          <span />
+        </button>
+      </section>
 
-        {/* Browser Skill */}
-        <div className="flex flex-col justify-between p-5 rounded-[20px] border border-white/[0.08] bg-white/[0.035] hover:bg-white/[0.05] transition-all">
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
-                <Globe size={20} weight="bold" />
+      <section className="space-y-3">
+        <SettingsGroupLabel
+          title="Bot Credentials"
+          description="Paste the secret bot token generated in your Discord Developer Portal application."
+        />
+        <div className="settings-card">
+          <label className="settings-field-label" htmlFor="discord-bot-token">
+            Bot Token
+          </label>
+          <div className="relative mt-2">
+            <input
+              id="discord-bot-token"
+              type={showDiscordToken ? 'text' : 'password'}
+              value={config.discordBotToken || ''}
+              onChange={(e) => setConfig({ ...config, discordBotToken: e.target.value })}
+              placeholder="Paste your Discord Bot Token"
+              autoComplete="off"
+              spellCheck={false}
+              className="settings-text-input pr-11 font-mono text-xs"
+            />
+            <button
+              type="button"
+              onClick={() => setShowDiscordToken((value) => !value)}
+              className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-[var(--surface-raised)] hover:text-text-primary cursor-pointer"
+              title={showDiscordToken ? 'Hide Bot Token' : 'Show Bot Token'}
+            >
+              {showDiscordToken ? <EyeSlash size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          <p className="mt-2 text-[11px] text-text-muted">
+            The token is saved encrypted on your device and hidden by default.
+          </p>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <SettingsGroupLabel
+          title="Model Routing for Discord"
+          description="Select independent models for Discord text messaging and Gemini Live voice calls."
+        />
+        <div className="settings-routing-grid">
+          <div className="settings-card settings-model-card">
+            <div>
+              <span className="settings-field-label">Text Responses</span>
+              <h3 className="mt-1 text-sm font-semibold text-text-primary">Gateway Text Model</h3>
+              <p className="mt-1 text-xs leading-relaxed text-text-secondary/70">
+                Handles server text commands, mentions, and tool operations.
+              </p>
+            </div>
+            <div className="settings-model-selector">
+              <ModelSelector
+                selectedModel={config.discordGatewayModel || ''}
+                onModelChange={(model) => setConfig({ ...config, discordGatewayModel: model })}
+                align="left"
+              />
+            </div>
+          </div>
+
+          <div className="settings-card settings-model-card">
+            <div>
+              <span className="settings-field-label">Realtime Voice</span>
+              <h3 className="mt-1 text-sm font-semibold text-text-primary">Gemini Live Model</h3>
+              <p className="mt-1 text-xs leading-relaxed text-text-secondary/70">
+                Powers audio calls initiated with the prism=join command.
+              </p>
+            </div>
+            <div className="settings-model-selector">
+              <ModelSelector
+                selectedModel={config.discordGatewayVoiceModel || ''}
+                onModelChange={(model) => setConfig({ ...config, discordGatewayVoiceModel: model })}
+                align="left"
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+
+  const renderLicense = (): React.JSX.Element => (
+    <div className="space-y-8 animate-soft-pop">
+      <SectionHeader
+        title="Enterprise License & Plans"
+        subtitle="Manage commercial licensing, live Supabase subscription tiers, and cryptographic key activations."
+      />
+
+      {licenseInfo?.isActivated ? (
+        <div className="settings-card border-accent-primary/40 bg-accent-primary/[0.04]">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3.5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent-primary/15 text-accent-primary border border-accent-primary/30">
+                <Certificate size={24} weight="duotone" />
               </div>
+              <div className="flex flex-col">
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-bold text-text-primary">
+                    {licenseInfo.licensee}
+                  </span>
+                  <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-full bg-accent-primary text-black uppercase">
+                    {licenseInfo.type}
+                  </span>
+                </div>
+                <span className="text-xs text-text-secondary mt-0.5">{licenseInfo.email}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {countdownText && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent-primary/10 border border-accent-primary/25 text-accent-primary text-xs font-mono font-bold">
+                  <Clock size={14} className="animate-pulse" />
+                  <span>{countdownText}</span>
+                </div>
+              )}
               <button
                 type="button"
-                onClick={() => toggleSkillInSettings('browser')}
-                className={clsx(
-                  'w-10 h-5 rounded-full transition-colors relative flex items-center p-0.5 cursor-pointer',
-                  isSkillEnabledInSettings('browser') ? 'bg-accent-primary' : 'bg-white/10'
-                )}
+                onClick={handleDeactivateLicense}
+                className="px-3.5 py-2 text-xs font-semibold text-status-error bg-status-error/10 hover:bg-status-error/20 border border-status-error/20 rounded-xl transition-all cursor-pointer"
               >
-                <div
-                  className={clsx(
-                    'w-4 h-4 rounded-full bg-white transition-transform',
-                    isSkillEnabledInSettings('browser') ? 'translate-x-5' : 'translate-x-0'
-                  )}
-                />
+                Deactivate License
               </button>
             </div>
-            <h3 className="text-sm font-semibold text-text-primary">Browser Skill</h3>
-            <p className="text-xs text-text-secondary/60 mt-1">
-              Enables integrated Playwright browser automation, navigation, typing, and page
-              snapshots.
-            </p>
           </div>
+
+          <div className="settings-license-facts mt-5">
+            <div>
+              <span className="text-[10px] font-mono uppercase text-text-muted font-semibold">License ID</span>
+              <span className="text-xs font-mono font-semibold text-text-primary mt-1 block truncate">
+                {licenseInfo.id}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] font-mono uppercase text-text-muted font-semibold">Authorized Seats</span>
+              <span className="text-xs font-semibold text-text-primary mt-1 block">
+                {licenseInfo.seats} Seat(s)
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] font-mono uppercase text-text-muted font-semibold">Expiration Date</span>
+              <span className="text-xs font-semibold text-text-primary mt-1 block">
+                {new Date(licenseInfo.expiresAt).toLocaleDateString()}
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {/* Supabase Subscription Plans */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm font-bold text-text-primary">Commercial Plans</span>
+                <p className="text-xs text-text-secondary/70 mt-0.5">
+                  Choose a subscription plan fetched live from Supabase.
+                </p>
+              </div>
+            </div>
+
+            {isLoadingPlans ? (
+              <div className="settings-card flex min-h-28 items-center justify-center py-8">
+                <CircleNotch size={22} className="animate-spin text-accent-primary" />
+                <span className="text-xs text-text-secondary ml-3">Loading live pricing...</span>
+              </div>
+            ) : plansError ? (
+              <div className="settings-card flex flex-col items-center justify-center py-8 gap-3 text-center">
+                <Warning size={22} className="text-status-error" />
+                <p className="text-xs text-text-secondary">{plansError}</p>
+                <button
+                  type="button"
+                  onClick={() => void loadSubscriptionPlans()}
+                  className="settings-secondary-button"
+                >
+                  <ArrowClockwise size={14} />
+                  Retry
+                </button>
+              </div>
+            ) : plans.length === 0 ? (
+              <div className="settings-card flex flex-col items-center justify-center py-8 text-center">
+                <CreditCard size={24} className="text-text-muted mb-2" />
+                <span className="text-xs font-semibold text-text-primary">No plans currently available</span>
+              </div>
+            ) : (
+              <div className="settings-plan-grid">
+                {plans.map((plan) => {
+                  const isPopular = plan.badge === 'Best Value' || plan.id === 'enterprise_yearly'
+                  const isLoadingThis = checkoutLoadingPlanId === plan.id
+                  const hasPendingSession = !!pendingSessionIds[plan.id]
+
+                  return (
+                    <div
+                      key={plan.id}
+                      className={clsx('settings-plan-card', isPopular && 'is-featured')}
+                    >
+                      {plan.badge && (
+                        <div className="absolute -top-2.5 right-4 rounded bg-accent-primary px-2 py-0.5 font-mono text-[9px] font-bold uppercase text-black">
+                          {plan.badge}
+                        </div>
+                      )}
+
+                      <div className="flex flex-col gap-2">
+                        <span className="text-sm font-bold text-text-primary">{plan.name}</span>
+                        <p className="text-xs text-text-secondary/70 leading-relaxed min-h-[36px]">
+                          {plan.description}
+                        </p>
+
+                        <div className="flex items-baseline gap-1 my-2">
+                          <span className="text-2xl font-extrabold text-text-primary font-mono">
+                            ${plan.priceUsd.toFixed(2)}
+                          </span>
+                          <span className="text-xs text-text-muted font-medium">
+                            / {plan.billingInterval}
+                          </span>
+                        </div>
+
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-text-muted">
+                          <span>{plan.seats} {plan.seats === 1 ? 'seat' : 'seats'}</span>
+                          <span>{plan.durationDays} days</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2 pt-3 border-t border-[var(--border-subtle)] mt-4">
+                        {authUser ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleBuyPlan(plan)}
+                              disabled={isLoadingThis || hasPendingSession}
+                              className={clsx(
+                                'settings-primary-button w-full cursor-pointer',
+                                isPopular ? 'bg-accent-primary text-black border-accent-primary' : ''
+                              )}
+                            >
+                              {isLoadingThis ? (
+                                <CircleNotch size={14} className="animate-spin" />
+                              ) : (
+                                <CreditCard size={14} />
+                              )}
+                              <span>
+                                {isLoadingThis
+                                  ? 'Opening Checkout...'
+                                  : hasPendingSession
+                                    ? 'Checkout Opened'
+                                    : 'Buy via Stripe'}
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleVerifyAndActivate(plan)}
+                              disabled={!hasPendingSession || stripeVerifying}
+                              className={clsx(
+                                'w-full flex items-center justify-center gap-1.5 text-[11px] font-semibold py-1.5 rounded-lg transition-all',
+                                hasPendingSession && !stripeVerifying
+                                  ? 'text-status-success hover:text-status-success/80 cursor-pointer bg-status-success/10'
+                                  : 'text-text-muted opacity-40 cursor-not-allowed'
+                              )}
+                            >
+                              <CheckCircle size={13} />
+                              Verify & Activate Plan
+                            </button>
+                          </>
+                        ) : (
+                          <div className="flex flex-col items-center gap-1.5 py-1">
+                            <span className="text-[11px] text-text-muted text-center">
+                              Sign in to purchase a plan.
+                            </span>
+                            <button
+                              type="button"
+                              onClick={onOpenAuthModal}
+                              className="text-[11px] font-semibold text-accent-primary hover:underline cursor-pointer"
+                            >
+                              Sign In / Create Account →
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* Offline Key Activation */}
+          <section className="relative settings-card overflow-hidden">
+            {activating && (
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/85 backdrop-blur-md p-6 text-center animate-fade-in">
+                <CircleNotch size={28} className="animate-spin text-accent-primary" />
+                <span className="text-xs font-semibold text-accent-primary animate-pulse">
+                  {activationStepMessage}
+                </span>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-1 mb-3">
+              <span className="text-sm font-semibold text-text-primary">Activate with License Key</span>
+              <span className="text-xs text-text-secondary/70">
+                Paste your cryptographic PRISM-ENTERPRISE key below for offline or airgapped activation.
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              <div className="relative">
+                <textarea
+                  value={inputLicenseKey}
+                  onChange={(e) => setInputLicenseKey(e.target.value)}
+                  placeholder="Paste PRISM-ENTERPRISE-..."
+                  rows={3}
+                  style={{ WebkitTextSecurity: showKeyText ? 'none' : 'disc' } as any}
+                  className="settings-text-input font-mono text-xs pr-10 resize-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKeyText(!showKeyText)}
+                  className="absolute right-3 top-3 text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                  title={showKeyText ? 'Hide License Key' : 'Reveal License Key'}
+                >
+                  {showKeyText ? <EyeSlash size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+
+              {licenseError && (
+                <div className="text-xs text-status-error flex items-center gap-1.5 font-semibold">
+                  <Warning size={14} weight="fill" />
+                  {licenseError}
+                </div>
+              )}
+
+              {licenseSuccess && (
+                <div className="text-xs text-status-success flex items-center gap-1.5 font-semibold">
+                  <Check size={14} weight="bold" />
+                  {licenseSuccess}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-1">
+                <a
+                  href="https://github.com/brnalemusic"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-accent-primary hover:underline"
+                >
+                  Need a key? Contact Breno Alexandrē
+                </a>
+
+                <button
+                  type="button"
+                  onClick={handleActivateLicense}
+                  disabled={activating || !inputLicenseKey.trim()}
+                  className="settings-primary-button disabled:opacity-50 cursor-pointer"
+                >
+                  {activating && <CircleNotch size={14} className="animate-spin" />}
+                  <span>{activating ? 'Validating...' : 'Activate Key'}</span>
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {isActivationModalOpen && licenseInfo && (
+        <EnterpriseActivationModal
+          licenseInfo={licenseInfo}
+          onClose={() => setIsActivationModalOpen(false)}
+        />
+      )}
+
+      {stripeVerifying &&
+        createPortal(
+          <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-fade-in">
+            <div className="prism-modal-panel flex w-full max-w-sm flex-col items-center gap-4 p-7 text-center animate-soft-pop">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-primary/15 border border-accent-primary/30 text-accent-primary">
+                <CircleNotch size={24} className="animate-spin" />
+              </div>
+
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-text-primary">
+                  {stripeCheckoutStage === 'opening' ? 'Preparing Checkout' : 'Completing Checkout'}
+                </h3>
+                <p className="text-xs text-text-secondary/80 leading-relaxed">
+                  {stripeCheckoutStage === 'opening'
+                    ? 'Creating secure Stripe session.'
+                    : 'Please finish payment in your browser window.'}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  stopSettingsPolling()
+                  setStripeVerifying(false)
+                }}
+                className="text-xs font-semibold text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
+    </div>
+  )
+
+  const renderAbout = (): React.JSX.Element => (
+    <div className="space-y-8 animate-soft-pop">
+      <SectionHeader
+        title="About Prism"
+        subtitle="Version details, desktop runtime architecture, and open source credits."
+      />
+
+      <div className="settings-card flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
+            <Sparkle size={22} weight="duotone" />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm font-bold text-text-primary">Prism Desktop</span>
+            <span className="text-xs text-text-secondary/70">
+              Next-generation Agentic AI Studio by Breno Alexandrē
+            </span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleVersionClick}
+          className="font-mono text-xs font-bold bg-accent-primary/15 border border-accent-primary/30 text-accent-primary rounded-xl px-3 py-1.5 select-none hover:bg-accent-primary/25 transition-colors cursor-pointer"
+          title="Click 5 times for easter egg"
+        >
+          {config.appVersion ? `v${config.appVersion}` : 'v9.0.0'}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+        <div className="settings-card flex flex-col items-center justify-center p-4 text-center">
+          <span className="text-[11px] font-mono text-text-muted uppercase">Electron</span>
+          <span className="text-sm font-bold text-text-primary mt-1">
+            v{window.electron?.process?.versions?.electron || '39.8.9'}
+          </span>
+        </div>
+
+        <div className="settings-card flex flex-col items-center justify-center p-4 text-center">
+          <span className="text-[11px] font-mono text-text-muted uppercase">Chromium</span>
+          <span className="text-sm font-bold text-text-primary mt-1">
+            v{window.electron?.process?.versions?.chrome || '132.0'}
+          </span>
+        </div>
+
+        <div className="settings-card flex flex-col items-center justify-center p-4 text-center">
+          <span className="text-[11px] font-mono text-text-muted uppercase">Node.js</span>
+          <span className="text-sm font-bold text-text-primary mt-1">
+            v{window.electron?.process?.versions?.node || '22.11.0'}
+          </span>
         </div>
       </div>
     </div>
@@ -2280,157 +2393,228 @@ export function SettingsView({
 
   const renderActiveSection = (): React.JSX.Element => {
     switch (activeSection) {
+      case 'appearance':
+        return renderAppearance()
       case 'shortcuts':
         return renderShortcuts()
+      case 'system':
+        return renderSystem()
+      case 'voice':
+        return renderVoice()
       case 'providers':
         return <ApiManagerSettings />
       case 'intelligence':
         return renderIntelligence()
-      case 'skills':
-        return renderSkills()
       case 'runtime':
         return renderRuntime()
-      case 'appearance':
-        return renderAppearance()
-      case 'voice':
-        return renderVoice()
+      case 'skills':
+        return renderSkills()
       case 'workflows':
         return renderWorkflows()
-      case 'system':
-        return renderSystem()
       case 'discord':
         return renderDiscord()
       case 'license':
         return renderLicense()
       case 'about':
         return renderAbout()
+      default:
+        return renderAppearance()
     }
   }
 
+  // Categories list for grouping in sidebar
+  const categories: Array<{ id: SectionCategory; label: string }> = [
+    { id: 'general', label: 'General' },
+    { id: 'ai', label: 'AI & Models' },
+    { id: 'integrations', label: 'Integrations & Info' }
+  ]
+
   return (
-    <div className="settings-shell flex h-full flex-1 flex-col overflow-hidden bg-black animate-soft-pop">
-      <header className="z-20 flex h-16 shrink-0 items-center justify-between border-b border-[var(--border-default)] bg-black px-4 sm:px-6">
-        <div className="min-w-0">
-          <h1 className="text-base font-semibold text-text-primary sm:text-lg">Settings</h1>
-          <p className="hidden text-xs text-text-muted sm:block">
-            Configure how Prism works for you.
-          </p>
+    <div className="settings-shell flex h-full flex-1 flex-col overflow-hidden bg-black text-text-primary select-none">
+      {/* Header Bar */}
+      <header className="z-20 flex h-16 shrink-0 items-center justify-between border-b border-[var(--border-default)] bg-[var(--surface-lowest)] px-5 sm:px-6">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary border border-accent-primary/20 shrink-0">
+            <Sliders size={18} weight="duotone" />
+          </div>
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm sm:text-base font-bold text-text-primary tracking-tight truncate">
+                Settings
+              </h1>
+              <span className="text-text-muted text-xs hidden sm:inline">•</span>
+              <span className="text-xs font-semibold text-accent-primary hidden sm:inline truncate">
+                {activeNavSection.label}
+              </span>
+            </div>
+            <p className="text-[11px] text-text-muted hidden sm:block truncate">
+              {activeNavSection.description}
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5 shrink-0">
           {message.text && (
             <span
               className={clsx(
-                'hidden items-center gap-1.5 text-xs font-medium animate-soft-pop md:flex',
-                message.type === 'success' ? 'text-status-success' : 'text-status-error'
+                'hidden items-center gap-1.5 text-xs font-semibold animate-soft-pop md:flex px-2.5 py-1 rounded-lg border',
+                message.type === 'success'
+                  ? 'border-status-success/30 bg-status-success/10 text-status-success'
+                  : 'border-status-error/30 bg-status-error/10 text-status-error'
               )}
             >
               {message.type === 'success' ? (
-                <Check size={14} weight="bold" />
+                <Check size={13} weight="bold" />
               ) : (
-                <Warning size={14} weight="bold" />
+                <Warning size={13} weight="bold" />
               )}
               {message.text}
             </span>
           )}
 
           <button
+            type="button"
             onClick={handleReset}
-            className="settings-secondary-button hidden sm:inline-flex"
+            className="settings-secondary-button hidden sm:inline-flex cursor-pointer"
             title="Restore default settings"
           >
-            <RotateCcw size={14} />
-            Reset
+            <RotateCcw size={13} />
+            <span>Reset</span>
           </button>
 
-          <button onClick={handleSave} disabled={isSaving} className="settings-primary-button">
-            <Save size={15} />
-            {isSaving ? 'Saving...' : 'Save'}
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={isSaving}
+            className="settings-primary-button cursor-pointer"
+          >
+            <Save size={14} />
+            <span>{isSaving ? 'Saving...' : 'Save'}</span>
           </button>
 
           {onClose && (
             <button
+              type="button"
               onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-text-secondary transition-colors hover:border-[var(--border-default)] hover:bg-[var(--surface-raised)] hover:text-text-primary"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-text-muted hover:border-[var(--border-default)] hover:bg-[var(--surface-raised)] hover:text-text-primary transition-colors cursor-pointer"
               title="Close settings"
             >
-              <X size={17} weight="bold" />
+              <X size={16} weight="bold" />
             </button>
           )}
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <nav className="hidden w-60 shrink-0 flex-col gap-1 border-r border-[var(--border-default)] bg-[var(--sidebar-bg)] p-4 lg:flex">
-          <span className="settings-field-label mb-2 px-3">Preferences</span>
-          {sections.map((section) => (
-            <button
-              key={section.id}
-              onClick={() => handleSectionChange(section.id)}
-              className={clsx(
-                'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
-                activeSection === section.id
-                  ? 'bg-[var(--sidebar-surface)] font-medium text-text-primary'
-                  : 'text-text-secondary hover:bg-[var(--sidebar-hover)] hover:text-text-primary'
-              )}
-            >
-              <span
-                className={clsx(
-                  'transition-colors',
-                  activeSection === section.id ? 'text-accent-primary' : 'text-text-muted'
-                )}
+      {/* Main Area */}
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row overflow-hidden">
+        {/* Desktop Sidebar */}
+        <aside className="hidden w-64 shrink-0 flex-col border-r border-[var(--border-default)] bg-[var(--sidebar-bg)] p-3.5 lg:flex overflow-y-auto custom-scrollbar">
+          {/* Quick Filter Search */}
+          <div className="relative mb-3">
+            <MagnifyingGlass size={13} className="absolute left-2.5 top-2.5 text-text-muted" />
+            <input
+              type="text"
+              value={searchNavQuery}
+              onChange={(e) => setSearchNavQuery(e.target.value)}
+              placeholder="Search settings..."
+              className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--surface-lowest)] py-1.5 pl-8 pr-7 text-xs text-text-primary placeholder-text-muted focus:border-accent-primary/50 focus:outline-none transition-colors"
+            />
+            {searchNavQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchNavQuery('')}
+                className="absolute right-2 top-2 text-text-muted hover:text-text-primary p-0.5"
               >
-                {section.icon}
-              </span>
-              {section.label}
-            </button>
-          ))}
-        </nav>
+                <X size={12} />
+              </button>
+            )}
+          </div>
 
+          <div className="space-y-4">
+            {categories.map((cat) => {
+              const catSections = filteredSections.filter((s) => s.category === cat.id)
+              if (catSections.length === 0) return null
+
+              return (
+                <div key={cat.id} className="space-y-1">
+                  <span className="px-2.5 text-[10px] font-bold font-mono text-text-muted uppercase tracking-wider block">
+                    {cat.label}
+                  </span>
+                  <div className="space-y-0.5">
+                    {catSections.map((section) => {
+                      const isActive = activeSection === section.id
+                      return (
+                        <button
+                          key={section.id}
+                          type="button"
+                          onClick={() => handleSectionChange(section.id)}
+                          className={clsx(
+                            'group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-semibold transition-all cursor-pointer outline-none',
+                            isActive
+                              ? 'bg-accent-primary/15 text-accent-primary border border-accent-primary/25 shadow-sm'
+                              : 'text-text-secondary hover:bg-[var(--sidebar-hover)] hover:text-text-primary border border-transparent'
+                          )}
+                        >
+                          <span
+                            className={clsx(
+                              'transition-colors',
+                              isActive ? 'text-accent-primary' : 'text-text-muted group-hover:text-text-primary'
+                            )}
+                          >
+                            {section.icon}
+                          </span>
+                          <span className="truncate">{section.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+
+            {filteredSections.length === 0 && (
+              <div className="py-6 px-3 text-center text-xs text-text-muted">
+                No settings match &ldquo;{searchNavQuery}&rdquo;
+              </div>
+            )}
+          </div>
+        </aside>
+
+        {/* Mobile Dropdown Header */}
         <div className="relative shrink-0 border-b border-[var(--border-default)] bg-[var(--surface-lowest)] p-3 lg:hidden">
           <button
             type="button"
-            onClick={() => setIsSectionMenuOpen((current) => !current)}
-            className="flex w-full items-center justify-between rounded-lg border border-[var(--border-default)] bg-[var(--surface)] px-3 py-2.5 text-sm text-text-primary"
-            aria-expanded={isSectionMenuOpen}
-            aria-haspopup="menu"
+            onClick={() => setIsMobileMenuOpen((curr) => !curr)}
+            className="flex w-full items-center justify-between rounded-lg border border-[var(--border-default)] bg-[var(--surface)] px-3.5 py-2 text-xs font-semibold text-text-primary"
           >
             <span className="flex items-center gap-2.5">
               <span className="text-accent-primary">{activeNavSection.icon}</span>
               {activeNavSection.label}
             </span>
             <CaretDown
-              size={15}
+              size={14}
               className={clsx(
-                'text-text-muted transition-transform',
-                isSectionMenuOpen && 'rotate-180'
+                'text-text-muted transition-transform duration-200',
+                isMobileMenuOpen && 'rotate-180'
               )}
             />
           </button>
 
-          {isSectionMenuOpen && (
-            <div
-              role="menu"
-              className="absolute left-3 right-3 top-[calc(100%-4px)] z-30 grid max-h-[min(420px,55vh)] grid-cols-2 gap-1 overflow-y-auto rounded-xl border border-[var(--border-strong)] bg-[var(--surface-raised)] p-2 shadow-2xl sm:grid-cols-3"
-            >
+          {isMobileMenuOpen && (
+            <div className="absolute left-3 right-3 top-[calc(100%+4px)] z-30 max-h-[60vh] overflow-y-auto rounded-xl border border-[var(--border-strong)] bg-[var(--surface-raised)] p-2 shadow-2xl space-y-1 custom-scrollbar">
               {sections.map((section) => (
                 <button
                   key={section.id}
                   type="button"
-                  role="menuitem"
                   onClick={() => handleSectionChange(section.id)}
                   className={clsx(
-                    'flex items-center gap-2 rounded-lg px-3 py-2.5 text-left text-xs transition-colors',
+                    'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-colors',
                     activeSection === section.id
-                      ? 'bg-accent-primary/10 font-medium text-text-primary'
-                      : 'text-text-secondary hover:bg-white/[0.05] hover:text-text-primary'
+                      ? 'bg-accent-primary/15 text-accent-primary'
+                      : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'
                   )}
                 >
-                  <span
-                    className={
-                      activeSection === section.id ? 'text-accent-primary' : 'text-text-muted'
-                    }
-                  >
+                  <span className={activeSection === section.id ? 'text-accent-primary' : 'text-text-muted'}>
                     {section.icon}
                   </span>
                   {section.label}
@@ -2440,11 +2624,12 @@ export function SettingsView({
           )}
         </div>
 
+        {/* Settings Content Pane */}
         <main
           ref={contentRef}
-          className="settings-content flex-1 overflow-y-auto p-5 sm:p-7 lg:p-10"
+          className="settings-content flex-1 overflow-y-auto p-5 sm:p-7 lg:p-9 custom-scrollbar"
         >
-          <div className="mx-auto w-full max-w-4xl">{renderActiveSection()}</div>
+          <div className="mx-auto w-full max-w-3xl">{renderActiveSection()}</div>
         </main>
       </div>
 
@@ -2453,7 +2638,9 @@ export function SettingsView({
   )
 }
 
-// ─── Reusable sub-components ────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// Reusable Sub-Components
+// ─────────────────────────────────────────────────────────────
 
 function SectionHeader({
   title,
@@ -2463,9 +2650,9 @@ function SectionHeader({
   subtitle: string
 }): React.JSX.Element {
   return (
-    <div className="mb-1 border-b border-[var(--border-subtle)] pb-5">
-      <h2 className="text-2xl font-semibold tracking-[-0.03em] text-text-primary">{title}</h2>
-      <p className="mt-1.5 max-w-2xl text-sm leading-6 text-text-secondary">{subtitle}</p>
+    <div className="border-b border-[var(--border-subtle)] pb-4">
+      <h2 className="text-xl font-bold tracking-tight text-text-primary sm:text-2xl">{title}</h2>
+      <p className="mt-1 text-xs sm:text-sm text-text-secondary/80 leading-relaxed max-w-2xl">{subtitle}</p>
     </div>
   )
 }
@@ -2478,9 +2665,11 @@ function SettingsGroupLabel({
   description?: string
 }): React.JSX.Element {
   return (
-    <div className="mb-3">
-      <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
-      {description && <p className="mt-1 text-xs leading-5 text-text-muted">{description}</p>}
+    <div className="space-y-0.5">
+      <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider font-mono">
+        {title}
+      </h3>
+      {description && <p className="text-xs text-text-secondary/70 leading-relaxed">{description}</p>}
     </div>
   )
 }
@@ -2498,11 +2687,12 @@ function ToggleRow({
 }): React.JSX.Element {
   return (
     <div className="settings-card flex items-center justify-between gap-4">
-      <div className="flex flex-col gap-1 min-w-0">
+      <div className="flex flex-col gap-0.5 min-w-0">
         <span className="text-sm font-semibold text-text-primary">{title}</span>
-        <span className="text-xs leading-5 text-text-secondary">{description}</span>
+        <span className="text-xs text-text-secondary/70 leading-relaxed">{description}</span>
       </div>
       <button
+        type="button"
         onClick={onChange}
         role="switch"
         aria-checked={checked}
@@ -2510,6 +2700,183 @@ function ToggleRow({
       >
         <span />
       </button>
+    </div>
+  )
+}
+
+function ShortcutCard({
+  icon,
+  title,
+  description,
+  value,
+  onChange
+}: {
+  icon: React.ReactNode
+  title: string
+  description: string
+  value: string
+  onChange: (val: string) => void
+}): React.JSX.Element {
+  return (
+    <div className="settings-card flex flex-col justify-between gap-3.5">
+      <div className="flex items-start gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
+          {icon}
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-xs font-bold text-text-primary">{title}</span>
+          <span className="text-[11px] text-text-secondary/70 leading-normal mt-0.5">
+            {description}
+          </span>
+        </div>
+      </div>
+      <ShortcutRecorder value={value} onChange={onChange} />
+    </div>
+  )
+}
+
+function SkillCard({
+  icon,
+  title,
+  description,
+  enabled,
+  onToggle
+}: {
+  icon: React.ReactNode
+  title: string
+  description: string
+  enabled: boolean
+  onToggle: () => void
+}): React.JSX.Element {
+  return (
+    <div
+      className={clsx(
+        'settings-card flex flex-col justify-between gap-4 transition-all duration-200',
+        enabled
+          ? 'border-accent-primary/30 bg-accent-primary/[0.03]'
+          : 'opacity-70 hover:opacity-100'
+      )}
+    >
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--surface-lowest)] border border-[var(--border-default)]">
+            {icon}
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            onClick={onToggle}
+            className={clsx('settings-switch', enabled && 'is-enabled')}
+          >
+            <span />
+          </button>
+        </div>
+
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold text-text-primary">{title}</span>
+            <span
+              className={clsx(
+                'font-mono text-[9px] font-semibold px-1.5 py-0.5 rounded uppercase',
+                enabled
+                  ? 'bg-status-success/15 text-status-success border border-status-success/30'
+                  : 'bg-[var(--surface-raised)] text-text-muted border border-[var(--border-default)]'
+              )}
+            >
+              {enabled ? 'Active' : 'Disabled'}
+            </span>
+          </div>
+          <p className="text-xs text-text-secondary/70 mt-1 leading-relaxed">{description}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Polished, bug-free CustomSelect component
+ * Replaces unstyled native <select> with seamless animations and no overflow issues
+ */
+function CustomSelect<T extends string>({
+  value,
+  onChange,
+  options,
+  placeholder = 'Select an option'
+}: {
+  value: T
+  onChange: (val: T) => void
+  options: Array<{ value: T; label: string; icon?: React.ReactNode }>
+  placeholder?: string
+}): React.JSX.Element {
+  const [isOpen, setIsOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const selectedOption = options.find((o) => o.value === value)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent): void {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [isOpen])
+
+  return (
+    <div className="relative w-full" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={clsx(
+          'flex w-full items-center justify-between rounded-lg border px-3.5 py-2.5 text-xs font-semibold transition-all cursor-pointer outline-none',
+          isOpen
+            ? 'border-accent-primary bg-[var(--surface-raised)] text-text-primary ring-1 ring-accent-primary/20'
+            : 'border-[var(--border-default)] bg-[var(--surface-lowest)] text-text-primary hover:border-[var(--border-strong)] hover:bg-[var(--surface)]'
+        )}
+      >
+        <span className="flex items-center gap-2 truncate">
+          {selectedOption?.icon}
+          <span className="truncate">{selectedOption?.label || placeholder}</span>
+        </span>
+        <CaretDown
+          size={14}
+          className={clsx('text-text-muted transition-transform duration-200 shrink-0 ml-2', isOpen && 'rotate-180')}
+        />
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-[200] max-h-56 overflow-y-auto rounded-xl border border-[var(--border-strong)] bg-[var(--surface-raised)] p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.65)] space-y-0.5 custom-scrollbar animate-soft-pop">
+          {options.map((opt) => {
+            const isSelected = opt.value === value
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  onChange(opt.value)
+                  setIsOpen(false)
+                }}
+                className={clsx(
+                  'flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-colors cursor-pointer',
+                  isSelected
+                    ? 'bg-accent-primary/15 text-accent-primary'
+                    : 'text-text-secondary hover:bg-white/[0.06] hover:text-text-primary'
+                )}
+              >
+                <span className="flex items-center gap-2 truncate">
+                  {opt.icon}
+                  <span className="truncate">{opt.label}</span>
+                </span>
+                {isSelected && <Check size={14} weight="bold" className="text-accent-primary shrink-0" />}
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
