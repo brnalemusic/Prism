@@ -935,18 +935,34 @@ export const BrowserPane = React.memo(function BrowserPane({
     }
   }, [generatedHtml])
 
-  // Injected HTML with interactive navigation script and custom scrollbars
+  // Injected HTML with Tailwind CDN, FontAwesome, interactive navigation script and custom scrollbars
   const injectedHtml = useMemo(() => {
     if (!generatedHtml) return ''
 
-    const scriptInjection = `
+    let html = generatedHtml
+
+    const headInjections = `
+      <script src="https://cdn.tailwindcss.com"></script>
+      <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+      <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+      <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+      <script src="https://unpkg.com/lucide-react@latest/dist/umd/lucide-react.js"></script>
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+      <script>
+        window.lucide = window.LucideReact || window.lucide || {};
+      </script>
       <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 0; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(150, 150, 150, 0.25); border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(150, 150, 150, 0.45); }
         [data-prompt], [data-gen-prompt] { cursor: pointer !important; }
       </style>
+    `
+
+    const bodyInjections = `
       <script>
         (function() {
           document.addEventListener('click', function(e) {
@@ -982,10 +998,21 @@ export const BrowserPane = React.memo(function BrowserPane({
       </script>
     `
 
-    if (generatedHtml.includes('</body>')) {
-      return generatedHtml.replace('</body>', `${scriptInjection}</body>`)
+    if (html.includes('<head>')) {
+      html = html.replace('<head>', `<head>${headInjections}`)
+    } else if (html.includes('<html>')) {
+      html = html.replace('<html>', `<html><head>${headInjections}</head>`)
+    } else {
+      html = `<head>${headInjections}</head>${html}`
     }
-    return `${generatedHtml}${scriptInjection}`
+
+    if (html.includes('</body>')) {
+      html = html.replace('</body>', `${bodyInjections}</body>`)
+    } else {
+      html = `${html}${bodyInjections}`
+    }
+
+    return html
   }, [generatedHtml])
 
   return (
@@ -1300,12 +1327,11 @@ export const BrowserPane = React.memo(function BrowserPane({
                 </div>
               </div>
             ) : (
-              /* Live Preview Mode inside Sandbox Iframe */
+              /* Live Preview Mode inside Iframe */
               <iframe
                 title="Generative Website Preview"
                 srcDoc={injectedHtml}
-                sandbox="allow-scripts allow-same-origin allow-forms"
-                className="w-full h-full border-none bg-white"
+                className="w-full h-full border-none bg-[#0f0f0f]"
               />
             )}
           </div>
