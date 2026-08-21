@@ -7,6 +7,7 @@ export * from './launcherHandler'
 export * from './searchHandler'
 export * from './sttHandler'
 export * from './ttsHandler'
+export * from './generativeBrowserHandler'
 
 import { resolveProviderAndModel, getAllProviders } from './providerManager'
 

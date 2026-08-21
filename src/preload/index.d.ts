@@ -280,6 +280,20 @@ export interface PrismAPI {
   openExternalUrl: (url: string) => Promise<import('../shared/types').OpenExternalUrlResult>
   closeBrowser: () => Promise<string>
   resetBrowserIdle: () => void
+  generateBrowserSite: (data: { prompt: string; sessionId: string; history?: any[] }) => void
+  cancelBrowserGeneration: (sessionId?: string) => void
+  onBrowserGenStart: (
+    callback: (data: import('../shared/types').BrowserGenStartEvent) => void
+  ) => () => void
+  onBrowserGenChunk: (
+    callback: (data: import('../shared/types').BrowserGenChunkEvent) => void
+  ) => () => void
+  onBrowserGenEnd: (
+    callback: (data: import('../shared/types').BrowserGenEndEvent) => void
+  ) => () => void
+  onBrowserGenError: (
+    callback: (data: import('../shared/types').BrowserGenErrorEvent) => void
+  ) => () => void
   activateLicense: (key: string) => Promise<import('../shared/types').ActivationResult>
   deactivateLicense: () => Promise<boolean>
   getLicenseInfo: () => Promise<import('../shared/types').LicenseInfo | null>

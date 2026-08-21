@@ -37,7 +37,9 @@ import {
   saveProviders,
   deleteProvider,
   fetchModelsFromProvider,
-  getActiveModels
+  getActiveModels,
+  handleGenerateBrowserSite,
+  cancelBrowserGeneration
 } from './ai'
 import {
   searchWorkspaceFiles,
@@ -1016,6 +1018,16 @@ if (!gotTheLock) {
 
     ipcMain.handle('close-browser', () => {
       return closePersistentBrowser()
+    })
+
+    ipcMain.on('browser-generate-site', (_event, data) => {
+      if (mainWindow) {
+        handleGenerateBrowserSite(mainWindow, data)
+      }
+    })
+
+    ipcMain.on('browser-cancel-generation', (_event, sessionId) => {
+      cancelBrowserGeneration(sessionId)
     })
 
     ipcMain.on('reset-browser-idle', () => {

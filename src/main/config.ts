@@ -25,6 +25,7 @@ export interface AppConfig {
   sttModel?: string
   quickLauncherModel?: string
   searchModel?: string
+  generativeBrowserModel?: string
   minimizeToTray: boolean
   autoLaunch: boolean
   quickLauncherMode?: 'simple' | 'advanced'
@@ -85,6 +86,7 @@ const DEFAULT_CONFIG: AppConfig = {
   sttModel: '',
   quickLauncherModel: '',
   searchModel: '',
+  generativeBrowserModel: '',
   discordBotToken: '',
   discordGatewayEnabled: false,
   discordGatewayModel: '',
@@ -306,6 +308,10 @@ function normalizeConfig(config: AppConfig): AppConfig {
     searchModel:
       typeof config.searchModel === 'string'
         ? migrateLegacyModelKey(config.searchModel)
+        : '',
+    generativeBrowserModel:
+      typeof config.generativeBrowserModel === 'string'
+        ? migrateLegacyModelKey(config.generativeBrowserModel)
         : '',
     discordBotToken: typeof config.discordBotToken === 'string' ? config.discordBotToken : '',
     discordGatewayEnabled: typeof config.discordGatewayEnabled === 'boolean' ? config.discordGatewayEnabled : false,

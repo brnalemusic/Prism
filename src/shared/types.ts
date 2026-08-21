@@ -328,3 +328,25 @@ export interface UserAiUsageStatus {
   models?: Record<string, ModelAiUsageStatus>
   modelList?: ModelAiUsageStatus[]
 }
+
+export interface BrowserGenStartEvent {
+  sessionId: string
+  prompt: string
+}
+
+export interface BrowserGenChunkEvent {
+  sessionId: string
+  chunk: string
+  fullHtml: string
+}
+
+export interface BrowserGenEndEvent {
+  sessionId: string
+  fullHtml: string
+}
+
+export interface BrowserGenErrorEvent {
+  sessionId: string
+  error: string
+}
+

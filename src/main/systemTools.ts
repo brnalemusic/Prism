@@ -3111,6 +3111,10 @@ export async function executeSystemTool(
           config.sttModel = args.sttModel
           changed.push(`sttModel: "${args.sttModel}"`)
         }
+        if (args.generativeBrowserModel !== undefined && args.generativeBrowserModel !== '') {
+          config.generativeBrowserModel = args.generativeBrowserModel
+          changed.push(`generativeBrowserModel: "${args.generativeBrowserModel}"`)
+        }
         if (args.minimizeToTray !== undefined) {
           config.minimizeToTray = args.minimizeToTray === 'true' || args.minimizeToTray === true
           changed.push(`minimizeToTray: ${config.minimizeToTray}`)

@@ -41,3 +41,15 @@ Prism embeds a stateful Playwright Chromium browser engine for live web navigati
 
 ### CDPSession Download Tracking
 Browser navigation and clicks intercept file download events via Playwright Chrome DevTools Protocol (`CDPSession`). Live download progress (`download-progress`) is broadcast to the renderer UI showing received bytes, total size, percentage, and completion status.
+
+---
+
+## 3. Generative AI Browser Engine (`generate:`)
+
+Prism's AI Browser supports real-time website synthesis and multi-turn interactive navigation via prompts:
+
+- **Protocol Trigger:** Entering any URL prefixed with `generate:` or `gen:` (e.g. `generate:youtube.com`, `generate:SaaS Landing Page with Pricing Matrix`) initiates the Generative Web Engine.
+- **Dedicated System Prompt:** The generative model compiles raw HTML5 + CSS in real time using progressive token streaming into a sandboxed live viewport.
+- **Interactive Prompt Protocol ("Pulo do Gato"):** The generative engine embeds `data-prompt="..."` attributes in interactive elements (buttons, links, footer terms). Clicking any element triggers contextual subpage synthesis, preserving the design language, color scheme, navbar, and footer from prior turns.
+- **Code Inspection & Export:** Users can toggle between **Live Preview** and **View Code** to inspect or copy generated source code, or click the system browser icon to export and open the site in their default browser.
+

@@ -40,7 +40,8 @@ import {
   MagnifyingGlass,
   Sliders,
   FolderOpen,
-  Waveform
+  Waveform,
+  Browsers
 } from '@phosphor-icons/react'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import { EnterpriseActivationModal } from './EnterpriseActivationModal'
@@ -705,8 +706,8 @@ export function SettingsView({
       icon: <Bot size={17} weight="duotone" />,
       category: 'ai',
       categoryLabel: 'AI & Runtime',
-      description: 'Assign dedicated models for Dictation, Quick Search, and Search.',
-      keywords: ['models', 'dictator', 'stt', 'routing', 'quick launcher', 'search model', 'ai']
+      description: 'Assign dedicated models for Generative Browser, Dictation, Quick Search, and Search.',
+      keywords: ['models', 'dictator', 'stt', 'routing', 'quick launcher', 'search model', 'generative browser', 'generate', 'ai']
     },
     {
       id: 'runtime',
@@ -1261,6 +1262,30 @@ export function SettingsView({
             <ModelSelector
               selectedModel={(config as any).searchModel || ''}
               onModelChange={(m) => setConfig({ ...config, searchModel: m } as any)}
+              align="right"
+            />
+          </div>
+        </div>
+
+        {/* Generative AI Browser Model */}
+        <div className="settings-card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5 min-w-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
+              <Browsers size={20} weight="duotone" />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-semibold text-text-primary">
+                Generative Browser Model
+              </span>
+              <span className="text-xs text-text-secondary/70 mt-0.5 leading-relaxed">
+                Generates live HTML+CSS websites and interactive prototype pages from prompts (generate:).
+              </span>
+            </div>
+          </div>
+          <div className="shrink-0">
+            <ModelSelector
+              selectedModel={(config as any).generativeBrowserModel || ''}
+              onModelChange={(m) => setConfig({ ...config, generativeBrowserModel: m } as any)}
               align="right"
             />
           </div>

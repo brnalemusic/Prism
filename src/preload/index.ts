@@ -723,6 +723,50 @@ const api = {
     ipcRenderer.invoke('open-external-url', url),
   closeBrowser: (): Promise<string> => ipcRenderer.invoke('close-browser'),
   resetBrowserIdle: (): void => ipcRenderer.send('reset-browser-idle'),
+  generateBrowserSite: (data: { prompt: string; sessionId: string; history?: any[] }): void =>
+    ipcRenderer.send('browser-generate-site', data),
+  cancelBrowserGeneration: (sessionId?: string): void =>
+    ipcRenderer.send('browser-cancel-generation', sessionId),
+  onBrowserGenStart: (
+    callback: (data: import('../shared/types').BrowserGenStartEvent) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: import('../shared/types').BrowserGenStartEvent
+    ): void => callback(data)
+    ipcRenderer.on('browser-gen-start', listener)
+    return () => ipcRenderer.removeListener('browser-gen-start', listener)
+  },
+  onBrowserGenChunk: (
+    callback: (data: import('../shared/types').BrowserGenChunkEvent) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: import('../shared/types').BrowserGenChunkEvent
+    ): void => callback(data)
+    ipcRenderer.on('browser-gen-chunk', listener)
+    return () => ipcRenderer.removeListener('browser-gen-chunk', listener)
+  },
+  onBrowserGenEnd: (
+    callback: (data: import('../shared/types').BrowserGenEndEvent) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: import('../shared/types').BrowserGenEndEvent
+    ): void => callback(data)
+    ipcRenderer.on('browser-gen-end', listener)
+    return () => ipcRenderer.removeListener('browser-gen-end', listener)
+  },
+  onBrowserGenError: (
+    callback: (data: import('../shared/types').BrowserGenErrorEvent) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: import('../shared/types').BrowserGenErrorEvent
+    ): void => callback(data)
+    ipcRenderer.on('browser-gen-error', listener)
+    return () => ipcRenderer.removeListener('browser-gen-error', listener)
+  },
   activateLicense: (key: string): Promise<import('../shared/types').ActivationResult> =>
     ipcRenderer.invoke('activate-license', key),
   deactivateLicense: (): Promise<boolean> => ipcRenderer.invoke('deactivate-license'),

@@ -310,6 +310,7 @@ export const toolsManifest: ToolDefinition[] = [
     searchModel: stringSchema('Search model key.'),
     quickLauncherModel: stringSchema('Quick Launcher model key.'),
     sttModel: stringSchema('Speech-to-text model key.'),
+    generativeBrowserModel: stringSchema('Generative AI Browser model key.'),
     minimizeToTray: booleanSchema('Whether closing Prism minimizes it to the tray.'),
     autoLaunch: booleanSchema('Whether Prism starts with the operating system.'),
     quickLauncherMode: stringSchema('Quick Launcher mode.', { enum: ['simple', 'advanced'] }),

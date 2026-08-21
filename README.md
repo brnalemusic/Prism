@@ -99,6 +99,7 @@ Prism breaks free from proprietary vendor lock-in. Connect trusted cloud provide
 - **Dynamic Model Discovery:** Automatically queries `/models` or `/openai/models` endpoints to populate active model listings.
 - **Granular Role Routing:** Independently assign dedicated models for:
   - 💬 **Main Chat Model** (Deep reasoning, coding, and workflow orchestration)
+  - 🌐 **Generative Browser Model** (Real-time HTML+CSS website synthesis via `generate:`)
   - 🔍 **Web Search Model** (Fast grounding & real-time summarization)
   - ⚡ **Quick Launcher Model** (Sub-second inline responses & calculations)
   - 🎙️ **Dictation / STT Model** (High-accuracy speech-to-text transcription)
@@ -139,6 +140,7 @@ Prism allows AI models to interact safely with your computer through a hardened 
 Prism embeds a high-performance Playwright Chromium engine capable of navigating, inspecting, and operating web pages autonomously.
 
 - **Semantic Snapshot Engine (`browser_snapshot`):** Extracts an accessible DOM tree with unique element IDs for rapid, robust AI interaction.
+- **Generative AI Website Engine (`generate:`):** Synthesize live, production-grade HTML5 + CSS prototypes and websites in real time directly from the address bar (e.g. `generate:youtube.com`), with streaming token preview and multi-turn interactive subpage navigation (`data-prompt`).
 - **Full Action Suite:** `open_browser`, `browser_navigate`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_back`, `detailed_dom_page`, and `web_script` (direct JavaScript injection).
 - **CDPSession Download Tracker:** Automatically monitors file downloads via Chrome DevTools Protocol with live progress overlays in the user interface.
 - **Interactive Split Views (`BrowserPane`):** View the live browser session alongside your chat conversation.
