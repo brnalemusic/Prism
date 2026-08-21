@@ -1,7 +1,13 @@
 import { ProviderConfig, ProviderModel, CompletionType } from '../../shared/types'
 import { loadConfig, saveConfig } from '../config'
 import { isUserAuthenticated, isUserEmailVerifiedSync } from '../supabaseAuth'
-import { isModelTrusted, normalizeBaseUrl, isGoogleHost, isAnthropicHost } from './trustedRegistry'
+import {
+  isModelTrusted,
+  normalizeBaseUrl,
+  isGoogleHost,
+  isAnthropicHost,
+  isPuterHost
+} from './trustedRegistry'
 
 export interface FetchModelsResult {
   success: boolean
@@ -44,8 +50,13 @@ export async function fetchModelsFromProvider(
   }
 
   const isGoogle = isGoogleHost(normUrl)
+  const isPuter = isPuterHost(normUrl)
   const googleBaseUrl = normUrl.replace(/\/openai$/, '')
-  const endpoint = isGoogle ? `${googleBaseUrl}/models` : `${normUrl}/models`
+  const endpoint = isPuter
+    ? 'https://api.puter.com/puterai/chat/models/details'
+    : isGoogle
+      ? `${googleBaseUrl}/models`
+      : `${normUrl}/models`
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'

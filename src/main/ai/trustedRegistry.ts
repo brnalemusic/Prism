@@ -41,6 +41,11 @@ export const TRUSTED_PROVIDERS: TrustedProviderMeta[] = [
     baseUrl: 'https://api.cerebras.ai/v1',
     name: 'Cerebras AI',
     completionType: 'chat_completions'
+  },
+  {
+    baseUrl: 'https://api.puter.com/puterai/openai/v1',
+    name: 'Puter.js',
+    completionType: 'chat_completions'
   }
 ]
 
@@ -157,4 +162,9 @@ export function isGoogleHost(urlStr: string): boolean {
 export function isAnthropicHost(urlStr: string): boolean {
   const host = getHostname(urlStr)
   return host === 'api.anthropic.com' || host === 'anthropic.com' || host.endsWith('.anthropic.com')
+}
+
+export function isPuterHost(urlStr: string): boolean {
+  const host = getHostname(urlStr)
+  return host === 'api.puter.com' || host === 'puter.com' || host.endsWith('.puter.com')
 }

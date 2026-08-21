@@ -133,9 +133,9 @@ Do NOT implement a planned MINOR or MAJOR change before the user accepts the pla
 
 ### If the User Rejects the Plan
 
-If the user does not accept the proposed plan, DO NOT implement it.
+If the user does not explicitly accept the Plan, this means that if the user does NOT send explicit approval messages, DO NOT implement it.
 
-Reconsider the requirements and create a revised plan that addresses the user's concerns.
+Instead, reconsider the requirements and create a revised plan or edit the existing plan that addresses the user's concerns.
 
 Repeat this process until the user accepts the plan.
 

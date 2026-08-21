@@ -42,7 +42,16 @@ const TRUSTED_PROVIDERS_META: Array<{
     name: 'GroqCloud',
     completionType: 'chat_completions'
   },
-  { baseUrl: 'https://api.cerebras.ai/v1', name: 'Cerebras AI', completionType: 'chat_completions' }
+  {
+    baseUrl: 'https://api.cerebras.ai/v1',
+    name: 'Cerebras AI',
+    completionType: 'chat_completions'
+  },
+  {
+    baseUrl: 'https://api.puter.com/puterai/openai/v1',
+    name: 'Puter.js',
+    completionType: 'chat_completions'
+  }
 ]
 
 function normalizeUrl(url: string): string {

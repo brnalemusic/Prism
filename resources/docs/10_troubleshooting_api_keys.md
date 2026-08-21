@@ -15,7 +15,7 @@ This document details common failure modes, error codes, and step-by-step diagno
 
 ## 2. API Key Authentication and Provider Errors
 
-Because Prism connects to multiple providers (Google AI Studio, OpenAI, Anthropic, OpenRouter, NVIDIA NIM, Groq, Cerebras, Ollama, LM Studio), HTTP response codes provide clear diagnostics:
+Because Prism connects to multiple providers (Google AI Studio, OpenAI, Anthropic, OpenRouter, NVIDIA NIM, Groq, Cerebras, Puter.js, Ollama, LM Studio), HTTP response codes provide clear diagnostics:
 
 ### 2.1. HTTP Error Code Reference
 

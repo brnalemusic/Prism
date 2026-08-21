@@ -91,7 +91,7 @@ Prism breaks free from proprietary vendor lock-in. Connect trusted cloud provide
 | Provider Category | Supported Platforms / Endpoints | Paradigms |
 | :--- | :--- | :--- |
 | **Trusted Cloud** | **Google AI Studio** (`gemini-3.7-flash`, `gemini-3.6-pro`, `gemini-3.5-flash-lite`)<br/>**OpenAI GPT** (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-4o`)<br/>**Anthropic Claude** (`claude-sonnet-5`, `claude-opus-5`, `claude-haiku-4.5`) | `gemini_native`<br/>`chat_completions`<br/>`anthropic_messages` |
-| **Accelerated Cloud** | **GroqCloud**, **Cerebras AI**, **NVIDIA NIM**, **OpenRouter** | `chat_completions` |
+| **Accelerated Cloud** | **GroqCloud**, **Cerebras AI**, **Puter.js**, **NVIDIA NIM**, **OpenRouter** | `chat_completions` |
 | **Local & Custom** | **Ollama**, **LM Studio**, **vLLM**, **LocalAI**, Custom Base URLs | OpenAI / Anthropic Compatible |
 
 </div>

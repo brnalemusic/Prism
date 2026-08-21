@@ -4,7 +4,7 @@
 
 Prism is a state-of-the-art AI-powered desktop companion designed to blur the line between generative intelligence and local operating system control. Born out of frustration with traditional, web-browser-based chatbot interfaces that operate in silos separated from a developer's workspace, Prism was conceptualized as a native application capable of directly interacting with the local filesystem, running terminal commands through a secure sandbox, browsing the web via automated headless browser engines, and executing direct autonomous tool workflows.
 
-Unlike legacy applications locked to a single API provider or fixed model vendor, Prism features a **Multi-Provider & Dynamic Model Architecture**. Users can connect Google AI Studio, OpenAI GPT, Anthropic Claude, OpenRouter, NVIDIA NIM, GroqCloud, Cerebras AI, or any custom OpenAI-compatible / Anthropic-compatible / Responses API-compatible endpoint (including local LLM setups like Ollama or LM Studio).
+Unlike legacy applications locked to a single API provider or fixed model vendor, Prism features a **Multi-Provider & Dynamic Model Architecture**. Users can connect Google AI Studio, OpenAI GPT, Anthropic Claude, OpenRouter, NVIDIA NIM, GroqCloud, Cerebras AI, Puter.js, or any custom OpenAI-compatible / Anthropic-compatible / Responses API-compatible endpoint (including local LLM setups like Ollama or LM Studio).
 
 ---
 
@@ -53,7 +53,7 @@ With the 3.x series, Prism shifted from a simple helper to a true agentic platfo
 
 ### 4.4. Version 7.0.1: The Multi-Provider Open Era (Current)
 Prism 7.0.1 brings complete provider independence and ultimate flexibility:
-* **Multi-Provider AI Core:** Supports Google AI Studio, OpenAI, Anthropic Claude, OpenRouter, NVIDIA NIM, GroqCloud, Cerebras AI, or any custom base URL.
+* **Multi-Provider AI Core:** Supports Google AI Studio, OpenAI, Anthropic Claude, OpenRouter, NVIDIA NIM, GroqCloud, Cerebras AI, Puter.js, or any custom base URL.
 * **Completion Paradigms:** Native support for `chat_completions`, OpenAI `responses`, and Anthropic `/messages` APIs.
 * **Dynamic Model Discovery:** Queries endpoints `/models` or `/openai/models` to discover and configure available models dynamically.
 * **Thinking & Reasoning Integration:** Real-time reasoning stream parsing and Google Gemini `thought_signature` state handling.

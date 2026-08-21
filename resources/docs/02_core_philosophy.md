@@ -33,7 +33,7 @@ Prism rejects vendor lock-in. A developer should never be forced to rely on a si
 
 ### 3.1. Connect Any Model, Cloud or Local
 Prism allows users to connect any model provider:
-- **Cloud APIs:** Google AI Studio, OpenAI, Anthropic, OpenRouter, NVIDIA NIM, Groq, Cerebras.
+- **Cloud APIs:** Google AI Studio, OpenAI, Anthropic, OpenRouter, NVIDIA NIM, Groq, Cerebras, Puter.js.
 - **Local Models:** Local LLM instances running on Ollama, LM Studio, vLLM, or LocalAI via custom Base URL configurations.
 
 ### 3.2. Granular Feature Mapping
