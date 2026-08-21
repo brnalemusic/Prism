@@ -46,11 +46,11 @@ Browser navigation and clicks intercept file download events via Playwright Chro
 
 ## 3. Generative AI Browser Engine (`generate:`)
 
-Prism's AI Browser supports real-time website synthesis and multi-turn interactive navigation via prompts:
+Prism's AI Browser supports real-time progressive website synthesis and multi-turn interactive navigation via prompts:
 
 - **Protocol Trigger:** Entering any URL prefixed with `generate:` or `gen:` (e.g. `generate:youtube.com`, `generate:SaaS Landing Page with Pricing Matrix`) initiates the Generative Web Engine.
-- **Single-File React 18 + Babel + Lucide Runtime:** The generative engine compiles single-file React 18 components in real time using Babel Standalone, with pre-loaded `lucide-react` icons and Tailwind CSS utility classes.
-- **Dedicated System Prompt:** The generative model compiles raw React/HTML5 + CSS in real time using progressive token streaming into a sandboxed live viewport.
+- **Progressive Real-Time Streaming:** The generative engine emits direct semantic HTML5 + Tailwind CSS + Lucide Icons into the live viewport, rendering layout, cards, navigation, and styling progressively in real time as tokens stream in without blank screens.
+- **Multi-Runtime Support:** The live sandbox supports both semantic HTML5 + interactive JavaScript and React 18 + Babel Standalone with an integrated Lucide React proxy for dynamic SVG icons.
 - **Interactive Prompt Protocol ("Pulo do Gato"):** The generative engine embeds `data-prompt="..."` attributes in interactive elements (buttons, links, footer terms). Clicking any element triggers contextual subpage synthesis, preserving the design language, color scheme, navbar, and footer from prior turns.
 - **Code Inspection & Export:** Users can toggle between **Live Preview** and **View Code** to inspect or copy generated source code, or click the system browser icon to export and open the site in their default browser.
 

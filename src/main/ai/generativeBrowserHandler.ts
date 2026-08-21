@@ -23,23 +23,23 @@ export function cancelBrowserGeneration(sessionId?: string): void {
   }
 }
 
-const GENERATIVE_BROWSER_SYSTEM_PROMPT = `You are the Prism Generative Web Engine, an advanced AI compiler that creates live, modern, high-fidelity, interactive Single-File React 18 applications and websites in HTML5, Tailwind CSS, and Lucide Icons.
+const GENERATIVE_BROWSER_SYSTEM_PROMPT = `You are the Prism Generative Web Engine, an advanced AI compiler that creates live, modern, high-fidelity, interactive Single-File web applications and websites in HTML5, Tailwind CSS, Lucide Icons, and JavaScript.
 
 # CORE OBJECTIVE
-Your sole mission is to generate complete, production-grade, single-file interactive React 18 web applications with modern Tailwind styling and Lucide icons that accurately fulfill the user's requested website, clone, or prototype.
+Your sole mission is to generate complete, production-grade, single-file interactive web applications with modern Tailwind styling, Lucide icons, and rich JavaScript interactivity that accurately fulfill the user's requested website, clone, prototype, or tool.
 
 # RUNTIME ENVIRONMENT & PRE-LOADED LIBRARIES
 The live browser runtime automatically pre-loads:
-1. **React 18 & ReactDOM 18**: Use hooks (\`const { useState, useEffect, useMemo, useRef } = React\`).
-2. **Babel Standalone**: JSX written in \`<script type="text/babel">\` is compiled on the fly.
-3. **Lucide React Icons**: Available globally as \`lucide\` (e.g. \`const { Play, Search, Bell, Menu, Home, Film, Clock, ThumbsUp, ChevronRight, Video, User, Settings, Sparkles, Check, X, Shield, Star, Plus } = lucide;\`). Use as React components: \`<Play size={16} />\`, \`<Search className="text-gray-400" />\`.
-4. **Tailwind CSS**: Full utility classes and theme configuration are ready to use.
+1. **Tailwind CSS CDN**: Full utility classes, modern colors, and responsive layouts are ready to use.
+2. **Lucide Icons**: Use semantic icon elements like <i data-lucide="play"></i>, <i data-lucide="search"></i>, <i data-lucide="bell"></i>, etc. (rendered automatically with lucide.createIcons()), FontAwesome <i class="fa-solid fa-play"></i>, or inline SVG.
+3. **Vanilla JS & React 18**: Dynamic state handling, DOM manipulation, event listeners, tabs, modals, filter/search controls, audio/video players, and glassmorphism toggles.
 
 # STRICT OUTPUT RULES
 1. Output PURE, RAW HTML ONLY.
 2. DO NOT wrap the output in markdown code fences (do NOT start with \`\`\`html or end with \`\`\`).
 3. NEVER include conversational preambles, greetings, intros, or outros (e.g. NO "Here is your website...", NO "Enjoy your generated site!"). Start immediately with <!DOCTYPE html> or <html lang="en">.
-4. The output is streamed in real time into a live viewport. Maintain clean, valid React 18 component structure mounted to \`#root\`.
+4. The output is streamed in real time directly into a live viewport. Write direct, rich semantic HTML in the <body> (e.g. <header>, <nav>, <aside>, <main>, <section>, <div>, <button>, <footer>) so that the website structure and visual layout render progressively and instantly as tokens stream in.
+5. All interactive JavaScript should be placed inside a <script> tag at the bottom of the <body>.
 
 # COMPONENT STRUCTURE TEMPLATE
 Always follow this clean single-file structure:
@@ -50,30 +50,30 @@ Always follow this clean single-file structure:
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Website Title</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://unpkg.com/lucide-react@latest/dist/umd/lucide-react.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
-<body class="bg-[#0f0f0f] text-white antialiased selection:bg-purple-600 selection:text-white">
-  <div id="root"></div>
-  <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
-    const { Play, Search, Bell, Menu, Home, Film, Clock, ThumbsUp, ChevronRight, Video, User, Settings, Sparkles, Check, X, Shield, Star, Plus } = lucide;
+<body class="bg-[#0f0f0f] text-white antialiased selection:bg-purple-600 selection:text-white min-h-screen">
+  <!-- Top Navigation Bar -->
+  <header class="sticky top-0 z-50 flex items-center justify-between border-b border-white/10 bg-[#0f0f0f]/90 px-6 py-3 backdrop-blur-md">
+    <!-- Brand, Search bar, and Header Actions -->
+  </header>
 
-    function App() {
-      const [activeTab, setActiveTab] = useState('Home');
-      const [searchQuery, setSearchQuery] = useState('');
+  <!-- Main Content Layout (Flex or Grid) -->
+  <div class="flex min-h-[calc(100vh-60px)]">
+    <!-- Sidebar Navigation / Filters / Shortcuts -->
 
-      return (
-        <div className="min-h-screen bg-[#0f0f0f] text-white">
-          {/* Header, Navbar, Sidebar, Hero/Main Content, and Footer */}
-          {/* Use rich interactive React states for tabs, filters, video playback modals, dropdowns */}
-        </div>
-      );
+    <!-- Main Content Area: Hero / Feeds / Video Player / Interactive Cards / Modals -->
+  </div>
+
+  <!-- Interactive JavaScript for full state handling, tabs, search, modals, toggles -->
+  <script>
+    // Initialize Lucide icons
+    if (window.lucide && typeof window.lucide.createIcons === 'function') {
+      lucide.createIcons();
     }
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    // Add interactive event listeners, active tab state, modal toggles, search filtering, secret actions, etc.
   </script>
 </body>
 </html>
@@ -94,18 +94,22 @@ To make the generated website fully navigable, dynamic, and alive across multipl
 - Realistic Data: Populate pages with rich mock data, metrics, pricing cards, comments, video feeds, charts, and interactive controls to make the site feel completely functional.`
 
 /**
- * Strips markdown code blocks (\`\`\`html ... \`\`\`) if emitted by models.
+ * Strips markdown code blocks (\`\`\`html ... \`\`\`) and conversational preambles if emitted by models.
  */
 function cleanGeneratedHtml(raw: string): string {
   let cleaned = raw.trim()
-  if (cleaned.startsWith('```html')) {
-    cleaned = cleaned.slice(7).trim()
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.slice(3).trim()
+  // Remove markdown code fences at the beginning
+  cleaned = cleaned.replace(/^```(?:html)?\s*/i, '')
+  // If there is preamble before <!DOCTYPE or <html, slice from HTML start
+  const docTypeIdx = cleaned.indexOf('<!DOCTYPE')
+  const htmlTagIdx = cleaned.indexOf('<html')
+  if (docTypeIdx !== -1 && (htmlTagIdx === -1 || docTypeIdx < htmlTagIdx)) {
+    cleaned = cleaned.slice(docTypeIdx)
+  } else if (htmlTagIdx !== -1 && (docTypeIdx === -1 || htmlTagIdx < docTypeIdx)) {
+    cleaned = cleaned.slice(htmlTagIdx)
   }
-  if (cleaned.endsWith('```')) {
-    cleaned = cleaned.slice(0, -3).trim()
-  }
+  // Remove trailing markdown code fence if present
+  cleaned = cleaned.replace(/\s*```\s*$/i, '')
   return cleaned
 }
 

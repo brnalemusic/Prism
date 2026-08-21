@@ -122,6 +122,8 @@ export const BrowserPane = React.memo(function BrowserPane({
   const webviewRef = useRef<any>(null)
   const terminalBottomRef = useRef<HTMLDivElement>(null)
   const handledRequestIdsRef = useRef<Set<string>>(new Set())
+  const incomingHtmlRef = useRef<string>('')
+  const renderThrottleTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const isGenerativeMode = useMemo(() => {
     return /^generate:|^gen:/i.test(currentUrl.trim())
@@ -170,14 +172,27 @@ export const BrowserPane = React.memo(function BrowserPane({
       setIsGenerating(true)
       setGenerativeError(null)
       setSessionClosed(false)
+      incomingHtmlRef.current = ''
+      setGeneratedHtml('')
     })
 
     const removeChunk = window.api.onBrowserGenChunk((data: BrowserGenChunkEvent) => {
-      setGeneratedHtml(data.fullHtml)
+      incomingHtmlRef.current = data.fullHtml
+      if (!renderThrottleTimerRef.current) {
+        renderThrottleTimerRef.current = setTimeout(() => {
+          setGeneratedHtml(incomingHtmlRef.current)
+          renderThrottleTimerRef.current = null
+        }, 100)
+      }
     })
 
     const removeEnd = window.api.onBrowserGenEnd((data: BrowserGenEndEvent) => {
+      if (renderThrottleTimerRef.current) {
+        clearTimeout(renderThrottleTimerRef.current)
+        renderThrottleTimerRef.current = null
+      }
       setIsGenerating(false)
+      incomingHtmlRef.current = data.fullHtml
       setGeneratedHtml(data.fullHtml)
       // Record completed HTML into active history turn
       messagesRef.current.push({ role: 'assistant', content: data.fullHtml })
@@ -199,6 +214,10 @@ export const BrowserPane = React.memo(function BrowserPane({
     })
 
     const removeError = window.api.onBrowserGenError((data: BrowserGenErrorEvent) => {
+      if (renderThrottleTimerRef.current) {
+        clearTimeout(renderThrottleTimerRef.current)
+        renderThrottleTimerRef.current = null
+      }
       setIsGenerating(false)
       if (data.error && !data.error.includes('stopped by user')) {
         setGenerativeError(data.error)
@@ -206,6 +225,10 @@ export const BrowserPane = React.memo(function BrowserPane({
     })
 
     return () => {
+      if (renderThrottleTimerRef.current) {
+        clearTimeout(renderThrottleTimerRef.current)
+        renderThrottleTimerRef.current = null
+      }
       removeStart()
       removeChunk()
       removeEnd()
@@ -935,21 +958,81 @@ export const BrowserPane = React.memo(function BrowserPane({
     }
   }, [generatedHtml])
 
-  // Injected HTML with Tailwind CDN, FontAwesome, interactive navigation script and custom scrollbars
+  // Injected HTML with Tailwind CDN, FontAwesome, Lucide React Proxy, interactive navigation script and custom scrollbars
   const injectedHtml = useMemo(() => {
     if (!generatedHtml) return ''
 
     let html = generatedHtml
 
+    // Strip broken lucide-react CDN if emitted by model
+    html = html.replace(/<script[^>]*lucide-react[^>]*><\/script>/gi, '')
+
     const headInjections = `
       <script src="https://cdn.tailwindcss.com"></script>
+      <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
       <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
       <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
       <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-      <script src="https://unpkg.com/lucide-react@latest/dist/umd/lucide-react.js"></script>
       <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
       <script>
-        window.lucide = window.LucideReact || window.lucide || {};
+        (function() {
+          function createReactIcon(iconData, name) {
+            return function LucideIcon(props) {
+              props = props || {};
+              var size = props.size || props.width || 24;
+              var color = props.color || props.stroke || 'currentColor';
+              var strokeWidth = props.strokeWidth || 2;
+              var className = props.className || '';
+              var children = [];
+              if (Array.isArray(iconData) && window.React) {
+                for (var i = 0; i < iconData.length; i++) {
+                  var el = iconData[i];
+                  children.push(React.createElement(el[0], Object.assign({ key: i }, el[1])));
+                }
+              }
+              if (window.React) {
+                return React.createElement('svg', Object.assign({
+                  xmlns: 'http://www.w3.org/2000/svg',
+                  width: size,
+                  height: size,
+                  viewBox: '0 0 24 24',
+                  fill: 'none',
+                  stroke: color,
+                  strokeWidth: strokeWidth,
+                  strokeLinecap: 'round',
+                  strokeLinejoin: 'round',
+                  className: ('lucide lucide-' + (name ? String(name).toLowerCase() : 'icon') + ' ' + className).trim()
+                }, props), ...children);
+              }
+              return null;
+            };
+          }
+
+          var handler = {
+            get: function(target, prop) {
+              if (typeof prop !== 'string') return target[prop];
+              if (prop === '__esModule' || prop === 'default') return target;
+              if (typeof target[prop] === 'function') return target[prop];
+              var raw = target[prop] || (target.icons && (target.icons[prop] || target.icons[prop.toLowerCase()])) || target[prop.toLowerCase()];
+              return createReactIcon(raw, prop);
+            }
+          };
+
+          if (window.lucide) {
+            window.LucideReact = new Proxy(window.lucide, handler);
+            window.lucide = window.LucideReact;
+          }
+
+          function initLucide() {
+            if (window.lucide && typeof window.lucide.createIcons === 'function') {
+              try { window.lucide.createIcons(); } catch(e) {}
+            }
+          }
+          document.addEventListener('DOMContentLoaded', initLucide);
+          setTimeout(initLucide, 50);
+          setTimeout(initLucide, 300);
+          setTimeout(initLucide, 1000);
+        })();
       </script>
       <style>
         * { box-sizing: border-box; }
