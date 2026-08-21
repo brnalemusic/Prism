@@ -96,7 +96,7 @@ Prism breaks free from proprietary vendor lock-in. Connect trusted cloud provide
 
 </div>
 
-- **Dynamic Model Discovery:** Automatically queries `/models` or `/openai/models` endpoints to populate active model listings.
+- **Dynamic Model Discovery & Puter.js Native Account:** Automatically queries `/models` endpoints or native Puter.js SDK (`puter.ai.listModels()`), with seamless default browser login for Puter accounts.
 - **Granular Role Routing:** Independently assign dedicated models for:
   - 💬 **Main Chat Model** (Deep reasoning, coding, and workflow orchestration)
   - 🌐 **Generative Browser Model** (Real-time HTML+CSS website synthesis via `generate:`)

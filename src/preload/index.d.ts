@@ -257,6 +257,14 @@ export interface PrismAPI {
     models: import('../shared/types').ProviderModel[]
     error?: string
   }>
+  loginWithPuter: () => Promise<{
+    success: boolean
+    token?: string
+    username?: string
+    user?: any
+    error?: string
+  }>
+  cancelPuterLogin: () => Promise<boolean>
   getActiveModels: () => Promise<
     Array<{
       providerId: string

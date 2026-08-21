@@ -39,7 +39,9 @@ import {
   fetchModelsFromProvider,
   getActiveModels,
   handleGenerateBrowserSite,
-  cancelBrowserGeneration
+  cancelBrowserGeneration,
+  startPuterLoginFlow,
+  cancelPuterLoginFlow
 } from './ai'
 import {
   searchWorkspaceFiles,
@@ -1341,6 +1343,14 @@ if (!gotTheLock) {
         return await fetchModelsFromProvider(baseUrl, apiKey, completionType)
       }
     )
+
+    ipcMain.handle('puter-login', async () => {
+      return await startPuterLoginFlow()
+    })
+
+    ipcMain.handle('puter-cancel-login', () => {
+      return cancelPuterLoginFlow()
+    })
 
     ipcMain.handle('get-active-models', () => {
       return getActiveModels()

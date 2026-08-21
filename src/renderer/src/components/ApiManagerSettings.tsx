@@ -219,6 +219,15 @@ export const ApiManagerSettings: React.FC = () => {
                           <Warning size={12} weight="fill" /> Untrusted
                         </span>
                       )}
+                      {(p.name?.toLowerCase().includes('puter') ||
+                        p.baseUrl?.toLowerCase().includes('puter')) && (
+                        <span
+                          title="Puter.js Native Integration"
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/30 shrink-0"
+                        >
+                          Puter.js Native
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-text-secondary/70 font-mono flex items-center gap-1.5 truncate">
                       <Globe size={14} className="text-text-muted shrink-0" />

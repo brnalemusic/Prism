@@ -8,7 +8,13 @@ import {
   Check,
   X,
   ArrowRight,
-  ArrowLeft
+  ArrowLeft,
+  SignIn,
+  User,
+  Key,
+  SpinnerGap,
+  ArrowSquareOut,
+  Sparkle
 } from '@phosphor-icons/react'
 
 const TRUSTED_PROVIDERS_META: Array<{
@@ -92,6 +98,76 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
 
   const trustedMeta = findTrusted(baseUrl)
   const isTrusted = !!trustedMeta
+  const isPuter = Boolean(
+    trustedMeta?.name === 'Puter.js' ||
+      (baseUrl &&
+        (baseUrl.toLowerCase().includes('puter.com') ||
+          baseUrl.toLowerCase().includes('api.puter')))
+  )
+
+  const [authMode, setAuthMode] = useState<'account' | 'key'>('account')
+  const [isLoggingInPuter, setIsLoggingInPuter] = useState<boolean>(false)
+  const [puterLoginError, setPuterLoginError] = useState<string>('')
+  const [puterUsername, setPuterUsername] = useState<string>('')
+
+  const handlePuterBrowserLogin = async (): Promise<void> => {
+    setIsLoggingInPuter(true)
+    setPuterLoginError('')
+    try {
+      const res = await window.api.loginWithPuter()
+      if (res && res.success && res.token) {
+        setApiKey(res.token)
+        if (res.username) {
+          setPuterUsername(res.username)
+        }
+        setIsLoggingInPuter(false)
+        setStep(5)
+        // Automatically fetch models using native Puter.js
+        setIsFetchingModels(true)
+        setFetchError('')
+        try {
+          const fetchRes = await window.api.fetchProviderModels({
+            baseUrl,
+            apiKey: res.token,
+            completionType
+          })
+          if (fetchRes && fetchRes.success && fetchRes.models) {
+            setModels(fetchRes.models)
+          } else {
+            setFetchError(fetchRes?.error || 'Failed to fetch models from Puter.js')
+          }
+        } catch (fetchErr: unknown) {
+          setFetchError(
+            fetchErr instanceof Error ? fetchErr.message : 'Error connecting to Puter.js'
+          )
+        } finally {
+          setIsFetchingModels(false)
+        }
+      } else {
+        setPuterLoginError(res?.error || 'Puter login was not completed')
+        setIsLoggingInPuter(false)
+      }
+    } catch (err: unknown) {
+      setPuterLoginError(err instanceof Error ? err.message : 'Failed to connect to Puter')
+      setIsLoggingInPuter(false)
+    }
+  }
+
+  const handleCancelPuterLogin = async (): Promise<void> => {
+    try {
+      await window.api.cancelPuterLogin()
+    } catch {
+      // ignore
+    }
+    setIsLoggingInPuter(false)
+  }
+
+  const handleClose = (): void => {
+    if (isLoggingInPuter) {
+      window.api.cancelPuterLogin?.()
+    }
+    onClose()
+  }
 
   const handleNextFromUrl = (): void => {
     if (!baseUrl.trim()) return
@@ -103,6 +179,15 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
   }
 
   const handleNextFromKey = (): void => {
+    if (isPuter && authMode === 'account') {
+      if (!apiKey.trim()) {
+        handlePuterBrowserLogin()
+        return
+      }
+      setStep(5)
+      return
+    }
+
     if (!apiKey.trim()) return
     if (isTrusted) {
       // Skip name step if provider is trusted and name is immutable
@@ -197,7 +282,7 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
             ) : null}
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 text-text-muted hover:text-text-primary rounded-xl hover:bg-white/[0.08] transition-colors shrink-0"
             title="Close modal"
           >
@@ -259,18 +344,140 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
           )}
 
           {step === 2 && (
-            <div className="space-y-3.5">
-              <label className="block text-xs font-semibold text-text-primary">
-                API Key for {isTrusted ? trustedMeta?.name : baseUrl}
-              </label>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="sk-..."
-                className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-text-primary placeholder-text-muted focus:outline-none focus:border-white/30 focus:ring-1 focus:ring-white/20 transition-all text-xs sm:text-sm font-mono"
-                autoFocus
-              />
+            <div className="space-y-4">
+              {isPuter ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-text-primary">
+                      Authentication Method for Puter.js
+                    </label>
+                  </div>
+
+                  {/* Tab switch between Account and Manual Key */}
+                  <div className="flex p-1 bg-white/[0.04] border border-white/[0.08] rounded-xl gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setAuthMode('account')}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-medium transition-all ${
+                        authMode === 'account'
+                          ? 'bg-text-primary text-black font-semibold shadow-sm'
+                          : 'text-text-secondary hover:text-text-primary'
+                      }`}
+                    >
+                      <User size={14} weight={authMode === 'account' ? 'fill' : 'regular'} />
+                      <span>Puter Account (Native)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAuthMode('key')}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-medium transition-all ${
+                        authMode === 'key'
+                          ? 'bg-text-primary text-black font-semibold shadow-sm'
+                          : 'text-text-secondary hover:text-text-primary'
+                      }`}
+                    >
+                      <Key size={14} weight={authMode === 'key' ? 'fill' : 'regular'} />
+                      <span>Manual API Key</span>
+                    </button>
+                  </div>
+
+                  {authMode === 'account' ? (
+                    <div className="space-y-3.5 pt-1">
+                      <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-3">
+                        <div className="flex items-start gap-3">
+                          <div className="p-2 rounded-xl bg-text-primary/10 text-text-primary border border-text-primary/20 shrink-0">
+                            <Sparkle size={18} weight="fill" />
+                          </div>
+                          <div className="space-y-1 min-w-0">
+                            <h4 className="text-xs font-bold text-text-primary">
+                              Puter.js Native Account Login
+                            </h4>
+                            <p className="text-[11px] text-text-secondary/80 leading-relaxed">
+                              Connect your Puter account directly in your default browser. Prism will securely receive the authentication session and discover available models automatically.
+                            </p>
+                          </div>
+                        </div>
+
+                        {isLoggingInPuter ? (
+                          <div className="p-3.5 rounded-xl bg-text-primary/5 border border-text-primary/20 space-y-2.5">
+                            <div className="flex items-center gap-2 text-xs font-medium text-text-primary">
+                              <SpinnerGap size={16} className="animate-spin text-text-primary shrink-0" />
+                              <span>Browser opened. Waiting for login confirmation in your default browser...</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleCancelPuterLogin}
+                              className="px-3 py-1.5 bg-white/[0.08] hover:bg-white/[0.15] text-text-secondary text-xs rounded-lg font-medium transition-all"
+                            >
+                              Cancel Login
+                            </button>
+                          </div>
+                        ) : apiKey ? (
+                          <div className="p-3 rounded-xl bg-status-success/15 border border-status-success/30 text-status-success text-xs flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <CheckCircle size={16} weight="fill" className="shrink-0" />
+                              <span className="truncate">
+                                Account connected successfully! {puterUsername ? `(@${puterUsername})` : ''}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handlePuterBrowserLogin}
+                              className="px-2.5 py-1 bg-status-success/20 hover:bg-status-success/30 text-status-success rounded-lg text-[11px] font-semibold transition-all shrink-0"
+                            >
+                              Reconnect
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={handlePuterBrowserLogin}
+                            className="w-full py-3 px-4 bg-text-primary hover:bg-white text-black font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-[0.98]"
+                          >
+                            <SignIn size={16} weight="bold" />
+                            <span>Sign In with Puter Account (Browser)</span>
+                            <ArrowSquareOut size={14} weight="bold" className="opacity-70" />
+                          </button>
+                        )}
+
+                        {puterLoginError && (
+                          <div className="p-3 bg-status-error/10 border border-status-error/20 text-status-error text-xs rounded-xl">
+                            {puterLoginError}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3.5 pt-1">
+                      <label className="block text-xs font-semibold text-text-primary">
+                        Puter API Key / Token
+                      </label>
+                      <input
+                        type="password"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        placeholder="Enter Puter token or API key..."
+                        className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-text-primary placeholder-text-muted focus:outline-none focus:border-white/30 focus:ring-1 focus:ring-white/20 transition-all text-xs sm:text-sm font-mono"
+                        autoFocus
+                      />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <label className="block text-xs font-semibold text-text-primary">
+                    API Key for {isTrusted ? trustedMeta?.name : baseUrl}
+                  </label>
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="sk-..."
+                    className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-text-primary placeholder-text-muted focus:outline-none focus:border-white/30 focus:ring-1 focus:ring-white/20 transition-all text-xs sm:text-sm font-mono"
+                    autoFocus
+                  />
+                </>
+              )}
             </div>
           )}
 

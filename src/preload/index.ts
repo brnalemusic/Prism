@@ -689,6 +689,12 @@ const api = {
   fetchProviderModels: (params: any): Promise<any> => {
     return ipcRenderer.invoke('fetch-provider-models', params)
   },
+  loginWithPuter: (): Promise<any> => {
+    return ipcRenderer.invoke('puter-login')
+  },
+  cancelPuterLogin: (): Promise<boolean> => {
+    return ipcRenderer.invoke('puter-cancel-login')
+  },
   getActiveModels: (): Promise<any> => {
     return ipcRenderer.invoke('get-active-models')
   },

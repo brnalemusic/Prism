@@ -30,6 +30,7 @@
         "@fontsource-variable/geist": "^5.3.0",
         "@fontsource-variable/jetbrains-mono": "^5.3.0",
         "@google/genai": "^2.5.0",
+        "@heyputer/puter.js": "^2.6.1",
         "@phosphor-icons/react": "^2.1.10",
         "@snazzah/davey": "^0.1.12",
         "@supabase/supabase-js": "^2.111.0",

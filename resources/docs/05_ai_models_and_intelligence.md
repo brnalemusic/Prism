@@ -60,9 +60,16 @@ Prism comes pre-configured with a trusted registry of popular AI cloud providers
 
 ### 3.2. Dynamic Model Fetching (`providerManager.ts`)
 
-When adding or refreshing a provider, Prism queries `${baseUrl}/models` (or `${baseUrl}/openai/models` for Google endpoints, and `https://api.puter.com/puterai/chat/models/details` for Puter.js).
+When adding or refreshing a provider, Prism queries `${baseUrl}/models` (or `${baseUrl}/openai/models` for Google endpoints, and native Puter.js `puter.ai.listModels()` for Puter.js).
 - Models returned by the endpoint are cross-referenced with `TRUSTED_MODELS_LIST`.
 - Known trusted models are enabled by default; non-trusted or experimental custom models can be enabled manually in Settings.
+
+### 3.3. Puter.js Native Account Integration (`puterClient.ts`)
+
+For Puter.js, Prism provides a native integration powered by `@heyputer/puter.js`:
+- **Default Browser Authentication:** Users can connect their existing Puter account directly via their default OS browser (`shell.openExternal`) rather than manually copying API keys. Prism listens on an ephemeral local HTTP server (`127.0.0.1:<port>`), captures the OAuth callback token, serves a Prism confirmation page, and initializes the native Puter session.
+- **Native Model Discovery:** Discovers the 800+ models available on Puter directly via `puter.ai.listModels()` on the official SDK.
+- **Hybrid Support:** Users retain the ability to either connect an account or input a manual API token in the provider wizard.
 
 ---
 

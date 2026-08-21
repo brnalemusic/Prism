@@ -8,6 +8,7 @@ import {
   isAnthropicHost,
   isPuterHost
 } from './trustedRegistry'
+import { fetchPuterModels } from './puterClient'
 
 export interface FetchModelsResult {
   success: boolean
@@ -51,6 +52,14 @@ export async function fetchModelsFromProvider(
 
   const isGoogle = isGoogleHost(normUrl)
   const isPuter = isPuterHost(normUrl)
+
+  if (isPuter) {
+    const puterRes = await fetchPuterModels(apiKey || undefined)
+    if (puterRes.success && puterRes.models.length > 0) {
+      return puterRes
+    }
+  }
+
   const googleBaseUrl = normUrl.replace(/\/openai$/, '')
   const endpoint = isPuter
     ? 'https://api.puter.com/puterai/chat/models/details'

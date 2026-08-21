@@ -89,6 +89,242 @@ const GENERATIVE_PRESETS = [
   }
 ]
 
+const GENERATIVE_PREVIEW_SHELL = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; min-height: 100%; width: 100%; background-color: #0f0f0f; color: #ffffff; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(150, 150, 150, 0.25); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(150, 150, 150, 0.45); }
+    [data-prompt], [data-gen-prompt] { cursor: pointer !important; }
+    .glassmorphism {
+      background: rgba(255, 255, 255, 0.05) !important;
+      backdrop-filter: blur(16px) !important;
+      -webkit-backdrop-filter: blur(16px) !important;
+      border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    }
+  </style>
+  <div id="__prism_custom_head_styles"></div>
+  <script>
+    (function() {
+      // Lucide React Component Proxy & Bridge
+      function createReactIcon(iconData, name) {
+        return function LucideIcon(props) {
+          props = props || {};
+          var size = props.size || props.width || 24;
+          var color = props.color || props.stroke || 'currentColor';
+          var strokeWidth = props.strokeWidth || 2;
+          var className = props.className || '';
+          var children = [];
+          if (Array.isArray(iconData) && window.React) {
+            for (var i = 0; i < iconData.length; i++) {
+              var el = iconData[i];
+              children.push(React.createElement(el[0], Object.assign({ key: i }, el[1])));
+            }
+          }
+          if (window.React) {
+            return React.createElement('svg', Object.assign({
+              xmlns: 'http://www.w3.org/2000/svg',
+              width: size,
+              height: size,
+              viewBox: '0 0 24 24',
+              fill: 'none',
+              stroke: color,
+              strokeWidth: strokeWidth,
+              strokeLinecap: 'round',
+              strokeLinejoin: 'round',
+              className: ('lucide lucide-' + (name ? String(name).toLowerCase() : 'icon') + ' ' + className).trim()
+            }, props), ...children);
+          }
+          return null;
+        };
+      }
+
+      var handler = {
+        get: function(target, prop) {
+          if (typeof prop !== 'string') return target[prop];
+          if (prop === '__esModule' || prop === 'default') return target;
+          if (typeof target[prop] === 'function') return target[prop];
+          var raw = target[prop] || (target.icons && (target.icons[prop] || target.icons[prop.toLowerCase()])) || target[prop.toLowerCase()];
+          return createReactIcon(raw, prop);
+        }
+      };
+
+      if (window.lucide) {
+        window.LucideReact = new Proxy(window.lucide, handler);
+        window.lucide = window.LucideReact;
+      }
+    })();
+
+    // Multi-turn Navigation Interceptor ("Pulo do Gato")
+    document.addEventListener('click', function(e) {
+      var target = e.target.closest('a, button, [data-prompt], [data-gen-prompt], [role="button"], input[type="button"], input[type="submit"]');
+      if (!target) return;
+
+      var prompt = target.getAttribute('data-prompt') || target.getAttribute('data-gen-prompt');
+      var href = target.getAttribute('href');
+
+      if (!prompt && href && href.indexOf('generate:') === 0) {
+        prompt = decodeURIComponent(href.substring(9));
+      }
+      if (!prompt && href && href !== '#' && href.indexOf('javascript:') !== 0) {
+        var linkText = (target.innerText || target.textContent || href).trim();
+        prompt = 'Clicked link "' + linkText + '"; Generate the ' + linkText + ' page maintaining the exact same layout, header, footer, color palette, and branding.';
+      }
+      if (!prompt && (target.tagName === 'BUTTON' || target.getAttribute('role') === 'button')) {
+        var btnText = (target.innerText || target.textContent || target.value || target.getAttribute('title') || target.getAttribute('aria-label') || 'Action').trim();
+        if (btnText && btnText.length < 50) {
+          prompt = 'Clicked button "' + btnText + '"; Generate the corresponding subpage or interactive modal view maintaining the exact same visual identity, layout, colors, and branding.';
+        }
+      }
+
+      if (prompt) {
+        e.preventDefault();
+        e.stopPropagation();
+        window.parent.postMessage({
+          type: 'PRISM_GEN_NAVIGATE',
+          prompt: prompt,
+          actionLabel: (target.innerText || target.textContent || target.value || '').trim() || 'Subpage'
+        }, '*');
+      }
+    }, true);
+
+    // Live Streaming DOM Update Function (Zero Reload)
+    window.__prismLiveUpdate = function(fullRawHtml, isFinal) {
+      try {
+        if (!fullRawHtml) {
+          var root = document.getElementById('__prism_root');
+          if (root) root.innerHTML = '';
+          return;
+        }
+
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(fullRawHtml, 'text/html');
+
+        // Sync body classes and inline styles
+        if (doc.body) {
+          if (doc.body.className) {
+            document.body.className = doc.body.className;
+          }
+          if (doc.body.style.cssText) {
+            document.body.style.cssText = doc.body.style.cssText;
+          }
+
+          // Sync custom <style> tags
+          var customStyles = Array.from(doc.querySelectorAll('style'));
+          var styleContainer = document.getElementById('__prism_custom_head_styles');
+          if (styleContainer && customStyles.length > 0) {
+            styleContainer.innerHTML = customStyles.map(function(s) { return s.outerHTML; }).join('\\n');
+          }
+
+          var root = document.getElementById('__prism_root');
+          if (!root) {
+            root = document.createElement('div');
+            root.id = '__prism_root';
+            document.body.appendChild(root);
+          }
+
+          // Update live DOM with body contents
+          root.innerHTML = doc.body.innerHTML;
+
+          // Auto-convert Lucide icons to SVG immediately
+          if (window.lucide && typeof window.lucide.createIcons === 'function') {
+            try { window.lucide.createIcons(); } catch(e) {}
+          }
+
+          // When generation is finished, execute all interactive scripts
+          if (isFinal) {
+            var scripts = Array.from(root.querySelectorAll('script'));
+            scripts.forEach(function(oldScript) {
+              try {
+                var newScript = document.createElement('script');
+                if (oldScript.type) newScript.type = oldScript.type;
+                Array.from(oldScript.attributes).forEach(function(attr) {
+                  newScript.setAttribute(attr.name, attr.value);
+                });
+                newScript.text = oldScript.text || oldScript.textContent || '';
+                document.body.appendChild(newScript);
+              } catch(scriptErr) {
+                console.warn('Script execution error:', scriptErr);
+              }
+            });
+
+            // If Babel standalone is used for React JSX (<script type="text/babel">)
+            if (window.Babel && typeof window.Babel.transformScriptTags === 'function') {
+              try { window.Babel.transformScriptTags(); } catch(babelErr) {}
+            }
+
+            // Trigger icons once more after script execution
+            if (window.lucide && typeof window.lucide.createIcons === 'function') {
+              try { window.lucide.createIcons(); } catch(e) {}
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('__prismLiveUpdate error:', err);
+      }
+    };
+  </script>
+</head>
+<body class="bg-[#0f0f0f] text-white antialiased">
+  <div id="__prism_root"></div>
+</body>
+</html>`
+
+const GenerativePreviewFrame = React.memo(function GenerativePreviewFrame({
+  html,
+  isGenerating
+}: {
+  html: string
+  isGenerating: boolean
+}) {
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const isLoadedRef = useRef(false)
+
+  const applyUpdate = useCallback(() => {
+    try {
+      const win = iframeRef.current?.contentWindow as any
+      if (win && typeof win.__prismLiveUpdate === 'function') {
+        win.__prismLiveUpdate(html, !isGenerating)
+      }
+    } catch (e) {
+      console.warn('Failed to apply live preview update:', e)
+    }
+  }, [html, isGenerating])
+
+  useEffect(() => {
+    if (isLoadedRef.current) {
+      applyUpdate()
+    }
+  }, [html, isGenerating, applyUpdate])
+
+  const handleIframeLoad = useCallback(() => {
+    isLoadedRef.current = true
+    applyUpdate()
+  }, [applyUpdate])
+
+  return (
+    <iframe
+      ref={iframeRef}
+      title="Generative Website Live Preview"
+      srcDoc={GENERATIVE_PREVIEW_SHELL}
+      onLoad={handleIframeLoad}
+      className="w-full h-full border-none bg-[#0f0f0f]"
+    />
+  )
+})
+
 export const BrowserPane = React.memo(function BrowserPane({
   isAiActive,
   isSplitView,
@@ -940,24 +1176,6 @@ export const BrowserPane = React.memo(function BrowserPane({
     }, 50)
   }
 
-  const handleOpenInSystemBrowser = useCallback(() => {
-    if (isGenerativeMode && generatedHtml) {
-      const blob = new Blob([generatedHtml], { type: 'text/html;charset=utf-8' })
-      const blobUrl = URL.createObjectURL(blob)
-      window.open(blobUrl, '_blank')
-    } else if (currentUrl) {
-      window.open(currentUrl, '_blank')
-    }
-  }, [isGenerativeMode, generatedHtml, currentUrl])
-
-  const handleCopyCode = useCallback(() => {
-    if (generatedHtml) {
-      navigator.clipboard.writeText(generatedHtml)
-      setCopiedCode(true)
-      setTimeout(() => setCopiedCode(false), 2000)
-    }
-  }, [generatedHtml])
-
   // Injected HTML with Tailwind CDN, FontAwesome, Lucide React Proxy, interactive navigation script and custom scrollbars
   const injectedHtml = useMemo(() => {
     if (!generatedHtml) return ''
@@ -1096,6 +1314,24 @@ export const BrowserPane = React.memo(function BrowserPane({
     }
 
     return html
+  }, [generatedHtml])
+
+  const handleOpenInSystemBrowser = useCallback(() => {
+    if (isGenerativeMode && injectedHtml) {
+      const blob = new Blob([injectedHtml], { type: 'text/html;charset=utf-8' })
+      const blobUrl = URL.createObjectURL(blob)
+      window.open(blobUrl, '_blank')
+    } else if (currentUrl) {
+      window.open(currentUrl, '_blank')
+    }
+  }, [isGenerativeMode, injectedHtml, currentUrl])
+
+  const handleCopyCode = useCallback(() => {
+    if (generatedHtml) {
+      navigator.clipboard.writeText(generatedHtml)
+      setCopiedCode(true)
+      setTimeout(() => setCopiedCode(false), 2000)
+    }
   }, [generatedHtml])
 
   return (
@@ -1410,11 +1646,10 @@ export const BrowserPane = React.memo(function BrowserPane({
                 </div>
               </div>
             ) : (
-              /* Live Preview Mode inside Iframe */
-              <iframe
-                title="Generative Website Preview"
-                srcDoc={injectedHtml}
-                className="w-full h-full border-none bg-[#0f0f0f]"
+              /* Live Preview Mode inside GenerativePreviewFrame */
+              <GenerativePreviewFrame
+                html={generatedHtml}
+                isGenerating={isGenerating}
               />
             )}
           </div>

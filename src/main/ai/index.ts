@@ -8,6 +8,7 @@ export * from './searchHandler'
 export * from './sttHandler'
 export * from './ttsHandler'
 export * from './generativeBrowserHandler'
+export * from './puterClient'
 
 import { resolveProviderAndModel, getAllProviders } from './providerManager'
 
