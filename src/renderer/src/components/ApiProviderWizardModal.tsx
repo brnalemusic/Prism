@@ -105,7 +105,9 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
           baseUrl.toLowerCase().includes('api.puter')))
   )
 
-  const [authMode, setAuthMode] = useState<'account' | 'key'>('account')
+  const [authMode, setAuthMode] = useState<'account' | 'key'>(
+    initialProvider?.completionType === 'puter_native' || !initialProvider?.apiKey ? 'account' : 'key'
+  )
   const [isLoggingInPuter, setIsLoggingInPuter] = useState<boolean>(false)
   const [puterLoginError, setPuterLoginError] = useState<string>('')
   const [puterUsername, setPuterUsername] = useState<string>('')
@@ -219,6 +221,24 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
     setModels((prev) => (prev || []).map((m) => (m.id === id ? { ...m, enabled: !m.enabled } : m)))
   }
 
+  const handleEnableAll = (): void => {
+    if (searchQuery.trim()) {
+      const filteredIdSet = new Set(filteredModels.map((m) => m.id))
+      setModels((prev) => (prev || []).map((m) => (filteredIdSet.has(m.id) ? { ...m, enabled: true } : m)))
+    } else {
+      setModels((prev) => (prev || []).map((m) => ({ ...m, enabled: true })))
+    }
+  }
+
+  const handleDisableAll = (): void => {
+    if (searchQuery.trim()) {
+      const filteredIdSet = new Set(filteredModels.map((m) => m.id))
+      setModels((prev) => (prev || []).map((m) => (filteredIdSet.has(m.id) ? { ...m, enabled: false } : m)))
+    } else {
+      setModels((prev) => (prev || []).map((m) => ({ ...m, enabled: false })))
+    }
+  }
+
   const handleSave = (): void => {
     const provider: ProviderConfig = {
       id: initialProvider?.id || `provider_${Date.now()}`,
@@ -239,6 +259,9 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
       (m.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (m.name && m.name.toLowerCase().includes(searchQuery.toLowerCase())))
   )
+
+  const enabledCount = (models || []).filter((m) => m.enabled).length
+  const filteredEnabledCount = filteredModels.filter((m) => m.enabled).length
 
   const stepList = isTrusted
     ? [
@@ -377,7 +400,10 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
                   <div className="flex p-1 bg-white/[0.04] border border-white/[0.08] rounded-xl gap-1">
                     <button
                       type="button"
-                      onClick={() => setAuthMode('account')}
+                      onClick={() => {
+                        setAuthMode('account')
+                        setCompletionType('puter_native')
+                      }}
                       className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-medium transition-all ${
                         authMode === 'account'
                           ? 'bg-text-primary text-black font-semibold shadow-sm'
@@ -389,7 +415,10 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setAuthMode('key')}
+                      onClick={() => {
+                        setAuthMode('key')
+                        setCompletionType('chat_completions')
+                      }}
                       className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-medium transition-all ${
                         authMode === 'key'
                           ? 'bg-text-primary text-black font-semibold shadow-sm'
@@ -590,18 +619,44 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
               )}
 
               {models.length > 0 && (
-                <div className="relative">
-                  <MagnifyingGlass
-                    size={16}
-                    className="absolute left-3.5 top-3.5 text-text-muted"
-                  />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search model name or ID..."
-                    className="w-full pl-10 pr-4 py-2.5 bg-white/[0.04] border border-white/[0.1] rounded-xl text-text-primary text-xs placeholder-text-muted focus:outline-none focus:border-white/30"
-                  />
+                <div className="space-y-2.5">
+                  <div className="relative">
+                    <MagnifyingGlass
+                      size={16}
+                      className="absolute left-3.5 top-3 text-text-muted"
+                    />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search model name or ID..."
+                      className="w-full pl-10 pr-4 py-2 bg-white/[0.04] border border-white/[0.1] rounded-xl text-text-primary text-xs placeholder-text-muted focus:outline-none focus:border-white/30"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs px-1">
+                    <span className="text-[11px] text-text-muted">
+                      {searchQuery.trim()
+                        ? `${filteredModels.length} matching (${filteredEnabledCount} enabled)`
+                        : `${enabledCount} of ${models.length} enabled`}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleEnableAll}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/[0.05] hover:bg-white/[0.1] text-text-secondary hover:text-text-primary border border-white/[0.06] transition-all active:scale-[0.98]"
+                      >
+                        Enable All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDisableAll}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/[0.05] hover:bg-white/[0.1] text-text-secondary hover:text-text-primary border border-white/[0.06] transition-all active:scale-[0.98]"
+                      >
+                        Disable All
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 

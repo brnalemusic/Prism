@@ -1,5 +1,6 @@
 import http from 'node:http'
 import { shell } from 'electron'
+import { puter } from '@heyputer/puter.js'
 import { ProviderConfig, ProviderModel } from '../../shared/types'
 import { isModelTrusted } from './trustedRegistry'
 import type { StreamCallbacks, StreamResult } from './openaiClient'
@@ -21,6 +22,69 @@ export interface PuterLoginResult {
 
 let activeAuthServer: http.Server | null = null
 let activeAuthReject: ((reason?: Error) => void) | null = null
+
+/**
+ * Fetches models using the official native Puter.js SDK (puter.ai.listModels()).
+ * Falls back gracefully to the HTTP endpoint to guarantee 100% reliability in production builds.
+ */
+export async function fetchPuterModelsViaSDK(authToken?: string): Promise<{
+  success: boolean
+  models: ProviderModel[]
+  error?: string
+}> {
+  try {
+    if (authToken && authToken.trim()) {
+      try {
+        puter.setAuthToken(authToken.trim())
+      } catch (authErr) {
+        console.warn('[Puter.js SDK] Warning setting auth token on SDK instance:', authErr)
+      }
+    }
+
+    const rawList = await puter.ai.listModels()
+    if (!Array.isArray(rawList)) {
+      console.warn('[Puter.js SDK] SDK returned non-array models, falling back to endpoint')
+      return await fetchPuterModels(authToken)
+    }
+
+    const models: ProviderModel[] = []
+    for (const item of rawList) {
+      if (!item || typeof item !== 'object') continue
+      const id =
+        typeof (item as Record<string, unknown>).id === 'string' &&
+        ((item as Record<string, unknown>).id as string).trim()
+          ? ((item as Record<string, unknown>).id as string).trim()
+          : typeof (item as Record<string, unknown>).puterId === 'string' &&
+              ((item as Record<string, unknown>).puterId as string).trim()
+            ? ((item as Record<string, unknown>).puterId as string).trim()
+            : ''
+      if (!id) continue
+
+      const rawName = (item as Record<string, unknown>).name
+      const name = typeof rawName === 'string' && rawName.trim() ? rawName.trim() : id
+      const trusted = isModelTrusted(id)
+      models.push({
+        id,
+        name,
+        isTrusted: trusted,
+        enabled: trusted
+      })
+    }
+
+    if (models.length === 0) {
+      console.warn('[Puter.js SDK] SDK returned 0 models, falling back to endpoint')
+      return await fetchPuterModels(authToken)
+    }
+
+    return {
+      success: true,
+      models
+    }
+  } catch (error: unknown) {
+    console.warn('[Puter.js SDK] Failed to fetch models via SDK, falling back to endpoint:', error)
+    return await fetchPuterModels(authToken)
+  }
+}
 
 /**
  * Fetches models directly from Puter.js AI endpoints.

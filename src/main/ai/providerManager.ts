@@ -8,7 +8,7 @@ import {
   isAnthropicHost,
   isPuterHost
 } from './trustedRegistry'
-import { fetchPuterModels } from './puterClient'
+import { fetchPuterModels, fetchPuterModelsViaSDK } from './puterClient'
 
 export interface FetchModelsResult {
   success: boolean
@@ -54,9 +54,19 @@ export async function fetchModelsFromProvider(
   const isPuter = isPuterHost(normUrl)
 
   if (isPuter) {
-    const puterRes = await fetchPuterModels(apiKey || undefined)
-    if (puterRes.success && puterRes.models.length > 0) {
-      return puterRes
+    if (completionType === 'puter_native') {
+      const puterSdkRes = await fetchPuterModelsViaSDK(apiKey || undefined)
+      if (puterSdkRes.success && puterSdkRes.models.length > 0) {
+        return puterSdkRes
+      }
+      if (!puterSdkRes.success) {
+        return puterSdkRes
+      }
+    } else {
+      const puterRes = await fetchPuterModels(apiKey || undefined)
+      if (puterRes.success && puterRes.models.length > 0) {
+        return puterRes
+      }
     }
   }
 
