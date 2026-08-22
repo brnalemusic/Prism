@@ -3,6 +3,7 @@ import { shell } from 'electron'
 import { puter } from '@heyputer/puter.js'
 import { ProviderConfig, ProviderModel } from '../../shared/types'
 import { isModelTrusted } from './trustedRegistry'
+import { sanitizeOpenAiMessages } from './openaiClient'
 import type { StreamCallbacks, StreamResult } from './openaiClient'
 import type { OpenAiMessage, OpenAiToolDefinition } from './types'
 
@@ -468,24 +469,7 @@ export async function streamPuterCompletion(
   const authToken = provider.apiKey?.trim() || ''
   const endpoint = 'https://api.puter.com/drivers/call'
 
-  const formattedMessages = messages.map((m) => {
-    let content: unknown = m.content
-    if (Array.isArray(content)) {
-      content = content.map((part) => {
-        if (part.type === 'text') return part.text || ''
-        if (part.type === 'image_url' && part.image_url?.url) {
-          return { image_url: { url: part.image_url.url } }
-        }
-        return part
-      })
-    }
-    return {
-      role: m.role === 'model' ? 'assistant' : m.role,
-      content,
-      tool_calls: m.tool_calls,
-      tool_call_id: m.tool_call_id
-    }
-  })
+  const formattedMessages = sanitizeOpenAiMessages(messages)
 
   const driverArgs: Record<string, unknown> = {
     messages: formattedMessages,
@@ -584,34 +568,78 @@ export async function streamPuterCompletion(
             throw new Error(`Puter.js Stream Error: ${errMsg}`)
           }
 
-          // 2. Puter Native Chunk format (NDJSON): { type: "text", text: "..." }
+          // 2. Puter Native Chunk format (NDJSON): { type: "text", text: "..." } or { type: "reasoning", reasoning: "..." }
           if (parsed.type === 'text' && typeof parsed.text === 'string') {
             fullText += parsed.text
             callbacks.onTextDelta(parsed.text)
           } else if (parsed.type === 'reasoning' && typeof parsed.reasoning === 'string') {
             fullReasoning += parsed.reasoning
             callbacks.onReasoningDelta(parsed.reasoning)
-          } else if (parsed.type === 'tool_use' && parsed.tool_use) {
-            const tu = parsed.tool_use
-            const idx = toolCallsMap.size
-            const callId = tu.id || `call_${Date.now()}_${idx}`
-            const name = tu.name || ''
+          } else if (parsed.type === 'tool_use' || parsed.tool_use) {
+            // Puter Native tool_use chunk: { type: "tool_use", id: "...", name: "...", input: {...} }
+            const tu = parsed.tool_use || parsed
+            const callId =
+              tu.id ||
+              parsed.id ||
+              parsed.function?.id ||
+              `call_${Date.now()}_${toolCallsMap.size}`
+            const name =
+              tu.name ||
+              parsed.name ||
+              parsed.function?.name ||
+              tu.function?.name ||
+              ''
+            const rawArgs =
+              tu.input ??
+              tu.arguments ??
+              parsed.input ??
+              parsed.arguments ??
+              parsed.function?.arguments ??
+              tu.function?.arguments
+
             const argsStr =
-              typeof tu.arguments === 'string'
-                ? tu.arguments
-                : JSON.stringify(tu.arguments || {})
-            toolCallsMap.set(idx, { id: callId, name, args: argsStr })
-            callbacks.onToolCallDelta({
-              index: idx,
-              id: callId,
-              name,
-              argsDelta: argsStr
-            })
+              typeof rawArgs === 'string'
+                ? rawArgs
+                : rawArgs !== undefined && rawArgs !== null
+                  ? JSON.stringify(rawArgs)
+                  : ''
+
+            let existingIdx = -1
+            for (const [idx, item] of toolCallsMap.entries()) {
+              if (callId && item.id === callId) {
+                existingIdx = idx
+                break
+              }
+            }
+
+            if (existingIdx === -1) {
+              existingIdx = toolCallsMap.size
+              const entry = { id: callId, name, args: argsStr }
+              toolCallsMap.set(existingIdx, entry)
+              callbacks.onToolCallDelta({
+                index: existingIdx,
+                id: callId,
+                name,
+                argsDelta: argsStr
+              })
+            } else {
+              const existing = toolCallsMap.get(existingIdx)!
+              if (name && !existing.name) existing.name = name
+              if (argsStr) {
+                existing.args = existing.args ? existing.args + argsStr : argsStr
+              }
+              callbacks.onToolCallDelta({
+                index: existingIdx,
+                id: existing.id,
+                name: existing.name,
+                argsDelta: argsStr
+              })
+            }
           }
 
-          // 3. Fallback: Choice / Delta format (if upstream driver returns standard delta objects)
+          // 3. Fallback: Choice / Delta format (if upstream driver returns standard OpenAI/Delta objects)
           const choice = parsed.choices?.[0] || parsed
-          const delta = choice?.delta || parsed.delta || choice?.message
+          const delta = choice?.delta || parsed.delta || choice?.message || parsed.message
           if (delta) {
             if (choice?.finish_reason) {
               finishReason = choice.finish_reason
@@ -634,22 +662,36 @@ export async function streamPuterCompletion(
               callbacks.onTextDelta(textChunk)
             }
 
-            if (Array.isArray(delta.tool_calls)) {
-              for (const tcDelta of delta.tool_calls) {
+            const toolCallsList = Array.isArray(delta.tool_calls)
+              ? delta.tool_calls
+              : Array.isArray(parsed.tool_calls)
+                ? parsed.tool_calls
+                : null
+
+            if (toolCallsList && parsed.type !== 'tool_use' && !parsed.tool_use) {
+              for (const tcDelta of toolCallsList) {
                 const idx = tcDelta.index ?? toolCallsMap.size
                 let existing = toolCallsMap.get(idx)
                 if (!existing) {
                   existing = {
                     id: tcDelta.id || `call_${Date.now()}_${idx}`,
-                    name: tcDelta.function?.name || '',
+                    name: tcDelta.function?.name || tcDelta.name || '',
                     args: ''
                   }
                   toolCallsMap.set(idx, existing)
                 }
                 if (tcDelta.id && !existing.id) existing.id = tcDelta.id
-                if (tcDelta.function?.name && !existing.name)
-                  existing.name = tcDelta.function.name
-                const argsChunk = tcDelta.function?.arguments || ''
+                const tcName = tcDelta.function?.name || tcDelta.name
+                if (tcName && !existing.name) existing.name = tcName
+
+                const rawTcArgs = tcDelta.function?.arguments ?? tcDelta.arguments ?? tcDelta.input
+                const argsChunk =
+                  typeof rawTcArgs === 'string'
+                    ? rawTcArgs
+                    : rawTcArgs !== undefined && rawTcArgs !== null
+                      ? JSON.stringify(rawTcArgs)
+                      : ''
+
                 if (argsChunk) existing.args += argsChunk
                 callbacks.onToolCallDelta({
                   index: idx,
