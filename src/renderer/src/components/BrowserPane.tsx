@@ -1186,7 +1186,12 @@ export const BrowserPane = React.memo(function BrowserPane({
     let html = generatedHtml
 
     // Strip broken lucide-react CDN if emitted by model
-    html = html.replace(/<script[^>]*lucide-react[^>]*><\/script>/gi, '')
+    // Apply repeatedly until stable to avoid incomplete multi-character sanitization.
+    let previousHtml: string
+    do {
+      previousHtml = html
+      html = html.replace(/<script[^>]*lucide-react[^>]*><\/script>/gi, '')
+    } while (html !== previousHtml)
 
     const headInjections = `
       <script src="https://cdn.tailwindcss.com"></script>
