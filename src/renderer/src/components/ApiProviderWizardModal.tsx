@@ -68,6 +68,23 @@ function normalizeUrl(url: string): string {
   return cleaned
 }
 
+function getHostnameFromUrl(url: string): string | null {
+  try {
+    return new URL(url).hostname.toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+function isPuterHostname(hostname: string): boolean {
+  return hostname === 'puter.com' || hostname.endsWith('.puter.com')
+}
+
+function isPuterBaseUrl(url: string): boolean {
+  const hostname = getHostnameFromUrl(url)
+  return hostname ? isPuterHostname(hostname) : false
+}
+
 function findTrusted(url: string): (typeof TRUSTED_PROVIDERS_META)[number] | undefined {
   const norm = normalizeUrl(url)
   return TRUSTED_PROVIDERS_META.find((p) => normalizeUrl(p.baseUrl) === norm)
@@ -98,12 +115,7 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
 
   const trustedMeta = findTrusted(baseUrl)
   const isTrusted = !!trustedMeta
-  const isPuter = Boolean(
-    trustedMeta?.name === 'Puter.js' ||
-      (baseUrl &&
-        (baseUrl.toLowerCase().includes('puter.com') ||
-          baseUrl.toLowerCase().includes('api.puter')))
-  )
+  const isPuter = Boolean(trustedMeta?.name === 'Puter.js' || (baseUrl && isPuterBaseUrl(baseUrl)))
 
   const [authMode, setAuthMode] = useState<'account' | 'key'>(
     initialProvider?.completionType === 'puter_native' || !initialProvider?.apiKey ? 'account' : 'key'
