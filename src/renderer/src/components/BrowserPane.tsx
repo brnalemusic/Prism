@@ -475,7 +475,10 @@ export const BrowserPane = React.memo(function BrowserPane({
   // Start or continue a generative website session
   const startGenerativeSession = useCallback(
     (promptInput: string, isContinuation = false, actionLabel?: string) => {
-      const sessionId = `gen_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+      const randomBytes = new Uint8Array(4)
+      globalThis.crypto.getRandomValues(randomBytes)
+      const randomSuffix = Array.from(randomBytes, (byte) => byte.toString(36).padStart(2, '0')).join('').slice(0, 7)
+      const sessionId = `gen_${Date.now()}_${randomSuffix}`
       setCurrentSessionId(sessionId)
       setIsGenerating(true)
       setGenerativeError(null)
