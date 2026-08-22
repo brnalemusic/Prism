@@ -239,8 +239,8 @@ export const InputBar = React.memo(
     const renderSlashMenu = (): React.JSX.Element | null => {
       if (!showSlashMenu) return null
       return (
-        <div className="premium-panel-soft z-30 mb-3 w-full overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--surface-raised)] shadow-[0_16px_40px_rgba(0,0,0,0.5)] animate-soft-pop">
-          <div className="border-b border-white/[0.055] px-4 py-3 text-xs font-semibold text-text-secondary/70">
+        <div className="glass-dropdown-panel z-30 mb-3 w-full overflow-hidden animate-soft-pop">
+          <div className="border-b border-white/[0.08] px-4 py-3 text-xs font-semibold text-text-secondary/70">
             Workflows
           </div>
           <div className="max-h-60 overflow-y-auto">

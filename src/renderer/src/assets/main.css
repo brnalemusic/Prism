@@ -380,12 +380,16 @@
   }
 
   .glass-panel-floating {
-    background: rgba(10, 14, 24, 0.42);
-    backdrop-filter: blur(32px) saturate(200%) contrast(108%);
-    -webkit-backdrop-filter: blur(32px) saturate(200%) contrast(108%);
-    border: 1px solid var(--border-glass-highlight);
+    background: rgba(10, 14, 24, 0.90);
+    backdrop-filter: blur(36px) saturate(210%) contrast(108%);
+    -webkit-backdrop-filter: blur(36px) saturate(210%) contrast(108%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: var(--radius-container);
-    box-shadow: var(--glass-specular-top), var(--glass-shadow-lg);
+    box-shadow:
+      inset 0 1px 2px 0 rgba(255, 255, 255, 0.38),
+      inset 0 0 20px 0 rgba(255, 255, 255, 0.04),
+      inset 0 -1px 1px 0 rgba(0, 0, 0, 0.45),
+      0 24px 60px -12px rgba(0, 0, 0, 0.85);
   }
 
   .glass-panel-subtle {
@@ -443,14 +447,29 @@
   }
 
   .glass-dropdown-panel {
-    background: rgba(8, 11, 20, 0.82);
+    background: rgba(10, 14, 24, 0.90);
     backdrop-filter: blur(36px) saturate(210%) contrast(108%);
     -webkit-backdrop-filter: blur(36px) saturate(210%) contrast(108%);
     border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: 18px;
     box-shadow:
-      inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.28),
-      0 24px 60px -10px rgba(0, 0, 0, 0.85);
+      inset 0 1px 2px 0 rgba(255, 255, 255, 0.38),
+      inset 0 0 20px 0 rgba(255, 255, 255, 0.04),
+      inset 0 -1px 1px 0 rgba(0, 0, 0, 0.45),
+      0 24px 60px -12px rgba(0, 0, 0, 0.85);
+  }
+
+  .liquid-glass-docked {
+    background: rgba(10, 14, 24, 0.90);
+    backdrop-filter: blur(36px) saturate(210%) contrast(108%);
+    -webkit-backdrop-filter: blur(36px) saturate(210%) contrast(108%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-bottom: 0;
+    box-shadow:
+      inset 0 1px 2px 0 rgba(255, 255, 255, 0.38),
+      inset 0 0 20px 0 rgba(255, 255, 255, 0.04),
+      inset 0 -1px 1px 0 rgba(0, 0, 0, 0.45),
+      0 -12px 36px -8px rgba(0, 0, 0, 0.7);
   }
 
   .premium-panel {
@@ -463,14 +482,16 @@
   }
 
   .model-menu-panel {
-    background: rgba(8, 11, 20, 0.82);
+    background: rgba(10, 14, 24, 0.90);
     backdrop-filter: blur(36px) saturate(210%) contrast(108%);
     -webkit-backdrop-filter: blur(36px) saturate(210%) contrast(108%);
     border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: 18px;
     box-shadow:
-      inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.28),
-      0 24px 60px -10px rgba(0, 0, 0, 0.85);
+      inset 0 1px 2px 0 rgba(255, 255, 255, 0.38),
+      inset 0 0 20px 0 rgba(255, 255, 255, 0.04),
+      inset 0 -1px 1px 0 rgba(0, 0, 0, 0.45),
+      0 24px 60px -12px rgba(0, 0, 0, 0.85);
   }
 
   .premium-panel-soft {

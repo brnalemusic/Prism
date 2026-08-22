@@ -144,12 +144,19 @@ function TodoPanel({
   return (
     <div className="w-[70%] mx-auto relative select-none animate-fade-in z-20 transition-all duration-300">
       {/* Attached Card Docked Above InputBar */}
-      <div className="relative overflow-hidden rounded-t-2xl rounded-b-none border border-b-0 border-white/[0.12] bg-black/40 backdrop-blur-2xl shadow-[var(--glass-specular-top)]">
-        {/* Background accent glow */}
-        <div className="absolute -top-20 -right-20 w-48 h-48 rounded-full bg-accent-primary/8 blur-[60px] pointer-events-none" />
+      <div className="liquid-glass-docked relative overflow-hidden rounded-t-2xl rounded-b-none">
+        {/* Subtle internal theme center glow */}
+        <div className="absolute inset-0 rounded-t-2xl overflow-hidden pointer-events-none">
+          <div
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3/4 h-3/4 rounded-full blur-[36px] opacity-18 transition-all duration-300 pointer-events-none"
+            style={{
+              background: 'radial-gradient(ellipse at center, var(--accent-primary) 0%, transparent 70%)'
+            }}
+          />
+        </div>
 
         {/* Header Bar */}
-        <div className="flex items-center justify-between px-5 py-2.5 border-b border-white/[0.05] bg-white/[0.015]">
+        <div className="relative z-10 flex items-center justify-between px-5 py-2.5 border-b border-white/[0.08] bg-white/[0.02]">
           {/* Left Title / Summary (Clicking header toggles expanded dropdown) */}
           <div
             onClick={() => setIsExpanded((prev) => !prev)}
@@ -203,7 +210,7 @@ function TodoPanel({
           {/* Right Controls: Tab Switcher & Collapse Caret */}
           <div className="flex items-center gap-3 shrink-0">
             {/* Tab Selector Buttons — Switching tabs DOES NOT force expand the panel */}
-            <div className="flex items-center p-0.5 rounded-lg bg-black/40 border border-white/[0.06]">
+            <div className="flex items-center p-0.5 rounded-lg bg-black/40 border border-white/[0.08]">
               {hasTodo && (
                 <button
                   type="button"
@@ -280,7 +287,7 @@ function TodoPanel({
 
         {/* Expanded View */}
         {isExpanded && (
-          <div className="flex flex-col border-t border-white/[0.05] animate-fade-in">
+          <div className="relative z-10 flex flex-col border-t border-white/[0.06] animate-fade-in">
             {/* TO-DO TAB CONTENT */}
             {displayedTab === 'todo' && hasTodo && (
               <div className="flex flex-col">
@@ -300,10 +307,10 @@ function TodoPanel({
                       className={clsx(
                         'flex items-center gap-3 rounded-xl border px-3.5 py-2 text-xs transition-all duration-200',
                         task.status === 'working'
-                          ? 'border-accent-primary/30 bg-accent-primary/[0.06] text-text-primary font-medium shadow-[inset_0_1px_0_rgba(255,255,255,0.01)]'
+                          ? 'border-accent-primary/35 bg-accent-primary/[0.12] text-text-primary font-medium shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
                           : task.status === 'done'
-                            ? 'border-transparent opacity-60 text-text-muted'
-                            : 'border-white/[0.04] bg-white/[0.01] text-text-secondary hover:bg-white/[0.03]'
+                            ? 'border-white/[0.04] bg-white/[0.015] opacity-60 text-text-muted'
+                            : 'border-white/[0.06] bg-white/[0.03] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary'
                       )}
                     >
                       <div className="flex items-center justify-center w-4 h-4 shrink-0">
@@ -334,7 +341,7 @@ function TodoPanel({
                   {artifacts.map((art) => (
                     <div
                       key={art.id}
-                      className="flex items-center justify-between p-3 rounded-xl border border-white/[0.05] bg-white/[0.015] hover:bg-white/[0.04] transition-all group"
+                      className="flex items-center justify-between p-3 rounded-xl border border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.06] transition-all group"
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
                         <div
@@ -403,12 +410,12 @@ function TodoPanel({
                         className={clsx(
                           'flex items-start gap-3 rounded-xl border px-3.5 py-3 transition-all',
                           process.awaitingInput
-                            ? 'border-status-warning/30 bg-status-warning/[0.06]'
+                            ? 'border-status-warning/30 bg-status-warning/[0.08]'
                             : isFailed
-                              ? 'border-status-error/25 bg-status-error/[0.05]'
+                              ? 'border-status-error/25 bg-status-error/[0.08]'
                               : process.status === 'completed'
-                                ? 'border-status-success/20 bg-status-success/[0.04]'
-                                : 'border-accent-primary/25 bg-accent-primary/[0.05]'
+                                ? 'border-status-success/20 bg-status-success/[0.06]'
+                                : 'border-accent-primary/30 bg-accent-primary/[0.08]'
                         )}
                       >
                         <div

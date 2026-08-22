@@ -112,11 +112,18 @@ export function QuestionnaireCard({
   const isReviewStep = currentStep === totalSteps
 
   return (
-    <div className="w-[70%] mx-auto relative">
+    <div className="w-[70%] mx-auto relative select-none animate-fade-in z-20 transition-all duration-300">
       {/* Card */}
-      <div className="relative overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-[var(--border-default)] bg-[var(--surface-lowest)] px-5 py-4">
-        {/* Background accent glow */}
-        <div className="absolute -top-20 -right-20 w-48 h-48 rounded-full bg-accent-primary/8 blur-[60px] pointer-events-none" />
+      <div className="liquid-glass-docked relative overflow-hidden rounded-t-2xl rounded-b-none px-5 py-4">
+        {/* Subtle internal theme center glow */}
+        <div className="absolute inset-0 rounded-t-2xl overflow-hidden pointer-events-none">
+          <div
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3/4 h-3/4 rounded-full blur-[36px] opacity-18 transition-all duration-300 pointer-events-none"
+            style={{
+              background: 'radial-gradient(ellipse at center, var(--accent-primary) 0%, transparent 70%)'
+            }}
+          />
+        </div>
 
         {/* Header row */}
         <div className="flex items-center justify-between mb-3 select-none">
