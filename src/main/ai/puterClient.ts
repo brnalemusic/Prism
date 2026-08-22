@@ -3,9 +3,6 @@ import { shell } from 'electron'
 import { ProviderModel } from '../../shared/types'
 import { isModelTrusted } from './trustedRegistry'
 
-// @ts-ignore - CommonJS bundle export from @heyputer/puter.js
-import { init as initPuterSdk } from '@heyputer/puter.js/src/init.cjs'
-
 export interface PuterUser {
   username?: string
   email?: string
@@ -24,14 +21,7 @@ let activeAuthServer: http.Server | null = null
 let activeAuthReject: ((reason?: Error) => void) | null = null
 
 /**
- * Initializes a native Puter.js SDK instance with an optional auth token.
- */
-export function getNativePuter(authToken?: string) {
-  return initPuterSdk(authToken)
-}
-
-/**
- * Fetches models natively using Puter.js SDK (puter.ai.listModels()).
+ * Fetches models directly from Puter.js AI endpoints.
  */
 export async function fetchPuterModels(authToken?: string): Promise<{
   success: boolean
@@ -39,38 +29,53 @@ export async function fetchPuterModels(authToken?: string): Promise<{
   error?: string
 }> {
   try {
-    const puter = getNativePuter(authToken)
-    if (!puter || !puter.ai || typeof puter.ai.listModels !== 'function') {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+    if (authToken && authToken.trim()) {
+      headers['Authorization'] = `Bearer ${authToken.trim()}`
+    }
+
+    const response = await fetch('https://api.puter.com/puterai/chat/models/details', {
+      method: 'GET',
+      headers
+    })
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '')
       return {
         success: false,
         models: [],
-        error: 'Puter.js AI module is not available'
+        error: `HTTP ${response.status}: ${errText || response.statusText}`
       }
     }
 
-    const rawModels: Array<Record<string, unknown>> = await puter.ai.listModels()
-    if (!Array.isArray(rawModels)) {
-      return {
-        success: false,
-        models: [],
-        error: 'Invalid response format from Puter.js'
+    const data: unknown = await response.json()
+    let rawList: Array<Record<string, unknown>> = []
+
+    if (data && typeof data === 'object') {
+      const record = data as Record<string, unknown>
+      if (Array.isArray(record.models)) {
+        rawList = record.models
+      } else if (Array.isArray(record.data)) {
+        rawList = record.data
       }
+    } else if (Array.isArray(data)) {
+      rawList = data
     }
 
     const models: ProviderModel[] = []
-    for (const item of rawModels) {
+    for (const item of rawList) {
       if (!item || typeof item !== 'object') continue
-      const record = item as Record<string, unknown>
       const id =
-        typeof record.id === 'string'
-          ? record.id
-          : typeof record.puterId === 'string'
-            ? record.puterId
+        typeof item.id === 'string'
+          ? item.id
+          : typeof item.puterId === 'string'
+            ? item.puterId
             : ''
       if (!id) continue
 
-      const name =
-        typeof record.name === 'string' && record.name.trim() ? record.name.trim() : id
+      const name = typeof item.name === 'string' && item.name.trim() ? item.name.trim() : id
       const trusted = isModelTrusted(id)
       models.push({
         id,
@@ -88,22 +93,42 @@ export async function fetchPuterModels(authToken?: string): Promise<{
     return {
       success: false,
       models: [],
-      error: error instanceof Error ? error.message : 'Failed to fetch models from Puter.js'
+      error: error instanceof Error ? error.message : 'Failed to fetch models from Puter'
     }
   }
 }
 
 /**
- * Retrieves the authenticated Puter user profile using native Puter.js.
+ * Retrieves the authenticated Puter user profile using the user account token.
  */
 export async function getPuterUser(authToken: string): Promise<PuterUser | null> {
+  if (!authToken || !authToken.trim()) return null
+
   try {
-    const puter = getNativePuter(authToken)
-    if (puter && puter.auth && typeof puter.auth.getUser === 'function') {
-      const user = await puter.auth.getUser()
-      return user || null
+    const response = await fetch('https://api.puter.com/whoami', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${authToken.trim()}`
+      }
+    })
+
+    if (!response.ok) return null
+
+    const data: unknown = await response.json()
+    if (!data || typeof data !== 'object') return null
+
+    const record = data as Record<string, unknown>
+    const username =
+      typeof record.username === 'string'
+        ? record.username
+        : typeof (record.user as Record<string, unknown>)?.username === 'string'
+          ? ((record.user as Record<string, unknown>).username as string)
+          : undefined
+
+    return {
+      username,
+      ...record
     }
-    return null
   } catch {
     return null
   }
@@ -233,7 +258,7 @@ const SUCCESS_HTML = `<!DOCTYPE html>
  * 1. Launches a local ephemeral HTTP server on 127.0.0.1.
  * 2. Opens the user's default browser to https://puter.com/?action=authme&redirectURL=...
  * 3. Captures the returned auth token and closes the server.
- * 4. Initializes the native Puter SDK and returns the session.
+ * 4. Verifies the user session and returns the token and username.
  */
 export function startPuterLoginFlow(guiOrigin: string = 'https://puter.com'): Promise<PuterLoginResult> {
   // Cancel any existing login flow before starting a new one
