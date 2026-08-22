@@ -572,24 +572,24 @@ export const InputBar = React.memo(
               onClick={() => setShowAttachMenu(!showAttachMenu)}
               disabled={disabled}
               className={clsx(
-                'flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-200 border border-white/[0.08] bg-white/[0.028] text-text-secondary hover:bg-white/[0.065] hover:text-text-primary cursor-pointer',
-                showAttachMenu && 'bg-white/[0.08] text-text-primary border-white/20'
+                'flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-150 border border-white/[0.08] bg-white/[0.04] text-text-secondary hover:bg-white/[0.08] hover:text-text-primary hover:border-white/[0.14] cursor-pointer shadow-[var(--glass-specular-top)] active:scale-95',
+                showAttachMenu && 'bg-white/[0.09] text-text-primary border-white/20'
               )}
               title="Add attachment / App"
             >
-              <Plus size={16} weight="bold" />
+              <Plus size={15} weight="bold" />
             </button>
 
             {showAttachMenu && (
-              <div className="model-menu-panel absolute bottom-full left-0 mb-2 z-[60] w-48 p-1.5 animate-soft-pop text-left">
+              <div className="glass-panel-floating absolute bottom-full left-0 mb-3 z-[60] w-52 p-1.5 animate-soft-pop text-left shadow-[var(--glass-shadow-lg)]">
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.04] transition-all text-left"
+                  className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.06] transition-all text-left"
                 >
-                  <Paperclip size={16} className="text-text-secondary" />
+                  <Paperclip size={15} className="text-text-secondary" />
                   <div className="flex flex-col">
                     <span>File</span>
-                    <span className="text-[9px] text-text-secondary/50 font-normal">
+                    <span className="text-[9px] text-text-secondary/60 font-normal">
                       Image, PDF, Slides
                     </span>
                   </div>
@@ -791,12 +791,12 @@ export const InputBar = React.memo(
             }}
             disabled={disabled || isTranscribing}
             className={clsx(
-              'flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-200 border relative overflow-hidden group',
+              'flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-150 border relative overflow-hidden group shadow-[var(--glass-specular-top)] active:scale-95',
               isRecording
-                ? 'bg-status-error/20 border-status-error/30 text-status-error animate-pulse'
+                ? 'bg-status-error/20 border-status-error/40 text-status-error animate-pulse'
                 : isTranscribing
-                  ? 'bg-accent-primary/20 border-accent-primary/30 text-accent-primary cursor-wait'
-                  : 'bg-white/[0.028] border-white/[0.08] text-text-secondary hover:bg-white/[0.065] hover:text-text-primary'
+                  ? 'bg-accent-primary/20 border-accent-primary/40 text-accent-primary cursor-wait'
+                  : 'bg-white/[0.04] border-white/[0.08] text-text-secondary hover:bg-white/[0.08] hover:text-text-primary hover:border-white/[0.14]'
             )}
             title={isRecording ? 'Stop and review' : 'Start Dictation'}
           >
@@ -809,7 +809,7 @@ export const InputBar = React.memo(
             ) : isRecording ? (
               <StopCircle size={18} weight="fill" />
             ) : (
-              <Microphone size={18} />
+              <Microphone size={16} />
             )}
             {isRecording && (
               <div className="absolute inset-0 bg-status-error/10 animate-[ping_2s_ease-in-out_infinite]" />
@@ -820,7 +820,7 @@ export const InputBar = React.memo(
             <button
               onClick={() => stopRecording('send')}
               disabled={disabled || isTranscribing}
-              className="flex h-8 w-8 items-center justify-center rounded-xl border border-text-primary/20 bg-text-primary text-black transition-all duration-200 hover:bg-white active:scale-95"
+              className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/20 bg-white text-black transition-all duration-150 hover:bg-neutral-100 active:scale-95 shadow-[0_4px_16px_rgba(255,255,255,0.2)] cursor-pointer"
               title="Stop and send"
             >
               <SendHorizontal size={14} weight="fill" />
@@ -1057,20 +1057,20 @@ export const InputBar = React.memo(
           {isProcessing ? (
             <button
               onClick={() => onCancel?.()}
-              className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-status-error/25 bg-status-error/[0.12] text-status-error transition-all duration-200 hover:bg-status-error/[0.18] active:scale-95"
+              className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-status-error/40 bg-status-error/[0.15] text-status-error transition-all duration-150 hover:bg-status-error/[0.25] active:scale-95 shadow-sm"
               title="Stop generation"
             >
-              <Square size={14} fill="currentColor" />
+              <Square size={13} fill="currentColor" />
             </button>
           ) : (
             <button
               onClick={() => handleSend()}
               disabled={(!text.trim() && !attachedFile) || disabled}
               className={clsx(
-                'ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-200',
+                'ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-150',
                 text.trim() && !disabled
-                  ? 'bg-text-primary text-black hover:bg-white active:scale-95'
-                  : 'bg-white/[0.055] text-text-muted'
+                  ? 'bg-white text-black hover:bg-neutral-100 shadow-[0_4px_16px_rgba(255,255,255,0.2)] active:scale-95 cursor-pointer'
+                  : 'bg-white/[0.04] text-text-muted/60 border border-white/[0.05]'
               )}
             >
               <SendHorizontal size={14} />
@@ -1100,7 +1100,7 @@ export const InputBar = React.memo(
 
           <div
             className={clsx(
-              'premium-panel flex-1 flex flex-col rounded-2xl border p-4 transition-all duration-300 relative input-border-glow',
+              'glass-panel-floating flex-1 flex flex-col rounded-2xl border border-white/[0.14] p-4 transition-all duration-300 relative input-border-glow shadow-2xl',
               modeStyles,
               isFocused && 'prism-glow active',
               disabled && 'opacity-60'
@@ -1125,7 +1125,7 @@ export const InputBar = React.memo(
                       </button>
                     </div>
                   ) : (
-                    <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative">
+                    <div className="flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-md pr-10 relative shadow-sm">
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
                         {attachedFile.mimeType === 'application/pdf' ? (
                           <FilePdf size={20} className="text-status-error" />
@@ -1220,7 +1220,7 @@ export const InputBar = React.memo(
         <div className="relative">
           <div
             className={clsx(
-              'relative rounded-2xl border border-[var(--border-default)] bg-[var(--surface-raised)] transition-all duration-300 input-border-glow flex flex-col overflow-visible px-4 pt-3.5 pb-2.5',
+              'relative rounded-2xl border border-white/[0.14] bg-black/60 backdrop-blur-2xl transition-all duration-300 input-border-glow flex flex-col overflow-visible px-4 pt-3.5 pb-2.5 shadow-[var(--glass-specular-top),var(--glass-shadow-lg)]',
               modeStyles,
               isFocused && !disabled && 'prism-glow active',
               disabled && 'opacity-60'
@@ -1245,7 +1245,7 @@ export const InputBar = React.memo(
                       </button>
                     </div>
                   ) : (
-                    <div className="premium-panel-soft flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.02] pr-10 relative">
+                    <div className="flex items-center gap-3 px-4 py-2 rounded-xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-md pr-10 relative shadow-sm">
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary">
                         {attachedFile.mimeType === 'application/pdf' ? (
                           <FilePdf size={20} className="text-status-error" />

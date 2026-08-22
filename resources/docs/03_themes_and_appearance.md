@@ -8,16 +8,18 @@ Prism features a modern visual design system engineered with **Tailwind CSS v4**
 
 ## 2. Visual Themes Directory
 
-Prism provides six distinct built-in visual themes. Themes dynamically reconfigure CSS custom properties across both the main chat workspace and the Quick Launcher overlay.
+Prism provides eight built-in spectral themes. Themes dynamically reconfigure CSS custom properties across both the main chat workspace, Quick Launcher overlay, and glassmorphic surfaces. Full design system specifications are documented in [DESIGN.md](../../.agents/rules/DESIGN.md).
 
 | Theme Key | Theme Name | Visual Profile | Dominant Palette |
 | --- | --- | --- | --- |
-| `marine` | Marine (Default) | Deep ocean glassmorphism with vivid cyan and dark blue accents | `#0b132b`, `#1c2541`, `#3a506b`, `#48cae4` |
-| `vertez` | Vertez | Emerald forest palette with luminous neon green indicators | `#062c22`, `#0b4d3c`, `#137559`, `#2ec4b6` |
-| `akoustik` | Akoustik | Cyberpunk studio aesthetic with electric amber and magenta hues | `#1a0933`, `#341159`, `#5a189a`, `#ff007f` |
-| `terno` | Terno | Sleek dark slate monochrome for distraction-free coding | `#121212`, `#1e1e1e`, `#2d2d2d`, `#e0e0e0` |
-| `ursula` | Ursula | Deep amethyst purple glass with subtle glowing borders | `#160f29`, `#241747`, `#36246e`, `#9d4edd` |
-| `rgb` | RGB Easter Egg (discontinued) | Dynamic cycling spectrum theme unlocked via app Easter egg | Dynamic multi-color gradient keyframes |
+| `marine` | Marine (Default) | Deep ocean glassmorphism with vivid cyan and dark blue accents | `#38bdf8`, `#7dd3fc`, `#030d15` |
+| `fire` | Fire Red | Energetic crimson and ruby glassmorphism with vivid warm glow | `#ff3b2f`, `#ff6b35`, `#150607` |
+| `lava` | Lava Orange | Luminous amber-orange glass with warm embers | `#ff6b00`, `#ffae42`, `#160900` |
+| `gold` | Corporate Gold | Elegant champagne and gold glass with executive slate | `#f5c518`, `#ffe066`, `#151100` |
+| `forest` | Forest Green | Crisp emerald and mint glass with botanical accents | `#22c55e`, `#86efac`, `#04120a` |
+| `indigo` | Indigo | Deep sapphire and twilight purple glass with futuristic neon | `#6366f1`, `#a5b4fc`, `#070918` |
+| `violet` | Soft Violet | Amethyst and orchid glass with ethereal violet tones | `#a855f7`, `#d8b4fe`, `#100718` |
+| `white` | Classic White | Minimalist monochrome crystal glass with pure highlights | `#ffffff`, `#e4e4e7`, `#080808` |
 
 ---
 

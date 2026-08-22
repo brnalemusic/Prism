@@ -334,13 +334,13 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
           >
             {/* Landing State when tab has no messages */}
             {tab.messages.length === 0 && (
-              <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-full bg-black">
+              <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-full bg-transparent select-none">
                 <div className="w-full max-w-[720px] flex flex-col items-center gap-6 z-10 my-auto">
                   <div className="flex flex-col items-center text-center space-y-2">
-                    <h1 className="text-[28px] font-semibold tracking-[-0.025em] text-text-primary">
+                    <h1 className="text-3xl font-bold tracking-tight text-text-primary">
                       What would you like to build?
                     </h1>
-                    <p className="text-sm text-text-muted">
+                    <p className="text-sm text-text-secondary/80">
                       Prism session is ready. Type your request or choose a mode.
                     </p>
                   </div>
@@ -415,7 +415,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
 
           {/* Input Bar Overlay when tab has messages */}
           {tab.messages.length > 0 && (
-            <div className="absolute bottom-0 left-0 right-0 pb-6 pt-12 z-20 pointer-events-none bg-[linear-gradient(to_top,#000_0%,#000_72%,transparent_100%)] px-4">
+            <div className="absolute bottom-0 left-0 right-0 pb-6 pt-12 z-20 pointer-events-none bg-[linear-gradient(to_top,rgba(0,0,0,0.85)_0%,rgba(0,0,0,0.45)_60%,transparent_100%)] px-4">
               {showScrollButton && (
                 <div className="absolute left-0 right-0 -top-10 flex justify-center pointer-events-none z-20 animate-soft-pop">
                   <button
@@ -426,7 +426,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       scrollToBottom('smooth')
                       setShowScrollButton(false)
                     }}
-                    className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-background-secondary/90 text-text-secondary shadow-lg backdrop-blur-md transition-all duration-200 hover:bg-white/[0.08] hover:text-text-primary active:scale-95 cursor-pointer"
+                    className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.12] bg-black/60 text-text-primary shadow-[var(--glass-shadow-md)] backdrop-blur-xl transition-all duration-150 hover:bg-white/[0.1] active:scale-95 cursor-pointer"
                     title="Scroll to bottom"
                   >
                     <CaretDown size={14} />

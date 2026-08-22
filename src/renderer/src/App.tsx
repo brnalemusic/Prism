@@ -3374,10 +3374,10 @@ function RealApp(): React.JSX.Element {
       {isSettingsModalOpen && (
         <div className="fixed inset-0 z-[100] overflow-y-auto p-3 sm:p-5 md:p-6 flex flex-col animate-soft-pop">
           <div
-            className="fixed inset-0 bg-black/84 backdrop-blur-[8px]"
+            className="fixed inset-0 bg-black/80 backdrop-blur-[12px]"
             onClick={() => setIsSettingsModalOpen(false)}
           />
-          <div className="m-auto relative w-full max-w-[1120px] h-[calc(100vh-24px)] sm:h-[min(88vh,860px)] overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-black shadow-[0_28px_80px_rgba(0,0,0,0.72)] flex flex-col z-10">
+          <div className="m-auto relative w-full max-w-[1120px] h-[calc(100vh-24px)] sm:h-[min(88vh,860px)] overflow-hidden rounded-2xl border border-white/[0.14] bg-black/85 backdrop-blur-2xl shadow-[0_28px_80px_rgba(0,0,0,0.75),var(--glass-specular-top)] flex flex-col z-10">
             <SettingsView
               initialSection={settingsInitialSection}
               onClose={() => setIsSettingsModalOpen(false)}
@@ -3391,10 +3391,10 @@ function RealApp(): React.JSX.Element {
       {!isSidebarOpen && (
         <button
           onClick={() => setIsSidebarOpen(true)}
-          className="fixed left-0 top-1/2 -translate-y-1/2 z-20 flex h-16 w-6 items-center justify-center rounded-r-xl border border-l-0 border-white/[0.05] bg-white/[0.02] text-text-secondary shadow-lg backdrop-blur-md transition-all duration-300 hover:w-8 hover:bg-white/[0.05] hover:text-text-primary cursor-pointer"
+          className="fixed left-0 top-1/2 -translate-y-1/2 z-20 flex h-16 w-6 items-center justify-center rounded-r-xl border border-l-0 border-white/[0.08] bg-white/[0.04] text-text-secondary shadow-lg backdrop-blur-xl transition-all duration-300 hover:w-8 hover:bg-white/[0.08] hover:text-text-primary cursor-pointer active:scale-95"
           title="Open Sidebar"
         >
-          <div className="h-8 w-1 rounded-full bg-white/[0.1]" />
+          <div className="h-8 w-1 rounded-full bg-white/[0.2]" />
         </button>
       )}
 
