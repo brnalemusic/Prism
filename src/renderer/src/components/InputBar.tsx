@@ -1,4 +1,4 @@
-import { useState, useRef, useImperativeHandle, forwardRef, useEffect } from 'react'
+import React, { useState, useRef, useImperativeHandle, forwardRef, useEffect, useMemo } from 'react'
 import {
   PaperPlaneRight as SendHorizontal,
   Stop as Square,
@@ -76,7 +76,8 @@ export interface InputBarHandle {
   focus: () => void
 }
 
-export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
+export const InputBar = React.memo(
+  forwardRef<InputBarHandle, InputBarProps>(
   (
     {
       onSend,
@@ -185,7 +186,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
     }, [])
 
     useEffect(() => {
-      if (!text || !setActiveWorkflow) return
+      if (!text || !text.startsWith('/') || !setActiveWorkflow) return
 
       const spaceMatch = text.match(/^(\/[^\s]+)\s/)
       if (spaceMatch) {
@@ -208,11 +209,11 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       }
     }, [text, workflows, setActiveWorkflow, setText])
 
-    const filteredWorkflows = text.startsWith('/')
-      ? workflows.filter((w) =>
-          w.command.toLowerCase().startsWith(text.toLowerCase().split(' ')[0])
-        )
-      : []
+    const filteredWorkflows = useMemo(() => {
+      if (!text.startsWith('/')) return []
+      const cmdPrefix = text.toLowerCase().split(' ')[0]
+      return workflows.filter((w) => w.command.toLowerCase().startsWith(cmdPrefix))
+    }, [text, workflows])
 
     const showSlashMenu =
       text.startsWith('/') && filteredWorkflows.length > 0 && !text.includes(' ')
@@ -417,7 +418,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
       }
       window.addEventListener('keydown', handleGlobalKeyDown)
       return () => window.removeEventListener('keydown', handleGlobalKeyDown)
-    }, [config, selectedModel, isSearchEnabled, setIsSearchEnabled, setText, isRecording])
+    }, [config, isSearchEnabled, setIsSearchEnabled, onOpenYoutubeModal, toggleRecording])
 
     useEffect(() => {
       const handleClickOutside = (event: MouseEvent): void => {
@@ -1320,7 +1321,7 @@ export const InputBar = forwardRef<InputBarHandle, InputBarProps>(
         </div>
       </div>
     )
-  }
+  })
 )
 
 InputBar.displayName = 'InputBar'

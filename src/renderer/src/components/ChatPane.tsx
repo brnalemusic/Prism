@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useMemo } from 'react'
+import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import clsx from 'clsx'
 import {
   CaretDown,
@@ -144,19 +144,75 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
       return () => clearTimeout(timer)
     }, [isFocused, tab.id])
 
-    const handleSendInputBar = (
-      message: string,
-      _searchEnabled?: boolean,
-      _screenshot?: string,
-      attachedFile?: TabSession['attachedFile']
-    ) => {
-      onSend(message, attachedFile || tab.attachedFile || undefined)
-    }
+    const [localInputText, setLocalInputText] = useState(tab.inputText)
+    const lastTabIdRef = useRef(tab.id)
+    const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+    const localInputTextRef = useRef(localInputText)
+    localInputTextRef.current = localInputText
 
-    const handleSetTextInputBar = (val: string | ((prev: string) => string)) => {
-      const nextText = typeof val === 'function' ? val(tab.inputText) : val
-      onUpdateTabInput(tab.id, nextText)
-    }
+    // Sync from tab.inputText when tab changes or external update happens (e.g. quote / clear)
+    useEffect(() => {
+      if (tab.id !== lastTabIdRef.current) {
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current)
+          debounceTimerRef.current = null
+        }
+        lastTabIdRef.current = tab.id
+        setLocalInputText(tab.inputText)
+      } else if (tab.inputText !== localInputTextRef.current) {
+        setLocalInputText(tab.inputText)
+      }
+    }, [tab.id, tab.inputText])
+
+    // Flush debounced update on unmount or tab switch
+    useEffect(() => {
+      return () => {
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current)
+          debounceTimerRef.current = null
+          onUpdateTabInput(lastTabIdRef.current, localInputTextRef.current)
+        }
+      }
+    }, [onUpdateTabInput])
+
+    const handleSendInputBar = useCallback(
+      (
+        message: string,
+        _searchEnabled?: boolean,
+        _screenshot?: string,
+        attachedFile?: TabSession['attachedFile']
+      ) => {
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current)
+          debounceTimerRef.current = null
+        }
+        setLocalInputText('')
+        localInputTextRef.current = ''
+        onUpdateTabInput(tab.id, '')
+        onSend(message, attachedFile || tab.attachedFile || undefined)
+      },
+      [onSend, onUpdateTabInput, tab.id, tab.attachedFile]
+    )
+
+    const handleSetTextInputBar = useCallback(
+      (val: string | ((prev: string) => string)) => {
+        setLocalInputText((prev) => {
+          const next = typeof val === 'function' ? val(prev) : val
+          localInputTextRef.current = next
+
+          if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current)
+          }
+          debounceTimerRef.current = setTimeout(() => {
+            debounceTimerRef.current = null
+            onUpdateTabInput(tab.id, next)
+          }, 300)
+
+          return next
+        })
+      },
+      [tab.id, onUpdateTabInput]
+    )
 
     return (
       <div
@@ -322,7 +378,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       onReasoningLevelChange={(level) =>
                         onReasoningLevelChange(tab.selectedModel, level)
                       }
-                      text={tab.inputText}
+                      text={localInputText}
                       setText={handleSetTextInputBar}
                       isSearchEnabled={tab.isSearchEnabled}
                       setIsSearchEnabled={(val) => onToggleSearch?.(val)}
@@ -411,7 +467,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                   onReasoningLevelChange={(level) =>
                     onReasoningLevelChange(tab.selectedModel, level)
                   }
-                  text={tab.inputText}
+                  text={localInputText}
                   setText={handleSetTextInputBar}
                   isSearchEnabled={tab.isSearchEnabled}
                   setIsSearchEnabled={(val) => onToggleSearch?.(val)}

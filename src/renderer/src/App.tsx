@@ -1192,7 +1192,7 @@ const TabMessagesList = React.memo(function TabMessagesList({
   tabId: string
   currentChatId?: string
   handleLoadChat: (id: string) => void
-  onOpenBrowserTab?: () => void
+  onOpenBrowserTab?: (tabId?: string) => void
   isSuggestionSendDisabled: boolean
   onSendSuggestion: (tabId: string, payload: string, suggestionKey: string) => boolean
 }) {
@@ -1204,6 +1204,17 @@ const TabMessagesList = React.memo(function TabMessagesList({
     }),
     []
   )
+
+  const handleSendRowSuggestion = useCallback(
+    (payload: string, suggestionKey: string) => {
+      return onSendSuggestion(tabId, payload, suggestionKey)
+    },
+    [tabId, onSendSuggestion]
+  )
+
+  const handleOpenBrowser = useCallback(() => {
+    onOpenBrowserTab?.(tabId)
+  }, [onOpenBrowserTab, tabId])
 
   if (messages.length === 0) return null
 
@@ -1228,9 +1239,7 @@ const TabMessagesList = React.memo(function TabMessagesList({
               msg={msg}
               i={i}
               markdownComponents={markdownComponents}
-              onSendSuggestion={(payload, suggestionKey) =>
-                onSendSuggestion(tabId, payload, suggestionKey)
-              }
+              onSendSuggestion={handleSendRowSuggestion}
               suggestionMessageKey={`${currentChatId || tabId}:user:${i}`}
               isSuggestionSendDisabled={isSuggestionSendDisabled}
             />
@@ -1245,10 +1254,8 @@ const TabMessagesList = React.memo(function TabMessagesList({
             currentChatId={currentChatId}
             handleLoadChat={handleLoadChat}
             markdownComponents={markdownComponents}
-            onOpenBrowserTab={onOpenBrowserTab}
-            onSendSuggestion={(payload, suggestionKey) =>
-              onSendSuggestion(tabId, payload, suggestionKey)
-            }
+            onOpenBrowserTab={handleOpenBrowser}
+            onSendSuggestion={handleSendRowSuggestion}
             suggestionMessageKey={`${currentChatId || tabId}:${i}`}
             isSuggestionSendDisabled={isSuggestionSendDisabled}
           />
@@ -3535,7 +3542,7 @@ function RealApp(): React.JSX.Element {
                             tabId={tab.id}
                             currentChatId={tab.chatId}
                             handleLoadChat={handleLoadChat}
-                            onOpenBrowserTab={() => handleOpenBrowserTab(tab.id)}
+                            onOpenBrowserTab={handleOpenBrowserTab}
                             isSuggestionSendDisabled={tab.isProcessing || !isOnline}
                             onSendSuggestion={handleSuggestionSend}
                           />
