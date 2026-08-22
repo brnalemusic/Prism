@@ -46,6 +46,7 @@ export interface Message {
   isConnecting?: boolean
   screenshot?: string
   file?: AttachedFile
+  quote?: string
   separatorType?: 'error' | 'cancel'
 }
 
@@ -55,6 +56,7 @@ export interface TabSession {
   title: string
   messages: Message[]
   inputText: string
+  quotedText?: string | null
   attachedFile: AttachedFile | null
   sessionMode: SessionMode
   disciplinePath: string

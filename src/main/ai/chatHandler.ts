@@ -164,15 +164,12 @@ export async function handleChatMessage(
   // Construct current user content
   let rawUserText = message
   const isForceSearch = rawUserText.startsWith('[FORCE_SEARCH]')
-  let userText = rawUserText.replace(/^\[FORCE_SEARCH\]\s*/i, '')
-
-  if (quote) {
-    userText = `> ${quote}\n\n${userText}`
-  }
+  const userText = rawUserText.replace(/^\[FORCE_SEARCH\]\s*/i, '')
 
   const userMessage: OpenAiMessage = {
     role: 'user',
-    content: userText
+    content: userText,
+    quote: quote || undefined
   }
 
   if (screenshot || attachedFile) {
@@ -533,8 +530,26 @@ function convertHistoryToOpenAi(history: OpenAiMessage[]): OpenAiMessage[] {
           tool_attachments: m.tool_attachments
         }
       }
-      const content =
+      let content =
         m.content ?? (m.parts ? m.parts.map((part) => part.text || '').join('\n') : null)
+      if (m.role === 'user' && m.quote) {
+        if (typeof content === 'string' && !content.startsWith('> ')) {
+          content = `> ${m.quote}\n\n${content}`
+        } else if (Array.isArray(content)) {
+          content = content.map((part) => {
+            if (
+              part &&
+              typeof part === 'object' &&
+              part.type === 'text' &&
+              typeof part.text === 'string' &&
+              !part.text.startsWith('> ')
+            ) {
+              return { ...part, text: `> ${m.quote}\n\n${part.text}` }
+            }
+            return part
+          })
+        }
+      }
       return {
         role: m.role === 'model' ? 'assistant' : m.role,
         content: content || '',

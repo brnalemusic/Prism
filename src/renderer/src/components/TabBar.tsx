@@ -130,7 +130,7 @@ export const TabBar: React.FC<TabBarProps> = ({
   const isContextTabVisible = contextMenu ? visibleTabIds.includes(contextMenu.tabId) : false
 
   return (
-    <div className="flex h-12 w-full items-center justify-between border-b border-white/[0.06] bg-black/50 backdrop-blur-xl px-4 select-none z-30 relative shadow-[inset_0_-1px_0_rgba(255,255,255,0.02)]">
+    <div className="flex h-12 w-full items-center justify-between border-b border-white/[0.08] bg-black/20 backdrop-blur-2xl px-4 select-none z-30 relative shadow-[inset_0_-1px_0_rgba(255,255,255,0.03)]">
       {/* Tabs Container */}
       <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-3 py-1 overflow-hidden">
         {tabs.map((tab) => {
@@ -183,9 +183,9 @@ export const TabBar: React.FC<TabBarProps> = ({
                   : isDragOver
                     ? 'bg-accent-primary/15 border-accent-primary text-text-primary shadow-[0_0_16px_var(--accent-glow)] scale-[1.03] z-10'
                     : isActive
-                      ? 'bg-white/[0.08] text-text-primary border-white/[0.14] shadow-[var(--glass-specular-top),var(--glass-shadow-sm)] backdrop-blur-md'
+                      ? 'bg-white/[0.08] text-text-primary border-white/[0.18] shadow-[var(--glass-specular-top),0_0_20px_var(--accent-glow)] backdrop-blur-md'
                       : isVisible
-                        ? 'bg-white/[0.03] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary border-white/[0.05]'
+                        ? 'bg-white/[0.03] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary border-white/[0.06]'
                         : 'bg-transparent text-text-muted hover:bg-white/[0.03] hover:text-text-secondary border-transparent'
               )}
             >

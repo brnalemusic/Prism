@@ -1071,7 +1071,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
         </>
       )}
 
-      <div className="w-full text-text-primary">
+      <div className="w-full text-text-primary" data-prism-ai-message="true">
         {!hasContent && isActive ? (
           <div className="flex items-center gap-1.5 h-6 select-none">
             {activeToolLabel ? (
@@ -1132,7 +1132,18 @@ const UserMessageRow = React.memo(function UserMessageRow({
       key={i}
       className="w-full flex flex-col items-end px-4 py-2.5 transition-all duration-700 animate-message"
     >
-      <div className="rounded-[18px] bg-white/[0.026] border border-white/[0.065] px-4.5 py-3 text-[14.5px] leading-relaxed text-text-primary max-w-[75%] shadow-md select-text">
+      <div className="rounded-2xl bg-white/[0.05] backdrop-blur-2xl border border-white/[0.12] shadow-[var(--glass-specular-top),0_8px_24px_rgba(0,0,0,0.35)] px-5 py-3.5 text-[14.5px] leading-relaxed text-text-primary max-w-[75%] select-text">
+        {msg.quote && (
+          <div className="relative mb-2.5 flex flex-col gap-1 rounded-xl bg-white/[0.04] border border-white/[0.08] border-l-[3px] border-l-accent-secondary px-3.5 py-2 select-text">
+            <div className="flex items-center gap-1.5 text-accent-secondary text-[11.5px] font-semibold tracking-wide select-none">
+              <Quotes size={13} weight="bold" />
+              <span>Prism</span>
+            </div>
+            <div className="text-xs text-text-secondary/85 line-clamp-4 font-normal leading-relaxed break-words whitespace-pre-wrap">
+              {msg.quote}
+            </div>
+          </div>
+        )}
         {msg.file && !msg.file.mimeType.startsWith('image/') && (
           <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.05] mb-2 select-none">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/[0.03] text-text-secondary">
@@ -1529,11 +1540,11 @@ function RealApp(): React.JSX.Element {
     text: string
   } | null>(null)
 
-  // Text selection listener for Answer Prism
+  // Text selection listener for Answer Prism (strictly for AI messages)
   useEffect(() => {
     const handleSelectionChange = (): void => {
       const selection = window.getSelection()
-      if (!selection || selection.isCollapsed) {
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
         setFloatingMenu(null)
         return
       }
@@ -1544,9 +1555,32 @@ function RealApp(): React.JSX.Element {
         return
       }
 
+      // Strictly ensure the selected range is entirely within an AI message container
+      const anchorNode = selection.anchorNode
+      const focusNode = selection.focusNode
+      if (!anchorNode || !focusNode) {
+        setFloatingMenu(null)
+        return
+      }
+
+      const anchorEl = anchorNode instanceof Element ? anchorNode : anchorNode.parentElement
+      const focusEl = focusNode instanceof Element ? focusNode : focusNode.parentElement
+
+      const aiAnchorContainer = anchorEl?.closest('[data-prism-ai-message="true"]')
+      const aiFocusContainer = focusEl?.closest('[data-prism-ai-message="true"]')
+
+      if (!aiAnchorContainer || !aiFocusContainer || aiAnchorContainer !== aiFocusContainer) {
+        setFloatingMenu(null)
+        return
+      }
+
       try {
         const range = selection.getRangeAt(0)
         const rect = range.getBoundingClientRect()
+        if (rect.width === 0 && rect.height === 0) {
+          setFloatingMenu(null)
+          return
+        }
 
         setFloatingMenu({
           x: rect.left + rect.width / 2,
@@ -1565,10 +1599,9 @@ function RealApp(): React.JSX.Element {
   }, [])
 
   const handleAnswerPrism = useCallback((quoteText: string): void => {
-    const blockquote = `> ${quoteText.replace(/\n/g, '\n> ')}\n\n`
     setTabs((prev) =>
       prev.map((t) =>
-        t.id === activeTabIdRef.current ? { ...t, inputText: blockquote + t.inputText } : t
+        t.id === activeTabIdRef.current ? { ...t, quotedText: quoteText } : t
       )
     )
     setQuotedText(quoteText)
@@ -2149,10 +2182,21 @@ function RealApp(): React.JSX.Element {
             continue
           }
 
-          const displayText = rawText
+          let quote: string | undefined =
+            typeof c.quote === 'string' && c.quote.trim() ? c.quote.trim() : undefined
+          let displayText = rawText
             .replace(/^\[FORCE_SEARCH\]\s*/i, '')
             .replace(/<attached_file[^>]*\/>/gi, '')
             .trim()
+
+          // Backward compatibility: If no explicit quote property exists, check if text starts with markdown blockquote
+          if (!quote && displayText.startsWith('> ')) {
+            const quoteMatch = displayText.match(/^> ([\s\S]*?)\n\n([\s\S]*)$/)
+            if (quoteMatch) {
+              quote = quoteMatch[1].replace(/\n> /g, '\n').trim()
+              displayText = quoteMatch[2].trim()
+            }
+          }
 
           let screenshot: string | undefined = undefined
           let file: AttachedFile | undefined = undefined
@@ -2174,6 +2218,7 @@ function RealApp(): React.JSX.Element {
           messages.push({
             role: 'user',
             content: displayText,
+            quote,
             screenshot,
             file
           })
@@ -2403,6 +2448,7 @@ function RealApp(): React.JSX.Element {
       const isSuggestion = options.isSuggestion === true
       const chatId = currentTab.chatId || Date.now().toString()
       const activeFile = isSuggestion ? undefined : options.file || currentTab.attachedFile
+      const activeQuote = isSuggestion ? undefined : currentTab.quotedText || quotedTextRef.current || undefined
       const activeScreenshot = activeFile?.mimeType.startsWith('image/')
         ? activeFile.data
         : undefined
@@ -2413,6 +2459,7 @@ function RealApp(): React.JSX.Element {
       const userMessage: Message = {
         role: 'user',
         content: displayContent,
+        quote: activeQuote,
         screenshot: activeScreenshot || undefined,
         file: activeFile || undefined
       }
@@ -2433,6 +2480,7 @@ function RealApp(): React.JSX.Element {
             : {
                 ...updatedTab,
                 inputText: '',
+                quotedText: null,
                 attachedFile: null,
                 isSearchEnabled: false
               }
@@ -2455,7 +2503,7 @@ function RealApp(): React.JSX.Element {
         chatId,
         screenshot: activeScreenshot || undefined,
         attachedFile: activeFile || undefined,
-        quote: isSuggestion ? undefined : quotedTextRef.current || undefined,
+        quote: activeQuote,
         appMode: options.forceYoutube ? 'youtube' : undefined,
         sessionMode,
         disciplinePath: sessionMode === 'discipline' ? currentTab.disciplinePath : '',
@@ -3347,7 +3395,7 @@ function RealApp(): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-black font-sans selection:bg-accent-primary/30 pt-10">
+    <div className="flex h-screen w-screen overflow-hidden bg-transparent font-sans selection:bg-accent-primary/30 pt-10 relative">
       {!bootComplete && (
         <LoadingScreen
           onComplete={(connectionFailed?: boolean) => {
@@ -3526,6 +3574,11 @@ function RealApp(): React.JSX.Element {
                             prev.map((t) => (t.id === id ? { ...t, attachedFile: file } : t))
                           )
                         }}
+                        onUpdateTabQuote={(id, quote) => {
+                          setTabs((prev) =>
+                            prev.map((t) => (t.id === id ? { ...t, quotedText: quote } : t))
+                          )
+                        }}
                         onUpdateTabDisabledSkills={(id, disabledSkills) => {
                           setTabs((prev) =>
                             prev.map((t) => (t.id === id ? { ...t, disabledSkills } : t))
@@ -3594,7 +3647,7 @@ function RealApp(): React.JSX.Element {
       />
       {floatingMenu && (
         <div
-          className="fixed z-50 flex items-center justify-center bg-background-secondary/95 border border-white/10 px-3 py-1.5 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-md cursor-pointer select-none pointer-events-auto"
+          className="fixed z-50 flex items-center justify-center bg-background-secondary/95 border border-white/10 hover:border-accent-secondary/40 hover:bg-white/[0.08] px-3.5 py-1.5 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-md cursor-pointer select-none pointer-events-auto transition-all duration-150 active:scale-95 group animate-soft-pop"
           style={{
             left: `${floatingMenu.x}px`,
             top: `${floatingMenu.y}px`,
@@ -3606,8 +3659,8 @@ function RealApp(): React.JSX.Element {
           }}
           onClick={() => handleAnswerPrism(floatingMenu.text)}
         >
-          <Quotes size={14} className="text-accent-secondary mr-1.5" />
-          <span className="text-xs font-semibold text-text-primary hover:text-accent-secondary transition-colors duration-150">
+          <Quotes size={14} weight="bold" className="text-accent-secondary mr-1.5 group-hover:scale-110 transition-transform" />
+          <span className="text-xs font-semibold text-text-primary group-hover:text-accent-secondary transition-colors duration-150">
             Answer Prism
           </span>
         </div>

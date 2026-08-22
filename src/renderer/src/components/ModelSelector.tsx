@@ -216,14 +216,14 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
           disabled={disabled}
           onClick={() => setIsOpen(!isOpen)}
           className={clsx(
-            'flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs sm:text-sm font-semibold outline-none transition-colors duration-200 border hover:bg-[var(--surface-raised)] hover:border-[var(--border-strong)] cursor-pointer',
+            'flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs sm:text-[13px] font-semibold outline-none transition-all duration-150 border cursor-pointer shadow-[var(--glass-specular-top)] active:scale-95',
             isOpen
-              ? 'bg-[var(--surface-raised)] text-text-primary border-[var(--border-strong)]'
-              : 'bg-transparent text-text-primary border-[var(--border-default)]',
+              ? 'bg-white/[0.1] text-text-primary border-white/[0.2]'
+              : 'bg-white/[0.04] text-text-primary border-white/[0.08] hover:bg-white/[0.08] hover:border-white/[0.15]',
             disabled && 'cursor-not-allowed opacity-50'
           )}
         >
-          <span className="text-xs sm:text-[13.5px] font-bold tracking-wide truncate max-w-[160px] sm:max-w-[220px]">
+          <span className="text-xs sm:text-[13px] font-bold tracking-wide truncate max-w-[160px] sm:max-w-[220px]">
             {displayName}
           </span>
           <ChevronDown
@@ -238,12 +238,12 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         {isOpen && (
           <div
             className={clsx(
-              'absolute top-full mt-2 w-72 sm:w-80 z-[200] rounded-xl border border-[var(--border-strong)] bg-[var(--surface-raised)] shadow-[0_20px_50px_rgba(0,0,0,0.65)] overflow-hidden flex flex-col max-h-96 animate-soft-pop',
+              'glass-panel-floating absolute top-full mt-2 w-72 sm:w-80 z-[200] rounded-2xl border border-white/[0.16] shadow-[0_24px_60px_rgba(0,0,0,0.8),var(--glass-specular-top)] overflow-hidden flex flex-col max-h-96 animate-soft-pop',
               align === 'left' ? 'left-0' : 'right-0'
             )}
           >
             {/* Search Box */}
-            <div className="border-b border-[var(--border-default)] bg-black p-2.5">
+            <div className="border-b border-white/[0.08] bg-white/[0.02] p-2.5">
               <div className="relative">
                 <MagnifyingGlass size={14} className="absolute left-3 top-2.5 text-text-muted" />
                 <input
@@ -251,7 +251,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search models or providers..."
-                  className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--surface-lowest)] py-1.5 pl-9 pr-3 text-xs text-text-primary placeholder-text-muted focus:border-accent-primary focus:outline-none"
+                  className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] py-1.5 pl-9 pr-3 text-xs text-text-primary placeholder-text-muted focus:border-white/[0.2] focus:outline-none"
                   autoFocus
                 />
               </div>

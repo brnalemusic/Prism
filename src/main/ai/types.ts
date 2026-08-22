@@ -88,12 +88,15 @@ export interface OpenAiMessage {
   thinking_duration?: number
   isSystemNotification?: boolean
   hidden?: boolean
+  quote?: string
   provider_metadata?: {
     gemini?: {
       content: GeminiContentData
     }
   }
 }
+
+export type OpenAiToolCall = NonNullable<OpenAiMessage['tool_calls']>[number]
 
 export interface OpenAiToolDefinition {
   type: 'function'

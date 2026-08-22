@@ -75,7 +75,7 @@ export function TitleBar({
   }
 
   return (
-    <div className="fixed left-0 top-0 z-[100] flex h-10 w-full select-none items-center justify-between border-b border-white/[0.06] bg-black/60 backdrop-blur-xl px-3 drag-region shadow-[inset_0_-1px_0_rgba(255,255,255,0.02)]">
+    <div className="fixed left-0 top-0 z-[100] flex h-10 w-full select-none items-center justify-between border-b border-white/[0.07] bg-black/25 backdrop-blur-2xl px-3 drag-region shadow-[inset_0_-1px_0_rgba(255,255,255,0.03)]">
       {isMac ? <div className="pl-[72px] no-drag-region" /> : <div className="no-drag-region" />}
 
       {title && (

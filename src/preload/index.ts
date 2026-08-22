@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent, webFrame } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+
+// Increase max listeners to prevent warnings when multiple React components subscribe to config/events
+ipcRenderer.setMaxListeners(50)
 import type { StructuredChatResponse, StreamingToolCall } from '../main/ai'
 import type { AppConfig } from '../main/config'
 import type {

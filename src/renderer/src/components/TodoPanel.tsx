@@ -144,7 +144,7 @@ function TodoPanel({
   return (
     <div className="w-[70%] mx-auto relative select-none animate-fade-in z-20 transition-all duration-300">
       {/* Attached Card Docked Above InputBar */}
-      <div className="relative overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-[var(--border-default)] bg-[var(--surface-lowest)]">
+      <div className="relative overflow-hidden rounded-t-2xl rounded-b-none border border-b-0 border-white/[0.12] bg-black/40 backdrop-blur-2xl shadow-[var(--glass-specular-top)]">
         {/* Background accent glow */}
         <div className="absolute -top-20 -right-20 w-48 h-48 rounded-full bg-accent-primary/8 blur-[60px] pointer-events-none" />
 

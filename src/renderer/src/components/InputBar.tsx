@@ -21,7 +21,9 @@ import {
   Folder,
   CaretDown,
   Check,
-  Sparkle
+  Sparkle,
+  Quotes,
+  X
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
 import { useSpeechToText } from '../hooks/useSpeechToText'
@@ -46,6 +48,8 @@ interface InputBarProps {
   onModelChange?: (modelId: string) => void
   text: string
   setText: (val: string | ((prev: string) => string)) => void
+  quotedText?: string | null
+  onClearQuote?: () => void
   isSearchEnabled: boolean
   setIsSearchEnabled: (val: boolean) => void
   isFullscreen: boolean
@@ -88,6 +92,8 @@ export const InputBar = React.memo(
       selectedModel = '',
       text,
       setText,
+      quotedText,
+      onClearQuote,
       isSearchEnabled,
       setIsSearchEnabled,
       isFullscreen,
@@ -581,10 +587,10 @@ export const InputBar = React.memo(
             </button>
 
             {showAttachMenu && (
-              <div className="glass-panel-floating absolute bottom-full left-0 mb-3 z-[60] w-52 p-1.5 animate-soft-pop text-left shadow-[var(--glass-shadow-lg)]">
+              <div className="glass-dropdown-panel absolute bottom-full left-0 mb-3 z-[60] w-52 p-1.5 animate-soft-pop text-left">
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.06] transition-all text-left"
+                  className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-all text-left"
                 >
                   <Paperclip size={15} className="text-text-secondary" />
                   <div className="flex flex-col">
@@ -600,7 +606,7 @@ export const InputBar = React.memo(
                     onOpenScreenshotModal?.()
                     setShowAttachMenu(false)
                   }}
-                  className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.04] transition-all text-left"
+                  className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-all text-left"
                 >
                   <Camera size={16} className="text-text-secondary" />
                   <div className="flex flex-col">
@@ -617,7 +623,7 @@ export const InputBar = React.memo(
                     setShowAttachMenu(false)
                   }}
                   className={clsx(
-                    'w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-white/[0.04] transition-all text-left',
+                    'w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-white/[0.07] transition-all text-left',
                     isSearchEnabled ? 'text-accent-secondary' : 'text-text-primary'
                   )}
                 >
@@ -640,7 +646,7 @@ export const InputBar = React.memo(
                     onOpenYoutubeModal?.()
                     setShowAttachMenu(false)
                   }}
-                  className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.04] transition-all text-left"
+                  className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-all text-left"
                 >
                   <CirclePlay size={16} className="text-accent-primary" />
                   <div className="flex flex-col">
@@ -659,7 +665,7 @@ export const InputBar = React.memo(
                 >
                   <button
                     onClick={() => setShowSkillsMenu(!showSkillsMenu)}
-                    className="w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.04] transition-all text-left"
+                    className="w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-all text-left"
                   >
                     <div className="flex items-center gap-2.5">
                       <Sparkle size={16} className="text-text-secondary" />
@@ -676,7 +682,7 @@ export const InputBar = React.memo(
                   {/* Drop-side submenu to the right */}
                   {showSkillsMenu && (
                     <div className="absolute left-full bottom-0 pl-1.5 z-[70] -ml-px">
-                      <div className="model-menu-panel w-52 p-2 animate-soft-pop text-left space-y-1">
+                      <div className="glass-dropdown-panel w-52 p-2 animate-soft-pop text-left space-y-1">
                         <div className="px-2 py-1 text-[10px] font-bold text-text-secondary/40 uppercase tracking-wider">
                           AI Skills
                         </div>
@@ -907,8 +913,8 @@ export const InputBar = React.memo(
             </button>
 
             {showModeMenu && (
-              <div className="session-mode-dropdown-panel absolute bottom-full right-0 mb-4 z-50 w-72 p-2 animate-soft-pop text-left premium-panel">
-                <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.04] mb-1">
+              <div className="session-mode-dropdown-panel glass-dropdown-panel absolute bottom-full right-0 mb-3 z-50 w-72 p-2 animate-soft-pop text-left">
+                <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.06] mb-1">
                   Select Session Mode
                 </div>
 
@@ -1080,6 +1086,35 @@ export const InputBar = React.memo(
       </div>
     )
 
+    const renderQuotedPreview = (): React.JSX.Element | null => {
+      if (!quotedText) return null
+      return (
+        <div className="w-full pb-2.5 flex items-center justify-between gap-3 relative animate-soft-pop select-none">
+          <div className="flex-1 flex items-start gap-2.5 px-3.5 py-2 rounded-2xl border border-white/[0.08] bg-white/[0.035] backdrop-blur-md relative shadow-sm min-w-0 border-l-[3px] border-l-accent-secondary">
+            <Quotes size={15} weight="bold" className="text-accent-secondary shrink-0 mt-0.5" />
+            <div className="flex flex-col min-w-0 flex-1">
+              <span className="text-[11px] font-semibold text-accent-secondary tracking-wide flex items-center gap-1">
+                Replying to Prism
+              </span>
+              <span className="text-xs text-text-secondary/85 line-clamp-2 break-words font-normal leading-relaxed mt-0.5">
+                {quotedText}
+              </span>
+            </div>
+            {onClearQuote && (
+              <button
+                type="button"
+                onClick={onClearQuote}
+                className="p-1 rounded-lg text-text-secondary/50 hover:text-text-primary hover:bg-white/[0.08] transition-colors shrink-0 cursor-pointer"
+                title="Remove quote"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+      )
+    }
+
     if (isFullscreen) {
       return (
         <div className="flex-1 flex flex-col w-full h-full p-5 sm:p-6 animate-fade-in relative z-20 pointer-events-auto">
@@ -1100,12 +1135,25 @@ export const InputBar = React.memo(
 
           <div
             className={clsx(
-              'glass-panel-floating flex-1 flex flex-col rounded-2xl border border-white/[0.14] p-4 transition-all duration-300 relative input-border-glow shadow-2xl',
+              'liquid-glass-input flex-1 flex flex-col rounded-3xl p-5 transition-all duration-300 relative input-border-glow overflow-visible',
               modeStyles,
-              isFocused && 'prism-glow active',
+              isFocused && 'active',
               disabled && 'opacity-60'
             )}
           >
+            {/* Subtle internal theme center glow (+30% brightness on focus) */}
+            <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none">
+              <div
+                className={clsx(
+                  'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3/4 h-3/4 rounded-full blur-[48px] transition-all duration-300',
+                  isFocused ? 'opacity-28 scale-105' : 'opacity-18 scale-100'
+                )}
+                style={{
+                  background: 'radial-gradient(ellipse at center, var(--accent-primary) 0%, transparent 70%)'
+                }}
+              />
+            </div>
+            {renderQuotedPreview()}
             {attachedFile && (
               <div className="w-full pb-3 flex flex-wrap items-center justify-start gap-3 relative animate-soft-pop select-none">
                 <div className="relative group/thumb flex items-center gap-2">
@@ -1220,12 +1268,25 @@ export const InputBar = React.memo(
         <div className="relative">
           <div
             className={clsx(
-              'relative rounded-2xl border border-white/[0.14] bg-black/60 backdrop-blur-2xl transition-all duration-300 input-border-glow flex flex-col overflow-visible px-4 pt-3.5 pb-2.5 shadow-[var(--glass-specular-top),var(--glass-shadow-lg)]',
+              'liquid-glass-input relative rounded-[26px] transition-all duration-300 input-border-glow flex flex-col overflow-visible px-4.5 pt-4 pb-3',
               modeStyles,
-              isFocused && !disabled && 'prism-glow active',
+              isFocused && !disabled && 'active',
               disabled && 'opacity-60'
             )}
           >
+            {/* Subtle internal theme center glow (+30% brightness on focus) */}
+            <div className="absolute inset-0 rounded-[26px] overflow-hidden pointer-events-none">
+              <div
+                className={clsx(
+                  'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3/4 h-3/4 rounded-full blur-[36px] transition-all duration-300',
+                  isFocused ? 'opacity-28 scale-105' : 'opacity-18 scale-100'
+                )}
+                style={{
+                  background: 'radial-gradient(ellipse at center, var(--accent-primary) 0%, transparent 70%)'
+                }}
+              />
+            </div>
+            {renderQuotedPreview()}
             {attachedFile && (
               <div className="w-full pb-3 flex flex-wrap items-center justify-start gap-3 relative animate-soft-pop select-none">
                 <div className="relative group/thumb flex items-center gap-2">

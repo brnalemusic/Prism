@@ -42,6 +42,7 @@ interface ChatPaneProps {
   onSelectFolder: () => void
   onUpdateTabInput: (id: string, text: string) => void
   onUpdateTabFile: (id: string, file: TabSession['attachedFile']) => void
+  onUpdateTabQuote?: (id: string, quote: string | null) => void
   onUpdateTabDisabledSkills?: (id: string, disabledSkills: string[]) => void
   onToggleSearch?: (enabled?: boolean) => void
   onOpenScreenshotModal: () => void
@@ -73,6 +74,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     onSelectFolder,
     onUpdateTabInput,
     onUpdateTabFile,
+    onUpdateTabQuote,
     onUpdateTabDisabledSkills,
     onToggleSearch,
     onOpenScreenshotModal,
@@ -380,6 +382,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       }
                       text={localInputText}
                       setText={handleSetTextInputBar}
+                      quotedText={tab.quotedText}
+                      onClearQuote={() => onUpdateTabQuote?.(tab.id, null)}
                       isSearchEnabled={tab.isSearchEnabled}
                       setIsSearchEnabled={(val) => onToggleSearch?.(val)}
                       isFullscreen={false}
@@ -415,7 +419,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
 
           {/* Input Bar Overlay when tab has messages */}
           {tab.messages.length > 0 && (
-            <div className="absolute bottom-0 left-0 right-0 pb-6 pt-12 z-20 pointer-events-none bg-[linear-gradient(to_top,rgba(0,0,0,0.85)_0%,rgba(0,0,0,0.45)_60%,transparent_100%)] px-4">
+            <div className="absolute bottom-0 left-0 right-0 pb-6 pt-12 z-20 pointer-events-none bg-[linear-gradient(to_top,rgba(0,0,0,0.45)_0%,rgba(0,0,0,0.15)_50%,transparent_100%)] px-4">
               {showScrollButton && (
                 <div className="absolute left-0 right-0 -top-10 flex justify-center pointer-events-none z-20 animate-soft-pop">
                   <button
@@ -469,6 +473,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                   }
                   text={localInputText}
                   setText={handleSetTextInputBar}
+                  quotedText={tab.quotedText}
+                  onClearQuote={() => onUpdateTabQuote?.(tab.id, null)}
                   isSearchEnabled={tab.isSearchEnabled}
                   setIsSearchEnabled={(val) => onToggleSearch?.(val)}
                   isFullscreen={false}

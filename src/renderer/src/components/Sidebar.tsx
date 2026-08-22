@@ -289,7 +289,7 @@ export function Sidebar({
   return (
     <aside
       className={clsx(
-        'relative h-full flex flex-row border-r border-white/[0.06] bg-black/40 backdrop-blur-2xl transition-all duration-300 ease-in-out overflow-hidden z-20 select-none shadow-[1px_0_0_0_rgba(255,255,255,0.02)]',
+        'relative h-full flex flex-row border-r border-white/[0.08] bg-black/25 backdrop-blur-3xl transition-all duration-300 ease-in-out overflow-hidden z-20 select-none shadow-[1px_0_0_0_rgba(255,255,255,0.03),8px_0_32px_rgba(0,0,0,0.35)]',
         isOpen
           ? viewMoreGroupId
             ? 'w-[580px] opacity-100'
@@ -306,7 +306,7 @@ export function Sidebar({
             <img
               src={prismIcon}
               alt="Prism Logo"
-              className="h-7 w-7 rounded-lg object-cover border border-white/[0.08] shadow-sm self-center"
+              className="h-7 w-7 rounded-lg object-cover border border-white/[0.12] shadow-md self-center"
             />
             <div className="flex items-baseline gap-1.5 min-w-0">
               <h1 className="text-sm font-semibold text-text-primary tracking-wide">Prism</h1>
@@ -339,7 +339,7 @@ export function Sidebar({
         <div className="px-3 pb-2 pt-1 shrink-0">
           <button
             onClick={() => onNewChat()}
-            className="group flex w-full items-center justify-center gap-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-xs font-semibold text-text-primary transition-all duration-200 cursor-pointer py-2.5 px-3 border border-white/[0.08] hover:border-white/[0.14] shadow-[var(--glass-specular-top),var(--glass-shadow-sm)] active:scale-[0.98]"
+            className="group flex w-full items-center justify-center gap-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] text-xs font-semibold text-text-primary transition-all duration-200 cursor-pointer py-2.5 px-3 border border-white/[0.12] hover:border-white/[0.22] shadow-[var(--glass-specular-top),0_4px_16px_rgba(0,0,0,0.3)] active:scale-[0.98]"
           >
             <NotePencil
               size={15}
@@ -483,7 +483,7 @@ export function Sidebar({
         </div>
 
         {/* Footer */}
-        <div className="mt-auto p-3 shrink-0 border-t border-[var(--border-subtle)] bg-[var(--sidebar-bg)]">
+        <div className="mt-auto p-3 shrink-0 border-t border-white/[0.07] bg-transparent">
           <UserAccountCard
             user={authUser || null}
             onOpenAuth={onOpenAuth || (() => {})}
@@ -503,7 +503,7 @@ export function Sidebar({
       {/* Right Column - Folder Chats Panel */}
       <div
         className={clsx(
-          'h-full flex flex-col border-l border-[var(--border-default)] bg-[var(--sidebar-bg)] transition-all duration-300 ease-in-out overflow-hidden',
+          'h-full flex flex-col border-l border-white/[0.07] bg-transparent transition-all duration-300 ease-in-out overflow-hidden',
           viewMoreGroupId ? 'w-[320px] opacity-100' : 'w-0 opacity-0 pointer-events-none'
         )}
       >

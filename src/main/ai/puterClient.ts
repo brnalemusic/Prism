@@ -3,9 +3,9 @@ import { shell } from 'electron'
 import { puter } from '@heyputer/puter.js'
 import { ProviderConfig, ProviderModel } from '../../shared/types'
 import { isModelTrusted } from './trustedRegistry'
-import { sanitizeOpenAiMessages } from './openaiClient'
+import { asDataUrl, imageAttachments } from '../toolAttachments'
 import type { StreamCallbacks, StreamResult } from './openaiClient'
-import type { OpenAiMessage, OpenAiToolDefinition } from './types'
+import type { OpenAiMessage, OpenAiToolDefinition, OpenAiToolCall } from './types'
 
 export interface PuterUser {
   username?: string
@@ -451,6 +451,85 @@ export function startPuterLoginFlow(guiOrigin: string = 'https://puter.com'): Pr
 }
 
 /**
+ * Sanitizes messages specifically for Puter.js driver protocol.
+ * Puter.js SDK and downstream model drivers require `content` to be a string or array of parts (never null),
+ * and requires tool responses to have valid `tool_call_id` and string `content`.
+ */
+export function sanitizePuterMessages(messages: OpenAiMessage[]): OpenAiMessage[] {
+  return messages.flatMap((m) => {
+    let cleanContent: OpenAiMessage['content'] = m.content
+    if (cleanContent === undefined || cleanContent === null) {
+      cleanContent = ''
+    }
+
+    const cleanMsg: OpenAiMessage = {
+      role: m.role === 'model' ? 'assistant' : m.role,
+      content: cleanContent
+    }
+    if (m.name) cleanMsg.name = m.name
+
+    if (m.tool_calls && m.tool_calls.length > 0) {
+      cleanMsg.tool_calls = m.tool_calls.map((tc) => {
+        const thoughtSig =
+          tc.thought_signature ||
+          tc.extra_content?.google?.thought_signature ||
+          tc.thoughtSignature ||
+          tc.extra_content?.thought_signature
+
+        const cleanTc: OpenAiToolCall = {
+          id: tc.id || `call_${Date.now()}`,
+          type: 'function',
+          function: {
+            name: tc.function?.name || '',
+            arguments:
+              typeof tc.function?.arguments === 'string'
+                ? tc.function.arguments
+                : JSON.stringify(tc.function?.arguments || {})
+          }
+        }
+
+        if (thoughtSig) {
+          cleanTc.thought_signature = thoughtSig
+          cleanTc.extra_content = tc.extra_content || { google: { thought_signature: thoughtSig } }
+        } else if (tc.extra_content) {
+          cleanTc.extra_content = tc.extra_content
+        }
+
+        return cleanTc
+      })
+    }
+
+    if (m.tool_call_id) {
+      cleanMsg.tool_call_id = m.tool_call_id
+    }
+
+    const attachments = imageAttachments(m.tool_attachments)
+    if (m.role === 'tool' && attachments.length > 0) {
+      return [
+        cleanMsg,
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text:
+                `The tool "${m.name || 'unknown_tool'}" returned the attached image. ` +
+                'Inspect it and continue the original task. Do not call the same screenshot tool again unless a new screen state is required.'
+            },
+            ...attachments.map((attachment) => ({
+              type: 'image_url',
+              image_url: { url: asDataUrl(attachment) }
+            }))
+          ]
+        }
+      ]
+    }
+
+    return [cleanMsg]
+  })
+}
+
+/**
  * Streams chat completions directly using Puter.js native driver protocol:
  * POST https://api.puter.com/drivers/call
  * interface: 'puter-chat-completion', driver: 'ai-chat', method: 'complete'
@@ -469,7 +548,7 @@ export async function streamPuterCompletion(
   const authToken = provider.apiKey?.trim() || ''
   const endpoint = 'https://api.puter.com/drivers/call'
 
-  const formattedMessages = sanitizeOpenAiMessages(messages)
+  const formattedMessages = sanitizePuterMessages(messages)
 
   const driverArgs: Record<string, unknown> = {
     messages: formattedMessages,
@@ -578,11 +657,8 @@ export async function streamPuterCompletion(
           } else if (parsed.type === 'tool_use' || parsed.tool_use) {
             // Puter Native tool_use chunk: { type: "tool_use", id: "...", name: "...", input: {...} }
             const tu = parsed.tool_use || parsed
-            const callId =
-              tu.id ||
-              parsed.id ||
-              parsed.function?.id ||
-              `call_${Date.now()}_${toolCallsMap.size}`
+            const hasRealId = Boolean(tu.id || parsed.id || parsed.function?.id)
+            const explicitId = tu.id || parsed.id || parsed.function?.id || ''
             const name =
               tu.name ||
               parsed.name ||
@@ -604,16 +680,26 @@ export async function streamPuterCompletion(
                   ? JSON.stringify(rawArgs)
                   : ''
 
-            let existingIdx = -1
-            for (const [idx, item] of toolCallsMap.entries()) {
-              if (callId && item.id === callId) {
-                existingIdx = idx
-                break
+            const rawIndex =
+              typeof tu.index === 'number'
+                ? tu.index
+                : typeof parsed.index === 'number'
+                  ? parsed.index
+                  : undefined
+
+            let existingIdx = typeof rawIndex === 'number' ? rawIndex : -1
+            if (existingIdx === -1 && explicitId) {
+              for (const [idx, item] of toolCallsMap.entries()) {
+                if (item.id === explicitId) {
+                  existingIdx = idx
+                  break
+                }
               }
             }
 
             if (existingIdx === -1) {
               existingIdx = toolCallsMap.size
+              const callId = explicitId || `call_${Date.now()}_${existingIdx}`
               const entry = { id: callId, name, args: argsStr }
               toolCallsMap.set(existingIdx, entry)
               callbacks.onToolCallDelta({
@@ -624,6 +710,7 @@ export async function streamPuterCompletion(
               })
             } else {
               const existing = toolCallsMap.get(existingIdx)!
+              if (explicitId && (!existing.id || !hasRealId)) existing.id = explicitId
               if (name && !existing.name) existing.name = name
               if (argsStr) {
                 existing.args = existing.args ? existing.args + argsStr : argsStr
@@ -635,83 +722,78 @@ export async function streamPuterCompletion(
                 argsDelta: argsStr
               })
             }
-          }
-
-          // 3. Fallback: Choice / Delta format (if upstream driver returns standard OpenAI/Delta objects)
-          const choice = parsed.choices?.[0] || parsed
-          const delta = choice?.delta || parsed.delta || choice?.message || parsed.message
-          if (delta) {
-            if (choice?.finish_reason) {
-              finishReason = choice.finish_reason
-            }
-
-            const reasoningChunk =
-              delta.reasoning_content ||
-              delta.reasoning ||
-              delta.thinking ||
-              delta.thought ||
-              ''
-            if (reasoningChunk && parsed.type !== 'reasoning') {
-              fullReasoning += reasoningChunk
-              callbacks.onReasoningDelta(reasoningChunk)
-            }
-
-            const textChunk = delta.content || ''
-            if (textChunk && parsed.type !== 'text') {
-              fullText += textChunk
-              callbacks.onTextDelta(textChunk)
-            }
-
-            const toolCallsList = Array.isArray(delta.tool_calls)
-              ? delta.tool_calls
-              : Array.isArray(parsed.tool_calls)
-                ? parsed.tool_calls
-                : null
-
-            if (toolCallsList && parsed.type !== 'tool_use' && !parsed.tool_use) {
-              for (const tcDelta of toolCallsList) {
-                const idx = tcDelta.index ?? toolCallsMap.size
-                let existing = toolCallsMap.get(idx)
-                if (!existing) {
-                  existing = {
-                    id: tcDelta.id || `call_${Date.now()}_${idx}`,
-                    name: tcDelta.function?.name || tcDelta.name || '',
-                    args: ''
-                  }
-                  toolCallsMap.set(idx, existing)
-                }
-                if (tcDelta.id && !existing.id) existing.id = tcDelta.id
-                const tcName = tcDelta.function?.name || tcDelta.name
-                if (tcName && !existing.name) existing.name = tcName
-
-                const rawTcArgs = tcDelta.function?.arguments ?? tcDelta.arguments ?? tcDelta.input
-                const argsChunk =
-                  typeof rawTcArgs === 'string'
-                    ? rawTcArgs
-                    : rawTcArgs !== undefined && rawTcArgs !== null
-                      ? JSON.stringify(rawTcArgs)
-                      : ''
-
-                if (argsChunk) existing.args += argsChunk
-                callbacks.onToolCallDelta({
-                  index: idx,
-                  id: existing.id,
-                  name: existing.name,
-                  argsDelta: argsChunk
-                })
+          } else {
+            // 3. Fallback: Choice / Delta format (if upstream driver returns standard OpenAI/Delta objects)
+            const choice = parsed.choices?.[0] || (parsed.delta ? parsed : null)
+            const delta = choice?.delta || choice?.message || parsed.delta || parsed.message
+            if (delta) {
+              if (choice?.finish_reason) {
+                finishReason = choice.finish_reason
               }
-            }
-          }
 
-          // 4. Raw direct text field on parsed object if not already handled
-          if (
-            parsed.text &&
-            parsed.type !== 'text' &&
-            !delta?.content &&
-            typeof parsed.text === 'string'
-          ) {
-            fullText += parsed.text
-            callbacks.onTextDelta(parsed.text)
+              const reasoningChunk =
+                delta.reasoning_content ||
+                delta.reasoning ||
+                delta.thinking ||
+                delta.thought ||
+                ''
+              if (reasoningChunk) {
+                fullReasoning += reasoningChunk
+                callbacks.onReasoningDelta(reasoningChunk)
+              }
+
+              const textChunk = delta.content || ''
+              if (textChunk) {
+                fullText += textChunk
+                callbacks.onTextDelta(textChunk)
+              }
+
+              const toolCallsList = Array.isArray(delta.tool_calls)
+                ? delta.tool_calls
+                : Array.isArray(parsed.tool_calls)
+                  ? parsed.tool_calls
+                  : null
+
+              if (toolCallsList) {
+                for (const tcDelta of toolCallsList) {
+                  const idx = tcDelta.index ?? toolCallsMap.size
+                  let existing = toolCallsMap.get(idx)
+                  if (!existing) {
+                    existing = {
+                      id: tcDelta.id || `call_${Date.now()}_${idx}`,
+                      name: tcDelta.function?.name || tcDelta.name || '',
+                      args: ''
+                    }
+                    toolCallsMap.set(idx, existing)
+                  }
+                  if (tcDelta.id && !existing.id) existing.id = tcDelta.id
+                  const tcName = tcDelta.function?.name || tcDelta.name
+                  if (tcName && !existing.name) existing.name = tcName
+
+                  const rawTcArgs = tcDelta.function?.arguments ?? tcDelta.arguments ?? tcDelta.input
+                  const argsChunk =
+                    typeof rawTcArgs === 'string'
+                      ? rawTcArgs
+                      : rawTcArgs !== undefined && rawTcArgs !== null
+                        ? JSON.stringify(rawTcArgs)
+                        : ''
+
+                  if (argsChunk) existing.args += argsChunk
+                  callbacks.onToolCallDelta({
+                    index: idx,
+                    id: existing.id,
+                    name: existing.name,
+                    argsDelta: argsChunk
+                  })
+                }
+              }
+            } else if (
+              parsed.text &&
+              typeof parsed.text === 'string'
+            ) {
+              fullText += parsed.text
+              callbacks.onTextDelta(parsed.text)
+            }
           }
         } catch (parseErr: unknown) {
           if (
@@ -727,12 +809,14 @@ export async function streamPuterCompletion(
     reader.releaseLock()
   }
 
-  const toolCalls = Array.from(toolCallsMap.values()).map((tc) => ({
-    id: tc.id,
-    name: tc.name,
-    args: tc.args,
-    thoughtSignature: tc.thoughtSignature
-  }))
+  const toolCalls = Array.from(toolCallsMap.values())
+    .filter((tc) => Boolean(tc.name && tc.name.trim()))
+    .map((tc) => ({
+      id: tc.id,
+      name: tc.name,
+      args: tc.args || '{}',
+      thoughtSignature: tc.thoughtSignature
+    }))
 
   return {
     text: fullText,

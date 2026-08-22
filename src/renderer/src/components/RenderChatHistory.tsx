@@ -74,7 +74,7 @@ export function RenderChatHistory({
   }
 
   return (
-    <div className="premium-panel-soft flex items-center justify-between gap-4 rounded-2xl border border-white/[0.08] bg-[#0b0c0f]/60 p-4 hover:border-white/10 transition-all duration-300 w-full max-w-md animate-fade-in my-1">
+    <div className="glass-card flex items-center justify-between gap-4 rounded-2xl border border-white/[0.1] bg-white/[0.03] backdrop-blur-xl p-4 hover:border-white/20 transition-all duration-300 w-full max-w-md animate-fade-in my-1">
       <div className="flex items-center gap-3 min-w-0">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-accent-secondary/20 bg-accent-secondary/[0.08] text-accent-secondary">
           <ChatTeardropText size={18} />
