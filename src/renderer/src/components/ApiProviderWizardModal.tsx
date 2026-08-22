@@ -117,6 +117,7 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
       const res = await window.api.loginWithPuter()
       if (res && res.success && res.token) {
         setApiKey(res.token)
+        setCompletionType('puter_native')
         if (res.username) {
           setPuterUsername(res.username)
         }
@@ -129,7 +130,7 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
           const fetchRes = await window.api.fetchProviderModels({
             baseUrl,
             apiKey: res.token,
-            completionType
+            completionType: 'puter_native'
           })
           if (fetchRes && fetchRes.success && fetchRes.models) {
             setModels(fetchRes.models)
@@ -340,6 +341,25 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
                   </span>
                 </div>
               )}
+
+              {!initialProvider && !baseUrl.includes('puter') && (
+                <div className="pt-1 flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBaseUrl('https://api.puter.com/puterai/openai/v1')
+                      setName('Puter.js')
+                      setCompletionType('puter_native')
+                      setAuthMode('account')
+                      setStep(2)
+                    }}
+                    className="text-[11px] text-text-muted hover:text-purple-300 transition-all inline-flex items-center gap-1.5 py-1.5 px-3 rounded-xl bg-white/[0.02] hover:bg-purple-500/10 border border-white/[0.06] hover:border-purple-500/25"
+                  >
+                    <span>Want to use Puter.js?</span>
+                    <span className="text-[10px] text-purple-400 font-semibold">&rarr; Connect Account</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -521,6 +541,11 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
                     type: 'gemini_native',
                     label: 'Gemini Native (GenerateContent)',
                     desc: 'Native Google Gemini API format.'
+                  },
+                  {
+                    type: 'puter_native',
+                    label: 'Puter.js Native (User-Pays Driver)',
+                    desc: 'Official Puter driver protocol (/drivers/call) using connected user account credits.'
                   }
                 ].map((item) => (
                   <div

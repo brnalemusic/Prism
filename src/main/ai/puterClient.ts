@@ -1,7 +1,9 @@
 import http from 'node:http'
 import { shell } from 'electron'
-import { ProviderModel } from '../../shared/types'
+import { ProviderConfig, ProviderModel } from '../../shared/types'
 import { isModelTrusted } from './trustedRegistry'
+import type { StreamCallbacks, StreamResult } from './openaiClient'
+import type { OpenAiMessage, OpenAiToolDefinition } from './types'
 
 export interface PuterUser {
   username?: string
@@ -381,4 +383,255 @@ export function startPuterLoginFlow(guiOrigin: string = 'https://puter.com'): Pr
       })
     })
   })
+}
+
+/**
+ * Streams chat completions directly using Puter.js native driver protocol:
+ * POST https://api.puter.com/drivers/call
+ * interface: 'puter-chat-completion', driver: 'ai-chat', method: 'complete'
+ *
+ * This consumes user credits via Puter User-Pays model and supports streaming & tool calling.
+ */
+export async function streamPuterCompletion(
+  provider: ProviderConfig,
+  modelId: string,
+  messages: OpenAiMessage[],
+  tools: OpenAiToolDefinition[],
+  signal: AbortSignal,
+  callbacks: StreamCallbacks,
+  reasoningLevel?: string
+): Promise<StreamResult> {
+  const authToken = provider.apiKey?.trim() || ''
+  const endpoint = 'https://api.puter.com/drivers/call'
+
+  const formattedMessages = messages.map((m) => {
+    let content: unknown = m.content
+    if (Array.isArray(content)) {
+      content = content.map((part) => {
+        if (part.type === 'text') return part.text || ''
+        if (part.type === 'image_url' && part.image_url?.url) {
+          return { image_url: { url: part.image_url.url } }
+        }
+        return part
+      })
+    }
+    return {
+      role: m.role === 'model' ? 'assistant' : m.role,
+      content,
+      tool_calls: m.tool_calls,
+      tool_call_id: m.tool_call_id
+    }
+  })
+
+  const driverArgs: Record<string, unknown> = {
+    messages: formattedMessages,
+    model: modelId,
+    stream: true
+  }
+
+  if (tools && tools.length > 0) {
+    driverArgs.tools = tools
+  }
+
+  if (reasoningLevel && reasoningLevel !== 'off') {
+    driverArgs.reasoning_effort = reasoningLevel
+  }
+
+  const payload = {
+    interface: 'puter-chat-completion',
+    driver: 'ai-chat',
+    test_mode: false,
+    method: 'complete',
+    args: driverArgs,
+    auth_token: authToken
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'text/plain;actually=json'
+  }
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`
+  }
+
+  console.log(
+    `[Main Chat] Calling ${modelId} with [Puter.js Native Driver] (${messages.length} messages, ${tools?.length || 0} tools, reasoningLevel: ${reasoningLevel || 'off'})`
+  )
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+    signal
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '')
+    console.error(`[AI Client] Puter.js Error ${response.status}: ${errorText}`)
+    throw new Error(`Puter.js Error ${response.status}: ${errorText || response.statusText}`)
+  }
+
+  if (!response.body) {
+    throw new Error('No response body received from Puter.js stream endpoint')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+
+  let fullText = ''
+  let fullReasoning = ''
+  let finishReason = 'stop'
+  const toolCallsMap = new Map<
+    number,
+    { id: string; name: string; args: string; thoughtSignature?: string }
+  >()
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith(':')) continue
+
+        if (trimmed === 'data: [DONE]' || trimmed === '[DONE]') {
+          break
+        }
+
+        let jsonStr = trimmed
+        if (jsonStr.startsWith('data: ')) {
+          jsonStr = jsonStr.slice(6).trim()
+        }
+
+        try {
+          const parsed = JSON.parse(jsonStr)
+
+          // 1. Error handling
+          if (parsed.error) {
+            const errMsg =
+              typeof parsed.error === 'string'
+                ? parsed.error
+                : parsed.error.message || JSON.stringify(parsed.error)
+            throw new Error(`Puter.js Stream Error: ${errMsg}`)
+          }
+
+          // 2. Puter Native Chunk format (NDJSON): { type: "text", text: "..." }
+          if (parsed.type === 'text' && typeof parsed.text === 'string') {
+            fullText += parsed.text
+            callbacks.onTextDelta(parsed.text)
+          } else if (parsed.type === 'reasoning' && typeof parsed.reasoning === 'string') {
+            fullReasoning += parsed.reasoning
+            callbacks.onReasoningDelta(parsed.reasoning)
+          } else if (parsed.type === 'tool_use' && parsed.tool_use) {
+            const tu = parsed.tool_use
+            const idx = toolCallsMap.size
+            const callId = tu.id || `call_${Date.now()}_${idx}`
+            const name = tu.name || ''
+            const argsStr =
+              typeof tu.arguments === 'string'
+                ? tu.arguments
+                : JSON.stringify(tu.arguments || {})
+            toolCallsMap.set(idx, { id: callId, name, args: argsStr })
+            callbacks.onToolCallDelta({
+              index: idx,
+              id: callId,
+              name,
+              argsDelta: argsStr
+            })
+          }
+
+          // 3. Fallback: Choice / Delta format (if upstream driver returns standard delta objects)
+          const choice = parsed.choices?.[0] || parsed
+          const delta = choice?.delta || parsed.delta || choice?.message
+          if (delta) {
+            if (choice?.finish_reason) {
+              finishReason = choice.finish_reason
+            }
+
+            const reasoningChunk =
+              delta.reasoning_content ||
+              delta.reasoning ||
+              delta.thinking ||
+              delta.thought ||
+              ''
+            if (reasoningChunk && parsed.type !== 'reasoning') {
+              fullReasoning += reasoningChunk
+              callbacks.onReasoningDelta(reasoningChunk)
+            }
+
+            const textChunk = delta.content || ''
+            if (textChunk && parsed.type !== 'text') {
+              fullText += textChunk
+              callbacks.onTextDelta(textChunk)
+            }
+
+            if (Array.isArray(delta.tool_calls)) {
+              for (const tcDelta of delta.tool_calls) {
+                const idx = tcDelta.index ?? toolCallsMap.size
+                let existing = toolCallsMap.get(idx)
+                if (!existing) {
+                  existing = {
+                    id: tcDelta.id || `call_${Date.now()}_${idx}`,
+                    name: tcDelta.function?.name || '',
+                    args: ''
+                  }
+                  toolCallsMap.set(idx, existing)
+                }
+                if (tcDelta.id && !existing.id) existing.id = tcDelta.id
+                if (tcDelta.function?.name && !existing.name)
+                  existing.name = tcDelta.function.name
+                const argsChunk = tcDelta.function?.arguments || ''
+                if (argsChunk) existing.args += argsChunk
+                callbacks.onToolCallDelta({
+                  index: idx,
+                  id: existing.id,
+                  name: existing.name,
+                  argsDelta: argsChunk
+                })
+              }
+            }
+          }
+
+          // 4. Raw direct text field on parsed object if not already handled
+          if (
+            parsed.text &&
+            parsed.type !== 'text' &&
+            !delta?.content &&
+            typeof parsed.text === 'string'
+          ) {
+            fullText += parsed.text
+            callbacks.onTextDelta(parsed.text)
+          }
+        } catch (parseErr: unknown) {
+          if (
+            parseErr instanceof Error &&
+            parseErr.message.startsWith('Puter.js Stream Error:')
+          ) {
+            throw parseErr
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  const toolCalls = Array.from(toolCallsMap.values()).map((tc) => ({
+    id: tc.id,
+    name: tc.name,
+    args: tc.args,
+    thoughtSignature: tc.thoughtSignature
+  }))
+
+  return {
+    text: fullText,
+    reasoning: fullReasoning,
+    toolCalls,
+    finishReason: toolCalls.length > 0 ? 'tool_calls' : finishReason
+  }
 }

@@ -115,6 +115,7 @@ export type CompletionType =
   | 'responses'
   | 'anthropic_messages'
   | 'gemini_native'
+  | 'puter_native'
 
 export interface ProviderModel {
   id: string

@@ -1,5 +1,5 @@
 import { ProviderConfig, StreamToolCallDelta } from '../../shared/types'
-import { normalizeBaseUrl, isGoogleHost } from './trustedRegistry'
+import { normalizeBaseUrl, isGoogleHost, isPuterHost } from './trustedRegistry'
 import { OpenAiMessage, OpenAiToolDefinition } from './types'
 import { asDataUrl, imageAttachments } from '../toolAttachments'
 
@@ -168,6 +168,22 @@ export async function streamOpenAiCompletion(
     return streamAnthropicMessages(
       provider,
       normUrl,
+      modelId,
+      messages,
+      tools,
+      signal,
+      callbacks,
+      reasoningLevel
+    )
+  }
+
+  if (
+    completionType === 'puter_native' ||
+    (isPuterHost(normUrl) && completionType !== 'chat_completions')
+  ) {
+    const { streamPuterCompletion } = await import('./puterClient')
+    return streamPuterCompletion(
+      provider,
       modelId,
       messages,
       tools,

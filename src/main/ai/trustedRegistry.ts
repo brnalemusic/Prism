@@ -45,7 +45,7 @@ export const TRUSTED_PROVIDERS: TrustedProviderMeta[] = [
   {
     baseUrl: 'https://api.puter.com/puterai/openai/v1',
     name: 'Puter.js',
-    completionType: 'chat_completions'
+    completionType: 'puter_native'
   }
 ]
 
