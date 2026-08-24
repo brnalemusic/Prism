@@ -19,6 +19,8 @@ Prism provides an explicit suite of local file manipulation tools defined in `sr
 | `computer_use_move_file` | `sourcePath`, `destinationPath`, `overwrite` | Move or rename file or directory |
 | `computer_use_get_file_info` | `path` | Retrieve file size, creation date, and metadata |
 
+`computer_use_read_file` uses one-based `startLine` indexing. `limit` defaults to 500 lines and accepts at most 800 lines per request. The selected content may contain up to 80,000 characters.
+
 ---
 
 ## 2. Playwright Web Browser Tools
@@ -53,4 +55,3 @@ Prism's AI Browser supports real-time progressive website synthesis and multi-tu
 - **Multi-Runtime Support:** The live sandbox supports both semantic HTML5 + interactive JavaScript and React 18 + Babel Standalone with an integrated Lucide React proxy for dynamic SVG icons.
 - **Interactive Prompt Protocol ("Pulo do Gato"):** The generative engine embeds `data-prompt="..."` attributes in interactive elements (buttons, links, footer terms). Clicking any element triggers contextual subpage synthesis, preserving the design language, color scheme, navbar, and footer from prior turns.
 - **Code Inspection & Export:** Users can toggle between **Live Preview** and **View Code** to inspect or copy generated source code, or click the system browser icon to export and open the site in their default browser.
-

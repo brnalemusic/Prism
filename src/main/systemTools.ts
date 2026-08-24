@@ -14,7 +14,12 @@ import * as fssync from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import PptxGenJS from 'pptxgenjs'
-import { toolsManifest, getToolDefinition } from './toolsManifest'
+import {
+  toolsManifest,
+  getToolDefinition,
+  COMPUTER_READ_FILE_DEFAULT_LIMIT,
+  COMPUTER_READ_FILE_MAX_CHARACTERS
+} from './toolsManifest'
 import {
   BrowserAction,
   DownloadProgress,
@@ -1220,15 +1225,15 @@ export async function computerReadFile(
       return `Error reading file: startLine (${startLine}) exceeds the total number of lines in the file (${totalLines}).`
     }
 
-    const actualLimit = limit !== undefined ? limit : 200
+    const actualLimit = limit !== undefined ? limit : COMPUTER_READ_FILE_DEFAULT_LIMIT
     const startIdx = startLine - 1
     const endIdx = Math.min(startLine + actualLimit - 1, totalLines - 1)
 
     const sliceOfLines = lines.slice(startIdx, endIdx + 1)
     const selectedContent = sliceOfLines.join('\n')
 
-    if (selectedContent.length > 8000) {
-      return `Content Locked: The requested range contains ${selectedContent.length} characters, which exceeds the limit of 8,000 characters. Please request a smaller limit to read less content.`
+    if (selectedContent.length > COMPUTER_READ_FILE_MAX_CHARACTERS) {
+      return `Content Locked: The requested range contains ${selectedContent.length} characters, which exceeds the limit of ${COMPUTER_READ_FILE_MAX_CHARACTERS.toLocaleString('en-US')} characters. Please request a smaller limit to read less content.`
     }
 
     const numberedLines = sliceOfLines.map((line, index) => `${startLine + index}: ${line}`)
@@ -2747,11 +2752,11 @@ export async function executeSystemTool(
       return await computerAppendToFile(args.path, args.content, signal)
     case 'computer_use_read_file': {
       const startLine = args.startLine !== undefined ? Number(args.startLine) : 1
-      const limit = args.limit !== undefined ? Number(args.limit) : 200
+      const limit = args.limit !== undefined ? Number(args.limit) : COMPUTER_READ_FILE_DEFAULT_LIMIT
       return await computerReadFile(
         args.path,
         isNaN(startLine) ? 1 : startLine,
-        isNaN(limit) ? 200 : limit,
+        isNaN(limit) ? COMPUTER_READ_FILE_DEFAULT_LIMIT : limit,
         signal
       )
     }

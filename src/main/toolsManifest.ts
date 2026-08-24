@@ -57,6 +57,10 @@ const tool = (
 const pathArg = stringSchema('Absolute filesystem path.')
 const contentArg = stringSchema('Complete UTF-8 text content. Preserve whitespace exactly.')
 
+export const COMPUTER_READ_FILE_DEFAULT_LIMIT = 500
+export const COMPUTER_READ_FILE_MAX_LINES = 800
+export const COMPUTER_READ_FILE_MAX_CHARACTERS = 80_000
+
 export const toolsManifest: ToolDefinition[] = [
   tool(
     'generate_image',
@@ -213,11 +217,14 @@ export const toolsManifest: ToolDefinition[] = [
         default: 1,
         minimum: 1
       }),
-      limit: integerSchema('Maximum number of lines to return.', {
-        default: 200,
-        minimum: 1,
-        maximum: 500
-      })
+      limit: integerSchema(
+        `Maximum number of lines to return (up to ${COMPUTER_READ_FILE_MAX_LINES}; the selected content is capped at ${COMPUTER_READ_FILE_MAX_CHARACTERS.toLocaleString('en-US')} characters).`,
+        {
+          default: COMPUTER_READ_FILE_DEFAULT_LIMIT,
+          minimum: 1,
+          maximum: COMPUTER_READ_FILE_MAX_LINES
+        }
+      )
     },
     ['path']
   ),
