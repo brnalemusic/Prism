@@ -107,6 +107,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     const scrollContainerRef = useRef<HTMLDivElement>(null)
     const [showScrollButton, setShowScrollButton] = useState(false)
     const isAtBottomRef = useRef(true)
+    const bottomThreshold = 24
 
     const scrollToBottom = (behavior: ScrollBehavior = 'smooth'): void => {
       if (scrollContainerRef.current) {
@@ -123,12 +124,14 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
 
       const handleScroll = (): void => {
         const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-        const atBottom = distanceToBottom < 80
+        const atBottom = distanceToBottom <= bottomThreshold
         isAtBottomRef.current = atBottom
         setShowScrollButton(!atBottom)
       }
 
       el.addEventListener('scroll', handleScroll, { passive: true })
+      // Do not assume a conversation opened with history is already at the bottom.
+      handleScroll()
       return () => el.removeEventListener('scroll', handleScroll)
     }, [])
 
