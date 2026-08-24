@@ -9,6 +9,7 @@ import {
 } from '@phosphor-icons/react'
 import { clsx } from 'clsx'
 import { isShortcutPressed } from '../utils'
+import type { CompletionType } from '../../../shared/types'
 
 interface ActiveModelItem {
   providerId: string
@@ -21,6 +22,7 @@ interface ActiveModelItem {
     isTrusted: boolean
   }
   fullKey: string
+  completionType: CompletionType
 }
 
 interface ModelSelectorProps {
@@ -30,6 +32,8 @@ interface ModelSelectorProps {
   isEnterprise?: boolean
   disabled?: boolean
   align?: 'left' | 'right'
+  allowedCompletionTypes?: CompletionType[]
+  allowClear?: boolean
 }
 
 export interface ModelSelectorHandle {
@@ -44,7 +48,9 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
       onOpenUpgradePlans,
       isEnterprise: isEnterpriseProp,
       disabled,
-      align = 'right'
+      align = 'right',
+      allowedCompletionTypes,
+      allowClear = false
     },
     ref
   ) => {
@@ -169,8 +175,12 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
       }
     }, [isOpen, shortcut, disabled])
 
+    const eligibleModels = allowedCompletionTypes?.length
+      ? activeModels.filter((item) => allowedCompletionTypes.includes(item.completionType))
+      : activeModels
+
     // Find currently selected model display item
-    const selectedItem = activeModels.find(
+    const selectedItem = eligibleModels.find(
       (item) =>
         item.fullKey === selectedModel ||
         item.model.id === selectedModel ||
@@ -194,7 +204,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
     // Group active models by provider
     const grouped: Record<string, ActiveModelItem[]> = {}
-    for (const item of activeModels) {
+    for (const item of eligibleModels) {
       if (!grouped[item.providerName]) grouped[item.providerName] = []
       grouped[item.providerName].push(item)
     }
@@ -259,9 +269,27 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
             {/* Models list */}
             <div className="p-2 overflow-y-auto space-y-3 flex-1">
+              {allowClear && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onModelChange('')
+                    setIsOpen(false)
+                  }}
+                  className={clsx(
+                    'w-full flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs transition-colors cursor-pointer',
+                    !selectedModel
+                      ? 'bg-accent-primary/10 text-accent-primary'
+                      : 'text-text-secondary hover:bg-white/[0.05] hover:text-text-primary'
+                  )}
+                >
+                  <span>Not configured</span>
+                  {!selectedModel && <Check size={14} weight="bold" />}
+                </button>
+              )}
               {filteredGroupKeys.length === 0 ? (
                 <div className="py-6 text-center text-xs text-text-muted">
-                  {activeModels.length === 0
+                  {eligibleModels.length === 0
                     ? 'No active models found in API Settings.'
                     : 'No models match search.'}
                 </div>

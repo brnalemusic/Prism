@@ -24,6 +24,7 @@ import { MalformedToolCallWarning } from './components/MalformedToolCallWarning'
 import { RenderChatHistory } from './components/RenderChatHistory'
 import { PdfArtifactCard } from './components/PdfArtifactCard'
 import { PptxArtifactCard } from './components/PptxArtifactCard'
+import { GeneratedImageCard } from './components/GeneratedImageCard'
 import { TtsButton } from './components/TtsButton'
 import { CopyMessageButton } from './components/CopyMessageButton'
 import {
@@ -79,7 +80,12 @@ import type {
   UserProfile
 } from '../../shared/types'
 import { getDefaultThinkingLevelForModel, isPrismCloudGeminiModel } from './constants'
-import { applyToolCallEnd, applyToolCallStart, isToolErrorResult } from './toolCallState'
+import {
+  applyToolCallEnd,
+  applyToolCallStart,
+  isToolCancelledResult,
+  isToolErrorResult
+} from './toolCallState'
 
 const DiscordVoiceGlowOverlay = lazy(() =>
   import('./components/DiscordVoiceGlowOverlay').then(({ DiscordVoiceGlowOverlay }) => ({
@@ -370,6 +376,11 @@ const AiMessage = React.memo(function AiMessage({
     () => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls),
     [msg.toolCalls, msg.streamingToolCalls]
   )
+  const hasActiveImageGeneration = nativeToolCalls.some(
+    (toolCall) =>
+      toolCall.name === 'generate_image' &&
+      (toolCall.status === 'writing' || toolCall.status === 'running')
+  )
 
   const hasThoughtBlock = useMemo(() => {
     const passiveTools = [
@@ -413,7 +424,8 @@ const AiMessage = React.memo(function AiMessage({
         tc.name !== 'to_ask' &&
         tc.name !== 'render_chat_history' &&
         tc.name !== 'malformed_tool_call' &&
-        tc.name !== 'create_mini_app'
+        tc.name !== 'create_mini_app' &&
+        tc.name !== 'generate_image'
     )
     return list.filter((tc) => !shouldHideIndicator(tc.status))
   }, [nativeToolCalls, shouldHideIndicator, activeToolLabel])
@@ -655,6 +667,15 @@ const AiMessage = React.memo(function AiMessage({
               if (item.isClosed) {
                 const tc = item.toolCall
                 if (tc) {
+                  if (tc.name === 'generate_image') {
+                    return (
+                      <GeneratedImageCard
+                        key={`tc-${item.partIndex}`}
+                        toolCall={tc}
+                        chatId={currentChatId || ''}
+                      />
+                    )
+                  }
                   if (tc.name === 'to_ask') {
                     // Only render the read-only done-state summary inline in chat;
                     // the active wizard is rendered by ChatPane above the InputBar.
@@ -842,6 +863,15 @@ const AiMessage = React.memo(function AiMessage({
           })}
 
           {nativeToolCalls.map((tc, idx) => {
+            if (tc.name === 'generate_image') {
+              return (
+                <GeneratedImageCard
+                  key={`native-tc-${tc.id || idx}`}
+                  toolCall={tc}
+                  chatId={currentChatId || ''}
+                />
+              )
+            }
             if (tc.name === 'to_ask') {
               // Render done-state summary inline; active wizard is handled by ChatPane.
               return (
@@ -942,13 +972,16 @@ const AiMessage = React.memo(function AiMessage({
             </div>
           )}
 
-          {msg.isStreaming && activeToolLabel && (
+          {msg.isStreaming && activeToolLabel && !hasActiveImageGeneration && (
             <div className="flex items-center gap-1.5 mt-1 select-none">
               <ToolCallIndicator overrideLabel={activeToolLabel} />
             </div>
           )}
 
-          {msg.isStreaming && !activeToolLabel && inactivityLabel && (
+          {msg.isStreaming &&
+            !activeToolLabel &&
+            inactivityLabel &&
+            !hasActiveImageGeneration && (
             <div className="flex items-center gap-1.5 mt-1.5 select-none">
               <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
             </div>
@@ -1014,6 +1047,10 @@ const AiMessageRow = React.memo(function AiMessageRow({
     .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/g, '')
     .trim()
   const hasContent = stripPrismSuggestionMarkup(cleanContentText) !== ''
+  const hasImageGeneration = Boolean(
+    msg.toolCalls?.some((toolCall) => toolCall.name === 'generate_image') ||
+      msg.streamingToolCalls?.some((toolCall) => toolCall.name === 'generate_image')
+  )
 
   const isRunningTool = !!(
     activeToolLabel ||
@@ -1072,7 +1109,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
       )}
 
       <div className="w-full text-text-primary" data-prism-ai-message="true">
-        {!hasContent && isActive ? (
+        {!hasContent && isActive && !hasImageGeneration ? (
           <div className="flex items-center gap-1.5 h-6 select-none">
             {activeToolLabel ? (
               <ToolCallIndicator overrideLabel={activeToolLabel} />
@@ -1869,6 +1906,9 @@ function RealApp(): React.JSX.Element {
   const handleCloseTab = useCallback((tabId: string) => {
     setTabs((prevTabs) => {
       const closedTab = prevTabs.find((t) => t.id === tabId)
+      if (closedTab?.tabType !== 'browser' && closedTab?.chatId) {
+        window.api.cancelChat(closedTab.chatId)
+      }
       if (closedTab?.tabType === 'browser') {
         const isAnyProcessing = prevTabs.some((t) => t.isProcessing)
         if (isAnyProcessing) {
@@ -2143,13 +2183,25 @@ function RealApp(): React.JSX.Element {
             )
             if (targetTc) {
               targetTc.result = toolResult
-              targetTc.status = isToolErrorResult(toolResult) ? 'error' : 'done'
+              targetTc.attachments = Array.isArray(c.tool_attachments)
+                ? c.tool_attachments
+                : undefined
+              targetTc.status = isToolCancelledResult(toolResult)
+                ? 'cancelled'
+                : isToolErrorResult(toolResult)
+                  ? 'error'
+                  : 'done'
             } else if (toolName) {
               lastAi.toolCalls.push({
                 name: toolName,
                 args: {},
                 result: toolResult,
-                status: isToolErrorResult(toolResult) ? 'error' : 'done'
+                attachments: Array.isArray(c.tool_attachments) ? c.tool_attachments : undefined,
+                status: isToolCancelledResult(toolResult)
+                  ? 'cancelled'
+                  : isToolErrorResult(toolResult)
+                    ? 'error'
+                    : 'done'
               })
             }
           }
@@ -2264,6 +2316,7 @@ function RealApp(): React.JSX.Element {
             }
 
             let result: string | undefined = undefined
+            let attachments: ToolCallItem['attachments'] = undefined
             if (tc.id) {
               const toolMsg = rawContent.find(
                 (m: any) => m.role === 'tool' && m.tool_call_id === tc.id
@@ -2273,6 +2326,9 @@ function RealApp(): React.JSX.Element {
                   typeof toolMsg.content === 'string'
                     ? toolMsg.content
                     : JSON.stringify(toolMsg.content || '')
+                attachments = Array.isArray(toolMsg.tool_attachments)
+                  ? toolMsg.tool_attachments
+                  : undefined
               }
             }
 
@@ -2281,7 +2337,14 @@ function RealApp(): React.JSX.Element {
               name,
               args,
               result,
-              status: result ? (isToolErrorResult(result) ? 'error' : 'done') : 'done'
+              attachments,
+              status: result
+                ? isToolCancelledResult(result)
+                  ? 'cancelled'
+                  : isToolErrorResult(result)
+                    ? 'error'
+                    : 'done'
+                : 'done'
             }
           })
 
@@ -3064,11 +3127,17 @@ function RealApp(): React.JSX.Element {
         let newTabs = prev.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
-            const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
-            if (lastMsgIndex !== -1) {
-              const lastMsg = { ...newMessages[lastMsgIndex] }
+            const existingMsgIndex = newMessages.findLastIndex(
+              (msg) => msg.role === 'ai' && msg.toolCalls?.some((toolCall) => toolCall.id === data.callId)
+            )
+            const targetMsgIndex =
+              existingMsgIndex !== -1
+                ? existingMsgIndex
+                : newMessages.findLastIndex((msg) => msg.role === 'ai')
+            if (targetMsgIndex !== -1) {
+              const lastMsg = { ...newMessages[targetMsgIndex] }
               lastMsg.toolCalls = applyToolCallStart(lastMsg.toolCalls || [], data)
-              newMessages[lastMsgIndex] = lastMsg
+              newMessages[targetMsgIndex] = lastMsg
             }
             return { ...tab, messages: newMessages }
           }
@@ -3117,7 +3186,9 @@ function RealApp(): React.JSX.Element {
         prev.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
-            const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
+            const lastMsgIndex = newMessages.findLastIndex(
+              (msg) => msg.role === 'ai' && msg.toolCalls?.some((toolCall) => toolCall.id === data.callId)
+            )
 
             if (lastMsgIndex !== -1 && newMessages[lastMsgIndex].toolCalls) {
               const lastMsg = { ...newMessages[lastMsgIndex] }

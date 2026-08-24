@@ -300,6 +300,69 @@ export function hydrateHistoryToolAttachments(
   })
 }
 
+export function updateToolResultInHistory(
+  chatId: string,
+  callId: string,
+  content: string,
+  attachments: ToolImageAttachment[] | undefined,
+  validatedArguments: Record<string, unknown>,
+  result: NonNullable<OpenAiMessage['tool_metadata']>['result']
+): boolean {
+  const session = loadChatSession(chatId)
+  if (!session) return false
+  const messageIndex = session.messages.findIndex(
+    (message) => message.role === 'tool' && message.tool_call_id === callId
+  )
+  if (messageIndex === -1) return false
+
+  const previous = session.messages[messageIndex]
+  const previousReferences = previous.tool_attachment_refs || []
+  const replacement: OpenAiMessage = {
+    ...previous,
+    content,
+    ...(attachments?.length ? { tool_attachments: attachments } : {}),
+    tool_metadata: {
+      originalArguments: previous.tool_metadata?.originalArguments ?? validatedArguments,
+      validatedArguments,
+      result
+    }
+  }
+  delete replacement.tool_attachment_refs
+  if (!attachments?.length) delete replacement.tool_attachments
+  session.messages[messageIndex] = replacement
+  const saved = saveChatSession(
+    chatId,
+    session.messages,
+    session.title,
+    session.sessionMode,
+    session.disciplinePath,
+    session.model,
+    session.isDiscord,
+    session.disabledSkills
+  )
+  if (saved && previousReferences.length > 0) {
+    const directory = attachmentDirectory(sanitizeId(chatId))
+    for (const reference of previousReferences) {
+      if (!/^[a-f0-9-]{36}$/i.test(reference.id)) continue
+      const oldPath = path.resolve(
+        directory,
+        `${reference.id}.${imageExtension(reference.mimeType)}`
+      )
+      const resolvedDirectory = path.resolve(directory)
+      if (!oldPath.startsWith(`${resolvedDirectory}${path.sep}`)) continue
+      try {
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath)
+      } catch (error) {
+        console.warn('[History] Failed to clean replaced image attachment.', {
+          attachmentId: reference.id,
+          message: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+  }
+  return saved
+}
+
 function sanitizeMessagesForSaving(cleanChatId: string, messages: OpenAiMessage[]): OpenAiMessage[] {
   return messages.map((message) => {
     const m = prepareHistoryMessage(cleanChatId, message)

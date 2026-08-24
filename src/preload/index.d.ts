@@ -11,7 +11,11 @@ import type {
   FileSearchResult,
   SessionMode,
   TodoState,
-  TerminalProcessSnapshot
+  TerminalProcessSnapshot,
+  ToolAttachment,
+  RetryImageGenerationRequest,
+  SaveGeneratedImageRequest,
+  SaveGeneratedImageResult
 } from '../shared/types'
 import type {
   DemoDownloadResult,
@@ -80,7 +84,13 @@ export interface PrismAPI {
     }) => void
   ) => () => void
   onToolEnd: (
-    callback: (data: { callId: string; name: string; result: string; chatId: string }) => void
+    callback: (data: {
+      callId: string
+      name: string
+      result: string
+      attachments?: ToolAttachment[]
+      chatId: string
+    }) => void
   ) => () => void
   onDiscordVoiceState: (callback: (data: DiscordVoiceStateEvent) => void) => () => void
   onDiscordVoiceSpeaking: (callback: (data: DiscordVoiceSpeakingEvent) => void) => () => void
@@ -143,6 +153,10 @@ export interface PrismAPI {
   isChatRunning: (id: string) => Promise<boolean>
   getChatModel: (id: string) => Promise<string | undefined>
   deleteChat: (id: string) => Promise<boolean>
+  retryImageGeneration: (
+    request: RetryImageGenerationRequest
+  ) => Promise<{ started: boolean; error?: string }>
+  saveGeneratedImage: (request: SaveGeneratedImageRequest) => Promise<SaveGeneratedImageResult>
   getRunningChats: () => Promise<string[]>
   setThinkMode: (val: boolean) => void
   setSearchEnabled: (val: boolean) => void
@@ -272,6 +286,7 @@ export interface PrismAPI {
       isProviderTrusted: boolean
       model: import('../shared/types').ProviderModel
       fullKey: string
+      completionType: import('../shared/types').CompletionType
     }>
   >
   onToolCallDelta: (

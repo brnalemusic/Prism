@@ -1,6 +1,6 @@
 {
     "name": "prism",
-    "version": "9.0.0-alpha.0.3-e.1",
+    "version": "9.0.0-alpha.0.3-e.2",
     "description": "An Electron application with React and TypeScript",
     "main": "./out/main/index.js",
     "author": "Breno",
@@ -11,6 +11,7 @@
         "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
         "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
         "typecheck": "npm run typecheck:node && npm run typecheck:web",
+        "test:image-generation": "node --experimental-strip-types --test scripts/image-generation-validation.mts",
         "start": "electron-vite preview",
         "dev": "electron-vite dev",
         "dev:demo": "cross-env DEMO_MODE=true electron-vite dev",

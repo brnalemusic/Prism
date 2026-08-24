@@ -92,7 +92,7 @@ Search for docs in `.agents/rules/`. If you find any documentation within this f
 
 Note that these files are for READ-ONLY purposes. Never modify them unless a user explicitly requests a change to the Prism rules; otherwise, simply read and absorb the rules regarding that specific subject from the Prism repository.
 
-- `AGENTS.md` are these exavt rules that you're reading.
+- `AGENTS.md` are these exact rules that you're reading.
 - `DESIGN.md` (discontinued doc) are the rules for re-designing or implementing new screens/modals/etc; in Prism
 
 ---

@@ -59,6 +59,30 @@ const contentArg = stringSchema('Complete UTF-8 text content. Preserve whitespac
 
 export const toolsManifest: ToolDefinition[] = [
   tool(
+    'generate_image',
+    'Generate original images when a visual is the appropriate answer. You decide when to use this tool and must supply a complete, polished final image prompt that describes subject, composition, lighting, style, mood, and important constraints. The generated images become part of this assistant response.',
+    {
+      prompt: stringSchema('Complete final prompt to send to the configured image-generation model.'),
+      size: stringSchema('Requested output dimensions.', {
+        enum: [
+          '256x256',
+          '512x512',
+          '1024x1024',
+          '1024x1536',
+          '1536x1024',
+          '1024x1792',
+          '1792x1024'
+        ],
+        default: '1024x1024'
+      }),
+      quality: stringSchema('Provider-supported output quality.', {
+        enum: ['auto', 'low', 'medium', 'high', 'standard', 'hd']
+      }),
+      n: integerSchema('Number of images to generate.', { default: 1, minimum: 1, maximum: 4 })
+    },
+    ['prompt']
+  ),
+  tool(
     'discord_leave_voice',
     'Requests leaving the current Discord voice channel. Use this when the user asks you to leave, or when the full conversation makes ending the voice session appropriate. After it succeeds, say a brief personalized goodbye and do not call more tools.',
     {},
@@ -311,6 +335,7 @@ export const toolsManifest: ToolDefinition[] = [
     quickLauncherModel: stringSchema('Quick Launcher model key.'),
     sttModel: stringSchema('Speech-to-text model key.'),
     generativeBrowserModel: stringSchema('Generative AI Browser model key.'),
+    imageGenerationModel: stringSchema('Native image-generation model route key.'),
     minimizeToTray: booleanSchema('Whether closing Prism minimizes it to the tray.'),
     autoLaunch: booleanSchema('Whether Prism starts with the operating system.'),
     quickLauncherMode: stringSchema('Quick Launcher mode.', { enum: ['simple', 'advanced'] }),

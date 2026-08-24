@@ -23,9 +23,11 @@ import {
   getPendingProcessNotifications,
   onTerminalNotificationPending
 } from '../terminalProcessManager'
+import { hasConfiguredImageGenerationRoute } from './imageGeneration'
 
 export const activeRuns = new Map<string, ActiveRun>()
 export const lastScreenshots = new Map<string, string>()
+const deletedActiveChats = new Set<string>()
 const currentSessionId = ''
 
 let currentSelectedChatModel = ''
@@ -34,6 +36,10 @@ let currentDisciplinePath = ''
 
 export function setChatModel(modelKey: string): void {
   currentSelectedChatModel = modelKey
+}
+
+export function markActiveChatDeleted(chatId: string): void {
+  if (activeRuns.has(chatId)) deletedActiveChats.add(chatId)
 }
 
 export function getChatModel(id?: string): string {
@@ -78,8 +84,11 @@ export function getNativeToolsForOpenAi(
   chatId?: string,
   disabledSkills?: string[]
 ): OpenAiToolDefinition[] {
-  void _target
-  const definitions = getOpenAiToolDefinitions(chatId, disabledSkills)
+  const definitions = getOpenAiToolDefinitions(chatId, disabledSkills).filter(
+    (definition) =>
+      definition.function.name !== 'generate_image' ||
+      (_target === 'main' && hasConfiguredImageGenerationRoute())
+  )
   if (allowedTools === undefined) return definitions
   const allowed = new Set(allowedTools)
   return definitions.filter((definition) => allowed.has(definition.function.name))
@@ -106,6 +115,7 @@ export async function handleChatMessage(
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
   const chatId = typeof data === 'object' && data.chatId ? data.chatId : currentSessionId
+  deletedActiveChats.delete(chatId)
   const screenshot = typeof data === 'object' ? data.screenshot : undefined
   const quote = typeof data === 'object' ? data.quote : undefined
   const attachedFile = typeof data === 'object' ? data.attachedFile : undefined
@@ -288,6 +298,10 @@ export async function handleChatMessage(
       disabledSkills
     )
     let fullPrompt = systemPrompt
+    if (!hasConfiguredImageGenerationRoute()) {
+      fullPrompt +=
+        '\n\n# Image Generation Availability\nNative image generation is unavailable because no valid Image Generation Model is configured in Settings > Intelligence Routing. If the user requests an image, explain that configuration is required; do not pretend to have generated one.'
+    }
     if (matchedWorkflow) {
       fullPrompt += `\n\n# Active Workflow: ${matchedWorkflow.name}\n${matchedWorkflow.systemInstruction}`
     }
@@ -468,9 +482,11 @@ STRICT BUTTON RULES:
           callId: call.callId,
           name: call.name,
           result: call.modelContent,
+          attachments: call.attachments,
           chatId
         }),
       onHistoryMessage: (historyMessage) => {
+        if (deletedActiveChats.has(chatId)) return
         historyMessages.push(prepareHistoryMessage(chatId, historyMessage))
         saveChatSession(
           chatId,
@@ -513,6 +529,7 @@ STRICT BUTTON RULES:
     }
   } finally {
     activeRuns.delete(chatId)
+    deletedActiveChats.delete(chatId)
     setImmediate(() => void wakeUpChatFromPendingTerminalNotifications(chatId))
   }
 }
@@ -666,13 +683,17 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
       disabledSkills
     )
 
+    const imageAvailabilityInstruction = hasConfiguredImageGenerationRoute()
+      ? ''
+      : '\n\n# Image Generation Availability\nNative image generation is unavailable because no valid Image Generation Model is configured in Settings > Intelligence Routing. If the user requests an image, explain that configuration is required; do not pretend to have generated one.'
+
     const openAiTools =
       chatSession.sessionMode === 'conversation'
         ? []
         : getNativeToolsForOpenAi('main', undefined, chatId, disabledSkills)
 
     const messagesForApi: OpenAiMessage[] = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: `${systemPrompt}${imageAvailabilityInstruction}` },
       ...convertHistoryToOpenAi(historyMessages)
     ]
 
@@ -764,9 +785,11 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
           callId: call.callId,
           name: call.name,
           result: call.modelContent,
+          attachments: call.attachments,
           chatId
         }),
       onHistoryMessage: (historyMessage) => {
+        if (deletedActiveChats.has(chatId)) return
         historyMessages.push(prepareHistoryMessage(chatId, historyMessage))
         saveChatSession(
           chatId,
@@ -807,6 +830,7 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
     }
   } finally {
     activeRuns.delete(chatId)
+    deletedActiveChats.delete(chatId)
     setImmediate(() => void wakeUpChatFromPendingTerminalNotifications(chatId))
   }
 }

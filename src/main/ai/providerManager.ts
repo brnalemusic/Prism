@@ -9,6 +9,7 @@ import {
   isPuterHost
 } from './trustedRegistry'
 import { fetchPuterModels, fetchPuterModelsViaSDK } from './puterClient'
+import { resolveExactImageRouteFromProviders } from './imageGenerationCore'
 
 export interface FetchModelsResult {
   success: boolean
@@ -179,6 +180,7 @@ export function getActiveModels(): Array<{
   isProviderTrusted: boolean
   model: ProviderModel
   fullKey: string // format: providerId:modelId
+  completionType: CompletionType
 }> {
   const providers = getAllProviders()
   const result: Array<{
@@ -187,6 +189,7 @@ export function getActiveModels(): Array<{
     isProviderTrusted: boolean
     model: ProviderModel
     fullKey: string
+    completionType: CompletionType
   }> = []
 
   for (const p of providers) {
@@ -198,13 +201,21 @@ export function getActiveModels(): Array<{
           providerName: p.name,
           isProviderTrusted: p.isTrusted,
           model: m,
-          fullKey: `${p.id}:${m.id}`
+          fullKey: `${p.id}:${m.id}`,
+          completionType: p.completionType
         })
       }
     }
   }
 
   return result
+}
+
+export function resolveExactProviderAndModel(fullKey?: string): {
+  provider: ProviderConfig | null
+  model: ProviderModel | null
+} {
+  return resolveExactImageRouteFromProviders(getAllProviders(), fullKey)
 }
 
 export function resolveProviderAndModel(fullKey?: string): {

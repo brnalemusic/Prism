@@ -75,6 +75,32 @@ export interface ToolCall {
   terminalOutput?: string
 }
 
+export interface ToolImageAttachment {
+  kind: 'image'
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
+  data: string
+  width?: number
+  height?: number
+  byteLength?: number
+}
+
+export type ToolAttachment = ToolImageAttachment
+
+export interface SaveGeneratedImageRequest extends ToolImageAttachment {
+  suggestedName?: string
+}
+
+export interface SaveGeneratedImageResult {
+  saved: boolean
+  path?: string
+  error?: string
+}
+
+export interface RetryImageGenerationRequest {
+  chatId: string
+  callId: string
+}
+
 export interface ApplicationInfo {
   name: string
   version?: string

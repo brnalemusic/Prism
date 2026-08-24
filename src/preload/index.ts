@@ -14,7 +14,11 @@ import type {
   SessionMode,
   TodoState,
   AttachedFile,
-  TerminalProcessSnapshot
+  TerminalProcessSnapshot,
+  ToolAttachment,
+  RetryImageGenerationRequest,
+  SaveGeneratedImageRequest,
+  SaveGeneratedImageResult
 } from '../shared/types'
 import type { ChatSession } from '../main/history'
 import type {
@@ -203,11 +207,23 @@ const api = {
     return () => ipcRenderer.removeListener('chat-tool-start', listener)
   },
   onToolEnd: (
-    callback: (data: { callId: string; name: string; result: string; chatId: string }) => void
+    callback: (data: {
+      callId: string
+      name: string
+      result: string
+      attachments?: ToolAttachment[]
+      chatId: string
+    }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { callId: string; name: string; result: string; chatId: string }
+      data: {
+        callId: string
+        name: string
+        result: string
+        attachments?: ToolAttachment[]
+        chatId: string
+      }
     ): void => callback(data)
     ipcRenderer.on('chat-tool-end', listener)
     return () => ipcRenderer.removeListener('chat-tool-end', listener)
@@ -377,6 +393,13 @@ const api = {
   getChatModel: (id: string): Promise<string | undefined> =>
     ipcRenderer.invoke('get-chat-model', id),
   deleteChat: (id: string): Promise<boolean> => ipcRenderer.invoke('delete-chat', id),
+  retryImageGeneration: (
+    request: RetryImageGenerationRequest
+  ): Promise<{ started: boolean; error?: string }> =>
+    ipcRenderer.invoke('retry-image-generation', request),
+  saveGeneratedImage: (
+    request: SaveGeneratedImageRequest
+  ): Promise<SaveGeneratedImageResult> => ipcRenderer.invoke('save-generated-image', request),
   getRunningChats: (): Promise<string[]> => ipcRenderer.invoke('get-running-chats'),
   setThinkMode: (val: boolean): void => ipcRenderer.send('set-think-mode', val),
   setSearchEnabled: (val: boolean): void => ipcRenderer.send('set-search-enabled', val),

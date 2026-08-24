@@ -1,4 +1,4 @@
-import type { SessionMode, ArtifactItem } from '../../../shared/types'
+import type { SessionMode, ArtifactItem, ToolAttachment } from '../../../shared/types'
 
 export interface AttachedFile {
   name: string
@@ -21,6 +21,7 @@ export interface ToolCallItem {
   name: string
   args: Record<string, unknown>
   result?: string
+  attachments?: ToolAttachment[]
   status: 'writing' | 'running' | 'cooldown' | 'done' | 'error' | 'cancelled'
   addedLines?: number
   removedLines?: number

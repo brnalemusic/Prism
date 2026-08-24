@@ -1,8 +1,11 @@
+import type { ToolAttachment } from '../../shared/types'
+
 export interface ToolCallState {
   id?: string
   name: string
   args: Record<string, unknown>
   result?: string
+  attachments?: ToolAttachment[]
   status: string
 }
 
@@ -16,6 +19,7 @@ export interface ToolCallEndEvent {
   callId: string
   name: string
   result: string
+  attachments?: ToolAttachment[]
 }
 
 export function isToolErrorResult(result?: string): boolean {
@@ -23,6 +27,16 @@ export function isToolErrorResult(result?: string): boolean {
   if (result.startsWith('Error')) return true
   try {
     return JSON.parse(result)?.ok === false
+  } catch {
+    return false
+  }
+}
+
+export function isToolCancelledResult(result?: string): boolean {
+  if (!result) return false
+  try {
+    const code = JSON.parse(result)?.error?.code
+    return code === 'CANCELLED' || code === 'IMAGE_CANCELLED'
   } catch {
     return false
   }
@@ -58,7 +72,9 @@ export function applyToolCallStart<T extends ToolCallState>(
     id: event.callId,
     name: event.name,
     args: event.args || {},
-    status: 'running'
+    status: 'running',
+    result: undefined,
+    attachments: undefined
   }
   return updated
 }
@@ -75,7 +91,12 @@ export function applyToolCallEnd<T extends ToolCallState>(
     ...updated[index],
     name: event.name,
     result: event.result,
-    status: isToolErrorResult(event.result) ? 'error' : 'done'
+    attachments: event.attachments,
+    status: isToolCancelledResult(event.result)
+      ? 'cancelled'
+      : isToolErrorResult(event.result)
+        ? 'error'
+        : 'done'
   }
   return updated
 }

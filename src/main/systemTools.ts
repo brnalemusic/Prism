@@ -61,6 +61,7 @@ import {
 import { isExtractableDocument, extractDocumentText } from './documentExtractor'
 import { safeSend } from './safeSend'
 import { SystemToolOutput, ToolImageAttachment } from './toolAttachments'
+import { asImageGenerationArguments, generateImage } from './ai/imageGeneration'
 
 function getDownloadsFolder(): string {
   try {
@@ -2687,6 +2688,9 @@ export async function executeSystemTool(
     return `Error: Browser Use skill is currently disabled for this conversation.`
   }
   switch (toolName) {
+    case 'generate_image':
+      return generateImage(asImageGenerationArguments(args), signal)
+
     // Terminal
     case 'execute_terminal_command':
       return await runTerminalCommand(args.command || '', apiKey, signal, event, chatId)
@@ -3114,6 +3118,10 @@ export async function executeSystemTool(
         if (args.generativeBrowserModel !== undefined && args.generativeBrowserModel !== '') {
           config.generativeBrowserModel = args.generativeBrowserModel
           changed.push(`generativeBrowserModel: "${args.generativeBrowserModel}"`)
+        }
+        if (args.imageGenerationModel !== undefined && args.imageGenerationModel !== '') {
+          config.imageGenerationModel = args.imageGenerationModel
+          changed.push(`imageGenerationModel: "${args.imageGenerationModel}"`)
         }
         if (args.minimizeToTray !== undefined) {
           config.minimizeToTray = args.minimizeToTray === 'true' || args.minimizeToTray === true

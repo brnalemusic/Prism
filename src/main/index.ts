@@ -33,6 +33,7 @@ import {
   cancelAiSearch,
   transcribeAudio,
   getChatModel,
+  markActiveChatDeleted,
   getAllProviders,
   saveProviders,
   deleteProvider,
@@ -69,7 +70,18 @@ import {
   verifyLicenseKey
 } from './license'
 import { toolsManifest } from './toolsManifest'
-import { listChatSessions, loadChatSession, deleteChatSession, searchChatsOffline } from './history'
+import {
+  listChatSessions,
+  loadChatSession,
+  deleteChatSession,
+  searchChatsOffline,
+  hydrateHistoryToolAttachments
+} from './history'
+import {
+  cancelImageGenerationRetries,
+  saveGeneratedImage,
+  startImageGenerationRetry
+} from './ai/imageGenerationIpc'
 import {
   testGeminiConnection,
   markConnectionActive,
@@ -1055,7 +1067,10 @@ if (!gotTheLock) {
     })
 
     ipcMain.on('clear-chat', () => initGemini())
-    ipcMain.on('chat-cancel', (_event, chatId?: string) => cancelChatMessage(chatId))
+    ipcMain.on('chat-cancel', (_event, chatId?: string) => {
+      cancelChatMessage(chatId)
+      cancelImageGenerationRetries(chatId)
+    })
     ipcMain.on('ai-search-message', (event, data) => {
       handleAiSearchChatMessage(event, data)
     })
@@ -1088,7 +1103,7 @@ if (!gotTheLock) {
 
     ipcMain.handle('load-chat', (_event, id: string) => {
       const session = loadChatSession(id)
-      return session ? session.messages : []
+      return session ? hydrateHistoryToolAttachments(id, session.messages) : []
     })
 
     ipcMain.handle('is-chat-running', (_event, id: string) => {
@@ -1108,8 +1123,18 @@ if (!gotTheLock) {
     })
 
     ipcMain.handle('delete-chat', (_event, id: string) => {
+      markActiveChatDeleted(id)
       cancelChatMessage(id)
+      cancelImageGenerationRetries(id)
       return deleteChatSession(id)
+    })
+
+    ipcMain.handle('retry-image-generation', (_event, request) => {
+      return startImageGenerationRetry(request)
+    })
+
+    ipcMain.handle('save-generated-image', (_event, request) => {
+      return saveGeneratedImage(request)
     })
 
     ipcMain.handle('generate-tts', async (_event, text: string) => {

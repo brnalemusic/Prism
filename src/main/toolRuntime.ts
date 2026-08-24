@@ -1,6 +1,8 @@
 import { executeSystemTool } from './systemTools'
 import { getToolDefinition, JsonSchema, ToolDefinition, toolsManifest } from './toolsManifest'
 import { SystemToolOutput, ToolAttachment } from './toolAttachments'
+import type { ImageGenerationErrorCode } from './ai/imageGenerationCore'
+import { imageGenerationToolError } from './ai/imageGeneration'
 
 export type ToolErrorCode =
   | 'UNKNOWN_TOOL'
@@ -9,6 +11,7 @@ export type ToolErrorCode =
   | 'REPEATED_CALL'
   | 'EXECUTION_FAILED'
   | 'CANCELLED'
+  | ImageGenerationErrorCode
 
 export interface ToolError {
   code: ToolErrorCode
@@ -448,6 +451,21 @@ export async function executeValidatedTool(
       ...(attachments.length > 0 ? { attachments } : {})
     }
   } catch (error) {
+    const imageError = imageGenerationToolError(error)
+    if (imageError) {
+      const envelope: ToolResultEnvelope = {
+        ok: false,
+        error: {
+          code: imageError.details.code,
+          message: imageError.details.userMessage,
+          details: {
+            imageGeneration: imageError.details
+          },
+          retryable: imageError.details.retryable
+        }
+      }
+      return { args: validation.args, envelope, modelContent: JSON.stringify(envelope) }
+    }
     const cancelled =
       context.signal?.aborted || (error instanceof Error && error.name === 'AbortError')
     const envelope: ToolResultEnvelope = {

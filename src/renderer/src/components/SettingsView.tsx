@@ -41,7 +41,8 @@ import {
   Sliders,
   FolderOpen,
   Waveform,
-  Browsers
+  Browsers,
+  ImageSquare
 } from '@phosphor-icons/react'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import { EnterpriseActivationModal } from './EnterpriseActivationModal'
@@ -95,6 +96,11 @@ function DiscordIcon({ size = 18 }: { size?: number }): React.JSX.Element {
 }
 
 const STATIC_TOOLS = [
+  {
+    name: 'generate_image',
+    label: 'Generate Image',
+    desc: 'Generate and render images through the configured Intelligence route'
+  },
   {
     name: 'execute_terminal_command',
     label: 'Guarded Terminal',
@@ -706,8 +712,8 @@ export function SettingsView({
       icon: <Bot size={17} weight="duotone" />,
       category: 'ai',
       categoryLabel: 'AI & Runtime',
-      description: 'Assign dedicated models for Generative Browser, Dictation, Quick Search, and Search.',
-      keywords: ['models', 'dictator', 'stt', 'routing', 'quick launcher', 'search model', 'generative browser', 'generate', 'ai']
+      description: 'Assign dedicated models for image generation, browser, dictation, and search.',
+      keywords: ['models', 'dictator', 'stt', 'routing', 'quick launcher', 'search model', 'generative browser', 'image generation', 'images', 'generate', 'ai']
     },
     {
       id: 'runtime',
@@ -1191,10 +1197,38 @@ export function SettingsView({
     <div className="space-y-8 animate-soft-pop">
       <SectionHeader
         title="Intelligence Model Routing"
-        subtitle="Assign specific AI models for Dictation (STT), Quick Launcher, and Search features."
+        subtitle="Assign dedicated models for image generation, Dictation, Quick Launcher, Search, and the Generative Browser."
       />
 
       <div className="space-y-4">
+        {/* Image Generation Model */}
+        <div className="settings-card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5 min-w-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
+              <ImageSquare size={20} weight="duotone" />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-semibold text-text-primary">
+                Image Generation Model
+              </span>
+              <span className="text-xs text-text-secondary/70 mt-0.5 leading-relaxed">
+                Routes native generate_image tool calls. Only OpenAI-compatible providers are shown; no chat-model fallback is used.
+              </span>
+            </div>
+          </div>
+          <div className="shrink-0">
+            <ModelSelector
+              selectedModel={config.imageGenerationModel || ''}
+              onModelChange={(modelKey) =>
+                setConfig({ ...config, imageGenerationModel: modelKey })
+              }
+              allowedCompletionTypes={['chat_completions', 'responses']}
+              allowClear
+              align="right"
+            />
+          </div>
+        </div>
+
         {/* Dictator Model */}
         <div className="settings-card flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3.5 min-w-0">
@@ -1212,8 +1246,8 @@ export function SettingsView({
           </div>
           <div className="shrink-0">
             <ModelSelector
-              selectedModel={(config as any).sttModel || ''}
-              onModelChange={(m) => setConfig({ ...config, sttModel: m } as any)}
+              selectedModel={config.sttModel || ''}
+              onModelChange={(modelKey) => setConfig({ ...config, sttModel: modelKey })}
               align="right"
             />
           </div>
@@ -1236,8 +1270,10 @@ export function SettingsView({
           </div>
           <div className="shrink-0">
             <ModelSelector
-              selectedModel={(config as any).quickLauncherModel || ''}
-              onModelChange={(m) => setConfig({ ...config, quickLauncherModel: m } as any)}
+              selectedModel={config.quickLauncherModel || ''}
+              onModelChange={(modelKey) =>
+                setConfig({ ...config, quickLauncherModel: modelKey })
+              }
               align="right"
             />
           </div>
@@ -1260,8 +1296,8 @@ export function SettingsView({
           </div>
           <div className="shrink-0">
             <ModelSelector
-              selectedModel={(config as any).searchModel || ''}
-              onModelChange={(m) => setConfig({ ...config, searchModel: m } as any)}
+              selectedModel={config.searchModel || ''}
+              onModelChange={(modelKey) => setConfig({ ...config, searchModel: modelKey })}
               align="right"
             />
           </div>
@@ -1284,8 +1320,10 @@ export function SettingsView({
           </div>
           <div className="shrink-0">
             <ModelSelector
-              selectedModel={(config as any).generativeBrowserModel || ''}
-              onModelChange={(m) => setConfig({ ...config, generativeBrowserModel: m } as any)}
+              selectedModel={config.generativeBrowserModel || ''}
+              onModelChange={(modelKey) =>
+                setConfig({ ...config, generativeBrowserModel: modelKey })
+              }
               align="right"
             />
           </div>
