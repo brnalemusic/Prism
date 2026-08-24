@@ -104,6 +104,9 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
   const [step, setStep] = useState<number>(1)
   const [baseUrl, setBaseUrl] = useState<string>(initialProvider?.baseUrl || '')
   const [apiKey, setApiKey] = useState<string>(initialProvider?.apiKey || '')
+  const [puterAuthToken, setPuterAuthToken] = useState<string>(
+    initialProvider?.puterAuthToken || ''
+  )
   const [name, setName] = useState<string>(initialProvider?.name || '')
   const [completionType, setCompletionType] = useState<CompletionType>(
     initialProvider?.completionType || 'chat_completions'
@@ -118,7 +121,9 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
   const isPuter = Boolean(trustedMeta?.name === 'Puter.js' || (baseUrl && isPuterBaseUrl(baseUrl)))
 
   const [authMode, setAuthMode] = useState<'account' | 'key'>(
-    initialProvider?.completionType === 'puter_native' || !initialProvider?.apiKey ? 'account' : 'key'
+    initialProvider?.completionType === 'puter_native' || !initialProvider?.apiKey
+      ? 'account'
+      : 'key'
   )
   const [isLoggingInPuter, setIsLoggingInPuter] = useState<boolean>(false)
   const [puterLoginError, setPuterLoginError] = useState<string>('')
@@ -130,7 +135,8 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
     try {
       const res = await window.api.loginWithPuter()
       if (res && res.success && res.token) {
-        setApiKey(res.token)
+        setPuterAuthToken(res.token)
+        setApiKey('')
         setCompletionType('puter_native')
         if (res.username) {
           setPuterUsername(res.username)
@@ -143,7 +149,8 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
         try {
           const fetchRes = await window.api.fetchProviderModels({
             baseUrl,
-            apiKey: res.token,
+            apiKey: '',
+            puterAuthToken: res.token,
             completionType: 'puter_native'
           })
           if (fetchRes && fetchRes.success && fetchRes.models) {
@@ -195,7 +202,7 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
 
   const handleNextFromKey = (): void => {
     if (isPuter && authMode === 'account') {
-      if (!apiKey.trim()) {
+      if (!puterAuthToken.trim()) {
         handlePuterBrowserLogin()
         return
       }
@@ -216,7 +223,12 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
     setIsFetchingModels(true)
     setFetchError('')
     try {
-      const res = await window.api.fetchProviderModels({ baseUrl, apiKey, completionType })
+      const res = await window.api.fetchProviderModels({
+        baseUrl,
+        apiKey,
+        ...(completionType === 'puter_native' ? { puterAuthToken } : {}),
+        completionType
+      })
       if (res.success && res.models) {
         setModels(res.models)
       } else {
@@ -256,7 +268,8 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
       id: initialProvider?.id || `provider_${Date.now()}`,
       name: isTrusted ? trustedMeta!.name : name.trim() || 'Custom Provider',
       baseUrl: normalizeUrl(baseUrl),
-      apiKey: apiKey.trim(),
+      apiKey: isPuter && authMode === 'account' ? '' : apiKey.trim(),
+      ...(isPuter && authMode === 'account' ? { puterAuthToken: puterAuthToken.trim() } : {}),
       completionType,
       isTrusted,
       models
@@ -473,7 +486,7 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
                               Cancel Login
                             </button>
                           </div>
-                        ) : apiKey ? (
+                        ) : puterAuthToken ? (
                           <div className="p-3 rounded-xl bg-status-success/15 border border-status-success/30 text-status-success text-xs flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
                               <CheckCircle size={16} weight="fill" className="shrink-0" />

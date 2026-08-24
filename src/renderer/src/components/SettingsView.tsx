@@ -1212,7 +1212,7 @@ export function SettingsView({
                 Image Generation Model
               </span>
               <span className="text-xs text-text-secondary/70 mt-0.5 leading-relaxed">
-                Routes native image generation and editing. Only OpenAI-compatible providers are shown; no chat-model fallback is used.
+                Routes native image generation and editing. Select an enabled model from a compatible provider; no chat-model fallback is used.
               </span>
             </div>
           </div>
@@ -1222,7 +1222,7 @@ export function SettingsView({
               onModelChange={(modelKey) =>
                 setConfig({ ...config, imageGenerationModel: modelKey })
               }
-              allowedCompletionTypes={['chat_completions', 'responses']}
+              allowedCompletionTypes={['chat_completions', 'responses', 'puter_native']}
               allowClear
               align="right"
             />

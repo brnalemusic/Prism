@@ -5,10 +5,13 @@ import {
   buildImageGenerationEndpoint,
   canRetryImageGenerationResult,
   detectImageMimeType,
+  hasImageGenerationCredentials,
+  imageGenerationSizeToRatio,
   ImageGenerationError,
   isImageGenerationCompletionType,
   isStrictBase64,
   mapImageGenerationHttpError,
+  parseBase64ImageDataUrl,
   parseImageGenerationResponse,
   resolveExactImageRouteFromProviders,
   sanitizeGeneratedImageFilename
@@ -136,6 +139,7 @@ test('recognizes only supported route types and sanitizes download names', () =>
   assert.equal(isImageGenerationCompletionType('chat_completions'), true)
   assert.equal(isImageGenerationCompletionType('responses'), true)
   assert.equal(isImageGenerationCompletionType('gemini_native'), false)
+  assert.equal(isImageGenerationCompletionType('puter_native'), true)
   assert.equal(
     sanitizeGeneratedImageFilename('../unsafe<>name.png', 'image/png', new Date('2026-08-24')),
     'unsafename.png'
@@ -144,6 +148,32 @@ test('recognizes only supported route types and sanitizes download names', () =>
     sanitizeGeneratedImageFilename('', 'image/jpeg', new Date('2026-08-24')),
     'prism-generated-image-2026-08-24.jpg'
   )
+})
+
+test('accepts native Puter sessions without API keys and converts image sizes to ratios', () => {
+  const nativePuter = {
+    id: 'puter',
+    name: 'Puter.js',
+    baseUrl: 'https://api.puter.com/puterai/openai/v1',
+    apiKey: '',
+    puterAuthToken: 'user-pays-session',
+    completionType: 'puter_native' as const,
+    isTrusted: true,
+    models: []
+  }
+  assert.equal(hasImageGenerationCredentials(nativePuter), true)
+  assert.equal(hasImageGenerationCredentials({ ...nativePuter, puterAuthToken: '' }), false)
+  assert.deepEqual(imageGenerationSizeToRatio('1536x1024'), { w: 1536, h: 1024 })
+  assert.equal(imageGenerationSizeToRatio('wide'), null)
+})
+
+test('parses only valid base64 image data URLs returned by native providers', () => {
+  assert.deepEqual(parseBase64ImageDataUrl('data:image/png;base64,YWJjZA=='), {
+    mimeType: 'image/png',
+    base64: 'YWJjZA=='
+  })
+  assert.equal(parseBase64ImageDataUrl('https://cdn.example.test/image.png'), null)
+  assert.equal(parseBase64ImageDataUrl('data:image/png;base64,not base64!'), null)
 })
 
 test('resolves only exact enabled provider-model routes', () => {

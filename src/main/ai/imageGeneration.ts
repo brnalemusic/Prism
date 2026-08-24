@@ -3,20 +3,25 @@ import { randomUUID } from 'crypto'
 import { loadConfig } from '../config'
 import { loadChatImageAsset } from '../history'
 import {
+  asDataUrl,
   imageAssetReference,
   type SystemToolResult,
   type ToolImageAttachment
 } from '../toolAttachments'
 import { resolveExactProviderAndModel } from './providerManager'
+import { generatePuterImage } from './puterClient'
 import {
   buildImageGenerationEndpoint,
   buildImageEditFormData,
   detectImageMimeType,
   ImageGenerationError,
   IMAGE_GENERATION_MIME_TYPES,
+  hasImageGenerationCredentials,
+  imageGenerationSizeToRatio,
   isImageGenerationCompletionType,
   isStrictBase64,
   mapImageGenerationHttpError,
+  parseBase64ImageDataUrl,
   parseImageGenerationResponse,
   type ImageGenerationOperation,
   type ImageGenerationMimeType,
@@ -59,10 +64,12 @@ export function resolveConfiguredImageGenerationRoute(): {
       'The configured image-generation route is no longer available.'
     )
   }
-  if (!provider.baseUrl || !provider.apiKey) {
+  if (!hasImageGenerationCredentials(provider)) {
     throw routeError(
       'IMAGE_ROUTE_STALE',
-      'The configured image provider is missing its endpoint or credentials.'
+      provider.completionType === 'puter_native'
+        ? 'Reconnect your Puter account to use native image generation.'
+        : 'The configured image provider is missing its endpoint or credentials.'
     )
   }
   return { provider, model }
@@ -378,6 +385,159 @@ function sourceFilename(attachment: ToolImageAttachment): string {
   return `${base || 'prism-edit-source'}.${extension}`
 }
 
+function puterImageError(error: unknown): ImageGenerationError {
+  const message = error instanceof Error ? error.message : String(error || '')
+  const normalized = message.toLowerCase()
+  if (/unauthori[sz]ed|auth|session|login|token/.test(normalized)) {
+    return new ImageGenerationError({
+      code: 'IMAGE_AUTH',
+      userMessage: 'Your Puter account session has expired. Reconnect your account and try again.',
+      retryable: false,
+      providerMessage: message.slice(0, 500)
+    })
+  }
+  if (/credit|quota|billing|insufficient/.test(normalized)) {
+    return new ImageGenerationError({
+      code: 'IMAGE_QUOTA',
+      userMessage: 'Your Puter account does not have enough credits for this image generation.',
+      retryable: false,
+      providerMessage: message.slice(0, 500)
+    })
+  }
+  if (/rate.?limit|too many|429/.test(normalized)) {
+    return new ImageGenerationError({
+      code: 'IMAGE_RATE_LIMIT',
+      userMessage: 'Puter rate limited this image generation. Please try again shortly.',
+      retryable: true,
+      providerMessage: message.slice(0, 500)
+    })
+  }
+  if (/model.*(?:not found|unsupported|invalid)|unsupported.*model/.test(normalized)) {
+    return new ImageGenerationError({
+      code: 'IMAGE_MODEL_UNSUPPORTED',
+      userMessage: 'The selected Puter model cannot generate or edit this image.',
+      retryable: false,
+      providerMessage: message.slice(0, 500)
+    })
+  }
+  return new ImageGenerationError({
+    code: 'IMAGE_PROVIDER',
+    userMessage: 'Puter could not complete the image generation.',
+    retryable: true,
+    providerMessage: message.slice(0, 500)
+  })
+}
+
+async function awaitPuterImage(source: Promise<string>, signal?: AbortSignal): Promise<string> {
+  if (!signal) return source
+  if (signal.aborted) throw abortError()
+  let onAbort: (() => void) | undefined
+  const aborted = new Promise<string>((_resolve, reject) => {
+    onAbort = () => reject(abortError())
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+  try {
+    return await Promise.race([source, aborted])
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort)
+  }
+}
+
+async function materializePuterImage(source: string, signal?: AbortSignal): Promise<ToolImageAttachment> {
+  const dataUrl = parseBase64ImageDataUrl(source)
+  if (dataUrl) {
+    return validateDecodedImage(Buffer.from(dataUrl.base64, 'base64'), dataUrl.mimeType)
+  }
+
+  let url: URL
+  try {
+    url = new URL(source)
+  } catch {
+    throw new ImageGenerationError({
+      code: 'IMAGE_MALFORMED_RESPONSE',
+      userMessage: 'Puter returned an invalid generated image source.',
+      retryable: true
+    })
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new ImageGenerationError({
+      code: 'IMAGE_MALFORMED_RESPONSE',
+      userMessage: 'Puter returned an unsupported generated image source.',
+      retryable: true
+    })
+  }
+  const response = await fetchWithTimeout(url, { redirect: 'follow' }, signal, 60_000)
+  if (!response.ok) {
+    throw new ImageGenerationError({
+      code: 'IMAGE_REMOTE_FETCH',
+      userMessage: 'The generated Puter image could not be retrieved.',
+      retryable: response.status >= 500 || response.status === 408 || response.status === 429,
+      status: response.status
+    })
+  }
+  return validateDecodedImage(
+    await readResponseBody(response, MAX_IMAGE_BYTES, signal, 60_000),
+    response.headers.get('content-type') || undefined
+  )
+}
+
+async function generatePuterImages(
+  args: ImageGenerationArguments,
+  provider: NonNullable<ReturnType<typeof resolveExactProviderAndModel>['provider']>,
+  model: NonNullable<ReturnType<typeof resolveExactProviderAndModel>['model']>,
+  sourceAttachment: ToolImageAttachment | undefined,
+  signal?: AbortSignal
+): Promise<ToolImageAttachment[]> {
+  const ratio = imageGenerationSizeToRatio(args.size)
+  if (!ratio) {
+    throw new ImageGenerationError({
+      code: 'IMAGE_INVALID_OPTIONS',
+      userMessage: 'The requested image size is invalid.',
+      retryable: false
+    })
+  }
+  if (sourceAttachment) validateEditSource(sourceAttachment)
+  const inputImage = sourceAttachment ? asDataUrl(sourceAttachment) : undefined
+  const attachments: ToolImageAttachment[] = []
+  let firstError: unknown
+  for (let index = 0; index < args.n; index += 1) {
+    if (signal?.aborted) throw abortError()
+    try {
+      const source = await awaitPuterImage(
+        generatePuterImage({
+          authToken: provider.puterAuthToken || '',
+          prompt: args.prompt,
+          model: model.id,
+          ...(model.provider ? { provider: model.provider } : {}),
+          ...(args.quality ? { quality: args.quality } : {}),
+          ratio,
+          ...(inputImage ? { inputImage, inputImageMimeType: sourceAttachment?.mimeType } : {})
+        }),
+        signal
+      )
+      attachments.push({ ...(await materializePuterImage(source, signal)), assetId: randomUUID() })
+    } catch (error) {
+      if (error instanceof ImageGenerationError) {
+        if (error.details.code === 'IMAGE_CANCELLED') throw error
+        firstError ??= error
+      } else {
+        firstError ??= puterImageError(error)
+      }
+    }
+  }
+  if (signal?.aborted) throw abortError()
+  if (attachments.length === 0) {
+    throw firstError instanceof Error
+      ? firstError
+      : new ImageGenerationError({
+          code: 'IMAGE_EMPTY_RESPONSE',
+          userMessage: 'Puter returned no usable images.',
+          retryable: true
+        })
+  }
+  return attachments
+}
+
 function buildImageRequest(
   args: ImageGenerationArguments,
   modelId: string,
@@ -453,6 +613,21 @@ export async function generateImage(
       throw editSourceError(
         'The selected image reference is unavailable or does not belong to this conversation.'
       )
+    }
+  }
+  if (provider.completionType === 'puter_native') {
+    const attachments = await generatePuterImages(args, provider, model, sourceAttachment, signal)
+    const verb = args.operation === 'edit' ? 'Edited' : 'Generated'
+    const references = attachments
+      .map((attachment) => imageAssetReference(attachment))
+      .filter((reference): reference is string => Boolean(reference))
+    return {
+      output:
+        `${verb} ${attachments.length} image${attachments.length === 1 ? '' : 's'} successfully.` +
+        (references.length > 0
+          ? `\nImage references:\n${references.map((ref) => `- ${ref}`).join('\n')}`
+          : ''),
+      attachments
     }
   }
   let endpoint: string

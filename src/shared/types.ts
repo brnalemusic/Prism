@@ -148,6 +148,8 @@ export type CompletionType =
 export interface ProviderModel {
   id: string
   name?: string
+  /** Native provider identifier when a model catalog exposes one (for example, Puter). */
+  provider?: string
   enabled: boolean
   isTrusted: boolean
 }
@@ -157,6 +159,8 @@ export interface ProviderConfig {
   name: string
   baseUrl: string
   apiKey: string
+  /** User-Pays account session for the native Puter.js SDK. Never an API key. */
+  puterAuthToken?: string
   completionType: CompletionType
   isTrusted: boolean
   isOfficial?: boolean

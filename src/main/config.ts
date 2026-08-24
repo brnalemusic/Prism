@@ -279,7 +279,18 @@ export function synthesizeLegacyProviders(config: Partial<AppConfig>): ProviderC
 }
 
 function normalizeConfig(config: AppConfig): AppConfig {
-  const providers = Array.isArray(config.providers) ? [...config.providers] : []
+  const providers = (Array.isArray(config.providers) ? config.providers : []).map((provider) => {
+    if (
+      provider?.completionType === 'puter_native' &&
+      !provider.puterAuthToken?.trim() &&
+      provider.apiKey?.trim()
+    ) {
+      // Older Prism releases stored the account session in apiKey. Keep existing
+      // Puter accounts working while making the User-Pays credential explicit.
+      return { ...provider, puterAuthToken: provider.apiKey, apiKey: '' }
+    }
+    return provider
+  })
 
   return {
     ...config,
@@ -421,41 +432,51 @@ export function loadConfig(): AppConfig {
 
     const config = normalizeConfig({ ...DEFAULT_CONFIG, ...parsedConfig })
 
-    if (
+    const normalizedReasoningLevelsChanged =
       JSON.stringify(parsedConfig.modelReasoningLevels || {}) !==
       JSON.stringify(config.modelReasoningLevels || {})
-    ) {
+    const normalizedProvidersChanged =
+      JSON.stringify(parsedConfig.providers || []) !== JSON.stringify(config.providers || [])
+    if (normalizedReasoningLevelsChanged || normalizedProvidersChanged) {
       try {
         fs.writeFileSync(
           CONFIG_FILE,
           JSON.stringify(
-            { ...parsedConfig, modelReasoningLevels: config.modelReasoningLevels },
+            {
+              ...parsedConfig,
+              modelReasoningLevels: config.modelReasoningLevels,
+              providers: config.providers
+            },
             null,
             2
           )
         )
       } catch (migrationError) {
         console.error(
-          '[Config] Failed to persist Prism Cloud thinking-level migration:',
+          '[Config] Failed to persist config normalization:',
           migrationError
         )
       }
     }
 
-    // Decrypt API keys inside providers if safeStorage was used
+    // Decrypt provider credentials if safeStorage was used.
     if (config.providers && Array.isArray(config.providers)) {
       config.providers = config.providers.map((p) => {
-        let key = p.apiKey || ''
-        const isHex = /^[0-9a-fA-F]+$/.test(key)
-        if (key && safeStorage.isEncryptionAvailable() && isHex) {
+        const decrypt = (value: string, label: string): string => {
+          const isHex = /^[0-9a-fA-F]+$/.test(value)
+          if (!value || !safeStorage.isEncryptionAvailable() || !isHex) return value
           try {
-            const buffer = Buffer.from(key, 'hex')
-            key = safeStorage.decryptString(buffer)
+            return safeStorage.decryptString(Buffer.from(value, 'hex'))
           } catch (e) {
-            console.error(`Failed to decrypt provider ${p.name} key:`, e)
+            console.error(`Failed to decrypt provider ${p.name} ${label}:`, e)
+            return value
           }
         }
-        return { ...p, apiKey: key }
+        return {
+          ...p,
+          apiKey: decrypt(p.apiKey || '', 'API key'),
+          puterAuthToken: decrypt(p.puterAuthToken || '', 'Puter session')
+        }
       })
     }
 
@@ -485,28 +506,34 @@ export function saveConfig(config: Partial<AppConfig>, currentConfig?: AppConfig
     const mergedConfig = { ...existingConfig, ...config }
     const configToSave = normalizeConfig(mergedConfig)
 
-    // Encrypt API keys inside providers using safeStorage if not already encrypted
+    // Encrypt provider credentials using safeStorage if not already encrypted.
     if (configToSave.providers && Array.isArray(configToSave.providers)) {
       configToSave.providers = configToSave.providers.map((p) => {
-        let key = p.apiKey || ''
-        let isAlreadyEncrypted = false
-        if (key && /^[0-9a-fA-F]+$/.test(key)) {
-          try {
-            safeStorage.decryptString(Buffer.from(key, 'hex'))
-            isAlreadyEncrypted = true
-          } catch {
-            isAlreadyEncrypted = false
+        const encrypt = (value: string, label: string): string => {
+          let encryptedValue = value
+          let isAlreadyEncrypted = false
+          if (encryptedValue && /^[0-9a-fA-F]+$/.test(encryptedValue)) {
+            try {
+              safeStorage.decryptString(Buffer.from(encryptedValue, 'hex'))
+              isAlreadyEncrypted = true
+            } catch {
+              isAlreadyEncrypted = false
+            }
           }
-        }
-        if (key && safeStorage.isEncryptionAvailable() && !isAlreadyEncrypted) {
-          try {
-            const encrypted = safeStorage.encryptString(key)
-            key = encrypted.toString('hex')
-          } catch (e) {
-            console.error(`Failed to encrypt provider ${p.name} key:`, e)
+          if (encryptedValue && safeStorage.isEncryptionAvailable() && !isAlreadyEncrypted) {
+            try {
+              encryptedValue = safeStorage.encryptString(encryptedValue).toString('hex')
+            } catch (e) {
+              console.error(`Failed to encrypt provider ${p.name} ${label}:`, e)
+            }
           }
+          return encryptedValue
         }
-        return { ...p, apiKey: key }
+        return {
+          ...p,
+          apiKey: encrypt(p.apiKey || '', 'API key'),
+          puterAuthToken: encrypt(p.puterAuthToken || '', 'Puter session')
+        }
       })
     }
 

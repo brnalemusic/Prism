@@ -15,7 +15,9 @@ import { resolveProviderAndModel, getAllProviders } from './providerManager'
 export function initGemini(): boolean {
   // Initialization check for active providers
   const providers = getAllProviders()
-  return providers.some((p) => p.apiKey && p.models.some((m) => m.enabled))
+  return providers.some(
+    (p) => (p.apiKey || p.puterAuthToken) && p.models.some((m) => m.enabled)
+  )
 }
 
 export function loadChatIntoHistory(_id: string): any[] {

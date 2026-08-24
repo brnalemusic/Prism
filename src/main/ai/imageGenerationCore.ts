@@ -52,7 +52,33 @@ export interface ImageSourceDescriptor {
 }
 
 export function isImageGenerationCompletionType(value: string): boolean {
-  return value === 'chat_completions' || value === 'responses'
+  return value === 'chat_completions' || value === 'responses' || value === 'puter_native'
+}
+
+export function hasImageGenerationCredentials(provider: ProviderConfig): boolean {
+  return provider.completionType === 'puter_native'
+    ? Boolean(provider.puterAuthToken?.trim())
+    : Boolean(provider.baseUrl && provider.apiKey)
+}
+
+export function imageGenerationSizeToRatio(size: string): { w: number; h: number } | null {
+  const match = size.trim().match(/^(\d+)x(\d+)$/)
+  if (!match) return null
+  const w = Number(match[1])
+  const h = Number(match[2])
+  return Number.isInteger(w) && Number.isInteger(h) && w > 0 && h > 0 ? { w, h } : null
+}
+
+export function parseBase64ImageDataUrl(value: string): {
+  mimeType?: string
+  base64: string
+} | null {
+  const match = value.trim().match(/^data:([^;,]+)?;base64,([A-Za-z0-9+/=\s]+)$/i)
+  if (!match) return null
+  const base64 = match[2].replace(/\s/g, '')
+  return isStrictBase64(base64)
+    ? { ...(match[1] ? { mimeType: match[1].toLowerCase() } : {}), base64 }
+    : null
 }
 
 export function resolveExactImageRouteFromProviders(

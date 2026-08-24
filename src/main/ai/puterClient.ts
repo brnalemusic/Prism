@@ -21,6 +21,17 @@ export interface PuterLoginResult {
   error?: string
 }
 
+export interface PuterImageRequest {
+  authToken: string
+  prompt: string
+  model: string
+  provider?: string
+  quality?: string
+  ratio?: { w: number; h: number }
+  inputImage?: string
+  inputImageMimeType?: string
+}
+
 let activeAuthServer: http.Server | null = null
 let activeAuthReject: ((reason?: Error) => void) | null = null
 
@@ -63,10 +74,14 @@ export async function fetchPuterModelsViaSDK(authToken?: string): Promise<{
 
       const rawName = (item as Record<string, unknown>).name
       const name = typeof rawName === 'string' && rawName.trim() ? rawName.trim() : id
+      const rawProvider = (item as Record<string, unknown>).provider
+      const provider =
+        typeof rawProvider === 'string' && rawProvider.trim() ? rawProvider.trim() : undefined
       const trusted = isModelTrusted(id)
       models.push({
         id,
         name,
+        ...(provider ? { provider } : {}),
         isTrusted: trusted,
         enabled: trusted
       })
@@ -143,10 +158,13 @@ export async function fetchPuterModels(authToken?: string): Promise<{
       if (!id) continue
 
       const name = typeof item.name === 'string' && item.name.trim() ? item.name.trim() : id
+      const provider =
+        typeof item.provider === 'string' && item.provider.trim() ? item.provider.trim() : undefined
       const trusted = isModelTrusted(id)
       models.push({
         id,
         name,
+        ...(provider ? { provider } : {}),
         isTrusted: trusted,
         enabled: trusted
       })
@@ -199,6 +217,31 @@ export async function getPuterUser(authToken: string): Promise<PuterUser | null>
   } catch {
     return null
   }
+}
+
+/**
+ * Generates an image through the official Puter.js User-Pays SDK.
+ * This intentionally does not call OpenAI-compatible image endpoints.
+ */
+export async function generatePuterImage(request: PuterImageRequest): Promise<string> {
+  const authToken = request.authToken.trim()
+  if (!authToken) throw new Error('Puter account session is missing. Please reconnect your account.')
+
+  puter.setAuthToken(authToken)
+  const image = await puter.ai.txt2img({
+    prompt: request.prompt,
+    model: request.model,
+    ...(request.provider ? { provider: request.provider } : {}),
+    ...(request.quality ? { quality: request.quality } : {}),
+    ...(request.ratio ? { ratio: request.ratio } : {}),
+    ...(request.inputImage ? { input_image: request.inputImage } : {}),
+    ...(request.inputImageMimeType
+      ? { input_image_mime_type: request.inputImageMimeType }
+      : {})
+  })
+  const src = image && typeof image.src === 'string' ? image.src.trim() : ''
+  if (!src) throw new Error('Puter.js returned an image without a source URL.')
+  return src
 }
 
 /**
@@ -545,7 +588,7 @@ export async function streamPuterCompletion(
   callbacks: StreamCallbacks,
   reasoningLevel?: string
 ): Promise<StreamResult> {
-  const authToken = provider.apiKey?.trim() || ''
+  const authToken = provider.puterAuthToken?.trim() || provider.apiKey?.trim() || ''
   const endpoint = 'https://api.puter.com/drivers/call'
 
   const formattedMessages = sanitizePuterMessages(messages)

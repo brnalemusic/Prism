@@ -1364,8 +1364,8 @@ if (!gotTheLock) {
 
     ipcMain.handle(
       'fetch-provider-models',
-      async (_event, { baseUrl, apiKey, completionType }: any) => {
-        return await fetchModelsFromProvider(baseUrl, apiKey, completionType)
+      async (_event, { baseUrl, apiKey, completionType, puterAuthToken }: any) => {
+        return await fetchModelsFromProvider(baseUrl, apiKey, completionType, puterAuthToken)
       }
     )
 

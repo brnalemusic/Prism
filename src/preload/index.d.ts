@@ -265,6 +265,7 @@ export interface PrismAPI {
   fetchProviderModels: (params: {
     baseUrl: string
     apiKey: string
+    puterAuthToken?: string
     completionType: import('../shared/types').CompletionType
   }) => Promise<{
     success: boolean

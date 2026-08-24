@@ -44,7 +44,8 @@ function getModelList(payload: unknown): string[] {
 export async function fetchModelsFromProvider(
   baseUrl: string,
   apiKey: string,
-  completionType: CompletionType
+  completionType: CompletionType,
+  puterAuthToken?: string
 ): Promise<FetchModelsResult> {
   const normUrl = normalizeBaseUrl(baseUrl)
   if (!normUrl) {
@@ -56,7 +57,7 @@ export async function fetchModelsFromProvider(
 
   if (isPuter) {
     if (completionType === 'puter_native') {
-      const puterSdkRes = await fetchPuterModelsViaSDK(apiKey || undefined)
+      const puterSdkRes = await fetchPuterModelsViaSDK(puterAuthToken || undefined)
       if (puterSdkRes.success && puterSdkRes.models.length > 0) {
         return puterSdkRes
       }
@@ -159,6 +160,7 @@ export function getAllProviders(): ProviderConfig[] {
       name: p?.name || 'Unnamed Provider',
       baseUrl: p?.baseUrl || '',
       apiKey: p?.apiKey || '',
+      puterAuthToken: p?.puterAuthToken || '',
       completionType: isGoogleHost(p?.baseUrl || '')
         ? 'gemini_native'
         : p?.completionType || 'chat_completions',
