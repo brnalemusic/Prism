@@ -2689,7 +2689,7 @@ export async function executeSystemTool(
   }
   switch (toolName) {
     case 'generate_image':
-      return generateImage(asImageGenerationArguments(args), signal)
+      return generateImage(asImageGenerationArguments(args), signal, chatId)
 
     // Terminal
     case 'execute_terminal_command':

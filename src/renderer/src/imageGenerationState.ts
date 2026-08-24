@@ -13,6 +13,17 @@ export interface ImageGenerationLifecycleInput {
   decodeFailed: boolean
 }
 
+export function resolveGeneratedImageAspectRatio(
+  requestedAspectRatio: number,
+  width: number | undefined,
+  height: number | undefined,
+  decoded: boolean
+): number {
+  if (!decoded || !width || !height || width <= 0 || height <= 0) return requestedAspectRatio
+  const resolved = width / height
+  return Number.isFinite(resolved) && resolved > 0 ? resolved : requestedAspectRatio
+}
+
 export function deriveImageGenerationLifecycle({
   toolStatus,
   attachmentCount,

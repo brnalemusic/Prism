@@ -1,9 +1,16 @@
 import { nativeImage } from 'electron'
+import { randomUUID } from 'crypto'
 import { loadConfig } from '../config'
-import type { SystemToolResult, ToolImageAttachment } from '../toolAttachments'
+import { loadChatImageAsset } from '../history'
+import {
+  imageAssetReference,
+  type SystemToolResult,
+  type ToolImageAttachment
+} from '../toolAttachments'
 import { resolveExactProviderAndModel } from './providerManager'
 import {
   buildImageGenerationEndpoint,
+  buildImageEditFormData,
   detectImageMimeType,
   ImageGenerationError,
   IMAGE_GENERATION_MIME_TYPES,
@@ -11,6 +18,7 @@ import {
   isStrictBase64,
   mapImageGenerationHttpError,
   parseImageGenerationResponse,
+  type ImageGenerationOperation,
   type ImageGenerationMimeType,
   type ImageSourceDescriptor
 } from './imageGenerationCore'
@@ -19,6 +27,8 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 export interface ImageGenerationArguments {
   prompt: string
+  operation: ImageGenerationOperation
+  sourceImageRef?: string
   size: string
   quality?: string
   n: number
@@ -323,9 +333,102 @@ function readProviderError(payload: unknown, fallback: string): string {
   return typeof record.message === 'string' ? record.message : fallback
 }
 
+function editSourceError(message: string): ImageGenerationError {
+  return new ImageGenerationError({
+    code: 'IMAGE_EDIT_SOURCE_INVALID',
+    userMessage: message,
+    retryable: false
+  })
+}
+
+function validateEditSource(attachment: ToolImageAttachment): Buffer {
+  if (!isStrictBase64(attachment.data)) {
+    throw editSourceError('The selected source image contains invalid data.')
+  }
+  const bytes = Buffer.from(attachment.data.replace(/\s/g, ''), 'base64')
+  if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) {
+    throw editSourceError('The selected source image is empty or too large.')
+  }
+  const detectedMime = detectImageMimeType(bytes)
+  if (!detectedMime || detectedMime !== attachment.mimeType) {
+    throw editSourceError('The selected source image has an invalid or unsupported format.')
+  }
+  const decoded = nativeImage.createFromBuffer(bytes)
+  if (decoded.isEmpty()) throw editSourceError('The selected source image could not be decoded.')
+  const { width, height } = decoded.getSize()
+  if (width < 1 || height < 1 || width > 16384 || height > 16384) {
+    throw editSourceError('The selected source image has invalid dimensions.')
+  }
+  return bytes
+}
+
+function sourceFilename(attachment: ToolImageAttachment): string {
+  const extension =
+    attachment.mimeType === 'image/jpeg'
+      ? 'jpg'
+      : attachment.mimeType === 'image/webp'
+        ? 'webp'
+        : 'png'
+  const base = (attachment.name || 'prism-edit-source')
+    .replace(/\.[a-zA-Z0-9]{1,5}$/i, '')
+    .replace(/[^a-zA-Z0-9-_ ]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .slice(0, 80)
+  return `${base || 'prism-edit-source'}.${extension}`
+}
+
+function buildImageRequest(
+  args: ImageGenerationArguments,
+  modelId: string,
+  apiKey: string,
+  sourceAttachment?: ToolImageAttachment
+): RequestInit {
+  if (args.operation === 'generate') {
+    return {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: modelId,
+        prompt: args.prompt,
+        size: args.size,
+        n: args.n,
+        ...(args.quality ? { quality: args.quality } : {})
+      })
+    }
+  }
+  if (!sourceAttachment) {
+    throw new ImageGenerationError({
+      code: 'IMAGE_EDIT_SOURCE_MISSING',
+      userMessage: 'Choose a valid image from this conversation to edit.',
+      retryable: false
+    })
+  }
+  const bytes = validateEditSource(sourceAttachment)
+  const form = buildImageEditFormData({
+    model: modelId,
+    prompt: args.prompt,
+    size: args.size,
+    n: args.n,
+    ...(args.quality ? { quality: args.quality } : {}),
+    imageBytes: new Uint8Array(bytes),
+    imageMimeType: sourceAttachment.mimeType,
+    filename: sourceFilename(sourceAttachment)
+  })
+  return {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form
+  }
+}
+
 export async function generateImage(
   args: ImageGenerationArguments,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  chatId?: string
 ): Promise<SystemToolResult> {
   if (signal?.aborted) throw abortError()
   if (!args.prompt || args.prompt.length > 32000) {
@@ -336,9 +439,25 @@ export async function generateImage(
     })
   }
   const { provider, model } = resolveConfiguredImageGenerationRoute()
+  let sourceAttachment: ToolImageAttachment | undefined
+  if (args.operation === 'edit') {
+    if (!chatId || !args.sourceImageRef) {
+      throw new ImageGenerationError({
+        code: 'IMAGE_EDIT_SOURCE_MISSING',
+        userMessage: 'Choose an image from this conversation to edit.',
+        retryable: false
+      })
+    }
+    sourceAttachment = loadChatImageAsset(chatId, args.sourceImageRef) || undefined
+    if (!sourceAttachment) {
+      throw editSourceError(
+        'The selected image reference is unavailable or does not belong to this conversation.'
+      )
+    }
+  }
   let endpoint: string
   try {
-    endpoint = buildImageGenerationEndpoint(provider.baseUrl)
+    endpoint = buildImageGenerationEndpoint(provider.baseUrl, args.operation)
   } catch {
     throw new ImageGenerationError({
       code: 'IMAGE_ROUTE_STALE',
@@ -350,20 +469,7 @@ export async function generateImage(
   try {
     response = await fetchWithTimeout(
       endpoint,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${provider.apiKey}`
-        },
-        body: JSON.stringify({
-          model: model.id,
-          prompt: args.prompt,
-          size: args.size,
-          n: args.n,
-          ...(args.quality ? { quality: args.quality } : {})
-        })
-      },
+      buildImageRequest(args, model.id, provider.apiKey, sourceAttachment),
       signal,
       180_000
     )
@@ -388,7 +494,7 @@ export async function generateImage(
     if (error instanceof ImageGenerationError) throw error
     if (!response.ok) {
       throw new ImageGenerationError(
-        mapImageGenerationHttpError(response.status, response.statusText)
+        mapImageGenerationHttpError(response.status, response.statusText, args.operation)
       )
     }
     throw new ImageGenerationError({
@@ -400,7 +506,11 @@ export async function generateImage(
   }
   if (!response.ok) {
     throw new ImageGenerationError(
-      mapImageGenerationHttpError(response.status, readProviderError(payload, response.statusText))
+      mapImageGenerationHttpError(
+        response.status,
+        readProviderError(payload, response.statusText),
+        args.operation
+      )
     )
   }
 
@@ -409,7 +519,10 @@ export async function generateImage(
   let firstError: unknown
   for (const source of sources) {
     try {
-      attachments.push(await materializeSource(source, provider.baseUrl, provider.apiKey, signal))
+      attachments.push({
+        ...(await materializeSource(source, provider.baseUrl, provider.apiKey, signal)),
+        assetId: randomUUID()
+      })
     } catch (error) {
       firstError ??= error
     }
@@ -425,8 +538,16 @@ export async function generateImage(
         })
   }
 
+  const verb = args.operation === 'edit' ? 'Edited' : 'Generated'
+  const references = attachments
+    .map((attachment) => imageAssetReference(attachment))
+    .filter((reference): reference is string => Boolean(reference))
   return {
-    output: `Generated ${attachments.length} image${attachments.length === 1 ? '' : 's'} successfully.`,
+    output:
+      `${verb} ${attachments.length} image${attachments.length === 1 ? '' : 's'} successfully.` +
+      (references.length > 0
+        ? `\nImage references:\n${references.map((ref) => `- ${ref}`).join('\n')}`
+        : ''),
     attachments
   }
 }
@@ -436,6 +557,10 @@ export function asImageGenerationArguments(
 ): ImageGenerationArguments {
   return {
     prompt: String(args.prompt || '').trim(),
+    operation: args.operation === 'edit' ? 'edit' : 'generate',
+    ...(typeof args.source_image_ref === 'string'
+      ? { sourceImageRef: args.source_image_ref.trim() }
+      : {}),
     size: typeof args.size === 'string' ? args.size : '1024x1024',
     ...(typeof args.quality === 'string' ? { quality: args.quality } : {}),
     n: typeof args.n === 'number' ? args.n : 1

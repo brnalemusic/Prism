@@ -77,6 +77,8 @@ export interface ToolCall {
 
 export interface ToolImageAttachment {
   kind: 'image'
+  assetId?: string
+  name?: string
   mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
   data: string
   width?: number

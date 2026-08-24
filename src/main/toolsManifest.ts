@@ -60,9 +60,21 @@ const contentArg = stringSchema('Complete UTF-8 text content. Preserve whitespac
 export const toolsManifest: ToolDefinition[] = [
   tool(
     'generate_image',
-    'Generate original images when a visual is the appropriate answer. You decide when to use this tool and must supply a complete, polished final image prompt that describes subject, composition, lighting, style, mood, and important constraints. The generated images become part of this assistant response.',
+    'Generate a new image or edit a specific image already available in this conversation. You decide when a visual is appropriate and must supply a complete, polished final prompt. For edits, set operation to "edit" and copy the exact prism-image://asset/<uuid> reference announced with the intended image into source_image_ref. Never invent references or use filesystem paths. Generated outputs become part of this assistant response and receive references that can be edited later.',
     {
-      prompt: stringSchema('Complete final prompt to send to the configured image-generation model.'),
+      prompt: stringSchema(
+        'Complete final prompt to send to the configured image-generation model.'
+      ),
+      operation: stringSchema(
+        'Whether to create a new image or edit an existing chat image asset.',
+        {
+          enum: ['generate', 'edit'],
+          default: 'generate'
+        }
+      ),
+      source_image_ref: stringSchema(
+        'Exact Prism image reference to edit, such as prism-image://asset/<uuid>. Required only when operation is edit.'
+      ),
       size: stringSchema('Requested output dimensions.', {
         enum: [
           '256x256',
@@ -105,13 +117,19 @@ export const toolsManifest: ToolDefinition[] = [
     'Send input text and/or simulated keyboard key combinations (such as Arrow keys, Enter, Ctrl+B, Shift+Alt+L, etc.) to the standard input (stdin) of a running terminal command.',
     {
       runId: stringSchema('Six-digit Run ID of the terminal process.'),
-      input: stringSchema('Optional text to write to stdin. Confirmed with Enter automatically by default.'),
+      input: stringSchema(
+        'Optional text to write to stdin. Confirmed with Enter automatically by default.'
+      ),
       keys: {
         type: 'array',
-        description: 'Optional list of key names or modifier combinations to press in order, e.g. ["ArrowUp", "ArrowUp", "Enter"], ["Ctrl+B"], ["Shift+Alt+L"], ["Tab"], ["Escape"], ["Ctrl+C"].',
+        description:
+          'Optional list of key names or modifier combinations to press in order, e.g. ["ArrowUp", "ArrowUp", "Enter"], ["Ctrl+B"], ["Shift+Alt+L"], ["Tab"], ["Escape"], ["Ctrl+C"].',
         items: stringSchema('Key name or combo string.')
       },
-      pressEnter: booleanSchema('Whether to automatically confirm input text with Enter/newline. Default is true.', true)
+      pressEnter: booleanSchema(
+        'Whether to automatically confirm input text with Enter/newline. Default is true.',
+        true
+      )
     },
     ['runId']
   ),
@@ -319,7 +337,10 @@ export const toolsManifest: ToolDefinition[] = [
     ['instructions']
   ),
   tool('computer_use_see_screen', 'Capture a screenshot of the entire screen.', {
-    appName: stringSchema('Optional window/app name (ignored, full desktop screen is always captured).', { default: 'Entire Screen' })
+    appName: stringSchema(
+      'Optional window/app name (ignored, full desktop screen is always captured).',
+      { default: 'Entire Screen' }
+    )
   }),
   tool('configure_prism', 'Change non-secret Prism settings. At least one property is required.', {
     launcherShortcut: stringSchema('Quick Launcher hotkey.'),
@@ -489,7 +510,9 @@ export const toolsManifest: ToolDefinition[] = [
     'read_skill',
     'Read a specialized skill file from Prism internal skills library to learn guidelines and unlock execution tools for specific tasks.',
     {
-      skill_name: stringSchema('Filename of the skill to read, e.g. "pdf_skill.md" or "pptx_skill.md".')
+      skill_name: stringSchema(
+        'Filename of the skill to read, e.g. "pdf_skill.md" or "pptx_skill.md".'
+      )
     },
     ['skill_name']
   ),

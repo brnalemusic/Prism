@@ -1062,9 +1062,12 @@ export const InputBar = React.memo(
 
           {isProcessing ? (
             <button
+              type="button"
               onClick={() => onCancel?.()}
-              className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-status-error/40 bg-status-error/[0.15] text-status-error transition-all duration-150 hover:bg-status-error/[0.25] active:scale-95 shadow-sm"
+              disabled={!onCancel}
+              className="input-bar-processing-stop ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-150 active:scale-95"
               title="Stop generation"
+              aria-label="Stop generation"
             >
               <Square size={13} fill="currentColor" />
             </button>
@@ -1137,8 +1140,9 @@ export const InputBar = React.memo(
             className={clsx(
               'liquid-glass-input flex-1 flex flex-col rounded-3xl p-5 transition-all duration-300 relative input-border-glow overflow-visible',
               modeStyles,
-              isFocused && 'active',
-              disabled && 'opacity-60'
+              isFocused && !disabled && 'active',
+              isProcessing && 'input-bar-processing',
+              disabled && !isProcessing && 'opacity-60'
             )}
           >
             {/* Subtle internal theme center glow (+30% brightness on focus) */}
@@ -1271,7 +1275,8 @@ export const InputBar = React.memo(
               'liquid-glass-input relative rounded-[26px] transition-all duration-300 input-border-glow flex flex-col overflow-visible px-4.5 pt-4 pb-3',
               modeStyles,
               isFocused && !disabled && 'active',
-              disabled && 'opacity-60'
+              isProcessing && 'input-bar-processing',
+              disabled && !isProcessing && 'opacity-60'
             )}
           >
             {/* Subtle internal theme center glow (+30% brightness on focus) */}

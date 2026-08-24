@@ -359,6 +359,12 @@ const BROWSER_TOOL_NAMES = new Set([
   'detailed_dom_page'
 ])
 
+const PRISM_IMAGE_REFERENCE_PATTERN = /prism-image:\/\/asset\/[a-f0-9-]{36}/gi
+
+function hideInternalImageReferences(content: string): string {
+  return content.replace(PRISM_IMAGE_REFERENCE_PATTERN, 'this image')
+}
+
 const AiMessage = React.memo(function AiMessage({
   msg,
   currentChatId,
@@ -371,7 +377,11 @@ const AiMessage = React.memo(function AiMessage({
   inactivityLabel,
   activeToolLabel
 }: AiMessageProps) {
-  const streamStats = useStreamStats(msg.content, !!msg.isStreaming)
+  const visibleContent = useMemo(
+    () => hideInternalImageReferences(msg.content || ''),
+    [msg.content]
+  )
+  const streamStats = useStreamStats(visibleContent, !!msg.isStreaming)
   const nativeToolCalls = useMemo(
     () => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls),
     [msg.toolCalls, msg.streamingToolCalls]
@@ -431,10 +441,10 @@ const AiMessage = React.memo(function AiMessage({
   }, [nativeToolCalls, shouldHideIndicator, activeToolLabel])
 
   const parts = useMemo(() => {
-    return (msg.content || '').split(
+    return visibleContent.split(
       /(\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
     )
-  }, [msg.content])
+  }, [visibleContent])
 
   const shouldShowInlineTool = useCallback(
     (status: ToolCallItem['status'], partIndex: number) => {
@@ -603,7 +613,7 @@ const AiMessage = React.memo(function AiMessage({
   })
   flushSearchGroup()
 
-  const cleanTextForCopy = (msg.content || '')
+  const cleanTextForCopy = visibleContent
     .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)/g, '')
     .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/g, '')
     .trim()
@@ -1042,7 +1052,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
   const inactivityLabel = useInactivityLabel(msg)
   const { activeToolLabel } = useActiveToolLabel(msg)
 
-  const cleanContentText = (msg.content || '')
+  const cleanContentText = hideInternalImageReferences(msg.content || '')
     .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)/g, '')
     .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/g, '')
     .trim()
@@ -2253,7 +2263,30 @@ function RealApp(): React.JSX.Element {
           let screenshot: string | undefined = undefined
           let file: AttachedFile | undefined = undefined
 
-          if (Array.isArray(c.content)) {
+          const persistedImage = Array.isArray(c.image_attachments)
+            ? c.image_attachments.find(
+                (attachment: {
+                  kind?: unknown
+                  mimeType?: unknown
+                  data?: unknown
+                  name?: unknown
+                }) =>
+                  attachment?.kind === 'image' &&
+                  typeof attachment.mimeType === 'string' &&
+                  typeof attachment.data === 'string'
+              )
+            : undefined
+          if (persistedImage) {
+            screenshot = `data:${persistedImage.mimeType};base64,${persistedImage.data}`
+            file = {
+              name:
+                typeof persistedImage.name === 'string' ? persistedImage.name : 'Attached image',
+              mimeType: persistedImage.mimeType,
+              data: persistedImage.data
+            }
+          }
+
+          if (!screenshot && Array.isArray(c.content)) {
             for (const part of c.content) {
               if (part && typeof part === 'object' && part.type === 'image_url') {
                 screenshot = part.image_url?.url
@@ -2513,7 +2546,9 @@ function RealApp(): React.JSX.Element {
       const activeFile = isSuggestion ? undefined : options.file || currentTab.attachedFile
       const activeQuote = isSuggestion ? undefined : currentTab.quotedText || quotedTextRef.current || undefined
       const activeScreenshot = activeFile?.mimeType.startsWith('image/')
-        ? activeFile.data
+        ? activeFile.data.startsWith('data:')
+          ? activeFile.data
+          : `data:${activeFile.mimeType};base64,${activeFile.data}`
         : undefined
       const displayContent = text
         .replace(/<attached_file[^>]*\/>/gi, '')
@@ -2564,7 +2599,6 @@ function RealApp(): React.JSX.Element {
       window.api.sendChatMessage({
         message: apiMessage,
         chatId,
-        screenshot: activeScreenshot || undefined,
         attachedFile: activeFile || undefined,
         quote: activeQuote,
         appMode: options.forceYoutube ? 'youtube' : undefined,

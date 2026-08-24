@@ -79,6 +79,8 @@ export interface OpenAiMessage {
   tool_call_id?: string
   tool_attachments?: ToolAttachment[]
   tool_attachment_refs?: ToolImageReference[]
+  image_attachments?: ToolAttachment[]
+  image_attachment_refs?: ToolImageReference[]
   tool_metadata?: {
     originalArguments: unknown
     validatedArguments: Record<string, unknown>

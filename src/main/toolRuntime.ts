@@ -293,6 +293,21 @@ function validateCrossFieldRules(
   ) {
     return ['arguments.endLine must be greater than or equal to arguments.startLine.']
   }
+  if (
+    definition.name === 'generate_image' &&
+    args.operation === 'edit' &&
+    (typeof args.source_image_ref !== 'string' || !args.source_image_ref.trim())
+  ) {
+    return ['arguments.source_image_ref is required when operation is edit.']
+  }
+  if (
+    definition.name === 'generate_image' &&
+    args.operation !== 'edit' &&
+    typeof args.source_image_ref === 'string' &&
+    args.source_image_ref.trim()
+  ) {
+    return ['arguments.source_image_ref can only be used when operation is edit.']
+  }
   return []
 }
 

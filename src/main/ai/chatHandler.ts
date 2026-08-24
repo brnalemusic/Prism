@@ -1,6 +1,7 @@
 import { IpcMainEvent } from 'electron'
 import * as os from 'os'
 import { SessionMode, AttachedFile } from '../../shared/types'
+import type { ToolImageAttachment } from '../toolAttachments'
 import { getSystemToolsPrompt, setActiveCwd, setCurrentSessionIdForTodo } from '../systemTools'
 import { loadConfig } from '../config'
 import {
@@ -24,6 +25,9 @@ import {
   onTerminalNotificationPending
 } from '../terminalProcessManager'
 import { hasConfiguredImageGenerationRoute } from './imageGeneration'
+import { isStrictBase64 } from './imageGenerationCore'
+import { asDataUrl, imageAttachments } from '../toolAttachments'
+import { dedupeImageAttachments, formatImageAssetReference, isImageAssetId } from '../imageAssets'
 
 export const activeRuns = new Map<string, ActiveRun>()
 export const lastScreenshots = new Map<string, string>()
@@ -33,6 +37,58 @@ const currentSessionId = ''
 let currentSelectedChatModel = ''
 let currentSessionMode: SessionMode = 'execution'
 let currentDisciplinePath = ''
+
+const SUPPORTED_CHAT_IMAGE_MIME_TYPES = new Set<ToolImageAttachment['mimeType']>([
+  'image/jpeg',
+  'image/png',
+  'image/webp'
+])
+
+function normalizeChatImage(
+  value: string,
+  declaredMimeType: string,
+  name?: string
+): ToolImageAttachment | null {
+  let mimeType =
+    declaredMimeType.toLowerCase() === 'image/jpg' ? 'image/jpeg' : declaredMimeType.toLowerCase()
+  let data = value.trim()
+  const dataUrl = data.match(/^data:([^;,]+);base64,(.+)$/s)
+  if (dataUrl) {
+    mimeType = dataUrl[1].toLowerCase()
+    data = dataUrl[2]
+  }
+  if (!SUPPORTED_CHAT_IMAGE_MIME_TYPES.has(mimeType as ToolImageAttachment['mimeType'])) {
+    return null
+  }
+  data = data.replace(/\s/g, '')
+  if (!isStrictBase64(data)) return null
+  return {
+    kind: 'image',
+    mimeType: mimeType as ToolImageAttachment['mimeType'],
+    data,
+    ...(name ? { name } : {})
+  }
+}
+
+function collectIncomingImages(
+  screenshot?: string,
+  attachedFile?: AttachedFile
+): ToolImageAttachment[] {
+  const candidates: ToolImageAttachment[] = []
+  if (attachedFile?.mimeType.startsWith('image/')) {
+    const attachment = normalizeChatImage(
+      attachedFile.data,
+      attachedFile.mimeType,
+      attachedFile.name
+    )
+    if (attachment) candidates.push(attachment)
+  }
+  if (screenshot) {
+    const attachment = normalizeChatImage(screenshot, 'image/png', 'Screenshot.png')
+    if (attachment) candidates.push(attachment)
+  }
+  return dedupeImageAttachments(candidates)
+}
 
 export function setChatModel(modelKey: string): void {
   currentSelectedChatModel = modelKey
@@ -182,32 +238,19 @@ export async function handleChatMessage(
     quote: quote || undefined
   }
 
-  if (screenshot || attachedFile) {
-    const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
-      { type: 'text', text: userText }
-    ]
-    if (screenshot) {
-      parts.push({
-        type: 'image_url',
-        image_url: {
-          url: screenshot.startsWith('data:') ? screenshot : `data:image/png;base64,${screenshot}`
-        }
-      })
-    }
-    if (attachedFile && attachedFile.mimeType.startsWith('image/')) {
-      parts.push({
-        type: 'image_url',
-        image_url: {
-          url: attachedFile.data.startsWith('data:')
-            ? attachedFile.data
-            : `data:${attachedFile.mimeType};base64,${attachedFile.data}`
-        }
-      })
-    }
-    userMessage.content = parts
+  const incomingImages = collectIncomingImages(screenshot, attachedFile)
+  if (attachedFile?.mimeType.startsWith('image/') && incomingImages.length === 0) {
+    safeSend(event.sender, 'chat-reply-error', {
+      error: 'Unsupported or invalid image. Please use a valid PNG, JPEG, or WebP file.',
+      chatId
+    })
+    return
   }
+  if (incomingImages.length > 0) userMessage.image_attachments = incomingImages
 
-  historyMessages.push(userMessage)
+  const persistedUserMessage = prepareHistoryMessage(chatId, userMessage)
+  const hydratedUserMessage = hydrateHistoryToolAttachments(chatId, [persistedUserMessage])[0]
+  historyMessages.push(hydratedUserMessage)
 
   const config = loadConfig()
   const disabledSkills =
@@ -534,17 +577,54 @@ STRICT BUTTON RULES:
   }
 }
 
+function imageReferenceContext(message: OpenAiMessage): string {
+  const references = [
+    ...(message.image_attachment_refs || []),
+    ...(message.tool_attachment_refs || [])
+  ]
+  if (references.length === 0) return ''
+  const lines = references
+    .filter((reference) => isImageAssetId(reference.id))
+    .map((reference) => {
+      const label = reference.name ? ` (${reference.name})` : ''
+      const dimensions =
+        reference.width && reference.height ? `, ${reference.width}x${reference.height}` : ''
+      return `- ${formatImageAssetReference(reference.id)}${label}${dimensions}`
+    })
+  if (lines.length === 0) return ''
+  return `[Prism image assets available to tools]\n${lines.join('\n')}`
+}
+
+function appendImageReferenceContext(content: string, context: string): string {
+  if (!context || content.includes(context)) return content
+  try {
+    const parsed = JSON.parse(content)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return JSON.stringify({ ...parsed, image_references: context.split('\n').slice(1) })
+    }
+  } catch {
+    // Plain text tool and user content is annotated below.
+  }
+  return content ? `${content}\n\n${context}` : context
+}
+
 function convertHistoryToOpenAi(history: OpenAiMessage[]): OpenAiMessage[] {
+  const seenImages = new Set<string>()
   return history
     .filter((m) => m.role !== 'system')
     .map((m) => {
+      const referenceContext = imageReferenceContext(m)
       if (m.role === 'tool') {
+        const content = appendImageReferenceContext(
+          typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+          referenceContext
+        )
         return {
           role: 'tool',
           tool_call_id: m.tool_call_id || `call_${Date.now()}`,
           name: m.name,
-          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-          tool_attachments: m.tool_attachments
+          content,
+          tool_attachments: dedupeImageAttachments(imageAttachments(m.tool_attachments), seenImages)
         }
       }
       let content =
@@ -567,6 +647,31 @@ function convertHistoryToOpenAi(history: OpenAiMessage[]): OpenAiMessage[] {
           })
         }
       }
+
+      if (m.role === 'user') {
+        const textParts = Array.isArray(content)
+          ? content.filter((part) => part.type === 'text')
+          : [{ type: 'text', text: String(content || '') }]
+        const annotatedText = appendImageReferenceContext(
+          textParts.map((part) => part.text || '').join('\n'),
+          referenceContext
+        )
+        const attachments = dedupeImageAttachments(
+          imageAttachments(m.image_attachments),
+          seenImages
+        )
+        content =
+          attachments.length > 0
+            ? [
+                { type: 'text', text: annotatedText },
+                ...attachments.map((attachment) => ({
+                  type: 'image_url',
+                  image_url: { url: asDataUrl(attachment) }
+                }))
+              ]
+            : annotatedText
+      }
+
       return {
         role: m.role === 'model' ? 'assistant' : m.role,
         content: content || '',

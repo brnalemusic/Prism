@@ -98,8 +98,8 @@ function DiscordIcon({ size = 18 }: { size?: number }): React.JSX.Element {
 const STATIC_TOOLS = [
   {
     name: 'generate_image',
-    label: 'Generate Image',
-    desc: 'Generate and render images through the configured Intelligence route'
+    label: 'Generate or Edit Image',
+    desc: 'Create or edit chat images through the configured Intelligence route'
   },
   {
     name: 'execute_terminal_command',
@@ -1212,7 +1212,7 @@ export function SettingsView({
                 Image Generation Model
               </span>
               <span className="text-xs text-text-secondary/70 mt-0.5 leading-relaxed">
-                Routes native generate_image tool calls. Only OpenAI-compatible providers are shown; no chat-model fallback is used.
+                Routes native image generation and editing. Only OpenAI-compatible providers are shown; no chat-model fallback is used.
               </span>
             </div>
           </div>

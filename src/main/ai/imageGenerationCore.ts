@@ -3,6 +3,7 @@ import type { ProviderConfig, ProviderModel } from '../../shared/types'
 export const IMAGE_GENERATION_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
 
 export type ImageGenerationMimeType = (typeof IMAGE_GENERATION_MIME_TYPES)[number]
+export type ImageGenerationOperation = 'generate' | 'edit'
 
 export type ImageGenerationErrorCode =
   | 'IMAGE_ROUTE_MISSING'
@@ -10,6 +11,9 @@ export type ImageGenerationErrorCode =
   | 'IMAGE_ENDPOINT_UNSUPPORTED'
   | 'IMAGE_MODEL_UNSUPPORTED'
   | 'IMAGE_INVALID_OPTIONS'
+  | 'IMAGE_EDIT_SOURCE_MISSING'
+  | 'IMAGE_EDIT_SOURCE_INVALID'
+  | 'IMAGE_EDIT_UNSUPPORTED'
   | 'IMAGE_AUTH'
   | 'IMAGE_QUOTA'
   | 'IMAGE_RATE_LIMIT'
@@ -69,22 +73,60 @@ export function canRetryImageGenerationResult(result: unknown): boolean {
   const record = result as Record<string, unknown>
   if (record.ok === true) return true
   if (record.ok !== false || !record.error || typeof record.error !== 'object') return false
-  return (record.error as Record<string, unknown>).retryable === true
+  const error = record.error as Record<string, unknown>
+  if (
+    error.code === 'INVALID_ARGUMENTS' ||
+    error.code === 'UNKNOWN_TOOL' ||
+    error.code === 'REPEATED_CALL' ||
+    error.code === 'CANCELLED'
+  ) {
+    return false
+  }
+  return error.retryable === true
 }
 
 function trimOperationPath(pathname: string): string {
-  return pathname.replace(/\/(?:chat\/completions|responses|images\/generations)\/?$/i, '')
+  return pathname.replace(
+    /\/(?:chat\/completions|responses|images\/(?:generations|edits))\/?$/i,
+    ''
+  )
 }
 
-export function buildImageGenerationEndpoint(baseUrl: string): string {
+export function buildImageGenerationEndpoint(
+  baseUrl: string,
+  operation: ImageGenerationOperation = 'generate'
+): string {
   const parsed = new URL(baseUrl.trim())
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new Error('Provider base URL must use HTTP or HTTPS.')
   }
   parsed.search = ''
   parsed.hash = ''
-  parsed.pathname = `${trimOperationPath(parsed.pathname).replace(/\/$/, '')}/images/generations`
+  const route = operation === 'edit' ? 'edits' : 'generations'
+  parsed.pathname = `${trimOperationPath(parsed.pathname).replace(/\/$/, '')}/images/${route}`
   return parsed.toString().replace(/\/$/, '')
+}
+
+export function buildImageEditFormData(input: {
+  model: string
+  prompt: string
+  size: string
+  n: number
+  quality?: string
+  imageBytes: Uint8Array
+  imageMimeType: ImageGenerationMimeType
+  filename: string
+}): FormData {
+  const imageBuffer = new ArrayBuffer(input.imageBytes.byteLength)
+  new Uint8Array(imageBuffer).set(input.imageBytes)
+  const form = new FormData()
+  form.append('model', input.model)
+  form.append('prompt', input.prompt)
+  form.append('size', input.size)
+  form.append('n', String(input.n))
+  if (input.quality) form.append('quality', input.quality)
+  form.append('image', new Blob([imageBuffer], { type: input.imageMimeType }), input.filename)
+  return form
 }
 
 export function parseImageGenerationResponse(payload: unknown): ImageSourceDescriptor[] {
@@ -189,7 +231,8 @@ function providerMessageSuggestsUnsupportedModel(message: string): boolean {
 
 export function mapImageGenerationHttpError(
   status: number,
-  providerMessage = ''
+  providerMessage = '',
+  operation: ImageGenerationOperation = 'generate'
 ): ImageGenerationErrorDetails {
   const safeProviderMessage = providerMessage.trim().slice(0, 500) || undefined
   if (status === 401 || status === 403) {
@@ -204,13 +247,25 @@ export function mapImageGenerationHttpError(
   if (status === 404 && providerMessageSuggestsUnsupportedModel(providerMessage)) {
     return {
       code: 'IMAGE_MODEL_UNSUPPORTED',
-      userMessage: 'The selected model cannot generate images.',
+      userMessage:
+        operation === 'edit'
+          ? 'The selected model cannot edit images.'
+          : 'The selected model cannot generate images.',
       retryable: false,
       status,
       providerMessage: safeProviderMessage
     }
   }
   if (status === 404 || status === 405 || status === 501) {
+    if (operation === 'edit') {
+      return {
+        code: 'IMAGE_EDIT_UNSUPPORTED',
+        userMessage: 'The selected provider or model does not support image editing.',
+        retryable: false,
+        status,
+        providerMessage: safeProviderMessage
+      }
+    }
     return {
       code: 'IMAGE_ENDPOINT_UNSUPPORTED',
       userMessage: 'The selected provider does not support image generation at this endpoint.',
@@ -245,8 +300,12 @@ export function mapImageGenerationHttpError(
     return {
       code: unsupportedModel ? 'IMAGE_MODEL_UNSUPPORTED' : 'IMAGE_INVALID_OPTIONS',
       userMessage: unsupportedModel
-        ? 'The selected model cannot generate images.'
-        : 'The image provider rejected the requested options.',
+        ? operation === 'edit'
+          ? 'The selected model cannot edit images.'
+          : 'The selected model cannot generate images.'
+        : operation === 'edit'
+          ? 'The image provider rejected the edit request or source image.'
+          : 'The image provider rejected the requested options.',
       retryable: false,
       status,
       providerMessage: safeProviderMessage

@@ -6,6 +6,8 @@ export interface ToolImageReference {
   kind: 'image'
   id: string
   mimeType: ToolImageAttachment['mimeType']
+  name?: string
+  sha256?: string
   width?: number
   height?: number
   byteLength?: number
@@ -20,6 +22,12 @@ export type SystemToolOutput = string | SystemToolResult
 
 export function asDataUrl(attachment: ToolImageAttachment): string {
   return `data:${attachment.mimeType};base64,${attachment.data}`
+}
+
+export function imageAssetReference(
+  attachment: Pick<ToolImageAttachment, 'assetId'>
+): string | null {
+  return attachment.assetId ? `prism-image://asset/${attachment.assetId}` : null
 }
 
 export function imageAttachments(attachments?: ToolAttachment[]): ToolImageAttachment[] {
