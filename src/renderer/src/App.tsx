@@ -1074,6 +1074,67 @@ const AiMessage = React.memo(function AiMessage({
   )
 })
 
+interface HarnessBlockItem {
+  id: string
+  content?: string
+  thoughts?: string
+  toolCalls?: ToolCallItem[]
+  isLatest: boolean
+}
+
+function getHarnessMessageBlocks(
+  harnessRounds?: HarnessRoundItem[],
+  fallbackToolCalls?: ToolCallItem[]
+): HarnessBlockItem[] {
+  if (!harnessRounds || harnessRounds.length === 0) {
+    if (fallbackToolCalls && fallbackToolCalls.length > 0) {
+      return [
+        {
+          id: 'fallback-tools',
+          toolCalls: fallbackToolCalls,
+          isLatest: true
+        }
+      ]
+    }
+    return []
+  }
+
+  const blocks: HarnessBlockItem[] = []
+
+  for (let i = 0; i < harnessRounds.length; i++) {
+    const round = harnessRounds[i]
+    const hasText = Boolean(round.content && round.content.trim())
+    const hasTools = Boolean(round.toolCalls && round.toolCalls.length > 0)
+
+    if (!hasText && !hasTools) continue
+
+    // If this round has NO text, and there is already a preceding block,
+    // merge its tools into the preceding block so tool-after-tool runs as one single container
+    if (!hasText && blocks.length > 0) {
+      const prevBlock = blocks[blocks.length - 1]
+      if (hasTools) {
+        prevBlock.toolCalls = [...(prevBlock.toolCalls || []), ...(round.toolCalls || [])]
+      }
+      continue
+    }
+
+    // Otherwise, this round starts a new block (either it has text, or it is the first block)
+    blocks.push({
+      id: `block-${round.round}-${i}`,
+      content: hasText ? round.content : undefined,
+      thoughts: round.thoughts,
+      toolCalls: hasTools ? [...(round.toolCalls || [])] : undefined,
+      isLatest: false
+    })
+  }
+
+  if (blocks.length > 0) {
+    blocks[blocks.length - 1].isLatest = true
+  }
+
+  return blocks
+}
+
 interface AiMessageRowProps {
   msg: Message
   i: number
@@ -1084,10 +1145,11 @@ interface AiMessageRowProps {
   onSendSuggestion?: (payload: string, suggestionKey: string) => boolean
   suggestionMessageKey: string
   isSuggestionSendDisabled: boolean
+  inactivityLabel?: string | null
+  activeToolLabel?: string | null
   sessionMode: SessionMode
   harnessUi?: {
     showSteps: boolean
-    showThinking: boolean
     reduceMotion: boolean
   }
 }
@@ -1102,12 +1164,11 @@ const AiMessageRow = React.memo(function AiMessageRow({
   onSendSuggestion,
   suggestionMessageKey,
   isSuggestionSendDisabled,
+  inactivityLabel,
+  activeToolLabel,
   sessionMode,
   harnessUi
 }: AiMessageRowProps) {
-  const inactivityLabel = useInactivityLabel(msg)
-  const { activeToolLabel } = useActiveToolLabel(msg)
-
   const cleanContentText = hideInternalImageReferences(msg.content || '')
     .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)/g, '')
     .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/g, '')
@@ -1131,32 +1192,35 @@ const AiMessageRow = React.memo(function AiMessageRow({
     [msg.toolCalls, msg.streamingToolCalls]
   )
   const isHarness = sessionMode === 'harness'
-  const harnessRounds = msg.harnessRounds
+  const harnessBlocks = useMemo(() => {
+    if (!isHarness) return []
+    return getHarnessMessageBlocks(msg.harnessRounds, msg.toolCalls)
+  }, [isHarness, msg.harnessRounds, msg.toolCalls])
 
   return (
     <div
       key={i}
       className="w-full flex flex-col items-start px-4 py-3.5 transition-all duration-700 animate-message"
     >
-      {/* Harness Mode: Interleaved rounds in chronological order */}
-      {isHarness && harnessRounds && harnessRounds.length > 0 ? (
+      {/* Harness Mode: Interleaved blocks in chronological order (consecutive tools merged into 1 block) */}
+      {isHarness && harnessBlocks.length > 0 ? (
         <div className="w-full flex flex-col gap-2.5">
-          {harnessRounds.map((roundItem, rIdx) => {
-            const isLatestRound = rIdx === harnessRounds.length - 1
+          {harnessBlocks.map((block, bIdx) => {
+            const isLatest = block.isLatest
             const roundTools = consolidateToolCalls(
-              roundItem.toolCalls,
-              isLatestRound ? msg.streamingToolCalls : undefined
+              block.toolCalls,
+              isLatest ? msg.streamingToolCalls : undefined
             )
-            const hasRoundContent = Boolean(roundItem.content && roundItem.content.trim())
-            const isRoundActive = isLatestRound && Boolean(isActive && isRunningTool)
+            const hasBlockContent = Boolean(block.content && block.content.trim())
+            const isBlockActive = isLatest && Boolean(isActive && isRunningTool)
 
             return (
-              <div key={`harness-round-${roundItem.round}-${rIdx}`} className="w-full flex flex-col gap-2">
-                {/* 1. Round textual preface/content */}
-                {hasRoundContent && (
+              <div key={`harness-block-${block.id}-${bIdx}`} className="w-full flex flex-col gap-2">
+                {/* 1. Block textual preface/content */}
+                {hasBlockContent && (
                   <div className="w-full text-text-primary" data-prism-ai-message="true">
                     <AiMessage
-                      msg={{ ...msg, content: roundItem.content, thoughts: roundItem.thoughts }}
+                      msg={{ ...msg, content: block.content || '', thoughts: block.thoughts }}
                       currentChatId={currentChatId}
                       handleLoadChat={handleLoadChat}
                       markdownComponents={markdownComponents}
@@ -1167,17 +1231,17 @@ const AiMessageRow = React.memo(function AiMessageRow({
                       inactivityLabel={inactivityLabel}
                       activeToolLabel={activeToolLabel}
                       isHarness={isHarness}
-                      showActions={isLatestRound}
+                      showActions={isLatest}
                     />
                   </div>
                 )}
 
-                {/* 2. Round tools */}
+                {/* 2. Block tools */}
                 {roundTools.length > 0 && (
-                  <HarnessActivityBoundary key={`harness-round-tools-${roundItem.round}-${rIdx}`}>
+                  <HarnessActivityBoundary key={`harness-block-tools-${block.id}-${bIdx}`}>
                     <HarnessSteps
                       tools={roundTools}
-                      isActive={isRoundActive}
+                      isActive={isBlockActive}
                       showSteps={harnessUi?.showSteps !== false}
                       reduceMotion={harnessUi?.reduceMotion === true}
                     />
