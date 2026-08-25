@@ -66,8 +66,7 @@ import {
   FilePpt,
   CheckCircle,
   XCircle,
-  GlobeSimple,
-  CaretDown
+  GlobeSimple
 } from '@phosphor-icons/react'
 
 import { ScreenshotModal } from './components/ScreenshotModal'
