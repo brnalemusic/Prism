@@ -16,7 +16,11 @@ import {
   getHarnessInstructionStatus,
   HARNESS_SYSTEM_MAX_CHARACTERS
 } from '../src/main/harnessPrompt.ts'
-import type { EffectiveHarnessSettings } from '../src/shared/types.ts'
+import { runToolOrchestration } from '../src/main/ai/toolOrchestrator.ts'
+import { resolveRequestModelKey, resolveRunWorkspace } from '../src/main/ai/sessionRuntime.ts'
+import { PerChatStreamBuffer } from '../src/renderer/src/chatStreamBuffer.ts'
+import { applyToolCallEnd, applyToolCallStart } from '../src/renderer/src/toolCallState.ts'
+import type { EffectiveHarnessSettings, ProviderConfig } from '../src/shared/types.ts'
 
 test('edit and delete snippets require one exact match', () => {
   assert.equal(
@@ -143,4 +147,114 @@ test('Harness instructions preserve precedence and cap oversized AGENTS.md', asy
   } finally {
     await fs.rm(root, { recursive: true, force: true })
   }
+})
+
+test('Harness pins its session model and never falls through to Chat selection', () => {
+  assert.equal(
+    resolveRequestModelKey('harness', undefined, 'provider:harness-model', 'provider:chat-model'),
+    'provider:harness-model'
+  )
+  assert.equal(
+    resolveRequestModelKey(
+      'harness',
+      'provider:explicit-model',
+      'provider:harness-model',
+      'provider:chat-model'
+    ),
+    'provider:explicit-model'
+  )
+  assert.equal(resolveRequestModelKey('harness', undefined, undefined, 'provider:chat-model'), '')
+  assert.equal(resolveRunWorkspace('chat', 'harness'), 'harness')
+})
+
+test('tool orchestration uses the same provider model after a tool response', async () => {
+  const provider: ProviderConfig = {
+    id: 'test-provider',
+    name: 'Test Provider',
+    baseUrl: 'https://example.invalid',
+    apiKey: 'test-key',
+    completionType: 'chat_completions',
+    isTrusted: true,
+    models: [{ id: 'selected-model', enabled: true, isTrusted: true }]
+  }
+  const observedModels: string[] = []
+  let round = 0
+  const result = await runToolOrchestration({
+    provider,
+    modelId: 'selected-model',
+    messages: [{ role: 'system', content: 'test' }],
+    tools: [],
+    signal: new AbortController().signal,
+    streamCompletion: async (_provider, modelId) => {
+      observedModels.push(modelId)
+      round += 1
+      return round === 1
+        ? {
+            text: '',
+            reasoning: '',
+            toolCalls: [{ id: 'call-1', name: 'read', args: '{}' }],
+            finishReason: 'tool_calls'
+          }
+        : {
+            text: 'done',
+            reasoning: '',
+            toolCalls: [],
+            finishReason: 'stop'
+          }
+    },
+    executeTool: async () => ({
+      args: {},
+      envelope: { ok: true, output: 'file contents' },
+      modelContent: JSON.stringify({ ok: true, output: 'file contents' })
+    })
+  })
+  assert.deepEqual(observedModels, ['selected-model', 'selected-model'])
+  assert.equal(result.accumulatedText, 'done')
+  assert.equal(result.rounds, 2)
+})
+
+test('stream frames remain isolated per chat and retain each latest cumulative chunk', () => {
+  const callbacks = new Map<number, FrameRequestCallback>()
+  const consumed: Array<{ chatId: string; text: string }> = []
+  let nextHandle = 1
+  const buffer = new PerChatStreamBuffer<{ chatId: string; text: string }>(
+    (callback) => {
+      const handle = nextHandle++
+      callbacks.set(handle, callback)
+      return handle
+    },
+    (handle) => callbacks.delete(handle),
+    (value) => consumed.push(value)
+  )
+
+  buffer.push({ chatId: 'harness-1', text: 'partial' })
+  buffer.push({ chatId: 'chat-1', text: 'chat-final' })
+  buffer.push({ chatId: 'harness-1', text: 'harness-final' })
+  for (const callback of [...callbacks.values()]) callback(0)
+
+  assert.deepEqual(consumed, [
+    { chatId: 'harness-1', text: 'harness-final' },
+    { chatId: 'chat-1', text: 'chat-final' }
+  ])
+})
+
+test('tool lifecycle reconciles by call id even when an end event arrives first', () => {
+  const ended = applyToolCallEnd([], {
+    callId: 'call-2',
+    name: 'read',
+    result: JSON.stringify({ ok: true, output: 'done' })
+  })
+  assert.equal(ended.length, 1)
+  assert.equal(ended[0].id, 'call-2')
+  assert.equal(ended[0].status, 'done')
+
+  const restarted = applyToolCallStart(ended, {
+    callId: 'call-2',
+    name: 'read',
+    args: { path: 'README.md' },
+    timestamp: 10
+  })
+  assert.equal(restarted.length, 1)
+  assert.equal(restarted[0].status, 'running')
+  assert.deepEqual(restarted[0].args, { path: 'README.md' })
 })

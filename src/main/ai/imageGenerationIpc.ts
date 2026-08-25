@@ -63,6 +63,7 @@ export function startImageGenerationRetry(request: RetryImageGenerationRequest):
     return { started: false, error: 'Invalid image retry request.' }
   }
   const session = loadChatSession(chatId)
+  const workspace = session?.workspace === 'harness' ? 'harness' : 'chat'
   const toolMessage = session?.messages.find(
     (message) =>
       message.role === 'tool' &&
@@ -80,7 +81,8 @@ export function startImageGenerationRetry(request: RetryImageGenerationRequest):
     name: 'generate_image',
     args: storedArgs,
     timestamp: Date.now(),
-    chatId
+    chatId,
+    workspace
   })
 
   void executeValidatedTool('generate_image', storedArgs, {
@@ -101,7 +103,8 @@ export function startImageGenerationRetry(request: RetryImageGenerationRequest):
         name: 'generate_image',
         result: execution.modelContent,
         attachments: execution.attachments,
-        chatId
+        chatId,
+        workspace
       })
     })
     .catch((error) => {
@@ -116,7 +119,13 @@ export function startImageGenerationRetry(request: RetryImageGenerationRequest):
           retryable: !controller.signal.aborted
         }
       })
-      broadcastIpc('chat-tool-end', { callId, name: 'generate_image', result, chatId })
+      broadcastIpc('chat-tool-end', {
+        callId,
+        name: 'generate_image',
+        result,
+        chatId,
+        workspace
+      })
     })
     .finally(() => unregisterRetry(chatId, callId, controller))
 

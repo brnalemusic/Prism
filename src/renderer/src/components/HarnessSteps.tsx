@@ -75,6 +75,40 @@ function targetPath(args: Record<string, unknown>): string {
   return stringArg(args, ['path', 'filePath', 'file_path', 'directory', 'cwd'])
 }
 
+function parseSources(value: unknown): HarnessSource[] {
+  if (!Array.isArray(value)) return []
+  const sources: HarnessSource[] = []
+  const seen = new Set<string>()
+  for (const candidate of value) {
+    if (!isRecord(candidate)) continue
+    const url = typeof candidate.url === 'string' ? candidate.url.trim() : ''
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue
+    seen.add(url)
+    let fallbackDomain = ''
+    try {
+      fallbackDomain = new URL(url).hostname
+    } catch {
+      // The protocol check above is intentionally followed by URL validation.
+    }
+    sources.push({
+      url,
+      title:
+        typeof candidate.title === 'string' && candidate.title.trim()
+          ? candidate.title.trim()
+          : fallbackDomain || url,
+      domain:
+        typeof candidate.domain === 'string' && candidate.domain.trim()
+          ? candidate.domain.trim()
+          : fallbackDomain,
+      faviconUrl:
+        typeof candidate.faviconUrl === 'string' && /^https?:\/\//i.test(candidate.faviconUrl)
+          ? candidate.faviconUrl
+          : ''
+    })
+  }
+  return sources
+}
+
 function patchTargets(patch: string): string[] {
   return Array.from(
     patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm),
@@ -201,9 +235,7 @@ function decodeToolResult(result?: string): DecodedResult {
         outputText: stringify(parsedOutput),
         output: parsedOutput,
         diff: typeof parsedOutput.diff === 'string' ? parsedOutput.diff : undefined,
-        sources: Array.isArray(parsedOutput.sources)
-          ? (parsedOutput.sources.filter(isRecord) as HarnessSource[])
-          : [],
+        sources: parseSources(parsedOutput.sources),
         runId: typeof parsedOutput.runId === 'string' ? parsedOutput.runId : undefined
       }
     } catch {
@@ -409,7 +441,11 @@ function Sources({ sources }: { sources: HarnessSource[] }): React.JSX.Element |
               onClick={() => void window.api.openExternalUrl(source.url)}
               className="flex min-w-0 items-center gap-2 rounded-sm py-1 text-left transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary/55"
             >
-              <img src={source.faviconUrl} alt="" className="h-3.5 w-3.5 rounded-sm" />
+              {source.faviconUrl ? (
+                <img src={source.faviconUrl} alt="" className="h-3.5 w-3.5 rounded-sm" />
+              ) : (
+                <GlobeSimple size={14} className="shrink-0 text-text-muted" />
+              )}
               <span className="min-w-0 flex-1 truncate text-[10.5px] text-text-secondary">
                 {source.title}
               </span>
@@ -423,7 +459,7 @@ function Sources({ sources }: { sources: HarnessSource[] }): React.JSX.Element |
 }
 
 export class HarnessActivityBoundary extends React.Component<
-  { children: React.ReactNode },
+  { children: React.ReactNode; fallbackMessage?: string },
   { hasError: boolean }
 > {
   state = { hasError: false }
@@ -441,7 +477,7 @@ export class HarnessActivityBoundary extends React.Component<
       return (
         <div role="alert" className="mb-3 flex items-center gap-2 px-1 py-1.5 text-xs text-status-error/85">
           <XCircle size={13} weight="fill" />
-          <span>Activity details could not render.</span>
+          <span>{this.props.fallbackMessage || 'Activity details could not render.'}</span>
           <button
             type="button"
             onClick={() => this.setState({ hasError: false })}

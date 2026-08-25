@@ -94,6 +94,8 @@ export interface ToolOrchestratorOptions {
     loopGuard: ToolLoopGuard
   ) => Promise<ValidatedToolExecution>
   terminalInputToolName?: string
+  /** Test seam and provider adapter override; production uses streamOpenAiCompletion. */
+  streamCompletion?: typeof streamOpenAiCompletion
 }
 
 function joinOutput(current: string, next: string): string {
@@ -203,7 +205,7 @@ export async function runToolOrchestration(
       streamingToolCalls: streamingToolCalls.map((call) => ({ ...call }))
     })
 
-    const result = await streamOpenAiCompletion(
+    const result = await (options.streamCompletion || streamOpenAiCompletion)(
       options.provider,
       options.modelId,
       messages,

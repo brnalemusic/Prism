@@ -749,6 +749,29 @@ export function updateChatSessionTitle(id: string, title: string): boolean {
   }
 }
 
+/** Updates the pinned model without changing messages or the session workspace. */
+export function updateChatSessionModel(
+  id: string,
+  model: string,
+  expectedWorkspace?: WorkspaceKind
+): boolean {
+  const cleanModel = model.trim()
+  const cleanId = sanitizeId(id)
+  if (!cleanId || !cleanModel) return false
+  const session = loadChatSession(cleanId, expectedWorkspace)
+  if (!session) return false
+  const filePath = path.join(CHATS_DIR, `chat_${cleanId}.json`)
+  try {
+    session.model = cleanModel
+    session.lastUpdated = Date.now()
+    fs.writeFileSync(filePath, JSON.stringify(session, null, 2))
+    return true
+  } catch (error) {
+    console.error(`Failed to update chat session model ${id}:`, error)
+    return false
+  }
+}
+
 /**
  * Deletes a chat session.
  */

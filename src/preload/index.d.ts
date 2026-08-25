@@ -78,6 +78,7 @@ export interface PrismAPI {
     modelKey?: string
     reasoningLevel?: string
   }) => void
+  setHarnessSessionModel: (chatId: string, modelKey: string) => Promise<boolean>
 
   setModel: (modelKey: string) => void
   clearChat: () => void

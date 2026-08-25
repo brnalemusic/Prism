@@ -7,8 +7,7 @@ import {
   HarnessApprovalItem,
   HarnessToolName,
   HarnessContextSnapshot,
-  EffectiveHarnessSettings,
-  WorkspaceKind
+  EffectiveHarnessSettings
 } from '../../shared/types'
 import type { ToolImageAttachment } from '../toolAttachments'
 import { getSystemToolsPrompt, setActiveCwd, setCurrentSessionIdForTodo } from '../systemTools'
@@ -52,6 +51,7 @@ import {
 } from '../harnessTools'
 import { requestHarnessApproval, cancelHarnessApprovalsForChat } from '../harnessApproval'
 import type { ToolResultEnvelope } from '../toolRuntime'
+import { resolveRequestModelKey, resolveRunWorkspace } from './sessionRuntime'
 
 export const activeRuns = new Map<string, ActiveRun>()
 export const lastScreenshots = new Map<string, string>()
@@ -331,9 +331,12 @@ export async function handleChatMessage(
   const session = loadChatSession(chatId, workspace)
   const payloadModelKey =
     typeof data === 'object' && typeof data.modelKey === 'string' ? data.modelKey.trim() : ''
-  const requestModelKey =
-    payloadModelKey ||
-    (workspace === 'harness' ? session?.model || '' : currentSelectedChatModel || session?.model || '')
+  const requestModelKey = resolveRequestModelKey(
+    workspace,
+    payloadModelKey,
+    session?.model,
+    currentSelectedChatModel
+  )
 
   // Harness selections are scoped to their tab/session. Only Chat may update the
   // legacy global selection used by regular conversations and one-shot commands.
@@ -1020,12 +1023,13 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
   const chatSession = loadChatSession(chatId)
   if (!chatSession || !chatSession.messages || chatSession.messages.length === 0) return
 
-  const workspace: WorkspaceKind =
-    chatSession.workspace === 'harness' || chatSession.sessionMode === 'harness'
-      ? 'harness'
-      : 'chat'
-  const selectedModel =
-    workspace === 'harness' ? chatSession.model || '' : chatSession.model || currentSelectedChatModel
+  const workspace = resolveRunWorkspace(chatSession.workspace, chatSession.sessionMode)
+  const selectedModel = resolveRequestModelKey(
+    workspace,
+    undefined,
+    chatSession.model,
+    currentSelectedChatModel
+  )
   const { provider, model } = resolveProviderAndModel(selectedModel)
   if (!selectedModel || !provider || !provider.apiKey || !model) {
     broadcastIpc('chat-reply-error', {

@@ -91,7 +91,24 @@ export function applyToolCallEnd<T extends ToolCallState>(
 ): T[] {
   if (!event.callId) return calls
   const index = calls.findIndex((call) => call.id === event.callId)
-  if (index === -1) return calls
+  if (index === -1) {
+    return [
+      ...calls,
+      {
+        id: event.callId,
+        name: event.name,
+        args: {},
+        result: event.result,
+        attachments: event.attachments,
+        finishedAt: Date.now(),
+        status: isToolCancelledResult(event.result)
+          ? 'cancelled'
+          : isToolErrorResult(event.result)
+            ? 'error'
+            : 'done'
+      } as T
+    ]
+  }
   const updated = [...calls]
   updated[index] = {
     ...updated[index],

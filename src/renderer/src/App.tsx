@@ -96,6 +96,7 @@ import {
   isToolCancelledResult,
   isToolErrorResult
 } from './toolCallState'
+import { PerChatStreamBuffer } from './chatStreamBuffer'
 
 const DiscordVoiceGlowOverlay = lazy(() =>
   import('./components/DiscordVoiceGlowOverlay').then(({ DiscordVoiceGlowOverlay }) => ({
@@ -2088,6 +2089,15 @@ function RealApp(): React.JSX.Element {
   const handleNewHarnessTab = useCallback(
     async (forceProjectPicker = false): Promise<void> => {
       setActiveView('harness')
+      let harnessModel = selectedModelRef.current || config?.lastSelectedChatModel || ''
+      if (!harnessModel) {
+        const activeModels = await window.api.getActiveModels().catch(() => [])
+        harnessModel = activeModels[0]?.fullKey || ''
+      }
+      if (!harnessModel) {
+        setIsProviderLockOpen(true)
+        return
+      }
       const newId = `harness-${Date.now()}`
       const project = forceProjectPicker
         ? null
@@ -2104,7 +2114,7 @@ function RealApp(): React.JSX.Element {
         disciplinePath: project?.rootPath || '',
         isProcessing: false,
         isTodoOpen: false,
-        selectedModel: selectedModelRef.current,
+        selectedModel: harnessModel,
         isSearchEnabled: false,
         disabledSkills: []
       }
@@ -2115,7 +2125,7 @@ function RealApp(): React.JSX.Element {
         setIsHarnessProjectModalOpen(true)
       }
     },
-    [config?.harness.lastProjectPath]
+    [config?.harness.lastProjectPath, config?.lastSelectedChatModel]
   )
 
   const handleOpenHarness = useCallback((): void => {
@@ -2822,6 +2832,14 @@ function RealApp(): React.JSX.Element {
           ? historyItem?.disciplinePath || ''
           : ''
       const loadedDisabledSkills = historyItem?.disabledSkills
+      let loadedModel = historyItem?.model || selectedModelRef.current
+      if (workspace === 'harness' && !loadedModel) {
+        const activeModels = await window.api.getActiveModels().catch(() => [])
+        loadedModel = activeModels[0]?.fullKey || ''
+      }
+      if (workspace === 'harness' && loadedModel && !historyItem?.model) {
+        void window.api.setHarnessSessionModel(chatId, loadedModel)
+      }
 
       setWorkspaceTabs((prevTabs) => {
         if (prevTabs.length === 0) {
@@ -2837,7 +2855,7 @@ function RealApp(): React.JSX.Element {
             disciplinePath: loadedDisciplinePath,
             isProcessing: false,
             isTodoOpen: false,
-            selectedModel: selectedModelRef.current,
+            selectedModel: loadedModel,
             isSearchEnabled: false,
             disabledSkills: loadedDisabledSkills,
             harnessContextSnapshot
@@ -2855,6 +2873,7 @@ function RealApp(): React.JSX.Element {
               messages,
               sessionMode: loadedMode,
               disciplinePath: loadedDisciplinePath,
+              selectedModel: loadedModel,
               disabledSkills: loadedDisabledSkills,
               harnessContextSnapshot
             }
@@ -3146,9 +3165,29 @@ function RealApp(): React.JSX.Element {
         return
       }
 
+      const currentTab = harnessTabsRef.current.find((tab) => tab.id === tabId)
+      const previousModel = currentTab?.selectedModel || ''
       setHarnessTabs((previous) =>
         previous.map((tab) => (tab.id === tabId ? { ...tab, selectedModel: modelKey } : tab))
       )
+      if (currentTab?.chatId) {
+        void window.api
+          .setHarnessSessionModel(currentTab.chatId, modelKey)
+          .then((saved) => {
+            if (saved) return
+            throw new Error('Harness model persistence failed')
+          })
+          .catch(() => {
+            setHarnessTabs((previous) =>
+              previous.map((tab) =>
+                tab.id === tabId ? { ...tab, selectedModel: previousModel } : tab
+              )
+            )
+            setHarnessPromptWarnings([
+              'The Harness model could not be saved. The previous model remains active for this tab.'
+            ])
+          })
+      }
     },
     [isEnterpriseUser]
   )
@@ -3271,23 +3310,22 @@ function RealApp(): React.JSX.Element {
 
   // Refs used to batch rapid onChatChunk events into a single React re-render
   // per animation frame, preventing excessive GC pressure during heavy streaming.
-  const pendingChunkRef = useRef<
-    Parameters<Parameters<typeof window.api.onChatChunk>[0]>[0] | null
-  >(null)
-  const rafIdRef = useRef<number | null>(null)
-
   // IPC Event Listeners for background stream updates
   useEffect(() => {
-    const setTabsForChat = (chatId: string) =>
-      harnessChatIdsRef.current.has(chatId) ? setHarnessTabs : setTabs
+    const setTabsForChat = (chatId: string, workspace?: WorkspaceKind) =>
+      workspace === 'harness' || (!workspace && harnessChatIdsRef.current.has(chatId))
+        ? setHarnessTabs
+        : setTabs
 
     const removeChatStartListener = window.api.onChatStart((data) => {
-      const { chatId } = data
+      const { chatId, workspace } = data
       setRunningChats((prev) => ({ ...prev, [chatId]: true }))
-      const setTargetTabs = setTabsForChat(chatId)
+      const setTargetTabs = setTabsForChat(chatId, workspace)
+      const activeWorkspaceTabId =
+        workspace === 'harness' ? activeHarnessTabIdRef.current : activeTabIdRef.current
       setTargetTabs((prev) =>
         prev.map((t) => {
-          if (t.chatId === chatId || (t.id === activeTabIdRef.current && !t.chatId)) {
+          if (t.chatId === chatId || (t.id === activeWorkspaceTabId && !t.chatId)) {
             const msgs = [...t.messages]
             const lastMsg = msgs[msgs.length - 1]
             if (!lastMsg || lastMsg.role !== 'ai' || !lastMsg.isStreaming) {
@@ -3327,7 +3365,7 @@ function RealApp(): React.JSX.Element {
         toolType,
         streamingToolCalls
       } = data
-      const setTargetTabs = setTabsForChat(chatId)
+      const setTargetTabs = setTabsForChat(chatId, data.workspace)
       setTargetTabs((prevTabs) =>
         prevTabs.map((tab) => {
           if (tab.chatId === chatId) {
@@ -3421,49 +3459,24 @@ function RealApp(): React.JSX.Element {
       )
     }
 
-    const flushPendingChunk = (chatId?: string): void => {
-      const pendingData = pendingChunkRef.current
-      if (!pendingData || (chatId && pendingData.chatId !== chatId)) return
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current)
-        rafIdRef.current = null
-      }
-      pendingChunkRef.current = null
-      flushChunk(pendingData)
-    }
+    const chunkBuffer = new PerChatStreamBuffer(
+      requestAnimationFrame,
+      cancelAnimationFrame,
+      flushChunk
+    )
+    const flushPendingChunk = (chatId?: string): void =>
+      chatId ? chunkBuffer.flush(chatId) : chunkBuffer.flushAll()
 
     // Batch rapid chunk events into a single state update per animation frame.
     // During fast streaming, multiple IPC events fire per frame; batching ensures
     // we only pay the React re-render cost once per frame.
     const removeChatChunkListener = window.api.onChatChunk((data) => {
-      // Always keep the latest chunk (most complete state) as pending
-      pendingChunkRef.current = data
-
-      // Schedule a flush if one isn't already pending
-      if (rafIdRef.current === null) {
-        rafIdRef.current = requestAnimationFrame(() => {
-          rafIdRef.current = null
-          const pendingData = pendingChunkRef.current
-          if (pendingData) {
-            pendingChunkRef.current = null
-            flushChunk(pendingData)
-          }
-        })
-      }
+      chunkBuffer.push(data)
     })
 
     const removeChatEndListener = window.api.onChatEnd((data) => {
-      // Flush any pending chunk before processing end-of-stream,
-      // then cancel the RAF so a stale chunk can't overwrite the final state.
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current)
-        rafIdRef.current = null
-      }
-      const pendingData = pendingChunkRef.current
-      if (pendingData) {
-        pendingChunkRef.current = null
-        flushChunk(pendingData)
-      }
+      // Only flush this conversation. Other tabs keep their independent frame.
+      flushPendingChunk(data.chatId)
 
       const harnessEnd = data as typeof data & {
         harnessRoundContent?: string
@@ -3481,7 +3494,7 @@ function RealApp(): React.JSX.Element {
         delete next[chatId]
         return next
       })
-      const setTargetTabs = setTabsForChat(chatId)
+      const setTargetTabs = setTabsForChat(chatId, data.workspace)
       setTargetTabs((prevTabs) =>
         prevTabs.map((tab) => {
           if (tab.chatId === chatId) {
@@ -3602,13 +3615,14 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeChatErrorListener = window.api.onChatError((data) => {
-      const { error, chatId } = data
+      const { error, chatId, workspace } = data
+      flushPendingChunk(chatId)
       setRunningChats((prev) => {
         const next = { ...prev }
         delete next[chatId]
         return next
       })
-      const setTargetTabs = setTabsForChat(chatId)
+      const setTargetTabs = setTabsForChat(chatId, workspace)
       setTargetTabs((prevTabs) =>
         prevTabs.map((tab) => {
           if (tab.chatId === chatId) {
@@ -3720,7 +3734,7 @@ function RealApp(): React.JSX.Element {
       // Preserve a provider's textual preface when text and tool deltas arrive
       // in the same animation frame. This keeps the Harness chronology textual.
       flushPendingChunk(chatId)
-      const setTargetTabs = setTabsForChat(chatId)
+      const setTargetTabs = setTabsForChat(chatId, data.workspace)
       setTargetTabs((prev) =>
         prev.map((tab) => {
           if (tab.chatId === chatId) {
@@ -3798,7 +3812,7 @@ function RealApp(): React.JSX.Element {
     const removeToolStartListener = window.api.onToolStart((data) => {
       const { chatId } = data
       flushPendingChunk(chatId)
-      const setTargetTabs = setTabsForChat(chatId)
+      const setTargetTabs = setTabsForChat(chatId, data.workspace)
       setTargetTabs((prev) => {
         let newTabs = prev.map((tab) => {
           if (tab.chatId === chatId) {
@@ -3885,17 +3899,20 @@ function RealApp(): React.JSX.Element {
 
     const removeToolEndListener = window.api.onToolEnd((data) => {
       const { chatId } = data
-      const setTargetTabs = setTabsForChat(chatId)
+      const setTargetTabs = setTabsForChat(chatId, data.workspace)
       setTargetTabs((prev) =>
         prev.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
-            const lastMsgIndex = newMessages.findLastIndex(
+            let lastMsgIndex = newMessages.findLastIndex(
               (msg) =>
                 msg.role === 'ai' && msg.toolCalls?.some((toolCall) => toolCall.id === data.callId)
             )
+            if (lastMsgIndex === -1) {
+              lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
+            }
 
-            if (lastMsgIndex !== -1 && newMessages[lastMsgIndex].toolCalls) {
+            if (lastMsgIndex !== -1) {
               const lastMsg = { ...newMessages[lastMsgIndex] }
               lastMsg.toolCalls = applyToolCallEnd(lastMsg.toolCalls || [], data)
               newMessages[lastMsgIndex] = lastMsg
@@ -4041,12 +4058,7 @@ function RealApp(): React.JSX.Element {
 
     return () => {
       removeSearchEnabledListener?.()
-      // Cancel any pending RAF to avoid stale state updates after cleanup
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current)
-        rafIdRef.current = null
-      }
-      pendingChunkRef.current = null
+      chunkBuffer.clear()
       removeChatStartListener()
       removeChatChunkListener()
       removeChatEndListener()
@@ -4571,19 +4583,24 @@ function RealApp(): React.JSX.Element {
                   activeWorkflow={null}
                   setActiveWorkflow={() => {}}
                   renderedMessages={
-                    <TabMessagesList
-                      messages={tab.messages}
-                      tabId={tab.id}
-                      currentChatId={tab.chatId}
-                      handleLoadChat={handleLoadHarnessSession}
-                      isSuggestionSendDisabled={tab.isProcessing || !isOnline}
-                      onSendSuggestion={(tabId, payload) =>
-                        handleHarnessSuggestionSend(tabId, payload)
-                      }
-                      sessionMode="harness"
-                      harnessUi={harnessUi}
-                      harnessContextSnapshot={tab.harnessContextSnapshot}
-                    />
+                    <HarnessActivityBoundary
+                      key={`${tab.chatId || tab.id}-${tab.messages.length}`}
+                      fallbackMessage="This Harness response could not render. You can retry it or continue the conversation."
+                    >
+                      <TabMessagesList
+                        messages={tab.messages}
+                        tabId={tab.id}
+                        currentChatId={tab.chatId}
+                        handleLoadChat={handleLoadHarnessSession}
+                        isSuggestionSendDisabled={tab.isProcessing || !isOnline}
+                        onSendSuggestion={(tabId, payload) =>
+                          handleHarnessSuggestionSend(tabId, payload)
+                        }
+                        sessionMode="harness"
+                        harnessUi={harnessUi}
+                        harnessContextSnapshot={tab.harnessContextSnapshot}
+                      />
+                    </HarnessActivityBoundary>
                   }
                 />
               )

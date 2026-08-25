@@ -160,6 +160,8 @@ const api = {
     modelKey?: string
     reasoningLevel?: string
   }): void => ipcRenderer.send('harness-message', data),
+  setHarnessSessionModel: (chatId: string, modelKey: string): Promise<boolean> =>
+    ipcRenderer.invoke('set-harness-session-model', chatId, modelKey),
   setModel: (modelKey: string): void => ipcRenderer.send('set-model', modelKey),
   clearChat: (): void => ipcRenderer.send('clear-chat'),
   cancelChat: (chatId?: string): void => ipcRenderer.send('chat-cancel', chatId),

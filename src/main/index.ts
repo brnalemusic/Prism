@@ -76,7 +76,8 @@ import {
   loadChatSession,
   deleteChatSession,
   searchChatsOffline,
-  hydrateHistoryToolAttachments
+  hydrateHistoryToolAttachments,
+  updateChatSessionModel
 } from './history'
 import {
   cancelImageGenerationRetries,
@@ -1067,6 +1068,9 @@ if (!gotTheLock) {
       safeSend(launcherWindow, 'model-changed', modelKey)
       safeSend(mainWindow, 'config-changed', currentConfig)
       safeSend(launcherWindow, 'config-changed', currentConfig)
+    })
+    ipcMain.handle('set-harness-session-model', (_event, chatId: string, modelKey: string) => {
+      return updateChatSessionModel(chatId, modelKey, 'harness')
     })
     ipcMain.on('set-think-mode', (_event, val) => {
       safeSend(mainWindow, 'think-mode-changed', val)
