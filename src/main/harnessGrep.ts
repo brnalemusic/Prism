@@ -119,15 +119,24 @@ export async function grepFiles(
     include?: string
     isRegex?: boolean
     caseSensitive?: boolean
+    wordMatch?: boolean
     limit?: number
   } = {}
 ): Promise<GrepResult> {
   const limit = options.limit ?? 200
-  const caseSensitive = Boolean(options.caseSensitive)
+  // Smart-case: if caseSensitive is undefined, default to true if query has uppercase letters
+  const caseSensitive =
+    options.caseSensitive !== undefined ? Boolean(options.caseSensitive) : /[A-Z]/.test(query)
   const isRegex = Boolean(options.isRegex)
+  const wordMatch = Boolean(options.wordMatch)
+
   let regex: RegExp | null = null
   if (isRegex) {
-    regex = new RegExp(query, caseSensitive ? '' : 'i')
+    const rawPattern = wordMatch ? `\\b(?:${query})\\b` : query
+    regex = new RegExp(rawPattern, caseSensitive ? '' : 'i')
+  } else if (wordMatch) {
+    const escaped = query.replace(/[.+^${}()|[\]\\?*]/g, '\\$&')
+    regex = new RegExp(`\\b${escaped}\\b`, caseSensitive ? '' : 'i')
   }
   const lowerQuery = caseSensitive ? query : query.toLowerCase()
 

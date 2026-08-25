@@ -159,6 +159,29 @@ test('grepFiles searches code returning 1-based line numbers and respects filter
         { path: 'src/utils/helper.ts', lines: [1] }
       ]
     )
+
+    // 5. Smart-case search (automatic case-sensitivity when uppercase letters present)
+    const smartCaseMatches = await grepFiles(root, root, 'RUNMAIN')
+    assert.equal(smartCaseMatches.totalMatches, 1)
+    assert.deepEqual(
+      smartCaseMatches.matches.map((m) => ({ path: m.path.replace(/\\/g, '/'), lines: m.lines })),
+      [{ path: 'src/utils/helper.ts', lines: [2] }]
+    )
+
+    // 6. Explicit caseSensitive: false overrides smart-case
+    const forcedInsensitive = await grepFiles(root, root, 'RUNMAIN', { caseSensitive: false })
+    assert.equal(forcedInsensitive.totalMatches, 3)
+
+    // 7. WordMatch (whole word boundary)
+    const wordMatches = await grepFiles(root, root, 'runMain', { wordMatch: true })
+    assert.equal(wordMatches.totalMatches, 2)
+    assert.deepEqual(
+      wordMatches.matches.map((m) => ({ path: m.path.replace(/\\/g, '/'), lines: m.lines })),
+      [
+        { path: 'src/doc.md', lines: [2] },
+        { path: 'src/index.ts', lines: [2] }
+      ]
+    )
   } finally {
     await fs.rm(root, { recursive: true, force: true })
   }

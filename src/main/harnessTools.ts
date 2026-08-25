@@ -90,7 +90,12 @@ export const HARNESS_TOOL_DEFINITIONS: ToolDefinition[] = [
       path: text('Optional project-relative directory or file path to search within.'),
       include: text('Optional wildcard glob pattern to filter files (e.g. "*.ts", "src/**/*.tsx").'),
       isRegex: boolean('Whether query should be treated as a regular expression.'),
-      caseSensitive: boolean('Whether matching is case-sensitive. Defaults to false.'),
+      caseSensitive: boolean(
+        'Whether matching is case-sensitive. Defaults to true when query contains uppercase characters (smart-case), or false for all-lowercase queries.'
+      ),
+      wordMatch: boolean(
+        'Whether to match whole words only (word boundaries \\b). Defaults to false.'
+      ),
       limit: integer('Maximum number of matching lines to return. Defaults to 200.')
     },
     ['query']
@@ -693,12 +698,15 @@ async function executeOperation(
     const include =
       typeof args.include === 'string' && args.include.trim() ? args.include.trim() : undefined
     const isRegex = typeof args.isRegex === 'boolean' ? args.isRegex : false
-    const caseSensitive = typeof args.caseSensitive === 'boolean' ? args.caseSensitive : false
+    const caseSensitive =
+      typeof args.caseSensitive === 'boolean' ? args.caseSensitive : undefined
+    const wordMatch = typeof args.wordMatch === 'boolean' ? args.wordMatch : false
     const limit = boundedInteger(args.limit, 200, 1, 1000)
     const result = await grepFiles(root, start, query, {
       include,
       isRegex,
       caseSensitive,
+      wordMatch,
       limit
     })
     return JSON.stringify(result)
