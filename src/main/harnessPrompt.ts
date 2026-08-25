@@ -1,0 +1,255 @@
+import { promises as fs, watch as watchDirectory, type FSWatcher } from 'fs'
+import * as path from 'path'
+import { createHash } from 'crypto'
+import type {
+  EffectiveHarnessSettings,
+  HarnessContextInjectionEntry,
+  HarnessInstructionStatus
+} from '../shared/types'
+
+export const HARNESS_SYSTEM_MAX_CHARACTERS = 80_000
+export const HARNESS_SYSTEM_MAX_TOKENS = 20_000
+export const HARNESS_USER_INSTRUCTIONS_MAX_CHARACTERS = 5_000
+
+export interface HarnessPromptResult {
+  prompt: string
+  fingerprint: string
+  entries: HarnessContextInjectionEntry[]
+  repoInstructionsLoaded: boolean
+  repoInstructionsCharacters: number
+  warnings: string[]
+}
+
+interface CachedHarnessPrompt {
+  settingsFingerprint: string
+  result: HarnessPromptResult
+  stale: boolean
+  watcher?: FSWatcher
+}
+
+const promptCache = new Map<string, CachedHarnessPrompt>()
+
+function promptCacheKey(settings: EffectiveHarnessSettings, label: string): string {
+  return `${path.resolve(settings.project.rootPath).toLowerCase()}::${label}`
+}
+
+function settingsFingerprint(settings: EffectiveHarnessSettings): string {
+  return JSON.stringify({
+    global: settings.userGlobalInstructions,
+    project: settings.project.userProjectInstructions || '',
+    permission: settings.defaultPermissionMode,
+    rounds: settings.defaultMaxRounds,
+    tools: settings.enabledTools,
+    root: settings.project.rootPath
+  })
+}
+
+function watchProjectInstructions(cacheKey: string, rootPath: string): FSWatcher | undefined {
+  try {
+    return watchDirectory(rootPath, { persistent: false }, (_eventType, filename) => {
+      if (!filename || filename.toString().toLowerCase() === 'agents.md') {
+        const cached = promptCache.get(cacheKey)
+        if (cached) cached.stale = true
+      }
+    })
+  } catch {
+    // The next Settings change still invalidates this entry. Some remote filesystems
+    // do not implement fs.watch consistently, so prompting remains functional.
+    return undefined
+  }
+}
+
+const CORE_PROMPT = `# Prism Harness
+You are an autonomous coding agent operating inside one project workspace. Work iteratively: inspect, act, verify, and continue until the request is complete or a real blocker requires the user.
+
+# Workspace contract
+- Every file path is relative to the project root. Never send an absolute path.
+- Do not attempt to escape the project root through parent traversal, symlinks, environment variables, or shell indirection.
+- Prefer read, list, and find to establish facts before changing code.
+- Use edit for one exact, unique replacement and delete_lines for one exact, unique removal.
+- Use apply_patch for contextual or multi-file changes. Keep patches focused and include enough unchanged context to match safely.
+- Use write only when creating a file or intentionally replacing its complete contents.
+- Use exec_command for terminal work. Preserve the Run ID for commands that continue in the background; use read_terminal_output and write_stdin to continue them.
+- Use web_search only when current external information is needed. Its result already contains the fetched source pages.
+
+# apply_patch format
+- Wrap every patch in *** Begin Patch and *** End Patch.
+- Start each operation with *** Add File: path, *** Update File: path, or *** Delete File: path.
+- Add File content uses + at the start of every line. Delete File has no body.
+- Update File uses one or more @@ hunks. Inside a hunk, unchanged context starts with a space, removed lines with -, and added lines with +.
+- An Update File may put *** Move to: new/path immediately after its header.
+- Use an optional @@ class/function header to scope a repeated snippet, and use additional @@ headers when needed to reach unique context.
+- Include about three unchanged lines above and below changes when practical. Paths are always relative.
+
+# Agent loop
+- Continue through the complete task. After writes, inspect the result and run the most relevant safe checks.
+- Parallelize independent reads when the provider supports parallel tool calls.
+- Never invent tool results, paths, command output, diffs, tests, or sources.
+- If a tool fails because a snippet is missing or ambiguous, read the current file and retry with a more specific exact snippet.
+- Respect permission denials. Do not disguise a denied operation as a different command.
+- Keep user-facing progress short. The final answer states what changed and what verification actually ran.
+
+# Output
+- Match the user's language.
+- Use concise Markdown.
+- Do not expose internal tool IDs. Refer to actions by their clear purpose.
+- When web_search was used, ground claims in the returned pages; Prism renders the read pages separately as Sources.`
+
+function instructionSection(title: string, content: string): string {
+  const trimmed = content.trim()
+  return trimmed ? `\n\n# ${title}\n${trimmed}` : ''
+}
+
+async function readRepoInstructions(rootPath: string): Promise<string> {
+  const agentsPath = path.join(rootPath, 'AGENTS.md')
+  try {
+    return await fs.readFile(agentsPath, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return ''
+    throw error
+  }
+}
+
+export async function buildHarnessSystemPrompt(
+  settings: EffectiveHarnessSettings,
+  systemPromptLabel = '@prism/harness-system-prompt'
+): Promise<HarnessPromptResult> {
+  const warnings: string[] = []
+  const globalInstructions = settings.userGlobalInstructions.slice(
+    0,
+    HARNESS_USER_INSTRUCTIONS_MAX_CHARACTERS
+  )
+  const projectInstructions = (settings.project.userProjectInstructions || '').slice(
+    0,
+    HARNESS_USER_INSTRUCTIONS_MAX_CHARACTERS
+  )
+  const repoInstructions = await readRepoInstructions(settings.project.rootPath)
+  const context = `\n\n# Runtime context\nProject: ${path.basename(settings.project.rootPath)}\nThe current project root is ".".\nPermission profile: ${settings.defaultPermissionMode}\nMaximum tool rounds: ${settings.defaultMaxRounds}\nEnabled tools: ${settings.enabledTools.join(', ')}`
+
+  const requiredTail =
+    instructionSection('User Project Instructions', projectInstructions) + context
+  const fixedPrefix =
+    CORE_PROMPT + instructionSection('User Global Instructions', globalInstructions)
+  const repoHeading = repoInstructions.trim() ? '\n\n# Repo Instructions (AGENTS.md)\n' : ''
+  const remainingForRepo = Math.max(
+    0,
+    HARNESS_SYSTEM_MAX_CHARACTERS - fixedPrefix.length - repoHeading.length - requiredTail.length
+  )
+  let includedRepoInstructions = repoInstructions.trim()
+  if (includedRepoInstructions.length > remainingForRepo) {
+    includedRepoInstructions = includedRepoInstructions.slice(0, remainingForRepo)
+    warnings.push(
+      `AGENTS.md exceeded the Harness system-instruction budget and was truncated to ${remainingForRepo.toLocaleString('en-US')} characters.`
+    )
+  }
+
+  let prompt = fixedPrefix + repoHeading + includedRepoInstructions + requiredTail
+  if (prompt.length > HARNESS_SYSTEM_MAX_CHARACTERS) {
+    prompt = prompt.slice(0, HARNESS_SYSTEM_MAX_CHARACTERS)
+    warnings.push('Harness system instructions reached the 80,000 character hard limit.')
+  }
+
+  const entries: HarnessContextInjectionEntry[] = [
+    {
+      id: 'harness-system-prompt',
+      kind: 'system',
+      label: systemPromptLabel,
+      origin: 'Prism Harness',
+      content: CORE_PROMPT + context,
+      characterCount: CORE_PROMPT.length + context.length
+    }
+  ]
+  if (globalInstructions.trim()) {
+    entries.push({
+      id: 'user-global-instructions',
+      kind: 'global',
+      label: 'user-global-instructions',
+      origin: 'Settings > Harness',
+      content: globalInstructions.trim(),
+      characterCount: globalInstructions.trim().length
+    })
+  }
+  if (includedRepoInstructions) {
+    entries.push({
+      id: 'repo-instructions',
+      kind: 'repo',
+      label: 'repo-instructions · AGENTS.md',
+      origin: path.join(settings.project.rootPath, 'AGENTS.md'),
+      content: includedRepoInstructions,
+      characterCount: includedRepoInstructions.length
+    })
+  }
+  if (projectInstructions.trim()) {
+    entries.push({
+      id: 'user-project-instructions',
+      kind: 'project',
+      label: 'user-project-instructions',
+      origin: settings.project.displayName,
+      content: projectInstructions.trim(),
+      characterCount: projectInstructions.trim().length
+    })
+  }
+
+  return {
+    prompt,
+    fingerprint: createHash('sha256').update(prompt).digest('hex').slice(0, 24),
+    entries,
+    repoInstructionsLoaded: Boolean(repoInstructions.trim()),
+    repoInstructionsCharacters: includedRepoInstructions.length,
+    warnings
+  }
+}
+
+/**
+ * Keeps Harness instructions as a session-scoped cached context. The project
+ * directory watcher invalidates AGENTS.md changes; Settings changes alter the
+ * in-memory signature. Requests that do not change either reuse this result.
+ */
+export async function getHarnessSystemPrompt(
+  settings: EffectiveHarnessSettings,
+  systemPromptLabel = '@prism/harness-system-prompt'
+): Promise<HarnessPromptResult> {
+  const key = promptCacheKey(settings, systemPromptLabel)
+  const signature = settingsFingerprint(settings)
+  const cached = promptCache.get(key)
+  if (cached && !cached.stale && cached.settingsFingerprint === signature) {
+    return cached.result
+  }
+
+  const result = await buildHarnessSystemPrompt(settings, systemPromptLabel)
+  cached?.watcher?.close()
+  promptCache.set(key, {
+    settingsFingerprint: signature,
+    result,
+    stale: false,
+    watcher: watchProjectInstructions(key, settings.project.rootPath)
+  })
+  return result
+}
+
+export async function getHarnessInstructionStatus(
+  settings: EffectiveHarnessSettings
+): Promise<HarnessInstructionStatus> {
+  const repoInstructions = await readRepoInstructions(settings.project.rootPath)
+  const result = await buildHarnessSystemPrompt(settings)
+  const globalCharacters = settings.userGlobalInstructions.slice(
+    0,
+    HARNESS_USER_INSTRUCTIONS_MAX_CHARACTERS
+  ).length
+  const projectCharacters = (settings.project.userProjectInstructions || '').slice(
+    0,
+    HARNESS_USER_INSTRUCTIONS_MAX_CHARACTERS
+  ).length
+  return {
+    projectPath: settings.project.rootPath,
+    coreCharacters: CORE_PROMPT.length,
+    globalCharacters,
+    repoExists: Boolean(repoInstructions.trim()),
+    repoCharacters: repoInstructions.length,
+    repoIncludedCharacters: result.repoInstructionsCharacters,
+    projectCharacters,
+    totalCharacters: result.prompt.length,
+    estimatedTokens: Math.ceil(result.prompt.length / 4),
+    warnings: result.warnings
+  }
+}

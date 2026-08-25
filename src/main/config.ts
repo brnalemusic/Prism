@@ -1,7 +1,13 @@
 import { app, safeStorage } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
-import { SessionMode, ProviderConfig } from '../shared/types'
+import {
+  SessionMode,
+  ProviderConfig,
+  HarnessSettings,
+  HarnessToolName,
+  HarnessProjectConfig
+} from '../shared/types'
 
 export interface SlashWorkflow {
   id: string
@@ -69,6 +75,46 @@ export interface AppConfig {
   discordGatewayModel?: string
   discordGatewayVoiceModel?: string
   disabledSkills?: string[]
+  harness: HarnessSettings
+}
+
+export const DEFAULT_HARNESS_TOOLS: HarnessToolName[] = [
+  'read',
+  'list',
+  'find',
+  'write',
+  'edit',
+  'delete_lines',
+  'apply_patch',
+  'exec_command',
+  'write_stdin',
+  'read_terminal_output',
+  'web_search'
+]
+
+const defaultHarnessProjectsRoot = (): string =>
+  path.join(app.getPath('documents'), 'PrismProjects')
+
+export function createDefaultHarnessSettings(): HarnessSettings {
+  return {
+    projectsRoot: defaultHarnessProjectsRoot(),
+    defaultPermissionMode: 'ask',
+    defaultMaxRounds: 200,
+    enabledTools: [...DEFAULT_HARNESS_TOOLS],
+    maxReadLines: 800,
+    maxReadCharacters: 80_000,
+    maxTerminalOutputCharacters: 100_000,
+    maxContextCharacters: 80_000,
+    webPageCount: 5,
+    showSteps: true,
+    showThinking: true,
+    animateActivity: true,
+    reduceMotion: false,
+    tabProjectMode: 'fixed',
+    userGlobalInstructions: '',
+    yoloAcknowledged: false,
+    projects: {}
+  }
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -103,6 +149,7 @@ const DEFAULT_CONFIG: AppConfig = {
   terminalShell: 'powershell.exe',
   sessionMode: 'execution',
   disciplinePath: '',
+  harness: createDefaultHarnessSettings(),
   workflows: [
     {
       id: 'default-search',
@@ -141,7 +188,9 @@ const VALID_THEMES = new Set([
   'violet',
   'white'
 ])
-const VALID_SESSION_MODES = new Set(['conversation', 'execution', 'discipline'])
+const VALID_SESSION_MODES = new Set(['conversation', 'execution', 'discipline', 'harness'])
+const VALID_HARNESS_PERMISSION_MODES = new Set(['ask', 'independent', 'yolo'])
+const VALID_HARNESS_TOOLS = new Set<string>(DEFAULT_HARNESS_TOOLS)
 const VALID_PRISM_THINKING_LEVELS = new Set(['minimal', 'low', 'medium', 'high'])
 const PRISM_CLOUD_MODEL_IDS = new Set([
   'prism-ai/arcadia-1.0-mini',
@@ -156,10 +205,7 @@ const PRISM_CLOUD_MODEL_IDS = new Set([
 
 export function migrateLegacyModelKey(key: string): string {
   if (!key || typeof key !== 'string') return ''
-  if (
-    key === 'gemini-3.1-flash-lite' ||
-    key === 'prism_provider:gemini-3.1-flash-lite'
-  ) {
+  if (key === 'gemini-3.1-flash-lite' || key === 'prism_provider:gemini-3.1-flash-lite') {
     return 'prism_provider:prism-ai/arcadia-1.0-mini'
   }
   if (
@@ -279,6 +325,154 @@ export function synthesizeLegacyProviders(config: Partial<AppConfig>): ProviderC
 }
 
 function normalizeConfig(config: AppConfig): AppConfig {
+  const defaultHarness = createDefaultHarnessSettings()
+  const rawHarness = config.harness || defaultHarness
+  const normalizeInteger = (
+    value: unknown,
+    fallback: number,
+    minimum: number,
+    maximum: number
+  ): number =>
+    typeof value === 'number' && Number.isInteger(value) && value >= minimum && value <= maximum
+      ? value
+      : fallback
+  const normalizedProjects: Record<string, HarnessProjectConfig> = {}
+  if (
+    rawHarness.projects &&
+    typeof rawHarness.projects === 'object' &&
+    !Array.isArray(rawHarness.projects)
+  ) {
+    for (const rawProject of Object.values(rawHarness.projects)) {
+      if (!rawProject || typeof rawProject !== 'object' || Array.isArray(rawProject)) continue
+      const candidate = rawProject as Partial<HarnessProjectConfig>
+      if (typeof candidate.rootPath !== 'string' || !candidate.rootPath.trim()) continue
+      const rootPath = path.resolve(candidate.rootPath)
+      const project: HarnessProjectConfig = {
+        rootPath,
+        displayName:
+          typeof candidate.displayName === 'string' && candidate.displayName.trim()
+            ? candidate.displayName.trim()
+            : path.basename(rootPath),
+        createdAt:
+          typeof candidate.createdAt === 'number' && Number.isFinite(candidate.createdAt)
+            ? candidate.createdAt
+            : Date.now(),
+        updatedAt:
+          typeof candidate.updatedAt === 'number' && Number.isFinite(candidate.updatedAt)
+            ? candidate.updatedAt
+            : Date.now(),
+        permissionMode:
+          typeof candidate.permissionMode === 'string' &&
+          VALID_HARNESS_PERMISSION_MODES.has(candidate.permissionMode)
+            ? candidate.permissionMode
+            : undefined,
+        maxRounds:
+          candidate.maxRounds === undefined
+            ? undefined
+            : normalizeInteger(candidate.maxRounds, defaultHarness.defaultMaxRounds, 1, 1000),
+        enabledTools: Array.isArray(candidate.enabledTools)
+          ? (Array.from(
+              new Set(candidate.enabledTools.filter((name) => VALID_HARNESS_TOOLS.has(name)))
+            ) as HarnessToolName[])
+          : undefined,
+        maxReadLines:
+          candidate.maxReadLines === undefined
+            ? undefined
+            : normalizeInteger(candidate.maxReadLines, defaultHarness.maxReadLines, 1, 5000),
+        maxReadCharacters:
+          candidate.maxReadCharacters === undefined
+            ? undefined
+            : normalizeInteger(
+                candidate.maxReadCharacters,
+                defaultHarness.maxReadCharacters,
+                1000,
+                500_000
+              ),
+        maxTerminalOutputCharacters:
+          candidate.maxTerminalOutputCharacters === undefined
+            ? undefined
+            : normalizeInteger(
+                candidate.maxTerminalOutputCharacters,
+                defaultHarness.maxTerminalOutputCharacters,
+                1000,
+                1_000_000
+              ),
+        maxContextCharacters:
+          candidate.maxContextCharacters === undefined
+            ? undefined
+            : normalizeInteger(
+                candidate.maxContextCharacters,
+                defaultHarness.maxContextCharacters,
+                10_000,
+                200_000
+              ),
+        webPageCount:
+          candidate.webPageCount === undefined
+            ? undefined
+            : normalizeInteger(candidate.webPageCount, defaultHarness.webPageCount, 3, 5),
+        showSteps: typeof candidate.showSteps === 'boolean' ? candidate.showSteps : undefined,
+        showThinking:
+          typeof candidate.showThinking === 'boolean' ? candidate.showThinking : undefined,
+        animateActivity:
+          typeof candidate.animateActivity === 'boolean' ? candidate.animateActivity : undefined,
+        reduceMotion:
+          typeof candidate.reduceMotion === 'boolean' ? candidate.reduceMotion : undefined,
+        userProjectInstructions:
+          typeof candidate.userProjectInstructions === 'string'
+            ? candidate.userProjectInstructions.slice(0, 5000)
+            : undefined
+      }
+      const key = rootPath.replace(/[\\/]+$/, '')
+      normalizedProjects[process.platform === 'win32' ? key.toLowerCase() : key] = project
+    }
+  }
+  const normalizedHarness: HarnessSettings = {
+    ...defaultHarness,
+    ...rawHarness,
+    projectsRoot:
+      typeof rawHarness.projectsRoot === 'string' && rawHarness.projectsRoot.trim()
+        ? path.resolve(rawHarness.projectsRoot.trim())
+        : defaultHarness.projectsRoot,
+    defaultPermissionMode: VALID_HARNESS_PERMISSION_MODES.has(rawHarness.defaultPermissionMode)
+      ? rawHarness.defaultPermissionMode
+      : defaultHarness.defaultPermissionMode,
+    defaultMaxRounds: normalizeInteger(rawHarness.defaultMaxRounds, 200, 1, 1000),
+    enabledTools: Array.isArray(rawHarness.enabledTools)
+      ? (Array.from(
+          new Set(rawHarness.enabledTools.filter((name) => VALID_HARNESS_TOOLS.has(name)))
+        ) as HarnessToolName[])
+      : [...DEFAULT_HARNESS_TOOLS],
+    maxReadLines: normalizeInteger(rawHarness.maxReadLines, 800, 1, 5000),
+    maxReadCharacters: normalizeInteger(rawHarness.maxReadCharacters, 80_000, 1000, 500_000),
+    maxTerminalOutputCharacters: normalizeInteger(
+      rawHarness.maxTerminalOutputCharacters,
+      100_000,
+      1000,
+      1_000_000
+    ),
+    maxContextCharacters: normalizeInteger(
+      rawHarness.maxContextCharacters,
+      80_000,
+      10_000,
+      200_000
+    ),
+    webPageCount: normalizeInteger(rawHarness.webPageCount, 5, 3, 5),
+    showSteps: rawHarness.showSteps !== false,
+    showThinking: rawHarness.showThinking !== false,
+    animateActivity: rawHarness.animateActivity !== false,
+    reduceMotion: rawHarness.reduceMotion === true,
+    tabProjectMode: rawHarness.tabProjectMode === 'grouped' ? 'grouped' : 'fixed',
+    userGlobalInstructions:
+      typeof rawHarness.userGlobalInstructions === 'string'
+        ? rawHarness.userGlobalInstructions.slice(0, 5000)
+        : '',
+    yoloAcknowledged: rawHarness.yoloAcknowledged === true,
+    lastProjectPath:
+      typeof rawHarness.lastProjectPath === 'string' && rawHarness.lastProjectPath.trim()
+        ? path.resolve(rawHarness.lastProjectPath)
+        : undefined,
+    projects: normalizedProjects
+  }
   const providers = (Array.isArray(config.providers) ? config.providers : []).map((provider) => {
     if (
       provider?.completionType === 'puter_native' &&
@@ -319,9 +513,7 @@ function normalizeConfig(config: AppConfig): AppConfig {
         ? migrateLegacyModelKey(config.quickLauncherModel)
         : '',
     searchModel:
-      typeof config.searchModel === 'string'
-        ? migrateLegacyModelKey(config.searchModel)
-        : '',
+      typeof config.searchModel === 'string' ? migrateLegacyModelKey(config.searchModel) : '',
     generativeBrowserModel:
       typeof config.generativeBrowserModel === 'string'
         ? migrateLegacyModelKey(config.generativeBrowserModel)
@@ -331,9 +523,12 @@ function normalizeConfig(config: AppConfig): AppConfig {
         ? migrateLegacyModelKey(config.imageGenerationModel)
         : '',
     discordBotToken: typeof config.discordBotToken === 'string' ? config.discordBotToken : '',
-    discordGatewayEnabled: typeof config.discordGatewayEnabled === 'boolean' ? config.discordGatewayEnabled : false,
-    discordGatewayModel: typeof config.discordGatewayModel === 'string' ? config.discordGatewayModel : '',
-    discordGatewayVoiceModel: typeof config.discordGatewayVoiceModel === 'string' ? config.discordGatewayVoiceModel : '',
+    discordGatewayEnabled:
+      typeof config.discordGatewayEnabled === 'boolean' ? config.discordGatewayEnabled : false,
+    discordGatewayModel:
+      typeof config.discordGatewayModel === 'string' ? config.discordGatewayModel : '',
+    discordGatewayVoiceModel:
+      typeof config.discordGatewayVoiceModel === 'string' ? config.discordGatewayVoiceModel : '',
     ttsVoice: VALID_VOICES.has(config.ttsVoice) ? config.ttsVoice : DEFAULT_CONFIG.ttsVoice,
     theme: VALID_THEMES.has(config.theme)
       ? (config.theme as AppConfig['theme'])
@@ -355,6 +550,7 @@ function normalizeConfig(config: AppConfig): AppConfig {
       typeof config.disciplinePath === 'string'
         ? config.disciplinePath
         : DEFAULT_CONFIG.disciplinePath,
+    harness: normalizedHarness,
     modelReasoningLevels: normalizeReasoningLevels(config.modelReasoningLevels)
   }
 }
@@ -452,10 +648,7 @@ export function loadConfig(): AppConfig {
           )
         )
       } catch (migrationError) {
-        console.error(
-          '[Config] Failed to persist config normalization:',
-          migrationError
-        )
+        console.error('[Config] Failed to persist config normalization:', migrationError)
       }
     }
 

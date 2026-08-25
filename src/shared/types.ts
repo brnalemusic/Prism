@@ -121,7 +121,139 @@ export interface AttachedFile {
   data: string
 }
 
-export type SessionMode = 'conversation' | 'execution' | 'discipline'
+export type SessionMode = 'conversation' | 'execution' | 'discipline' | 'harness'
+
+/**
+ * Product-level boundary for persisted sessions and renderer state. `harness`
+ * is intentionally separate from the Chat workspace even though it reuses the
+ * same account and provider registry.
+ */
+export type WorkspaceKind = 'chat' | 'harness'
+
+export type HarnessPermissionMode = 'ask' | 'independent' | 'yolo'
+
+export type HarnessToolName =
+  | 'read'
+  | 'list'
+  | 'find'
+  | 'write'
+  | 'edit'
+  | 'delete_lines'
+  | 'apply_patch'
+  | 'exec_command'
+  | 'write_stdin'
+  | 'read_terminal_output'
+  | 'web_search'
+
+export interface HarnessProjectOverrides {
+  permissionMode?: HarnessPermissionMode
+  maxRounds?: number
+  enabledTools?: HarnessToolName[]
+  maxReadLines?: number
+  maxReadCharacters?: number
+  maxTerminalOutputCharacters?: number
+  maxContextCharacters?: number
+  webPageCount?: number
+  showSteps?: boolean
+  showThinking?: boolean
+  animateActivity?: boolean
+  reduceMotion?: boolean
+  userProjectInstructions?: string
+}
+
+export interface HarnessProjectConfig extends HarnessProjectOverrides {
+  rootPath: string
+  displayName: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface HarnessSettings {
+  projectsRoot: string
+  defaultPermissionMode: HarnessPermissionMode
+  defaultMaxRounds: number
+  enabledTools: HarnessToolName[]
+  maxReadLines: number
+  maxReadCharacters: number
+  maxTerminalOutputCharacters: number
+  maxContextCharacters: number
+  webPageCount: number
+  showSteps: boolean
+  showThinking: boolean
+  animateActivity: boolean
+  reduceMotion: boolean
+  /** Fixed roots keep every Harness tab pinned to one project. */
+  tabProjectMode: 'fixed' | 'grouped'
+  userGlobalInstructions: string
+  yoloAcknowledged: boolean
+  lastProjectPath?: string
+  projects: Record<string, HarnessProjectConfig>
+}
+
+export interface EffectiveHarnessSettings extends Omit<
+  HarnessSettings,
+  'projects' | 'lastProjectPath'
+> {
+  project: HarnessProjectConfig
+}
+
+export interface HarnessSource {
+  title: string
+  url: string
+  domain: string
+  faviconUrl: string
+}
+
+export interface HarnessApprovalItem {
+  callId: string
+  name: HarnessToolName
+  label: string
+  args: Record<string, unknown>
+  preview?: string
+  destructive: boolean
+}
+
+export interface HarnessApprovalRequest {
+  requestId: string
+  chatId: string
+  projectPath: string
+  items: HarnessApprovalItem[]
+}
+
+export interface HarnessInstructionStatus {
+  projectPath: string
+  coreCharacters: number
+  globalCharacters: number
+  repoExists: boolean
+  repoCharacters: number
+  repoIncludedCharacters: number
+  projectCharacters: number
+  totalCharacters: number
+  estimatedTokens: number
+  warnings: string[]
+}
+
+export type HarnessContextInjectionKind = 'system' | 'global' | 'repo' | 'project'
+
+export interface HarnessContextInjectionEntry {
+  id: string
+  kind: HarnessContextInjectionKind
+  label: string
+  origin: string
+  content: string
+  characterCount: number
+}
+
+export interface HarnessContextSnapshot {
+  version: 1
+  createdAt: number
+  projectPath: string
+  modelId: string
+  /** Stable digest of the exact injected instructions. */
+  fingerprint?: string
+  entries: HarnessContextInjectionEntry[]
+  warnings: string[]
+}
 
 export type PrismThinkingLevel = 'minimal' | 'low' | 'medium' | 'high'
 
@@ -382,4 +514,3 @@ export interface BrowserGenErrorEvent {
   sessionId: string
   error: string
 }
-

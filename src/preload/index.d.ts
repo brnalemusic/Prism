@@ -13,6 +13,11 @@ import type {
   TodoState,
   TerminalProcessSnapshot,
   ToolAttachment,
+  HarnessApprovalRequest,
+  HarnessProjectConfig,
+  HarnessProjectOverrides,
+  HarnessInstructionStatus,
+  HarnessContextSnapshot,
   RetryImageGenerationRequest,
   SaveGeneratedImageRequest,
   SaveGeneratedImageResult
@@ -63,6 +68,15 @@ export interface PrismAPI {
     reasoningLevel?: string
     disabledSkills?: string[]
   }) => void
+  sendHarnessMessage: (data: {
+    message: string
+    chatId?: string
+    projectPath: string
+    attachedFile?: AttachedFile
+    quote?: string
+    modelKey?: string
+    reasoningLevel?: string
+  }) => void
 
   setModel: (modelKey: string) => void
   clearChat: () => void
@@ -97,6 +111,26 @@ export interface PrismAPI {
   onDiscordVoiceAudioLevel: (callback: (data: DiscordVoiceAudioLevelEvent) => void) => () => void
   onDiscordVoiceOutput: (callback: (data: { chatId: string }) => void) => () => void
   onToolUpdate: (callback: (data: ToolUpdate & { chatId: string }) => void) => () => void
+  onHarnessApprovalRequest: (callback: (data: HarnessApprovalRequest) => void) => () => void
+  resolveHarnessApproval: (requestId: string, approved: boolean) => void
+  onHarnessPromptWarning: (
+    callback: (data: {
+      chatId: string
+      warnings: string[]
+      repoInstructionsLoaded: boolean
+    }) => void
+  ) => () => void
+  onHarnessContextInjection: (
+    callback: (data: { chatId: string; snapshot: HarnessContextSnapshot }) => void
+  ) => () => void
+  createHarnessProject: (name: string) => Promise<{ project: HarnessProjectConfig }>
+  openHarnessProject: (projectPath?: string) => Promise<{ project: HarnessProjectConfig } | null>
+  getHarnessProject: (projectPath?: string) => Promise<HarnessProjectConfig | null>
+  getHarnessInstructionStatus: (projectPath?: string) => Promise<HarnessInstructionStatus | null>
+  updateHarnessProject: (
+    projectPath: string,
+    overrides: HarnessProjectOverrides
+  ) => Promise<{ project: HarnessProjectConfig }>
   onDownloadProgress: (callback: (data: DownloadProgress) => void) => () => void
   demoDownloadPrism: () => Promise<DemoDownloadResult>
   demoRunPrismInstaller: () => Promise<DemoProcessResult>
@@ -150,9 +184,13 @@ export interface PrismAPI {
   getToolDefinitions: () => Promise<any[]>
   getChats: () => Promise<Omit<ChatSession, 'messages'>[]>
   loadChat: (id: string) => Promise<any[]>
+  getHarnessSessions: () => Promise<Omit<ChatSession, 'messages'>[]>
+  loadHarnessSession: (id: string) => Promise<any[]>
+  searchHarnessSessions: (query: string) => Promise<any>
   isChatRunning: (id: string) => Promise<boolean>
   getChatModel: (id: string) => Promise<string | undefined>
   deleteChat: (id: string) => Promise<boolean>
+  deleteHarnessSession: (id: string) => Promise<boolean>
   retryImageGeneration: (
     request: RetryImageGenerationRequest
   ) => Promise<{ started: boolean; error?: string }>

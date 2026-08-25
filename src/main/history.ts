@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { randomUUID } from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
-import { SessionMode, ArtifactItem, TodoState } from '../shared/types'
+import { SessionMode, WorkspaceKind, ArtifactItem, TodoState } from '../shared/types'
 import type { OpenAiMessage } from './ai/types'
 import { ToolImageAttachment, ToolImageReference, imageAttachments } from './toolAttachments'
 import {
@@ -19,12 +19,31 @@ export interface ChatSession {
   lastUpdated: number
   messages: OpenAiMessage[]
   sessionMode?: SessionMode
+  /** Workspace discriminator. Older Harness records are migrated on read. */
+  workspace?: WorkspaceKind
   disciplinePath?: string
   model?: string
   artifacts?: ArtifactItem[]
   todo?: TodoState | null
   isDiscord?: boolean
   disabledSkills?: string[]
+}
+
+export function getSessionWorkspace(session: Pick<ChatSession, 'workspace' | 'sessionMode'>): WorkspaceKind {
+  return session.workspace === 'harness' || session.sessionMode === 'harness' ? 'harness' : 'chat'
+}
+
+function migrateLegacyWorkspace(filePath: string, session: ChatSession): WorkspaceKind {
+  const workspace = getSessionWorkspace(session)
+  if (session.workspace !== workspace) {
+    session.workspace = workspace
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(session, null, 2))
+    } catch (error) {
+      console.warn('[History] Failed to persist workspace migration.', error)
+    }
+  }
+  return workspace
 }
 
 const CHATS_DIR = path.join(
@@ -86,29 +105,35 @@ export function getMessageText(content?: OpenAiMessage, clean = false): string {
 /**
  * Lists all available chat sessions.
  */
-export function listChatSessions(): Omit<ChatSession, 'messages'>[] {
+export function listChatSessions(workspace: WorkspaceKind = 'chat'): Omit<ChatSession, 'messages'>[] {
   ensureChatsDir()
   try {
     const files = fs.readdirSync(CHATS_DIR)
     const sessions = files
       .filter((file) => file.endsWith('.json'))
-      .map((file) => {
+      .map<Omit<ChatSession, 'messages'> | null>((file) => {
         const filePath = path.join(CHATS_DIR, file)
         const data = fs.readFileSync(filePath, 'utf-8')
         const session: ChatSession = JSON.parse(data)
+        const sessionWorkspace = migrateLegacyWorkspace(filePath, session)
+        if (sessionWorkspace !== workspace) return null
         const effectiveDisciplinePath =
-          session.sessionMode === 'discipline' ? session.disciplinePath || '' : ''
+          session.sessionMode === 'discipline' || session.sessionMode === 'harness'
+            ? session.disciplinePath || ''
+            : ''
         return {
           id: session.id,
           title: session.title,
           lastUpdated: session.lastUpdated,
           sessionMode: session.sessionMode,
+          workspace: sessionWorkspace,
           disciplinePath: effectiveDisciplinePath,
           model: session.model,
           isDiscord: session.isDiscord,
           disabledSkills: session.disabledSkills
-        }
+        } as Omit<ChatSession, 'messages'>
       })
+      .filter((session): session is Omit<ChatSession, 'messages'> => session !== null)
       .sort((a, b) => b.lastUpdated - a.lastUpdated)
     return sessions
   } catch (error) {
@@ -120,7 +145,7 @@ export function listChatSessions(): Omit<ChatSession, 'messages'>[] {
 /**
  * Loads a specific chat session by ID.
  */
-export function loadChatSession(id: string): ChatSession | null {
+export function loadChatSession(id: string, expectedWorkspace?: WorkspaceKind): ChatSession | null {
   ensureChatsDir()
   const cleanId = sanitizeId(id)
   if (!cleanId) return null
@@ -129,12 +154,18 @@ export function loadChatSession(id: string): ChatSession | null {
     if (fs.existsSync(filePath)) {
       const data = fs.readFileSync(filePath, 'utf-8')
       const session: ChatSession = JSON.parse(data)
+      const workspace = migrateLegacyWorkspace(filePath, session)
+      if (expectedWorkspace && workspace !== expectedWorkspace) return null
       const persistedMessages = sanitizeMessagesForSaving(cleanId, session.messages)
       if (JSON.stringify(persistedMessages) !== JSON.stringify(session.messages)) {
         session.messages = persistedMessages
         fs.writeFileSync(filePath, JSON.stringify(session, null, 2))
       }
-      if (session.sessionMode !== 'discipline' && session.disciplinePath) {
+      if (
+        session.sessionMode !== 'discipline' &&
+        session.sessionMode !== 'harness' &&
+        session.disciplinePath
+      ) {
         session.disciplinePath = ''
       }
       return session
@@ -518,6 +549,7 @@ export function saveChatSession(
     let existingPath = disciplinePath
     let existingModel = model
     let existingDisabledSkills = disabledSkills
+    let existingWorkspace: WorkspaceKind | undefined
 
     // If title or modes not provided, try to keep the existing ones from the file
     if (
@@ -540,6 +572,7 @@ export function saveChatSession(
           if (existingMode === undefined) {
             existingMode = existingData.sessionMode
           }
+          existingWorkspace = getSessionWorkspace(existingData as ChatSession)
           if (existingPath === undefined) {
             existingPath = existingData.disciplinePath
           }
@@ -569,7 +602,7 @@ export function saveChatSession(
       }
     }
 
-    if (existingMode !== 'discipline') {
+    if (existingMode !== 'discipline' && existingMode !== 'harness') {
       existingPath = ''
     }
 
@@ -601,6 +634,10 @@ export function saveChatSession(
       lastUpdated: Date.now(),
       messages: messagesToSave,
       sessionMode: existingMode,
+      workspace:
+        existingMode === 'harness' || (existingMode === undefined && existingWorkspace === 'harness')
+          ? 'harness'
+          : 'chat',
       disciplinePath: existingPath,
       model: existingModel,
       artifacts: existingArtifacts,
@@ -964,7 +1001,7 @@ export interface ChatSearchResult {
 /**
  * Searches offline through all chat session files.
  */
-export function searchChatsOffline(query: string): {
+export function searchChatsOffline(query: string, workspace: WorkspaceKind = 'chat'): {
   results: ChatSearchResult[]
   didYouMean?: string
 } {
@@ -1016,6 +1053,7 @@ export function searchChatsOffline(query: string): {
     try {
       const data = fs.readFileSync(path.join(CHATS_DIR, file), 'utf-8')
       const session: ChatSession = JSON.parse(data)
+      if (getSessionWorkspace(session) !== workspace) continue
 
       const titleLower = session.title.toLowerCase()
       const matchedTitle =

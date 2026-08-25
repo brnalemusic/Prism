@@ -22,6 +22,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import {
   initGemini,
   handleChatMessage,
+  handleHarnessMessage,
   setChatModel,
   cancelChatMessage,
   activeRuns,
@@ -94,6 +95,15 @@ import type { ApplicationInfo } from '../shared/types'
 import { IS_DEMO } from '../shared/demo'
 import { safeSend } from './safeSend'
 import { getTerminalProcessesForChat } from './terminalProcessManager'
+import {
+  createHarnessProject,
+  getEffectiveHarnessSettings,
+  getHarnessProject,
+  openHarnessProject,
+  updateHarnessProject
+} from './harnessProject'
+import { resolveHarnessApproval } from './harnessApproval'
+import { getHarnessInstructionStatus } from './harnessPrompt'
 
 if (process.platform === 'win32') {
   try {
@@ -1005,6 +1015,7 @@ if (!gotTheLock) {
 
     // IPC Handlers
     ipcMain.on('chat-message', handleChatMessage)
+    ipcMain.on('harness-message', handleHarnessMessage)
 
     // Register browser session action emitter so the renderer can watch AI browser interactions
     setBrowserActionEmitter((action) => {
@@ -1094,16 +1105,27 @@ if (!gotTheLock) {
     })
 
     ipcMain.handle('search-chats-offline', (_event, query: string) => {
-      return searchChatsOffline(query)
+      return searchChatsOffline(query, 'chat')
     })
 
     ipcMain.handle('get-chats', () => {
-      return listChatSessions()
+      return listChatSessions('chat')
     })
 
     ipcMain.handle('load-chat', (_event, id: string) => {
-      const session = loadChatSession(id)
+      const session = loadChatSession(id, 'chat')
       return session ? hydrateHistoryToolAttachments(id, session.messages) : []
+    })
+
+    ipcMain.handle('get-harness-sessions', () => listChatSessions('harness'))
+
+    ipcMain.handle('load-harness-session', (_event, id: string) => {
+      const session = loadChatSession(id, 'harness')
+      return session ? hydrateHistoryToolAttachments(id, session.messages) : []
+    })
+
+    ipcMain.handle('search-harness-sessions', (_event, query: string) => {
+      return searchChatsOffline(query, 'harness')
     })
 
     ipcMain.handle('is-chat-running', (_event, id: string) => {
@@ -1123,9 +1145,17 @@ if (!gotTheLock) {
     })
 
     ipcMain.handle('delete-chat', (_event, id: string) => {
+      if (!loadChatSession(id, 'chat')) return false
       markActiveChatDeleted(id)
       cancelChatMessage(id)
       cancelImageGenerationRetries(id)
+      return deleteChatSession(id)
+    })
+
+    ipcMain.handle('delete-harness-session', (_event, id: string) => {
+      if (!loadChatSession(id, 'harness')) return false
+      markActiveChatDeleted(id)
+      cancelChatMessage(id)
       return deleteChatSession(id)
     })
 
@@ -1400,6 +1430,52 @@ if (!gotTheLock) {
       return result.filePaths[0]
     })
 
+    ipcMain.handle('harness-create-project', async (_event, name: string) => {
+      const result = await createHarnessProject(name)
+      currentConfig = loadConfig()
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
+      return result
+    })
+
+    ipcMain.handle('harness-open-project', async (_event, selectedPath?: string) => {
+      let projectPath = selectedPath
+      if (!projectPath) {
+        const result = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory'] })
+        if (result.canceled || result.filePaths.length === 0) return null
+        projectPath = result.filePaths[0]
+      }
+      const opened = await openHarnessProject(projectPath)
+      currentConfig = loadConfig()
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
+      return opened
+    })
+
+    ipcMain.handle('harness-get-project', (_event, projectPath?: string) => {
+      return getHarnessProject(projectPath)
+    })
+
+    ipcMain.handle('harness-get-instruction-status', async (_event, projectPath?: string) => {
+      const settings = getEffectiveHarnessSettings(projectPath)
+      return settings ? getHarnessInstructionStatus(settings) : null
+    })
+
+    ipcMain.handle('harness-update-project', (_event, projectPath: string, overrides) => {
+      const updated = updateHarnessProject(projectPath, overrides || {})
+      currentConfig = loadConfig()
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
+      return updated
+    })
+
+    ipcMain.on(
+      'harness-resolve-approval',
+      (_event, payload: { requestId: string; approved: boolean }) => {
+        resolveHarnessApproval(payload.requestId, payload.approved)
+      }
+    )
+
     ipcMain.handle('get-session-mode', () => {
       return {
         mode: currentConfig.sessionMode,
@@ -1591,6 +1667,7 @@ if (!gotTheLock) {
     })
 
     ipcMain.on('set-session-mode', (_event, { mode, disciplinePath }) => {
+      if (mode === 'harness') return
       currentConfig.sessionMode = mode
       if (disciplinePath !== undefined) {
         currentConfig.disciplinePath = disciplinePath

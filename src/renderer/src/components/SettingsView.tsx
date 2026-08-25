@@ -42,18 +42,83 @@ import {
   FolderOpen,
   Waveform,
   Browsers,
-  ImageSquare
+  ImageSquare,
+  Code,
+  FolderSimple,
+  Files,
+  GitBranch
 } from '@phosphor-icons/react'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import { EnterpriseActivationModal } from './EnterpriseActivationModal'
 import clsx from 'clsx'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
-import type { SessionMode } from '../../../shared/types'
+import type {
+  HarnessPermissionMode,
+  HarnessInstructionStatus,
+  HarnessProjectConfig,
+  HarnessSettings,
+  HarnessToolName,
+  SessionMode
+} from '../../../shared/types'
 import { ApiManagerSettings } from './ApiManagerSettings'
 import { ModelSelector } from './ModelSelector'
 import { QuantumPhysicsGame } from './QuantumPhysicsGame'
 
 type Config = AppConfig
+
+const HARNESS_TOOLS: Array<{
+  name: HarnessToolName
+  label: string
+  description: string
+}> = [
+  { name: 'read', label: 'Read', description: 'Read bounded text ranges.' },
+  { name: 'list', label: 'List', description: 'List project directories.' },
+  { name: 'find', label: 'Find', description: 'Discover files by path pattern.' },
+  { name: 'write', label: 'Write', description: 'Create or explicitly replace complete files.' },
+  { name: 'edit', label: 'Edit', description: 'Replace one exact unique snippet.' },
+  { name: 'delete_lines', label: 'Delete lines', description: 'Remove one exact unique snippet.' },
+  {
+    name: 'apply_patch',
+    label: 'Apply patch',
+    description: 'Apply contextual multi-file patches.'
+  },
+  {
+    name: 'exec_command',
+    label: 'Run command',
+    description: 'Start terminal commands with Run IDs.'
+  },
+  { name: 'write_stdin', label: 'Terminal input', description: 'Continue interactive commands.' },
+  {
+    name: 'read_terminal_output',
+    label: 'Terminal output',
+    description: 'Read accumulated command output.'
+  },
+  {
+    name: 'web_search',
+    label: 'Web search',
+    description: 'Search and read top DuckDuckGo results.'
+  }
+]
+
+const DEFAULT_HARNESS_SETTINGS: HarnessSettings = {
+  projectsRoot: '',
+  defaultPermissionMode: 'ask',
+  defaultMaxRounds: 200,
+  enabledTools: HARNESS_TOOLS.map((tool) => tool.name),
+  maxReadLines: 800,
+  maxReadCharacters: 80_000,
+  maxTerminalOutputCharacters: 100_000,
+  maxContextCharacters: 80_000,
+  webPageCount: 5,
+  showSteps: true,
+  showThinking: true,
+  animateActivity: true,
+  reduceMotion: false,
+  tabProjectMode: 'fixed',
+  userGlobalInstructions: '',
+  yoloAcknowledged: false,
+  projects: {}
+}
 
 type SectionId =
   | 'appearance'
@@ -63,6 +128,7 @@ type SectionId =
   | 'providers'
   | 'intelligence'
   | 'runtime'
+  | 'harness'
   | 'skills'
   | 'workflows'
   | 'discord'
@@ -227,7 +293,8 @@ export function SettingsView({
     terminalShell: 'powershell.exe',
     workflows: [],
     sessionMode: 'execution',
-    disciplinePath: ''
+    disciplinePath: '',
+    harness: DEFAULT_HARNESS_SETTINGS
   })
 
   const [isSaving, setIsSaving] = useState(false)
@@ -239,7 +306,60 @@ export function SettingsView({
   const [searchNavQuery, setSearchNavQuery] = useState('')
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [showDiscordToken, setShowDiscordToken] = useState(false)
+  const [selectedHarnessProjectPath, setSelectedHarnessProjectPath] = useState('')
+  const [showYoloWarning, setShowYoloWarning] = useState(false)
+  const [pendingYoloTarget, setPendingYoloTarget] = useState<'global' | 'project'>('global')
+  const [harnessInstructionStatus, setHarnessInstructionStatus] =
+    useState<HarnessInstructionStatus | null>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+
+  const harnessProjectEntries = Object.entries(config.harness.projects)
+  const preferredHarnessProject = Object.values(config.harness.projects).find(
+    (project) => project.rootPath === config.harness.lastProjectPath
+  )
+  const effectiveHarnessProjectPath = Object.values(config.harness.projects).some(
+    (project) => project.rootPath === selectedHarnessProjectPath
+  )
+    ? selectedHarnessProjectPath
+    : preferredHarnessProject?.rootPath || harnessProjectEntries[0]?.[1].rootPath || ''
+  const selectedHarnessProjectEntry = harnessProjectEntries.find(
+    ([, project]) => project.rootPath === effectiveHarnessProjectPath
+  )
+  const selectedHarnessProject = selectedHarnessProjectEntry?.[1]
+
+  const updateHarness = (updates: Partial<HarnessSettings>): void => {
+    setConfig((current) => ({
+      ...current,
+      harness: { ...current.harness, ...updates }
+    }))
+  }
+
+  const updateSelectedHarnessProject = (updates: Partial<HarnessProjectConfig>): void => {
+    if (!selectedHarnessProjectEntry) return
+    const [key, project] = selectedHarnessProjectEntry
+    updateHarness({
+      projects: {
+        ...config.harness.projects,
+        [key]: { ...project, ...updates }
+      }
+    })
+  }
+
+  useEffect(() => {
+    if (!effectiveHarnessProjectPath) return
+    let active = true
+    window.api
+      .getHarnessInstructionStatus(effectiveHarnessProjectPath)
+      .then((status) => {
+        if (active) setHarnessInstructionStatus(status)
+      })
+      .catch(() => {
+        if (active) setHarnessInstructionStatus(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [effectiveHarnessProjectPath, config.harness.userGlobalInstructions])
 
   useEffect(() => {
     if (initialSection) {
@@ -642,7 +762,13 @@ export function SettingsView({
       terminalShell: 'powershell.exe',
       workflows: config.workflows,
       sessionMode: 'execution',
-      disciplinePath: ''
+      disciplinePath: '',
+      harness: {
+        ...DEFAULT_HARNESS_SETTINGS,
+        projectsRoot: config.harness.projectsRoot,
+        projects: config.harness.projects,
+        lastProjectPath: config.harness.lastProjectPath
+      }
     })
   }
 
@@ -704,7 +830,17 @@ export function SettingsView({
       category: 'ai',
       categoryLabel: 'AI & Runtime',
       description: 'Custom API keys, OpenAI endpoints, and official providers.',
-      keywords: ['api', 'keys', 'openai', 'gemini', 'anthropic', 'openrouter', 'groq', 'nvidia', 'providers']
+      keywords: [
+        'api',
+        'keys',
+        'openai',
+        'gemini',
+        'anthropic',
+        'openrouter',
+        'groq',
+        'nvidia',
+        'providers'
+      ]
     },
     {
       id: 'intelligence',
@@ -713,7 +849,19 @@ export function SettingsView({
       category: 'ai',
       categoryLabel: 'AI & Runtime',
       description: 'Assign dedicated models for image generation, browser, dictation, and search.',
-      keywords: ['models', 'dictator', 'stt', 'routing', 'quick launcher', 'search model', 'generative browser', 'image generation', 'images', 'generate', 'ai']
+      keywords: [
+        'models',
+        'dictator',
+        'stt',
+        'routing',
+        'quick launcher',
+        'search model',
+        'generative browser',
+        'image generation',
+        'images',
+        'generate',
+        'ai'
+      ]
     },
     {
       id: 'runtime',
@@ -722,7 +870,34 @@ export function SettingsView({
       category: 'ai',
       categoryLabel: 'AI & Runtime',
       description: 'CLI shell selection, execution modes, and folder sandbox.',
-      keywords: ['terminal', 'shell', 'powershell', 'bash', 'cmd', 'sandbox', 'session mode', 'discipline']
+      keywords: [
+        'terminal',
+        'shell',
+        'powershell',
+        'bash',
+        'cmd',
+        'sandbox',
+        'session mode',
+        'discipline'
+      ]
+    },
+    {
+      id: 'harness',
+      label: 'Harness',
+      icon: <Code size={17} weight="duotone" />,
+      category: 'ai',
+      categoryLabel: 'AI & Runtime',
+      description: 'Projects, permissions, agent budget, tools, instructions, and Steps.',
+      keywords: [
+        'harness',
+        'agent',
+        'projects',
+        'permissions',
+        'yolo',
+        'steps',
+        'tools',
+        'instructions'
+      ]
     },
     {
       id: 'skills',
@@ -914,7 +1089,13 @@ export function SettingsView({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {(
             [
-              { id: 'marine', label: 'Marine', accent: '#38bdf8', sidebar: '#030D15', tag: 'Default' },
+              {
+                id: 'marine',
+                label: 'Marine',
+                accent: '#38bdf8',
+                sidebar: '#030D15',
+                tag: 'Default'
+              },
               { id: 'fire', label: 'Fire', accent: '#ff3b2f', sidebar: '#150607' },
               { id: 'lava', label: 'Lava', accent: '#ff6b00', sidebar: '#160900' },
               { id: 'gold', label: 'Gold', accent: '#f5c518', sidebar: '#151100' },
@@ -951,10 +1132,7 @@ export function SettingsView({
                   className="relative h-10 w-10 shrink-0 rounded-lg border border-white/10 flex items-center justify-center transition-transform group-hover:scale-105"
                   style={{ background: sidebar }}
                 >
-                  <span
-                    className="h-4 w-4 rounded-full shadow-md"
-                    style={{ background: accent }}
-                  />
+                  <span className="h-4 w-4 rounded-full shadow-md" style={{ background: accent }} />
                   {isActive && (
                     <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-accent-primary text-black">
                       <Check size={10} weight="bold" />
@@ -966,7 +1144,9 @@ export function SettingsView({
                   <span
                     className={clsx(
                       'text-xs font-semibold truncate',
-                      isActive ? 'text-text-primary' : 'text-text-secondary group-hover:text-text-primary'
+                      isActive
+                        ? 'text-text-primary'
+                        : 'text-text-secondary group-hover:text-text-primary'
                     )}
                   >
                     {label}
@@ -1212,16 +1392,15 @@ export function SettingsView({
                 Image Generation Model
               </span>
               <span className="text-xs text-text-secondary/70 mt-0.5 leading-relaxed">
-                Routes native image generation and editing. Select an enabled model from a compatible provider; no chat-model fallback is used.
+                Routes native image generation and editing. Select an enabled model from a
+                compatible provider; no chat-model fallback is used.
               </span>
             </div>
           </div>
           <div className="shrink-0">
             <ModelSelector
               selectedModel={config.imageGenerationModel || ''}
-              onModelChange={(modelKey) =>
-                setConfig({ ...config, imageGenerationModel: modelKey })
-              }
+              onModelChange={(modelKey) => setConfig({ ...config, imageGenerationModel: modelKey })}
               allowedCompletionTypes={['chat_completions', 'responses', 'puter_native']}
               allowClear
               align="right"
@@ -1271,9 +1450,7 @@ export function SettingsView({
           <div className="shrink-0">
             <ModelSelector
               selectedModel={config.quickLauncherModel || ''}
-              onModelChange={(modelKey) =>
-                setConfig({ ...config, quickLauncherModel: modelKey })
-              }
+              onModelChange={(modelKey) => setConfig({ ...config, quickLauncherModel: modelKey })}
               align="right"
             />
           </div>
@@ -1314,7 +1491,8 @@ export function SettingsView({
                 Generative Browser Model
               </span>
               <span className="text-xs text-text-secondary/70 mt-0.5 leading-relaxed">
-                Generates live HTML+CSS websites and interactive prototype pages from prompts (generate:).
+                Generates live HTML+CSS websites and interactive prototype pages from prompts
+                (generate:).
               </span>
             </div>
           </div>
@@ -1483,7 +1661,7 @@ export function SettingsView({
                 title: 'Discipline Mode',
                 badge: 'Project Folder',
                 desc: 'Restricts AI file creation and edits to a chosen directory.'
-              }
+              },
             ].map((mode) => {
               const isActive = (config.sessionMode || 'execution') === mode.id
               return (
@@ -1554,6 +1732,646 @@ export function SettingsView({
       </div>
     </div>
   )
+
+  const renderHarness = (): React.JSX.Element => {
+    const toggleGlobalTool = (name: HarnessToolName): void => {
+      const enabled = config.harness.enabledTools.includes(name)
+      updateHarness({
+        enabledTools: enabled
+          ? config.harness.enabledTools.filter((tool) => tool !== name)
+          : [...config.harness.enabledTools, name]
+      })
+    }
+    const toggleProjectTool = (name: HarnessToolName): void => {
+      if (!selectedHarnessProject) return
+      const current = selectedHarnessProject.enabledTools || config.harness.enabledTools
+      updateSelectedHarnessProject({
+        enabledTools: current.includes(name)
+          ? current.filter((tool) => tool !== name)
+          : [...current, name]
+      })
+    }
+    const permissionModes: Array<{
+      id: HarnessPermissionMode
+      title: string
+      description: string
+    }> = [
+      {
+        id: 'ask',
+        title: 'Ask for Permissions',
+        description: 'Approve every tool round as one group.'
+      },
+      {
+        id: 'independent',
+        title: 'Independent Agent',
+        description: 'Run freely inside the selected project root.'
+      },
+      {
+        id: 'yolo',
+        title: 'YOLO',
+        description: 'Run without confirmations after explicit risk consent.'
+      }
+    ]
+
+    return (
+      <div className="space-y-8 animate-soft-pop">
+        <SectionHeader
+          title="Harness"
+          subtitle="Configure the isolated coding agent, its projects, tools, permissions, context, and activity UI."
+        />
+
+        <div className="space-y-4">
+          <SettingsGroupLabel
+            title="Workspace"
+            description="Simple projects are created under this folder. Advanced projects may use any selected directory."
+          />
+          <div className="settings-card space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-accent-primary/20 bg-accent-primary/10 text-accent-primary">
+                <FolderSimple size={18} weight="duotone" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="text-sm font-semibold text-text-primary">
+                  Default projects folder
+                </span>
+                <p className="mt-0.5 text-xs leading-relaxed text-text-secondary/70">
+                  New projects are created as direct children and initialized with Git
+                  automatically.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <input
+                readOnly
+                value={config.harness.projectsRoot}
+                className="settings-text-input min-w-0 flex-1 truncate font-mono text-xs"
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  const selected = await window.api.selectFolder()
+                  if (selected) updateHarness({ projectsRoot: selected })
+                }}
+                className="settings-secondary-button shrink-0 cursor-pointer"
+              >
+                <FolderOpen size={14} />
+                Change
+              </button>
+            </div>
+            <div className="flex items-center gap-2 text-[10.5px] text-text-muted">
+              <GitBranch size={13} />
+              Git is initialized for both simple and advanced project folders.
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <SettingsGroupLabel
+            title="Default permissions"
+            description="Projects inherit this profile unless they define an override."
+          />
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            {permissionModes.map((mode) => {
+              const active = config.harness.defaultPermissionMode === mode.id
+              return (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => {
+                    if (mode.id === 'yolo' && !config.harness.yoloAcknowledged) {
+                      setPendingYoloTarget('global')
+                      setShowYoloWarning(true)
+                      return
+                    }
+                    updateHarness({ defaultPermissionMode: mode.id })
+                  }}
+                  className={clsx(
+                    'settings-card cursor-pointer text-left transition-colors',
+                    active && 'border-accent-primary/35 bg-accent-primary/[0.06]'
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-text-primary">{mode.title}</span>
+                    {active && <Check size={13} weight="bold" className="text-accent-primary" />}
+                  </div>
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-text-secondary/70">
+                    {mode.description}
+                  </p>
+                </button>
+              )
+            })}
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <HarnessNumberField
+              label="Agent round budget"
+              description="Maximum model/tool rounds per request."
+              value={config.harness.defaultMaxRounds}
+              min={1}
+              max={1000}
+              onChange={(value) => updateHarness({ defaultMaxRounds: value })}
+            />
+            <div className="settings-card flex items-center justify-between gap-4">
+              <div>
+                <span className="text-sm font-semibold text-text-primary">YOLO consent</span>
+                <p className="mt-0.5 text-xs text-text-secondary/70">
+                  {config.harness.yoloAcknowledged ? 'Risk acknowledged.' : 'Not acknowledged.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  updateHarness({
+                    yoloAcknowledged: false,
+                    defaultPermissionMode:
+                      config.harness.defaultPermissionMode === 'yolo'
+                        ? 'ask'
+                        : config.harness.defaultPermissionMode
+                  })
+                }
+                className="settings-secondary-button cursor-pointer"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <SettingsGroupLabel
+            title="Tools sent to the model"
+            description="Disabled tools are removed from the Harness manifest on every round."
+          />
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {HARNESS_TOOLS.map((tool) => {
+              const enabled = config.harness.enabledTools.includes(tool.name)
+              return (
+                <div
+                  key={tool.name}
+                  className="settings-card flex items-center justify-between gap-3 py-3"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <code className="text-[11px] font-semibold text-text-primary">
+                        {tool.name}
+                      </code>
+                      <span className="text-[10px] text-text-muted">{tool.label}</span>
+                    </div>
+                    <p className="mt-0.5 text-[10.5px] text-text-secondary/65">
+                      {tool.description}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={enabled}
+                    onClick={() => toggleGlobalTool(tool.name)}
+                    className={clsx('settings-switch shrink-0', enabled && 'is-enabled')}
+                  >
+                    <span />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <SettingsGroupLabel
+            title="Runtime limits"
+            description="Independent caps keep file reads, terminal output, web research, and context predictable."
+          />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <HarnessNumberField
+              label="Read lines"
+              description="Maximum lines returned by read."
+              value={config.harness.maxReadLines}
+              min={1}
+              max={5000}
+              onChange={(value) => updateHarness({ maxReadLines: value })}
+            />
+            <HarnessNumberField
+              label="Read characters"
+              description="Maximum characters returned by read."
+              value={config.harness.maxReadCharacters}
+              min={1000}
+              max={500000}
+              onChange={(value) => updateHarness({ maxReadCharacters: value })}
+            />
+            <HarnessNumberField
+              label="Terminal output"
+              description="Maximum accumulated output characters."
+              value={config.harness.maxTerminalOutputCharacters}
+              min={1000}
+              max={1000000}
+              onChange={(value) => updateHarness({ maxTerminalOutputCharacters: value })}
+            />
+            <HarnessNumberField
+              label="Web context"
+              description="Maximum characters injected from fetched pages."
+              value={config.harness.maxContextCharacters}
+              min={10000}
+              max={200000}
+              onChange={(value) => updateHarness({ maxContextCharacters: value })}
+            />
+            <HarnessNumberField
+              label="Web pages"
+              description="Readable top results fetched per search (3–5)."
+              value={config.harness.webPageCount}
+              min={3}
+              max={5}
+              onChange={(value) => updateHarness({ webPageCount: value })}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <SettingsGroupLabel title="Steps and motion" />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <ToggleRow
+              title="Show Steps"
+              description="Keep chronological tool activity in a compact container."
+              checked={config.harness.showSteps}
+              onChange={() => updateHarness({ showSteps: !config.harness.showSteps })}
+            />
+            <ToggleRow
+              title="Expandable Thinking"
+              description="Show provider reasoning when it is available."
+              checked={config.harness.showThinking}
+              onChange={() => updateHarness({ showThinking: !config.harness.showThinking })}
+            />
+            <ToggleRow
+              title="Activity animations"
+              description="Use shimmer and smooth expand/collapse transitions."
+              checked={config.harness.animateActivity}
+              onChange={() => updateHarness({ animateActivity: !config.harness.animateActivity })}
+            />
+            <ToggleRow
+              title="Reduce motion"
+              description="Disable non-essential Harness activity motion."
+              checked={config.harness.reduceMotion}
+              onChange={() => updateHarness({ reduceMotion: !config.harness.reduceMotion })}
+            />
+            <div className="settings-card flex flex-col gap-2 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <span className="text-sm font-semibold text-text-primary">Harness tab organization</span>
+                <p className="mt-0.5 text-xs text-text-secondary/70">
+                  Tabs always retain their own project root; project grouping changes the dock organization.
+                </p>
+              </div>
+              <select
+                value={config.harness.tabProjectMode}
+                onChange={(event) =>
+                  updateHarness({
+                    tabProjectMode: event.target.value === 'grouped' ? 'grouped' : 'fixed'
+                  })
+                }
+                className="settings-text-input w-full sm:w-44 cursor-pointer"
+              >
+                <option value="fixed">Fixed root per tab</option>
+                <option value="grouped">Group tabs by project</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <SettingsGroupLabel
+            title="System instructions"
+            description="Precedence: Harness security, global instructions, AGENTS.md, then project instructions."
+          />
+          <div className="settings-card space-y-4">
+            <p className="text-[10.5px] leading-relaxed text-text-muted">
+              These sources are injected before the first request and saved as visible snapshots.
+              A detected change is injected once before the next Harness turn; ordinary requests reuse
+              the existing context.
+            </p>
+            <div className="grid gap-2 text-[10.5px] text-text-secondary sm:grid-cols-2">
+              <div className="rounded-lg border border-[var(--border-default)] bg-[var(--surface-lowest)] px-3 py-2">
+                <span className="block font-semibold text-text-primary">Harness core</span>
+                Built-in, highest precedence
+              </div>
+              <div className="rounded-lg border border-[var(--border-default)] bg-[var(--surface-lowest)] px-3 py-2">
+                <span className="block font-semibold text-text-primary">Total system budget</span>
+                {harnessInstructionStatus
+                  ? `${harnessInstructionStatus.totalCharacters.toLocaleString()} / 80,000 characters · ~${harnessInstructionStatus.estimatedTokens.toLocaleString()} / 20,000 tokens`
+                  : '80,000 characters / 20,000 tokens maximum'}
+              </div>
+            </div>
+            <label className="block space-y-1.5">
+              <span className="flex items-center justify-between text-xs font-semibold text-text-primary">
+                User Global Instructions
+                <span className="font-mono text-[10px] text-text-muted">
+                  {config.harness.userGlobalInstructions.length}/5000
+                </span>
+              </span>
+              <textarea
+                value={config.harness.userGlobalInstructions}
+                maxLength={5000}
+                onChange={(event) => updateHarness({ userGlobalInstructions: event.target.value })}
+                className="settings-text-input min-h-32 resize-y font-mono text-xs leading-relaxed"
+                placeholder="Instructions shared by every Harness project..."
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <SettingsGroupLabel
+            title="Project overrides"
+            description="Override defaults only where this project needs different behavior."
+          />
+          {harnessProjectEntries.length === 0 ? (
+            <div className="settings-card flex items-center gap-3 text-xs text-text-secondary">
+              <Files size={18} className="text-text-muted" />
+              Create or open a Harness project to configure project-specific overrides.
+            </div>
+          ) : (
+            <div className="settings-card space-y-5">
+              <CustomSelect
+                value={effectiveHarnessProjectPath}
+                onChange={setSelectedHarnessProjectPath}
+                options={harnessProjectEntries.map(([, project]) => ({
+                  value: project.rootPath,
+                  label: project.displayName,
+                  icon: <FolderSimple size={15} className="text-accent-primary" />
+                }))}
+              />
+
+              {selectedHarnessProject && (
+                <>
+                  <div className="rounded-lg border border-[var(--border-default)] bg-[var(--surface-lowest)] px-3 py-2 font-mono text-[10px] text-text-muted break-all">
+                    {selectedHarnessProject.rootPath}
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="settings-card space-y-2">
+                      <span className="text-xs font-semibold text-text-primary">
+                        Permission override
+                      </span>
+                      <select
+                        value={selectedHarnessProject.permissionMode || ''}
+                        onChange={(event) => {
+                          const value = event.target.value as HarnessPermissionMode | ''
+                          if (value === 'yolo' && !config.harness.yoloAcknowledged) {
+                            setPendingYoloTarget('project')
+                            setShowYoloWarning(true)
+                            return
+                          }
+                          updateSelectedHarnessProject({ permissionMode: value || undefined })
+                        }}
+                        className="settings-text-input w-full text-xs"
+                      >
+                        <option value="">Inherit global</option>
+                        <option value="ask">Ask for Permissions</option>
+                        <option value="independent">Independent Agent</option>
+                        <option value="yolo">YOLO</option>
+                      </select>
+                    </label>
+                    <HarnessOptionalNumberField
+                      label="Round budget override"
+                      inherited={config.harness.defaultMaxRounds}
+                      value={selectedHarnessProject.maxRounds}
+                      min={1}
+                      max={1000}
+                      onChange={(value) => updateSelectedHarnessProject({ maxRounds: value })}
+                    />
+                  </div>
+
+                  <label className="block space-y-1.5">
+                    <span className="flex items-center justify-between text-xs font-semibold text-text-primary">
+                      User Project Instructions
+                      <span className="font-mono text-[10px] text-text-muted">
+                        {(selectedHarnessProject.userProjectInstructions || '').length}/5000
+                      </span>
+                    </span>
+                    <textarea
+                      value={selectedHarnessProject.userProjectInstructions || ''}
+                      maxLength={5000}
+                      onChange={(event) =>
+                        updateSelectedHarnessProject({
+                          userProjectInstructions: event.target.value
+                        })
+                      }
+                      className="settings-text-input min-h-28 resize-y font-mono text-xs leading-relaxed"
+                      placeholder="Instructions specific to this project..."
+                    />
+                    <span className="block text-[10px] text-text-muted">
+                      Repo Instructions: {selectedHarnessProject.rootPath}/AGENTS.md —{' '}
+                      {harnessInstructionStatus?.repoExists
+                        ? `${harnessInstructionStatus.repoIncludedCharacters.toLocaleString()} of ${harnessInstructionStatus.repoCharacters.toLocaleString()} characters included`
+                        : 'not present'}
+                      .
+                    </span>
+                    {harnessInstructionStatus?.warnings.map((warning) => (
+                      <span key={warning} className="block text-[10px] text-status-warning">
+                        {warning}
+                      </span>
+                    ))}
+                  </label>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-semibold text-text-primary">Tool override</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateSelectedHarnessProject({
+                            enabledTools: selectedHarnessProject.enabledTools
+                              ? undefined
+                              : [...config.harness.enabledTools]
+                          })
+                        }
+                        className="settings-secondary-button cursor-pointer"
+                      >
+                        {selectedHarnessProject.enabledTools ? 'Use global tools' : 'Customize'}
+                      </button>
+                    </div>
+                    {selectedHarnessProject.enabledTools && (
+                      <div className="grid grid-cols-2 gap-1.5 rounded-xl border border-[var(--border-default)] bg-[var(--surface-lowest)] p-2 sm:grid-cols-3">
+                        {HARNESS_TOOLS.map((tool) => {
+                          const enabled =
+                            selectedHarnessProject.enabledTools?.includes(tool.name) === true
+                          return (
+                            <button
+                              key={tool.name}
+                              type="button"
+                              onClick={() => toggleProjectTool(tool.name)}
+                              className={clsx(
+                                'rounded-lg border px-2 py-1.5 text-left font-mono text-[10px] transition-colors',
+                                enabled
+                                  ? 'border-accent-primary/25 bg-accent-primary/10 text-accent-primary'
+                                  : 'border-transparent text-text-muted hover:bg-white/[0.04]'
+                              )}
+                            >
+                              {tool.name}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <HarnessOptionalNumberField
+                      label="Read lines"
+                      inherited={config.harness.maxReadLines}
+                      value={selectedHarnessProject.maxReadLines}
+                      min={1}
+                      max={5000}
+                      onChange={(value) => updateSelectedHarnessProject({ maxReadLines: value })}
+                    />
+                    <HarnessOptionalNumberField
+                      label="Read characters"
+                      inherited={config.harness.maxReadCharacters}
+                      value={selectedHarnessProject.maxReadCharacters}
+                      min={1000}
+                      max={500000}
+                      onChange={(value) =>
+                        updateSelectedHarnessProject({ maxReadCharacters: value })
+                      }
+                    />
+                    <HarnessOptionalNumberField
+                      label="Terminal output"
+                      inherited={config.harness.maxTerminalOutputCharacters}
+                      value={selectedHarnessProject.maxTerminalOutputCharacters}
+                      min={1000}
+                      max={1000000}
+                      onChange={(value) =>
+                        updateSelectedHarnessProject({ maxTerminalOutputCharacters: value })
+                      }
+                    />
+                    <HarnessOptionalNumberField
+                      label="Web context"
+                      inherited={config.harness.maxContextCharacters}
+                      value={selectedHarnessProject.maxContextCharacters}
+                      min={10000}
+                      max={200000}
+                      onChange={(value) =>
+                        updateSelectedHarnessProject({ maxContextCharacters: value })
+                      }
+                    />
+                    <HarnessOptionalNumberField
+                      label="Web pages"
+                      inherited={config.harness.webPageCount}
+                      value={selectedHarnessProject.webPageCount}
+                      min={3}
+                      max={5}
+                      onChange={(value) => updateSelectedHarnessProject({ webPageCount: value })}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {(
+                      [
+                        ['showSteps', 'Show Steps', config.harness.showSteps],
+                        ['showThinking', 'Expandable Thinking', config.harness.showThinking],
+                        ['animateActivity', 'Activity animations', config.harness.animateActivity],
+                        ['reduceMotion', 'Reduce motion', config.harness.reduceMotion]
+                      ] as const
+                    ).map(([key, label, inherited]) => {
+                      const current = selectedHarnessProject[key]
+                      return (
+                        <label key={key} className="settings-card space-y-2">
+                          <span className="text-xs font-semibold text-text-primary">{label}</span>
+                          <select
+                            value={current === undefined ? '' : current ? 'on' : 'off'}
+                            onChange={(event) =>
+                              updateSelectedHarnessProject({
+                                [key]:
+                                  event.target.value === ''
+                                    ? undefined
+                                    : event.target.value === 'on'
+                              })
+                            }
+                            className="settings-text-input w-full text-xs"
+                          >
+                            <option value="">Inherit ({inherited ? 'on' : 'off'})</option>
+                            <option value="on">On</option>
+                            <option value="off">Off</option>
+                          </select>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {showYoloWarning &&
+          createPortal(
+            <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="yolo-warning-title"
+                className="w-full max-w-md rounded-2xl border border-status-error/25 bg-[var(--surface-lowest)] p-5 shadow-2xl"
+              >
+                <div className="flex items-start gap-3">
+                  <Warning size={20} weight="fill" className="mt-0.5 shrink-0 text-status-error" />
+                  <div>
+                    <h3 id="yolo-warning-title" className="text-sm font-bold text-text-primary">
+                      Enable YOLO mode?
+                    </h3>
+                    <p className="mt-2 text-xs leading-relaxed text-text-secondary">
+                      Harness will execute every enabled tool without asking for confirmation.
+                      Commands and file changes can be destructive inside the selected project.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowYoloWarning(false)}
+                    className="settings-secondary-button cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfig((current) => {
+                        if (pendingYoloTarget === 'global') {
+                          return {
+                            ...current,
+                            harness: {
+                              ...current.harness,
+                              yoloAcknowledged: true,
+                              defaultPermissionMode: 'yolo'
+                            }
+                          }
+                        }
+                        const entry = Object.entries(current.harness.projects).find(
+                          ([, project]) => project.rootPath === effectiveHarnessProjectPath
+                        )
+                        if (!entry) return current
+                        const [key, project] = entry
+                        return {
+                          ...current,
+                          harness: {
+                            ...current.harness,
+                            yoloAcknowledged: true,
+                            projects: {
+                              ...current.harness.projects,
+                              [key]: { ...project, permissionMode: 'yolo', updatedAt: Date.now() }
+                            }
+                          }
+                        }
+                      })
+                      setShowYoloWarning(false)
+                    }}
+                    className="settings-primary-button cursor-pointer"
+                  >
+                    I understand, enable YOLO
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
+      </div>
+    )
+  }
 
   const renderSkills = (): React.JSX.Element => (
     <div className="space-y-8 animate-soft-pop">
@@ -1684,7 +2502,9 @@ export function SettingsView({
             <div className="space-y-3 pt-2 border-t border-[var(--border-subtle)]">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                  <span className="settings-field-label">Allowed Tools (Execution Constraints)</span>
+                  <span className="settings-field-label">
+                    Allowed Tools (Execution Constraints)
+                  </span>
                   <span className="text-[11px] text-text-muted">
                     Check tools allowed during this workflow. Leave all unchecked for pure chat.
                   </span>
@@ -1801,7 +2621,9 @@ export function SettingsView({
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20 mb-3">
               <Lightning size={24} weight="duotone" />
             </div>
-            <span className="text-sm font-semibold text-text-primary">No Slash Workflows Configured</span>
+            <span className="text-sm font-semibold text-text-primary">
+              No Slash Workflows Configured
+            </span>
             <p className="text-xs text-text-secondary/70 mt-1 max-w-sm">
               Create customized Gems-style prompt profiles triggered with a quick slash command.
             </p>
@@ -1938,8 +2760,9 @@ export function SettingsView({
         <div className="flex flex-col min-w-0">
           <span className="text-xs font-bold text-text-primary">Encrypted Local Storage</span>
           <p className="text-xs text-text-secondary/70 mt-0.5 leading-relaxed">
-            All user credentials, API keys, and custom configurations are stored encrypted locally on
-            your machine using native OS keychains. Prism never transmits your API keys to third parties.
+            All user credentials, API keys, and custom configurations are stored encrypted locally
+            on your machine using native OS keychains. Prism never transmits your API keys to third
+            parties.
           </p>
         </div>
       </div>
@@ -2122,19 +2945,25 @@ export function SettingsView({
 
           <div className="settings-license-facts mt-5">
             <div>
-              <span className="text-[10px] font-mono uppercase text-text-muted font-semibold">License ID</span>
+              <span className="text-[10px] font-mono uppercase text-text-muted font-semibold">
+                License ID
+              </span>
               <span className="text-xs font-mono font-semibold text-text-primary mt-1 block truncate">
                 {licenseInfo.id}
               </span>
             </div>
             <div>
-              <span className="text-[10px] font-mono uppercase text-text-muted font-semibold">Authorized Seats</span>
+              <span className="text-[10px] font-mono uppercase text-text-muted font-semibold">
+                Authorized Seats
+              </span>
               <span className="text-xs font-semibold text-text-primary mt-1 block">
                 {licenseInfo.seats} Seat(s)
               </span>
             </div>
             <div>
-              <span className="text-[10px] font-mono uppercase text-text-muted font-semibold">Expiration Date</span>
+              <span className="text-[10px] font-mono uppercase text-text-muted font-semibold">
+                Expiration Date
+              </span>
               <span className="text-xs font-semibold text-text-primary mt-1 block">
                 {new Date(licenseInfo.expiresAt).toLocaleDateString()}
               </span>
@@ -2175,7 +3004,9 @@ export function SettingsView({
             ) : plans.length === 0 ? (
               <div className="settings-card flex flex-col items-center justify-center py-8 text-center">
                 <CreditCard size={24} className="text-text-muted mb-2" />
-                <span className="text-xs font-semibold text-text-primary">No plans currently available</span>
+                <span className="text-xs font-semibold text-text-primary">
+                  No plans currently available
+                </span>
               </div>
             ) : (
               <div className="settings-plan-grid">
@@ -2211,7 +3042,9 @@ export function SettingsView({
                         </div>
 
                         <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-text-muted">
-                          <span>{plan.seats} {plan.seats === 1 ? 'seat' : 'seats'}</span>
+                          <span>
+                            {plan.seats} {plan.seats === 1 ? 'seat' : 'seats'}
+                          </span>
                           <span>{plan.durationDays} days</span>
                         </div>
                       </div>
@@ -2225,7 +3058,9 @@ export function SettingsView({
                               disabled={isLoadingThis || hasPendingSession}
                               className={clsx(
                                 'settings-primary-button w-full cursor-pointer',
-                                isPopular ? 'bg-accent-primary text-black border-accent-primary' : ''
+                                isPopular
+                                  ? 'bg-accent-primary text-black border-accent-primary'
+                                  : ''
                               )}
                             >
                               {isLoadingThis ? (
@@ -2291,9 +3126,12 @@ export function SettingsView({
             )}
 
             <div className="flex flex-col gap-1 mb-3">
-              <span className="text-sm font-semibold text-text-primary">Activate with License Key</span>
+              <span className="text-sm font-semibold text-text-primary">
+                Activate with License Key
+              </span>
               <span className="text-xs text-text-secondary/70">
-                Paste your cryptographic PRISM-ENTERPRISE key below for offline or airgapped activation.
+                Paste your cryptographic PRISM-ENTERPRISE key below for offline or airgapped
+                activation.
               </span>
             </div>
 
@@ -2470,6 +3308,8 @@ export function SettingsView({
         return renderIntelligence()
       case 'runtime':
         return renderRuntime()
+      case 'harness':
+        return renderHarness()
       case 'skills':
         return renderSkills()
       case 'workflows':
@@ -2621,7 +3461,9 @@ export function SettingsView({
                           <span
                             className={clsx(
                               'transition-colors',
-                              isActive ? 'text-accent-primary' : 'text-text-muted group-hover:text-text-primary'
+                              isActive
+                                ? 'text-accent-primary'
+                                : 'text-text-muted group-hover:text-text-primary'
                             )}
                           >
                             {section.icon}
@@ -2677,7 +3519,11 @@ export function SettingsView({
                       : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'
                   )}
                 >
-                  <span className={activeSection === section.id ? 'text-accent-primary' : 'text-text-muted'}>
+                  <span
+                    className={
+                      activeSection === section.id ? 'text-accent-primary' : 'text-text-muted'
+                    }
+                  >
                     {section.icon}
                   </span>
                   {section.label}
@@ -2715,7 +3561,9 @@ function SectionHeader({
   return (
     <div className="border-b border-[var(--border-subtle)] pb-4">
       <h2 className="text-xl font-bold tracking-tight text-text-primary sm:text-2xl">{title}</h2>
-      <p className="mt-1 text-xs sm:text-sm text-text-secondary/80 leading-relaxed max-w-2xl">{subtitle}</p>
+      <p className="mt-1 text-xs sm:text-sm text-text-secondary/80 leading-relaxed max-w-2xl">
+        {subtitle}
+      </p>
     </div>
   )
 }
@@ -2732,8 +3580,86 @@ function SettingsGroupLabel({
       <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider font-mono">
         {title}
       </h3>
-      {description && <p className="text-xs text-text-secondary/70 leading-relaxed">{description}</p>}
+      {description && (
+        <p className="text-xs text-text-secondary/70 leading-relaxed">{description}</p>
+      )}
     </div>
+  )
+}
+
+function HarnessNumberField({
+  label,
+  description,
+  value,
+  min,
+  max,
+  onChange
+}: {
+  label: string
+  description: string
+  value: number
+  min: number
+  max: number
+  onChange: (value: number) => void
+}): React.JSX.Element {
+  return (
+    <label className="settings-card flex items-center justify-between gap-4">
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-text-primary">{label}</span>
+        <span className="mt-0.5 block text-xs leading-relaxed text-text-secondary/70">
+          {description}
+        </span>
+      </span>
+      <input
+        type="number"
+        value={value}
+        min={min}
+        max={max}
+        onChange={(event) => {
+          const next = Number(event.target.value)
+          if (Number.isInteger(next) && next >= min && next <= max) onChange(next)
+        }}
+        className="settings-text-input w-28 shrink-0 font-mono text-xs"
+      />
+    </label>
+  )
+}
+
+function HarnessOptionalNumberField({
+  label,
+  inherited,
+  value,
+  min,
+  max,
+  onChange
+}: {
+  label: string
+  inherited: number
+  value?: number
+  min: number
+  max: number
+  onChange: (value: number | undefined) => void
+}): React.JSX.Element {
+  return (
+    <label className="settings-card space-y-2">
+      <span className="text-xs font-semibold text-text-primary">{label}</span>
+      <input
+        type="number"
+        value={value ?? ''}
+        min={min}
+        max={max}
+        placeholder={`Inherit (${inherited})`}
+        onChange={(event) => {
+          if (!event.target.value) {
+            onChange(undefined)
+            return
+          }
+          const next = Number(event.target.value)
+          if (Number.isInteger(next) && next >= min && next <= max) onChange(next)
+        }}
+        className="settings-text-input w-full font-mono text-xs"
+      />
+    </label>
   )
 }
 
@@ -2907,7 +3833,10 @@ function CustomSelect<T extends string>({
         </span>
         <CaretDown
           size={14}
-          className={clsx('text-text-muted transition-transform duration-200 shrink-0 ml-2', isOpen && 'rotate-180')}
+          className={clsx(
+            'text-text-muted transition-transform duration-200 shrink-0 ml-2',
+            isOpen && 'rotate-180'
+          )}
         />
       </button>
 
@@ -2934,7 +3863,9 @@ function CustomSelect<T extends string>({
                   {opt.icon}
                   <span className="truncate">{opt.label}</span>
                 </span>
-                {isSelected && <Check size={14} weight="bold" className="text-accent-primary shrink-0" />}
+                {isSelected && (
+                  <Check size={14} weight="bold" className="text-accent-primary shrink-0" />
+                )}
               </button>
             )
           })}

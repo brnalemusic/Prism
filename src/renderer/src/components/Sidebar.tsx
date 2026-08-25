@@ -9,7 +9,8 @@ import {
   CaretDown,
   CaretRight,
   NotePencil,
-  SidebarSimple
+  SidebarSimple,
+  Code
 } from '@phosphor-icons/react'
 import React, { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
@@ -36,6 +37,7 @@ interface SidebarProps {
   onViewChange: (view: string) => void
   onLoadChat: (id: string) => void
   onNewChat: (force?: boolean) => void
+  onStartHarness?: () => void
   onChatDeleted: (id: string) => void
   currentChatId?: string
   runningChats?: Record<string, boolean>
@@ -89,6 +91,7 @@ export function Sidebar({
   onViewChange,
   onLoadChat,
   onNewChat,
+  onStartHarness,
   onChatDeleted,
   currentChatId,
   runningChats = {},
@@ -165,17 +168,14 @@ export function Sidebar({
     refreshChats()
     const interval = setInterval(refreshChats, 10000)
 
-    const removeCreatedListener = window.api.onChatSessionCreated(({ id }) => {
-      setChats((prev) => {
-        if (prev.some((c) => c.id === id)) return prev
-        return [{ id, title: '', lastUpdated: Date.now() }, ...prev]
-      })
+    // The main process broadcasts lifecycle events for both workspaces. Reload
+    // through the Chat-only IPC endpoint instead of inserting an unknown id.
+    const removeCreatedListener = window.api.onChatSessionCreated(() => {
+      void refreshChats()
     })
 
-    const removeTitleListener = window.api.onChatTitleReceived(({ id, title }) => {
-      setChats((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, title, lastUpdated: Date.now() } : c))
-      )
+    const removeTitleListener = window.api.onChatTitleReceived(() => {
+      void refreshChats()
     })
 
     return () => {
@@ -335,18 +335,26 @@ export function Sidebar({
           )}
         </div>
 
-        {/* New Chat Action */}
+        {/* Workspace action */}
         <div className="px-3 pb-2 pt-1 shrink-0">
           <button
-            onClick={() => onNewChat()}
+            onClick={() => (activeView === 'harness' ? onStartHarness?.() : onNewChat())}
             className="group flex w-full items-center justify-center gap-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] text-xs font-semibold text-text-primary transition-all duration-200 cursor-pointer py-2.5 px-3 border border-white/[0.12] hover:border-white/[0.22] shadow-[var(--glass-specular-top),0_4px_16px_rgba(0,0,0,0.3)] active:scale-[0.98]"
           >
-            <NotePencil
+            {activeView === 'harness' ? (
+              <Code
+                size={15}
+                weight="bold"
+                className="text-text-secondary group-hover:text-white transition-colors"
+              />
+            ) : (
+              <NotePencil
               size={15}
               weight="bold"
               className="text-text-secondary group-hover:text-white transition-colors"
-            />
-            <span>New Chat</span>
+              />
+            )}
+            <span>{activeView === 'harness' ? 'Start Harness' : 'New Chat'}</span>
           </button>
         </div>
 
@@ -359,15 +367,37 @@ export function Sidebar({
             onClick={(): void => onViewChange('chat')}
           />
           <NavItem
-            icon={<MagnifyingGlass size={15} weight="bold" />}
-            label="Search"
-            onClick={onOpenSearch}
+            icon={<Code size={15} weight={activeView === 'harness' ? 'fill' : 'bold'} />}
+            label="Harness"
+            active={activeView === 'harness'}
+            onClick={(): void => onViewChange('harness')}
           />
+          {activeView !== 'harness' && (
+            <NavItem
+              icon={<MagnifyingGlass size={15} weight="bold" />}
+              label="Search"
+              onClick={onOpenSearch}
+            />
+          )}
         </nav>
 
         <div className="mx-3 h-px shrink-0 bg-white/[0.06]" />
 
-        {/* History & Groups */}
+        {/* The regular sidebar intentionally owns only Chat history. Harness
+            history lives in its focused project modal. */}
+        {activeView === 'harness' ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-5">
+            <div className="mt-auto mb-auto space-y-2 text-center">
+              <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.035] text-text-secondary">
+                <Code size={16} weight="bold" />
+              </div>
+              <p className="text-xs font-medium text-text-secondary">Harness workspace</p>
+              <p className="text-[11px] leading-relaxed text-text-muted">
+                Project conversations are available from the floating history control.
+              </p>
+            </div>
+          </div>
+        ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-3">
           <div className="mb-2 flex shrink-0 items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted/70">
             <Clock size={11} weight="bold" />
@@ -481,6 +511,7 @@ export function Sidebar({
             )}
           </div>
         </div>
+        )}
 
         {/* Footer */}
         <div className="mt-auto p-3 shrink-0 border-t border-white/[0.07] bg-transparent">

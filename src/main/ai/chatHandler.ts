@@ -1,6 +1,13 @@
 import { IpcMainEvent } from 'electron'
 import * as os from 'os'
-import { SessionMode, AttachedFile } from '../../shared/types'
+import * as path from 'path'
+import {
+  SessionMode,
+  AttachedFile,
+  HarnessApprovalItem,
+  HarnessToolName,
+  HarnessContextSnapshot
+} from '../../shared/types'
 import type { ToolImageAttachment } from '../toolAttachments'
 import { getSystemToolsPrompt, setActiveCwd, setCurrentSessionIdForTodo } from '../systemTools'
 import { loadConfig } from '../config'
@@ -28,6 +35,17 @@ import { hasConfiguredImageGenerationRoute } from './imageGeneration'
 import { isStrictBase64 } from './imageGenerationCore'
 import { asDataUrl, imageAttachments } from '../toolAttachments'
 import { dedupeImageAttachments, formatImageAssetReference, isImageAssetId } from '../imageAssets'
+import { getEffectiveHarnessSettings } from '../harnessProject'
+import { getHarnessSystemPrompt } from '../harnessPrompt'
+import {
+  executeHarnessTool,
+  getHarnessOpenAiToolDefinitions,
+  getHarnessToolLabel,
+  harnessToolRequiresExternalApproval,
+  previewHarnessTool
+} from '../harnessTools'
+import { requestHarnessApproval, cancelHarnessApprovalsForChat } from '../harnessApproval'
+import type { ToolResultEnvelope } from '../toolRuntime'
 
 export const activeRuns = new Map<string, ActiveRun>()
 export const lastScreenshots = new Map<string, string>()
@@ -37,6 +55,22 @@ const currentSessionId = ''
 let currentSelectedChatModel = ''
 let currentSessionMode: SessionMode = 'execution'
 let currentDisciplinePath = ''
+
+function isSameProjectPath(left: string, right: string): boolean {
+  const resolvedLeft = path.resolve(left)
+  const resolvedRight = path.resolve(right)
+  return process.platform === 'win32'
+    ? resolvedLeft.toLowerCase() === resolvedRight.toLowerCase()
+    : resolvedLeft === resolvedRight
+}
+
+function harnessSystemPromptLabel(modelId: string): string {
+  const cleanId = modelId
+    .replace(/^prism_provider:/, '')
+    .replace(/\s+/g, '-')
+    .toLowerCase()
+  return `@${cleanId}/harness-system-prompt`
+}
 
 const SUPPORTED_CHAT_IMAGE_MIME_TYPES = new Set<ToolImageAttachment['mimeType']>([
   'image/jpeg',
@@ -121,6 +155,7 @@ export function getSessionMode(): { mode: SessionMode; disciplinePath?: string }
 
 export function cancelChatMessage(chatId?: string): void {
   if (chatId) {
+    cancelHarnessApprovalsForChat(chatId)
     const run = activeRuns.get(chatId)
     if (run) {
       run.abortController.abort()
@@ -128,6 +163,7 @@ export function cancelChatMessage(chatId?: string): void {
     }
   } else {
     for (const [id, run] of activeRuns.entries()) {
+      cancelHarnessApprovalsForChat(id)
       run.abortController.abort()
       activeRuns.delete(id)
     }
@@ -150,24 +186,45 @@ export function getNativeToolsForOpenAi(
   return definitions.filter((definition) => allowed.has(definition.function.name))
 }
 
+export interface ChatMessagePayload {
+  message: string
+  thinkMode?: boolean
+  chatId?: string
+  screenshot?: string
+  quote?: string
+  attachedFile?: AttachedFile
+  appMode?: string
+  sessionMode?: SessionMode
+  disciplinePath?: string
+  modelKey?: string
+  reasoningLevel?: string
+  disabledSkills?: string[]
+}
+
+/** Dedicated entrypoint: the Harness never travels through the Chat IPC channel. */
+export async function handleHarnessMessage(
+  event: IpcMainEvent,
+  data: Omit<ChatMessagePayload, 'sessionMode' | 'disciplinePath' | 'appMode'> & {
+    projectPath: string
+  }
+): Promise<void> {
+  return handleChatMessage(
+    event,
+    {
+      ...data,
+      sessionMode: 'harness',
+      disciplinePath: data.projectPath,
+      appMode: undefined,
+      disabledSkills: []
+    },
+    'harness'
+  )
+}
+
 export async function handleChatMessage(
   event: IpcMainEvent,
-  data:
-    | string
-    | {
-        message: string
-        thinkMode?: boolean
-        chatId?: string
-        screenshot?: string
-        quote?: string
-        attachedFile?: AttachedFile
-        appMode?: string
-        sessionMode?: SessionMode
-        disciplinePath?: string
-        modelKey?: string
-        reasoningLevel?: string
-        disabledSkills?: string[]
-      }
+  data: string | ChatMessagePayload,
+  workspace: 'chat' | 'harness' = 'chat'
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
   const chatId = typeof data === 'object' && data.chatId ? data.chatId : currentSessionId
@@ -178,6 +235,14 @@ export async function handleChatMessage(
 
   const sessionMode = typeof data === 'object' ? data.sessionMode : undefined
   const disciplinePath = typeof data === 'object' ? data.disciplinePath : undefined
+
+  if (workspace === 'chat' && sessionMode === 'harness') {
+    safeSend(event.sender, 'chat-reply-error', {
+      error: 'Harness requests must be sent from the Harness workspace.',
+      chatId
+    })
+    return
+  }
 
   if (typeof data === 'object' && data.modelKey) {
     currentSelectedChatModel = data.modelKey
@@ -200,35 +265,90 @@ export async function handleChatMessage(
     return
   }
 
-  // Session mode setup
-  if (sessionMode) {
-    currentSessionMode = sessionMode
+  const session = loadChatSession(chatId, workspace)
+  const config = loadConfig()
+
+  // Request-local mode avoids one workspace mutating another workspace's runtime.
+  const configuredChatMode = config.sessionMode === 'harness' ? 'execution' : config.sessionMode
+  const requestMode: SessionMode =
+    workspace === 'harness'
+      ? 'harness'
+      : sessionMode || session?.sessionMode || configuredChatMode || currentSessionMode
+  if (workspace === 'chat' && requestMode === 'harness') {
+    safeSend(event.sender, 'chat-reply-error', {
+      error: 'This conversation belongs to the Harness workspace.',
+      chatId
+    })
+    return
   }
-  if (currentSessionMode === 'discipline') {
-    if (disciplinePath) {
-      currentDisciplinePath = disciplinePath
-      setActiveCwd(disciplinePath)
+  if (workspace === 'chat') currentSessionMode = requestMode
+
+  if (requestMode === 'discipline' || requestMode === 'harness') {
+    const selectedProjectPath =
+      disciplinePath ||
+      (session?.sessionMode === requestMode ? session.disciplinePath : undefined) ||
+      (requestMode === 'harness' ? config.harness.lastProjectPath : undefined)
+    if (!selectedProjectPath) {
+      safeSend(event.sender, 'chat-reply-error', {
+        error: 'Select or create a Harness project before sending a message.',
+        chatId
+      })
+      return
+    }
+    if (workspace === 'chat') {
+      currentDisciplinePath = selectedProjectPath
+      setActiveCwd(selectedProjectPath)
     }
   } else {
-    currentDisciplinePath = ''
-    if (currentSessionMode === 'execution') {
-      setActiveCwd(os.homedir())
-    } else {
-      setActiveCwd(process.cwd())
+    if (workspace === 'chat') {
+      currentDisciplinePath = ''
+      if (requestMode === 'execution') {
+        setActiveCwd(os.homedir())
+      } else {
+        setActiveCwd(process.cwd())
+      }
     }
   }
+  const requestSessionMode = requestMode
+  const requestDisciplinePath =
+    requestMode === 'discipline' || requestMode === 'harness'
+      ? disciplinePath || session?.disciplinePath || config.harness.lastProjectPath || ''
+      : ''
 
   // Load chat session from disk if existing
-  const session = loadChatSession(chatId)
   const historyMessages: OpenAiMessage[] = session
     ? hydrateHistoryToolAttachments(chatId, session.messages)
     : []
+  const persistedHarnessSnapshot = historyMessages.find(
+    (historyMessage) => historyMessage.role === 'system' && historyMessage.harness_context_snapshot
+  )?.harness_context_snapshot
+  if (
+    requestSessionMode === 'harness' &&
+    persistedHarnessSnapshot &&
+    !isSameProjectPath(persistedHarnessSnapshot.projectPath, requestDisciplinePath)
+  ) {
+    safeSend(event.sender, 'chat-reply-error', {
+      error:
+        'This Harness conversation is locked to its original project. Start a new conversation to use another project.',
+      chatId
+    })
+    return
+  }
+  const harnessSettings =
+    requestSessionMode === 'harness' ? getEffectiveHarnessSettings(requestDisciplinePath) : null
+  if (requestSessionMode === 'harness' && !harnessSettings) {
+    safeSend(event.sender, 'chat-reply-error', {
+      error: 'The selected Harness project is not registered. Reopen it from the project picker.',
+      chatId
+    })
+    return
+  }
 
   // Check if first message
   const isFirstMessage = historyMessages.length === 0
 
   // Construct current user content
-  let rawUserText = message
+  const rawUserText = message
   const isForceSearch = rawUserText.startsWith('[FORCE_SEARCH]')
   const userText = rawUserText.replace(/^\[FORCE_SEARCH\]\s*/i, '')
 
@@ -252,7 +372,6 @@ export async function handleChatMessage(
   const hydratedUserMessage = hydrateHistoryToolAttachments(chatId, [persistedUserMessage])[0]
   historyMessages.push(hydratedUserMessage)
 
-  const config = loadConfig()
   const disabledSkills =
     typeof data === 'object' && Array.isArray(data.disabledSkills)
       ? data.disabledSkills
@@ -264,22 +383,20 @@ export async function handleChatMessage(
       chatId,
       historyMessages,
       'New Conversation',
-      currentSessionMode,
-      currentDisciplinePath,
+      requestSessionMode,
+      requestDisciplinePath,
       currentSelectedChatModel,
       false,
       disabledSkills
     )
     broadcastIpc('chat-session-created', { id: chatId })
-    // Background title generator
-    generateTitleInBackground(event, provider, model.id, message, chatId)
   } else {
     saveChatSession(
       chatId,
       historyMessages,
       undefined,
-      currentSessionMode,
-      currentDisciplinePath,
+      requestSessionMode,
+      requestDisciplinePath,
       currentSelectedChatModel,
       undefined,
       disabledSkills
@@ -330,28 +447,91 @@ export async function handleChatMessage(
     }
 
     const isPrismCloud = provider?.id === PRISM_PROVIDER_ID || provider?.name === 'Prism Cloud'
-    const systemPrompt = getSystemToolsPrompt(
-      model.id,
-      'main',
-      matchedWorkflow?.toolConstraints,
-      currentSessionMode,
-      currentDisciplinePath,
-      model.name,
-      isPrismCloud,
-      disabledSkills
-    )
+    let harnessSystemPrompt: string | null = null
+    if (harnessSettings) {
+      const contextMessages = historyMessages.filter(
+        (historyMessage) =>
+          historyMessage.role === 'system' && historyMessage.harness_context_snapshot
+      )
+      const existingSnapshot = contextMessages[contextMessages.length - 1]?.harness_context_snapshot
+      const harnessPrompt = await getHarnessSystemPrompt(
+        harnessSettings,
+        harnessSystemPromptLabel(model.id)
+      )
+      const needsContextInjection = !existingSnapshot || existingSnapshot.fingerprint !== harnessPrompt.fingerprint
+      if (needsContextInjection) {
+        const snapshot: HarnessContextSnapshot = {
+          version: 1,
+          createdAt: Date.now(),
+          projectPath: harnessSettings.project.rootPath,
+          modelId: model.id,
+          fingerprint: harnessPrompt.fingerprint,
+          entries: harnessPrompt.entries,
+          warnings: harnessPrompt.warnings
+        }
+        const contextMessage: OpenAiMessage = {
+          role: 'system',
+          content: harnessPrompt.prompt,
+          hidden: true,
+          harness_context_snapshot: snapshot
+        }
+        // Initial context precedes the first user message. Refreshes are placed
+        // immediately before the next user turn so the visible timeline matches
+        // the prompt that will be used for that turn.
+        if (existingSnapshot) {
+          historyMessages.splice(Math.max(0, historyMessages.length - 1), 0, contextMessage)
+        } else {
+          historyMessages.unshift(contextMessage)
+        }
+        saveChatSession(
+          chatId,
+          historyMessages,
+          undefined,
+          requestSessionMode,
+          requestDisciplinePath,
+          currentSelectedChatModel,
+          undefined,
+          disabledSkills
+        )
+        broadcastIpc('harness-context-injection', { chatId, snapshot })
+        if (harnessPrompt.warnings.length) {
+          broadcastIpc('harness-prompt-warning', {
+            chatId,
+            warnings: harnessPrompt.warnings,
+            repoInstructionsLoaded: harnessPrompt.repoInstructionsLoaded
+          })
+        }
+      }
+      harnessSystemPrompt = harnessPrompt.prompt
+    }
+    if (isFirstMessage) {
+      // Start title generation only after a Harness context snapshot has been persisted.
+      generateTitleInBackground(event, provider, model.id, message, chatId)
+    }
+    const systemPrompt = harnessSystemPrompt
+      ? harnessSystemPrompt
+      : getSystemToolsPrompt(
+          model.id,
+          'main',
+          matchedWorkflow?.toolConstraints,
+          requestSessionMode,
+          requestDisciplinePath,
+          model.name,
+          isPrismCloud,
+          disabledSkills
+        )
     let fullPrompt = systemPrompt
-    if (!hasConfiguredImageGenerationRoute()) {
+    if (requestSessionMode !== 'harness' && !hasConfiguredImageGenerationRoute()) {
       fullPrompt +=
         '\n\n# Image Generation Availability\nNative image generation is unavailable because no valid Image Generation Model is configured in Settings > Intelligence Routing. If the user requests an image, explain that configuration is required; do not pretend to have generated one.'
     }
-    if (matchedWorkflow) {
+    if (requestSessionMode !== 'harness' && matchedWorkflow) {
       fullPrompt += `\n\n# Active Workflow: ${matchedWorkflow.name}\n${matchedWorkflow.systemInstruction}`
     }
-    if (isForceSearch && !isYoutubeMode) {
+    if (requestSessionMode !== 'harness' && isForceSearch && !isYoutubeMode) {
       fullPrompt += `\n\n# Web Search Requirement\nThe user has explicitly enabled Web Search for this prompt. You MUST use the 'web_search' tool to search the internet for current up-to-date information before returning your response.`
     }
-    if (isYoutubeMode) {
+    if (requestSessionMode !== 'harness' && isYoutubeMode) {
       fullPrompt += `\n\n# YouTube Video Search Protocol (Active YouTube App Mode)
 You are acting as the specialized YouTube Assistant. The user wants to find YouTube videos.
 STRICT EXECUTION PROTOCOL:
@@ -386,8 +566,11 @@ STRICT BUTTON RULES:
     setCurrentSessionIdForTodo(chatId)
 
     const getToolsForSessionMode = (): OpenAiToolDefinition[] => {
-      let tools =
-        currentSessionMode === 'conversation'
+      if (requestSessionMode === 'harness' && harnessSettings) {
+        return getHarnessOpenAiToolDefinitions(harnessSettings.enabledTools)
+      }
+      const tools =
+        requestSessionMode === 'conversation'
           ? []
           : getNativeToolsForOpenAi(
               'main',
@@ -464,8 +647,65 @@ STRICT BUTTON RULES:
       tools: openAiTools,
       getToolsForRound: () => getToolsForSessionMode(),
       getPendingNotifications: () => getPendingProcessNotifications(chatId),
+      terminalInputToolName: harnessSettings ? 'write_stdin' : 'send_terminal_input',
       signal: abortController.signal,
       reasoningLevel,
+      maxRounds: harnessSettings?.defaultMaxRounds,
+      beforeToolBatch: harnessSettings
+        ? async (calls) => {
+            const needsApproval =
+              harnessSettings.defaultPermissionMode === 'ask' ||
+              (harnessSettings.defaultPermissionMode === 'yolo' &&
+                !harnessSettings.yoloAcknowledged) ||
+              (harnessSettings.defaultPermissionMode === 'independent' &&
+                calls.some((call) => harnessToolRequiresExternalApproval(call.name, call.args)))
+            if (!needsApproval) return true
+            const items: HarnessApprovalItem[] = await Promise.all(
+              calls.map(async (call) => {
+                try {
+                  return await previewHarnessTool(
+                    call.callId,
+                    call.name,
+                    call.args,
+                    requestDisciplinePath
+                  )
+                } catch (error) {
+                  return {
+                    callId: call.callId,
+                    name: call.name as HarnessToolName,
+                    label: getHarnessToolLabel(call.name),
+                    args:
+                      call.args && typeof call.args === 'object' && !Array.isArray(call.args)
+                        ? (call.args as Record<string, unknown>)
+                        : {},
+                    preview: `Unable to prepare preview: ${error instanceof Error ? error.message : String(error)}`,
+                    destructive: true
+                  }
+                }
+              })
+            )
+            return requestHarnessApproval(
+              chatId,
+              requestDisciplinePath,
+              items,
+              abortController.signal
+            )
+          }
+        : undefined,
+      executeTool: harnessSettings
+        ? async (name, args, context, loopGuard) => {
+            const repeatedError = loopGuard.register(name, args)
+            if (repeatedError) {
+              const envelope: ToolResultEnvelope = { ok: false, error: repeatedError }
+              return { args: {}, envelope, modelContent: JSON.stringify(envelope) }
+            }
+            return executeHarnessTool(name, args, {
+              ...context,
+              projectRoot: requestDisciplinePath,
+              settings: harnessSettings
+            })
+          }
+        : undefined,
       onStreamEvent: (streamEvent, state) => {
         const timing = thinkingTimes.get(state.round) || {}
         if (streamEvent.type === 'reasoning' && !timing.startedAt) timing.startedAt = Date.now()
@@ -484,7 +724,10 @@ STRICT BUTTON RULES:
         const combinedReasoning = state.accumulatedReasoning
           ? `${state.accumulatedReasoning}\n\n${state.currentReasoning}`
           : state.currentReasoning
-        const parsed = parseThoughtAndContent(combinedText, combinedReasoning)
+        const parsed = parseThoughtAndContent(
+          combinedText,
+          harnessSettings?.showThinking === false ? '' : combinedReasoning
+        )
         broadcastIpc('chat-reply-chunk', {
           chatId,
           thoughts: parsed.thoughts,
@@ -535,19 +778,19 @@ STRICT BUTTON RULES:
           chatId,
           historyMessages,
           undefined,
-          currentSessionMode,
-          currentDisciplinePath,
+          requestSessionMode,
+          requestDisciplinePath,
           currentSelectedChatModel
         )
       },
       finalInstruction:
-        '# Tool loop limit reached\nThe maximum of 100 tool rounds has been reached. ' +
+        `# Tool loop limit reached\nThe maximum of ${harnessSettings?.defaultMaxRounds || 100} tool rounds has been reached. ` +
         'Do not call more tools. Explain what was completed, what remains, and the last tool result.'
     })
 
     const finalOutput = parseThoughtAndContent(
       orchestration.accumulatedText,
-      orchestration.accumulatedReasoning
+      harnessSettings?.showThinking === false ? '' : orchestration.accumulatedReasoning
     )
     const totalWorkedDuration = Math.max(1, Math.round((Date.now() - turnStartTime) / 1000))
     broadcastIpc('chat-reply-end', {

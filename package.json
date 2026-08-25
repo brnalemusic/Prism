@@ -12,6 +12,7 @@
         "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
         "typecheck": "npm run typecheck:node && npm run typecheck:web",
         "test:image-generation": "node --experimental-strip-types --test scripts/image-generation-validation.mts",
+        "test:harness": "node --experimental-strip-types --test scripts/harness-validation.mts",
         "start": "electron-vite preview",
         "dev": "electron-vite dev",
         "dev:demo": "cross-env DEMO_MODE=true electron-vite dev",

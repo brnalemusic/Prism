@@ -11,6 +11,11 @@ import { LoadingScreen } from './components/LoadingScreen'
 import { OfflineBanner } from './components/OfflineBanner'
 import { Sidebar } from './components/Sidebar'
 import { ToolCallIndicator } from './components/ActionLoader'
+import { HarnessSteps } from './components/HarnessSteps'
+import { HarnessContextInjection } from './components/HarnessContextInjection'
+import { HarnessApprovalDialog } from './components/HarnessApprovalDialog'
+import { HarnessProjectModal } from './components/HarnessProjectModal'
+import { HarnessWorkspace } from './components/HarnessWorkspace'
 import { TitleBar } from './components/TitleBar'
 import { ApiKeyModal } from './components/ApiKeyModal'
 import { ProviderLockScreen } from './components/ProviderLockScreen'
@@ -77,7 +82,11 @@ import type {
   SessionMode,
   TerminalProcessSnapshot,
   TodoState,
-  UserProfile
+  UserProfile,
+  HarnessApprovalRequest,
+  HarnessProjectConfig,
+  HarnessContextSnapshot,
+  WorkspaceKind
 } from '../../shared/types'
 import { getDefaultThinkingLevelForModel, isPrismCloudGeminiModel } from './constants'
 import {
@@ -193,12 +202,12 @@ const MarkdownComponents: Components = {
     }
     const hasCustomBgOrStyle = Boolean(
       style?.backgroundColor ||
-        style?.background ||
-        style?.padding ||
-        style?.display ||
-        className?.includes('bg-') ||
-        className?.includes('button') ||
-        className?.includes('btn')
+      style?.background ||
+      style?.padding ||
+      style?.display ||
+      className?.includes('bg-') ||
+      className?.includes('button') ||
+      className?.includes('btn')
     )
     return (
       <a
@@ -206,10 +215,7 @@ const MarkdownComponents: Components = {
         target="_blank"
         rel="noopener noreferrer"
         style={style}
-        className={clsx(
-          !hasCustomBgOrStyle && 'text-accent-primary hover:underline',
-          className
-        )}
+        className={clsx(!hasCustomBgOrStyle && 'text-accent-primary hover:underline', className)}
         {...props}
       >
         {children}
@@ -244,8 +250,8 @@ function consolidateToolCalls(
 
   if (streamingToolCalls) {
     for (const stc of streamingToolCalls) {
-      const isAlreadyExecuted = toolCalls?.some(
-        (tc) => tc.status !== 'writing' && tc.name === stc.name
+      const isAlreadyExecuted = toolCalls?.some((tc) =>
+        stc.id ? tc.id === stc.id : tc.status !== 'writing' && tc.name === stc.name
       )
       if (!isAlreadyExecuted) {
         let parsedArgs: Record<string, unknown> = {}
@@ -256,7 +262,9 @@ function consolidateToolCalls(
             const filePathMatch = stc.arguments.match(
               /"(?:filePath|path|TargetFile|absolutePath|AbsolutePath|sourcePath)"\s*:\s*"([^"]*)/i
             )
-            const commandMatch = stc.arguments.match(/"(?:command|CommandLine)"\s*:\s*"([^"]*)/i)
+            const commandMatch = stc.arguments.match(
+              /"(?:cmd|command|CommandLine)"\s*:\s*"([^"]*)/i
+            )
             const queryMatch = stc.arguments.match(/"query"\s*:\s*"([^"]*)/i)
             const titleMatch = stc.arguments.match(/"title"\s*:\s*"([^"]*)/i)
             if (filePathMatch) parsedArgs.filePath = filePathMatch[1]
@@ -318,6 +326,7 @@ function consolidateToolCalls(
         }
 
         allCalls.push({
+          id: stc.id,
           name: stc.name || 'task',
           args: parsedArgs,
           status: 'writing' as const,
@@ -342,6 +351,7 @@ interface AiMessageProps {
   isSuggestionSendDisabled: boolean
   inactivityLabel?: string | null
   activeToolLabel?: string | null
+  isHarness?: boolean
 }
 
 const BROWSER_TOOL_NAMES = new Set([
@@ -375,7 +385,8 @@ const AiMessage = React.memo(function AiMessage({
   suggestionMessageKey,
   isSuggestionSendDisabled,
   inactivityLabel,
-  activeToolLabel
+  activeToolLabel,
+  isHarness = false
 }: AiMessageProps) {
   const visibleContent = useMemo(
     () => hideInternalImageReferences(msg.content || ''),
@@ -634,6 +645,7 @@ const AiMessage = React.memo(function AiMessage({
         <div className="flex flex-col w-full gap-1.5">
           {groupedItems.map((gItem, gIdx) => {
             if ('items' in gItem) {
+              if (isHarness) return null
               const group = gItem as { type: 'grouped_web_searches'; items: PartItem[] }
               const toolCallItems = group.items.filter((item) => item.type === 'tool_call')
 
@@ -674,6 +686,7 @@ const AiMessage = React.memo(function AiMessage({
             const { part, startOffset } = item
 
             if (item.type === 'tool_call') {
+              if (isHarness) return null
               if (item.isClosed) {
                 const tc = item.toolCall
                 if (tc) {
@@ -872,106 +885,113 @@ const AiMessage = React.memo(function AiMessage({
             )
           })}
 
-          {nativeToolCalls.map((tc, idx) => {
-            if (tc.name === 'generate_image') {
-              return (
-                <GeneratedImageCard
-                  key={`native-tc-${tc.id || idx}`}
-                  toolCall={tc}
-                  chatId={currentChatId || ''}
-                />
-              )
-            }
-            if (tc.name === 'to_ask') {
-              // Render done-state summary inline; active wizard is handled by ChatPane.
-              return (
-                <QuestionnaireRenderer
-                  key={`native-tc-${idx}`}
-                  toolCall={{
-                    name: tc.name,
-                    status: tc.status,
-                    args: tc.args || {}
-                  }}
-                  chatId={currentChatId || ''}
-                />
-              )
-            }
-            if (tc.name === 'render_chat_history') {
-              return (
-                <RenderChatHistory
-                  key={`native-tc-${idx}`}
-                  chatId={String(tc.args?.query || '')}
-                  onOpenChat={handleLoadChat || (() => {})}
-                />
-              )
-            }
-            if (tc.name === 'malformed_tool_call') {
-              return (
-                <MalformedToolCallWarning
-                  key={`native-tc-${idx}`}
-                  toolCall={{
-                    name: tc.name,
-                    status: tc.status,
-                    args: tc.args || {}
-                  }}
-                />
-              )
-            }
-            if (tc.name === 'create_mini_app') {
-              const title = (tc.args.title || 'Mini App') as string
-              const html = (tc.args.html || tc.args.code || '') as string
-              const css = (tc.args.css || '') as string
-              const js = (tc.args.js || tc.args.javascript || '') as string
-              const status = tc.status
-
-              const miniAppId = `mini-app-native-${idx}-${title.replace(/\s+/g, '-').toLowerCase()}`
-
-              if (status === 'writing' || status === 'running') {
-                if (shouldHideIndicator(status)) return null
-                if (shouldHideActiveBelow) return null
+          {!isHarness &&
+            nativeToolCalls.map((tc, idx) => {
+              if (tc.name === 'generate_image') {
                 return (
-                  <div key={miniAppId} className="flex items-center gap-1.5 mt-1">
-                    <ToolCallIndicator tools={[{ name: 'create_mini_app', status }]} />
+                  <GeneratedImageCard
+                    key={`native-tc-${tc.id || idx}`}
+                    toolCall={tc}
+                    chatId={currentChatId || ''}
+                  />
+                )
+              }
+              if (tc.name === 'to_ask') {
+                // Render done-state summary inline; active wizard is handled by ChatPane.
+                return (
+                  <QuestionnaireRenderer
+                    key={`native-tc-${idx}`}
+                    toolCall={{
+                      name: tc.name,
+                      status: tc.status,
+                      args: tc.args || {}
+                    }}
+                    chatId={currentChatId || ''}
+                  />
+                )
+              }
+              if (tc.name === 'render_chat_history') {
+                return (
+                  <RenderChatHistory
+                    key={`native-tc-${idx}`}
+                    chatId={String(tc.args?.query || '')}
+                    onOpenChat={handleLoadChat || (() => {})}
+                  />
+                )
+              }
+              if (tc.name === 'malformed_tool_call') {
+                return (
+                  <MalformedToolCallWarning
+                    key={`native-tc-${idx}`}
+                    toolCall={{
+                      name: tc.name,
+                      status: tc.status,
+                      args: tc.args || {}
+                    }}
+                  />
+                )
+              }
+              if (tc.name === 'create_mini_app') {
+                const title = (tc.args.title || 'Mini App') as string
+                const html = (tc.args.html || tc.args.code || '') as string
+                const css = (tc.args.css || '') as string
+                const js = (tc.args.js || tc.args.javascript || '') as string
+                const status = tc.status
+
+                const miniAppId = `mini-app-native-${idx}-${title.replace(/\s+/g, '-').toLowerCase()}`
+
+                if (status === 'writing' || status === 'running') {
+                  if (shouldHideIndicator(status)) return null
+                  if (shouldHideActiveBelow) return null
+                  return (
+                    <div key={miniAppId} className="flex items-center gap-1.5 mt-1">
+                      <ToolCallIndicator tools={[{ name: 'create_mini_app', status }]} />
+                    </div>
+                  )
+                }
+
+                return (
+                  <div
+                    key={miniAppId}
+                    className="w-full flex flex-col gap-2 my-2 select-none animate-fade-in"
+                  >
+                    <div className="flex items-center gap-2 text-[13px] text-text-secondary font-medium">
+                      {status === 'error' || status === 'cancelled' ? (
+                        <>
+                          <XCircle size={14} className="text-status-error shrink-0" />
+                          <span>
+                            Failed to create mini app:{' '}
+                            <span className="font-semibold text-text-primary">{title}</span>
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle size={14} className="text-status-success shrink-0" />
+                          <span>
+                            Created mini app:{' '}
+                            <span className="font-semibold text-text-primary">{title}</span>
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    {status === 'done' && (
+                      <div className="w-full px-0">
+                        <MiniAppRenderer
+                          id={miniAppId}
+                          title={title}
+                          html={html}
+                          css={css}
+                          js={js}
+                        />
+                      </div>
+                    )}
                   </div>
                 )
               }
+              return null
+            })}
 
-              return (
-                <div
-                  key={miniAppId}
-                  className="w-full flex flex-col gap-2 my-2 select-none animate-fade-in"
-                >
-                  <div className="flex items-center gap-2 text-[13px] text-text-secondary font-medium">
-                    {status === 'error' || status === 'cancelled' ? (
-                      <>
-                        <XCircle size={14} className="text-status-error shrink-0" />
-                        <span>
-                          Failed to create mini app:{' '}
-                          <span className="font-semibold text-text-primary">{title}</span>
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle size={14} className="text-status-success shrink-0" />
-                        <span>
-                          Created mini app:{' '}
-                          <span className="font-semibold text-text-primary">{title}</span>
-                        </span>
-                      </>
-                    )}
-                  </div>
-                  {status === 'done' && (
-                    <div className="w-full px-0">
-                      <MiniAppRenderer id={miniAppId} title={title} html={html} css={css} js={js} />
-                    </div>
-                  )}
-                </div>
-              )
-            }
-            return null
-          })}
-
-          {visibleNativeTools.length > 0 && (
+          {!isHarness && visibleNativeTools.length > 0 && (
             <div className="flex items-center gap-1.5 mt-1">
               <ToolCallIndicator
                 tools={visibleNativeTools.map((tc) => ({
@@ -982,20 +1002,21 @@ const AiMessage = React.memo(function AiMessage({
             </div>
           )}
 
-          {msg.isStreaming && activeToolLabel && !hasActiveImageGeneration && (
+          {!isHarness && msg.isStreaming && activeToolLabel && !hasActiveImageGeneration && (
             <div className="flex items-center gap-1.5 mt-1 select-none">
               <ToolCallIndicator overrideLabel={activeToolLabel} />
             </div>
           )}
 
-          {msg.isStreaming &&
+          {!isHarness &&
+            msg.isStreaming &&
             !activeToolLabel &&
             inactivityLabel &&
             !hasActiveImageGeneration && (
-            <div className="flex items-center gap-1.5 mt-1.5 select-none">
-              <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
-            </div>
-          )}
+              <div className="flex items-center gap-1.5 mt-1.5 select-none">
+                <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
+              </div>
+            )}
 
           {/* Copy & TTS buttons + browser session button */}
           {!msg.isStreaming && (
@@ -1036,6 +1057,12 @@ interface AiMessageRowProps {
   onSendSuggestion?: (payload: string, suggestionKey: string) => boolean
   suggestionMessageKey: string
   isSuggestionSendDisabled: boolean
+  sessionMode: SessionMode
+  harnessUi?: {
+    showSteps: boolean
+    showThinking: boolean
+    reduceMotion: boolean
+  }
 }
 
 const AiMessageRow = React.memo(function AiMessageRow({
@@ -1047,7 +1074,9 @@ const AiMessageRow = React.memo(function AiMessageRow({
   onOpenBrowserTab,
   onSendSuggestion,
   suggestionMessageKey,
-  isSuggestionSendDisabled
+  isSuggestionSendDisabled,
+  sessionMode,
+  harnessUi
 }: AiMessageRowProps) {
   const inactivityLabel = useInactivityLabel(msg)
   const { activeToolLabel } = useActiveToolLabel(msg)
@@ -1059,7 +1088,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
   const hasContent = stripPrismSuggestionMarkup(cleanContentText) !== ''
   const hasImageGeneration = Boolean(
     msg.toolCalls?.some((toolCall) => toolCall.name === 'generate_image') ||
-      msg.streamingToolCalls?.some((toolCall) => toolCall.name === 'generate_image')
+    msg.streamingToolCalls?.some((toolCall) => toolCall.name === 'generate_image')
   )
 
   const isRunningTool = !!(
@@ -1070,6 +1099,11 @@ const AiMessageRow = React.memo(function AiMessageRow({
   )
 
   const isActive = msg.isStreaming || msg.isThinking || isRunningTool || msg.isConnecting
+  const harnessToolCalls = useMemo(
+    () => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls),
+    [msg.toolCalls, msg.streamingToolCalls]
+  )
+  const isHarness = sessionMode === 'harness'
 
   const hasTools = !!(msg.toolCalls && msg.toolCalls.length > 0)
   const thinkingSec =
@@ -1093,7 +1127,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
       className="w-full flex flex-col items-start px-4 py-3.5 transition-all duration-700 animate-message"
     >
       {/* 1. Active State Header: "Thinking" shimming remains sticky until turn completes */}
-      {isActive && hasThoughtInTurn && (
+      {!isHarness && isActive && hasThoughtInTurn && (
         <div className="w-full mb-1.5 select-none flex flex-col items-start gap-1">
           <span className="thinking-shimmer-text text-[13px] font-medium leading-normal inline-block pb-[1.5px]">
             Thinking
@@ -1102,7 +1136,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
       )}
 
       {/* 2. Finished State Indicator (Static Gray Text) */}
-      {!isActive && (
+      {!isHarness && !isActive && (
         <>
           {
             hasTools ? (
@@ -1118,8 +1152,20 @@ const AiMessageRow = React.memo(function AiMessageRow({
         </>
       )}
 
+      {isHarness && (
+        <HarnessSteps
+          key={isActive ? 'harness-steps-active' : 'harness-steps-complete'}
+          tools={harnessToolCalls}
+          thoughts={msg.thoughts}
+          isActive={Boolean(isActive)}
+          showSteps={harnessUi?.showSteps !== false}
+          showThinking={harnessUi?.showThinking !== false}
+          reduceMotion={harnessUi?.reduceMotion === true}
+        />
+      )}
+
       <div className="w-full text-text-primary" data-prism-ai-message="true">
-        {!hasContent && isActive && !hasImageGeneration ? (
+        {!isHarness && !hasContent && isActive && !hasImageGeneration ? (
           <div className="flex items-center gap-1.5 h-6 select-none">
             {activeToolLabel ? (
               <ToolCallIndicator overrideLabel={activeToolLabel} />
@@ -1141,6 +1187,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
             isSuggestionSendDisabled={isSuggestionSendDisabled}
             inactivityLabel={inactivityLabel}
             activeToolLabel={activeToolLabel}
+            isHarness={isHarness}
           />
         )}
       </div>
@@ -1244,7 +1291,10 @@ const TabMessagesList = React.memo(function TabMessagesList({
   handleLoadChat,
   onOpenBrowserTab,
   isSuggestionSendDisabled,
-  onSendSuggestion
+  onSendSuggestion,
+  sessionMode,
+  harnessUi,
+  harnessContextSnapshot
 }: {
   messages: Message[]
   tabId: string
@@ -1253,6 +1303,13 @@ const TabMessagesList = React.memo(function TabMessagesList({
   onOpenBrowserTab?: (tabId?: string) => void
   isSuggestionSendDisabled: boolean
   onSendSuggestion: (tabId: string, payload: string, suggestionKey: string) => boolean
+  sessionMode: SessionMode
+  harnessContextSnapshot?: HarnessContextSnapshot
+  harnessUi?: {
+    showSteps: boolean
+    showThinking: boolean
+    reduceMotion: boolean
+  }
 }) {
   const markdownComponents = useMemo(
     () => ({
@@ -1274,11 +1331,28 @@ const TabMessagesList = React.memo(function TabMessagesList({
     onOpenBrowserTab?.(tabId)
   }, [onOpenBrowserTab, tabId])
 
-  if (messages.length === 0) return null
+  if (messages.length === 0 && !harnessContextSnapshot) return null
 
   return (
     <div className="w-full flex flex-col max-w-[800px] mx-auto px-4">
+      {sessionMode === 'harness' &&
+        harnessContextSnapshot &&
+        !messages.some((message) => message.role === 'context') && (
+        <HarnessContextInjection
+          snapshot={harnessContextSnapshot}
+          reduceMotion={harnessUi?.reduceMotion}
+        />
+      )}
       {messages.map((msg, i) => {
+        if (msg.role === 'context' && msg.contextSnapshot) {
+          return (
+            <HarnessContextInjection
+              key={`context-${msg.contextSnapshot.createdAt}-${i}`}
+              snapshot={msg.contextSnapshot}
+              reduceMotion={harnessUi?.reduceMotion}
+            />
+          )
+        }
         if (msg.role === 'separator') {
           return (
             <div
@@ -1316,6 +1390,8 @@ const TabMessagesList = React.memo(function TabMessagesList({
             onSendSuggestion={handleSendRowSuggestion}
             suggestionMessageKey={`${currentChatId || tabId}:${i}`}
             isSuggestionSendDisabled={isSuggestionSendDisabled}
+            sessionMode={sessionMode}
+            harnessUi={harnessUi}
           />
         )
       })}
@@ -1374,6 +1450,11 @@ function RealApp(): React.JSX.Element {
     Record<string, TerminalProcessSnapshot[]>
   >({})
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
+  const [harnessApprovalRequest, setHarnessApprovalRequest] =
+    useState<HarnessApprovalRequest | null>(null)
+  const [harnessPromptWarnings, setHarnessPromptWarnings] = useState<string[]>([])
+  const [isHarnessProjectModalOpen, setIsHarnessProjectModalOpen] = useState(false)
+  const [harnessProjectTargetTabId, setHarnessProjectTargetTabId] = useState<string | null>(null)
   const [settingsInitialSection, setSettingsInitialSection] = useState<
     | 'shortcuts'
     | 'providers'
@@ -1384,10 +1465,23 @@ function RealApp(): React.JSX.Element {
     | 'voice'
     | 'workflows'
     | 'system'
+    | 'harness'
     | 'discord'
     | 'license'
     | 'about'
   >('shortcuts')
+
+  useEffect(() => {
+    return window.api.onHarnessApprovalRequest((request) => {
+      setHarnessApprovalRequest(request)
+    })
+  }, [])
+
+  useEffect(() => {
+    return window.api.onHarnessPromptWarning(({ warnings }) => {
+      setHarnessPromptWarnings(warnings)
+    })
+  }, [])
 
   // Auth State
   const [authUser, setAuthUser] = useState<UserProfile | null>(null)
@@ -1541,16 +1635,59 @@ function RealApp(): React.JSX.Element {
   const [tabs, setTabs] = useState<TabSession[]>([initialTab])
   const [activeTabId, setActiveTabId] = useState<string>('tab-1')
   const [visibleTabIds, setVisibleTabIds] = useState<string[]>(['tab-1'])
+  const [harnessTabs, setHarnessTabs] = useState<TabSession[]>([])
+  const [activeHarnessTabId, setActiveHarnessTabId] = useState<string>('')
 
   const tabsRef = useRef(tabs)
   useEffect(() => {
     tabsRef.current = tabs
   }, [tabs])
 
+  const harnessTabsRef = useRef(harnessTabs)
+  const harnessChatIdsRef = useRef(new Set<string>())
+  useEffect(() => {
+    harnessTabsRef.current = harnessTabs
+    harnessChatIdsRef.current = new Set(
+      harnessTabs.flatMap((tab) => (tab.chatId ? [tab.chatId] : []))
+    )
+  }, [harnessTabs])
+
   const activeTabIdRef = useRef(activeTabId)
   useEffect(() => {
     activeTabIdRef.current = activeTabId
   }, [activeTabId])
+
+  const activeHarnessTabIdRef = useRef(activeHarnessTabId)
+  useEffect(() => {
+    activeHarnessTabIdRef.current = activeHarnessTabId
+  }, [activeHarnessTabId])
+
+  useEffect(() => {
+    return window.api.onHarnessContextInjection(({ chatId, snapshot }) => {
+      setHarnessTabs((previous) => {
+        const hasMatchingChat = previous.some((tab) => tab.chatId === chatId)
+        return previous.map((tab) => {
+          const isTarget = hasMatchingChat
+            ? tab.chatId === chatId
+            : tab.id === activeHarnessTabIdRef.current && tab.isProcessing
+          if (!isTarget) return tab
+          const contextMessage: Message = {
+            role: 'context',
+            content: '',
+            contextSnapshot: snapshot
+          }
+          const alreadyShown = tab.messages.some(
+            (message) => message.contextSnapshot?.fingerprint === snapshot.fingerprint
+          )
+          if (alreadyShown) return { ...tab, chatId, harnessContextSnapshot: snapshot }
+          const lastUserIndex = tab.messages.map((message) => message.role).lastIndexOf('user')
+          const messages = [...tab.messages]
+          messages.splice(lastUserIndex === -1 ? 0 : lastUserIndex, 0, contextMessage)
+          return { ...tab, chatId, messages, harnessContextSnapshot: snapshot }
+        })
+      })
+    })
+  }, [])
 
   const activeTab = useMemo(() => {
     return tabs.find((t) => t.id === activeTabId) || tabs[0] || initialTab
@@ -1574,6 +1711,59 @@ function RealApp(): React.JSX.Element {
     const fallback = tabs.find((t) => t.id === activeTabId) || tabs[0]
     return fallback ? [fallback] : []
   }, [tabs, visibleTabIds, activeTabId])
+
+  const activeHarnessTab = useMemo(
+    () =>
+      harnessTabs.find((tab) => tab.id === activeHarnessTabId) || harnessTabs[0] || null,
+    [harnessTabs, activeHarnessTabId]
+  )
+
+  const selectHarnessProjectForTab = useCallback(
+    (tabId: string, project: HarnessProjectConfig): void => {
+      const existingTab = harnessTabsRef.current.find((tab) => tab.id === tabId)
+      if (
+        existingTab?.harnessContextSnapshot &&
+        existingTab.harnessContextSnapshot.projectPath.toLowerCase() !==
+          project.rootPath.toLowerCase()
+      ) {
+        setHarnessPromptWarnings([
+          'This conversation keeps its original project and context snapshot. Start a new Harness conversation to use the selected project.'
+        ])
+        setHarnessProjectTargetTabId(null)
+        setIsHarnessProjectModalOpen(false)
+        return
+      }
+      setHarnessTabs((previous) =>
+        previous.map((tab) =>
+          tab.id === tabId
+            ? {
+                ...tab,
+                workspace: 'harness',
+                sessionMode: 'harness',
+                disciplinePath: project.rootPath
+              }
+            : tab
+        )
+      )
+      setHarnessProjectTargetTabId(null)
+      setIsHarnessProjectModalOpen(false)
+    },
+    []
+  )
+
+  const ensureHarnessProjectForTab = useCallback(
+    async (tabId: string, currentPath?: string): Promise<void> => {
+      const candidate = currentPath || config?.harness.lastProjectPath
+      const project = await window.api.getHarnessProject(candidate).catch(() => null)
+      if (project) {
+        selectHarnessProjectForTab(tabId, project)
+        return
+      }
+      setHarnessProjectTargetTabId(tabId)
+      setIsHarnessProjectModalOpen(true)
+    },
+    [config?.harness.lastProjectPath, selectHarnessProjectForTab]
+  )
 
   const [quotedText, setQuotedText] = useState<string | null>(null)
   const quotedTextRef = useRef<string | null>(null)
@@ -1646,15 +1836,21 @@ function RealApp(): React.JSX.Element {
   }, [])
 
   const handleAnswerPrism = useCallback((quoteText: string): void => {
-    setTabs((prev) =>
-      prev.map((t) =>
-        t.id === activeTabIdRef.current ? { ...t, quotedText: quoteText } : t
+    if (activeView === 'harness') {
+      setHarnessTabs((previous) =>
+        previous.map((tab) =>
+          tab.id === activeHarnessTabIdRef.current ? { ...tab, quotedText: quoteText } : tab
+        )
       )
-    )
+    } else {
+      setTabs((prev) =>
+        prev.map((t) => (t.id === activeTabIdRef.current ? { ...t, quotedText: quoteText } : t))
+      )
+    }
     setQuotedText(quoteText)
     window.getSelection()?.removeAllRanges()
     setFloatingMenu(null)
-  }, [])
+  }, [activeView])
 
   const isOnlineRef = useRef(isOnline)
   useEffect(() => {
@@ -1745,10 +1941,20 @@ function RealApp(): React.JSX.Element {
       }
       if (cfg) {
         setConfig(cfg)
-        if (cfg.sessionMode) {
+        const configuredChatMode: SessionMode =
+          cfg.sessionMode === 'harness' ? 'execution' : cfg.sessionMode
+        const configuredPath = configuredChatMode === 'discipline' ? cfg.disciplinePath || '' : ''
+        setTabs((previous) =>
+          previous.map((tab) =>
+            !tab.chatId && tab.messages.length === 0 && tab.tabType !== 'browser'
+              ? { ...tab, sessionMode: configuredChatMode, disciplinePath: configuredPath }
+              : tab
+          )
+        )
+        if (configuredChatMode) {
           window.api.setSessionMode(
-            cfg.sessionMode,
-            cfg.sessionMode === 'discipline' ? cfg.disciplinePath || '' : ''
+            configuredChatMode,
+            configuredChatMode === 'discipline' ? cfg.disciplinePath || '' : ''
           )
         }
       }
@@ -1781,52 +1987,128 @@ function RealApp(): React.JSX.Element {
   const route = window.location.hash
 
   // Tab operations
-  const handleNewChat = useCallback((force?: boolean) => {
-    setActiveView('chat')
-    const currentTabs = tabsRef.current
+  const handleNewChat = useCallback(
+    (force?: boolean) => {
+      setActiveView('chat')
+      const currentTabs = tabsRef.current
 
-    if (currentTabs.length >= 10 && !force) {
-      const emptyTab = currentTabs.find((t) => !t.chatId && t.messages.length === 0)
-      if (emptyTab) {
-        setActiveTabId(emptyTab.id)
-        setVisibleTabIds((prevVis) => (prevVis.includes(emptyTab.id) ? prevVis : [emptyTab.id]))
+      if (currentTabs.length >= 10 && !force) {
+        const emptyTab = currentTabs.find((t) => !t.chatId && t.messages.length === 0)
+        if (emptyTab) {
+          setActiveTabId(emptyTab.id)
+          setVisibleTabIds((prevVis) => (prevVis.includes(emptyTab.id) ? prevVis : [emptyTab.id]))
+          return
+        }
+        const lastTab = currentTabs[currentTabs.length - 1]
+        if (lastTab) {
+          setActiveTabId(lastTab.id)
+          setVisibleTabIds((prevVis) => (prevVis.includes(lastTab.id) ? prevVis : [lastTab.id]))
+        }
         return
       }
-      const lastTab = currentTabs[currentTabs.length - 1]
-      if (lastTab) {
-        setActiveTabId(lastTab.id)
-        setVisibleTabIds((prevVis) => (prevVis.includes(lastTab.id) ? prevVis : [lastTab.id]))
+
+      const newId = `tab-${Date.now()}`
+      const defaultMode = config?.sessionMode === 'harness' ? 'execution' : config?.sessionMode || 'execution'
+      const defaultPath = defaultMode === 'discipline' ? config?.disciplinePath || '' : ''
+      const newTab: TabSession = {
+        id: newId,
+        chatId: undefined,
+        title: 'New Chat',
+        messages: [],
+        inputText: '',
+        attachedFile: null,
+        sessionMode: defaultMode,
+        disciplinePath: defaultPath,
+        isProcessing: false,
+        isTodoOpen: false,
+        selectedModel: selectedModelRef.current,
+        isSearchEnabled: false
       }
+
+      window.api.setSessionMode(defaultMode, defaultPath)
+      setTabs((prevTabs) => [...prevTabs, newTab])
+      setActiveTabId(newId)
+      setVisibleTabIds((prevVis) => {
+        if (prevVis.length <= 1) {
+          return [newId]
+        } else if (prevVis.length < 4) {
+          return [...prevVis, newId]
+        } else {
+          return [...prevVis.slice(0, 3), newId]
+        }
+      })
+    },
+    [config]
+  )
+
+  const handleNewHarnessTab = useCallback(
+    async (forceProjectPicker = false): Promise<void> => {
+      setActiveView('harness')
+      const newId = `harness-${Date.now()}`
+      const project = forceProjectPicker
+        ? null
+        : await window.api.getHarnessProject(config?.harness.lastProjectPath).catch(() => null)
+      const newTab: TabSession = {
+        id: newId,
+        chatId: undefined,
+        title: 'New Harness',
+        messages: [],
+        inputText: '',
+        attachedFile: null,
+        workspace: 'harness',
+        sessionMode: 'harness',
+        disciplinePath: project?.rootPath || '',
+        isProcessing: false,
+        isTodoOpen: false,
+        selectedModel: selectedModelRef.current,
+        isSearchEnabled: false,
+        disabledSkills: []
+      }
+      setHarnessTabs((previous) => [...previous, newTab])
+      setActiveHarnessTabId(newId)
+      if (!project) {
+        setHarnessProjectTargetTabId(newId)
+        setIsHarnessProjectModalOpen(true)
+      }
+    },
+    [config?.harness.lastProjectPath]
+  )
+
+  const handleOpenHarness = useCallback((): void => {
+    setActiveView('harness')
+    if (harnessTabsRef.current.length === 0) {
+      void handleNewHarnessTab()
       return
     }
-
-    const newId = `tab-${Date.now()}`
-    const newTab: TabSession = {
-      id: newId,
-      chatId: undefined,
-      title: 'New Chat',
-      messages: [],
-      inputText: '',
-      attachedFile: null,
-      sessionMode: 'execution',
-      disciplinePath: '',
-      isProcessing: false,
-      isTodoOpen: false,
-      selectedModel: selectedModelRef.current,
-      isSearchEnabled: false
+    if (!activeHarnessTabIdRef.current) {
+      setActiveHarnessTabId(harnessTabsRef.current[0].id)
     }
+  }, [handleNewHarnessTab])
 
-    window.api.setSessionMode('execution', '')
-    setTabs((prevTabs) => [...prevTabs, newTab])
-    setActiveTabId(newId)
-    setVisibleTabIds((prevVis) => {
-      if (prevVis.length <= 1) {
-        return [newId]
-      } else if (prevVis.length < 4) {
-        return [...prevVis, newId]
-      } else {
-        return [...prevVis.slice(0, 3), newId]
+  const handleSelectHarnessTab = useCallback((tabId: string): void => {
+    setActiveView('harness')
+    setActiveHarnessTabId(tabId)
+  }, [])
+
+  const handleCloseHarnessTab = useCallback((tabId: string): void => {
+    setHarnessTabs((previous) => {
+      const closing = previous.find((tab) => tab.id === tabId)
+      if (closing?.chatId) window.api.cancelChat(closing.chatId)
+      const next = previous.filter((tab) => tab.id !== tabId)
+      if (activeHarnessTabIdRef.current === tabId) {
+        setActiveHarnessTabId(next[Math.max(0, previous.findIndex((tab) => tab.id === tabId) - 1)]?.id || next[0]?.id || '')
       }
+      return next
+    })
+  }, [])
+
+  const handleHarnessSessionDeleted = useCallback((chatId: string): void => {
+    setHarnessTabs((previous) => {
+      const next = previous.filter((tab) => tab.chatId !== chatId)
+      if (!next.some((tab) => tab.id === activeHarnessTabIdRef.current)) {
+        setActiveHarnessTabId(next[0]?.id || '')
+      }
+      return next
     })
   }, [])
 
@@ -2064,7 +2346,9 @@ function RealApp(): React.JSX.Element {
     if (targetTab) {
       window.api.setSessionMode(
         targetTab.sessionMode,
-        targetTab.sessionMode === 'discipline' ? targetTab.disciplinePath : ''
+        targetTab.sessionMode === 'discipline' || targetTab.sessionMode === 'harness'
+          ? targetTab.disciplinePath
+          : ''
       )
     }
     setVisibleTabIds((prevVis) => {
@@ -2082,10 +2366,18 @@ function RealApp(): React.JSX.Element {
   }, [])
 
   // Load chat into ONLY the focused tab
-  const handleLoadChat = useCallback(async (chatId: string) => {
-    setActiveView('chat')
+  const handleLoadChat = useCallback(async (chatId: string, workspace: WorkspaceKind = 'chat') => {
+    setActiveView(workspace)
+    const setWorkspaceTabs = workspace === 'harness' ? setHarnessTabs : setTabs
+    const activeWorkspaceTabId =
+      workspace === 'harness' ? activeHarnessTabIdRef.current : activeTabIdRef.current
+    const setActiveWorkspaceTabId =
+      workspace === 'harness' ? setActiveHarnessTabId : setActiveTabId
     try {
-      const rawContent = await window.api.loadChat(chatId)
+      const rawContent =
+        workspace === 'harness'
+          ? await window.api.loadHarnessSession(chatId)
+          : await window.api.loadChat(chatId)
       if (!Array.isArray(rawContent)) return
 
       const extractMessageText = (c: any): string => {
@@ -2166,12 +2458,30 @@ function RealApp(): React.JSX.Element {
       }
 
       const messages: Message[] = []
+      const harnessContextMessage = rawContent.find((content: unknown) => {
+        if (!content || typeof content !== 'object') return false
+        const candidate = content as {
+          role?: unknown
+          harness_context_snapshot?: { version?: unknown }
+        }
+        return candidate.role === 'system' && candidate.harness_context_snapshot?.version === 1
+      }) as { harness_context_snapshot?: HarnessContextSnapshot } | undefined
+      const harnessContextSnapshot = harnessContextMessage?.harness_context_snapshot
 
       for (let i = 0; i < rawContent.length; i++) {
         const c = rawContent[i]
         if (!c) continue
 
         const role = c.role
+
+        if (role === 'system' && c.harness_context_snapshot?.version === 1) {
+          messages.push({
+            role: 'context',
+            content: '',
+            contextSnapshot: c.harness_context_snapshot as HarnessContextSnapshot
+          })
+          continue
+        }
 
         // 1. Tool result message (OpenAI format: role === 'tool')
         if (role === 'tool') {
@@ -2448,15 +2758,20 @@ function RealApp(): React.JSX.Element {
         }
       }
 
-      const chats = await window.api.getChats()
+      const chats =
+        workspace === 'harness'
+          ? await window.api.getHarnessSessions()
+          : await window.api.getChats()
       const historyItem = chats.find((item) => item.id === chatId)
       const title = historyItem?.title || 'Chat'
-      const loadedMode: SessionMode = historyItem?.sessionMode || 'execution'
+      const loadedMode: SessionMode = workspace === 'harness' ? 'harness' : historyItem?.sessionMode || 'execution'
       const loadedDisciplinePath: string =
-        loadedMode === 'discipline' ? historyItem?.disciplinePath || '' : ''
+        loadedMode === 'discipline' || loadedMode === 'harness'
+          ? historyItem?.disciplinePath || ''
+          : ''
       const loadedDisabledSkills = historyItem?.disabledSkills
 
-      setTabs((prevTabs) => {
+      setWorkspaceTabs((prevTabs) => {
         if (prevTabs.length === 0) {
           const newId = `tab-${Date.now()}`
           const newTab: TabSession = {
@@ -2472,14 +2787,15 @@ function RealApp(): React.JSX.Element {
             isTodoOpen: false,
             selectedModel: selectedModelRef.current,
             isSearchEnabled: false,
-            disabledSkills: loadedDisabledSkills
+            disabledSkills: loadedDisabledSkills,
+            harnessContextSnapshot
           }
-          setActiveTabId(newId)
-          setVisibleTabIds([newId])
+          setActiveWorkspaceTabId(newId)
+          if (workspace === 'chat') setVisibleTabIds([newId])
           return [newTab]
         }
         return prevTabs.map((t) => {
-          if (t.id === activeTabIdRef.current) {
+          if (t.id === activeWorkspaceTabId) {
             return {
               ...t,
               chatId,
@@ -2487,14 +2803,15 @@ function RealApp(): React.JSX.Element {
               messages,
               sessionMode: loadedMode,
               disciplinePath: loadedDisciplinePath,
-              disabledSkills: loadedDisabledSkills
+              disabledSkills: loadedDisabledSkills,
+              harnessContextSnapshot
             }
           }
           return t
         })
       })
 
-      window.api.setSessionMode(loadedMode, loadedDisciplinePath)
+      if (workspace === 'chat') window.api.setSessionMode(loadedMode, loadedDisciplinePath)
 
       const todo = await window.api.getTodoForChat(chatId)
       if (todo) {
@@ -2507,8 +2824,8 @@ function RealApp(): React.JSX.Element {
       if (window.api?.getArtifactsForChat) {
         const artifacts = await window.api.getArtifactsForChat(chatId)
         if (artifacts && artifacts.length > 0) {
-          setTabs((prevTabs) =>
-            prevTabs.map((t) => (t.id === activeTabIdRef.current ? { ...t, artifacts } : t))
+          setWorkspaceTabs((prevTabs) =>
+            prevTabs.map((t) => (t.id === activeWorkspaceTabId ? { ...t, artifacts } : t))
           )
         }
       }
@@ -2517,12 +2834,22 @@ function RealApp(): React.JSX.Element {
     }
   }, [])
 
+  const handleLoadHarnessSession = useCallback(
+    (chatId: string): void => {
+      void handleLoadChat(chatId, 'harness')
+    },
+    [handleLoadChat]
+  )
+
   useEffect(() => {
     if (!window.api?.onArtifactsUpdate) {
       return
     }
     return window.api.onArtifactsUpdate(({ chatId, artifacts }) => {
       setTabs((prevTabs) => prevTabs.map((t) => (t.chatId === chatId ? { ...t, artifacts } : t)))
+      setHarnessTabs((prevTabs) =>
+        prevTabs.map((t) => (t.chatId === chatId ? { ...t, artifacts } : t))
+      )
     })
   }, [])
 
@@ -2544,7 +2871,9 @@ function RealApp(): React.JSX.Element {
       const isSuggestion = options.isSuggestion === true
       const chatId = currentTab.chatId || Date.now().toString()
       const activeFile = isSuggestion ? undefined : options.file || currentTab.attachedFile
-      const activeQuote = isSuggestion ? undefined : currentTab.quotedText || quotedTextRef.current || undefined
+      const activeQuote = isSuggestion
+        ? undefined
+        : currentTab.quotedText || quotedTextRef.current || undefined
       const activeScreenshot = activeFile?.mimeType.startsWith('image/')
         ? activeFile.data.startsWith('data:')
           ? activeFile.data
@@ -2603,7 +2932,10 @@ function RealApp(): React.JSX.Element {
         quote: activeQuote,
         appMode: options.forceYoutube ? 'youtube' : undefined,
         sessionMode,
-        disciplinePath: sessionMode === 'discipline' ? currentTab.disciplinePath : '',
+        disciplinePath:
+          sessionMode === 'discipline' || sessionMode === 'harness'
+            ? currentTab.disciplinePath
+            : '',
         modelKey,
         reasoningLevel: getReasoningLevelForModel(modelKey),
         disabledSkills: currentTab.disabledSkills ?? config?.disabledSkills ?? []
@@ -2616,6 +2948,90 @@ function RealApp(): React.JSX.Element {
       return true
     },
     []
+  )
+
+  const sendHarnessMessageToTab = useCallback(
+    (
+      targetTabId: string,
+      text: string,
+      options: { file?: AttachedFile | null; isSuggestion?: boolean } = {}
+    ): boolean => {
+      const currentTab = harnessTabsRef.current.find((tab) => tab.id === targetTabId)
+      if (!currentTab || currentTab.isProcessing || !isOnlineRef.current || !text.trim()) {
+        return false
+      }
+      if (!currentTab.disciplinePath) {
+        setHarnessProjectTargetTabId(targetTabId)
+        setIsHarnessProjectModalOpen(true)
+        return false
+      }
+
+      const isSuggestion = options.isSuggestion === true
+      const chatId = currentTab.chatId || `harness-${Date.now()}`
+      const activeFile = isSuggestion ? undefined : options.file || currentTab.attachedFile
+      const activeQuote = isSuggestion
+        ? undefined
+        : currentTab.quotedText || quotedTextRef.current || undefined
+      const displayContent = text.replace(/<attached_file[^>]*\/>/gi, '').trim()
+      const userMessage: Message = {
+        role: 'user',
+        content: displayContent,
+        quote: activeQuote,
+        file: activeFile || undefined,
+        screenshot: activeFile?.mimeType.startsWith('image/')
+          ? activeFile.data.startsWith('data:')
+            ? activeFile.data
+            : `data:${activeFile.mimeType};base64,${activeFile.data}`
+          : undefined
+      }
+
+      setHarnessTabs((previous) =>
+        previous.map((tab) => {
+          if (tab.id !== targetTabId) return tab
+          const updated = {
+            ...tab,
+            chatId,
+            workspace: 'harness' as const,
+            sessionMode: 'harness' as const,
+            isProcessing: true,
+            messages: [...tab.messages, userMessage]
+          }
+          return isSuggestion
+            ? updated
+            : { ...updated, inputText: '', quotedText: null, attachedFile: null }
+        })
+      )
+      setRunningChats((previous) => ({ ...previous, [chatId]: true }))
+      harnessChatIdsRef.current.add(chatId)
+      window.api.sendHarnessMessage({
+        message: text,
+        chatId,
+        projectPath: currentTab.disciplinePath,
+        attachedFile: activeFile || undefined,
+        quote: activeQuote,
+        modelKey: currentTab.selectedModel,
+        reasoningLevel: getReasoningLevelForModel(currentTab.selectedModel)
+      })
+      if (!isSuggestion) {
+        setQuotedText(null)
+        setActiveWorkflow(null)
+      }
+      return true
+    },
+    []
+  )
+
+  const handleHarnessSend = useCallback(
+    (text: string, file?: AttachedFile | null): void => {
+      sendHarnessMessageToTab(activeHarnessTabIdRef.current, text, { file })
+    },
+    [sendHarnessMessageToTab]
+  )
+
+  const handleHarnessSuggestionSend = useCallback(
+    (tabId: string, payload: string): boolean =>
+      sendHarnessMessageToTab(tabId, payload, { isSuggestion: true }),
+    [sendHarnessMessageToTab]
   )
 
   // Sending message logic for the active tab.
@@ -2710,12 +3126,18 @@ function RealApp(): React.JSX.Element {
       const shortcutStr = config?.newChatShortcut || 'CmdOrCtrl+N'
       if (isShortcutPressed(e, shortcutStr)) {
         e.preventDefault()
-        handleNewChat()
+        if (activeView === 'harness') {
+          void handleNewHarnessTab()
+        } else {
+          handleNewChat()
+        }
         return
       }
       if (isShortcutPressed(e, 'CmdOrCtrl+W') || isShortcutPressed(e, 'Ctrl+W')) {
         e.preventDefault()
-        if (activeTabIdRef.current) {
+        if (activeView === 'harness' && activeHarnessTabIdRef.current) {
+          handleCloseHarnessTab(activeHarnessTabIdRef.current)
+        } else if (activeTabIdRef.current) {
           handleCloseTab(activeTabIdRef.current)
         }
       }
@@ -2724,7 +3146,14 @@ function RealApp(): React.JSX.Element {
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [handleNewChat, handleCloseTab, config?.newChatShortcut])
+  }, [
+    activeView,
+    handleNewChat,
+    handleNewHarnessTab,
+    handleCloseTab,
+    handleCloseHarnessTab,
+    config?.newChatShortcut
+  ])
 
   // IPC Event Listener for close tab shortcut (Ctrl+W / Cmd+W from main process)
   useEffect(() => {
@@ -2746,10 +3175,14 @@ function RealApp(): React.JSX.Element {
 
   // IPC Event Listeners for background stream updates
   useEffect(() => {
+    const setTabsForChat = (chatId: string) =>
+      harnessChatIdsRef.current.has(chatId) ? setHarnessTabs : setTabs
+
     const removeChatStartListener = window.api.onChatStart((data) => {
       const { chatId } = data
       setRunningChats((prev) => ({ ...prev, [chatId]: true }))
-      setTabs((prev) =>
+      const setTargetTabs = setTabsForChat(chatId)
+      setTargetTabs((prev) =>
         prev.map((t) => {
           if (t.chatId === chatId || (t.id === activeTabIdRef.current && !t.chatId)) {
             const msgs = [...t.messages]
@@ -2786,7 +3219,8 @@ function RealApp(): React.JSX.Element {
         toolType,
         streamingToolCalls
       } = data
-      setTabs((prevTabs) =>
+      const setTargetTabs = setTabsForChat(chatId)
+      setTargetTabs((prevTabs) =>
         prevTabs.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
@@ -2897,7 +3331,8 @@ function RealApp(): React.JSX.Element {
         delete next[chatId]
         return next
       })
-      setTabs((prevTabs) =>
+      const setTargetTabs = setTabsForChat(chatId)
+      setTargetTabs((prevTabs) =>
         prevTabs.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
@@ -2993,7 +3428,8 @@ function RealApp(): React.JSX.Element {
         delete next[chatId]
         return next
       })
-      setTabs((prevTabs) =>
+      const setTargetTabs = setTabsForChat(chatId)
+      setTargetTabs((prevTabs) =>
         prevTabs.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
@@ -3100,8 +3536,9 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeToolCallDeltaListener = window.api.onToolCallDelta((data) => {
-      const { chatId, index, name, argsDelta } = data
-      setTabs((prev) =>
+      const { chatId, index, id, name, argsDelta } = data
+      const setTargetTabs = setTabsForChat(chatId)
+      setTargetTabs((prev) =>
         prev.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
@@ -3115,12 +3552,14 @@ function RealApp(): React.JSX.Element {
               if (existingIdx !== -1) {
                 streamingToolCalls[existingIdx] = {
                   ...streamingToolCalls[existingIdx],
+                  id: id || streamingToolCalls[existingIdx].id,
                   name: name || streamingToolCalls[existingIdx].name,
                   arguments: streamingToolCalls[existingIdx].arguments + (argsDelta || '')
                 }
               } else {
                 streamingToolCalls.push({
                   index,
+                  id,
                   name: name || 'task',
                   arguments: argsDelta || '',
                   isComplete: false
@@ -3157,12 +3596,14 @@ function RealApp(): React.JSX.Element {
 
     const removeToolStartListener = window.api.onToolStart((data) => {
       const { chatId } = data
-      setTabs((prev) => {
+      const setTargetTabs = setTabsForChat(chatId)
+      setTargetTabs((prev) => {
         let newTabs = prev.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
             const existingMsgIndex = newMessages.findLastIndex(
-              (msg) => msg.role === 'ai' && msg.toolCalls?.some((toolCall) => toolCall.id === data.callId)
+              (msg) =>
+                msg.role === 'ai' && msg.toolCalls?.some((toolCall) => toolCall.id === data.callId)
             )
             const targetMsgIndex =
               existingMsgIndex !== -1
@@ -3171,6 +3612,13 @@ function RealApp(): React.JSX.Element {
             if (targetMsgIndex !== -1) {
               const lastMsg = { ...newMessages[targetMsgIndex] }
               lastMsg.toolCalls = applyToolCallStart(lastMsg.toolCalls || [], data)
+              if (lastMsg.streamingToolCalls?.length) {
+                const remainingStreamingCalls = lastMsg.streamingToolCalls.filter((call) =>
+                  call.id ? call.id !== data.callId : call.name !== data.name
+                )
+                lastMsg.streamingToolCalls =
+                  remainingStreamingCalls.length > 0 ? remainingStreamingCalls : undefined
+              }
               newMessages[targetMsgIndex] = lastMsg
             }
             return { ...tab, messages: newMessages }
@@ -3216,12 +3664,14 @@ function RealApp(): React.JSX.Element {
 
     const removeToolEndListener = window.api.onToolEnd((data) => {
       const { chatId } = data
-      setTabs((prev) =>
+      const setTargetTabs = setTabsForChat(chatId)
+      setTargetTabs((prev) =>
         prev.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
             const lastMsgIndex = newMessages.findLastIndex(
-              (msg) => msg.role === 'ai' && msg.toolCalls?.some((toolCall) => toolCall.id === data.callId)
+              (msg) =>
+                msg.role === 'ai' && msg.toolCalls?.some((toolCall) => toolCall.id === data.callId)
             )
 
             if (lastMsgIndex !== -1 && newMessages[lastMsgIndex].toolCalls) {
@@ -3238,7 +3688,8 @@ function RealApp(): React.JSX.Element {
 
     const removeToolUpdateListener = window.api.onToolUpdate((data) => {
       const { chatId } = data
-      setTabs((prev) =>
+      const setTargetTabs = setTabsForChat(chatId)
+      setTargetTabs((prev) =>
         prev.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
@@ -3260,6 +3711,13 @@ function RealApp(): React.JSX.Element {
                       data.update.searchTitle
                     ]
                   }
+                  if (typeof data.update.outputChunk === 'string') {
+                    toolCall.terminalOutput =
+                      `${toolCall.terminalOutput || ''}${data.update.outputChunk}`.slice(-100_000)
+                  }
+                  if (typeof data.update.runId === 'string') {
+                    toolCall.runId = data.update.runId
+                  }
                   toolCalls[toolCallIndex] = toolCall
                   lastMsg.toolCalls = toolCalls
                   newMessages[i] = lastMsg
@@ -3274,7 +3732,8 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeTitleReceivedListener = window.api.onChatTitleReceived(({ id, title }) => {
-      setTabs((prevTabs) =>
+      const setTargetTabs = setTabsForChat(id)
+      setTargetTabs((prevTabs) =>
         prevTabs.map((t) => {
           if (t.chatId === id) {
             return { ...t, title }
@@ -3398,7 +3857,11 @@ function RealApp(): React.JSX.Element {
         onOpenSettings={() => setIsSettingsModalOpen(true)}
         activeView={activeView}
         onViewChange={(view) => {
-          setActiveView(view)
+          if (view === 'harness') {
+            handleOpenHarness()
+          } else {
+            setActiveView(view)
+          }
         }}
         onLoadChat={(id) => {
           handleLoadChat(id)
@@ -3406,8 +3869,9 @@ function RealApp(): React.JSX.Element {
         onNewChat={() => {
           handleNewChat()
         }}
+        onStartHarness={handleOpenHarness}
         onChatDeleted={handleChatDeleted}
-        currentChatId={activeTab.chatId}
+        currentChatId={activeView === 'harness' ? activeHarnessTab?.chatId : activeTab.chatId}
         runningChats={runningChats}
         config={config}
         onOpenSearch={() => {
@@ -3423,8 +3887,10 @@ function RealApp(): React.JSX.Element {
     isSidebarOpen,
     handleLoadChat,
     handleNewChat,
+    handleOpenHarness,
     handleChatDeleted,
     activeTab.chatId,
+    activeHarnessTab?.chatId,
     runningChats,
     config,
     authUser
@@ -3516,13 +3982,70 @@ function RealApp(): React.JSX.Element {
         />
       )}
       <TitleBar
-        title={tabs.length > 0 ? activeTab.title || undefined : undefined}
-        isStreaming={tabs.length > 0 ? activeTab.isTitleStreaming : false}
+        title={
+          activeView === 'harness'
+            ? activeHarnessTab?.title || 'Harness'
+            : tabs.length > 0
+              ? activeTab.title || undefined
+              : undefined
+        }
+        isStreaming={
+          activeView === 'harness'
+            ? Boolean(activeHarnessTab?.isProcessing)
+            : tabs.length > 0
+              ? activeTab.isTitleStreaming
+              : false
+        }
       />
       <SearchModal
         isOpen={isSearchModalOpen}
         onClose={() => setIsSearchModalOpen(false)}
         onOpenChat={handleLoadChat}
+      />
+      {harnessPromptWarnings.length > 0 && (
+        <div className="fixed right-5 top-16 z-[125] w-[min(420px,calc(100vw-2.5rem))] rounded-xl border border-status-warning/25 bg-black/85 p-3.5 shadow-2xl backdrop-blur-xl animate-soft-pop">
+          <div className="flex items-start gap-2.5">
+            <XCircle size={15} className="mt-0.5 shrink-0 text-status-warning" />
+            <div className="min-w-0 flex-1">
+              <span className="text-xs font-semibold text-text-primary">
+                Harness instructions adjusted
+              </span>
+              {harnessPromptWarnings.map((warning) => (
+                <p key={warning} className="mt-1 text-[10.5px] leading-relaxed text-text-secondary">
+                  {warning}
+                </p>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setHarnessPromptWarnings([])}
+              className="rounded p-1 text-text-muted hover:bg-white/[0.06] hover:text-text-primary"
+              aria-label="Dismiss Harness instruction warning"
+            >
+              <XCircle size={13} />
+            </button>
+          </div>
+        </div>
+      )}
+      {harnessApprovalRequest && (
+        <HarnessApprovalDialog
+          request={harnessApprovalRequest}
+          onResolve={(approved) => {
+            window.api.resolveHarnessApproval(harnessApprovalRequest.requestId, approved)
+            setHarnessApprovalRequest(null)
+          }}
+        />
+      )}
+      <HarnessProjectModal
+        isOpen={isHarnessProjectModalOpen}
+        onClose={() => {
+          setIsHarnessProjectModalOpen(false)
+          setHarnessProjectTargetTabId(null)
+        }}
+        onSelected={(project) => {
+          const targetTabId = harnessProjectTargetTabId || activeHarnessTabIdRef.current
+          if (targetTabId) selectHarnessProjectForTab(targetTabId, project)
+        }}
       />
       {isSettingsModalOpen && (
         <div className="fixed inset-0 z-[100] overflow-y-auto p-3 sm:p-5 md:p-6 flex flex-col animate-soft-pop">
@@ -3556,8 +4079,8 @@ function RealApp(): React.JSX.Element {
       <main className="flex-1 flex flex-col relative z-10 min-w-0 h-full transition-all duration-400 ease-[cubic-bezier(0.25,1,0.5,1)] overflow-hidden">
         {!isOnline && <OfflineBanner />}
 
-        {/* Tab Bar Header */}
-        <TabBar
+        {/* Chat retains its own conventional tab surface. */}
+        {activeView === 'chat' && <TabBar
           tabs={tabs}
           activeTabId={activeTabId}
           visibleTabIds={visibleTabIds}
@@ -3578,7 +4101,7 @@ function RealApp(): React.JSX.Element {
             }
           }}
           onReorderTabs={handleReorderTabs}
-        />
+        />}
 
         {/* Main Grid View for Tab Panes */}
         {activeView === 'chat' ? (
@@ -3595,6 +4118,18 @@ function RealApp(): React.JSX.Element {
               {tabs.map((tab) => {
                 const visibleIndex = visibleTabs.findIndex((vt) => vt.id === tab.id)
                 const isVisible = visibleIndex !== -1
+                const harnessProject = Object.values(config?.harness.projects || {}).find(
+                  (project) => project.rootPath.toLowerCase() === tab.disciplinePath.toLowerCase()
+                )
+                const harnessUi = config
+                  ? {
+                      showSteps: harnessProject?.showSteps ?? config.harness.showSteps,
+                      showThinking: harnessProject?.showThinking ?? config.harness.showThinking,
+                      reduceMotion:
+                        (harnessProject?.reduceMotion ?? config.harness.reduceMotion) ||
+                        !(harnessProject?.animateActivity ?? config.harness.animateActivity)
+                    }
+                  : undefined
 
                 if (!isVisible && tab.tabType !== 'browser') {
                   return null
@@ -3703,6 +4238,9 @@ function RealApp(): React.JSX.Element {
                             onOpenBrowserTab={handleOpenBrowserTab}
                             isSuggestionSendDisabled={tab.isProcessing || !isOnline}
                             onSendSuggestion={handleSuggestionSend}
+                            sessionMode={tab.sessionMode}
+                            harnessUi={harnessUi}
+                            harnessContextSnapshot={tab.harnessContextSnapshot}
                           />
                         }
                       />
@@ -3713,9 +4251,117 @@ function RealApp(): React.JSX.Element {
             </div>
           )
         ) : (
-          <div className="flex-1 flex items-center justify-center text-text-secondary">
-            View coming soon...
-          </div>
+          <HarnessWorkspace
+            tabs={harnessTabs}
+            activeTabId={activeHarnessTabId}
+            tabProjectMode={config?.harness.tabProjectMode || 'fixed'}
+            reduceMotion={
+              config?.harness.reduceMotion || config?.harness.animateActivity === false
+            }
+            onSelectTab={handleSelectHarnessTab}
+            onCloseTab={handleCloseHarnessTab}
+            onNewTab={() => void handleNewHarnessTab()}
+            onStopTab={(tab) => {
+              if (tab.chatId) window.api.cancelChat(tab.chatId)
+            }}
+            onLoadSession={handleLoadHarnessSession}
+            onDeleteSession={(chatId) => {
+              void window.api.deleteHarnessSession(chatId).then((deleted) => {
+                if (deleted) handleHarnessSessionDeleted(chatId)
+              })
+            }}
+            onOpenSettings={() => {
+              setSettingsInitialSection('harness')
+              setIsSettingsModalOpen(true)
+            }}
+            onOpenProjectPicker={() => {
+              if (activeHarnessTabIdRef.current) {
+                setHarnessProjectTargetTabId(activeHarnessTabIdRef.current)
+                setIsHarnessProjectModalOpen(true)
+              } else {
+                void handleNewHarnessTab(true)
+              }
+            }}
+            renderActiveTab={(tab) => {
+              const harnessProject = Object.values(config?.harness.projects || {}).find(
+                (project) => project.rootPath.toLowerCase() === tab.disciplinePath.toLowerCase()
+              )
+              const harnessUi = config
+                ? {
+                    showSteps: harnessProject?.showSteps ?? config.harness.showSteps,
+                    showThinking: harnessProject?.showThinking ?? config.harness.showThinking,
+                    reduceMotion:
+                      (harnessProject?.reduceMotion ?? config.harness.reduceMotion) ||
+                      !(harnessProject?.animateActivity ?? config.harness.animateActivity)
+                  }
+                : undefined
+              return (
+                <ChatPane
+                  tab={tab}
+                  isFocused
+                  isSplitView={false}
+                  todo={tab.chatId ? chatTodos[tab.chatId] || null : null}
+                  terminalProcesses={tab.chatId ? terminalProcesses[tab.chatId] || [] : []}
+                  config={config}
+                  isKeyMissing={isKeyMissing}
+                  isOnline={isOnline}
+                  onFocus={handleSelectHarnessTab}
+                  onCloseTab={handleCloseHarnessTab}
+                  onToggleSplitTab={() => {}}
+                  onSwapSplitTabs={() => {}}
+                  onSend={(text, file) => handleHarnessSend(text, file)}
+                  onCancel={() => {
+                    if (tab.chatId) window.api.cancelChat(tab.chatId)
+                  }}
+                  onModelChange={() => {}}
+                  onReasoningLevelChange={(model, level) => {
+                    void handleReasoningLevelChange(model, level)
+                  }}
+                  onModeChange={() => {}}
+                  onSelectFolder={() => {
+                    setHarnessProjectTargetTabId(tab.id)
+                    setIsHarnessProjectModalOpen(true)
+                  }}
+                  onUpdateTabInput={(id, text) => {
+                    setHarnessTabs((previous) =>
+                      previous.map((entry) => (entry.id === id ? { ...entry, inputText: text } : entry))
+                    )
+                  }}
+                  onUpdateTabFile={(id, file) => {
+                    setHarnessTabs((previous) =>
+                      previous.map((entry) => (entry.id === id ? { ...entry, attachedFile: file } : entry))
+                    )
+                  }}
+                  onUpdateTabQuote={(id, quote) => {
+                    setHarnessTabs((previous) =>
+                      previous.map((entry) => (entry.id === id ? { ...entry, quotedText: quote } : entry))
+                    )
+                  }}
+                  onUpdateTabDisabledSkills={() => {}}
+                  onToggleSearch={() => {}}
+                  onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
+                  onOpenYoutubeModal={() => {}}
+                  activeWorkflow={null}
+                  setActiveWorkflow={() => {}}
+                  renderedMessages={
+                    <TabMessagesList
+                      messages={tab.messages}
+                      tabId={tab.id}
+                      currentChatId={tab.chatId}
+                      handleLoadChat={handleLoadHarnessSession}
+                      isSuggestionSendDisabled={tab.isProcessing || !isOnline}
+                      onSendSuggestion={(tabId, payload) =>
+                        handleHarnessSuggestionSend(tabId, payload)
+                      }
+                      sessionMode="harness"
+                      harnessUi={harnessUi}
+                      harnessContextSnapshot={tab.harnessContextSnapshot}
+                    />
+                  }
+                />
+              )
+            }}
+          />
         )}
 
         <DownloadProgressOverlay
@@ -3734,9 +4380,19 @@ function RealApp(): React.JSX.Element {
             mimeType: 'image/png',
             data: base64
           }
-          setTabs((prev) =>
-            prev.map((t) => (t.id === activeTabIdRef.current ? { ...t, attachedFile: file } : t))
-          )
+          if (activeView === 'harness') {
+            setHarnessTabs((previous) =>
+              previous.map((tab) =>
+                tab.id === activeHarnessTabIdRef.current ? { ...tab, attachedFile: file } : tab
+              )
+            )
+          } else {
+            setTabs((prev) =>
+              prev.map((t) =>
+                t.id === activeTabIdRef.current ? { ...t, attachedFile: file } : t
+              )
+            )
+          }
         }}
       />
       <YoutubeAppModal
@@ -3764,7 +4420,11 @@ function RealApp(): React.JSX.Element {
           }}
           onClick={() => handleAnswerPrism(floatingMenu.text)}
         >
-          <Quotes size={14} weight="bold" className="text-accent-secondary mr-1.5 group-hover:scale-110 transition-transform" />
+          <Quotes
+            size={14}
+            weight="bold"
+            className="text-accent-secondary mr-1.5 group-hover:scale-110 transition-transform"
+          />
           <span className="text-xs font-semibold text-text-primary group-hover:text-accent-secondary transition-colors duration-150">
             Answer Prism
           </span>

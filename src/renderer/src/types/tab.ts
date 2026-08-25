@@ -1,4 +1,10 @@
-import type { SessionMode, ArtifactItem, ToolAttachment } from '../../../shared/types'
+import type {
+  SessionMode,
+  WorkspaceKind,
+  ArtifactItem,
+  ToolAttachment,
+  HarnessContextSnapshot
+} from '../../../shared/types'
 
 export interface AttachedFile {
   name: string
@@ -27,10 +33,14 @@ export interface ToolCallItem {
   removedLines?: number
   readLines?: { start: number; end: number }[]
   searchUpdates?: string[]
+  terminalOutput?: string
+  runId?: string
+  startedAt?: number
+  finishedAt?: number
 }
 
 export interface Message {
-  role: 'user' | 'ai' | 'separator'
+  role: 'user' | 'ai' | 'separator' | 'context'
   content: string
   thoughts?: string
   isStreaming?: boolean
@@ -49,6 +59,7 @@ export interface Message {
   file?: AttachedFile
   quote?: string
   separatorType?: 'error' | 'cancel'
+  contextSnapshot?: HarnessContextSnapshot
 }
 
 export interface TabSession {
@@ -60,6 +71,7 @@ export interface TabSession {
   quotedText?: string | null
   attachedFile: AttachedFile | null
   sessionMode: SessionMode
+  workspace?: WorkspaceKind
   disciplinePath: string
   isProcessing: boolean
   isTodoOpen: boolean
@@ -73,4 +85,5 @@ export interface TabSession {
   artifacts?: ArtifactItem[]
   selectedArtifactId?: string | null
   disabledSkills?: string[]
+  harnessContextSnapshot?: HarnessContextSnapshot
 }

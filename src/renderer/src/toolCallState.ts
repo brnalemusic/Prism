@@ -7,12 +7,15 @@ export interface ToolCallState {
   result?: string
   attachments?: ToolAttachment[]
   status: string
+  startedAt?: number
+  finishedAt?: number
 }
 
 export interface ToolCallStartEvent {
   callId: string
   name: string
   args: Record<string, unknown>
+  timestamp?: number
 }
 
 export interface ToolCallEndEvent {
@@ -63,7 +66,8 @@ export function applyToolCallStart<T extends ToolCallState>(
         id: event.callId,
         name: event.name,
         args: event.args || {},
-        status: 'running'
+        status: 'running',
+        startedAt: event.timestamp || Date.now()
       } as T
     ]
   }
@@ -74,7 +78,9 @@ export function applyToolCallStart<T extends ToolCallState>(
     args: event.args || {},
     status: 'running',
     result: undefined,
-    attachments: undefined
+    attachments: undefined,
+    startedAt: event.timestamp || Date.now(),
+    finishedAt: undefined
   }
   return updated
 }
@@ -92,6 +98,7 @@ export function applyToolCallEnd<T extends ToolCallState>(
     name: event.name,
     result: event.result,
     attachments: event.attachments,
+    finishedAt: Date.now(),
     status: isToolCancelledResult(event.result)
       ? 'cancelled'
       : isToolErrorResult(event.result)

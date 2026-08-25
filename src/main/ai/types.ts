@@ -4,7 +4,8 @@ import {
   CompletionType,
   StreamToolCallDelta,
   TodoState,
-  PrismThinkingLevel
+  PrismThinkingLevel,
+  HarnessContextSnapshot
 } from '../../shared/types'
 import type { ToolResultEnvelope } from '../toolRuntime'
 import type { ToolAttachment, ToolImageReference } from '../toolAttachments'
@@ -90,6 +91,7 @@ export interface OpenAiMessage {
   thinking_duration?: number
   isSystemNotification?: boolean
   hidden?: boolean
+  harness_context_snapshot?: HarnessContextSnapshot
   quote?: string
   provider_metadata?: {
     gemini?: {

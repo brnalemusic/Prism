@@ -3,7 +3,8 @@ import {
   executeValidatedTool,
   ToolExecutionContext,
   ToolLoopGuard,
-  ToolResultEnvelope
+  ToolResultEnvelope,
+  ValidatedToolExecution
 } from '../toolRuntime'
 import { streamOpenAiCompletion, StreamResult } from './openaiClient'
 import { OpenAiMessage, OpenAiToolDefinition } from './types'
@@ -81,6 +82,16 @@ export interface ToolOrchestratorOptions {
   onStreamEvent?: (event: OrchestratorStreamEvent, state: OrchestratorStreamState) => void
   onHistoryMessage?: (message: OpenAiMessage) => void
   onToolResult?: (call: ExecutedToolCall) => void
+  beforeToolBatch?: (
+    calls: Array<{ callId: string; name: string; args: unknown; round: number }>
+  ) => Promise<boolean>
+  executeTool?: (
+    name: string,
+    args: unknown,
+    context: ToolExecutionContext,
+    loopGuard: ToolLoopGuard
+  ) => Promise<ValidatedToolExecution>
+  terminalInputToolName?: string
 }
 
 function joinOutput(current: string, next: string): string {
@@ -132,11 +143,12 @@ function withFinalInstruction(messages: OpenAiMessage[], instruction: string): O
 }
 
 export function createTerminalNotificationMessage(
-  notification: BackgroundProcessNotification
+  notification: BackgroundProcessNotification,
+  terminalInputToolName = 'send_terminal_input'
 ): OpenAiMessage {
   const content =
     notification.kind === 'input_requested'
-      ? `[SYSTEM NOTIFICATION: Terminal command (Run ID: ${notification.runId}, Command: "${notification.command}") is waiting for input. Detected prompt: ${notification.detectedPrompt || '(Prompt text unavailable).'}\n\nComplete terminal output so far:\n${notification.output}\n\nContinue the current task. Use send_terminal_input with this Run ID to answer the terminal. Do not ask the user unless the requested value requires a genuine user decision.]`
+      ? `[SYSTEM NOTIFICATION: Terminal command (Run ID: ${notification.runId}, Command: "${notification.command}") is waiting for input. Detected prompt: ${notification.detectedPrompt || '(Prompt text unavailable).'}\n\nComplete terminal output so far:\n${notification.output}\n\nContinue the current task. Use ${terminalInputToolName} with this Run ID to answer the terminal. Do not ask the user unless the requested value requires a genuine user decision.]`
       : `[SYSTEM NOTIFICATION: Background terminal command (Run ID: ${notification.runId}, Command: "${notification.command}") finished with status "${notification.status}" (Exit Code: ${notification.exitCode ?? 'N/A'}). Output:\n${notification.output}]`
 
   return {
@@ -160,7 +172,10 @@ export async function runToolOrchestration(
     if (!options.getPendingNotifications) return 0
     const pending = options.getPendingNotifications()
     for (const notification of pending) {
-      const notificationMessage = createTerminalNotificationMessage(notification)
+      const notificationMessage = createTerminalNotificationMessage(
+        notification,
+        options.terminalInputToolName
+      )
       options.messages.push(notificationMessage)
       options.onHistoryMessage?.(notificationMessage)
     }
@@ -278,6 +293,17 @@ export async function runToolOrchestration(
       }
     }
 
+    const batchApproved = options.beforeToolBatch
+      ? await options.beforeToolBatch(
+          streamed.result.toolCalls.map((call) => ({
+            callId: call.id,
+            name: call.name,
+            args: call.args,
+            round
+          }))
+        )
+      : true
+
     let nonRetryableFailure: string | null = null
     for (const toolCall of streamed.result.toolCalls) {
       abortIfNeeded(options.signal)
@@ -287,12 +313,35 @@ export async function runToolOrchestration(
         name: toolCall.name,
         round
       }) || { signal: options.signal }
-      const execution = await executeValidatedTool(
-        toolCall.name,
-        toolCall.args,
-        { ...context, signal: options.signal },
-        loopGuard
-      )
+      const execution = batchApproved
+        ? await (options.executeTool || executeValidatedTool)(
+            toolCall.name,
+            toolCall.args,
+            { ...context, signal: options.signal },
+            loopGuard
+          )
+        : {
+            args:
+              toolCall.args && typeof toolCall.args === 'object' && !Array.isArray(toolCall.args)
+                ? (toolCall.args as Record<string, unknown>)
+                : {},
+            envelope: {
+              ok: false as const,
+              error: {
+                code: 'EXECUTION_FAILED' as const,
+                message: 'The user declined this Harness tool batch.',
+                retryable: true
+              }
+            },
+            modelContent: JSON.stringify({
+              ok: false,
+              error: {
+                code: 'PERMISSION_DENIED',
+                message: 'The user declined this Harness tool batch.',
+                retryable: true
+              }
+            })
+          }
       const executed: ExecutedToolCall = {
         callId,
         name: toolCall.name,

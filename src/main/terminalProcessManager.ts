@@ -403,6 +403,7 @@ export interface SpawnTerminalOptions {
   apiKey?: string
   signal?: AbortSignal
   event?: IpcMainEvent
+  toolCallName?: string
 }
 
 /**
@@ -481,7 +482,7 @@ export function spawnGuardedTerminalProcess(
 
     if (options.event && options.chatId) {
       safeSend(options.event.sender, 'chat-tool-update', {
-        toolCallName: 'execute_terminal_command',
+        toolCallName: options.toolCallName || 'execute_terminal_command',
         update: { outputChunk: rawText, runId: session.runId },
         chatId: options.chatId
       })
@@ -535,6 +536,9 @@ export async function executeTerminalWithInitialWait(
   initialTimeoutMs = 5000
 ): Promise<InitialExecutionResult> {
   const session = spawnGuardedTerminalProcess(command, options)
+  const inputToolName =
+    options.toolCallName === 'exec_command' ? 'write_stdin' : 'send_terminal_input'
+  const outputToolName = 'read_terminal_output'
 
   return new Promise((resolve) => {
     let resolved = false
@@ -552,7 +556,7 @@ export async function executeTerminalWithInitialWait(
       const notice =
         `Command execution exceeded 5 seconds. It is now running in the background with Run ID: ${session.runId}.` +
         `${outputSnippet}\n\n` +
-        `You can continue other work, inspect output with read_terminal_output, send keyboard/text input with send_terminal_input, or safely end your turn in Standby. ` +
+        `You can continue other work, inspect output with ${outputToolName}, send keyboard/text input with ${inputToolName}, or safely end your turn in Standby. ` +
         `When the command finishes, the system will automatically ping and wake you up with the complete output.`
 
       resolve({
@@ -573,7 +577,7 @@ export async function executeTerminalWithInitialWait(
         output:
           `Terminal input is required. The command is still running in the background with Run ID: ${session.runId}.\n\n` +
           `Detected prompt: ${notification.detectedPrompt || '(Prompt text unavailable).'}\n\n` +
-          `The complete output-so-far snapshot has been queued as a system notification. Use send_terminal_input to answer without asking the user unless their decision is genuinely required.`
+          `The complete output-so-far snapshot has been queued as a system notification. Use ${inputToolName} to answer without asking the user unless their decision is genuinely required.`
       })
     })
 
