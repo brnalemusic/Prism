@@ -71,8 +71,19 @@ export function applyToolCallStart<T extends ToolCallState>(
       } as T
     ]
   }
+  const existing = updated[index]
+  if (existing.result !== undefined && ['done', 'error', 'cancelled'].includes(existing.status)) {
+    updated[index] = {
+      ...existing,
+      id: event.callId,
+      name: event.name,
+      args: event.args || {},
+      startedAt: existing.startedAt || event.timestamp || Date.now()
+    }
+    return updated
+  }
   updated[index] = {
-    ...updated[index],
+    ...existing,
     id: event.callId,
     name: event.name,
     args: event.args || {},

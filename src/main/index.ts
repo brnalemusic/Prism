@@ -105,6 +105,9 @@ import {
 } from './harnessProject'
 import { resolveHarnessApproval } from './harnessApproval'
 import { getHarnessInstructionStatus } from './harnessPrompt'
+import { installProcessOutputGuards } from './brokenPipeGuard'
+
+installProcessOutputGuards()
 
 if (process.platform === 'win32') {
   try {

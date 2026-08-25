@@ -9,7 +9,7 @@ import {
 import { streamOpenAiCompletion, StreamResult } from './openaiClient'
 import { OpenAiMessage, OpenAiToolDefinition } from './types'
 import { ToolAttachment } from '../toolAttachments'
-import { withPinnedModel } from './sessionRuntime'
+import { createPinnedModelInvoker } from './sessionRuntime'
 
 export interface OrchestratorStreamState {
   round: number
@@ -170,6 +170,7 @@ export async function runToolOrchestration(
   const maxRounds = options.maxRounds ?? 100
   const loopGuard = new ToolLoopGuard()
   const executedTools: ExecutedToolCall[] = []
+  const invokePinnedModel = createPinnedModelInvoker(options.provider, options.modelId)
   let accumulatedText = ''
   let accumulatedReasoning = ''
 
@@ -206,9 +207,9 @@ export async function runToolOrchestration(
       streamingToolCalls: streamingToolCalls.map((call) => ({ ...call }))
     })
 
-    const result = await withPinnedModel(options.modelId, (pinnedModelId) =>
+    const result = await invokePinnedModel((pinnedProvider, pinnedModelId) =>
       (options.streamCompletion || streamOpenAiCompletion)(
-        options.provider,
+        pinnedProvider,
         pinnedModelId,
         messages,
         tools,

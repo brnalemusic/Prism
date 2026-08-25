@@ -20,6 +20,13 @@ export function resolveRequestModelKey(
   return currentChatModelKey?.trim() || sessionModelKey?.trim() || ''
 }
 
-export function withPinnedModel<T>(modelKey: string, run: (modelKey: string) => T): T {
-  return run(modelKey)
+/** Captures the provider/model pair once so later rounds cannot observe mutable selection state. */
+export function createPinnedModelInvoker<TProvider>(provider: TProvider, modelKey: string) {
+  const pinnedProvider = provider
+  const pinnedModelKey = modelKey
+  return function invokePinnedModel<TResult>(
+    run: (provider: TProvider, modelKey: string) => TResult
+  ): TResult {
+    return run(pinnedProvider, pinnedModelKey)
+  }
 }

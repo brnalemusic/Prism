@@ -15,6 +15,11 @@ import {
 import type { HarnessSource, HarnessToolName } from '../../../shared/types'
 import type { ToolCallItem } from '../types/tab'
 import { AnsiRenderer } from './ActionLoader'
+import {
+  asHarnessRecord,
+  decodeHarnessToolResult,
+  stringifyHarnessValue
+} from '../harnessToolPresentation'
 
 const HARNESS_LABELS: Record<HarnessToolName, string> = {
   read: 'Read file',
@@ -33,31 +38,6 @@ const HARNESS_LABELS: Record<HarnessToolName, string> = {
 
 const HARNESS_NAMES = new Set(Object.keys(HARNESS_LABELS))
 
-interface DecodedResult {
-  ok?: boolean
-  outputText: string
-  output: unknown
-  diff?: string
-  sources: HarnessSource[]
-  runId?: string
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return isRecord(value) ? value : {}
-}
-
-function stringify(value: unknown): string {
-  try {
-    return JSON.stringify(value, null, 2) || ''
-  } catch {
-    return String(value ?? '')
-  }
-}
-
 function compact(value: string, maxLength = 58): string {
   const normalized = value.replace(/\s+/g, ' ').trim()
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized
@@ -75,44 +55,9 @@ function targetPath(args: Record<string, unknown>): string {
   return stringArg(args, ['path', 'filePath', 'file_path', 'directory', 'cwd'])
 }
 
-function parseSources(value: unknown): HarnessSource[] {
-  if (!Array.isArray(value)) return []
-  const sources: HarnessSource[] = []
-  const seen = new Set<string>()
-  for (const candidate of value) {
-    if (!isRecord(candidate)) continue
-    const url = typeof candidate.url === 'string' ? candidate.url.trim() : ''
-    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue
-    seen.add(url)
-    let fallbackDomain = ''
-    try {
-      fallbackDomain = new URL(url).hostname
-    } catch {
-      // The protocol check above is intentionally followed by URL validation.
-    }
-    sources.push({
-      url,
-      title:
-        typeof candidate.title === 'string' && candidate.title.trim()
-          ? candidate.title.trim()
-          : fallbackDomain || url,
-      domain:
-        typeof candidate.domain === 'string' && candidate.domain.trim()
-          ? candidate.domain.trim()
-          : fallbackDomain,
-      faviconUrl:
-        typeof candidate.faviconUrl === 'string' && /^https?:\/\//i.test(candidate.faviconUrl)
-          ? candidate.faviconUrl
-          : ''
-    })
-  }
-  return sources
-}
-
 function patchTargets(patch: string): string[] {
-  return Array.from(
-    patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm),
-    (match) => match[1].trim()
+  return Array.from(patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm), (match) =>
+    match[1].trim()
   )
 }
 
@@ -126,7 +71,7 @@ function lineCount(value: string): number {
 
 function changeSummary(tool: ToolCallItem): string {
   if (!['write', 'edit', 'delete_lines', 'apply_patch'].includes(tool.name)) return ''
-  const args = asRecord(tool.args)
+  const args = asHarnessRecord(tool.args)
   const added =
     tool.addedLines ??
     (tool.name === 'write'
@@ -144,7 +89,7 @@ function changeSummary(tool: ToolCallItem): string {
 }
 
 function describeTool(tool: ToolCallItem): string {
-  const args = asRecord(tool.args)
+  const args = asHarnessRecord(tool.args)
   const active = isToolActive(tool)
   const path = targetPath(args)
   const command = stringArg(args, ['cmd', 'command'])
@@ -152,7 +97,11 @@ function describeTool(tool: ToolCallItem): string {
 
   switch (tool.name) {
     case 'read':
-      return path ? `${active ? 'Reading' : 'Read'} ${compact(path)}` : active ? 'Reading file' : 'Read file'
+      return path
+        ? `${active ? 'Reading' : 'Read'} ${compact(path)}`
+        : active
+          ? 'Reading file'
+          : 'Read file'
     case 'list':
       return path
         ? `${active ? 'Listing' : 'Listed'} ${compact(path)}`
@@ -166,9 +115,17 @@ function describeTool(tool: ToolCallItem): string {
           ? 'Finding files'
           : 'Found files'
     case 'write':
-      return path ? `${active ? 'Writing' : 'Wrote'} ${compact(path)}` : active ? 'Writing file' : 'Wrote file'
+      return path
+        ? `${active ? 'Writing' : 'Wrote'} ${compact(path)}`
+        : active
+          ? 'Writing file'
+          : 'Wrote file'
     case 'edit':
-      return path ? `${active ? 'Editing' : 'Edited'} ${compact(path)}` : active ? 'Editing file' : 'Edited file'
+      return path
+        ? `${active ? 'Editing' : 'Edited'} ${compact(path)}`
+        : active
+          ? 'Editing file'
+          : 'Edited file'
     case 'delete_lines':
       return path
         ? `${active ? 'Removing from' : 'Removed from'} ${compact(path)}`
@@ -186,7 +143,11 @@ function describeTool(tool: ToolCallItem): string {
       return active ? 'Applying patch' : 'Applied patch'
     }
     case 'exec_command':
-      return command ? `${active ? 'Running' : 'Ran'} ${compact(command)}` : active ? 'Running command' : 'Ran command'
+      return command
+        ? `${active ? 'Running' : 'Ran'} ${compact(command)}`
+        : active
+          ? 'Running command'
+          : 'Ran command'
     case 'write_stdin':
       return active ? 'Sending terminal input' : 'Sent terminal input'
     case 'read_terminal_output':
@@ -201,53 +162,6 @@ function describeTool(tool: ToolCallItem): string {
       return active ? 'Waiting for your answer' : 'Asked a question'
     default:
       return tool.name.replace(/_/g, ' ')
-  }
-}
-
-function decodeToolResult(result?: string): DecodedResult {
-  if (!result) return { outputText: '', output: '', sources: [] }
-  try {
-    const parsedEnvelope = JSON.parse(result) as unknown
-    if (!isRecord(parsedEnvelope)) {
-      return { outputText: result, output: result, sources: [] }
-    }
-    const rawOutput = parsedEnvelope.ok === false ? parsedEnvelope.error : parsedEnvelope.output
-    if (typeof rawOutput !== 'string') {
-      return {
-        ok: typeof parsedEnvelope.ok === 'boolean' ? parsedEnvelope.ok : undefined,
-        outputText: stringify(rawOutput),
-        output: rawOutput,
-        sources: []
-      }
-    }
-    try {
-      const parsedOutput = JSON.parse(rawOutput) as unknown
-      if (!isRecord(parsedOutput)) {
-        return {
-          ok: typeof parsedEnvelope.ok === 'boolean' ? parsedEnvelope.ok : undefined,
-          outputText: rawOutput,
-          output: rawOutput,
-          sources: []
-        }
-      }
-      return {
-        ok: typeof parsedEnvelope.ok === 'boolean' ? parsedEnvelope.ok : undefined,
-        outputText: stringify(parsedOutput),
-        output: parsedOutput,
-        diff: typeof parsedOutput.diff === 'string' ? parsedOutput.diff : undefined,
-        sources: parseSources(parsedOutput.sources),
-        runId: typeof parsedOutput.runId === 'string' ? parsedOutput.runId : undefined
-      }
-    } catch {
-      return {
-        ok: typeof parsedEnvelope.ok === 'boolean' ? parsedEnvelope.ok : undefined,
-        outputText: rawOutput,
-        output: rawOutput,
-        sources: []
-      }
-    }
-  } catch {
-    return { outputText: result, output: result, sources: [] }
   }
 }
 
@@ -313,15 +227,13 @@ function DetailBlock({
 
 function ToolRow({ tool }: { tool: ToolCallItem }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false)
-  const decoded = useMemo(() => decodeToolResult(tool.result), [tool.result])
-  const args = asRecord(tool.args)
+  const decoded = useMemo(() => decodeHarnessToolResult(tool.result), [tool.result])
+  const args = asHarnessRecord(tool.args)
   const isActive = isToolActive(tool)
   const command = stringArg(args, ['cmd', 'command'])
-  const runId =
-    tool.runId || decoded.runId || (typeof args.runId === 'string' ? args.runId : '')
-  const outputRecord = asRecord(decoded.output)
-  const output =
-    typeof outputRecord.output === 'string' ? outputRecord.output : decoded.outputText
+  const runId = tool.runId || decoded.runId || (typeof args.runId === 'string' ? args.runId : '')
+  const outputRecord = asHarnessRecord(decoded.output)
+  const output = typeof outputRecord.output === 'string' ? outputRecord.output : decoded.outputText
   const changes = changeSummary(tool)
   const duration =
     tool.startedAt && tool.finishedAt
@@ -349,8 +261,12 @@ function ToolRow({ tool }: { tool: ToolCallItem }): React.JSX.Element {
         >
           {describeTool(tool)}
         </span>
-        {changes && <span className="shrink-0 font-mono text-[9.5px] text-text-muted/80">{changes}</span>}
-        {duration && <span className="shrink-0 font-mono text-[9.5px] text-text-muted/70">{duration}</span>}
+        {changes && (
+          <span className="shrink-0 font-mono text-[9.5px] text-text-muted/80">{changes}</span>
+        )}
+        {duration && (
+          <span className="shrink-0 font-mono text-[9.5px] text-text-muted/70">{duration}</span>
+        )}
         <ActivityState tool={tool} />
         <CaretDown
           size={11}
@@ -384,7 +300,7 @@ function ToolRow({ tool }: { tool: ToolCallItem }): React.JSX.Element {
               </div>
             ) : (
               <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/25 p-2.5 font-mono text-[10.5px] leading-relaxed text-text-secondary custom-scrollbar">
-                {stringify(args)}
+                {stringifyHarnessValue(args)}
               </pre>
             )}
           </DetailBlock>
@@ -430,7 +346,10 @@ function Sources({ sources }: { sources: HarnessSource[] }): React.JSX.Element |
       >
         <GlobeSimple size={13} />
         <span className="flex-1">Sources ({sources.length})</span>
-        <CaretDown size={11} className={clsx('transition-transform duration-200', expanded && 'rotate-180')} />
+        <CaretDown
+          size={11}
+          className={clsx('transition-transform duration-200', expanded && 'rotate-180')}
+        />
       </button>
       {expanded && (
         <div className="ml-[6px] mt-1 grid gap-0.5 border-l border-white/[0.07] pb-0.5 pl-3.5 animate-fade-in">
@@ -475,7 +394,10 @@ export class HarnessActivityBoundary extends React.Component<
   render(): React.ReactNode {
     if (this.state.hasError) {
       return (
-        <div role="alert" className="mb-3 flex items-center gap-2 px-1 py-1.5 text-xs text-status-error/85">
+        <div
+          role="alert"
+          className="mb-3 flex items-center gap-2 px-1 py-1.5 text-xs text-status-error/85"
+        >
           <XCircle size={13} weight="fill" />
           <span>{this.props.fallbackMessage || 'Activity details could not render.'}</span>
           <button
@@ -511,7 +433,7 @@ export function HarnessSteps({
   const [thinkingExpanded, setThinkingExpanded] = useState(false)
   const harnessTools = tools.filter((tool) => HARNESS_NAMES.has(tool.name))
   const sources = useMemo(
-    () => harnessTools.flatMap((tool) => decodeToolResult(tool.result).sources),
+    () => harnessTools.flatMap((tool) => decodeHarnessToolResult(tool.result).sources),
     [harnessTools]
   )
 
@@ -527,7 +449,8 @@ export function HarnessSteps({
     <section
       className={clsx(
         'mb-3 w-full max-w-[680px] select-none',
-        reduceMotion && '[&_*]:!transition-none [&_.animate-spin]:!animate-none [&_.tool-shimmer-text]:!animate-none [&_.tool-shimmer-text]:!text-text-secondary [&_.tool-shimmer-text]:!bg-none [&_.tool-shimmer-text]:![-webkit-text-fill-color:currentColor]'
+        reduceMotion &&
+          '[&_*]:!transition-none [&_.animate-spin]:!animate-none [&_.tool-shimmer-text]:!animate-none [&_.tool-shimmer-text]:!text-text-secondary [&_.tool-shimmer-text]:!bg-none [&_.tool-shimmer-text]:![-webkit-text-fill-color:currentColor]'
       )}
       aria-label="Harness activity"
     >
@@ -597,7 +520,10 @@ export function HarnessSteps({
             </div>
           )}
 
-          {showSteps && harnessTools.map((tool, index) => <ToolRow key={tool.id || `${tool.name}-${index}`} tool={tool} />)}
+          {showSteps &&
+            harnessTools.map((tool, index) => (
+              <ToolRow key={tool.id || `${tool.name}-${index}`} tool={tool} />
+            ))}
           <Sources sources={sources} />
         </div>
       )}

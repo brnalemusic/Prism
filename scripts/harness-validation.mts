@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { installBrokenPipeGuard } from '../src/main/brokenPipeGuard.ts'
 import {
   changesDiff,
   parsePatchSections,
@@ -17,11 +19,16 @@ import {
   HARNESS_SYSTEM_MAX_CHARACTERS
 } from '../src/main/harnessPrompt.ts'
 import {
+  createPinnedModelInvoker,
   resolveRequestModelKey,
-  resolveRunWorkspace,
-  withPinnedModel
+  resolveRunWorkspace
 } from '../src/main/ai/sessionRuntime.ts'
 import { PerChatStreamBuffer } from '../src/renderer/src/chatStreamBuffer.ts'
+import {
+  asHarnessRecord,
+  decodeHarnessToolResult,
+  stringifyHarnessValue
+} from '../src/renderer/src/harnessToolPresentation.ts'
 import { applyToolCallEnd, applyToolCallStart } from '../src/renderer/src/toolCallState.ts'
 import type { EffectiveHarnessSettings } from '../src/shared/types.ts'
 
@@ -171,12 +178,16 @@ test('Harness pins its session model and never falls through to Chat selection',
 })
 
 test('tool rounds keep the pinned provider model after a tool response', () => {
-  const observedModels: string[] = []
+  const observedRuns: Array<{ provider: string; model: string }> = []
+  const invokePinnedModel = createPinnedModelInvoker({ id: 'harness-provider' }, 'selected-model')
   let mutableChatModel = 'chat-default'
-  withPinnedModel('selected-model', (modelId) => observedModels.push(modelId))
+  invokePinnedModel((provider, model) => observedRuns.push({ provider: provider.id, model }))
   mutableChatModel = 'chat-model-changed-after-tool'
-  withPinnedModel('selected-model', (modelId) => observedModels.push(modelId))
-  assert.deepEqual(observedModels, ['selected-model', 'selected-model'])
+  invokePinnedModel((provider, model) => observedRuns.push({ provider: provider.id, model }))
+  assert.deepEqual(observedRuns, [
+    { provider: 'harness-provider', model: 'selected-model' },
+    { provider: 'harness-provider', model: 'selected-model' }
+  ])
   assert.equal(mutableChatModel, 'chat-model-changed-after-tool')
 })
 
@@ -222,6 +233,34 @@ test('tool lifecycle reconciles by call id even when an end event arrives first'
     timestamp: 10
   })
   assert.equal(restarted.length, 1)
-  assert.equal(restarted[0].status, 'running')
+  assert.equal(restarted[0].status, 'done')
+  assert.equal(restarted[0].result, JSON.stringify({ ok: true, output: 'done' }))
   assert.deepEqual(restarted[0].args, { path: 'README.md' })
+})
+
+test('malformed Harness tool data is normalized into a renderable fallback', () => {
+  const decoded = decodeHarnessToolResult('{not-json')
+  assert.equal(decoded.outputText, '{not-json')
+  assert.deepEqual(decoded.sources, [])
+  assert.deepEqual(asHarnessRecord(['invalid', 'arguments']), {})
+
+  const circular: Record<string, unknown> = {}
+  circular.self = circular
+  assert.equal(stringifyHarnessValue(circular), '[object Object]')
+})
+
+test('closed parent log pipes do not crash the Electron main process', () => {
+  const brokenPipe = new EventEmitter()
+  installBrokenPipeGuard(brokenPipe)
+  assert.doesNotThrow(() => {
+    brokenPipe.emit('error', Object.assign(new Error('broken pipe'), { code: 'EPIPE' }))
+  })
+
+  const unexpectedFailure = new EventEmitter()
+  installBrokenPipeGuard(unexpectedFailure)
+  assert.throws(
+    () =>
+      unexpectedFailure.emit('error', Object.assign(new Error('disk failure'), { code: 'EIO' })),
+    /disk failure/
+  )
 })
