@@ -49,7 +49,8 @@ import type {
   Message,
   AttachedFile,
   StreamingToolCall,
-  ToolCallItem
+  ToolCallItem,
+  HarnessRoundItem
 } from './types/tab'
 import {
   StreamContext,
@@ -1145,8 +1146,6 @@ interface AiMessageRowProps {
   onSendSuggestion?: (payload: string, suggestionKey: string) => boolean
   suggestionMessageKey: string
   isSuggestionSendDisabled: boolean
-  inactivityLabel?: string | null
-  activeToolLabel?: string | null
   sessionMode: SessionMode
   harnessUi?: {
     showSteps: boolean
@@ -1164,11 +1163,11 @@ const AiMessageRow = React.memo(function AiMessageRow({
   onSendSuggestion,
   suggestionMessageKey,
   isSuggestionSendDisabled,
-  inactivityLabel,
-  activeToolLabel,
   sessionMode,
   harnessUi
 }: AiMessageRowProps) {
+  const inactivityLabel = useInactivityLabel(msg)
+  const { activeToolLabel } = useActiveToolLabel(msg)
   const cleanContentText = hideInternalImageReferences(msg.content || '')
     .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)/g, '')
     .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/g, '')
