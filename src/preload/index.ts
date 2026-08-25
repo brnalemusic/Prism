@@ -23,7 +23,8 @@ import type {
   ToolAttachment,
   RetryImageGenerationRequest,
   SaveGeneratedImageRequest,
-  SaveGeneratedImageResult
+  SaveGeneratedImageResult,
+  WorkspaceKind
 } from '../shared/types'
 import type { ChatSession } from '../main/history'
 import type {
@@ -163,38 +164,76 @@ const api = {
   clearChat: (): void => ipcRenderer.send('clear-chat'),
   cancelChat: (chatId?: string): void => ipcRenderer.send('chat-cancel', chatId),
   onChatStart: (
-    callback: (data: { chatId: string; userMessage?: { role: 'user'; content: string } }) => void
+    callback: (data: {
+      chatId: string
+      workspace: WorkspaceKind
+      userMessage?: { role: 'user'; content: string }
+    }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { chatId: string; userMessage?: { role: 'user'; content: string } }
+      data: {
+        chatId: string
+        workspace: WorkspaceKind
+        userMessage?: { role: 'user'; content: string }
+      }
     ): void => callback(data)
     ipcRenderer.on('chat-reply-start', listener)
     return () => ipcRenderer.removeListener('chat-reply-start', listener)
   },
   onChatChunk: (
-    callback: (data: StructuredChatResponse & { chatId: string }) => void
+    callback: (
+      data: StructuredChatResponse & {
+        chatId: string
+        workspace: WorkspaceKind
+        harnessRound?: number
+        harnessRoundContent?: string
+        harnessRoundThoughts?: string
+      }
+    ) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: StructuredChatResponse & { chatId: string }
+      data: StructuredChatResponse & {
+        chatId: string
+        workspace: WorkspaceKind
+        harnessRound?: number
+        harnessRoundContent?: string
+        harnessRoundThoughts?: string
+      }
     ): void => callback(data)
     ipcRenderer.on('chat-reply-chunk', listener)
     return () => ipcRenderer.removeListener('chat-reply-chunk', listener)
   },
   onChatEnd: (
-    callback: (data: StructuredChatResponse & { chatId: string }) => void
+    callback: (
+      data: StructuredChatResponse & {
+        chatId: string
+        workspace: WorkspaceKind
+        harnessRoundContent?: string
+        harnessRoundThoughts?: string
+      }
+    ) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: StructuredChatResponse & { chatId: string }
+      data: StructuredChatResponse & {
+        chatId: string
+        workspace: WorkspaceKind
+        harnessRoundContent?: string
+        harnessRoundThoughts?: string
+      }
     ): void => callback(data)
     ipcRenderer.on('chat-reply-end', listener)
     return () => ipcRenderer.removeListener('chat-reply-end', listener)
   },
-  onChatError: (callback: (data: { error: string; chatId: string }) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, data: { error: string; chatId: string }): void =>
-      callback(data)
+  onChatError: (
+    callback: (data: { error: string; chatId: string; workspace: WorkspaceKind }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: { error: string; chatId: string; workspace: WorkspaceKind }
+    ): void => callback(data)
     ipcRenderer.on('chat-reply-error', listener)
     return () => ipcRenderer.removeListener('chat-reply-error', listener)
   },
@@ -205,6 +244,7 @@ const api = {
       args: Record<string, unknown>
       timestamp?: number
       chatId: string
+      workspace: WorkspaceKind
     }) => void
   ): (() => void) => {
     const listener = (
@@ -215,6 +255,7 @@ const api = {
         args: Record<string, unknown>
         timestamp?: number
         chatId: string
+        workspace: WorkspaceKind
       }
     ): void => callback(data)
     ipcRenderer.on('chat-tool-start', listener)
@@ -227,6 +268,7 @@ const api = {
       result: string
       attachments?: ToolAttachment[]
       chatId: string
+      workspace: WorkspaceKind
     }) => void
   ): (() => void) => {
     const listener = (
@@ -237,6 +279,7 @@ const api = {
         result: string
         attachments?: ToolAttachment[]
         chatId: string
+        workspace: WorkspaceKind
       }
     ): void => callback(data)
     ipcRenderer.on('chat-tool-end', listener)
@@ -793,8 +836,21 @@ const api = {
   getActiveModels: (): Promise<any> => {
     return ipcRenderer.invoke('get-active-models')
   },
-  onToolCallDelta: (callback: (delta: any) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, delta: any): void => callback(delta)
+  onToolCallDelta: (
+    callback: (
+      delta: import('../shared/types').StreamToolCallDelta & {
+        chatId: string
+        workspace: WorkspaceKind
+      }
+    ) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      delta: import('../shared/types').StreamToolCallDelta & {
+        chatId: string
+        workspace: WorkspaceKind
+      }
+    ): void => callback(delta)
     ipcRenderer.on('chat-tool-call-delta', listener)
     return () => ipcRenderer.removeListener('chat-tool-call-delta', listener)
   },

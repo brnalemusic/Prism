@@ -11,7 +11,7 @@ import { LoadingScreen } from './components/LoadingScreen'
 import { OfflineBanner } from './components/OfflineBanner'
 import { Sidebar } from './components/Sidebar'
 import { ToolCallIndicator } from './components/ActionLoader'
-import { HarnessSteps } from './components/HarnessSteps'
+import { HarnessActivityBoundary, HarnessSteps } from './components/HarnessSteps'
 import { HarnessContextInjection } from './components/HarnessContextInjection'
 import { HarnessApprovalDialog } from './components/HarnessApprovalDialog'
 import { HarnessProjectModal } from './components/HarnessProjectModal'
@@ -257,7 +257,10 @@ function consolidateToolCalls(
       if (!isAlreadyExecuted) {
         let parsedArgs: Record<string, unknown> = {}
         try {
-          parsedArgs = JSON.parse(stc.arguments)
+          const parsed = JSON.parse(stc.arguments) as unknown
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            parsedArgs = parsed as Record<string, unknown>
+          }
         } catch {
           try {
             const filePathMatch = stc.arguments.match(
@@ -339,6 +342,43 @@ function consolidateToolCalls(
   }
 
   return allCalls
+}
+
+function hasHarnessActivity(message: Message): boolean {
+  return Boolean(
+    message.toolCalls?.length || message.streamingToolCalls?.length || message.isWritingToolCall
+  )
+}
+
+function hasHarnessTextOrThinking(message: Message): boolean {
+  return Boolean(message.content.trim() || message.thoughts?.trim())
+}
+
+function createHarnessActivityMessage(): Message {
+  return {
+    role: 'ai',
+    content: '',
+    thoughts: '',
+    isStreaming: true,
+    isThinking: false,
+    isWritingToolCall: true,
+    isConnecting: false,
+    toolCalls: [],
+    workStartTime: Date.now()
+  }
+}
+
+function createHarnessTextMessage(): Message {
+  return {
+    role: 'ai',
+    content: '',
+    thoughts: '',
+    isStreaming: true,
+    isThinking: false,
+    isWritingToolCall: false,
+    isConnecting: false,
+    workStartTime: Date.now()
+  }
 }
 
 interface AiMessageProps {
@@ -1153,45 +1193,48 @@ const AiMessageRow = React.memo(function AiMessageRow({
         </>
       )}
 
-      {isHarness && (
-        <HarnessSteps
-          key={isActive ? 'harness-steps-active' : 'harness-steps-complete'}
-          tools={harnessToolCalls}
-          thoughts={msg.thoughts}
-          isActive={Boolean(isActive)}
-          showSteps={harnessUi?.showSteps !== false}
-          showThinking={harnessUi?.showThinking !== false}
-          reduceMotion={harnessUi?.reduceMotion === true}
-        />
+      {(hasContent || !isHarness) && (
+        <div className="w-full text-text-primary" data-prism-ai-message="true">
+          {!isHarness && !hasContent && isActive && !hasImageGeneration ? (
+            <div className="flex items-center gap-1.5 h-6 select-none">
+              {activeToolLabel ? (
+                <ToolCallIndicator overrideLabel={activeToolLabel} />
+              ) : inactivityLabel ? (
+                <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
+              ) : (
+                <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
+              )}
+            </div>
+          ) : (
+            <AiMessage
+              msg={msg}
+              currentChatId={currentChatId}
+              handleLoadChat={handleLoadChat}
+              markdownComponents={markdownComponents}
+              onOpenBrowserTab={onOpenBrowserTab}
+              onSendSuggestion={onSendSuggestion}
+              suggestionMessageKey={suggestionMessageKey}
+              isSuggestionSendDisabled={isSuggestionSendDisabled}
+              inactivityLabel={inactivityLabel}
+              activeToolLabel={activeToolLabel}
+              isHarness={isHarness}
+            />
+          )}
+        </div>
       )}
 
-      <div className="w-full text-text-primary" data-prism-ai-message="true">
-        {!isHarness && !hasContent && isActive && !hasImageGeneration ? (
-          <div className="flex items-center gap-1.5 h-6 select-none">
-            {activeToolLabel ? (
-              <ToolCallIndicator overrideLabel={activeToolLabel} />
-            ) : inactivityLabel ? (
-              <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
-            ) : (
-              <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
-            )}
-          </div>
-        ) : (
-          <AiMessage
-            msg={msg}
-            currentChatId={currentChatId}
-            handleLoadChat={handleLoadChat}
-            markdownComponents={markdownComponents}
-            onOpenBrowserTab={onOpenBrowserTab}
-            onSendSuggestion={onSendSuggestion}
-            suggestionMessageKey={suggestionMessageKey}
-            isSuggestionSendDisabled={isSuggestionSendDisabled}
-            inactivityLabel={inactivityLabel}
-            activeToolLabel={activeToolLabel}
-            isHarness={isHarness}
+      {isHarness && (
+        <HarnessActivityBoundary key={isActive ? 'harness-activity-active' : 'harness-activity-complete'}>
+          <HarnessSteps
+            tools={harnessToolCalls}
+            thoughts={msg.thoughts}
+            isActive={Boolean(isActive)}
+            showSteps={harnessUi?.showSteps !== false}
+            showThinking={harnessUi?.showThinking !== false}
+            reduceMotion={harnessUi?.reduceMotion === true}
           />
-        )}
-      </div>
+        </HarnessActivityBoundary>
+      )}
     </div>
   )
 })
@@ -2638,25 +2681,31 @@ function RealApp(): React.JSX.Element {
                 ? c.workedDuration
                 : undefined
 
-          const rawToolCalls = c.tool_calls || c.toolCalls || []
+          const rawToolCalls = Array.isArray(c.tool_calls)
+            ? c.tool_calls
+            : Array.isArray(c.toolCalls)
+              ? c.toolCalls
+              : []
 
           const toolCalls: (ToolCallItem & { id?: string })[] = rawToolCalls.map((tc: any) => {
             const name = tc.function?.name || tc.name || ''
             let args: Record<string, unknown> = {}
             if (typeof tc.function?.arguments === 'string') {
               try {
-                args = JSON.parse(tc.function.arguments)
+                const parsed = JSON.parse(tc.function.arguments) as unknown
+                args = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
               } catch {
                 args = { raw: tc.function.arguments }
               }
             } else if (typeof tc.args === 'string') {
               try {
-                args = JSON.parse(tc.args)
+                const parsed = JSON.parse(tc.args) as unknown
+                args = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
               } catch {
                 args = { raw: tc.args }
               }
-            } else if (tc.args && typeof tc.args === 'object') {
-              args = tc.args
+            } else if (tc.args && typeof tc.args === 'object' && !Array.isArray(tc.args)) {
+              args = tc.args as Record<string, unknown>
             }
 
             let result: string | undefined = undefined
@@ -2717,7 +2766,9 @@ function RealApp(): React.JSX.Element {
           }
 
           const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null
-          if (lastMsg && lastMsg.role === 'ai') {
+          const shouldStartHarnessSegment =
+            workspace === 'harness' && lastMsg?.role === 'ai' && Boolean(lastMsg.toolCalls?.length)
+          if (lastMsg && lastMsg.role === 'ai' && !shouldStartHarnessSegment) {
             // Merge into existing AI message for this prompt turn
             lastMsg.content = combineContent(lastMsg.content, rawText)
             lastMsg.thoughts = combineThoughts(lastMsg.thoughts, thoughts)
@@ -3262,6 +3313,11 @@ function RealApp(): React.JSX.Element {
     const flushChunk = (
       data: Parameters<Parameters<typeof window.api.onChatChunk>[0]>[0]
     ): void => {
+      const harnessChunk = data as typeof data & {
+        harnessRound?: number
+        harnessRoundContent?: string
+        harnessRoundThoughts?: string
+      }
       const {
         chatId,
         thoughts,
@@ -3276,8 +3332,35 @@ function RealApp(): React.JSX.Element {
         prevTabs.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
-            const lastMsgIndex = newMessages.length - 1
-            const lastMsg = newMessages[lastMsgIndex]
+            const isHarness = tab.sessionMode === 'harness'
+            const displayContent =
+              isHarness && harnessChunk.harnessRoundContent !== undefined
+                ? harnessChunk.harnessRoundContent
+                : finalResponse
+            const displayThoughts =
+              isHarness && harnessChunk.harnessRoundThoughts !== undefined
+                ? harnessChunk.harnessRoundThoughts
+                : thoughts
+            let lastMsgIndex = newMessages.length - 1
+            let lastMsg = newMessages[lastMsgIndex]
+
+            if (
+              isHarness &&
+              lastMsg?.role === 'ai' &&
+              hasHarnessActivity(lastMsg) &&
+              Boolean(displayContent.trim() || displayThoughts?.trim())
+            ) {
+              newMessages[lastMsgIndex] = {
+                ...lastMsg,
+                isStreaming: false,
+                isThinking: false,
+                isWritingToolCall: false,
+                isConnecting: false
+              }
+              newMessages.push(createHarnessTextMessage())
+              lastMsgIndex = newMessages.length - 1
+              lastMsg = newMessages[lastMsgIndex]
+            }
 
             if (lastMsg && lastMsg.role === 'ai') {
               let updatedToolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
@@ -3313,8 +3396,8 @@ function RealApp(): React.JSX.Element {
 
               newMessages[lastMsgIndex] = {
                 ...lastMsg,
-                thoughts,
-                content: finalResponse,
+                thoughts: displayThoughts,
+                content: displayContent,
                 isThinking,
                 thinkingStartTime: startTime,
                 thinkingDuration: duration,
@@ -3322,7 +3405,7 @@ function RealApp(): React.JSX.Element {
                 workedDuration: currentWorkedDuration,
                 isWritingToolCall,
                 toolType,
-                streamingToolCalls,
+                streamingToolCalls: isHarness ? lastMsg.streamingToolCalls : streamingToolCalls,
                 isConnecting: false,
                 toolCalls: updatedToolCalls
               }
@@ -3336,6 +3419,17 @@ function RealApp(): React.JSX.Element {
           return tab
         })
       )
+    }
+
+    const flushPendingChunk = (chatId?: string): void => {
+      const pendingData = pendingChunkRef.current
+      if (!pendingData || (chatId && pendingData.chatId !== chatId)) return
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current)
+        rafIdRef.current = null
+      }
+      pendingChunkRef.current = null
+      flushChunk(pendingData)
     }
 
     // Batch rapid chunk events into a single state update per animation frame.
@@ -3371,6 +3465,10 @@ function RealApp(): React.JSX.Element {
         flushChunk(pendingData)
       }
 
+      const harnessEnd = data as typeof data & {
+        harnessRoundContent?: string
+        harnessRoundThoughts?: string
+      }
       const {
         chatId,
         thoughts,
@@ -3388,8 +3486,35 @@ function RealApp(): React.JSX.Element {
         prevTabs.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
-            const lastMsgIndex = newMessages.length - 1
-            const lastMsg = newMessages[lastMsgIndex]
+            const isHarness = tab.sessionMode === 'harness'
+            const finalContent =
+              isHarness && harnessEnd.harnessRoundContent !== undefined
+                ? harnessEnd.harnessRoundContent
+                : finalResponse
+            const finalThoughts =
+              isHarness && harnessEnd.harnessRoundThoughts !== undefined
+                ? harnessEnd.harnessRoundThoughts
+                : thoughts
+            let lastMsgIndex = newMessages.length - 1
+            let lastMsg = newMessages[lastMsgIndex]
+
+            if (
+              isHarness &&
+              lastMsg?.role === 'ai' &&
+              hasHarnessActivity(lastMsg) &&
+              Boolean(finalContent.trim() || finalThoughts?.trim())
+            ) {
+              newMessages[lastMsgIndex] = {
+                ...lastMsg,
+                isStreaming: false,
+                isThinking: false,
+                isWritingToolCall: false,
+                isConnecting: false
+              }
+              newMessages.push(createHarnessTextMessage())
+              lastMsgIndex = newMessages.length - 1
+              lastMsg = newMessages[lastMsgIndex]
+            }
 
             if (lastMsg && lastMsg.role === 'ai') {
               let promotedToolCalls = lastMsg.toolCalls || []
@@ -3405,7 +3530,10 @@ function RealApp(): React.JSX.Element {
                   if (!alreadyExists) {
                     let parsedArgs: Record<string, unknown> = {}
                     try {
-                      parsedArgs = JSON.parse(stc.arguments)
+                      const parsed = JSON.parse(stc.arguments) as unknown
+                      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                        parsedArgs = parsed as Record<string, unknown>
+                      }
                     } catch {
                       /* ignore */
                     }
@@ -3450,8 +3578,8 @@ function RealApp(): React.JSX.Element {
 
               newMessages[lastMsgIndex] = {
                 ...lastMsg,
-                thoughts,
-                content: finalResponse,
+                thoughts: finalThoughts,
+                content: finalContent,
                 isStreaming: false,
                 isThinking: false,
                 thinkingDuration: duration,
@@ -3589,12 +3717,33 @@ function RealApp(): React.JSX.Element {
 
     const removeToolCallDeltaListener = window.api.onToolCallDelta((data) => {
       const { chatId, index, id, name, argsDelta } = data
+      // Preserve a provider's textual preface when text and tool deltas arrive
+      // in the same animation frame. This keeps the Harness chronology textual.
+      flushPendingChunk(chatId)
       const setTargetTabs = setTabsForChat(chatId)
       setTargetTabs((prev) =>
         prev.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
-            const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
+            let lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
+            let lastMsg = lastMsgIndex !== -1 ? newMessages[lastMsgIndex] : undefined
+            if (
+              tab.sessionMode === 'harness' &&
+              lastMsg?.role === 'ai' &&
+              !hasHarnessActivity(lastMsg) &&
+              hasHarnessTextOrThinking(lastMsg)
+            ) {
+              newMessages[lastMsgIndex] = {
+                ...lastMsg,
+                isStreaming: false,
+                isThinking: false,
+                isWritingToolCall: false,
+                isConnecting: false
+              }
+              newMessages.push(createHarnessActivityMessage())
+              lastMsgIndex = newMessages.length - 1
+              lastMsg = newMessages[lastMsgIndex]
+            }
             if (lastMsgIndex !== -1) {
               const lastMsg = { ...newMessages[lastMsgIndex] }
               const streamingToolCalls = lastMsg.streamingToolCalls
@@ -3648,6 +3797,7 @@ function RealApp(): React.JSX.Element {
 
     const removeToolStartListener = window.api.onToolStart((data) => {
       const { chatId } = data
+      flushPendingChunk(chatId)
       const setTargetTabs = setTabsForChat(chatId)
       setTargetTabs((prev) => {
         let newTabs = prev.map((tab) => {
@@ -3657,10 +3807,29 @@ function RealApp(): React.JSX.Element {
               (msg) =>
                 msg.role === 'ai' && msg.toolCalls?.some((toolCall) => toolCall.id === data.callId)
             )
-            const targetMsgIndex =
+            let targetMsgIndex =
               existingMsgIndex !== -1
                 ? existingMsgIndex
                 : newMessages.findLastIndex((msg) => msg.role === 'ai')
+            const targetMessage =
+              targetMsgIndex !== -1 ? newMessages[targetMsgIndex] : undefined
+            if (
+              tab.sessionMode === 'harness' &&
+              existingMsgIndex === -1 &&
+              targetMessage?.role === 'ai' &&
+              !hasHarnessActivity(targetMessage) &&
+              hasHarnessTextOrThinking(targetMessage)
+            ) {
+              newMessages[targetMsgIndex] = {
+                ...targetMessage,
+                isStreaming: false,
+                isThinking: false,
+                isWritingToolCall: false,
+                isConnecting: false
+              }
+              newMessages.push(createHarnessActivityMessage())
+              targetMsgIndex = newMessages.length - 1
+            }
             if (targetMsgIndex !== -1) {
               const lastMsg = { ...newMessages[targetMsgIndex] }
               lastMsg.toolCalls = applyToolCallStart(lastMsg.toolCalls || [], data)

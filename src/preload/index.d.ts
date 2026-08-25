@@ -20,7 +20,8 @@ import type {
   HarnessContextSnapshot,
   RetryImageGenerationRequest,
   SaveGeneratedImageRequest,
-  SaveGeneratedImageResult
+  SaveGeneratedImageResult,
+  WorkspaceKind
 } from '../shared/types'
 import type {
   DemoDownloadResult,
@@ -82,12 +83,37 @@ export interface PrismAPI {
   clearChat: () => void
   cancelChat: (chatId?: string) => void
   onChatStart: (
-    callback: (data: { chatId: string; userMessage?: { role: 'user'; content: string } }) => void
+    callback: (data: {
+      chatId: string
+      workspace: WorkspaceKind
+      userMessage?: { role: 'user'; content: string }
+    }) => void
   ) => () => void
 
-  onChatChunk: (callback: (data: StructuredChatResponse & { chatId: string }) => void) => () => void
-  onChatEnd: (callback: (data: StructuredChatResponse & { chatId: string }) => void) => () => void
-  onChatError: (callback: (data: { error: string; chatId: string }) => void) => () => void
+  onChatChunk: (
+    callback: (
+      data: StructuredChatResponse & {
+        chatId: string
+        workspace: WorkspaceKind
+        harnessRound?: number
+        harnessRoundContent?: string
+        harnessRoundThoughts?: string
+      }
+    ) => void
+  ) => () => void
+  onChatEnd: (
+    callback: (
+      data: StructuredChatResponse & {
+        chatId: string
+        workspace: WorkspaceKind
+        harnessRoundContent?: string
+        harnessRoundThoughts?: string
+      }
+    ) => void
+  ) => () => void
+  onChatError: (
+    callback: (data: { error: string; chatId: string; workspace: WorkspaceKind }) => void
+  ) => () => void
   onToolStart: (
     callback: (data: {
       callId: string
@@ -95,6 +121,7 @@ export interface PrismAPI {
       args: Record<string, unknown>
       timestamp?: number
       chatId: string
+      workspace: WorkspaceKind
     }) => void
   ) => () => void
   onToolEnd: (
@@ -104,6 +131,7 @@ export interface PrismAPI {
       result: string
       attachments?: ToolAttachment[]
       chatId: string
+      workspace: WorkspaceKind
     }) => void
   ) => () => void
   onDiscordVoiceState: (callback: (data: DiscordVoiceStateEvent) => void) => () => void
@@ -329,7 +357,12 @@ export interface PrismAPI {
     }>
   >
   onToolCallDelta: (
-    callback: (delta: import('../shared/types').StreamToolCallDelta & { chatId: string }) => void
+    callback: (
+      delta: import('../shared/types').StreamToolCallDelta & {
+        chatId: string
+        workspace: WorkspaceKind
+      }
+    ) => void
   ) => () => void
   onBrowserAction: (
     callback: (action: import('../shared/types').BrowserAction) => void

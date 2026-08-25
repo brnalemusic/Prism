@@ -95,6 +95,7 @@ export const InputBar = React.memo(
         isProcessing,
         isKeyMissing,
         selectedModel = '',
+        onModelChange,
         text,
         setText,
         quotedText,
@@ -934,6 +935,7 @@ export const InputBar = React.memo(
                 isEnterprise={isEnterprise}
                 disabled={disabled}
                 align="right"
+                menuPlacement="top"
               />
             )}
 

@@ -32,6 +32,7 @@ interface ModelSelectorProps {
   isEnterprise?: boolean
   disabled?: boolean
   align?: 'left' | 'right'
+  menuPlacement?: 'top' | 'bottom'
   allowedCompletionTypes?: CompletionType[]
   allowClear?: boolean
 }
@@ -49,6 +50,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
       isEnterprise: isEnterpriseProp,
       disabled,
       align = 'right',
+      menuPlacement = 'bottom',
       allowedCompletionTypes,
       allowClear = false
     },
@@ -248,7 +250,10 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         {isOpen && (
           <div
             className={clsx(
-              'glass-panel-floating absolute top-full mt-2 w-72 sm:w-80 z-[200] rounded-2xl border border-white/[0.16] shadow-[0_24px_60px_rgba(0,0,0,0.8),var(--glass-specular-top)] overflow-hidden flex flex-col max-h-96 animate-soft-pop',
+              'glass-panel-floating absolute w-72 sm:w-80 z-[200] rounded-2xl border border-white/[0.16] shadow-[0_24px_60px_rgba(0,0,0,0.8),var(--glass-specular-top)] overflow-hidden flex flex-col max-h-96 animate-soft-pop',
+              menuPlacement === 'top'
+                ? 'bottom-full mb-2 origin-bottom'
+                : 'top-full mt-2 origin-top',
               align === 'left' ? 'left-0' : 'right-0'
             )}
           >

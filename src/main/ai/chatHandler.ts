@@ -6,7 +6,9 @@ import {
   AttachedFile,
   HarnessApprovalItem,
   HarnessToolName,
-  HarnessContextSnapshot
+  HarnessContextSnapshot,
+  EffectiveHarnessSettings,
+  WorkspaceKind
 } from '../../shared/types'
 import type { ToolImageAttachment } from '../toolAttachments'
 import { getSystemToolsPrompt, setActiveCwd, setCurrentSessionIdForTodo } from '../systemTools'
@@ -25,7 +27,11 @@ import { safeSend, broadcastIpc } from '../safeSend'
 import { getOpenAiToolDefinitions } from '../toolRuntime'
 import { unlockBrowserToolsForSession } from '../skillsManager'
 import { normalizePrismThinkingLevel } from './prismThinking'
-import { createTerminalNotificationMessage, runToolOrchestration } from './toolOrchestrator'
+import {
+  createTerminalNotificationMessage,
+  runToolOrchestration,
+  type ToolOrchestratorOptions
+} from './toolOrchestrator'
 import { markConnectionActive } from '../connection'
 import {
   getPendingProcessNotifications,
@@ -70,6 +76,78 @@ function harnessSystemPromptLabel(modelId: string): string {
     .replace(/\s+/g, '-')
     .toLowerCase()
   return `@${cleanId}/harness-system-prompt`
+}
+
+function parseThoughtAndContent(
+  rawText: string,
+  extraReasoning: string
+): { thoughts: string; content: string } {
+  let thoughts = extraReasoning || ''
+  let content = rawText
+  const thinkMatch = rawText.match(/<think>([\s\S]*?)(?:<\/think>|$)/i)
+  if (thinkMatch) {
+    thoughts = thoughts ? `${thoughts}\n${thinkMatch[1]}` : thinkMatch[1]
+    content = rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*/gi, '')
+  }
+  return { thoughts, content }
+}
+
+function createHarnessBeforeToolBatch(
+  chatId: string,
+  projectPath: string,
+  settings: EffectiveHarnessSettings,
+  signal: AbortSignal
+): NonNullable<ToolOrchestratorOptions['beforeToolBatch']> {
+  return async (calls) => {
+    const callsRequiringApproval = calls.filter((call) => call.name !== 'to_ask')
+    if (callsRequiringApproval.length === 0) return true
+    const needsApproval =
+      settings.defaultPermissionMode === 'ask' ||
+      (settings.defaultPermissionMode === 'yolo' && !settings.yoloAcknowledged) ||
+      (settings.defaultPermissionMode === 'independent' &&
+        callsRequiringApproval.some((call) =>
+          harnessToolRequiresExternalApproval(call.name, call.args)
+        ))
+    if (!needsApproval) return true
+    const items: HarnessApprovalItem[] = await Promise.all(
+      calls.map(async (call) => {
+        try {
+          return await previewHarnessTool(call.callId, call.name, call.args, projectPath)
+        } catch (error) {
+          return {
+            callId: call.callId,
+            name: call.name as HarnessToolName,
+            label: getHarnessToolLabel(call.name),
+            args:
+              call.args && typeof call.args === 'object' && !Array.isArray(call.args)
+                ? (call.args as Record<string, unknown>)
+                : {},
+            preview: `Unable to prepare preview: ${error instanceof Error ? error.message : String(error)}`,
+            destructive: true
+          }
+        }
+      })
+    )
+    return requestHarnessApproval(chatId, projectPath, items, signal)
+  }
+}
+
+function createHarnessToolExecutor(
+  projectPath: string,
+  settings: EffectiveHarnessSettings
+): NonNullable<ToolOrchestratorOptions['executeTool']> {
+  return async (name, args, context, loopGuard) => {
+    const repeatedError = loopGuard.register(name, args)
+    if (repeatedError) {
+      const envelope: ToolResultEnvelope = { ok: false, error: repeatedError }
+      return { args: {}, envelope, modelContent: JSON.stringify(envelope) }
+    }
+    return executeHarnessTool(name, args, {
+      ...context,
+      projectRoot: projectPath,
+      settings
+    })
+  }
 }
 
 const SUPPORTED_CHAT_IMAGE_MIME_TYPES = new Set<ToolImageAttachment['mimeType']>([
@@ -239,26 +317,11 @@ export async function handleChatMessage(
   if (workspace === 'chat' && sessionMode === 'harness') {
     safeSend(event.sender, 'chat-reply-error', {
       error: 'Harness requests must be sent from the Harness workspace.',
-      chatId
+      chatId,
+      workspace
     })
     return
   }
-
-  if (typeof data === 'object' && data.modelKey) {
-    currentSelectedChatModel = data.modelKey
-  }
-
-  const { provider, model } = resolveProviderAndModel(currentSelectedChatModel)
-
-  if (!provider || !provider.apiKey || !model) {
-    safeSend(event.sender, 'chat-reply-error', {
-      error: 'API_KEY_ERROR:401:API Key or Active Model Missing',
-      chatId
-    })
-    return
-  }
-
-  markConnectionActive()
 
   if (activeRuns.has(chatId)) {
     console.log(`Chat ${chatId} is already running. Ignoring duplicate.`)
@@ -266,6 +329,31 @@ export async function handleChatMessage(
   }
 
   const session = loadChatSession(chatId, workspace)
+  const payloadModelKey =
+    typeof data === 'object' && typeof data.modelKey === 'string' ? data.modelKey.trim() : ''
+  const requestModelKey =
+    payloadModelKey ||
+    (workspace === 'harness' ? session?.model || '' : currentSelectedChatModel || session?.model || '')
+
+  // Harness selections are scoped to their tab/session. Only Chat may update the
+  // legacy global selection used by regular conversations and one-shot commands.
+  if (workspace === 'chat' && payloadModelKey) {
+    currentSelectedChatModel = payloadModelKey
+  }
+
+  const { provider, model } = resolveProviderAndModel(requestModelKey)
+
+  if (!requestModelKey || !provider || !provider.apiKey || !model) {
+    safeSend(event.sender, 'chat-reply-error', {
+      error: 'API_KEY_ERROR:401:API Key or Active Model Missing',
+      chatId,
+      workspace
+    })
+    return
+  }
+
+  markConnectionActive()
+
   const config = loadConfig()
 
   // Request-local mode avoids one workspace mutating another workspace's runtime.
@@ -277,7 +365,8 @@ export async function handleChatMessage(
   if (workspace === 'chat' && requestMode === 'harness') {
     safeSend(event.sender, 'chat-reply-error', {
       error: 'This conversation belongs to the Harness workspace.',
-      chatId
+      chatId,
+      workspace
     })
     return
   }
@@ -291,7 +380,8 @@ export async function handleChatMessage(
     if (!selectedProjectPath) {
       safeSend(event.sender, 'chat-reply-error', {
         error: 'Select or create a Harness project before sending a message.',
-        chatId
+        chatId,
+        workspace
       })
       return
     }
@@ -330,7 +420,8 @@ export async function handleChatMessage(
     safeSend(event.sender, 'chat-reply-error', {
       error:
         'This Harness conversation is locked to its original project. Start a new conversation to use another project.',
-      chatId
+      chatId,
+      workspace
     })
     return
   }
@@ -339,7 +430,8 @@ export async function handleChatMessage(
   if (requestSessionMode === 'harness' && !harnessSettings) {
     safeSend(event.sender, 'chat-reply-error', {
       error: 'The selected Harness project is not registered. Reopen it from the project picker.',
-      chatId
+      chatId,
+      workspace
     })
     return
   }
@@ -362,7 +454,8 @@ export async function handleChatMessage(
   if (attachedFile?.mimeType.startsWith('image/') && incomingImages.length === 0) {
     safeSend(event.sender, 'chat-reply-error', {
       error: 'Unsupported or invalid image. Please use a valid PNG, JPEG, or WebP file.',
-      chatId
+      chatId,
+      workspace
     })
     return
   }
@@ -385,7 +478,7 @@ export async function handleChatMessage(
       'New Conversation',
       requestSessionMode,
       requestDisciplinePath,
-      currentSelectedChatModel,
+      requestModelKey,
       false,
       disabledSkills
     )
@@ -397,13 +490,13 @@ export async function handleChatMessage(
       undefined,
       requestSessionMode,
       requestDisciplinePath,
-      currentSelectedChatModel,
+      requestModelKey,
       undefined,
       disabledSkills
     )
   }
 
-  broadcastIpc('chat-reply-start', { chatId })
+  broadcastIpc('chat-reply-start', { chatId, workspace })
 
   const abortController = new AbortController()
   activeRuns.set(chatId, {
@@ -418,12 +511,12 @@ export async function handleChatMessage(
     const cleanModelId = model.id.startsWith('prism_provider:')
       ? model.id.replace('prism_provider:', '')
       : model.id
-    const cleanSelectedKey = currentSelectedChatModel.startsWith('prism_provider:')
-      ? currentSelectedChatModel.replace('prism_provider:', '')
-      : currentSelectedChatModel
+    const cleanSelectedKey = requestModelKey.startsWith('prism_provider:')
+      ? requestModelKey.replace('prism_provider:', '')
+      : requestModelKey
 
     const configLevel =
-      config.modelReasoningLevels?.[currentSelectedChatModel] ||
+      config.modelReasoningLevels?.[requestModelKey] ||
       config.modelReasoningLevels?.[cleanSelectedKey] ||
       config.modelReasoningLevels?.[model.id] ||
       config.modelReasoningLevels?.[cleanModelId]
@@ -490,7 +583,7 @@ export async function handleChatMessage(
           undefined,
           requestSessionMode,
           requestDisciplinePath,
-          currentSelectedChatModel,
+          requestModelKey,
           undefined,
           disabledSkills
         )
@@ -627,20 +720,6 @@ STRICT BUTTON RULES:
     const thinkingTimes = new Map<number, { startedAt?: number; endedAt?: number }>()
     let totalThinkingDuration = 0
 
-    const parseThoughtAndContent = (
-      rawText: string,
-      extraReasoning: string
-    ): { thoughts: string; content: string } => {
-      let thoughts = extraReasoning || ''
-      let content = rawText
-      const thinkMatch = rawText.match(/<think>([\s\S]*?)(?:<\/think>|$)/i)
-      if (thinkMatch) {
-        thoughts = thoughts ? `${thoughts}\n${thinkMatch[1]}` : thinkMatch[1]
-        content = rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*/gi, '')
-      }
-      return { thoughts, content }
-    }
-
     const orchestration = await runToolOrchestration({
       provider,
       modelId: model.id,
@@ -653,63 +732,15 @@ STRICT BUTTON RULES:
       reasoningLevel,
       maxRounds: harnessSettings?.defaultMaxRounds,
       beforeToolBatch: harnessSettings
-        ? async (calls) => {
-            const callsRequiringApproval = calls.filter((call) => call.name !== 'to_ask')
-            if (callsRequiringApproval.length === 0) return true
-            const needsApproval =
-              harnessSettings.defaultPermissionMode === 'ask' ||
-              (harnessSettings.defaultPermissionMode === 'yolo' &&
-                !harnessSettings.yoloAcknowledged) ||
-              (harnessSettings.defaultPermissionMode === 'independent' &&
-                callsRequiringApproval.some((call) =>
-                  harnessToolRequiresExternalApproval(call.name, call.args)
-                ))
-            if (!needsApproval) return true
-            const items: HarnessApprovalItem[] = await Promise.all(
-              calls.map(async (call) => {
-                try {
-                  return await previewHarnessTool(
-                    call.callId,
-                    call.name,
-                    call.args,
-                    requestDisciplinePath
-                  )
-                } catch (error) {
-                  return {
-                    callId: call.callId,
-                    name: call.name as HarnessToolName,
-                    label: getHarnessToolLabel(call.name),
-                    args:
-                      call.args && typeof call.args === 'object' && !Array.isArray(call.args)
-                        ? (call.args as Record<string, unknown>)
-                        : {},
-                    preview: `Unable to prepare preview: ${error instanceof Error ? error.message : String(error)}`,
-                    destructive: true
-                  }
-                }
-              })
-            )
-            return requestHarnessApproval(
-              chatId,
-              requestDisciplinePath,
-              items,
-              abortController.signal
-            )
-          }
+        ? createHarnessBeforeToolBatch(
+            chatId,
+            requestDisciplinePath,
+            harnessSettings,
+            abortController.signal
+          )
         : undefined,
       executeTool: harnessSettings
-        ? async (name, args, context, loopGuard) => {
-            const repeatedError = loopGuard.register(name, args)
-            if (repeatedError) {
-              const envelope: ToolResultEnvelope = { ok: false, error: repeatedError }
-              return { args: {}, envelope, modelContent: JSON.stringify(envelope) }
-            }
-            return executeHarnessTool(name, args, {
-              ...context,
-              projectRoot: requestDisciplinePath,
-              settings: harnessSettings
-            })
-          }
+        ? createHarnessToolExecutor(requestDisciplinePath, harnessSettings)
         : undefined,
       onStreamEvent: (streamEvent, state) => {
         const timing = thinkingTimes.get(state.round) || {}
@@ -720,9 +751,13 @@ STRICT BUTTON RULES:
         thinkingTimes.set(state.round, timing)
 
         if (streamEvent.type === 'tool') {
-          broadcastIpc('chat-tool-call-delta', { chatId, ...streamEvent.delta })
+          broadcastIpc('chat-tool-call-delta', { chatId, workspace, ...streamEvent.delta })
           return
         }
+        const roundParsed = parseThoughtAndContent(
+          state.currentText,
+          harnessSettings?.showThinking === false ? '' : state.currentReasoning
+        )
         const combinedText = state.accumulatedText
           ? `${state.accumulatedText}\n\n${state.currentText}`
           : state.currentText
@@ -735,10 +770,14 @@ STRICT BUTTON RULES:
         )
         broadcastIpc('chat-reply-chunk', {
           chatId,
+          workspace,
           thoughts: parsed.thoughts,
           finalResponse: parsed.content,
           isThinking: streamEvent.type === 'reasoning',
-          isWritingToolCall: state.streamingToolCalls.length > 0
+          isWritingToolCall: state.streamingToolCalls.length > 0,
+          harnessRound: state.round,
+          harnessRoundContent: roundParsed.content,
+          harnessRoundThoughts: roundParsed.thoughts
         })
       },
       decorateAssistantMessage: (assistantMessage, _result, state) => {
@@ -765,7 +804,8 @@ STRICT BUTTON RULES:
             name,
             args,
             timestamp: Date.now(),
-            chatId
+            chatId,
+            workspace
           })
       }),
       onToolResult: (call) =>
@@ -774,7 +814,8 @@ STRICT BUTTON RULES:
           name: call.name,
           result: call.modelContent,
           attachments: call.attachments,
-          chatId
+          chatId,
+          workspace
         }),
       onHistoryMessage: (historyMessage) => {
         if (deletedActiveChats.has(chatId)) return
@@ -785,7 +826,7 @@ STRICT BUTTON RULES:
           undefined,
           requestSessionMode,
           requestDisciplinePath,
-          currentSelectedChatModel
+          requestModelKey
         )
       },
       finalInstruction:
@@ -797,6 +838,10 @@ STRICT BUTTON RULES:
       orchestration.accumulatedText,
       harnessSettings?.showThinking === false ? '' : orchestration.accumulatedReasoning
     )
+    const finalRoundOutput = parseThoughtAndContent(
+      orchestration.lastRoundText,
+      harnessSettings?.showThinking === false ? '' : orchestration.lastRoundReasoning
+    )
     const totalWorkedDuration = Math.max(1, Math.round((Date.now() - turnStartTime) / 1000))
     broadcastIpc('chat-reply-end', {
       thoughts: finalOutput.thoughts,
@@ -806,17 +851,20 @@ STRICT BUTTON RULES:
       thinkingDuration: totalThinkingDuration || undefined,
       workedDuration: totalWorkedDuration || undefined,
       chatId,
+      workspace,
+      harnessRoundContent: finalRoundOutput.content,
+      harnessRoundThoughts: finalRoundOutput.thoughts,
       ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})
     })
   } catch (error: unknown) {
     const caughtError = error instanceof Error ? error : new Error(String(error))
     if (abortController.signal.aborted || caughtError.name === 'AbortError') {
-      broadcastIpc('chat-reply-error', { error: 'Message cancelled by user', chatId })
+      broadcastIpc('chat-reply-error', { error: 'Message cancelled by user', chatId, workspace })
     } else {
       console.error(`[Main Chat] Error in handleChatMessage for chat ${chatId}:`, caughtError)
       console.error(`[Main Chat] Error name: ${caughtError.name}, message: ${caughtError.message}`)
       if (caughtError.stack) console.error(`[Main Chat] Stack: ${caughtError.stack}`)
-      broadcastIpc('chat-reply-error', { error: caughtError.message, chatId })
+      broadcastIpc('chat-reply-error', { error: caughtError.message, chatId, workspace })
     }
   } finally {
     activeRuns.delete(chatId)
@@ -972,16 +1020,79 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
   const chatSession = loadChatSession(chatId)
   if (!chatSession || !chatSession.messages || chatSession.messages.length === 0) return
 
-  const selectedModel = chatSession.model || currentSelectedChatModel
+  const workspace: WorkspaceKind =
+    chatSession.workspace === 'harness' || chatSession.sessionMode === 'harness'
+      ? 'harness'
+      : 'chat'
+  const selectedModel =
+    workspace === 'harness' ? chatSession.model || '' : chatSession.model || currentSelectedChatModel
   const { provider, model } = resolveProviderAndModel(selectedModel)
-  if (!provider || !provider.apiKey || !model) return
+  if (!selectedModel || !provider || !provider.apiKey || !model) {
+    broadcastIpc('chat-reply-error', {
+      error: 'API_KEY_ERROR:401:API Key or Active Model Missing',
+      chatId,
+      workspace
+    })
+    return
+  }
+
+  const config = loadConfig()
+  const projectPath = chatSession.disciplinePath || ''
+  const harnessSettings =
+    workspace === 'harness' && projectPath ? getEffectiveHarnessSettings(projectPath) : null
+  if (workspace === 'harness' && !harnessSettings) {
+    broadcastIpc('chat-reply-error', {
+      error: 'The Harness project for this conversation is no longer registered.',
+      chatId,
+      workspace
+    })
+    return
+  }
 
   const pendingNotifications = getPendingProcessNotifications(chatId)
   if (pendingNotifications.length === 0) return
   const historyMessages = hydrateHistoryToolAttachments(chatId, chatSession.messages)
+  let harnessPrompt: Awaited<ReturnType<typeof getHarnessSystemPrompt>> | null = null
+  if (harnessSettings) {
+    harnessPrompt = await getHarnessSystemPrompt(harnessSettings, harnessSystemPromptLabel(model.id))
+    const previousSnapshot = [...historyMessages]
+      .reverse()
+      .find((message) => message.role === 'system' && message.harness_context_snapshot)
+      ?.harness_context_snapshot
+    if (!previousSnapshot || previousSnapshot.fingerprint !== harnessPrompt.fingerprint) {
+      const snapshot: HarnessContextSnapshot = {
+        version: 1,
+        createdAt: Date.now(),
+        projectPath,
+        modelId: model.id,
+        fingerprint: harnessPrompt.fingerprint,
+        entries: harnessPrompt.entries,
+        warnings: harnessPrompt.warnings
+      }
+      historyMessages.push({
+        role: 'system',
+        content: harnessPrompt.prompt,
+        hidden: true,
+        harness_context_snapshot: snapshot
+      })
+      broadcastIpc('harness-context-injection', { chatId, snapshot })
+      if (harnessPrompt.warnings.length > 0) {
+        broadcastIpc('harness-prompt-warning', {
+          chatId,
+          warnings: harnessPrompt.warnings,
+          repoInstructionsLoaded: harnessPrompt.repoInstructionsLoaded
+        })
+      }
+    }
+  }
+
+  const terminalInputToolName = harnessSettings ? 'write_stdin' : 'send_terminal_input'
   for (const notification of pendingNotifications) {
     historyMessages.push(
-      prepareHistoryMessage(chatId, createTerminalNotificationMessage(notification))
+      prepareHistoryMessage(
+        chatId,
+        createTerminalNotificationMessage(notification, terminalInputToolName)
+      )
     )
   }
   saveChatSession(
@@ -990,12 +1101,14 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
     undefined,
     chatSession.sessionMode,
     chatSession.disciplinePath,
-    chatSession.model
+    selectedModel,
+    chatSession.isDiscord,
+    workspace === 'harness' ? [] : chatSession.disabledSkills
   )
 
   markConnectionActive()
 
-  broadcastIpc('chat-reply-start', { chatId })
+  broadcastIpc('chat-reply-start', { chatId, workspace })
 
   const abortController = new AbortController()
   activeRuns.set(chatId, {
@@ -1006,8 +1119,7 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
   })
 
   try {
-    const config = loadConfig()
-    const disabledSkills = chatSession.disabledSkills || config.disabledSkills || []
+    const disabledSkills = workspace === 'harness' ? [] : chatSession.disabledSkills || config.disabledSkills || []
     const isPrismCloud = provider.id === PRISM_PROVIDER_ID || provider.name === 'Prism Cloud'
 
     const cleanModelId = model.id.startsWith('prism_provider:')
@@ -1025,25 +1137,31 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
 
     const reasoningLevel = normalizePrismThinkingLevel(provider, model.id, configLevel)
 
-    const systemPrompt = getSystemToolsPrompt(
-      model.id,
-      'main',
-      undefined,
-      chatSession.sessionMode,
-      chatSession.disciplinePath,
-      model.name,
-      isPrismCloud,
-      disabledSkills
-    )
+    const systemPrompt = harnessPrompt
+      ? harnessPrompt.prompt
+      : getSystemToolsPrompt(
+          model.id,
+          'main',
+          undefined,
+          chatSession.sessionMode,
+          chatSession.disciplinePath,
+          model.name,
+          isPrismCloud,
+          disabledSkills
+        )
 
-    const imageAvailabilityInstruction = hasConfiguredImageGenerationRoute()
+    const imageAvailabilityInstruction =
+      workspace === 'harness' || hasConfiguredImageGenerationRoute()
       ? ''
       : '\n\n# Image Generation Availability\nNative image generation is unavailable because no valid Image Generation Model is configured in Settings > Intelligence Routing. If the user requests an image, explain that configuration is required; do not pretend to have generated one.'
 
-    const openAiTools =
-      chatSession.sessionMode === 'conversation'
+    const getToolsForRound = (): OpenAiToolDefinition[] =>
+      harnessSettings
+        ? getHarnessOpenAiToolDefinitions(harnessSettings.enabledTools)
+        : chatSession.sessionMode === 'conversation'
         ? []
         : getNativeToolsForOpenAi('main', undefined, chatId, disabledSkills)
+    const openAiTools = getToolsForRound()
 
     const messagesForApi: OpenAiMessage[] = [
       { role: 'system', content: `${systemPrompt}${imageAvailabilityInstruction}` },
@@ -1054,32 +1172,23 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
     const thinkingTimes = new Map<number, { startedAt?: number; endedAt?: number }>()
     let totalThinkingDuration = 0
 
-    const parseThoughtAndContent = (
-      rawText: string,
-      extraReasoning: string
-    ): { thoughts: string; content: string } => {
-      let thoughts = extraReasoning || ''
-      let content = rawText
-      const thinkMatch = rawText.match(/<think>([\s\S]*?)(?:<\/think>|$)/i)
-      if (thinkMatch) {
-        thoughts = thoughts ? `${thoughts}\n${thinkMatch[1]}` : thinkMatch[1]
-        content = rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*/gi, '')
-      }
-      return { thoughts, content }
-    }
-
     const orchestration = await runToolOrchestration({
       provider,
       modelId: model.id,
       messages: messagesForApi,
       tools: openAiTools,
-      getToolsForRound: () =>
-        chatSession.sessionMode === 'conversation'
-          ? []
-          : getNativeToolsForOpenAi('main', undefined, chatId, disabledSkills),
+      getToolsForRound,
       getPendingNotifications: () => getPendingProcessNotifications(chatId),
+      terminalInputToolName,
       signal: abortController.signal,
       reasoningLevel,
+      maxRounds: harnessSettings?.defaultMaxRounds,
+      beforeToolBatch: harnessSettings
+        ? createHarnessBeforeToolBatch(chatId, projectPath, harnessSettings, abortController.signal)
+        : undefined,
+      executeTool: harnessSettings
+        ? createHarnessToolExecutor(projectPath, harnessSettings)
+        : undefined,
       onStreamEvent: (streamEvent, state) => {
         const timing = thinkingTimes.get(state.round) || {}
         if (streamEvent.type === 'reasoning' && !timing.startedAt) timing.startedAt = Date.now()
@@ -1089,22 +1198,37 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
         thinkingTimes.set(state.round, timing)
 
         if (streamEvent.type === 'tool') {
-          broadcastIpc('chat-tool-call-delta', { chatId, ...streamEvent.delta })
+          broadcastIpc('chat-tool-call-delta', { chatId, workspace, ...streamEvent.delta })
           return
         }
+        const roundParsed = parseThoughtAndContent(
+          state.currentText,
+          harnessSettings?.showThinking === false ? '' : state.currentReasoning
+        )
         const combinedText = state.accumulatedText
           ? `${state.accumulatedText}\n\n${state.currentText}`
           : state.currentText
         const combinedReasoning = state.accumulatedReasoning
           ? `${state.accumulatedReasoning}\n\n${state.currentReasoning}`
           : state.currentReasoning
-        const parsed = parseThoughtAndContent(combinedText, combinedReasoning)
+        const parsed = parseThoughtAndContent(
+          combinedText,
+          harnessSettings?.showThinking === false ? '' : combinedReasoning
+        )
         broadcastIpc('chat-reply-chunk', {
           chatId,
+          workspace,
           thoughts: parsed.thoughts,
           finalResponse: parsed.content,
           isThinking: streamEvent.type === 'reasoning',
-          isWritingToolCall: state.streamingToolCalls.length > 0
+          isWritingToolCall: state.streamingToolCalls.length > 0,
+          ...(harnessSettings
+            ? {
+                harnessRound: state.round,
+                harnessRoundContent: roundParsed.content,
+                harnessRoundThoughts: roundParsed.thoughts
+              }
+            : {})
         })
       },
       decorateAssistantMessage: (assistantMessage, _result, state) => {
@@ -1130,7 +1254,8 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
             name,
             args,
             timestamp: Date.now(),
-            chatId
+            chatId,
+            workspace
           })
       }),
       onToolResult: (call) =>
@@ -1139,7 +1264,8 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
           name: call.name,
           result: call.modelContent,
           attachments: call.attachments,
-          chatId
+          chatId,
+          workspace
         }),
       onHistoryMessage: (historyMessage) => {
         if (deletedActiveChats.has(chatId)) return
@@ -1154,13 +1280,17 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
         )
       },
       finalInstruction:
-        '# Tool loop limit reached\nThe maximum of 100 tool rounds has been reached. ' +
+        `# Tool loop limit reached\nThe maximum of ${harnessSettings?.defaultMaxRounds || 100} tool rounds has been reached. ` +
         'Do not call more tools. Explain what was completed, what remains, and the last tool result.'
     })
 
     const finalOutput = parseThoughtAndContent(
       orchestration.accumulatedText,
-      orchestration.accumulatedReasoning
+      harnessSettings?.showThinking === false ? '' : orchestration.accumulatedReasoning
+    )
+    const finalRoundOutput = parseThoughtAndContent(
+      orchestration.lastRoundText,
+      harnessSettings?.showThinking === false ? '' : orchestration.lastRoundReasoning
     )
     const totalWorkedDuration = Math.max(1, Math.round((Date.now() - turnStartTime) / 1000))
     broadcastIpc('chat-reply-end', {
@@ -1171,15 +1301,22 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
       thinkingDuration: totalThinkingDuration || undefined,
       workedDuration: totalWorkedDuration || undefined,
       chatId,
+      workspace,
+      ...(harnessSettings
+        ? {
+            harnessRoundContent: finalRoundOutput.content,
+            harnessRoundThoughts: finalRoundOutput.thoughts
+          }
+        : {}),
       ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})
     })
   } catch (error: unknown) {
     const caughtError = error instanceof Error ? error : new Error(String(error))
     if (abortController.signal.aborted || caughtError.name === 'AbortError') {
-      broadcastIpc('chat-reply-error', { error: 'Message cancelled by user', chatId })
+      broadcastIpc('chat-reply-error', { error: 'Message cancelled by user', chatId, workspace })
     } else {
       console.error(`[Background Wakeup] Error in chat ${chatId}:`, caughtError)
-      broadcastIpc('chat-reply-error', { error: caughtError.message, chatId })
+      broadcastIpc('chat-reply-error', { error: caughtError.message, chatId, workspace })
     }
   } finally {
     activeRuns.delete(chatId)

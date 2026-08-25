@@ -497,7 +497,8 @@ async function executeLiveToolCalls(
             name,
             args: validatedArgs,
             timestamp: Date.now(),
-            chatId: history.chatId
+            chatId: history.chatId,
+            workspace: 'chat'
           })
           activeVoiceOverlayTool = { callId, name }
         }
@@ -517,7 +518,8 @@ async function executeLiveToolCalls(
       callId,
       name,
       result: execution.modelContent,
-      chatId: history.chatId
+      chatId: history.chatId,
+      workspace: 'chat'
     })
     activeVoiceOverlayTool = null
 
@@ -750,7 +752,8 @@ export function replayVoiceOverlayState(): void {
       name: activeVoiceOverlayTool.name,
       args: {},
       timestamp: Date.now(),
-      chatId
+      chatId,
+      workspace: 'chat'
     })
   }
 }
@@ -1758,6 +1761,7 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
   // Broadcast user message and start reply event to Prism renderer UI
   broadcastIpc('chat-reply-start', {
     chatId,
+    workspace: 'chat',
     userMessage: { role: 'user', content: userText }
   })
 
@@ -1848,7 +1852,7 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
       reasoningLevel: normalizePrismThinkingLevel(provider, model.id, 'minimal'),
       onStreamEvent: (streamEvent, state) => {
         if (streamEvent.type === 'tool') {
-          broadcastIpc('chat-tool-call-delta', { chatId, ...streamEvent.delta })
+          broadcastIpc('chat-tool-call-delta', { chatId, workspace: 'chat', ...streamEvent.delta })
           currentToolsText = `*⚙️ ${streamEvent.delta.name || 'Working'}...*`
           updateDiscordMessage(currentText)
         } else {
@@ -1862,6 +1866,7 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
 
           broadcastIpc('chat-reply-chunk', {
             chatId,
+            workspace: 'chat',
             thoughts: parsed.thoughts,
             finalResponse: parsed.content,
             isThinking: streamEvent.type === 'reasoning',
@@ -1884,7 +1889,8 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
             name,
             args,
             timestamp: Date.now(),
-            chatId
+            chatId,
+            workspace: 'chat'
           })
           if (is.dev) console.log(`[Discord Gateway] Tool Start: ${name}`, args)
         }
@@ -1894,7 +1900,8 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
           callId: call.callId,
           name: call.name,
           result: call.modelContent,
-          chatId
+          chatId,
+          workspace: 'chat'
         })
         if (is.dev) console.log(`[Discord Gateway] Tool End: ${call.name}`)
         currentToolsText = ''
@@ -1922,11 +1929,16 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
       rawText: finalOutput.content,
       isThinking: false,
       chatId,
+      workspace: 'chat',
       ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})
     })
   } catch (error: any) {
     console.error('[Discord Gateway] Error:', error)
-    broadcastIpc('chat-reply-error', { error: error.message || 'Unknown error occurred.', chatId })
+    broadcastIpc('chat-reply-error', {
+      error: error.message || 'Unknown error occurred.',
+      chatId,
+      workspace: 'chat'
+    })
     if (replyMessage) {
       await replyMessage.edit(`*Error:* ${error.message || 'Unknown error occurred.'}`)
     } else {

@@ -43,6 +43,8 @@ export interface ExecutedToolCall {
 export interface ToolOrchestrationResult {
   accumulatedText: string
   accumulatedReasoning: string
+  lastRoundText: string
+  lastRoundReasoning: string
   rounds: number
   loopLimitReached: boolean
   executedTools: ExecutedToolCall[]
@@ -259,6 +261,8 @@ export async function runToolOrchestration(
     return {
       accumulatedText,
       accumulatedReasoning,
+      lastRoundText: finalRound.result.text,
+      lastRoundReasoning: finalRound.result.reasoning,
       rounds: round,
       loopLimitReached,
       executedTools
@@ -287,6 +291,8 @@ export async function runToolOrchestration(
       return {
         accumulatedText,
         accumulatedReasoning,
+        lastRoundText: streamed.result.text,
+        lastRoundReasoning: streamed.result.reasoning,
         rounds: round,
         loopLimitReached: false,
         executedTools
