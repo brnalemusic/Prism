@@ -458,7 +458,8 @@ export async function handleChatMessage(
         harnessSettings,
         harnessSystemPromptLabel(model.id)
       )
-      const needsContextInjection = !existingSnapshot || existingSnapshot.fingerprint !== harnessPrompt.fingerprint
+      const needsContextInjection =
+        !existingSnapshot || existingSnapshot.fingerprint !== harnessPrompt.fingerprint
       if (needsContextInjection) {
         const snapshot: HarnessContextSnapshot = {
           version: 1,
@@ -653,12 +654,16 @@ STRICT BUTTON RULES:
       maxRounds: harnessSettings?.defaultMaxRounds,
       beforeToolBatch: harnessSettings
         ? async (calls) => {
+            const callsRequiringApproval = calls.filter((call) => call.name !== 'to_ask')
+            if (callsRequiringApproval.length === 0) return true
             const needsApproval =
               harnessSettings.defaultPermissionMode === 'ask' ||
               (harnessSettings.defaultPermissionMode === 'yolo' &&
                 !harnessSettings.yoloAcknowledged) ||
               (harnessSettings.defaultPermissionMode === 'independent' &&
-                calls.some((call) => harnessToolRequiresExternalApproval(call.name, call.args)))
+                callsRequiringApproval.some((call) =>
+                  harnessToolRequiresExternalApproval(call.name, call.args)
+                ))
             if (!needsApproval) return true
             const items: HarnessApprovalItem[] = await Promise.all(
               calls.map(async (call) => {

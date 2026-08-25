@@ -86,6 +86,7 @@ import type {
   HarnessApprovalRequest,
   HarnessProjectConfig,
   HarnessContextSnapshot,
+  HarnessPermissionMode,
   WorkspaceKind
 } from '../../shared/types'
 import { getDefaultThinkingLevelForModel, isPrismCloudGeminiModel } from './constants'
@@ -3082,6 +3083,57 @@ function RealApp(): React.JSX.Element {
     [isEnterpriseUser]
   )
 
+  const handleHarnessModelChange = useCallback(
+    (tabId: string, modelKey: string): void => {
+      const isArcadia11 =
+        modelKey === 'prism-ai/arcadia-1.1-flash' ||
+        modelKey === 'arcadia-1.1-flash' ||
+        modelKey.includes('arcadia-1.1-flash')
+
+      if (isArcadia11 && !isEnterpriseUser) {
+        setIsPlansModalOpen(true)
+        return
+      }
+
+      setHarnessTabs((previous) =>
+        previous.map((tab) => (tab.id === tabId ? { ...tab, selectedModel: modelKey } : tab))
+      )
+    },
+    [isEnterpriseUser]
+  )
+
+  const handleHarnessPermissionModeChange = useCallback(
+    (tabId: string, permissionMode: HarnessPermissionMode): void => {
+      const tab = harnessTabsRef.current.find((entry) => entry.id === tabId)
+      if (!tab?.disciplinePath) {
+        setHarnessProjectTargetTabId(tabId)
+        setIsHarnessProjectModalOpen(true)
+        return
+      }
+      if (permissionMode === 'yolo' && !config?.harness.yoloAcknowledged) {
+        setHarnessPromptWarnings([
+          'Acknowledge the YOLO risk in Settings > Harness before enabling it for this project.'
+        ])
+        setSettingsInitialSection('harness')
+        setIsSettingsModalOpen(true)
+        return
+      }
+
+      void window.api
+        .updateHarnessProject(tab.disciplinePath, { permissionMode })
+        .then(() => window.api.getConfig())
+        .then((nextConfig) => setConfig(nextConfig))
+        .catch((error) => {
+          setHarnessPromptWarnings([
+            `Could not update the Harness permission profile: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          ])
+        })
+    },
+    [config?.harness.yoloAcknowledged]
+  )
+
   const handleToggleSearch = useCallback((tabId: string, enabled?: boolean) => {
     setTabs((prev) =>
       prev.map((t) =>
@@ -4007,9 +4059,7 @@ function RealApp(): React.JSX.Element {
           <div className="flex items-start gap-2.5">
             <XCircle size={15} className="mt-0.5 shrink-0 text-status-warning" />
             <div className="min-w-0 flex-1">
-              <span className="text-xs font-semibold text-text-primary">
-                Harness instructions adjusted
-              </span>
+              <span className="text-xs font-semibold text-text-primary">Harness notice</span>
               {harnessPromptWarnings.map((warning) => (
                 <p key={warning} className="mt-1 text-[10.5px] leading-relaxed text-text-secondary">
                   {warning}
@@ -4313,11 +4363,19 @@ function RealApp(): React.JSX.Element {
                   onCancel={() => {
                     if (tab.chatId) window.api.cancelChat(tab.chatId)
                   }}
-                  onModelChange={() => {}}
+                  onModelChange={(model) => handleHarnessModelChange(tab.id, model)}
                   onReasoningLevelChange={(model, level) => {
                     void handleReasoningLevelChange(model, level)
                   }}
                   onModeChange={() => {}}
+                  harnessPermissionMode={
+                    harnessProject?.permissionMode ?? config?.harness.defaultPermissionMode ?? 'ask'
+                  }
+                  onHarnessPermissionModeChange={(mode) =>
+                    handleHarnessPermissionModeChange(tab.id, mode)
+                  }
+                  onOpenUpgradePlans={() => setIsPlansModalOpen(true)}
+                  isEnterprise={isEnterpriseUser}
                   onSelectFolder={() => {
                     setHarnessProjectTargetTabId(tab.id)
                     setIsHarnessProjectModalOpen(true)

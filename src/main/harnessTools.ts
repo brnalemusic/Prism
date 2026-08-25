@@ -9,6 +9,7 @@ import type {
 } from '../shared/types'
 import type { OpenAiToolDefinition } from './ai/types'
 import { loadConfig } from './config'
+import { requestQuestionnaire } from './systemTools'
 import { assertCommandAllowed } from './localCommandSandbox'
 import {
   changesDiff,
@@ -79,6 +80,46 @@ export const HARNESS_TOOL_DEFINITIONS: ToolDefinition[] = [
       limit: integer('Maximum number of matches.')
     },
     ['query']
+  ),
+  definition(
+    'to_ask',
+    'Ask the user concise clarifying questions and wait for their response before continuing. Use this before changing code when a material requirement or tradeoff is uncertain.',
+    {
+      session_id: text('Unique questionnaire session ID.'),
+      questions: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 3,
+        description: 'One to three questions rendered by Prism.',
+        items: {
+          type: 'object',
+          properties: {
+            id: text('Unique question ID.'),
+            type: text('Question type.', ['multiple-choice', 'essay']),
+            title: text('Short category title.'),
+            prompt: text('Question shown to the user.'),
+            options: {
+              type: 'array',
+              minItems: 2,
+              maxItems: 10,
+              description: 'Choices for a multiple-choice question.',
+              items: {
+                type: 'object',
+                properties: {
+                  value: text('Stable choice value.'),
+                  label: text('User-facing choice label.')
+                },
+                required: ['value', 'label'],
+                additionalProperties: false
+              }
+            }
+          },
+          required: ['id', 'type', 'title', 'prompt'],
+          additionalProperties: false
+        }
+      }
+    },
+    ['session_id', 'questions']
   ),
   definition(
     'write',
@@ -156,6 +197,7 @@ const LABELS: Record<HarnessToolName, string> = {
   read: 'Reading file',
   list: 'Listing directory',
   find: 'Finding files',
+  to_ask: 'Asking a question',
   write: 'Writing file',
   edit: 'Editing file',
   delete_lines: 'Deleting lines',
@@ -629,6 +671,9 @@ async function executeOperation(
     const limit = boundedInteger(args.limit, 200, 1, 1000)
     return JSON.stringify({ query, matches: await findFiles(root, start, query, limit) })
   }
+  if (name === 'to_ask') {
+    return requestQuestionnaire(args, context.signal)
+  }
   if (['write', 'edit', 'delete_lines'].includes(name)) {
     const changes = await prepareSimpleChange(name, args, root)
     await applyPreparedChanges(root, changes)
@@ -775,6 +820,12 @@ export async function executeHarnessTool(
       throw new Error(`Unknown Harness tool: ${nameValue}`)
     }
     args = parseArgs(rawArgs)
+    if (
+      nameValue === 'to_ask' &&
+      (typeof args.session_id !== 'string' || !args.session_id.trim())
+    ) {
+      args = { ...args, session_id: `harness-question-${crypto.randomUUID()}` }
+    }
     context.onStart?.(args)
     started = true
     const output = await executeOperation(nameValue as HarnessToolName, args, context)

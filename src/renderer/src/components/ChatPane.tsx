@@ -13,7 +13,11 @@ import TodoPanel from './TodoPanel'
 import { QuestionnaireWizard } from './QuestionnaireRenderer'
 import type { TabSession } from '../types/tab'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
-import type { TerminalProcessSnapshot, TodoState } from '../../../shared/types'
+import type {
+  HarnessPermissionMode,
+  TerminalProcessSnapshot,
+  TodoState
+} from '../../../shared/types'
 import { getDefaultThinkingLevelForModel } from '../constants'
 
 interface ChatPaneProps {
@@ -44,6 +48,10 @@ interface ChatPaneProps {
   onUpdateTabFile: (id: string, file: TabSession['attachedFile']) => void
   onUpdateTabQuote?: (id: string, quote: string | null) => void
   onUpdateTabDisabledSkills?: (id: string, disabledSkills: string[]) => void
+  harnessPermissionMode?: HarnessPermissionMode
+  onHarnessPermissionModeChange?: (mode: HarnessPermissionMode) => void
+  onOpenUpgradePlans?: () => void
+  isEnterprise?: boolean
   onToggleSearch?: (enabled?: boolean) => void
   onOpenScreenshotModal: () => void
   onOpenYoutubeModal: () => void
@@ -76,6 +84,10 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     onUpdateTabFile,
     onUpdateTabQuote,
     onUpdateTabDisabledSkills,
+    harnessPermissionMode,
+    onHarnessPermissionModeChange,
+    onOpenUpgradePlans,
+    isEnterprise,
     onToggleSearch,
     onOpenScreenshotModal,
     onOpenYoutubeModal,
@@ -87,6 +99,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     const inputBarRef = useRef<InputBarHandle>(null)
     const [isDraggingSplit, setIsDraggingSplit] = useState(false)
     const [isDragTargetSplit, setIsDragTargetSplit] = useState(false)
+    const isHarness = tab.sessionMode === 'harness'
+    const harnessProjectName = tab.disciplinePath.split(/[\\/]/).pop() || 'this project'
 
     // Find the active to_ask tool call from the latest AI message (status running or writing)
     const activeQuestionnaire = useMemo(() => {
@@ -343,10 +357,18 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                 <div className="w-full max-w-[720px] flex flex-col items-center gap-6 z-10 my-auto">
                   <div className="flex flex-col items-center text-center space-y-2">
                     <h1 className="text-3xl font-bold tracking-tight text-text-primary">
-                      What would you like to build?
+                      {isHarness
+                        ? tab.disciplinePath
+                          ? `What should Harness change in ${harnessProjectName}?`
+                          : 'Choose a project for Harness'
+                        : 'What would you like to build?'}
                     </h1>
                     <p className="text-sm text-text-secondary/80">
-                      Prism session is ready. Type your request or choose a mode.
+                      {isHarness
+                        ? tab.disciplinePath
+                          ? 'Describe the outcome. Harness will inspect, clarify material decisions, then implement and verify the work.'
+                          : 'Harness is isolated to one project. Use + to choose the folder where it may work.'
+                        : 'Prism session is ready. Type your request or choose a mode.'}
                     </p>
                   </div>
 
@@ -406,6 +428,10 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       onDisabledSkillsChange={(skills) =>
                         onUpdateTabDisabledSkills?.(tab.id, skills)
                       }
+                      harnessPermissionMode={harnessPermissionMode}
+                      onHarnessPermissionModeChange={onHarnessPermissionModeChange}
+                      onOpenUpgradePlans={onOpenUpgradePlans}
+                      isEnterprise={isEnterprise}
                     />
                   </div>
                 </div>
@@ -495,6 +521,10 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                   onSelectFolder={onSelectFolder}
                   disabledSkills={tab.disabledSkills}
                   onDisabledSkillsChange={(skills) => onUpdateTabDisabledSkills?.(tab.id, skills)}
+                  harnessPermissionMode={harnessPermissionMode}
+                  onHarnessPermissionModeChange={onHarnessPermissionModeChange}
+                  onOpenUpgradePlans={onOpenUpgradePlans}
+                  isEnterprise={isEnterprise}
                 />
               </div>
             </div>

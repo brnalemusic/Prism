@@ -100,6 +100,7 @@ test('Harness instructions preserve precedence and cap oversized AGENTS.md', asy
   try {
     await fs.writeFile(path.join(root, 'AGENTS.md'), `REPO_MARKER\n${'r'.repeat(90_000)}`)
     const settings: EffectiveHarnessSettings = {
+      toolManifestVersion: 2,
       projectsRoot: root,
       defaultPermissionMode: 'ask',
       defaultMaxRounds: 200,
@@ -124,6 +125,7 @@ test('Harness instructions preserve precedence and cap oversized AGENTS.md', asy
       }
     }
     const result = await buildHarnessSystemPrompt(settings)
+    assert.equal(result.prompt.includes('MUST call to_ask'), true)
     assert.ok(result.prompt.indexOf('GLOBAL_MARKER') < result.prompt.indexOf('REPO_MARKER'))
     assert.ok(result.prompt.indexOf('REPO_MARKER') < result.prompt.indexOf('PROJECT_MARKER'))
     assert.ok(result.prompt.length <= HARNESS_SYSTEM_MAX_CHARACTERS)

@@ -9,6 +9,7 @@ import {
   FolderOpen,
   GlobeSimple,
   MagnifyingGlass,
+  ChatTeardropText,
   TerminalWindow,
   XCircle
 } from '@phosphor-icons/react'
@@ -20,6 +21,7 @@ const HARNESS_LABELS: Record<HarnessToolName, string> = {
   read: 'Read file',
   list: 'Listed directory',
   find: 'Found files',
+  to_ask: 'Asked a question',
   write: 'Wrote file',
   edit: 'Edited file',
   delete_lines: 'Deleted lines',
@@ -83,6 +85,7 @@ function toolIcon(name: string): React.JSX.Element {
     return <TerminalWindow {...props} />
   }
   if (name === 'web_search') return <GlobeSimple {...props} />
+  if (name === 'to_ask') return <ChatTeardropText {...props} />
   if (name === 'find') return <MagnifyingGlass {...props} />
   if (name === 'list') return <FolderOpen {...props} />
   if (name === 'apply_patch') return <Code {...props} />

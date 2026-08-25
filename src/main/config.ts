@@ -82,6 +82,7 @@ export const DEFAULT_HARNESS_TOOLS: HarnessToolName[] = [
   'read',
   'list',
   'find',
+  'to_ask',
   'write',
   'edit',
   'delete_lines',
@@ -97,6 +98,7 @@ const defaultHarnessProjectsRoot = (): string =>
 
 export function createDefaultHarnessSettings(): HarnessSettings {
   return {
+    toolManifestVersion: 2,
     projectsRoot: defaultHarnessProjectsRoot(),
     defaultPermissionMode: 'ask',
     defaultMaxRounds: 200,
@@ -327,6 +329,7 @@ export function synthesizeLegacyProviders(config: Partial<AppConfig>): ProviderC
 function normalizeConfig(config: AppConfig): AppConfig {
   const defaultHarness = createDefaultHarnessSettings()
   const rawHarness = config.harness || defaultHarness
+  const upgradeHarnessToolDefaults = rawHarness.toolManifestVersion !== 2
   const normalizeInteger = (
     value: unknown,
     fallback: number,
@@ -372,7 +375,10 @@ function normalizeConfig(config: AppConfig): AppConfig {
             : normalizeInteger(candidate.maxRounds, defaultHarness.defaultMaxRounds, 1, 1000),
         enabledTools: Array.isArray(candidate.enabledTools)
           ? (Array.from(
-              new Set(candidate.enabledTools.filter((name) => VALID_HARNESS_TOOLS.has(name)))
+              new Set([
+                ...candidate.enabledTools.filter((name) => VALID_HARNESS_TOOLS.has(name)),
+                ...(upgradeHarnessToolDefaults ? ['to_ask'] : [])
+              ])
             ) as HarnessToolName[])
           : undefined,
         maxReadLines:
@@ -429,6 +435,7 @@ function normalizeConfig(config: AppConfig): AppConfig {
   const normalizedHarness: HarnessSettings = {
     ...defaultHarness,
     ...rawHarness,
+    toolManifestVersion: 2,
     projectsRoot:
       typeof rawHarness.projectsRoot === 'string' && rawHarness.projectsRoot.trim()
         ? path.resolve(rawHarness.projectsRoot.trim())
@@ -439,7 +446,10 @@ function normalizeConfig(config: AppConfig): AppConfig {
     defaultMaxRounds: normalizeInteger(rawHarness.defaultMaxRounds, 200, 1, 1000),
     enabledTools: Array.isArray(rawHarness.enabledTools)
       ? (Array.from(
-          new Set(rawHarness.enabledTools.filter((name) => VALID_HARNESS_TOOLS.has(name)))
+          new Set([
+            ...rawHarness.enabledTools.filter((name) => VALID_HARNESS_TOOLS.has(name)),
+            ...(upgradeHarnessToolDefaults ? ['to_ask'] : [])
+          ])
         ) as HarnessToolName[])
       : [...DEFAULT_HARNESS_TOOLS],
     maxReadLines: normalizeInteger(rawHarness.maxReadLines, 800, 1, 5000),

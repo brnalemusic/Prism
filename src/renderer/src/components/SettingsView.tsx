@@ -74,6 +74,11 @@ const HARNESS_TOOLS: Array<{
   { name: 'read', label: 'Read', description: 'Read bounded text ranges.' },
   { name: 'list', label: 'List', description: 'List project directories.' },
   { name: 'find', label: 'Find', description: 'Discover files by path pattern.' },
+  {
+    name: 'to_ask',
+    label: 'Ask user',
+    description: 'Clarify a material implementation decision before acting.'
+  },
   { name: 'write', label: 'Write', description: 'Create or explicitly replace complete files.' },
   { name: 'edit', label: 'Edit', description: 'Replace one exact unique snippet.' },
   { name: 'delete_lines', label: 'Delete lines', description: 'Remove one exact unique snippet.' },
@@ -101,6 +106,7 @@ const HARNESS_TOOLS: Array<{
 ]
 
 const DEFAULT_HARNESS_SETTINGS: HarnessSettings = {
+  toolManifestVersion: 2,
   projectsRoot: '',
   defaultPermissionMode: 'ask',
   defaultMaxRounds: 200,
@@ -3603,7 +3609,7 @@ function HarnessNumberField({
   onChange: (value: number) => void
 }): React.JSX.Element {
   return (
-    <label className="settings-card flex items-center justify-between gap-4">
+    <label className="settings-card flex flex-col items-stretch gap-3">
       <span className="min-w-0">
         <span className="block text-sm font-semibold text-text-primary">{label}</span>
         <span className="mt-0.5 block text-xs leading-relaxed text-text-secondary/70">
@@ -3619,7 +3625,7 @@ function HarnessNumberField({
           const next = Number(event.target.value)
           if (Number.isInteger(next) && next >= min && next <= max) onChange(next)
         }}
-        className="settings-text-input w-28 shrink-0 font-mono text-xs"
+        className="settings-text-input w-full font-mono text-xs"
       />
     </label>
   )

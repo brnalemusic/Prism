@@ -136,6 +136,7 @@ export type HarnessToolName =
   | 'read'
   | 'list'
   | 'find'
+  | 'to_ask'
   | 'write'
   | 'edit'
   | 'delete_lines'
@@ -169,6 +170,8 @@ export interface HarnessProjectConfig extends HarnessProjectOverrides {
 }
 
 export interface HarnessSettings {
+  /** Allows Prism to add safe defaults to legacy tool lists exactly once. */
+  toolManifestVersion: number
   projectsRoot: string
   defaultPermissionMode: HarnessPermissionMode
   defaultMaxRounds: number

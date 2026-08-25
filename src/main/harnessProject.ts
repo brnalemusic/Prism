@@ -131,6 +131,7 @@ export function getEffectiveHarnessSettings(rootPath?: string): EffectiveHarness
     DEFAULT_HARNESS_TOOLS.includes(tool as HarnessToolName)
   )
   return {
+    toolManifestVersion: settings.toolManifestVersion,
     projectsRoot: settings.projectsRoot,
     defaultPermissionMode: project.permissionMode || settings.defaultPermissionMode,
     defaultMaxRounds: project.maxRounds || settings.defaultMaxRounds,

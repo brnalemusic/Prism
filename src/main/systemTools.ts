@@ -3318,47 +3318,8 @@ export async function executeSystemTool(
     }
 
     // Questionnaire
-    case 'to_ask': {
-      return new Promise<string>((resolve, reject) => {
-        const sessionId =
-          args.session_id || `session-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
-
-        const onAbort = () => {
-          activeQuestionnaireResolvers.delete(sessionId)
-          reject(new Error('AbortError'))
-        }
-
-        if (signal) {
-          if (signal.aborted) {
-            return reject(new Error('AbortError'))
-          }
-          signal.addEventListener('abort', onAbort)
-        }
-
-        // Send questionnaire to renderer
-        try {
-          const wins = BrowserWindow.getAllWindows()
-          for (const win of wins) {
-            if (
-              !win.webContents.getURL().includes('#launcher') &&
-              !win.webContents.getURL().includes('#subagents')
-            ) {
-              safeSend(win, 'show-questionnaire', {
-                sessionId,
-                questions: args.questions || []
-              })
-            }
-          }
-        } catch {}
-
-        activeQuestionnaireResolvers.set(sessionId, (result) => {
-          if (signal) {
-            signal.removeEventListener('abort', onAbort)
-          }
-          resolve(result)
-        })
-      })
-    }
+    case 'to_ask':
+      return requestQuestionnaire(args, signal)
 
     // Workflow management
     case 'list_workflows': {
@@ -4035,8 +3996,52 @@ function broadcastArtifactsUpdate(targetChatId: string): void {
   }
 }
 
-// Questionnaire resolvers (for to_ask tool)
+// Questionnaire resolvers are shared by Chat and the isolated Harness runtime.
 const activeQuestionnaireResolvers = new Map<string, (result: string) => void>()
+
+export function requestQuestionnaire(
+  args: Record<string, unknown>,
+  signal?: AbortSignal
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const sessionId =
+      typeof args.session_id === 'string' && args.session_id.trim()
+        ? args.session_id
+        : `session-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
+    const questions = Array.isArray(args.questions) ? args.questions : []
+
+    const onAbort = () => {
+      activeQuestionnaireResolvers.delete(sessionId)
+      reject(new Error('AbortError'))
+    }
+
+    if (signal) {
+      if (signal.aborted) {
+        reject(new Error('AbortError'))
+        return
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    try {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (
+          !win.webContents.getURL().includes('#launcher') &&
+          !win.webContents.getURL().includes('#subagents')
+        ) {
+          safeSend(win, 'show-questionnaire', { sessionId, questions })
+        }
+      }
+    } catch {
+      // The streamed tool call remains enough for the active workspace to render the form.
+    }
+
+    activeQuestionnaireResolvers.set(sessionId, (result) => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve(result)
+    })
+  })
+}
 
 ipcMain.on(
   'submit-questionnaire',
