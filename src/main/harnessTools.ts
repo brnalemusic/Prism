@@ -20,6 +20,7 @@ import {
 } from './harnessFileOperations'
 import { resolveHarnessProjectPath } from './harnessPathPolicy'
 import { harnessWildcardRegex } from './harnessGlob'
+import { grepFiles } from './harnessGrep'
 import {
   executeTerminalWithInitialWait,
   readTerminalOutput,
@@ -73,11 +74,24 @@ export const HARNESS_TOOL_DEFINITIONS: ToolDefinition[] = [
   ),
   definition(
     'find',
-    'Find project files by a case-insensitive path fragment or simple * and ** wildcard pattern.',
+    'Find project files by filename, relative path fragment, or wildcard pattern. Use this for file discovery without searching file contents.',
     {
       query: text('Relative path fragment or wildcard pattern.'),
       path: text('Optional project-relative directory to search from.'),
       limit: integer('Maximum number of matches.')
+    },
+    ['query']
+  ),
+  definition(
+    'grep',
+    'Search code and text contents across project files using regex or literal text patterns. Returns matching file paths and their 1-based line numbers (without line content to conserve tokens). Use the read tool to inspect specific line ranges.',
+    {
+      query: text('Text or regular expression to search for across file contents.'),
+      path: text('Optional project-relative directory or file path to search within.'),
+      include: text('Optional wildcard glob pattern to filter files (e.g. "*.ts", "src/**/*.tsx").'),
+      isRegex: boolean('Whether query should be treated as a regular expression.'),
+      caseSensitive: boolean('Whether matching is case-sensitive. Defaults to false.'),
+      limit: integer('Maximum number of matching lines to return. Defaults to 200.')
     },
     ['query']
   ),
@@ -197,6 +211,7 @@ const LABELS: Record<HarnessToolName, string> = {
   read: 'Reading file',
   list: 'Listing directory',
   find: 'Finding files',
+  grep: 'Searching code',
   to_ask: 'Asking a question',
   write: 'Writing file',
   edit: 'Editing file',
@@ -670,6 +685,23 @@ async function executeOperation(
     const start = await resolveProjectPath(root, relativePath)
     const limit = boundedInteger(args.limit, 200, 1, 1000)
     return JSON.stringify({ query, matches: await findFiles(root, start, query, limit) })
+  }
+  if (name === 'grep') {
+    const query = requiredString(args, 'query')
+    const relativePath = typeof args.path === 'string' && args.path.trim() ? args.path : '.'
+    const start = await resolveProjectPath(root, relativePath)
+    const include =
+      typeof args.include === 'string' && args.include.trim() ? args.include.trim() : undefined
+    const isRegex = typeof args.isRegex === 'boolean' ? args.isRegex : false
+    const caseSensitive = typeof args.caseSensitive === 'boolean' ? args.caseSensitive : false
+    const limit = boundedInteger(args.limit, 200, 1, 1000)
+    const result = await grepFiles(root, start, query, {
+      include,
+      isRegex,
+      caseSensitive,
+      limit
+    })
+    return JSON.stringify(result)
   }
   if (name === 'to_ask') {
     return requestQuestionnaire(args, context.signal)

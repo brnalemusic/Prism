@@ -620,7 +620,12 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
 
             {/* Messages list when tab has messages */}
             {tab.messages.length > 0 && (
-              <div className="w-full flex-grow flex flex-col pb-[27.5vh] pt-4">
+              <div
+                className={clsx(
+                  'w-full flex-grow flex flex-col pb-[27.5vh]',
+                  isHarness ? 'pt-16' : 'pt-4'
+                )}
+              >
                 {renderedMessages}
               </div>
             )}

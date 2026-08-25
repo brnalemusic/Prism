@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
+import clsx from 'clsx'
 import { CaretDown, FileText } from '@phosphor-icons/react'
 import type { HarnessContextSnapshot } from '../../../shared/types'
 
@@ -12,53 +13,62 @@ export function HarnessContextInjection({
   reduceMotion = false
 }: HarnessContextInjectionProps): React.JSX.Element {
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null)
+  const entries = snapshot.entries
+
+  if (!entries || entries.length === 0) return <></>
 
   return (
     <div
-      className={`mb-3 mt-1 flex w-full flex-col gap-0.5 text-[12px] text-white/45 ${
+      className={clsx(
+        'w-fit max-w-full my-1 select-none flex flex-col gap-0.5 px-4',
         reduceMotion ? '[&_*]:!transition-none' : 'animate-message'
-      }`}
+      )}
       aria-label="Harness context injections"
     >
-      {snapshot.entries.map((entry) => {
+      {entries.map((entry) => {
         const isExpanded = expandedEntryId === entry.id
+        const label = entry.label || entry.kind || 'Context injection'
+
         return (
-          <div key={entry.id} className="min-w-0">
+          <article key={entry.id} className="min-w-0">
             <button
               type="button"
-              className="group flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-white/[0.025] hover:text-white/65 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/20"
+              className="inline-flex items-center gap-1.5 py-0.5 text-left text-[12px] font-medium text-text-secondary/70 hover:text-text-secondary transition-colors outline-none focus-visible:ring-1 focus-visible:ring-accent-primary/55 rounded-sm group cursor-pointer"
               aria-expanded={isExpanded}
               onClick={() => setExpandedEntryId(isExpanded ? null : entry.id)}
             >
-              <CaretDown
-                size={12}
-                weight="bold"
-                className={`shrink-0 transition-transform ${isExpanded ? '' : '-rotate-90'}`}
-              />
-              <FileText size={13} className="shrink-0 text-white/35" />
-              <span className="shrink-0 text-white/60">Context injection</span>
-              <span aria-hidden="true" className="text-white/20">
-                ·
+              <FileText size={12} className="shrink-0 text-text-muted/70 group-hover:text-text-secondary" />
+              <span className="truncate max-w-[400px]">
+                Injected <span className="font-mono text-[11px] text-text-secondary/90">{label}</span>
               </span>
-              <span className="min-w-0 truncate font-medium text-white/45">{entry.label}</span>
+              <span className="text-[10px] text-text-muted/50 tabular-nums">
+                {entry.characterCount.toLocaleString()} chars
+              </span>
+              <CaretDown
+                size={10}
+                className={clsx(
+                  'shrink-0 text-text-muted/60 transition-transform duration-200 group-hover:text-text-secondary ml-0.5',
+                  isExpanded && 'rotate-180'
+                )}
+              />
             </button>
 
             {isExpanded && (
-              <div className="ml-[34px] mr-1 mb-2 overflow-hidden rounded-lg border border-white/[0.055] bg-black/20">
-                <div className="flex items-center justify-between gap-3 border-b border-white/[0.045] px-3 py-2 text-[10px] text-white/30">
-                  <span className="min-w-0 truncate" title={entry.origin}>
+              <div className="mb-1.5 ml-[5px] mt-1 space-y-1.5 border-l border-white/[0.07] pb-0.5 pl-3 pr-1 animate-fade-in max-w-full">
+                <div className="flex items-center justify-between gap-3 text-[10px] text-text-muted/60 mb-1">
+                  <span className="truncate" title={entry.origin}>
                     {entry.origin}
                   </span>
                   <span className="shrink-0 tabular-nums">
                     {entry.characterCount.toLocaleString()} chars
                   </span>
                 </div>
-                <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words px-3 py-2.5 font-mono text-[11px] leading-[1.55] text-white/55 selection:bg-white/15">
+                <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/25 p-2 font-mono text-[10px] leading-relaxed text-text-secondary custom-scrollbar border border-white/[0.04]">
                   {entry.content}
                 </pre>
               </div>
             )}
-          </div>
+          </article>
         )
       })}
     </div>

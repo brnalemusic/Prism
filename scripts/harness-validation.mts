@@ -13,6 +13,7 @@ import {
 } from '../src/main/harnessFileOperations.ts'
 import { resolveHarnessProjectPath } from '../src/main/harnessPathPolicy.ts'
 import { harnessWildcardRegex } from '../src/main/harnessGlob.ts'
+import { grepFiles } from '../src/main/harnessGrep.ts'
 import {
   buildHarnessSystemPrompt,
   getHarnessInstructionStatus,
@@ -88,6 +89,79 @@ test('find wildcard distinguishes one directory level from recursive matches', (
   assert.equal(oneLevel.test('src/deep/index.ts'), false)
   assert.equal(recursive.test('src/index.ts'), true)
   assert.equal(recursive.test('src/deep/index.ts'), true)
+})
+
+test('grepFiles searches code returning 1-based line numbers and respects filters and exclusions', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-harness-grep-'))
+  try {
+    await fs.mkdir(path.join(root, 'src', 'utils'), { recursive: true })
+    await fs.mkdir(path.join(root, 'node_modules', 'pkg'), { recursive: true })
+    await fs.writeFile(
+      path.join(root, 'src', 'index.ts'),
+      '// entry\nexport function runMain() {\n  return 42\n}\n'
+    )
+    await fs.writeFile(
+      path.join(root, 'src', 'utils', 'helper.ts'),
+      'export function helper() {\n  // RUNMAIN helper\n  return 100\n}\n'
+    )
+    await fs.writeFile(
+      path.join(root, 'src', 'doc.md'),
+      '# Documentation\nMentions runMain here\n'
+    )
+    await fs.writeFile(
+      path.join(root, 'node_modules', 'pkg', 'ignored.ts'),
+      'export function runMain() {}\n'
+    )
+    // Binary file
+    await fs.writeFile(path.join(root, 'src', 'asset.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]))
+
+    // 1. Literal case-insensitive search
+    const allMatches = await grepFiles(root, root, 'runmain')
+    assert.equal(allMatches.totalMatches, 3)
+    assert.deepEqual(
+      allMatches.matches.map((m) => ({ path: m.path.replace(/\\/g, '/'), lines: m.lines })),
+      [
+        { path: 'src/doc.md', lines: [2] },
+        { path: 'src/index.ts', lines: [2] },
+        { path: 'src/utils/helper.ts', lines: [2] }
+      ]
+    )
+
+    // 2. Case-sensitive search
+    const exactMatches = await grepFiles(root, root, 'runMain', { caseSensitive: true })
+    assert.equal(exactMatches.totalMatches, 2)
+    assert.deepEqual(
+      exactMatches.matches.map((m) => ({ path: m.path.replace(/\\/g, '/'), lines: m.lines })),
+      [
+        { path: 'src/doc.md', lines: [2] },
+        { path: 'src/index.ts', lines: [2] }
+      ]
+    )
+
+    // 3. Glob filtering via include
+    const tsMatches = await grepFiles(root, root, 'runmain', { include: '*.ts' })
+    assert.equal(tsMatches.totalMatches, 2)
+    assert.deepEqual(
+      tsMatches.matches.map((m) => ({ path: m.path.replace(/\\/g, '/'), lines: m.lines })),
+      [
+        { path: 'src/index.ts', lines: [2] },
+        { path: 'src/utils/helper.ts', lines: [2] }
+      ]
+    )
+
+    // 4. Regex search
+    const regexMatches = await grepFiles(root, root, 'function\\s+\\w+', { isRegex: true })
+    assert.equal(regexMatches.totalMatches, 2)
+    assert.deepEqual(
+      regexMatches.matches.map((m) => ({ path: m.path.replace(/\\/g, '/'), lines: m.lines })),
+      [
+        { path: 'src/index.ts', lines: [2] },
+        { path: 'src/utils/helper.ts', lines: [1] }
+      ]
+    )
+  } finally {
+    await fs.rm(root, { recursive: true, force: true })
+  }
 })
 
 test('Harness path policy rejects absolute paths and traversal', async () => {

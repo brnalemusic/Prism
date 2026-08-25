@@ -25,6 +25,7 @@ const HARNESS_LABELS: Record<HarnessToolName, string> = {
   read: 'Read file',
   list: 'Listed directory',
   find: 'Found files',
+  grep: 'Searched code',
   to_ask: 'Asked a question',
   write: 'Wrote file',
   edit: 'Edited file',
@@ -157,6 +158,12 @@ function describeTool(tool: ToolCallItem): string {
         : active
           ? 'Searching files'
           : 'Found files'
+    case 'grep':
+      return query
+        ? `${active ? 'Searching code for' : 'Searched code for'} \`${compact(query)}\``
+        : active
+          ? 'Searching code'
+          : 'Searched code'
     case 'write': {
       const mode = stringArg(args, ['mode'])
       const isCreate = mode === 'create'
@@ -221,7 +228,7 @@ function toolIcon(name: string): React.JSX.Element {
   }
   if (name === 'web_search') return <GlobeSimple {...props} />
   if (name === 'to_ask') return <ChatTeardropText {...props} />
-  if (name === 'find') return <MagnifyingGlass {...props} />
+  if (name === 'find' || name === 'grep') return <MagnifyingGlass {...props} />
   if (name === 'list') return <FolderOpen {...props} />
   if (name === 'apply_patch') return <Code {...props} />
   return <FileCode {...props} />
@@ -388,13 +395,50 @@ function ToolRow({ tool }: { tool: ToolCallItem }): React.JSX.Element {
                     Run ID {runId}
                   </div>
                 )}
-                <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words p-2 font-mono text-[10px] leading-relaxed text-text-secondary custom-scrollbar">
-                  {tool.name === 'exec_command' || tool.name === 'read_terminal_output' ? (
-                    <AnsiRenderer text={tool.terminalOutput || output} />
-                  ) : (
-                    output
-                  )}
-                </pre>
+                {tool.name === 'grep' && Array.isArray(outputRecord.matches) ? (
+                  <div className="max-h-56 overflow-auto p-2 font-mono text-[10px] leading-relaxed text-text-secondary custom-scrollbar space-y-1.5">
+                    <div className="text-[9.5px] text-text-muted">
+                      {typeof outputRecord.totalMatches === 'number'
+                        ? `${outputRecord.totalMatches} match${outputRecord.totalMatches === 1 ? '' : 'es'} across ${outputRecord.matches.length} file${outputRecord.matches.length === 1 ? '' : 's'}`
+                        : 'Matches:'}
+                    </div>
+                    {outputRecord.matches.length === 0 ? (
+                      <div className="text-[10px] text-text-muted italic">No matching lines found.</div>
+                    ) : (
+                      outputRecord.matches.map((match: unknown, idx: number) => {
+                        const m = asHarnessRecord(match)
+                        const matchPath = typeof m.path === 'string' ? m.path : ''
+                        const lines = Array.isArray(m.lines) ? m.lines : []
+                        return (
+                          <div
+                            key={idx}
+                            className="flex flex-wrap items-baseline gap-1.5 border-b border-white/[0.03] pb-1 last:border-0 last:pb-0"
+                          >
+                            <span className="font-semibold text-accent-primary/90">{matchPath}</span>
+                            <span className="flex flex-wrap gap-1 text-text-muted/80">
+                              {lines.map((ln: unknown, lIdx: number) => (
+                                <span
+                                  key={lIdx}
+                                  className="rounded bg-white/[0.06] px-1 py-0.5 text-[9px] text-text-secondary"
+                                >
+                                  #{String(ln)}
+                                </span>
+                              ))}
+                            </span>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                ) : (
+                  <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words p-2 font-mono text-[10px] leading-relaxed text-text-secondary custom-scrollbar">
+                    {tool.name === 'exec_command' || tool.name === 'read_terminal_output' ? (
+                      <AnsiRenderer text={tool.terminalOutput || output} />
+                    ) : (
+                      output
+                    )}
+                  </pre>
+                )}
               </div>
             </DetailBlock>
           ) : null}

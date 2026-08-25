@@ -73,7 +73,8 @@ const HARNESS_TOOLS: Array<{
 }> = [
   { name: 'read', label: 'Read', description: 'Read bounded text ranges.' },
   { name: 'list', label: 'List', description: 'List project directories.' },
-  { name: 'find', label: 'Find', description: 'Discover files by path pattern.' },
+  { name: 'find', label: 'Find', description: 'Discover files by name or path pattern.' },
+  { name: 'grep', label: 'Grep', description: 'Search code and text for line occurrences.' },
   {
     name: 'to_ask',
     label: 'Ask user',

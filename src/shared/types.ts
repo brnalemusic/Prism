@@ -136,6 +136,7 @@ export type HarnessToolName =
   | 'read'
   | 'list'
   | 'find'
+  | 'grep'
   | 'to_ask'
   | 'write'
   | 'edit'

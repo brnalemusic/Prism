@@ -82,6 +82,7 @@ export const DEFAULT_HARNESS_TOOLS: HarnessToolName[] = [
   'read',
   'list',
   'find',
+  'grep',
   'to_ask',
   'write',
   'edit',
