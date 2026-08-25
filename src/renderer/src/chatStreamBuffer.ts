@@ -5,12 +5,19 @@ export type StreamFrameCanceller = (handle: number) => void
 export class PerChatStreamBuffer<T extends { chatId: string }> {
   private readonly pending = new Map<string, T>()
   private readonly scheduled = new Map<string, number>()
+  private readonly schedule: StreamFrameScheduler
+  private readonly cancel: StreamFrameCanceller
+  private readonly consume: (value: T) => void
 
   constructor(
-    private readonly schedule: StreamFrameScheduler,
-    private readonly cancel: StreamFrameCanceller,
-    private readonly consume: (value: T) => void
-  ) {}
+    schedule: StreamFrameScheduler,
+    cancel: StreamFrameCanceller,
+    consume: (value: T) => void
+  ) {
+    this.schedule = schedule
+    this.cancel = cancel
+    this.consume = consume
+  }
 
   push(value: T): void {
     this.pending.set(value.chatId, value)

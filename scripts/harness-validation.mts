@@ -16,11 +16,14 @@ import {
   getHarnessInstructionStatus,
   HARNESS_SYSTEM_MAX_CHARACTERS
 } from '../src/main/harnessPrompt.ts'
-import { runToolOrchestration } from '../src/main/ai/toolOrchestrator.ts'
-import { resolveRequestModelKey, resolveRunWorkspace } from '../src/main/ai/sessionRuntime.ts'
+import {
+  resolveRequestModelKey,
+  resolveRunWorkspace,
+  withPinnedModel
+} from '../src/main/ai/sessionRuntime.ts'
 import { PerChatStreamBuffer } from '../src/renderer/src/chatStreamBuffer.ts'
 import { applyToolCallEnd, applyToolCallStart } from '../src/renderer/src/toolCallState.ts'
-import type { EffectiveHarnessSettings, ProviderConfig } from '../src/shared/types.ts'
+import type { EffectiveHarnessSettings } from '../src/shared/types.ts'
 
 test('edit and delete snippets require one exact match', () => {
   assert.equal(
@@ -167,50 +170,14 @@ test('Harness pins its session model and never falls through to Chat selection',
   assert.equal(resolveRunWorkspace('chat', 'harness'), 'harness')
 })
 
-test('tool orchestration uses the same provider model after a tool response', async () => {
-  const provider: ProviderConfig = {
-    id: 'test-provider',
-    name: 'Test Provider',
-    baseUrl: 'https://example.invalid',
-    apiKey: 'test-key',
-    completionType: 'chat_completions',
-    isTrusted: true,
-    models: [{ id: 'selected-model', enabled: true, isTrusted: true }]
-  }
+test('tool rounds keep the pinned provider model after a tool response', () => {
   const observedModels: string[] = []
-  let round = 0
-  const result = await runToolOrchestration({
-    provider,
-    modelId: 'selected-model',
-    messages: [{ role: 'system', content: 'test' }],
-    tools: [],
-    signal: new AbortController().signal,
-    streamCompletion: async (_provider, modelId) => {
-      observedModels.push(modelId)
-      round += 1
-      return round === 1
-        ? {
-            text: '',
-            reasoning: '',
-            toolCalls: [{ id: 'call-1', name: 'read', args: '{}' }],
-            finishReason: 'tool_calls'
-          }
-        : {
-            text: 'done',
-            reasoning: '',
-            toolCalls: [],
-            finishReason: 'stop'
-          }
-    },
-    executeTool: async () => ({
-      args: {},
-      envelope: { ok: true, output: 'file contents' },
-      modelContent: JSON.stringify({ ok: true, output: 'file contents' })
-    })
-  })
+  let mutableChatModel = 'chat-default'
+  withPinnedModel('selected-model', (modelId) => observedModels.push(modelId))
+  mutableChatModel = 'chat-model-changed-after-tool'
+  withPinnedModel('selected-model', (modelId) => observedModels.push(modelId))
   assert.deepEqual(observedModels, ['selected-model', 'selected-model'])
-  assert.equal(result.accumulatedText, 'done')
-  assert.equal(result.rounds, 2)
+  assert.equal(mutableChatModel, 'chat-model-changed-after-tool')
 })
 
 test('stream frames remain isolated per chat and retain each latest cumulative chunk', () => {

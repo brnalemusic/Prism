@@ -1796,20 +1796,6 @@ function RealApp(): React.JSX.Element {
     []
   )
 
-  const ensureHarnessProjectForTab = useCallback(
-    async (tabId: string, currentPath?: string): Promise<void> => {
-      const candidate = currentPath || config?.harness.lastProjectPath
-      const project = await window.api.getHarnessProject(candidate).catch(() => null)
-      if (project) {
-        selectHarnessProjectForTab(tabId, project)
-        return
-      }
-      setHarnessProjectTargetTabId(tabId)
-      setIsHarnessProjectModalOpen(true)
-    },
-    [config?.harness.lastProjectPath, selectHarnessProjectForTab]
-  )
-
   const [quotedText, setQuotedText] = useState<string | null>(null)
   const quotedTextRef = useRef<string | null>(null)
   useEffect(() => {

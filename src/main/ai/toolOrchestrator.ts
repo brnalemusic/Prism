@@ -9,6 +9,7 @@ import {
 import { streamOpenAiCompletion, StreamResult } from './openaiClient'
 import { OpenAiMessage, OpenAiToolDefinition } from './types'
 import { ToolAttachment } from '../toolAttachments'
+import { withPinnedModel } from './sessionRuntime'
 
 export interface OrchestratorStreamState {
   round: number
@@ -205,34 +206,36 @@ export async function runToolOrchestration(
       streamingToolCalls: streamingToolCalls.map((call) => ({ ...call }))
     })
 
-    const result = await (options.streamCompletion || streamOpenAiCompletion)(
-      options.provider,
-      options.modelId,
-      messages,
-      tools,
-      options.signal,
-      {
-        onTextDelta: (delta) => {
-          currentText += delta
-          options.onStreamEvent?.({ type: 'text', delta }, state())
-        },
-        onReasoningDelta: (delta) => {
-          currentReasoning += delta
-          options.onStreamEvent?.({ type: 'reasoning', delta }, state())
-        },
-        onToolCallDelta: (delta) => {
-          let current = streamingToolCalls.find((call) => call.index === delta.index)
-          if (!current) {
-            current = { index: delta.index, id: delta.id, name: '', arguments: '' }
-            streamingToolCalls.push(current)
+    const result = await withPinnedModel(options.modelId, (pinnedModelId) =>
+      (options.streamCompletion || streamOpenAiCompletion)(
+        options.provider,
+        pinnedModelId,
+        messages,
+        tools,
+        options.signal,
+        {
+          onTextDelta: (delta) => {
+            currentText += delta
+            options.onStreamEvent?.({ type: 'text', delta }, state())
+          },
+          onReasoningDelta: (delta) => {
+            currentReasoning += delta
+            options.onStreamEvent?.({ type: 'reasoning', delta }, state())
+          },
+          onToolCallDelta: (delta) => {
+            let current = streamingToolCalls.find((call) => call.index === delta.index)
+            if (!current) {
+              current = { index: delta.index, id: delta.id, name: '', arguments: '' }
+              streamingToolCalls.push(current)
+            }
+            if (delta.id) current.id = delta.id
+            if (delta.name) current.name = delta.name
+            if (delta.argsDelta) current.arguments += delta.argsDelta
+            options.onStreamEvent?.({ type: 'tool', delta }, state())
           }
-          if (delta.id) current.id = delta.id
-          if (delta.name) current.name = delta.name
-          if (delta.argsDelta) current.arguments += delta.argsDelta
-          options.onStreamEvent?.({ type: 'tool', delta }, state())
-        }
-      },
-      options.reasoningLevel
+        },
+        options.reasoningLevel
+      )
     )
 
     currentText = result.text || currentText

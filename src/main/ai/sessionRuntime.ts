@@ -19,3 +19,7 @@ export function resolveRequestModelKey(
   if (workspace === 'harness') return sessionModelKey?.trim() || ''
   return currentChatModelKey?.trim() || sessionModelKey?.trim() || ''
 }
+
+export function withPinnedModel<T>(modelKey: string, run: (modelKey: string) => T): T {
+  return run(modelKey)
+}
