@@ -42,6 +42,16 @@ function projectName(projectPath?: string): string {
   return pieces[pieces.length - 1] || projectPath
 }
 
+function getTabDisplayName(tab: TabSession): string {
+  if (tab.title && tab.title !== 'New Harness' && tab.title !== 'Chat') {
+    return tab.title
+  }
+  if (tab.disciplinePath) {
+    return projectName(tab.disciplinePath)
+  }
+  return 'New Harness'
+}
+
 function formatUpdated(timestamp: number): string {
   const date = new Date(timestamp)
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
@@ -97,10 +107,29 @@ export function HarnessWorkspace({
       .sort((left, right) => (right.sessions[0]?.lastUpdated || 0) - (left.sessions[0]?.lastUpdated || 0))
   }, [history])
 
-  const dockWidth = Math.min(720, Math.max(76, 76 + tabs.length * 150))
+  const isMaxTabs = tabs.length >= 5
+
+  // Uniform tab width computation:
+  // Every tab in the current view has the EXACT same width regardless of title length (max 5 tabs).
+  const tabWidth = useMemo(() => {
+    const count = tabs.length
+    if (count <= 1) return 136
+    if (count === 2) return 130
+    if (count === 3) return 122
+    if (count === 4) return 114
+    return 106
+  }, [tabs.length])
+
+  // Precise dock width when expanded so there is ZERO excess empty space on the right:
+  // Padding (12px) + Dot (28px) + Gap (6px) + Tabs (N * tabWidth + (N - 1) * 4px gap) + Divider (10px) + Actions (92px)
+  const dockOpenWidth = useMemo(() => {
+    const tabsTotalWidth = tabs.length * tabWidth + Math.max(0, tabs.length - 1) * 4
+    return 12 + 28 + 6 + tabsTotalWidth + 10 + 92
+  }, [tabs.length, tabWidth])
+
   const motionClass = reduceMotion
     ? 'transition-none'
-    : 'transition-[width,opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'
+    : 'transition-[width,background-color,border-color,box-shadow,opacity] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]'
 
   return (
     <section className="relative flex h-full min-h-0 flex-1 overflow-hidden bg-black" aria-label="Harness workspace">
@@ -130,109 +159,150 @@ export function HarnessWorkspace({
       </div>
 
       <div
-        className="absolute left-1/2 top-3 z-40 -translate-x-1/2"
+        className="absolute left-1/2 top-3 z-40 -translate-x-1/2 py-1 max-w-[calc(100vw-48px)]"
         onMouseEnter={() => setIsDockOpen(true)}
         onMouseLeave={() => setIsDockOpen(false)}
       >
         <div
           className={clsx(
-            'relative flex items-center rounded-2xl border border-white/[0.14] bg-black/52 p-1.5 shadow-[0_18px_48px_rgba(0,0,0,0.48),var(--glass-specular-top)] backdrop-blur-2xl',
+            'relative flex h-9 items-center rounded-full border border-white/[0.12] bg-[#090b12]/80 px-1.5 shadow-[0_12px_36px_rgba(0,0,0,0.55),var(--glass-specular-top)] backdrop-blur-2xl overflow-hidden',
             motionClass,
-            isDockOpen ? 'opacity-100' : 'opacity-92'
+            isDockOpen ? 'opacity-100 border-white/[0.18]' : 'opacity-90 hover:opacity-100 hover:border-white/[0.2]'
           )}
-          style={{ width: `${isDockOpen ? dockWidth : 38}px` }}
+          style={{ width: `${isDockOpen ? dockOpenWidth : 36}px` }}
         >
+          {/* Glowing Dot Button */}
           <button
             type="button"
             onClick={() => setIsDockOpen((open) => !open)}
             onFocus={() => setIsDockOpen(true)}
             aria-expanded={isDockOpen}
             aria-label="Toggle Harness tabs"
-            className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-white/[0.09] hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+            className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-text-secondary transition-all hover:bg-white/[0.08] hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+            title={isDockOpen ? 'Collapse Harness tabs' : `Expand Harness tabs (${tabs.length} open)`}
           >
-            <span className={clsx('h-2 w-2 rounded-full bg-accent-primary shadow-[0_0_12px_var(--accent-primary)]', activeTab?.isProcessing && 'animate-pulse')} />
+            <span
+              className={clsx(
+                'h-2 w-2 rounded-full bg-accent-primary transition-all duration-200',
+                activeTab?.isProcessing
+                  ? 'animate-pulse shadow-[0_0_12px_var(--accent-primary),0_0_24px_var(--accent-glow)]'
+                  : 'shadow-[0_0_8px_var(--accent-primary)] hover:scale-110'
+              )}
+            />
           </button>
 
+          {/* Expanded Content (Tabs + Actions) */}
           <div
             className={clsx(
-              'flex min-w-0 items-center gap-1 overflow-hidden',
-              motionClass,
-              isDockOpen ? 'ml-1 max-w-[620px] opacity-100' : 'ml-0 max-w-0 opacity-0 pointer-events-none'
+              'flex min-w-0 items-center gap-1.5 overflow-hidden transition-[max-width,opacity,transform] duration-250 ease-[cubic-bezier(0.16,1,0.3,1)] select-none',
+              isDockOpen
+                ? 'ml-1.5 opacity-100 scale-100 pointer-events-auto'
+                : 'max-w-0 opacity-0 scale-95 pointer-events-none'
             )}
           >
-            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
+            {/* Uniform Tabs Container - 0 Sliders Guaranteed */}
+            <div className="flex min-w-0 items-center gap-1 overflow-hidden no-scrollbar py-0.5">
               {tabs.map((tab) => {
                 const isActive = tab.id === activeTabId
+                const displayName = getTabDisplayName(tab)
+                const tabTooltip = `${displayName}${tab.disciplinePath ? ` · ${projectName(tab.disciplinePath)}` : ''}`
+
                 return (
                   <button
                     key={tab.id}
                     type="button"
                     onClick={() => onSelectTab(tab.id)}
+                    style={{ width: `${tabWidth}px` }}
                     className={clsx(
-                      'group/tab flex h-7 min-w-[108px] max-w-[170px] items-center gap-1.5 rounded-xl px-2 text-left text-[10.5px] font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary',
+                      'group/tab relative flex h-7 shrink-0 items-center gap-1.5 rounded-xl px-2 text-left text-[11px] font-medium transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary border',
                       isActive
-                        ? 'bg-white/[0.1] text-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
-                        : 'text-text-secondary hover:bg-white/[0.06] hover:text-text-primary'
+                        ? 'bg-white/[0.12] text-text-primary border-white/[0.18] shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_2px_8px_rgba(0,0,0,0.25)]'
+                        : 'bg-white/[0.025] text-text-secondary/70 hover:bg-white/[0.07] hover:text-text-primary border-transparent hover:border-white/[0.06]'
                     )}
-                    title={`${tab.title || 'New Harness'} · ${projectName(tab.disciplinePath)}`}
+                    title={tabTooltip}
                   >
-                    <Folder size={11} weight={isActive ? 'fill' : 'bold'} className="shrink-0 text-text-muted" />
-                    <span className="min-w-0 flex-1 truncate">{tab.title || 'New Harness'}</span>
+                    <Folder
+                      size={11.5}
+                      weight={isActive ? 'fill' : 'bold'}
+                      className={clsx(
+                        'shrink-0 transition-colors',
+                        isActive ? 'text-accent-primary' : 'text-text-muted group-hover/tab:text-text-secondary'
+                      )}
+                    />
+                    <span className="min-w-0 flex-1 truncate tracking-tight text-[11px]">
+                      {displayName}
+                    </span>
                     {tab.isProcessing ? (
-                      <StopCircle
-                        size={11}
-                        weight="fill"
+                      <span
                         onClick={(event) => {
                           event.stopPropagation()
                           onStopTab(tab)
                         }}
-                        className="shrink-0 text-accent-primary hover:text-text-primary"
-                      />
+                        className="flex h-4.5 w-4.5 items-center justify-center rounded text-accent-primary hover:text-status-error hover:bg-status-error/15 transition-all shrink-0 cursor-pointer"
+                        title="Stop processing"
+                      >
+                        <StopCircle size={11.5} weight="fill" />
+                      </span>
                     ) : (
-                      <X
-                        size={10}
+                      <span
                         onClick={(event) => {
                           event.stopPropagation()
                           onCloseTab(tab.id)
                         }}
-                        className="shrink-0 text-text-muted opacity-0 transition-opacity group-hover/tab:opacity-100 hover:text-text-primary"
-                      />
+                        className="flex h-4 w-4 items-center justify-center rounded text-text-muted opacity-0 transition-all duration-150 group-hover/tab:opacity-100 hover:bg-white/[0.14] hover:text-text-primary shrink-0"
+                        title="Close tab"
+                      >
+                        <X size={10} weight="bold" />
+                      </span>
                     )}
                   </button>
                 )
               })}
             </div>
-            <button
-              type="button"
-              onClick={onNewTab}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-white/[0.09] hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
-              aria-label="New Harness tab"
-              title="New Harness tab"
-            >
-              <Plus size={13} weight="bold" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsHistoryOpen(true)}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-white/[0.09] hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
-              aria-label="Open Harness history"
-              title="Project history"
-            >
-              <ClockCounterClockwise size={13} weight="bold" />
-            </button>
-            <button
-              type="button"
-              onClick={onOpenSettings}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-white/[0.09] hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
-              aria-label="Open Harness settings"
-              title="Harness settings"
-            >
-              <Gear size={13} weight="bold" />
-            </button>
+
+            {/* Crisp Divider */}
+            <div className="h-3.5 w-[1px] bg-white/[0.1] shrink-0 mx-0.5" />
+
+            {/* Action Controls */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                disabled={isMaxTabs}
+                onClick={onNewTab}
+                className={clsx(
+                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-xl transition-all duration-150 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary',
+                  isMaxTabs
+                    ? 'opacity-30 cursor-not-allowed text-text-muted hover:bg-transparent'
+                    : 'text-text-secondary/75 hover:bg-white/[0.08] hover:text-text-primary'
+                )}
+                aria-label={isMaxTabs ? 'Maximum 5 Harness tabs reached' : 'New Harness tab'}
+                title={isMaxTabs ? 'Maximum 5 Harness tabs reached' : 'New Harness tab'}
+              >
+                <Plus size={13} weight="bold" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsHistoryOpen(true)}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-text-secondary/75 transition-all duration-150 hover:bg-white/[0.08] hover:text-text-primary active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                aria-label="Open Harness history"
+                title="Project history"
+              >
+                <ClockCounterClockwise size={13} weight="bold" />
+              </button>
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-text-secondary/75 transition-all duration-150 hover:bg-white/[0.08] hover:text-text-primary active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                aria-label="Open Harness settings"
+                title="Harness settings"
+              >
+                <Gear size={13} weight="bold" />
+              </button>
+            </div>
           </div>
         </div>
         {isDockOpen && tabProjectMode === 'grouped' && activeTab?.disciplinePath && (
-          <div className="mt-1.5 text-center text-[9px] font-medium tracking-wide text-text-muted/75">
+          <div className="mt-1.5 text-center text-[9.5px] font-medium tracking-wide text-text-muted/70 animate-fade-in pointer-events-none select-none">
             {projectName(activeTab.disciplinePath)} project group
           </div>
         )}
@@ -267,32 +337,50 @@ export function HarnessWorkspace({
                       <span className="font-mono text-[10px] font-normal text-text-muted">{group.sessions.length}</span>
                     </div>
                     <div className="space-y-1">
-                      {group.sessions.map((session) => (
-                        <div key={session.id} className="group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.045]">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onLoadSession(session.id)
-                              setIsHistoryOpen(false)
-                            }}
-                            className="min-w-0 flex-1 text-left focus:outline-none"
+                      {group.sessions.map((session) => {
+                        const sessionTitle =
+                          session.title && session.title !== 'New Harness' && session.title !== 'Chat'
+                            ? session.title
+                            : session.disciplinePath
+                              ? projectName(session.disciplinePath)
+                              : 'New Harness'
+
+                        return (
+                          <div
+                            key={session.id}
+                            className="group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.045]"
                           >
-                            <div className="truncate text-xs font-medium text-text-primary">{session.title || 'New Harness'}</div>
-                            <div className="mt-0.5 truncate font-mono text-[10px] text-text-muted">{formatUpdated(session.lastUpdated)}</div>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onDeleteSession(session.id)
-                              setHistory((current) => current.filter((entry) => entry.id !== session.id))
-                            }}
-                            className="rounded-md p-1 text-text-muted opacity-0 transition-all hover:bg-white/[0.08] hover:text-status-error group-hover:opacity-100 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
-                            aria-label={`Delete ${session.title || 'Harness conversation'}`}
-                          >
-                            <X size={13} />
-                          </button>
-                        </div>
-                      ))}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onLoadSession(session.id)
+                                setIsHistoryOpen(false)
+                              }}
+                              className="min-w-0 flex-1 text-left focus:outline-none"
+                            >
+                              <div className="truncate text-xs font-medium text-text-primary">
+                                {sessionTitle}
+                              </div>
+                              <div className="mt-0.5 truncate font-mono text-[10px] text-text-muted">
+                                {formatUpdated(session.lastUpdated)}
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onDeleteSession(session.id)
+                                setHistory((current) =>
+                                  current.filter((entry) => entry.id !== session.id)
+                                )
+                              }}
+                              className="rounded-md p-1 text-text-muted opacity-0 transition-all hover:bg-white/[0.08] hover:text-status-error group-hover:opacity-100 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                              aria-label={`Delete ${sessionTitle}`}
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+                        )
+                      })}
                     </div>
                   </section>
                 ))

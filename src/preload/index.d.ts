@@ -123,6 +123,7 @@ export interface PrismAPI {
       timestamp?: number
       chatId: string
       workspace: WorkspaceKind
+      round?: number
     }) => void
   ) => () => void
   onToolEnd: (
@@ -133,6 +134,7 @@ export interface PrismAPI {
       attachments?: ToolAttachment[]
       chatId: string
       workspace: WorkspaceKind
+      round?: number
     }) => void
   ) => () => void
   onDiscordVoiceState: (callback: (data: DiscordVoiceStateEvent) => void) => () => void

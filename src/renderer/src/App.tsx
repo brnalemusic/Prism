@@ -294,11 +294,15 @@ function consolidateToolCalls(
           tcName === 'computer_use_create_file' ||
           tcName === 'computer_use_save_file' ||
           tcName === 'computer_use_append_file' ||
-          tcName === 'write_to_file'
+          tcName === 'write_to_file' ||
+          tcName === 'write'
         const isFileEdit =
           tcName === 'computer_use_edit_file' ||
           tcName === 'replace_file_content' ||
-          tcName === 'multi_replace_file_content'
+          tcName === 'multi_replace_file_content' ||
+          tcName === 'edit' ||
+          tcName === 'delete_lines' ||
+          tcName === 'apply_patch'
 
         if (isFileWrite || isFileEdit) {
           const raw = stc.arguments
@@ -306,6 +310,22 @@ function consolidateToolCalls(
             const contentMatch = raw.match(/"(?:content|CodeContent)"\s*:\s*"((?:[^"\\]|\\.)*)"?/s)
             if (contentMatch) {
               streamingAddedLines = countStreamingLines(contentMatch[1])
+            }
+          } else if (tcName === 'edit') {
+            const oldTextMatch = raw.match(/"(?:oldText|old_text)"\s*:\s*"((?:[^"\\]|\\.)*)"?/s)
+            const newTextMatch = raw.match(/"(?:newText|new_text)"\s*:\s*"((?:[^"\\]|\\.)*)"?/s)
+            if (oldTextMatch) streamingRemovedLines = countStreamingLines(oldTextMatch[1])
+            if (newTextMatch) streamingAddedLines = countStreamingLines(newTextMatch[1])
+          } else if (tcName === 'delete_lines') {
+            const oldTextMatch = raw.match(/"(?:oldText|old_text)"\s*:\s*"((?:[^"\\]|\\.)*)"?/s)
+            if (oldTextMatch) streamingRemovedLines = countStreamingLines(oldTextMatch[1])
+          } else if (tcName === 'apply_patch') {
+            const patchMatch = raw.match(/"patch"\s*:\s*"((?:[^"\\]|\\.)*)"?/s)
+            if (patchMatch) {
+              for (const line of patchMatch[1].split(/\\n|\n/)) {
+                if (line.startsWith('+') && !line.startsWith('+++')) streamingAddedLines++
+                if (line.startsWith('-') && !line.startsWith('---')) streamingRemovedLines++
+              }
             }
           } else if (tcName === 'replace_file_content') {
             const targetMatch = raw.match(/"TargetContent"\s*:\s*"((?:[^"\\]|\\.)*)"?/s)
@@ -1109,53 +1129,106 @@ const AiMessageRow = React.memo(function AiMessageRow({
     [msg.toolCalls, msg.streamingToolCalls]
   )
   const isHarness = sessionMode === 'harness'
+  const harnessRounds = msg.harnessRounds
 
   return (
     <div
       key={i}
       className="w-full flex flex-col items-start px-4 py-3.5 transition-all duration-700 animate-message"
     >
-      {/* 1. In Harness: "Worked for N steps >" rendered at the TOP if tools exist */}
-      {isHarness && harnessToolCalls.length > 0 && (
-        <HarnessActivityBoundary key={isActive ? 'harness-activity-active' : 'harness-activity-complete'}>
-          <HarnessSteps
-            tools={harnessToolCalls}
-            isActive={Boolean(isActive && isRunningTool)}
-            showSteps={harnessUi?.showSteps !== false}
-            reduceMotion={harnessUi?.reduceMotion === true}
-          />
-        </HarnessActivityBoundary>
-      )}
+      {/* Harness Mode: Interleaved rounds in chronological order */}
+      {isHarness && harnessRounds && harnessRounds.length > 0 ? (
+        <div className="w-full flex flex-col gap-2.5">
+          {harnessRounds.map((roundItem, rIdx) => {
+            const isLatestRound = rIdx === harnessRounds.length - 1
+            const roundTools = consolidateToolCalls(
+              roundItem.toolCalls,
+              isLatestRound ? msg.streamingToolCalls : undefined
+            )
+            const hasRoundContent = Boolean(roundItem.content && roundItem.content.trim())
+            const isRoundActive = isLatestRound && Boolean(isActive && isRunningTool)
 
-      {/* 2. Message Content Body */}
-      {(hasContent || (!isHarness && isActive) || (isActive && !isRunningTool && !msg.isThinking)) && (
-        <div className="w-full text-text-primary" data-prism-ai-message="true">
-          {!hasContent && isActive && !hasImageGeneration && !isRunningTool && !msg.isThinking ? (
-            <div className="flex items-center gap-1.5 h-6 select-none">
-              {activeToolLabel ? (
-                <ToolCallIndicator overrideLabel={activeToolLabel} />
-              ) : inactivityLabel ? (
-                <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
+            return (
+              <div key={`harness-round-${roundItem.round}-${rIdx}`} className="w-full flex flex-col gap-2">
+                {/* 1. Round textual preface/content */}
+                {hasRoundContent && (
+                  <div className="w-full text-text-primary" data-prism-ai-message="true">
+                    <AiMessage
+                      msg={{ ...msg, content: roundItem.content, thoughts: roundItem.thoughts }}
+                      currentChatId={currentChatId}
+                      handleLoadChat={handleLoadChat}
+                      markdownComponents={markdownComponents}
+                      onOpenBrowserTab={onOpenBrowserTab}
+                      onSendSuggestion={onSendSuggestion}
+                      suggestionMessageKey={suggestionMessageKey}
+                      isSuggestionSendDisabled={isSuggestionSendDisabled}
+                      inactivityLabel={inactivityLabel}
+                      activeToolLabel={activeToolLabel}
+                      isHarness={isHarness}
+                    />
+                  </div>
+                )}
+
+                {/* 2. Round tools */}
+                {roundTools.length > 0 && (
+                  <HarnessActivityBoundary key={`harness-round-tools-${roundItem.round}-${rIdx}`}>
+                    <HarnessSteps
+                      tools={roundTools}
+                      isActive={isRoundActive}
+                      showSteps={harnessUi?.showSteps !== false}
+                      reduceMotion={harnessUi?.reduceMotion === true}
+                    />
+                  </HarnessActivityBoundary>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <>
+          {/* Fallback / Non-Harness: Tools at top or inline */}
+          {isHarness && harnessToolCalls.length > 0 && (
+            <HarnessActivityBoundary key={isActive ? 'harness-activity-active' : 'harness-activity-complete'}>
+              <HarnessSteps
+                tools={harnessToolCalls}
+                isActive={Boolean(isActive && isRunningTool)}
+                showSteps={harnessUi?.showSteps !== false}
+                reduceMotion={harnessUi?.reduceMotion === true}
+              />
+            </HarnessActivityBoundary>
+          )}
+
+          {/* Message Content Body */}
+          {(hasContent || (!isHarness && isActive) || (isActive && !isRunningTool && !msg.isThinking)) && (
+            <div className="w-full text-text-primary" data-prism-ai-message="true">
+              {!hasContent && isActive && !hasImageGeneration && !isRunningTool && !msg.isThinking ? (
+                <div className="flex items-center gap-1.5 h-6 select-none">
+                  {activeToolLabel ? (
+                    <ToolCallIndicator overrideLabel={activeToolLabel} />
+                  ) : inactivityLabel ? (
+                    <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
+                  ) : (
+                    <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
+                  )}
+                </div>
               ) : (
-                <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
+                <AiMessage
+                  msg={msg}
+                  currentChatId={currentChatId}
+                  handleLoadChat={handleLoadChat}
+                  markdownComponents={markdownComponents}
+                  onOpenBrowserTab={onOpenBrowserTab}
+                  onSendSuggestion={onSendSuggestion}
+                  suggestionMessageKey={suggestionMessageKey}
+                  isSuggestionSendDisabled={isSuggestionSendDisabled}
+                  inactivityLabel={inactivityLabel}
+                  activeToolLabel={activeToolLabel}
+                  isHarness={isHarness}
+                />
               )}
             </div>
-          ) : (
-            <AiMessage
-              msg={msg}
-              currentChatId={currentChatId}
-              handleLoadChat={handleLoadChat}
-              markdownComponents={markdownComponents}
-              onOpenBrowserTab={onOpenBrowserTab}
-              onSendSuggestion={onSendSuggestion}
-              suggestionMessageKey={suggestionMessageKey}
-              isSuggestionSendDisabled={isSuggestionSendDisabled}
-              inactivityLabel={inactivityLabel}
-              activeToolLabel={activeToolLabel}
-              isHarness={isHarness}
-            />
           )}
-        </div>
+        </>
       )}
 
       {/* 3. Thinking Header: ALWAYS at the bottom of the message, ONLY while actively thinking, disappears when done */}
@@ -2004,6 +2077,9 @@ function RealApp(): React.JSX.Element {
 
   const handleNewHarnessTab = useCallback(
     async (forceProjectPicker = false): Promise<void> => {
+      if (harnessTabsRef.current.length >= 5) {
+        return
+      }
       setActiveView('harness')
       let harnessModel = selectedModelRef.current || config?.lastSelectedChatModel || ''
       if (!harnessModel) {
@@ -2694,6 +2770,22 @@ function RealApp(): React.JSX.Element {
           const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null
           if (lastMsg && lastMsg.role === 'ai') {
             // Merge into existing AI message for this prompt turn
+            if (workspace === 'harness') {
+              if (!lastMsg.harnessRounds) {
+                lastMsg.harnessRounds = [{
+                  round: 1,
+                  content: lastMsg.content,
+                  thoughts: lastMsg.thoughts,
+                  toolCalls: lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
+                }]
+              }
+              lastMsg.harnessRounds.push({
+                round: lastMsg.harnessRounds.length + 1,
+                content: rawText,
+                thoughts,
+                toolCalls: toolCalls.length > 0 ? toolCalls : undefined
+              })
+            }
             lastMsg.content = combineContent(lastMsg.content, rawText)
             lastMsg.thoughts = combineThoughts(lastMsg.thoughts, thoughts)
             lastMsg.thinkingDuration = combineThinkingDuration(
@@ -2728,7 +2820,18 @@ function RealApp(): React.JSX.Element {
               workedDuration,
               toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
               isStreaming: false,
-              isThinking: false
+              isThinking: false,
+              harnessRounds:
+                workspace === 'harness'
+                  ? [
+                      {
+                        round: 1,
+                        content: rawText,
+                        thoughts,
+                        toolCalls: toolCalls.length > 0 ? toolCalls : undefined
+                      }
+                    ]
+                  : undefined
             })
           }
         }
@@ -3298,6 +3401,28 @@ function RealApp(): React.JSX.Element {
                 })
               }
 
+              let harnessRounds = lastMsg.harnessRounds ? [...lastMsg.harnessRounds] : []
+              if (isHarness) {
+                const currentRound = data.harnessRound || 1
+                const roundIdx = harnessRounds.findIndex((r) => r.round === currentRound)
+                const currentContent = data.harnessRoundContent ?? finalResponse
+                const currentThoughts = data.harnessRoundThoughts ?? thoughts
+                if (roundIdx !== -1) {
+                  harnessRounds[roundIdx] = {
+                    ...harnessRounds[roundIdx],
+                    content: currentContent,
+                    thoughts: currentThoughts
+                  }
+                } else {
+                  harnessRounds.push({
+                    round: currentRound,
+                    content: currentContent,
+                    thoughts: currentThoughts,
+                    toolCalls: []
+                  })
+                }
+              }
+
               newMessages[lastMsgIndex] = {
                 ...lastMsg,
                 thoughts,
@@ -3307,7 +3432,8 @@ function RealApp(): React.JSX.Element {
                 toolType,
                 streamingToolCalls: isHarness ? lastMsg.streamingToolCalls : streamingToolCalls,
                 isConnecting: false,
-                toolCalls: updatedToolCalls
+                toolCalls: updatedToolCalls,
+                harnessRounds: isHarness && harnessRounds.length > 0 ? harnessRounds : lastMsg.harnessRounds
               }
             }
             return {
@@ -3355,6 +3481,7 @@ function RealApp(): React.JSX.Element {
         prevTabs.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
+            const isHarness = tab.sessionMode === 'harness'
             const lastMsgIndex = newMessages.length - 1
             const lastMsg = newMessages[lastMsgIndex]
 
@@ -3401,6 +3528,29 @@ function RealApp(): React.JSX.Element {
                 return tc
               })
 
+              let harnessRounds = lastMsg.harnessRounds ? [...lastMsg.harnessRounds] : []
+              if (isHarness) {
+                const roundContent = data.harnessRoundContent ?? finalResponse
+                const roundThoughts = data.harnessRoundThoughts ?? thoughts
+                if (harnessRounds.length > 0) {
+                  const lastIdx = harnessRounds.length - 1
+                  if (data.harnessRoundContent !== undefined) {
+                    harnessRounds[lastIdx] = {
+                      ...harnessRounds[lastIdx],
+                      content: roundContent,
+                      thoughts: roundThoughts
+                    }
+                  }
+                } else if (roundContent) {
+                  harnessRounds.push({
+                    round: 1,
+                    content: roundContent,
+                    thoughts: roundThoughts,
+                    toolCalls: []
+                  })
+                }
+              }
+
               newMessages[lastMsgIndex] = {
                 ...lastMsg,
                 thoughts,
@@ -3410,7 +3560,8 @@ function RealApp(): React.JSX.Element {
                 isWritingToolCall: false,
                 isConnecting: false,
                 toolCalls: promotedToolCalls,
-                streamingToolCalls: undefined
+                streamingToolCalls: undefined,
+                harnessRounds: isHarness && harnessRounds.length > 0 ? harnessRounds : lastMsg.harnessRounds
               }
             }
             return {
@@ -3627,6 +3778,19 @@ function RealApp(): React.JSX.Element {
                 lastMsg.streamingToolCalls =
                   remainingStreamingCalls.length > 0 ? remainingStreamingCalls : undefined
               }
+              if (lastMsg.harnessRounds && lastMsg.harnessRounds.length > 0) {
+                const targetRound = data.round || lastMsg.harnessRounds[lastMsg.harnessRounds.length - 1].round
+                let rIdx = lastMsg.harnessRounds.findIndex((r) => r.round === targetRound)
+                if (rIdx === -1) {
+                  rIdx = lastMsg.harnessRounds.length - 1
+                }
+                const updatedRounds = [...lastMsg.harnessRounds]
+                updatedRounds[rIdx] = {
+                  ...updatedRounds[rIdx],
+                  toolCalls: applyToolCallStart(updatedRounds[rIdx].toolCalls || [], data)
+                }
+                lastMsg.harnessRounds = updatedRounds
+              }
               newMessages[targetMsgIndex] = lastMsg
             }
             return { ...tab, messages: newMessages }
@@ -3688,6 +3852,19 @@ function RealApp(): React.JSX.Element {
             if (lastMsgIndex !== -1) {
               const lastMsg = { ...newMessages[lastMsgIndex] }
               lastMsg.toolCalls = applyToolCallEnd(lastMsg.toolCalls || [], data)
+              if (lastMsg.harnessRounds && lastMsg.harnessRounds.length > 0) {
+                const targetRound = data.round || lastMsg.harnessRounds[lastMsg.harnessRounds.length - 1].round
+                let rIdx = lastMsg.harnessRounds.findIndex((r) => r.round === targetRound)
+                if (rIdx === -1) {
+                  rIdx = lastMsg.harnessRounds.length - 1
+                }
+                const updatedRounds = [...lastMsg.harnessRounds]
+                updatedRounds[rIdx] = {
+                  ...updatedRounds[rIdx],
+                  toolCalls: applyToolCallEnd(updatedRounds[rIdx].toolCalls || [], data)
+                }
+                lastMsg.harnessRounds = updatedRounds
+              }
               newMessages[lastMsgIndex] = lastMsg
             }
             return { ...tab, messages: newMessages }
@@ -4333,6 +4510,19 @@ function RealApp(): React.JSX.Element {
                   onSelectFolder={() => {
                     setHarnessProjectTargetTabId(tab.id)
                     setIsHarnessProjectModalOpen(true)
+                  }}
+                  onSwitchProject={(projectPath) => {
+                    setHarnessTabs((previous) =>
+                      previous.map((entry) =>
+                        entry.id === tab.id
+                          ? {
+                              ...entry,
+                              disciplinePath: projectPath
+                            }
+                          : entry
+                      )
+                    )
+                    void window.api.getHarnessProject(projectPath).catch(console.error)
                   }}
                   onUpdateTabInput={(id, text) => {
                     setHarnessTabs((previous) =>

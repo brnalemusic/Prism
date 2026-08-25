@@ -37,6 +37,15 @@ export interface ToolCallItem {
   runId?: string
   startedAt?: number
   finishedAt?: number
+  round?: number
+}
+
+export interface HarnessRoundItem {
+  round: number
+  content: string
+  thoughts?: string
+  toolCalls?: ToolCallItem[]
+  streamingToolCalls?: StreamingToolCall[]
 }
 
 export interface Message {
@@ -61,6 +70,7 @@ export interface Message {
   separatorType?: 'error' | 'cancel'
   contextSnapshot?: HarnessContextSnapshot
   harnessRound?: number
+  harnessRounds?: HarnessRoundItem[]
 }
 
 export interface TabSession {

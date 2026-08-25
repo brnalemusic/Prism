@@ -795,7 +795,7 @@ STRICT BUTTON RULES:
         }
         return assistantMessage
       },
-      createToolContext: ({ callId, name }) => ({
+      createToolContext: ({ callId, name, round }) => ({
         event,
         apiKey: provider.apiKey,
         signal: abortController.signal,
@@ -808,7 +808,8 @@ STRICT BUTTON RULES:
             args,
             timestamp: Date.now(),
             chatId,
-            workspace
+            workspace,
+            round
           })
       }),
       onToolResult: (call) =>
@@ -818,7 +819,8 @@ STRICT BUTTON RULES:
           result: call.modelContent,
           attachments: call.attachments,
           chatId,
-          workspace
+          workspace,
+          round: call.round
         }),
       onHistoryMessage: (historyMessage) => {
         if (deletedActiveChats.has(chatId)) return
@@ -1247,7 +1249,7 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
         }
         return assistantMessage
       },
-      createToolContext: ({ callId, name }) => ({
+      createToolContext: ({ callId, name, round }) => ({
         apiKey: provider.apiKey,
         signal: abortController.signal,
         chatId,
@@ -1259,7 +1261,8 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
             args,
             timestamp: Date.now(),
             chatId,
-            workspace
+            workspace,
+            round
           })
       }),
       onToolResult: (call) =>
@@ -1269,7 +1272,8 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
           result: call.modelContent,
           attachments: call.attachments,
           chatId,
-          workspace
+          workspace,
+          round: call.round
         }),
       onHistoryMessage: (historyMessage) => {
         if (deletedActiveChats.has(chatId)) return

@@ -2,8 +2,12 @@ import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import clsx from 'clsx'
 import {
   CaretDown,
+  CaretRight,
   ChatTeardropText,
+  Check,
   Columns,
+  Desktop,
+  FolderOpen,
   X,
   ArrowsLeftRight,
   DotsSixVertical
@@ -44,6 +48,7 @@ interface ChatPaneProps {
   onReasoningLevelChange: (model: string, level: string) => void
   onModeChange: (mode: TabSession['sessionMode']) => void
   onSelectFolder: () => void
+  onSwitchProject?: (projectPath: string) => void
   onUpdateTabInput: (id: string, text: string) => void
   onUpdateTabFile: (id: string, file: TabSession['attachedFile']) => void
   onUpdateTabQuote?: (id: string, quote: string | null) => void
@@ -80,6 +85,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     onReasoningLevelChange,
     onModeChange,
     onSelectFolder,
+    onSwitchProject,
     onUpdateTabInput,
     onUpdateTabFile,
     onUpdateTabQuote,
@@ -101,6 +107,179 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     const [isDragTargetSplit, setIsDragTargetSplit] = useState(false)
     const isHarness = tab.sessionMode === 'harness'
     const harnessProjectName = tab.disciplinePath.split(/[\\/]/).pop() || 'this project'
+
+    const [recentProjects, setRecentProjects] = useState<{ path: string; name: string }[]>([])
+    const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false)
+    const projectButtonRef = useRef<HTMLButtonElement>(null)
+    const projectDropdownRef = useRef<HTMLDivElement>(null)
+
+    const refreshRecentProjects = useCallback(async (): Promise<void> => {
+      if (!isHarness) return
+      try {
+        const sessions = await window.api.getHarnessSessions()
+        const seen = new Set<string>()
+        const list: { path: string; name: string }[] = []
+
+        const addPath = (p?: string): void => {
+          if (!p) return
+          const norm = p.trim().toLowerCase()
+          if (!norm || seen.has(norm)) return
+          seen.add(norm)
+          const pieces = p.split(/[\\/]/).filter(Boolean)
+          const name = pieces[pieces.length - 1] || p
+          list.push({ path: p, name })
+        }
+
+        // Current project path
+        addPath(tab.disciplinePath)
+
+        // History sessions
+        for (const session of sessions) {
+          addPath(session.disciplinePath)
+        }
+
+        // Config projects
+        const configProjects = Object.values(config?.harness.projects || {})
+        for (const proj of configProjects) {
+          addPath(proj.rootPath)
+        }
+
+        setRecentProjects(list.slice(0, 5))
+      } catch (err) {
+        console.error('Failed to get recent projects:', err)
+      }
+    }, [isHarness, tab.disciplinePath, config?.harness.projects])
+
+    useEffect(() => {
+      void refreshRecentProjects()
+    }, [refreshRecentProjects])
+
+    useEffect(() => {
+      if (!isProjectDropdownOpen) return
+
+      const handleClickOutside = (e: MouseEvent): void => {
+        if (
+          projectDropdownRef.current &&
+          !projectDropdownRef.current.contains(e.target as Node) &&
+          projectButtonRef.current &&
+          !projectButtonRef.current.contains(e.target as Node)
+        ) {
+          setIsProjectDropdownOpen(false)
+        }
+      }
+
+      const handleKeyDown = (e: KeyboardEvent): void => {
+        if (e.key === 'Escape') {
+          setIsProjectDropdownOpen(false)
+        }
+      }
+
+      document.addEventListener('mousedown', handleClickOutside)
+      window.addEventListener('keydown', handleKeyDown)
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside)
+        window.removeEventListener('keydown', handleKeyDown)
+      }
+    }, [isProjectDropdownOpen])
+
+    const renderProjectDropdown = (placement: 'top' | 'bottom' = 'bottom'): React.JSX.Element | null => {
+      if (!isHarness) return null
+      const currentName = tab.disciplinePath
+        ? tab.disciplinePath.split(/[\\/]/).filter(Boolean).pop() || tab.disciplinePath
+        : 'Choose project'
+
+      return (
+        <div className="w-full max-w-[820px] mx-auto px-4 sm:px-8 pointer-events-auto">
+          <div className="relative mt-2 px-1.5 flex items-center self-start">
+            <button
+              ref={projectButtonRef}
+              type="button"
+              onClick={() => setIsProjectDropdownOpen((prev) => !prev)}
+              className="group inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-text-secondary/70 transition-all duration-150 hover:bg-white/[0.06] hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary border border-transparent hover:border-white/[0.08] cursor-pointer"
+              title="Switch workspace project"
+            >
+              <Desktop
+                size={13}
+                weight="fill"
+                className="shrink-0 text-text-muted transition-colors group-hover:text-accent-primary"
+              />
+              <span className="max-w-[190px] truncate text-[11.5px] font-medium tracking-tight">
+                {currentName}
+              </span>
+              <CaretRight
+                size={10}
+                weight="bold"
+                className={clsx(
+                  'shrink-0 text-text-muted transition-transform duration-200',
+                  isProjectDropdownOpen && 'rotate-90 text-text-primary'
+                )}
+              />
+            </button>
+
+            {isProjectDropdownOpen && (
+              <div
+                ref={projectDropdownRef}
+                className={clsx(
+                  'absolute left-1.5 z-50 w-56 rounded-xl border border-white/[0.12] bg-[#0c0e14]/95 p-1 text-xs shadow-[0_16px_40px_rgba(0,0,0,0.6),var(--glass-specular-top)] backdrop-blur-2xl animate-soft-pop select-none',
+                  placement === 'top' ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+                )}
+              >
+                <div className="px-2.5 py-1 text-[9.5px] font-semibold uppercase tracking-wider text-text-muted">
+                  Recent Workspaces
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  {recentProjects.map((proj) => {
+                    const isCurrent =
+                      Boolean(tab.disciplinePath) &&
+                      tab.disciplinePath.toLowerCase() === proj.path.toLowerCase()
+
+                    return (
+                      <button
+                        key={proj.path}
+                        type="button"
+                        onClick={() => {
+                          setIsProjectDropdownOpen(false)
+                          onSwitchProject?.(proj.path)
+                        }}
+                        className={clsx(
+                          'flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11.5px] transition-colors w-full cursor-pointer',
+                          isCurrent
+                            ? 'bg-white/[0.08] font-medium text-accent-primary'
+                            : 'text-text-secondary hover:bg-white/[0.06] hover:text-text-primary'
+                        )}
+                        title={proj.path}
+                      >
+                        <Desktop
+                          size={12.5}
+                          weight={isCurrent ? 'fill' : 'regular'}
+                          className={clsx('shrink-0', isCurrent ? 'text-accent-primary' : 'text-text-muted')}
+                        />
+                        <span className="flex-1 truncate">{proj.name}</span>
+                        {isCurrent && <Check size={12} weight="bold" className="shrink-0 text-accent-primary" />}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <div className="my-1 h-[1px] bg-white/[0.06]" />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsProjectDropdownOpen(false)
+                    onSelectFolder()
+                  }}
+                  className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11.5px] text-text-muted transition-colors hover:bg-white/[0.06] hover:text-text-primary"
+                >
+                  <FolderOpen size={12.5} className="shrink-0" />
+                  <span>Open other folder...</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )
+    }
 
     // Find the active to_ask tool call from the latest AI message (status running or writing)
     const activeQuestionnaire = useMemo(() => {
@@ -433,6 +612,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       onOpenUpgradePlans={onOpenUpgradePlans}
                       isEnterprise={isEnterprise}
                     />
+                    {renderProjectDropdown('bottom')}
                   </div>
                 </div>
               </div>
@@ -526,6 +706,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                   onOpenUpgradePlans={onOpenUpgradePlans}
                   isEnterprise={isEnterprise}
                 />
+                {renderProjectDropdown('top')}
               </div>
             </div>
           )}

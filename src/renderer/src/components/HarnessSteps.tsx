@@ -69,23 +69,57 @@ function lineCount(value: string): number {
   return value ? value.split(/\r?\n/).length : 0
 }
 
-function changeSummary(tool: ToolCallItem): string {
-  if (!['write', 'edit', 'delete_lines', 'apply_patch'].includes(tool.name)) return ''
+interface ChangeStats {
+  added: number
+  removed: number
+}
+
+function getToolChangeStats(tool: ToolCallItem): ChangeStats | null {
+  if (!['write', 'edit', 'delete_lines', 'apply_patch'].includes(tool.name)) return null
   const args = asHarnessRecord(tool.args)
-  const added =
-    tool.addedLines ??
-    (tool.name === 'write'
-      ? lineCount(stringArg(args, ['content']))
-      : tool.name === 'edit'
-        ? lineCount(stringArg(args, ['newText', 'new_text']))
-        : 0)
-  const removed =
-    tool.removedLines ??
-    (tool.name === 'edit' || tool.name === 'delete_lines'
-      ? lineCount(stringArg(args, ['oldText', 'old_text']))
-      : 0)
-  const parts = [added > 0 ? `+${added}` : '', removed > 0 ? `-${removed}` : ''].filter(Boolean)
-  return parts.join(' ')
+  const decoded = decodeHarnessToolResult(tool.result)
+
+  let added = 0
+  let removed = 0
+
+  if (tool.name === 'write') {
+    added = tool.addedLines ?? lineCount(stringArg(args, ['content', 'CodeContent']))
+    removed = tool.removedLines ?? 0
+  } else if (tool.name === 'edit') {
+    added =
+      tool.addedLines ??
+      lineCount(stringArg(args, ['newText', 'new_text', 'ReplacementContent', 'newContent']))
+    removed =
+      tool.removedLines ??
+      lineCount(stringArg(args, ['oldText', 'old_text', 'TargetContent']))
+  } else if (tool.name === 'delete_lines') {
+    added = tool.addedLines ?? 0
+    removed =
+      tool.removedLines ??
+      lineCount(stringArg(args, ['oldText', 'old_text', 'TargetContent']))
+  } else if (tool.name === 'apply_patch') {
+    const patch = stringArg(args, ['patch']) || (decoded.diff ?? '')
+    if (tool.addedLines !== undefined || tool.removedLines !== undefined) {
+      added = tool.addedLines ?? 0
+      removed = tool.removedLines ?? 0
+    } else if (patch) {
+      for (const line of patch.split(/\r?\n/)) {
+        if (line.startsWith('+') && !line.startsWith('+++')) added++
+        if (line.startsWith('-') && !line.startsWith('---')) removed++
+      }
+    }
+  }
+
+  // Fallback to decoded diff if available
+  if (decoded.diff && added === 0 && removed === 0) {
+    for (const line of decoded.diff.split(/\r?\n/)) {
+      if (line.startsWith('+') && !line.startsWith('+++')) added++
+      if (line.startsWith('-') && !line.startsWith('---')) removed++
+    }
+  }
+
+  if (added === 0 && removed === 0) return null
+  return { added, removed }
 }
 
 function describeTool(tool: ToolCallItem): string {
@@ -115,20 +149,26 @@ function describeTool(tool: ToolCallItem): string {
     }
     case 'list': {
       const folderPath = path || '.\\'
-      return `${active ? 'Listing folder' : 'Listed folder'} \`${compact(folderPath)}\``
+      return `${active ? 'Listing' : 'Listed'} \`${compact(folderPath)}\``
     }
     case 'find':
       return query
-        ? `${active ? 'Finding' : 'Found'} \`${compact(query)}\``
+        ? `${active ? 'Searching for' : 'Found'} \`${compact(query)}\``
         : active
-          ? 'Finding files'
+          ? 'Searching files'
           : 'Found files'
-    case 'write':
+    case 'write': {
+      const mode = stringArg(args, ['mode'])
+      const isCreate = mode === 'create'
+      const prefix = isCreate
+        ? (active ? 'Creating' : 'Created')
+        : (active ? 'Overwriting' : 'Overwrote')
       return path
-        ? `${active ? 'Writing' : 'Wrote'} \`${compact(path)}\``
+        ? `${prefix} \`${compact(path)}\``
         : active
           ? 'Writing file'
           : 'Wrote file'
+    }
     case 'edit':
       return path
         ? `${active ? 'Editing' : 'Edited'} \`${compact(path)}\``
@@ -137,17 +177,17 @@ function describeTool(tool: ToolCallItem): string {
           : 'Edited file'
     case 'delete_lines':
       return path
-        ? `${active ? 'Removing from' : 'Removed from'} \`${compact(path)}\``
+        ? `${active ? 'Deleting from' : 'Deleted from'} \`${compact(path)}\``
         : active
-          ? 'Removing lines'
-          : 'Removed lines'
+          ? 'Deleting lines'
+          : 'Deleted lines'
     case 'apply_patch': {
       const targets = patchTargets(stringArg(args, ['patch']))
       if (targets.length === 1) {
-        return `${active ? 'Updating' : 'Updated'} \`${compact(targets[0])}\``
+        return `${active ? 'Patching' : 'Patched'} \`${compact(targets[0])}\``
       }
       if (targets.length > 1) {
-        return `${active ? 'Updating' : 'Updated'} ${targets.length} files`
+        return `${active ? 'Patching' : 'Patched'} ${targets.length} files`
       }
       return active ? 'Applying patch' : 'Applied patch'
     }
@@ -160,10 +200,10 @@ function describeTool(tool: ToolCallItem): string {
     case 'write_stdin':
       return active ? 'Sending terminal input' : 'Sent terminal input'
     case 'read_terminal_output':
-      return active ? 'Checking terminal output' : 'Read terminal output'
+      return active ? 'Reading terminal output' : 'Read terminal output'
     case 'web_search':
       return query
-        ? `${active ? 'Searching' : 'Searched'} the web for ${compact(query, 52)}`
+        ? `${active ? 'Searching web for' : 'Searched web for'} ${compact(query, 52)}`
         : active
           ? 'Searching the web'
           : 'Searched the web'
@@ -264,38 +304,45 @@ function ToolRow({ tool }: { tool: ToolCallItem }): React.JSX.Element {
   const runId = tool.runId || decoded.runId || (typeof args.runId === 'string' ? args.runId : '')
   const outputRecord = asHarnessRecord(decoded.output)
   const output = typeof outputRecord.output === 'string' ? outputRecord.output : decoded.outputText
-  const changes = changeSummary(tool)
+  const changeStats = getToolChangeStats(tool)
   const updates = (tool.searchUpdates || []).filter(
     (update): update is string => typeof update === 'string' && Boolean(update.trim())
   )
   const descriptionText = describeTool(tool)
 
   return (
-    <article className="min-w-0">
+    <article className="min-w-0 max-w-full">
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center gap-1.5 py-0.5 text-left outline-none transition-colors hover:text-text-primary focus-visible:rounded-sm focus-visible:ring-1 focus-visible:ring-accent-primary/55 group"
+        className="inline-flex items-center gap-2.5 py-0.5 text-left outline-none transition-colors hover:text-text-primary focus-visible:rounded-sm focus-visible:ring-1 focus-visible:ring-accent-primary/55 group cursor-pointer"
         aria-expanded={expanded}
         aria-label={`${descriptionText}. Show tool details.`}
       >
         <span className="shrink-0 text-text-muted/70 group-hover:text-text-secondary">{toolIcon(tool.name)}</span>
         <span
           className={clsx(
-            'min-w-0 flex-1 truncate text-[11.5px] leading-5',
+            'truncate text-[11.5px] leading-5',
             isActive ? 'tool-shimmer-text font-medium' : 'text-text-secondary/80 group-hover:text-text-secondary'
           )}
         >
           <FormattedDescription text={descriptionText} />
         </span>
-        {changes && (
-          <span className="shrink-0 font-mono text-[9px] text-text-muted/80">{changes}</span>
+        {changeStats && (
+          <span className="shrink-0 font-mono text-[9.5px] ml-2.5 flex items-center gap-1.5 font-medium">
+            {changeStats.added > 0 && (
+              <span className="text-emerald-400/90">+{changeStats.added}</span>
+            )}
+            {changeStats.removed > 0 && (
+              <span className="text-rose-400/90">-{changeStats.removed}</span>
+            )}
+          </span>
         )}
         <ActivityState tool={tool} />
         <CaretDown
           size={10}
           className={clsx(
-            'shrink-0 text-text-muted/60 transition-transform duration-200 group-hover:text-text-secondary',
+            'shrink-0 text-text-muted/60 transition-transform duration-200 group-hover:text-text-secondary ml-1',
             expanded && 'rotate-180'
           )}
         />
@@ -315,7 +362,7 @@ function ToolRow({ tool }: { tool: ToolCallItem }): React.JSX.Element {
       )}
 
       {expanded && (
-        <div className="mb-1.5 ml-[5px] mt-1 space-y-2 border-l border-white/[0.07] pb-0.5 pl-3 pr-1 animate-fade-in">
+        <div className="mb-1.5 ml-[5px] mt-1 space-y-2 border-l border-white/[0.07] pb-0.5 pl-3 pr-1 animate-fade-in max-w-full">
           <DetailBlock label="Input">
             {command ? (
               <div className="rounded-md bg-black/25 px-2.5 py-1.5 font-mono text-[10px] leading-relaxed text-text-secondary">

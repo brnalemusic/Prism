@@ -258,6 +258,7 @@ const api = {
         timestamp?: number
         chatId: string
         workspace: WorkspaceKind
+        round?: number
       }
     ): void => callback(data)
     ipcRenderer.on('chat-tool-start', listener)
@@ -271,6 +272,7 @@ const api = {
       attachments?: ToolAttachment[]
       chatId: string
       workspace: WorkspaceKind
+      round?: number
     }) => void
   ): (() => void) => {
     const listener = (
@@ -282,6 +284,7 @@ const api = {
         attachments?: ToolAttachment[]
         chatId: string
         workspace: WorkspaceKind
+        round?: number
       }
     ): void => callback(data)
     ipcRenderer.on('chat-tool-end', listener)
