@@ -66,7 +66,8 @@ import {
   FilePpt,
   CheckCircle,
   XCircle,
-  GlobeSimple
+  GlobeSimple,
+  CaretDown
 } from '@phosphor-icons/react'
 
 import { ScreenshotModal } from './components/ScreenshotModal'
@@ -343,43 +344,6 @@ function consolidateToolCalls(
   }
 
   return allCalls
-}
-
-function hasHarnessActivity(message: Message): boolean {
-  return Boolean(
-    message.toolCalls?.length || message.streamingToolCalls?.length || message.isWritingToolCall
-  )
-}
-
-function hasHarnessTextOrThinking(message: Message): boolean {
-  return Boolean(message.content.trim() || message.thoughts?.trim())
-}
-
-function createHarnessActivityMessage(): Message {
-  return {
-    role: 'ai',
-    content: '',
-    thoughts: '',
-    isStreaming: true,
-    isThinking: false,
-    isWritingToolCall: true,
-    isConnecting: false,
-    toolCalls: [],
-    workStartTime: Date.now()
-  }
-}
-
-function createHarnessTextMessage(): Message {
-  return {
-    role: 'ai',
-    content: '',
-    thoughts: '',
-    isStreaming: true,
-    isThinking: false,
-    isWritingToolCall: false,
-    isConnecting: false,
-    workStartTime: Date.now()
-  }
 }
 
 interface AiMessageProps {
@@ -1107,6 +1071,61 @@ interface AiMessageRowProps {
   }
 }
 
+function ThoughtDisclosure({
+  thoughts,
+  thinkingSec,
+  reduceMotion
+}: {
+  thoughts?: string
+  thinkingSec: number
+  reduceMotion?: boolean
+}): React.JSX.Element | null {
+  const [expanded, setExpanded] = useState(false)
+  const hasThoughtsText = Boolean(thoughts && thoughts.trim() !== '')
+
+  if (!hasThoughtsText && thinkingSec <= 0) return null
+
+  const label = `Thought for ${thinkingSec > 0 ? thinkingSec : 1} ${thinkingSec === 1 ? 'second' : 'seconds'}`
+
+  if (!hasThoughtsText) {
+    return (
+      <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
+        {label}
+      </div>
+    )
+  }
+
+  return (
+    <div className="w-full mb-1.5 select-none">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="inline-flex items-center gap-1.5 text-xs text-text-secondary/60 font-medium hover:text-text-secondary transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary/55 rounded-sm group"
+        aria-expanded={expanded}
+      >
+        <span>{label}</span>
+        <CaretDown
+          size={11}
+          className={clsx(
+            'text-text-muted/60 transition-transform duration-200 group-hover:text-text-secondary',
+            expanded && 'rotate-180'
+          )}
+        />
+      </button>
+      {expanded && (
+        <div
+          className={clsx(
+            'my-1.5 ml-1 border-l border-white/[0.08] pl-3 py-1 text-[11.5px] leading-relaxed text-text-secondary/85 whitespace-pre-wrap font-sans',
+            !reduceMotion && 'animate-fade-in'
+          )}
+        >
+          {thoughts?.trim()}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const AiMessageRow = React.memo(function AiMessageRow({
   msg,
   i,
@@ -1168,8 +1187,8 @@ const AiMessageRow = React.memo(function AiMessageRow({
       key={i}
       className="w-full flex flex-col items-start px-4 py-3.5 transition-all duration-700 animate-message"
     >
-      {/* 1. Active State Header: "Thinking" shimming remains sticky until turn completes */}
-      {!isHarness && isActive && hasThoughtInTurn && (
+      {/* 1. Active State Header: "Thinking" shimmering when actively reasoning */}
+      {isActive && msg.isThinking && hasThoughtInTurn && (
         <div className="w-full mb-1.5 select-none flex flex-col items-start gap-1">
           <span className="thinking-shimmer-text text-[13px] font-medium leading-normal inline-block pb-[1.5px]">
             Thinking
@@ -1177,26 +1196,26 @@ const AiMessageRow = React.memo(function AiMessageRow({
         </div>
       )}
 
-      {/* 2. Finished State Indicator (Static Gray Text) */}
-      {!isHarness && !isActive && (
-        <>
-          {
-            hasTools ? (
-              <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
-                Worked for {workedSec > 0 ? workedSec : 1} {workedSec === 1 ? 'second' : 'seconds'}
-              </div>
-            ) : hasThinking ? (
-              <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
-                Thought for {thinkingSec} {thinkingSec === 1 ? 'second' : 'seconds'}
-              </div>
-            ) : null /* Instant message: no header */
-          }
-        </>
+      {/* 2. Finished/Revealed State Header: Collapsible "Thought for N seconds >" */}
+      {hasThoughtInTurn && (!isActive || !msg.isThinking) && (
+        <ThoughtDisclosure
+          thoughts={msg.thoughts}
+          thinkingSec={thinkingSec}
+          reduceMotion={harnessUi?.reduceMotion}
+        />
       )}
 
-      {(hasContent || !isHarness) && (
+      {/* 3. Non-Harness finished state "Worked for N seconds" when tools were executed and no thinking */}
+      {!isHarness && !isActive && hasTools && !hasThoughtInTurn && (
+        <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
+          Worked for {workedSec > 0 ? workedSec : 1} {workedSec === 1 ? 'second' : 'seconds'}
+        </div>
+      )}
+
+      {/* 4. Message Content Body */}
+      {(hasContent || (isActive && !isHarness) || (isActive && !isRunningTool)) && (
         <div className="w-full text-text-primary" data-prism-ai-message="true">
-          {!isHarness && !hasContent && isActive && !hasImageGeneration ? (
+          {!hasContent && isActive && !hasImageGeneration && !isRunningTool ? (
             <div className="flex items-center gap-1.5 h-6 select-none">
               {activeToolLabel ? (
                 <ToolCallIndicator overrideLabel={activeToolLabel} />
@@ -1224,14 +1243,13 @@ const AiMessageRow = React.memo(function AiMessageRow({
         </div>
       )}
 
-      {isHarness && (
+      {/* 5. Harness Steps (ONLY if there are tools for this message/round) */}
+      {isHarness && harnessToolCalls.length > 0 && (
         <HarnessActivityBoundary key={isActive ? 'harness-activity-active' : 'harness-activity-complete'}>
           <HarnessSteps
             tools={harnessToolCalls}
-            thoughts={msg.thoughts}
-            isActive={Boolean(isActive)}
+            isActive={Boolean(isActive && isRunningTool)}
             showSteps={harnessUi?.showSteps !== false}
-            showThinking={harnessUi?.showThinking !== false}
             reduceMotion={harnessUi?.reduceMotion === true}
           />
         </HarnessActivityBoundary>
@@ -2763,7 +2781,9 @@ function RealApp(): React.JSX.Element {
 
           const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null
           const shouldStartHarnessSegment =
-            workspace === 'harness' && lastMsg?.role === 'ai' && Boolean(lastMsg.toolCalls?.length)
+            workspace === 'harness' &&
+            lastMsg?.role === 'ai' &&
+            (Boolean(lastMsg.toolCalls?.length) || Boolean(lastMsg.content.trim()) || Boolean(lastMsg.thoughts?.trim()))
           if (lastMsg && lastMsg.role === 'ai' && !shouldStartHarnessSegment) {
             // Merge into existing AI message for this prompt turn
             lastMsg.content = combineContent(lastMsg.content, rawText)
@@ -3368,22 +3388,41 @@ function RealApp(): React.JSX.Element {
             let lastMsgIndex = newMessages.length - 1
             let lastMsg = newMessages[lastMsgIndex]
 
-            if (
-              isHarness &&
-              lastMsg?.role === 'ai' &&
-              hasHarnessActivity(lastMsg) &&
-              Boolean(displayContent.trim() || displayThoughts?.trim())
-            ) {
-              newMessages[lastMsgIndex] = {
-                ...lastMsg,
-                isStreaming: false,
-                isThinking: false,
-                isWritingToolCall: false,
-                isConnecting: false
+            if (isHarness && lastMsg && lastMsg.role === 'ai') {
+              const chunkRound = harnessChunk.harnessRound
+              const lastRound = lastMsg.harnessRound || 1
+              const hasCompletedTools = Boolean(
+                lastMsg.toolCalls?.length &&
+                lastMsg.toolCalls.every((t) => t.status === 'done' || t.status === 'error' || t.status === 'cancelled')
+              )
+              const isNewRound =
+                (chunkRound !== undefined && chunkRound > lastRound) ||
+                (hasCompletedTools && (displayContent.trim() !== '' || Boolean(displayThoughts?.trim())))
+
+              if (isNewRound) {
+                newMessages[lastMsgIndex] = {
+                  ...lastMsg,
+                  isStreaming: false,
+                  isThinking: false,
+                  isWritingToolCall: false,
+                  isConnecting: false
+                }
+                const newRoundMsg: Message = {
+                  role: 'ai',
+                  content: '',
+                  thoughts: '',
+                  isStreaming: true,
+                  isThinking: false,
+                  isWritingToolCall: false,
+                  isConnecting: false,
+                  harnessRound: chunkRound || (lastRound + 1),
+                  workStartTime: Date.now(),
+                  toolCalls: []
+                }
+                newMessages.push(newRoundMsg)
+                lastMsgIndex = newMessages.length - 1
+                lastMsg = newMessages[lastMsgIndex]
               }
-              newMessages.push(createHarnessTextMessage())
-              lastMsgIndex = newMessages.length - 1
-              lastMsg = newMessages[lastMsgIndex]
             }
 
             if (lastMsg && lastMsg.role === 'ai') {
@@ -3496,24 +3535,6 @@ function RealApp(): React.JSX.Element {
                 : thoughts
             let lastMsgIndex = newMessages.length - 1
             let lastMsg = newMessages[lastMsgIndex]
-
-            if (
-              isHarness &&
-              lastMsg?.role === 'ai' &&
-              hasHarnessActivity(lastMsg) &&
-              Boolean(finalContent.trim() || finalThoughts?.trim())
-            ) {
-              newMessages[lastMsgIndex] = {
-                ...lastMsg,
-                isStreaming: false,
-                isThinking: false,
-                isWritingToolCall: false,
-                isConnecting: false
-              }
-              newMessages.push(createHarnessTextMessage())
-              lastMsgIndex = newMessages.length - 1
-              lastMsg = newMessages[lastMsgIndex]
-            }
 
             if (lastMsg && lastMsg.role === 'ai') {
               let promotedToolCalls = lastMsg.toolCalls || []
@@ -3725,25 +3746,7 @@ function RealApp(): React.JSX.Element {
         prev.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
-            let lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
-            let lastMsg = lastMsgIndex !== -1 ? newMessages[lastMsgIndex] : undefined
-            if (
-              tab.sessionMode === 'harness' &&
-              lastMsg?.role === 'ai' &&
-              !hasHarnessActivity(lastMsg) &&
-              hasHarnessTextOrThinking(lastMsg)
-            ) {
-              newMessages[lastMsgIndex] = {
-                ...lastMsg,
-                isStreaming: false,
-                isThinking: false,
-                isWritingToolCall: false,
-                isConnecting: false
-              }
-              newMessages.push(createHarnessActivityMessage())
-              lastMsgIndex = newMessages.length - 1
-              lastMsg = newMessages[lastMsgIndex]
-            }
+            const lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
             if (lastMsgIndex !== -1) {
               const lastMsg = { ...newMessages[lastMsgIndex] }
               const streamingToolCalls = lastMsg.streamingToolCalls
@@ -3807,29 +3810,10 @@ function RealApp(): React.JSX.Element {
               (msg) =>
                 msg.role === 'ai' && msg.toolCalls?.some((toolCall) => toolCall.id === data.callId)
             )
-            let targetMsgIndex =
+            const targetMsgIndex =
               existingMsgIndex !== -1
                 ? existingMsgIndex
                 : newMessages.findLastIndex((msg) => msg.role === 'ai')
-            const targetMessage =
-              targetMsgIndex !== -1 ? newMessages[targetMsgIndex] : undefined
-            if (
-              tab.sessionMode === 'harness' &&
-              existingMsgIndex === -1 &&
-              targetMessage?.role === 'ai' &&
-              !hasHarnessActivity(targetMessage) &&
-              hasHarnessTextOrThinking(targetMessage)
-            ) {
-              newMessages[targetMsgIndex] = {
-                ...targetMessage,
-                isStreaming: false,
-                isThinking: false,
-                isWritingToolCall: false,
-                isConnecting: false
-              }
-              newMessages.push(createHarnessActivityMessage())
-              targetMsgIndex = newMessages.length - 1
-            }
             if (targetMsgIndex !== -1) {
               const lastMsg = { ...newMessages[targetMsgIndex] }
               lastMsg.toolCalls = applyToolCallStart(lastMsg.toolCalls || [], data)

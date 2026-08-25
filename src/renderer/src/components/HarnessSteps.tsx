@@ -96,46 +96,55 @@ function describeTool(tool: ToolCallItem): string {
   const query = stringArg(args, ['query', 'pattern'])
 
   switch (tool.name) {
-    case 'read':
+    case 'read': {
+      const rawStart = args.startLine ?? args.start_line
+      const rawLimit = args.limit
+      const start = typeof rawStart === 'number' ? rawStart : parseInt(String(rawStart || '0'), 10)
+      const limit = typeof rawLimit === 'number' ? rawLimit : parseInt(String(rawLimit || '0'), 10)
+      let lineRange = ''
+      if (start > 0 && limit > 0) {
+        lineRange = ` #${start}-${start + limit - 1}`
+      } else if (start > 0) {
+        lineRange = ` #${start}`
+      }
       return path
-        ? `${active ? 'Reading' : 'Read'} ${compact(path)}`
+        ? `${active ? 'Reading' : 'Read'} \`${compact(path)}\`${lineRange}`
         : active
           ? 'Reading file'
           : 'Read file'
-    case 'list':
-      return path
-        ? `${active ? 'Listing' : 'Listed'} ${compact(path)}`
-        : active
-          ? 'Listing project files'
-          : 'Listed project files'
+    }
+    case 'list': {
+      const folderPath = path || '.\\'
+      return `${active ? 'Listing folder' : 'Listed folder'} \`${compact(folderPath)}\``
+    }
     case 'find':
       return query
-        ? `${active ? 'Finding' : 'Found'} ${compact(query)}`
+        ? `${active ? 'Finding' : 'Found'} \`${compact(query)}\``
         : active
           ? 'Finding files'
           : 'Found files'
     case 'write':
       return path
-        ? `${active ? 'Writing' : 'Wrote'} ${compact(path)}`
+        ? `${active ? 'Writing' : 'Wrote'} \`${compact(path)}\``
         : active
           ? 'Writing file'
           : 'Wrote file'
     case 'edit':
       return path
-        ? `${active ? 'Editing' : 'Edited'} ${compact(path)}`
+        ? `${active ? 'Editing' : 'Edited'} \`${compact(path)}\``
         : active
           ? 'Editing file'
           : 'Edited file'
     case 'delete_lines':
       return path
-        ? `${active ? 'Removing from' : 'Removed from'} ${compact(path)}`
+        ? `${active ? 'Removing from' : 'Removed from'} \`${compact(path)}\``
         : active
           ? 'Removing lines'
           : 'Removed lines'
     case 'apply_patch': {
       const targets = patchTargets(stringArg(args, ['patch']))
       if (targets.length === 1) {
-        return `${active ? 'Updating' : 'Updated'} ${compact(targets[0])}`
+        return `${active ? 'Updating' : 'Updated'} \`${compact(targets[0])}\``
       }
       if (targets.length > 1) {
         return `${active ? 'Updating' : 'Updated'} ${targets.length} files`
@@ -144,7 +153,7 @@ function describeTool(tool: ToolCallItem): string {
     }
     case 'exec_command':
       return command
-        ? `${active ? 'Running' : 'Ran'} ${compact(command)}`
+        ? `${active ? 'Running' : 'Ran'} \`$${compact(command)}\``
         : active
           ? 'Running command'
           : 'Ran command'
@@ -225,6 +234,27 @@ function DetailBlock({
   )
 }
 
+function FormattedDescription({ text }: { text: string }): React.JSX.Element {
+  const parts = text.split(/(`[^`]+`)/g)
+  return (
+    <span>
+      {parts.map((part, i) => {
+        if (part.startsWith('`') && part.endsWith('`')) {
+          return (
+            <code
+              key={i}
+              className="mx-0.5 rounded bg-white/[0.06] px-1 py-0.5 font-mono text-[11px] text-text-primary/90"
+            >
+              {part.slice(1, -1)}
+            </code>
+          )
+        }
+        return <span key={i}>{part}</span>
+      })}
+    </span>
+  )
+}
+
 function ToolRow({ tool }: { tool: ToolCallItem }): React.JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const decoded = useMemo(() => decodeHarnessToolResult(tool.result), [tool.result])
@@ -235,50 +265,44 @@ function ToolRow({ tool }: { tool: ToolCallItem }): React.JSX.Element {
   const outputRecord = asHarnessRecord(decoded.output)
   const output = typeof outputRecord.output === 'string' ? outputRecord.output : decoded.outputText
   const changes = changeSummary(tool)
-  const duration =
-    tool.startedAt && tool.finishedAt
-      ? `${Math.max(0.1, (tool.finishedAt - tool.startedAt) / 1000).toFixed(1)}s`
-      : ''
   const updates = (tool.searchUpdates || []).filter(
     (update): update is string => typeof update === 'string' && Boolean(update.trim())
   )
+  const descriptionText = describeTool(tool)
 
   return (
     <article className="min-w-0">
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center gap-2 py-1 text-left outline-none transition-colors hover:text-text-primary focus-visible:rounded-sm focus-visible:ring-1 focus-visible:ring-accent-primary/55"
+        className="flex w-full items-center gap-1.5 py-0.5 text-left outline-none transition-colors hover:text-text-primary focus-visible:rounded-sm focus-visible:ring-1 focus-visible:ring-accent-primary/55 group"
         aria-expanded={expanded}
-        aria-label={`${describeTool(tool)}. Show tool details.`}
+        aria-label={`${descriptionText}. Show tool details.`}
       >
-        <span className="shrink-0 text-text-muted/80">{toolIcon(tool.name)}</span>
+        <span className="shrink-0 text-text-muted/70 group-hover:text-text-secondary">{toolIcon(tool.name)}</span>
         <span
           className={clsx(
-            'min-w-0 flex-1 truncate text-[12px] leading-5',
-            isActive ? 'tool-shimmer-text font-medium' : 'text-text-secondary'
+            'min-w-0 flex-1 truncate text-[11.5px] leading-5',
+            isActive ? 'tool-shimmer-text font-medium' : 'text-text-secondary/80 group-hover:text-text-secondary'
           )}
         >
-          {describeTool(tool)}
+          <FormattedDescription text={descriptionText} />
         </span>
         {changes && (
-          <span className="shrink-0 font-mono text-[9.5px] text-text-muted/80">{changes}</span>
-        )}
-        {duration && (
-          <span className="shrink-0 font-mono text-[9.5px] text-text-muted/70">{duration}</span>
+          <span className="shrink-0 font-mono text-[9px] text-text-muted/80">{changes}</span>
         )}
         <ActivityState tool={tool} />
         <CaretDown
-          size={11}
+          size={10}
           className={clsx(
-            'shrink-0 text-text-muted/70 transition-transform duration-200',
+            'shrink-0 text-text-muted/60 transition-transform duration-200 group-hover:text-text-secondary',
             expanded && 'rotate-180'
           )}
         />
       </button>
 
       {updates.length > 0 && (
-        <div className="mb-1 ml-[6px] border-l border-white/[0.07] py-0.5 pl-3 text-[11.5px] leading-5 text-text-secondary/85">
+        <div className="mb-1 ml-[5px] border-l border-white/[0.07] py-0.5 pl-2.5 text-[11px] leading-5 text-text-secondary/80">
           {updates.map((update, index) => (
             <div
               key={`${index}-${update}`}
@@ -291,15 +315,15 @@ function ToolRow({ tool }: { tool: ToolCallItem }): React.JSX.Element {
       )}
 
       {expanded && (
-        <div className="mb-2 ml-[6px] mt-1 space-y-2.5 border-l border-white/[0.07] pb-0.5 pl-3.5 pr-1 animate-fade-in">
+        <div className="mb-1.5 ml-[5px] mt-1 space-y-2 border-l border-white/[0.07] pb-0.5 pl-3 pr-1 animate-fade-in">
           <DetailBlock label="Input">
             {command ? (
-              <div className="rounded-md bg-black/25 px-2.5 py-2 font-mono text-[10.5px] leading-relaxed text-text-secondary">
+              <div className="rounded-md bg-black/25 px-2.5 py-1.5 font-mono text-[10px] leading-relaxed text-text-secondary">
                 <span className="mr-1.5 select-none text-accent-primary/60">$</span>
                 {command}
               </div>
             ) : (
-              <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/25 p-2.5 font-mono text-[10.5px] leading-relaxed text-text-secondary custom-scrollbar">
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/25 p-2 font-mono text-[10px] leading-relaxed text-text-secondary custom-scrollbar">
                 {stringifyHarnessValue(args)}
               </pre>
             )}
@@ -313,11 +337,11 @@ function ToolRow({ tool }: { tool: ToolCallItem }): React.JSX.Element {
             <DetailBlock label="Output">
               <div className="overflow-hidden rounded-md bg-black/25">
                 {runId && (
-                  <div className="border-b border-white/[0.045] px-2.5 py-1.5 font-mono text-[9.5px] text-text-muted">
+                  <div className="border-b border-white/[0.045] px-2 py-1 font-mono text-[9px] text-text-muted">
                     Run ID {runId}
                   </div>
                 )}
-                <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words p-2.5 font-mono text-[10.5px] leading-relaxed text-text-secondary custom-scrollbar">
+                <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words p-2 font-mono text-[10px] leading-relaxed text-text-secondary custom-scrollbar">
                   {tool.name === 'exec_command' || tool.name === 'read_terminal_output' ? (
                     <AnsiRenderer text={tool.terminalOutput || output} />
                   ) : (
@@ -337,38 +361,38 @@ function Sources({ sources }: { sources: HarnessSource[] }): React.JSX.Element |
   const [expanded, setExpanded] = useState(false)
   if (sources.length === 0) return null
   return (
-    <div className="mt-2">
+    <div className="mt-1">
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center gap-2 py-1 text-left text-[11.5px] text-text-muted transition-colors hover:text-text-secondary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary/55"
+        className="flex w-full items-center gap-1.5 py-0.5 text-left text-[11px] text-text-muted transition-colors hover:text-text-secondary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary/55 group"
         aria-expanded={expanded}
       >
-        <GlobeSimple size={13} />
+        <GlobeSimple size={12} />
         <span className="flex-1">Sources ({sources.length})</span>
         <CaretDown
-          size={11}
-          className={clsx('transition-transform duration-200', expanded && 'rotate-180')}
+          size={10}
+          className={clsx('transition-transform duration-200 group-hover:text-text-secondary', expanded && 'rotate-180')}
         />
       </button>
       {expanded && (
-        <div className="ml-[6px] mt-1 grid gap-0.5 border-l border-white/[0.07] pb-0.5 pl-3.5 animate-fade-in">
+        <div className="ml-[5px] mt-1 grid gap-0.5 border-l border-white/[0.07] pb-0.5 pl-3 animate-fade-in">
           {sources.map((source) => (
             <button
               key={source.url}
               type="button"
               onClick={() => void window.api.openExternalUrl(source.url)}
-              className="flex min-w-0 items-center gap-2 rounded-sm py-1 text-left transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary/55"
+              className="flex min-w-0 items-center gap-1.5 rounded-sm py-0.5 text-left transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary/55"
             >
               {source.faviconUrl ? (
-                <img src={source.faviconUrl} alt="" className="h-3.5 w-3.5 rounded-sm" />
+                <img src={source.faviconUrl} alt="" className="h-3 w-3 rounded-sm" />
               ) : (
-                <GlobeSimple size={14} className="shrink-0 text-text-muted" />
+                <GlobeSimple size={12} className="shrink-0 text-text-muted" />
               )}
-              <span className="min-w-0 flex-1 truncate text-[10.5px] text-text-secondary">
+              <span className="min-w-0 flex-1 truncate text-[10px] text-text-secondary">
                 {source.title}
               </span>
-              <span className="shrink-0 text-[9.5px] text-text-muted">{source.domain}</span>
+              <span className="shrink-0 text-[9px] text-text-muted">{source.domain}</span>
             </button>
           ))}
         </div>
@@ -396,9 +420,9 @@ export class HarnessActivityBoundary extends React.Component<
       return (
         <div
           role="alert"
-          className="mb-3 flex items-center gap-2 px-1 py-1.5 text-xs text-status-error/85"
+          className="mb-2 flex items-center gap-2 px-1 py-1 text-xs text-status-error/85"
         >
-          <XCircle size={13} weight="fill" />
+          <XCircle size={12} weight="fill" />
           <span>{this.props.fallbackMessage || 'Activity details could not render.'}</span>
           <button
             type="button"
@@ -416,28 +440,23 @@ export class HarnessActivityBoundary extends React.Component<
 
 export function HarnessSteps({
   tools,
-  thoughts,
   isActive,
-  showThinking = true,
   showSteps = true,
   reduceMotion = false
 }: {
   tools: ToolCallItem[]
-  thoughts?: string
   isActive: boolean
-  showThinking?: boolean
   showSteps?: boolean
   reduceMotion?: boolean
 }): React.JSX.Element | null {
   const [expanded, setExpanded] = useState(isActive)
-  const [thinkingExpanded, setThinkingExpanded] = useState(false)
   const harnessTools = tools.filter((tool) => HARNESS_NAMES.has(tool.name))
   const sources = useMemo(
     () => harnessTools.flatMap((tool) => decodeHarnessToolResult(tool.result).sources),
     [harnessTools]
   )
 
-  if ((!showSteps || harnessTools.length === 0) && (!showThinking || !thoughts?.trim())) return null
+  if (!showSteps || harnessTools.length === 0) return null
 
   const stepCount = harnessTools.length
   const stepLabel = stepCount === 1 ? 'step' : 'steps'
@@ -448,7 +467,7 @@ export function HarnessSteps({
   return (
     <section
       className={clsx(
-        'mb-3 w-full max-w-[680px] select-none',
+        'mt-1.5 mb-1 w-fit max-w-full select-none',
         reduceMotion &&
           '[&_*]:!transition-none [&_.animate-spin]:!animate-none [&_.tool-shimmer-text]:!animate-none [&_.tool-shimmer-text]:!text-text-secondary [&_.tool-shimmer-text]:!bg-none [&_.tool-shimmer-text]:![-webkit-text-fill-color:currentColor]'
       )}
@@ -457,73 +476,36 @@ export function HarnessSteps({
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center gap-2 px-0.5 py-1 text-left outline-none transition-colors hover:text-text-primary focus-visible:rounded-sm focus-visible:ring-1 focus-visible:ring-accent-primary/55"
+        className="inline-flex items-center gap-1.5 py-0.5 text-left outline-none transition-colors hover:text-text-primary focus-visible:rounded-sm focus-visible:ring-1 focus-visible:ring-accent-primary/55 group"
         aria-expanded={expanded}
       >
         {isActive ? (
-          <CircleNotch size={13} className="shrink-0 animate-spin text-text-muted" />
+          <CircleNotch size={12} className="shrink-0 animate-spin text-text-muted" />
         ) : (
-          <Code size={13} className="shrink-0 text-text-muted" />
+          <Code size={12} className="shrink-0 text-text-muted/70 group-hover:text-text-secondary" />
         )}
         <span
           className={clsx(
-            'min-w-0 flex-1 truncate text-[12px] leading-5',
-            isActive ? 'tool-shimmer-text font-medium' : 'text-text-secondary'
+            'text-[12px] leading-5',
+            isActive ? 'tool-shimmer-text font-medium' : 'text-text-secondary/70 group-hover:text-text-secondary font-medium'
           )}
         >
           {heading}
         </span>
         <CaretDown
-          size={11}
+          size={10}
           className={clsx(
-            'shrink-0 text-text-muted/70 transition-transform duration-200',
+            'shrink-0 text-text-muted/60 transition-transform duration-200 group-hover:text-text-secondary',
             expanded && 'rotate-180'
           )}
         />
       </button>
 
       {expanded && (
-        <div className="ml-[6px] mt-1 border-l border-white/[0.08] pb-0.5 pl-3.5 animate-fade-in">
-          {showThinking && thoughts?.trim() && (
-            <div className="mb-0.5">
-              <button
-                type="button"
-                onClick={() => setThinkingExpanded((value) => !value)}
-                className="flex w-full items-center gap-2 py-1 text-left outline-none hover:text-text-primary focus-visible:rounded-sm focus-visible:ring-1 focus-visible:ring-accent-primary/55"
-                aria-expanded={thinkingExpanded}
-              >
-                <CircleNotch
-                  size={13}
-                  className={clsx('shrink-0 text-text-muted', isActive && 'animate-spin')}
-                />
-                <span
-                  className={clsx(
-                    'flex-1 text-[12px] leading-5',
-                    isActive ? 'thinking-shimmer-text font-medium' : 'text-text-secondary'
-                  )}
-                >
-                  {isActive ? 'Planning next step' : 'Thinking'}
-                </span>
-                <CaretDown
-                  size={11}
-                  className={clsx(
-                    'shrink-0 text-text-muted/70 transition-transform duration-200',
-                    thinkingExpanded && 'rotate-180'
-                  )}
-                />
-              </button>
-              {thinkingExpanded && (
-                <div className="mb-1 ml-[6px] border-l border-white/[0.07] py-1 pl-3.5 pr-1 text-[11px] leading-relaxed text-text-secondary whitespace-pre-wrap animate-fade-in">
-                  {thoughts.trim()}
-                </div>
-              )}
-            </div>
-          )}
-
-          {showSteps &&
-            harnessTools.map((tool, index) => (
-              <ToolRow key={tool.id || `${tool.name}-${index}`} tool={tool} />
-            ))}
+        <div className="ml-1.5 mt-0.5 border-l border-white/[0.08] pb-0.5 pl-3 animate-fade-in space-y-0.5">
+          {harnessTools.map((tool, index) => (
+            <ToolRow key={tool.id || `${tool.name}-${index}`} tool={tool} />
+          ))}
           <Sources sources={sources} />
         </div>
       )}

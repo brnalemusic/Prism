@@ -60,6 +60,7 @@ export interface Message {
   quote?: string
   separatorType?: 'error' | 'cancel'
   contextSnapshot?: HarnessContextSnapshot
+  harnessRound?: number
 }
 
 export interface TabSession {
