@@ -161,7 +161,7 @@ export const HARNESS_TOOL_DEFINITIONS: ToolDefinition[] = [
   ),
   definition(
     'exec_command',
-    'Run a command in the project root. Long-running commands return a six-digit Run ID.',
+    'Run a command in the project root. Short commands return their exit code and output immediately. Long-running commands return a six-digit Run ID and run in the background. You do NOT need to poll: Prism will automatically resume/notify you when a background process completes or needs input.',
     {
       cmd: text('Command to execute using the configured project shell.'),
       yieldTimeMs: integer('Milliseconds to wait before returning a running command.')
@@ -181,7 +181,7 @@ export const HARNESS_TOOL_DEFINITIONS: ToolDefinition[] = [
   ),
   definition(
     'read_terminal_output',
-    'Read all terminal output accumulated so far for a Run ID.',
+    'Read terminal output accumulated so far for a Run ID. Use ONLY to inspect intermediate output of live persistent services or for targeted debugging. DO NOT call this repeatedly in a polling loop to wait for completion.',
     { runId: text('Six-digit terminal Run ID.') },
     ['runId']
   ),

@@ -106,13 +106,13 @@ export const toolsManifest: ToolDefinition[] = [
   ),
   tool(
     'execute_terminal_command',
-    'Run one command in the user-configured terminal shell.',
+    'Run one command in the user-configured terminal shell. Short commands return their exit code and output immediately. Long-running processes yield a six-digit Run ID and continue in the background. You do NOT need to poll: Prism will automatically resume/notify you upon completion or when input is needed.',
     { command: stringSchema('Exact shell command to execute.') },
     ['command']
   ),
   tool(
     'read_terminal_output',
-    'Read the accumulated terminal output so far for a background or interactive terminal command using its six-digit Run ID.',
+    'Read the accumulated terminal output so far for a background or interactive terminal command using its six-digit Run ID. Use ONLY to inspect intermediate output of live persistent services or for targeted debugging. DO NOT poll in a loop to wait for completion.',
     { runId: stringSchema('Six-digit Run ID of the terminal process.') },
     ['runId']
   ),
