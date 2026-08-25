@@ -496,7 +496,15 @@ export function HarnessSteps({
   showSteps?: boolean
   reduceMotion?: boolean
 }): React.JSX.Element | null {
+  const [userToggled, setUserToggled] = useState(false)
   const [expanded, setExpanded] = useState(isActive)
+
+  React.useEffect(() => {
+    if (!userToggled) {
+      setExpanded(isActive)
+    }
+  }, [isActive, userToggled])
+
   const harnessTools = tools.filter((tool) => HARNESS_NAMES.has(tool.name))
   const sources = useMemo(
     () => harnessTools.flatMap((tool) => decodeHarnessToolResult(tool.result).sources),
@@ -522,8 +530,11 @@ export function HarnessSteps({
     >
       <button
         type="button"
-        onClick={() => setExpanded((value) => !value)}
-        className="inline-flex items-center gap-1.5 py-0.5 text-left outline-none transition-colors hover:text-text-primary focus-visible:rounded-sm focus-visible:ring-1 focus-visible:ring-accent-primary/55 group"
+        onClick={() => {
+          setUserToggled(true)
+          setExpanded((value) => !value)
+        }}
+        className="inline-flex items-center gap-1.5 py-0.5 text-left outline-none transition-colors hover:text-text-primary focus-visible:rounded-sm focus-visible:ring-1 focus-visible:ring-accent-primary/55 group cursor-pointer"
         aria-expanded={expanded}
       >
         {isActive ? (

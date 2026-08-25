@@ -377,6 +377,7 @@ interface AiMessageProps {
   inactivityLabel?: string | null
   activeToolLabel?: string | null
   isHarness?: boolean
+  showActions?: boolean
 }
 
 const BROWSER_TOOL_NAMES = new Set([
@@ -411,7 +412,8 @@ const AiMessage = React.memo(function AiMessage({
   isSuggestionSendDisabled,
   inactivityLabel,
   activeToolLabel,
-  isHarness = false
+  isHarness = false,
+  showActions = true
 }: AiMessageProps) {
   const visibleContent = useMemo(
     () => hideInternalImageReferences(msg.content || ''),
@@ -1044,7 +1046,7 @@ const AiMessage = React.memo(function AiMessage({
             )}
 
           {/* Copy & TTS buttons + browser session button */}
-          {!msg.isStreaming && (
+          {!msg.isStreaming && showActions !== false && (
             <div className="flex items-center gap-1.5 mt-0.5 select-none opacity-60 hover:opacity-100 transition-opacity">
               {cleanTextForCopyWithSuggestions && (
                 <CopyMessageButton text={cleanTextForCopyWithSuggestions} />
@@ -1165,6 +1167,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
                       inactivityLabel={inactivityLabel}
                       activeToolLabel={activeToolLabel}
                       isHarness={isHarness}
+                      showActions={isLatestRound}
                     />
                   </div>
                 )}

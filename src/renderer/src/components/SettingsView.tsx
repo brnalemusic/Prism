@@ -2000,12 +2000,6 @@ export function SettingsView({
               onChange={() => updateHarness({ showSteps: !config.harness.showSteps })}
             />
             <ToggleRow
-              title="Expandable Thinking"
-              description="Show provider reasoning when it is available."
-              checked={config.harness.showThinking}
-              onChange={() => updateHarness({ showThinking: !config.harness.showThinking })}
-            />
-            <ToggleRow
               title="Activity animations"
               description="Use shimmer and smooth expand/collapse transitions."
               checked={config.harness.animateActivity}
@@ -2269,7 +2263,6 @@ export function SettingsView({
                     {(
                       [
                         ['showSteps', 'Show Steps', config.harness.showSteps],
-                        ['showThinking', 'Expandable Thinking', config.harness.showThinking],
                         ['animateActivity', 'Activity animations', config.harness.animateActivity],
                         ['reduceMotion', 'Reduce motion', config.harness.reduceMotion]
                       ] as const
