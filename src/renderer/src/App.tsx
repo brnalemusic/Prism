@@ -1071,61 +1071,6 @@ interface AiMessageRowProps {
   }
 }
 
-function ThoughtDisclosure({
-  thoughts,
-  thinkingSec,
-  reduceMotion
-}: {
-  thoughts?: string
-  thinkingSec: number
-  reduceMotion?: boolean
-}): React.JSX.Element | null {
-  const [expanded, setExpanded] = useState(false)
-  const hasThoughtsText = Boolean(thoughts && thoughts.trim() !== '')
-
-  if (!hasThoughtsText && thinkingSec <= 0) return null
-
-  const label = `Thought for ${thinkingSec > 0 ? thinkingSec : 1} ${thinkingSec === 1 ? 'second' : 'seconds'}`
-
-  if (!hasThoughtsText) {
-    return (
-      <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
-        {label}
-      </div>
-    )
-  }
-
-  return (
-    <div className="w-full mb-1.5 select-none">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="inline-flex items-center gap-1.5 text-xs text-text-secondary/60 font-medium hover:text-text-secondary transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary/55 rounded-sm group"
-        aria-expanded={expanded}
-      >
-        <span>{label}</span>
-        <CaretDown
-          size={11}
-          className={clsx(
-            'text-text-muted/60 transition-transform duration-200 group-hover:text-text-secondary',
-            expanded && 'rotate-180'
-          )}
-        />
-      </button>
-      {expanded && (
-        <div
-          className={clsx(
-            'my-1.5 ml-1 border-l border-white/[0.08] pl-3 py-1 text-[11.5px] leading-relaxed text-text-secondary/85 whitespace-pre-wrap font-sans',
-            !reduceMotion && 'animate-fade-in'
-          )}
-        >
-          {thoughts?.trim()}
-        </div>
-      )}
-    </div>
-  )
-}
-
 const AiMessageRow = React.memo(function AiMessageRow({
   msg,
   i,
@@ -1166,56 +1111,27 @@ const AiMessageRow = React.memo(function AiMessageRow({
   )
   const isHarness = sessionMode === 'harness'
 
-  const hasTools = !!(msg.toolCalls && msg.toolCalls.length > 0)
-  const thinkingSec =
-    msg.thinkingDuration !== undefined
-      ? msg.thinkingDuration
-      : msg.thoughts && msg.thoughts.trim() !== ''
-        ? Math.max(1, Math.round(msg.thoughts.length / 120))
-        : 0
-  const hasThinking = thinkingSec > 0
-  const workedSec = msg.workedDuration !== undefined ? msg.workedDuration : thinkingSec
-
-  const hasThoughtInTurn = !!(
-    msg.isThinking ||
-    (msg.thoughts && msg.thoughts.trim() !== '') ||
-    hasThinking
-  )
-
   return (
     <div
       key={i}
       className="w-full flex flex-col items-start px-4 py-3.5 transition-all duration-700 animate-message"
     >
-      {/* 1. Active State Header: "Thinking" shimmering when actively reasoning */}
-      {isActive && msg.isThinking && hasThoughtInTurn && (
-        <div className="w-full mb-1.5 select-none flex flex-col items-start gap-1">
-          <span className="thinking-shimmer-text text-[13px] font-medium leading-normal inline-block pb-[1.5px]">
-            Thinking
-          </span>
-        </div>
+      {/* 1. In Harness: "Worked for N steps >" rendered at the TOP if tools exist */}
+      {isHarness && harnessToolCalls.length > 0 && (
+        <HarnessActivityBoundary key={isActive ? 'harness-activity-active' : 'harness-activity-complete'}>
+          <HarnessSteps
+            tools={harnessToolCalls}
+            isActive={Boolean(isActive && isRunningTool)}
+            showSteps={harnessUi?.showSteps !== false}
+            reduceMotion={harnessUi?.reduceMotion === true}
+          />
+        </HarnessActivityBoundary>
       )}
 
-      {/* 2. Finished/Revealed State Header: Collapsible "Thought for N seconds >" */}
-      {hasThoughtInTurn && (!isActive || !msg.isThinking) && (
-        <ThoughtDisclosure
-          thoughts={msg.thoughts}
-          thinkingSec={thinkingSec}
-          reduceMotion={harnessUi?.reduceMotion}
-        />
-      )}
-
-      {/* 3. Non-Harness finished state "Worked for N seconds" when tools were executed and no thinking */}
-      {!isHarness && !isActive && hasTools && !hasThoughtInTurn && (
-        <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
-          Worked for {workedSec > 0 ? workedSec : 1} {workedSec === 1 ? 'second' : 'seconds'}
-        </div>
-      )}
-
-      {/* 4. Message Content Body */}
-      {(hasContent || (isActive && !isHarness) || (isActive && !isRunningTool)) && (
+      {/* 2. Message Content Body */}
+      {(hasContent || (!isHarness && isActive) || (isActive && !isRunningTool && !msg.isThinking)) && (
         <div className="w-full text-text-primary" data-prism-ai-message="true">
-          {!hasContent && isActive && !hasImageGeneration && !isRunningTool ? (
+          {!hasContent && isActive && !hasImageGeneration && !isRunningTool && !msg.isThinking ? (
             <div className="flex items-center gap-1.5 h-6 select-none">
               {activeToolLabel ? (
                 <ToolCallIndicator overrideLabel={activeToolLabel} />
@@ -1243,16 +1159,13 @@ const AiMessageRow = React.memo(function AiMessageRow({
         </div>
       )}
 
-      {/* 5. Harness Steps (ONLY if there are tools for this message/round) */}
-      {isHarness && harnessToolCalls.length > 0 && (
-        <HarnessActivityBoundary key={isActive ? 'harness-activity-active' : 'harness-activity-complete'}>
-          <HarnessSteps
-            tools={harnessToolCalls}
-            isActive={Boolean(isActive && isRunningTool)}
-            showSteps={harnessUi?.showSteps !== false}
-            reduceMotion={harnessUi?.reduceMotion === true}
-          />
-        </HarnessActivityBoundary>
+      {/* 3. Thinking Header: ALWAYS at the bottom of the message, ONLY while actively thinking, disappears when done */}
+      {isActive && msg.isThinking && (
+        <div className="w-full mt-2 select-none flex items-center gap-1.5">
+          <span className="thinking-shimmer-text text-[13px] font-medium leading-normal inline-block">
+            Thinking
+          </span>
+        </div>
       )}
     </div>
   )
@@ -2780,11 +2693,7 @@ function RealApp(): React.JSX.Element {
           }
 
           const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null
-          const shouldStartHarnessSegment =
-            workspace === 'harness' &&
-            lastMsg?.role === 'ai' &&
-            (Boolean(lastMsg.toolCalls?.length) || Boolean(lastMsg.content.trim()) || Boolean(lastMsg.thoughts?.trim()))
-          if (lastMsg && lastMsg.role === 'ai' && !shouldStartHarnessSegment) {
+          if (lastMsg && lastMsg.role === 'ai') {
             // Merge into existing AI message for this prompt turn
             lastMsg.content = combineContent(lastMsg.content, rawText)
             lastMsg.thoughts = combineThoughts(lastMsg.thoughts, thoughts)
@@ -3357,11 +3266,6 @@ function RealApp(): React.JSX.Element {
     const flushChunk = (
       data: Parameters<Parameters<typeof window.api.onChatChunk>[0]>[0]
     ): void => {
-      const harnessChunk = data as typeof data & {
-        harnessRound?: number
-        harnessRoundContent?: string
-        harnessRoundThoughts?: string
-      }
       const {
         chatId,
         thoughts,
@@ -3377,53 +3281,8 @@ function RealApp(): React.JSX.Element {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
             const isHarness = tab.sessionMode === 'harness'
-            const displayContent =
-              isHarness && harnessChunk.harnessRoundContent !== undefined
-                ? harnessChunk.harnessRoundContent
-                : finalResponse
-            const displayThoughts =
-              isHarness && harnessChunk.harnessRoundThoughts !== undefined
-                ? harnessChunk.harnessRoundThoughts
-                : thoughts
-            let lastMsgIndex = newMessages.length - 1
-            let lastMsg = newMessages[lastMsgIndex]
-
-            if (isHarness && lastMsg && lastMsg.role === 'ai') {
-              const chunkRound = harnessChunk.harnessRound
-              const lastRound = lastMsg.harnessRound || 1
-              const hasCompletedTools = Boolean(
-                lastMsg.toolCalls?.length &&
-                lastMsg.toolCalls.every((t) => t.status === 'done' || t.status === 'error' || t.status === 'cancelled')
-              )
-              const isNewRound =
-                (chunkRound !== undefined && chunkRound > lastRound) ||
-                (hasCompletedTools && (displayContent.trim() !== '' || Boolean(displayThoughts?.trim())))
-
-              if (isNewRound) {
-                newMessages[lastMsgIndex] = {
-                  ...lastMsg,
-                  isStreaming: false,
-                  isThinking: false,
-                  isWritingToolCall: false,
-                  isConnecting: false
-                }
-                const newRoundMsg: Message = {
-                  role: 'ai',
-                  content: '',
-                  thoughts: '',
-                  isStreaming: true,
-                  isThinking: false,
-                  isWritingToolCall: false,
-                  isConnecting: false,
-                  harnessRound: chunkRound || (lastRound + 1),
-                  workStartTime: Date.now(),
-                  toolCalls: []
-                }
-                newMessages.push(newRoundMsg)
-                lastMsgIndex = newMessages.length - 1
-                lastMsg = newMessages[lastMsgIndex]
-              }
-            }
+            const lastMsgIndex = newMessages.length - 1
+            const lastMsg = newMessages[lastMsgIndex]
 
             if (lastMsg && lastMsg.role === 'ai') {
               let updatedToolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
@@ -3440,32 +3299,11 @@ function RealApp(): React.JSX.Element {
                 })
               }
 
-              const workStartTime = lastMsg.workStartTime || Date.now()
-              const currentWorkedDuration = Math.max(
-                1,
-                Math.round((Date.now() - workStartTime) / 1000)
-              )
-
-              let duration = lastMsg.thinkingDuration
-              let startTime = lastMsg.thinkingStartTime
-
-              if (isThinking && !startTime) {
-                startTime = Date.now()
-              } else if (!isThinking && lastMsg.isThinking && startTime) {
-                const roundDur = Math.max(1, Math.round((Date.now() - startTime) / 1000))
-                duration = (duration || 0) + roundDur
-                startTime = undefined
-              }
-
               newMessages[lastMsgIndex] = {
                 ...lastMsg,
-                thoughts: displayThoughts,
-                content: displayContent,
+                thoughts,
+                content: finalResponse,
                 isThinking,
-                thinkingStartTime: startTime,
-                thinkingDuration: duration,
-                workStartTime,
-                workedDuration: currentWorkedDuration,
                 isWritingToolCall,
                 toolType,
                 streamingToolCalls: isHarness ? lastMsg.streamingToolCalls : streamingToolCalls,
@@ -3503,17 +3341,11 @@ function RealApp(): React.JSX.Element {
       // Only flush this conversation. Other tabs keep their independent frame.
       flushPendingChunk(data.chatId)
 
-      const harnessEnd = data as typeof data & {
-        harnessRoundContent?: string
-        harnessRoundThoughts?: string
-      }
       const {
         chatId,
         thoughts,
-        finalResponse,
-        thinkingDuration: eventDuration,
-        workedDuration: eventWorkedDuration
-      } = data as typeof data & { workedDuration?: number }
+        finalResponse
+      } = data
       setRunningChats((prev) => {
         const next = { ...prev }
         delete next[chatId]
@@ -3524,17 +3356,8 @@ function RealApp(): React.JSX.Element {
         prevTabs.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
-            const isHarness = tab.sessionMode === 'harness'
-            const finalContent =
-              isHarness && harnessEnd.harnessRoundContent !== undefined
-                ? harnessEnd.harnessRoundContent
-                : finalResponse
-            const finalThoughts =
-              isHarness && harnessEnd.harnessRoundThoughts !== undefined
-                ? harnessEnd.harnessRoundThoughts
-                : thoughts
-            let lastMsgIndex = newMessages.length - 1
-            let lastMsg = newMessages[lastMsgIndex]
+            const lastMsgIndex = newMessages.length - 1
+            const lastMsg = newMessages[lastMsgIndex]
 
             if (lastMsg && lastMsg.role === 'ai') {
               let promotedToolCalls = lastMsg.toolCalls || []
@@ -3579,31 +3402,12 @@ function RealApp(): React.JSX.Element {
                 return tc
               })
 
-              let duration = eventDuration !== undefined ? eventDuration : lastMsg.thinkingDuration
-              if (duration === undefined && lastMsg.thinkingStartTime) {
-                const roundDur = Math.max(
-                  1,
-                  Math.round((Date.now() - lastMsg.thinkingStartTime) / 1000)
-                )
-                duration = (lastMsg.thinkingDuration || 0) + roundDur
-              }
-
-              const workStartTime = lastMsg.workStartTime || Date.now()
-              let finalWorkedDuration =
-                eventWorkedDuration !== undefined
-                  ? eventWorkedDuration
-                  : lastMsg.workedDuration !== undefined
-                    ? lastMsg.workedDuration
-                    : Math.max(1, Math.round((Date.now() - workStartTime) / 1000))
-
               newMessages[lastMsgIndex] = {
                 ...lastMsg,
-                thoughts: finalThoughts,
-                content: finalContent,
+                thoughts,
+                content: finalResponse,
                 isStreaming: false,
                 isThinking: false,
-                thinkingDuration: duration,
-                workedDuration: finalWorkedDuration,
                 isWritingToolCall: false,
                 isConnecting: false,
                 toolCalls: promotedToolCalls,
