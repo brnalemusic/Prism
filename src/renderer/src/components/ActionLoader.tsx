@@ -24,7 +24,7 @@ import { PptxArtifactCard } from './PptxArtifactCard'
 // Tool labels mapping for simplified display
 const TOOL_LABELS: Record<string, string> = {
   web_search: 'Searching web',
-  saw_link_from_url: 'Reading web page',
+  web_fetch: 'Deep web fetch',
   read_skill: 'Reading skill',
   execute_terminal_command: 'Running terminal command',
   run_command: 'Running terminal command',
@@ -342,8 +342,8 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
     const isSearch =
       toolCall.name === 'search' ||
       toolCall.name === 'web_search' ||
-      toolCall.name === 'search_chat_history' ||
-      toolCall.name === 'saw_link_from_url'
+      toolCall.name === 'web_fetch' ||
+      toolCall.name === 'search_chat_history'
     const isFileWrite =
       toolCall.name === 'computer_use_create_file' ||
       toolCall.name === 'computer_use_save_file' ||
@@ -391,13 +391,13 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
         ? ''
         : query || 'Collecting web results.'
     tone = isYoutube ? 'youtube' : 'search'
+  } else if (toolCall.name === 'web_fetch') {
+    displayTitle = 'Deep Web Fetch'
+    displayDetail = query || 'Synthesizing 15 source pages.'
+    tone = 'search'
   } else if (toolCall.name === 'search_chat_history') {
     displayTitle = 'Searching Memory'
     displayDetail = query || 'Looking through prior context.'
-    tone = 'search'
-  } else if (toolCall.name === 'saw_link_from_url') {
-    displayTitle = toolCall.status === 'cooldown' ? 'Cooling Down' : 'Reading Page'
-    displayDetail = url || 'Inspecting web content.'
     tone = 'search'
   } else if (toolCall.name === 'execute_terminal_command' || toolCall.name === 'run_command') {
     displayTitle = 'Terminal'
@@ -536,8 +536,8 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
       const isSearch =
         toolCall.name === 'search' ||
         toolCall.name === 'web_search' ||
-        toolCall.name === 'search_chat_history' ||
-        toolCall.name === 'saw_link_from_url'
+        toolCall.name === 'web_fetch' ||
+        toolCall.name === 'search_chat_history'
       const isFile =
         toolCall.name === 'computer_use_create_file' ||
         toolCall.name === 'computer_use_save_file' ||
@@ -562,7 +562,11 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
         return <Terminal size={size} weight="regular" className="animate-pulse" />
       return <Brain size={size} weight="regular" className="animate-pulse" />
     }
-    if (toolCall.name === 'web_search' || toolCall.name === 'search_chat_history')
+    if (
+      toolCall.name === 'web_search' ||
+      toolCall.name === 'web_fetch' ||
+      toolCall.name === 'search_chat_history'
+    )
       return <MagnifyingGlass size={size} weight="regular" className="animate-pulse" />
     if (isYoutube) return <PlayCircle size={size} weight="regular" className="animate-pulse" />
     if (
@@ -590,7 +594,7 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
       return <FileCode size={size} weight="regular" />
     }
     if (toolCall.name.startsWith('computer_use_')) return <HardDrive size={size} weight="regular" />
-    if (toolCall.name === 'saw_link_from_url' || toolCall.name.startsWith('internal_docs_')) return <FileText size={size} weight="regular" />
+    if (toolCall.name.startsWith('internal_docs_')) return <FileText size={size} weight="regular" />
     if (toolCall.name === 'configure_prism')
       return <Gear size={size} weight="regular" className="animate-pulse" />
     if (

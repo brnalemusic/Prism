@@ -29,6 +29,7 @@ import {
 } from '../shared/types'
 
 import { loadConfig, saveConfig, SlashWorkflow } from './config'
+import { searchAndReadWeb, fetchAndSummarizeWeb } from './webSearchService'
 import { requestDiscordVoiceLeave } from './discordGateway'
 import {
   searchChatHistory,
@@ -1858,269 +1859,7 @@ async function handleConsentBanners(page: any) {
   }
 }
 
-/**
- * Fetches and returns text content from a URL using Playwright.
- */
-export async function sawLinkFromUrl(url: string, signal?: AbortSignal): Promise<string> {
-  let browser: Browser | null = null
 
-  // Handle abort logic
-  const onAbort = () => {
-    console.log('sawLinkFromUrl: Abort requested, closing browser.')
-    browser?.close().catch(() => {})
-  }
-
-  try {
-    const targetUrl = normalizeHttpUrl(url, 'url')
-
-    if (signal) {
-      if (signal.aborted) throw new Error('AbortError')
-      signal.addEventListener('abort', onAbort)
-    }
-
-    browser = await launchBrowser()
-    const context = await createBrowserContext(browser)
-    const page = await context.newPage()
-
-    // Spoof navigator.webdriver to bypass automated browser detection
-    await page.addInitScript(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
-      ;(window as any).chrome = { runtime: {} }
-    })
-
-    await page.goto(targetUrl, {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000
-    })
-
-    // Try to auto-dismiss any cookie banners to avoid text cluttering
-    await handleConsentBanners(page)
-
-    // Clean page and extract text
-    const text = await page.evaluate(() => {
-      const scripts = document.querySelectorAll('script, style, iframe, noscript, svg, path')
-      scripts.forEach((el) => el.remove())
-      return document.body.innerText || ''
-    })
-
-    const cleaned = text.replace(/\s+/g, ' ').trim()
-    const MAX_CONTENT = 20000
-    return cleaned.length > MAX_CONTENT
-      ? cleaned.substring(0, MAX_CONTENT) + '... (truncated)'
-      : cleaned
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') throw error
-    const message = error instanceof Error ? error.message : String(error)
-    return `Error fetching URL: ${message}`
-  } finally {
-    if (signal) {
-      signal.removeEventListener('abort', onAbort)
-    }
-    if (browser) {
-      await browser.close().catch(() => {})
-    }
-  }
-}
-
-/**
- * Performs a single web search query using Google Search and Playwright.
- * Returns the formatted results string (or an error message on failure).
- *
- * Reused by the continuous `webSearch` (one call per search term) and kept as
- * a standalone export for surfaces that still use the legacy `{query}` shape
- * (e.g. the AI Search modal and the Launcher).
- */
-export async function webSearchSingle(query: string, signal?: AbortSignal): Promise<string> {
-  let browser: Browser | null = null
-
-  // Handle abort logic
-  const onAbort = () => {
-    console.log('webSearchSingle: Abort requested, closing browser.')
-    browser?.close().catch(() => {})
-  }
-
-  try {
-    if (signal) {
-      if (signal.aborted) throw new Error('AbortError')
-      signal.addEventListener('abort', onAbort)
-    }
-
-    browser = await launchBrowser()
-    const context = await createBrowserContext(browser)
-    const page = await context.newPage()
-
-    // Spoof navigator.webdriver to bypass automated browser detection
-    await page.addInitScript(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
-      ;(window as any).chrome = { runtime: {} }
-    })
-
-    // Perform Google Search
-    await page.goto(`https://www.google.com/search?q=${encodeURIComponent(query)}`, {
-      waitUntil: 'domcontentloaded',
-      timeout: 15000
-    })
-
-    // Handle Google's redirect consent walls or overlay banners
-    const currentHost = (() => {
-      try {
-        return new URL(page.url()).hostname
-      } catch {
-        return ''
-      }
-    })()
-    if (currentHost === 'consent.google.com') {
-      console.log('webSearchSingle: Redirected to Google consent page. Clicking accept...')
-      await handleConsentBanners(page)
-      await page
-        .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 })
-        .catch(() => {})
-    } else {
-      await handleConsentBanners(page)
-    }
-
-    // Extract organic search results immediately (no waiting for Gemini / AI Overview)
-    let results = await page.evaluate(() => {
-      const links = Array.from(document.querySelectorAll('a h3'))
-      const seenLinks = new Set<string>()
-      const list: { title: string; link: string; snippet: string }[] = []
-
-      for (const h3 of links) {
-        const anchor = h3.closest('a')
-        if (!anchor) continue
-        const link = anchor.getAttribute('href')
-        if (!link || seenLinks.has(link)) continue
-        seenLinks.add(link)
-
-        // Climb up DOM to search for description snippet
-        let container = h3.parentElement
-        let snippet = ''
-        let attempts = 0
-        while (container && attempts < 6) {
-          const descEl = container.querySelector(
-            '.VwiC3b, .yD3nu, div[style*="-webkit-line-clamp"]'
-          )
-          if (descEl) {
-            snippet = descEl.textContent || ''
-            break
-          }
-          container = container.parentElement
-          attempts++
-        }
-
-        list.push({
-          title: h3.textContent || '',
-          link,
-          snippet
-        })
-        if (list.length >= 5) break
-      }
-      return list
-    })
-
-    if (results.length === 0) {
-      console.log(
-        'webSearchSingle: Google search yielded no results. Trying DuckDuckGo fallback...'
-      )
-      await page.goto(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
-        waitUntil: 'domcontentloaded',
-        timeout: 15000
-      })
-
-      results = await page.evaluate(() => {
-        const list: { title: string; link: string; snippet: string }[] = []
-        const resultElements = Array.from(document.querySelectorAll('.result'))
-        for (const el of resultElements) {
-          const titleEl = el.querySelector('.result__title a') as HTMLAnchorElement
-          const snippetEl = el.querySelector('.result__snippet')
-          if (!titleEl) continue
-          let link = titleEl.getAttribute('href') || ''
-          if (link.includes('uddg=')) {
-            const match = link.match(/uddg=([^&]+)/)
-            if (match && match[1]) {
-              try {
-                link = decodeURIComponent(match[1])
-              } catch (e) {
-                // ignore
-              }
-            }
-          }
-          const title = titleEl.textContent || ''
-          const snippet = snippetEl?.textContent || ''
-          list.push({ title, link, snippet })
-          if (list.length >= 5) break
-        }
-        return list
-      })
-    }
-
-    if (results.length === 0) {
-      return 'No results found.'
-    }
-
-    return results
-      .map((r, i) => `${i + 1}. ${r.title}\n   Link: ${r.link}\n   Snippet: ${r.snippet}`)
-      .join('\n\n')
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') throw error
-    const message = error instanceof Error ? error.message : String(error)
-    return `Error performing web search: ${message}`
-  } finally {
-    if (signal) {
-      signal.removeEventListener('abort', onAbort)
-    }
-    if (browser) {
-      await browser.close().catch(() => {})
-    }
-  }
-}
-
-/**
- * A single continuous web search session. Each entry carries a human-friendly
- * `title` (what the user sees in the UI) and the actual `query` keywords sent
- * to Google.
- */
-export interface WebSearchEntry {
-  title: string
-  query: string
-}
-
-/**
- * Performs a continuous web search across multiple terms. Each search runs
- * sequentially via `webSearchSingle`; before every term, `onProgress(title)`
- * fires so the UI can append the friendly title to the live "Searching Web"
- * list. All results are concatenated under per-title headers and returned as
- * one string for the model to consume.
- */
-export async function webSearchContinuous(
-  searches: WebSearchEntry[],
-  opts: { onProgress?: (title: string) => void; signal?: AbortSignal } = {}
-): Promise<string> {
-  if (!searches || searches.length === 0) {
-    return 'No search terms provided.'
-  }
-
-  const sections: string[] = []
-
-  for (const entry of searches) {
-    if (opts.signal?.aborted) throw new Error('AbortError')
-
-    // Notify the UI a new search is starting before actually running it.
-    try {
-      opts.onProgress?.(entry.title)
-    } catch (e) {
-      // onProgress failures must never break the search itself.
-    }
-
-    const result = await webSearchSingle(entry.query, opts.signal)
-
-    const header = searches.length > 1 ? `### ${entry.title}\n(Query: ${entry.query})\n\n` : ''
-
-    sections.push(`${header}${result}`)
-  }
-
-  return sections.join('\n\n---\n\n')
-}
 const ARCADIA_MODEL_NAMES: Record<string, string> = {
   'prism-ai/arcadia-1.0-mini': 'Arcadia-1.0 Mini',
   'prism-ai/arcadia-1.0-flash': 'Arcadia-1.0 Flash',
@@ -2339,7 +2078,7 @@ ${browserRule}
   - Commands run in \`${shellName}\` (${shellSyntax}).
   - Parallel native tool calls allowed.
   - Do not invent tool results, paths, or citations.
-- **Search:** Use web_search and saw_link_from_url. For Deep Research: 1. Search context, 2. Present plan & await user approval, 3. 10+ iterations, 4. Output Markdown report.
+- **Search:** Use web_search (fetches top 5 matching pages with full text content) or web_fetch (synthesizes 15 web pages into a concise summary via a dedicated subagent). Prism renders the read pages and subagent sources automatically.
 - **Prism Docs:** Use internal_docs_list, internal_docs_read, internal_docs_search for Prism system queries.
 - **YouTube Assistant Protocol:** When searching for YouTube videos, search via \`web_search\` with query \`site:youtube.com <SEARCH_QUERY>\`. Output the final result enclosed in a styled card container block (\`<div style="border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 18px 20px; background: rgba(255, 255, 255, 0.03); margin: 12px 0;">...</div>\`) containing 🎬 title, customized description, up to 3 clickable HTML <a> button links (primary bold red #ff0000, alternatives dark charcoal #272727), and the suggestion chip below the card: \`<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>\`.
 - **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}
@@ -2839,12 +2578,32 @@ export async function executeSystemTool(
         : 'No matching installed applications found.'
     }
 
-    // Web search
+    // Web search & research
     case 'web_search': {
-      return await webSearchContinuous(args.searches, { signal })
+      let query = ''
+      if (typeof args.query === 'string') {
+        query = args.query.trim()
+      } else if (Array.isArray(args.searches) && typeof args.searches[0]?.query === 'string') {
+        query = args.searches[0].query.trim()
+      }
+      if (!query) throw new Error('A search query is required.')
+      const result = await searchAndReadWeb(
+        query,
+        { maxContextCharacters: 40_000, webPageCount: 5 },
+        signal
+      )
+      return JSON.stringify(result)
     }
-    case 'saw_link_from_url':
-      return await sawLinkFromUrl(args.url || '', signal)
+    case 'web_fetch': {
+      const query = typeof args.query === 'string' ? args.query.trim() : ''
+      if (!query) throw new Error('A query or topic is required for web_fetch.')
+      const result = await fetchAndSummarizeWeb(query, {
+        provider: context.provider,
+        modelId: context.modelId,
+        signal
+      })
+      return JSON.stringify(result)
+    }
 
     // Persistent browser
     case 'open_browser':

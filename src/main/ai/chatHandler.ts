@@ -713,7 +713,7 @@ STRICT BUTTON RULES:
       } else if (isForceSearch) {
         const allTools = getNativeToolsForOpenAi('main', undefined, chatId, disabledSkills)
         const searchTools = allTools.filter((t) =>
-          ['web_search', 'saw_link_from_url', 'open_browser_link'].includes(t.function.name)
+          ['web_search', 'web_fetch', 'open_browser_link'].includes(t.function.name)
         )
         const existingNames = new Set(tools.map((t) => t.function.name))
         for (const tool of searchTools) {
@@ -812,6 +812,8 @@ STRICT BUTTON RULES:
         signal: abortController.signal,
         chatId,
         disabledSkills,
+        provider,
+        modelId: model.id,
         onStart: (args) =>
           broadcastIpc('chat-tool-start', {
             callId,
@@ -1265,6 +1267,8 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
         signal: abortController.signal,
         chatId,
         disabledSkills,
+        provider,
+        modelId: model.id,
         onStart: (args) =>
           broadcastIpc('chat-tool-start', {
             callId,

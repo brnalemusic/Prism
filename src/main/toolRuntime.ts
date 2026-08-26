@@ -1,6 +1,7 @@
 import { executeSystemTool } from './systemTools'
 import { getToolDefinition, JsonSchema, ToolDefinition, toolsManifest } from './toolsManifest'
 import { SystemToolOutput, ToolAttachment } from './toolAttachments'
+import type { ProviderConfig } from '../shared/types'
 import type { ImageGenerationErrorCode } from './ai/imageGenerationCore'
 import { imageGenerationToolError } from './ai/imageGeneration'
 
@@ -35,6 +36,8 @@ export interface ToolExecutionContext {
   signal?: AbortSignal
   chatId?: string
   disabledSkills?: string[]
+  provider?: ProviderConfig
+  modelId?: string
   onStart?: (args: Record<string, unknown>) => void
 }
 

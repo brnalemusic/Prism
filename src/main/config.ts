@@ -163,7 +163,7 @@ const DEFAULT_CONFIG: AppConfig = {
       description: 'Perform deep web research on a topic',
       systemInstruction:
         'Deep web research mode. Use web_search to find information, verify facts across sources, and output a structured summary with references.',
-      toolConstraints: ['web_search', 'saw_link_from_url', 'open_browser_link']
+      toolConstraints: ['web_search', 'web_fetch', 'open_browser_link']
     },
     {
       id: 'default-summarize',

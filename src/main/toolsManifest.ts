@@ -242,29 +242,15 @@ export const toolsManifest: ToolDefinition[] = [
   ),
   tool(
     'web_search',
-    'Search the web using one or more titled queries.',
-    {
-      searches: {
-        type: 'array',
-        description: 'Search requests to execute in order.',
-        minItems: 1,
-        maxItems: 10,
-        items: objectSchema(
-          {
-            title: stringSchema('Concise action title shown in the UI.'),
-            query: stringSchema('Search-engine query.')
-          },
-          ['title', 'query']
-        )
-      }
-    },
-    ['searches']
+    'Search DuckDuckGo and automatically read the top matching source pages.',
+    { query: stringSchema('Focused web search query.') },
+    ['query']
   ),
   tool(
-    'saw_link_from_url',
-    'Read the main text content of a web URL.',
-    { url: stringSchema('HTTP or HTTPS URL.') },
-    ['url']
+    'web_fetch',
+    'Search 15 web pages on a topic and synthesize the findings via a dedicated subagent into a concise summary.',
+    { query: stringSchema('Focused research topic or search query.') },
+    ['query']
   ),
   tool(
     'open_browser_link',

@@ -21,7 +21,7 @@ Creates a new workflow or updates an existing one:
 - `name`: Human-readable name.
 - `description`: Brief description of workflow objective.
 - `systemInstruction`: System instructions injected into prompt payload when active.
-- `toolConstraints`: Optional array of allowed tool names (e.g. `['web_search', 'saw_link_from_url']`). If omitted, all tools remain available.
+- `toolConstraints`: Optional array of allowed tool names (e.g. `['web_search', 'web_fetch']`). If omitted, all tools remain available.
 
 ### 2.3. `delete_workflow`
 Deletes a custom workflow by command or ID.
@@ -32,5 +32,5 @@ Deletes a custom workflow by command or ID.
 
 | Command | Name | Goal / System Instruction | Tool Constraints |
 | --- | --- | --- | --- |
-| `/search` | Search | Perform deep web research on a topic | `web_search`, `saw_link_from_url`, `open_browser_link` |
+| `/search` | Search | Perform deep web research on a topic | `web_search`, `web_fetch`, `open_browser_link` |
 | `/summarize` | Summarizer | Extract key points, check errors, and format structured summaries | All tools allowed |

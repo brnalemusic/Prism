@@ -631,8 +631,8 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
               } else {
                 const isSearch =
                   item.writingToolName === 'web_search' ||
+                  item.writingToolName === 'web_fetch' ||
                   item.writingToolName === 'search_chat_history' ||
-                  item.writingToolName === 'saw_link_from_url' ||
                   item.writingToolName === 'search'
                 const toolType = isSearch ? 'search' : 'task'
                 return (

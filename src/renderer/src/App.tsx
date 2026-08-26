@@ -1053,11 +1053,15 @@ const AiMessage = React.memo(function AiMessage({
             )}
 
           {/* Source pills at the bottom of the AI message turn, above Copy & TTS */}
-          {showActions !== false && messageSources.length > 0 && (
-            <div className="w-full mt-1 mb-0.5">
-              <SourcePills sources={messageSources} />
-            </div>
-          )}
+          {showActions !== false &&
+            (messageSources.sources.length > 0 || messageSources.fetchSubagents.length > 0) && (
+              <div className="w-full mt-1 mb-0.5">
+                <SourcePills
+                  sources={messageSources.sources}
+                  fetchSubagents={messageSources.fetchSubagents}
+                />
+              </div>
+            )}
 
           {/* Copy & TTS buttons + browser session button */}
           {!msg.isStreaming && showActions !== false && (

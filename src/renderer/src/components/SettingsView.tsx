@@ -183,8 +183,12 @@ const STATIC_TOOLS = [
     label: 'Guarded Terminal',
     desc: 'Execute commands in the selected terminal'
   },
-  { name: 'web_search', label: 'Web Search', desc: 'Search DuckDuckGo for live info' },
-  { name: 'saw_link_from_url', label: 'Read URL Page', desc: 'Fetch website text contents' },
+  { name: 'web_search', label: 'Web Search', desc: 'Search DuckDuckGo and read source pages' },
+  {
+    name: 'web_fetch',
+    label: 'Web Fetch',
+    desc: 'Synthesize 15 web sources via dedicated subagent'
+  },
   {
     name: 'open_browser_link',
     label: 'Open Browser Link',

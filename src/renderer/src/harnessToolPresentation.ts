@@ -1,5 +1,11 @@
 import type { HarnessSource } from '../../shared/types'
 
+export interface DecodedFetchSubagent {
+  query: string
+  summary: string
+  sources: HarnessSource[]
+}
+
 export interface DecodedHarnessToolResult {
   ok?: boolean
   outputText: string
@@ -7,6 +13,7 @@ export interface DecodedHarnessToolResult {
   diff?: string
   sources: HarnessSource[]
   runId?: string
+  fetchSubagent?: DecodedFetchSubagent
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -59,6 +66,17 @@ function parseSources(value: unknown): HarnessSource[] {
   return sources
 }
 
+function extractFetchSubagent(record: Record<string, unknown>, sources: HarnessSource[]): DecodedFetchSubagent | undefined {
+  if (record.isSubagentFetch === true || (typeof record.summary === 'string' && Array.isArray(record.sources))) {
+    return {
+      query: typeof record.query === 'string' ? record.query : '',
+      summary: typeof record.summary === 'string' ? record.summary : '',
+      sources
+    }
+  }
+  return undefined
+}
+
 export function decodeHarnessToolResult(result?: string): DecodedHarnessToolResult {
   if (!result) return { outputText: '', output: '', sources: [] }
   if (typeof result !== 'string') {
@@ -66,13 +84,15 @@ export function decodeHarnessToolResult(result?: string): DecodedHarnessToolResu
       const rawRecord = result as Record<string, unknown>
       const rawOutput = rawRecord.ok === false ? rawRecord.error : rawRecord.output
       const envelopeSources = parseSources(rawRecord.sources)
+      const subagent = extractFetchSubagent(rawRecord, envelopeSources)
       return {
         ok: typeof rawRecord.ok === 'boolean' ? rawRecord.ok : undefined,
         outputText: stringifyHarnessValue(rawOutput ?? result),
         output: rawOutput ?? result,
         diff: isRecord(rawOutput) && typeof rawOutput.diff === 'string' ? rawOutput.diff : undefined,
-        sources: envelopeSources,
-        runId: isRecord(rawOutput) && typeof rawOutput.runId === 'string' ? rawOutput.runId : undefined
+        sources: subagent ? [] : envelopeSources,
+        runId: isRecord(rawOutput) && typeof rawOutput.runId === 'string' ? rawOutput.runId : undefined,
+        fetchSubagent: subagent
       }
     }
     return { outputText: String(result), output: result, sources: [] }
@@ -88,41 +108,51 @@ export function decodeHarnessToolResult(result?: string): DecodedHarnessToolResu
     if (typeof rawOutput !== 'string') {
       const outputSources = isRecord(rawOutput) ? parseSources(rawOutput.sources) : []
       const combinedSources = outputSources.length > 0 ? outputSources : envelopeSources
+      const subagent = isRecord(rawOutput)
+        ? extractFetchSubagent(rawOutput, combinedSources)
+        : extractFetchSubagent(parsedEnvelope, combinedSources)
       return {
         ok: typeof parsedEnvelope.ok === 'boolean' ? parsedEnvelope.ok : undefined,
         outputText: stringifyHarnessValue(rawOutput),
         output: rawOutput,
         diff: isRecord(rawOutput) && typeof rawOutput.diff === 'string' ? rawOutput.diff : undefined,
-        sources: combinedSources,
-        runId: isRecord(rawOutput) && typeof rawOutput.runId === 'string' ? rawOutput.runId : undefined
+        sources: subagent ? [] : combinedSources,
+        runId: isRecord(rawOutput) && typeof rawOutput.runId === 'string' ? rawOutput.runId : undefined,
+        fetchSubagent: subagent
       }
     }
     try {
       const parsedOutput = JSON.parse(rawOutput) as unknown
       if (!isRecord(parsedOutput)) {
+        const subagent = extractFetchSubagent(parsedEnvelope, envelopeSources)
         return {
           ok: typeof parsedEnvelope.ok === 'boolean' ? parsedEnvelope.ok : undefined,
           outputText: rawOutput,
           output: rawOutput,
-          sources: envelopeSources
+          sources: subagent ? [] : envelopeSources,
+          fetchSubagent: subagent
         }
       }
       const outputSources = parseSources(parsedOutput.sources)
       const combinedSources = outputSources.length > 0 ? outputSources : envelopeSources
+      const subagent = extractFetchSubagent(parsedOutput, combinedSources) || extractFetchSubagent(parsedEnvelope, combinedSources)
       return {
         ok: typeof parsedEnvelope.ok === 'boolean' ? parsedEnvelope.ok : undefined,
         outputText: stringifyHarnessValue(parsedOutput),
         output: parsedOutput,
         diff: typeof parsedOutput.diff === 'string' ? parsedOutput.diff : undefined,
-        sources: combinedSources,
-        runId: typeof parsedOutput.runId === 'string' ? parsedOutput.runId : undefined
+        sources: subagent ? [] : combinedSources,
+        runId: typeof parsedOutput.runId === 'string' ? parsedOutput.runId : undefined,
+        fetchSubagent: subagent
       }
     } catch {
+      const subagent = extractFetchSubagent(parsedEnvelope, envelopeSources)
       return {
         ok: typeof parsedEnvelope.ok === 'boolean' ? parsedEnvelope.ok : undefined,
         outputText: rawOutput,
         output: rawOutput,
-        sources: envelopeSources
+        sources: subagent ? [] : envelopeSources,
+        fetchSubagent: subagent
       }
     }
   } catch {
