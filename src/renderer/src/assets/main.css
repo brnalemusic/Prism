@@ -760,7 +760,7 @@
 
   @keyframes streaming-character-color {
     from {
-      color: var(--color-accent-primary);
+      color: var(--color-accent-primary, var(--accent-primary, #38bdf8));
     }
     to {
       color: inherit;

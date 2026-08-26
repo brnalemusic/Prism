@@ -67,12 +67,18 @@ export function decodeHarnessToolResult(result?: string): DecodedHarnessToolResu
       return { outputText: result, output: result, sources: [] }
     }
     const rawOutput = parsedEnvelope.ok === false ? parsedEnvelope.error : parsedEnvelope.output
+    const envelopeSources = parseSources(parsedEnvelope.sources)
+
     if (typeof rawOutput !== 'string') {
+      const outputSources = isRecord(rawOutput) ? parseSources(rawOutput.sources) : []
+      const combinedSources = outputSources.length > 0 ? outputSources : envelopeSources
       return {
         ok: typeof parsedEnvelope.ok === 'boolean' ? parsedEnvelope.ok : undefined,
         outputText: stringifyHarnessValue(rawOutput),
         output: rawOutput,
-        sources: []
+        diff: isRecord(rawOutput) && typeof rawOutput.diff === 'string' ? rawOutput.diff : undefined,
+        sources: combinedSources,
+        runId: isRecord(rawOutput) && typeof rawOutput.runId === 'string' ? rawOutput.runId : undefined
       }
     }
     try {
@@ -82,15 +88,17 @@ export function decodeHarnessToolResult(result?: string): DecodedHarnessToolResu
           ok: typeof parsedEnvelope.ok === 'boolean' ? parsedEnvelope.ok : undefined,
           outputText: rawOutput,
           output: rawOutput,
-          sources: []
+          sources: envelopeSources
         }
       }
+      const outputSources = parseSources(parsedOutput.sources)
+      const combinedSources = outputSources.length > 0 ? outputSources : envelopeSources
       return {
         ok: typeof parsedEnvelope.ok === 'boolean' ? parsedEnvelope.ok : undefined,
         outputText: stringifyHarnessValue(parsedOutput),
         output: parsedOutput,
         diff: typeof parsedOutput.diff === 'string' ? parsedOutput.diff : undefined,
-        sources: parseSources(parsedOutput.sources),
+        sources: combinedSources,
         runId: typeof parsedOutput.runId === 'string' ? parsedOutput.runId : undefined
       }
     } catch {
@@ -98,7 +106,7 @@ export function decodeHarnessToolResult(result?: string): DecodedHarnessToolResu
         ok: typeof parsedEnvelope.ok === 'boolean' ? parsedEnvelope.ok : undefined,
         outputText: rawOutput,
         output: rawOutput,
-        sources: []
+        sources: envelopeSources
       }
     }
   } catch {

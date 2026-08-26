@@ -12,6 +12,7 @@ import { OfflineBanner } from './components/OfflineBanner'
 import { Sidebar } from './components/Sidebar'
 import { ToolCallIndicator } from './components/ActionLoader'
 import { HarnessActivityBoundary, HarnessSteps } from './components/HarnessSteps'
+import { SourcePills, extractMessageSources } from './components/SourcePills'
 import { HarnessContextInjection } from './components/HarnessContextInjection'
 import { HarnessApprovalDialog } from './components/HarnessApprovalDialog'
 import { HarnessProjectModal } from './components/HarnessProjectModal'
@@ -421,6 +422,7 @@ const AiMessage = React.memo(function AiMessage({
     [msg.content]
   )
   const streamStats = useStreamStats(visibleContent, !!msg.isStreaming)
+  const messageSources = useMemo(() => extractMessageSources(msg), [msg])
   const nativeToolCalls = useMemo(
     () => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls),
     [msg.toolCalls, msg.streamingToolCalls]
@@ -1045,6 +1047,13 @@ const AiMessage = React.memo(function AiMessage({
                 <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
               </div>
             )}
+
+          {/* Source pills at the bottom of the AI message turn, above Copy & TTS */}
+          {showActions !== false && messageSources.length > 0 && (
+            <div className="w-full mt-1 mb-0.5">
+              <SourcePills sources={messageSources} />
+            </div>
+          )}
 
           {/* Copy & TTS buttons + browser session button */}
           {!msg.isStreaming && showActions !== false && (

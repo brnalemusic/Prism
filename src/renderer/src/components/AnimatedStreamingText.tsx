@@ -566,6 +566,8 @@ export function createStreamingFadeRehypePlugin(
         const nextChildren: HastNode[] = []
         for (const child of node.children) {
           if (child.type === 'text') {
+            const childLength = child.value?.length || 0
+            const positionedStart = getOffset(child.position?.start)
             nextChildren.push(
               ...splitTextNodeForFade(
                 child,
@@ -575,7 +577,7 @@ export function createStreamingFadeRehypePlugin(
                 streamStats.animationClock
               )
             )
-            fallbackTextOffset += child.value?.length || 0
+            fallbackTextOffset = (positionedStart ?? fallbackTextOffset) + childLength
             continue
           }
 
@@ -616,7 +618,6 @@ export function createStreamingFadeRehypePlugin(
           }
 
           visit(child)
-          fallbackTextOffset += getTextLength(child)
           nextChildren.push(child)
         }
 

@@ -12,9 +12,10 @@ import {
   TerminalWindow,
   XCircle
 } from '@phosphor-icons/react'
-import type { HarnessSource, HarnessToolName } from '../../../shared/types'
+import type { HarnessToolName } from '../../../shared/types'
 import type { ToolCallItem } from '../types/tab'
 import { AnsiRenderer } from './ActionLoader'
+import { SourceFavicon } from './SourcePills'
 import {
   asHarnessRecord,
   decodeHarnessToolResult,
@@ -370,125 +371,111 @@ function ToolRow({ tool }: { tool: ToolCallItem }): React.JSX.Element {
 
       {expanded && (
         <div className="mb-1.5 ml-[5px] mt-1 space-y-2 border-l border-white/[0.07] pb-0.5 pl-3 pr-1 animate-fade-in max-w-full">
-          <DetailBlock label="Input">
-            {command ? (
-              <div className="rounded-md bg-black/25 px-2.5 py-1.5 font-mono text-[10px] leading-relaxed text-text-secondary">
-                <span className="mr-1.5 select-none text-accent-primary/60">$</span>
-                {command}
-              </div>
-            ) : (
-              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/25 p-2 font-mono text-[10px] leading-relaxed text-text-secondary custom-scrollbar">
-                {stringifyHarnessValue(args)}
-              </pre>
-            )}
-          </DetailBlock>
-
-          {decoded.diff ? (
-            <DetailBlock label="Diff">
-              <DiffView value={decoded.diff} />
-            </DetailBlock>
-          ) : tool.result || tool.terminalOutput ? (
-            <DetailBlock label="Output">
-              <div className="overflow-hidden rounded-md bg-black/25">
-                {runId && (
-                  <div className="border-b border-white/[0.045] px-2 py-1 font-mono text-[9px] text-text-muted">
-                    Run ID {runId}
-                  </div>
-                )}
-                {tool.name === 'grep' && Array.isArray(outputRecord.matches) ? (
-                  <div className="max-h-56 overflow-auto p-2 font-mono text-[10px] leading-relaxed text-text-secondary custom-scrollbar space-y-1.5">
-                    <div className="text-[9.5px] text-text-muted">
-                      {typeof outputRecord.totalMatches === 'number'
-                        ? `${outputRecord.totalMatches} match${outputRecord.totalMatches === 1 ? '' : 'es'} across ${outputRecord.matches.length} file${outputRecord.matches.length === 1 ? '' : 's'}`
-                        : 'Matches:'}
-                    </div>
-                    {outputRecord.matches.length === 0 ? (
-                      <div className="text-[10px] text-text-muted italic">No matching lines found.</div>
-                    ) : (
-                      outputRecord.matches.map((match: unknown, idx: number) => {
-                        const m = asHarnessRecord(match)
-                        const matchPath = typeof m.path === 'string' ? m.path : ''
-                        const lines = Array.isArray(m.lines) ? m.lines : []
-                        return (
-                          <div
-                            key={idx}
-                            className="flex flex-wrap items-baseline gap-1.5 border-b border-white/[0.03] pb-1 last:border-0 last:pb-0"
-                          >
-                            <span className="font-semibold text-accent-primary/90">{matchPath}</span>
-                            <span className="flex flex-wrap gap-1 text-text-muted/80">
-                              {lines.map((ln: unknown, lIdx: number) => (
-                                <span
-                                  key={lIdx}
-                                  className="rounded bg-white/[0.06] px-1 py-0.5 text-[9px] text-text-secondary"
-                                >
-                                  #{String(ln)}
-                                </span>
-                              ))}
-                            </span>
-                          </div>
-                        )
-                      })
-                    )}
+          {tool.name === 'web_search' ? (
+            <div className="grid gap-0.5 py-0.5">
+              {decoded.sources.length > 0 ? (
+                decoded.sources.map((source) => (
+                  <button
+                    key={source.url}
+                    type="button"
+                    onClick={() => void window.api.openExternalUrl(source.url)}
+                    title={`${source.title}\n${source.url}`}
+                    className="flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 text-left transition-colors hover:bg-white/[0.04] text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary/55 group/source cursor-pointer"
+                  >
+                    <SourceFavicon source={source} />
+                    <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-text-secondary group-hover/source:text-text-primary">
+                      {source.title}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-text-muted">{source.domain}</span>
+                  </button>
+                ))
+              ) : isActive ? (
+                <div className="text-[11px] text-text-muted italic py-0.5">Searching...</div>
+              ) : tool.status === 'error' ? (
+                <div className="text-[11px] text-status-error/80 py-0.5">{output || 'Search failed.'}</div>
+              ) : (
+                <div className="text-[11px] text-text-muted italic py-0.5">No sources found.</div>
+              )}
+            </div>
+          ) : (
+            <>
+              <DetailBlock label="Input">
+                {command ? (
+                  <div className="rounded-md bg-black/25 px-2.5 py-1.5 font-mono text-[10px] leading-relaxed text-text-secondary">
+                    <span className="mr-1.5 select-none text-accent-primary/60">$</span>
+                    {command}
                   </div>
                 ) : (
-                  <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words p-2 font-mono text-[10px] leading-relaxed text-text-secondary custom-scrollbar">
-                    {tool.name === 'exec_command' || tool.name === 'read_terminal_output' ? (
-                      <AnsiRenderer text={tool.terminalOutput || output} />
-                    ) : (
-                      output
-                    )}
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/25 p-2 font-mono text-[10px] leading-relaxed text-text-secondary custom-scrollbar">
+                    {stringifyHarnessValue(args)}
                   </pre>
                 )}
-              </div>
-            </DetailBlock>
-          ) : null}
+              </DetailBlock>
+
+              {decoded.diff ? (
+                <DetailBlock label="Diff">
+                  <DiffView value={decoded.diff} />
+                </DetailBlock>
+              ) : tool.result || tool.terminalOutput ? (
+                <DetailBlock label="Output">
+                  <div className="overflow-hidden rounded-md bg-black/25">
+                    {runId && (
+                      <div className="border-b border-white/[0.045] px-2 py-1 font-mono text-[9px] text-text-muted">
+                        Run ID {runId}
+                      </div>
+                    )}
+                    {tool.name === 'grep' && Array.isArray(outputRecord.matches) ? (
+                      <div className="max-h-56 overflow-auto p-2 font-mono text-[10px] leading-relaxed text-text-secondary custom-scrollbar space-y-1.5">
+                        <div className="text-[9.5px] text-text-muted">
+                          {typeof outputRecord.totalMatches === 'number'
+                            ? `${outputRecord.totalMatches} match${outputRecord.totalMatches === 1 ? '' : 'es'} across ${outputRecord.matches.length} file${outputRecord.matches.length === 1 ? '' : 's'}`
+                            : 'Matches:'}
+                        </div>
+                        {outputRecord.matches.length === 0 ? (
+                          <div className="text-[10px] text-text-muted italic">No matching lines found.</div>
+                        ) : (
+                          outputRecord.matches.map((match: unknown, idx: number) => {
+                            const m = asHarnessRecord(match)
+                            const matchPath = typeof m.path === 'string' ? m.path : ''
+                            const lines = Array.isArray(m.lines) ? m.lines : []
+                            return (
+                              <div
+                                key={idx}
+                                className="flex flex-wrap items-baseline gap-1.5 border-b border-white/[0.03] pb-1 last:border-0 last:pb-0"
+                              >
+                                <span className="font-semibold text-accent-primary/90">{matchPath}</span>
+                                <span className="flex flex-wrap gap-1 text-text-muted/80">
+                                  {lines.map((ln: unknown, lIdx: number) => (
+                                    <span
+                                      key={lIdx}
+                                      className="rounded bg-white/[0.06] px-1 py-0.5 text-[9px] text-text-secondary"
+                                    >
+                                      #{String(ln)}
+                                    </span>
+                                  ))}
+                                </span>
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    ) : (
+                      <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words p-2 font-mono text-[10px] leading-relaxed text-text-secondary custom-scrollbar">
+                        {tool.name === 'exec_command' || tool.name === 'read_terminal_output' ? (
+                          <AnsiRenderer text={tool.terminalOutput || output} />
+                        ) : (
+                          output
+                        )}
+                      </pre>
+                    )}
+                  </div>
+                </DetailBlock>
+              ) : null}
+            </>
+          )}
         </div>
       )}
     </article>
-  )
-}
-
-function Sources({ sources }: { sources: HarnessSource[] }): React.JSX.Element | null {
-  const [expanded, setExpanded] = useState(false)
-  if (sources.length === 0) return null
-  return (
-    <div className="mt-1">
-      <button
-        type="button"
-        onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center gap-1.5 py-0.5 text-left text-[11px] text-text-muted transition-colors hover:text-text-secondary focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary/55 group"
-        aria-expanded={expanded}
-      >
-        <GlobeSimple size={12} />
-        <span className="flex-1">Sources ({sources.length})</span>
-        <CaretDown
-          size={10}
-          className={clsx('transition-transform duration-200 group-hover:text-text-secondary', expanded && 'rotate-180')}
-        />
-      </button>
-      {expanded && (
-        <div className="ml-[5px] mt-1 grid gap-0.5 border-l border-white/[0.07] pb-0.5 pl-3 animate-fade-in">
-          {sources.map((source) => (
-            <button
-              key={source.url}
-              type="button"
-              onClick={() => void window.api.openExternalUrl(source.url)}
-              className="flex min-w-0 items-center gap-1.5 rounded-sm py-0.5 text-left transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary/55"
-            >
-              {source.faviconUrl ? (
-                <img src={source.faviconUrl} alt="" className="h-3 w-3 rounded-sm" />
-              ) : (
-                <GlobeSimple size={12} className="shrink-0 text-text-muted" />
-              )}
-              <span className="min-w-0 flex-1 truncate text-[10px] text-text-secondary">
-                {source.title}
-              </span>
-              <span className="shrink-0 text-[9px] text-text-muted">{source.domain}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   )
 }
 
@@ -550,10 +537,6 @@ export function HarnessSteps({
   }, [isActive, userToggled])
 
   const harnessTools = tools.filter((tool) => HARNESS_NAMES.has(tool.name))
-  const sources = useMemo(
-    () => harnessTools.flatMap((tool) => decodeHarnessToolResult(tool.result).sources),
-    [harnessTools]
-  )
 
   if (!showSteps || harnessTools.length === 0) return null
 
@@ -608,7 +591,6 @@ export function HarnessSteps({
           {harnessTools.map((tool, index) => (
             <ToolRow key={tool.id || `${tool.name}-${index}`} tool={tool} />
           ))}
-          <Sources sources={sources} />
         </div>
       )}
     </section>
