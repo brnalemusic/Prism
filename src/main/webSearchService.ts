@@ -274,8 +274,8 @@ export async function fetchAndSummarizeWeb(
   const systemInstruction =
     'You are a focused web research subagent. Your only task is to synthesize and summarize the information from the 15 web pages provided below to answer the user inquiry directly.\n\n' +
     'MANDATORY RULES:\n' +
-    '1. The response MUST NOT exceed 1500 characters in total length.\n' +
-    '2. Be direct, clear, precise, and informative. Use Markdown.\n' +
+    '1. The response MUST be at least 500 characters and MUST NOT exceed 4000 characters in total length.\n' +
+    '2. Be comprehensive, direct, clear, precise, and informative. Use Markdown.\n' +
     '3. Ground all facts in the provided source pages.\n' +
     '4. Do NOT use conversational greetings, preamble, or meta-commentary.'
 
@@ -298,8 +298,8 @@ export async function fetchAndSummarizeWeb(
   )
 
   let summary = result.text.trim()
-  if (summary.length > 1500) {
-    summary = summary.slice(0, 1497) + '...'
+  if (summary.length > 4000) {
+    summary = summary.slice(0, 3997) + '...'
   }
 
   return {

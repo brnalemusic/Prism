@@ -248,7 +248,7 @@ export const toolsManifest: ToolDefinition[] = [
   ),
   tool(
     'web_fetch',
-    'Search 15 web pages on a topic and synthesize the findings via a dedicated subagent into a concise summary.',
+    'Search 15 web pages on a topic and synthesize the findings via a dedicated subagent into a detailed summary (500 to 4000 characters).',
     { query: stringSchema('Focused research topic or search query.') },
     ['query']
   ),
