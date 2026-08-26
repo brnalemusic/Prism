@@ -242,10 +242,10 @@ export async function fetchAndSummarizeWeb(
     signal?: AbortSignal
   }
 ): Promise<WebFetchResult> {
-  // 1. Fetch and read up to 15 web pages
+  // 1. Fetch and read up to 20 web pages
   const searchResult = await searchAndReadWeb(
     query,
-    { maxContextCharacters: 80_000, webPageCount: 15 },
+    { maxContextCharacters: 200_000, webPageCount: 20 },
     options.signal
   )
 
@@ -267,19 +267,19 @@ export async function fetchAndSummarizeWeb(
   const formattedPages = searchResult.pages
     .map(
       (page, idx) =>
-        `### Source ${idx + 1}: ${page.title}\nURL: ${page.url}\n\n${page.content.slice(0, 3500)}`
+        `### Source ${idx + 1}: ${page.title}\nURL: ${page.url}\n\n${page.content.slice(0, 9500)}`
     )
     .join('\n\n---\n\n')
 
   const systemInstruction =
-    'You are a focused web research subagent. Your only task is to synthesize and summarize the information from the 15 web pages provided below to answer the user inquiry directly.\n\n' +
+    'You are a focused web research subagent. Your only task is to synthesize and summarize the information from the 20 web pages provided below to answer the user inquiry directly.\n\n' +
     'MANDATORY RULES:\n' +
     '1. The response MUST be at least 500 characters and MUST NOT exceed 4000 characters in total length.\n' +
     '2. Be comprehensive, direct, clear, precise, and informative. Use Markdown.\n' +
     '3. Ground all facts in the provided source pages.\n' +
     '4. Do NOT use conversational greetings, preamble, or meta-commentary.'
 
-  const userContent = `User query: "${query}"\n\nWeb Search Sources (15 pages):\n\n${formattedPages}`
+  const userContent = `User query: "${query}"\n\nWeb Search Sources (20 pages):\n\n${formattedPages}`
 
   const result = await streamOpenAiCompletion(
     provider,

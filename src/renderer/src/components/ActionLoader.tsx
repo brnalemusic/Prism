@@ -393,7 +393,7 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
     tone = isYoutube ? 'youtube' : 'search'
   } else if (toolCall.name === 'web_fetch') {
     displayTitle = 'Deep Searching the Web'
-    displayDetail = query || 'Synthesizing 15 source pages.'
+    displayDetail = query || 'Synthesizing 20 source pages.'
     tone = 'search'
   } else if (toolCall.name === 'search_chat_history') {
     displayTitle = 'Searching Memory'

@@ -187,7 +187,7 @@ const STATIC_TOOLS = [
   {
     name: 'web_fetch',
     label: 'Web Fetch',
-    desc: 'Synthesize 15 web sources via dedicated subagent'
+    desc: 'Synthesize 20 web sources via dedicated subagent'
   },
   {
     name: 'open_browser_link',
