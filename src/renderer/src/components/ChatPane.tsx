@@ -300,7 +300,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     const scrollContainerRef = useRef<HTMLDivElement>(null)
     const [showScrollButton, setShowScrollButton] = useState(false)
     const isAtBottomRef = useRef(true)
-    const bottomThreshold = 24
+    const bottomThreshold = 80
 
     const scrollToBottom = (behavior: ScrollBehavior = 'smooth'): void => {
       if (scrollContainerRef.current) {

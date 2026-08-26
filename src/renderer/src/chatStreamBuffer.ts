@@ -20,6 +20,7 @@ export class PerChatStreamBuffer<T extends { chatId: string }> {
   }
 
   push(value: T): void {
+    if (!value || !value.chatId) return
     this.pending.set(value.chatId, value)
     if (this.scheduled.has(value.chatId)) return
     const handle = this.schedule(() => {
@@ -27,19 +28,28 @@ export class PerChatStreamBuffer<T extends { chatId: string }> {
       const pending = this.pending.get(value.chatId)
       if (!pending) return
       this.pending.delete(value.chatId)
-      this.consume(pending)
+      try {
+        this.consume(pending)
+      } catch (err) {
+        console.error('Error consuming stream chunk:', err)
+      }
     })
     this.scheduled.set(value.chatId, handle)
   }
 
   flush(chatId: string): void {
+    if (!chatId) return
     const handle = this.scheduled.get(chatId)
     if (handle !== undefined) this.cancel(handle)
     this.scheduled.delete(chatId)
     const pending = this.pending.get(chatId)
     if (!pending) return
     this.pending.delete(chatId)
-    this.consume(pending)
+    try {
+      this.consume(pending)
+    } catch (err) {
+      console.error('Error flushing stream chunk:', err)
+    }
   }
 
   flushAll(): void {

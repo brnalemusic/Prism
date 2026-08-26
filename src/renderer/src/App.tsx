@@ -1173,10 +1173,6 @@ const AiMessageRow = React.memo(function AiMessageRow({
     .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/g, '')
     .trim()
   const hasContent = stripPrismSuggestionMarkup(cleanContentText) !== ''
-  const hasImageGeneration = Boolean(
-    msg.toolCalls?.some((toolCall) => toolCall.name === 'generate_image') ||
-    msg.streamingToolCalls?.some((toolCall) => toolCall.name === 'generate_image')
-  )
 
   const isRunningTool = !!(
     activeToolLabel ||
@@ -1186,98 +1182,106 @@ const AiMessageRow = React.memo(function AiMessageRow({
   )
 
   const isActive = msg.isStreaming || msg.isThinking || isRunningTool || msg.isConnecting
-  const harnessToolCalls = useMemo(
-    () => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls),
-    [msg.toolCalls, msg.streamingToolCalls]
-  )
   const isHarness = sessionMode === 'harness'
+
+  const hasTools = !!(msg.toolCalls && msg.toolCalls.length > 0)
+  const thinkingSec =
+    msg.thinkingDuration !== undefined
+      ? msg.thinkingDuration
+      : msg.thoughts && msg.thoughts.trim() !== ''
+        ? Math.max(1, Math.round(msg.thoughts.length / 120))
+        : 0
+  const hasThinking = thinkingSec > 0
+  const workedSec = msg.workedDuration !== undefined ? msg.workedDuration : thinkingSec
+
+  const hasThoughtInTurn = !!(
+    msg.isThinking ||
+    (msg.thoughts && msg.thoughts.trim() !== '') ||
+    hasThinking
+  )
+
   const harnessBlocks = useMemo(() => {
     if (!isHarness) return []
     return getHarnessMessageBlocks(msg.harnessRounds, msg.toolCalls)
   }, [isHarness, msg.harnessRounds, msg.toolCalls])
 
-  return (
-    <div
-      key={i}
-      className="w-full flex flex-col items-start px-4 py-3.5 transition-all duration-700 animate-message"
-    >
-      {/* Harness Mode: Interleaved blocks in chronological order (consecutive tools merged into 1 block) */}
-      {isHarness && harnessBlocks.length > 0 ? (
-        <div className="w-full flex flex-col gap-2.5">
-          {harnessBlocks.map((block, bIdx) => {
-            const isLatest = block.isLatest
-            const roundTools = consolidateToolCalls(
-              block.toolCalls,
-              isLatest ? msg.streamingToolCalls : undefined
-            )
-            const hasBlockContent = Boolean(block.content && block.content.trim())
-            const isBlockActive = isLatest && Boolean(isActive && isRunningTool)
+  const harnessToolCalls = useMemo(
+    () => (isHarness ? consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls) : []),
+    [isHarness, msg.toolCalls, msg.streamingToolCalls]
+  )
 
-            return (
-              <div key={`harness-block-${block.id}-${bIdx}`} className="w-full flex flex-col gap-2">
-                {/* 1. Block textual preface/content */}
-                {hasBlockContent && (
-                  <div className="w-full text-text-primary" data-prism-ai-message="true">
-                    <AiMessage
-                      msg={{ ...msg, content: block.content || '', thoughts: block.thoughts }}
-                      currentChatId={currentChatId}
-                      handleLoadChat={handleLoadChat}
-                      markdownComponents={markdownComponents}
-                      onOpenBrowserTab={onOpenBrowserTab}
-                      onSendSuggestion={onSendSuggestion}
-                      suggestionMessageKey={suggestionMessageKey}
-                      isSuggestionSendDisabled={isSuggestionSendDisabled}
-                      inactivityLabel={inactivityLabel}
-                      activeToolLabel={activeToolLabel}
-                      isHarness={isHarness}
-                      showActions={isLatest}
-                    />
-                  </div>
-                )}
+  // Harness Mode: Interleaved blocks in chronological order with HarnessSteps
+  if (isHarness) {
+    return (
+      <div
+        key={i}
+        className="w-full flex flex-col items-start px-4 py-3.5 transition-all duration-700 animate-message"
+      >
+        {harnessBlocks.length > 0 ? (
+          <div className="w-full flex flex-col gap-2.5">
+            {harnessBlocks.map((block, bIdx) => {
+              const isLatest = block.isLatest
+              const roundTools = consolidateToolCalls(
+                block.toolCalls,
+                isLatest ? msg.streamingToolCalls : undefined
+              )
+              const hasBlockContent = Boolean(block.content && block.content.trim())
+              const isBlockActive = isLatest && Boolean(isActive && isRunningTool)
 
-                {/* 2. Block tools */}
-                {roundTools.length > 0 && (
-                  <HarnessActivityBoundary key={`harness-block-tools-${block.id}-${bIdx}`}>
-                    <HarnessSteps
-                      tools={roundTools}
-                      isActive={isBlockActive}
-                      showSteps={harnessUi?.showSteps !== false}
-                      reduceMotion={harnessUi?.reduceMotion === true}
-                    />
-                  </HarnessActivityBoundary>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      ) : (
-        <>
-          {/* Fallback / Non-Harness: Tools at top or inline */}
-          {isHarness && harnessToolCalls.length > 0 && (
-            <HarnessActivityBoundary key={isActive ? 'harness-activity-active' : 'harness-activity-complete'}>
-              <HarnessSteps
-                tools={harnessToolCalls}
-                isActive={Boolean(isActive && isRunningTool)}
-                showSteps={harnessUi?.showSteps !== false}
-                reduceMotion={harnessUi?.reduceMotion === true}
-              />
-            </HarnessActivityBoundary>
-          )}
+              return (
+                <div key={`harness-block-${block.id}-${bIdx}`} className="w-full flex flex-col gap-2">
+                  {/* 1. Block textual preface/content */}
+                  {hasBlockContent && (
+                    <div className="w-full text-text-primary" data-prism-ai-message="true">
+                      <AiMessage
+                        msg={{ ...msg, content: block.content || '', thoughts: block.thoughts }}
+                        currentChatId={currentChatId}
+                        handleLoadChat={handleLoadChat}
+                        markdownComponents={markdownComponents}
+                        onOpenBrowserTab={onOpenBrowserTab}
+                        onSendSuggestion={onSendSuggestion}
+                        suggestionMessageKey={suggestionMessageKey}
+                        isSuggestionSendDisabled={isSuggestionSendDisabled}
+                        inactivityLabel={inactivityLabel}
+                        activeToolLabel={activeToolLabel}
+                        isHarness={isHarness}
+                        showActions={isLatest}
+                      />
+                    </div>
+                  )}
 
-          {/* Message Content Body */}
-          {(hasContent || (!isHarness && isActive) || (isActive && !isRunningTool && !msg.isThinking)) && (
-            <div className="w-full text-text-primary" data-prism-ai-message="true">
-              {!hasContent && isActive && !hasImageGeneration && !isRunningTool && !msg.isThinking ? (
-                <div className="flex items-center gap-1.5 h-6 select-none">
-                  {activeToolLabel ? (
-                    <ToolCallIndicator overrideLabel={activeToolLabel} />
-                  ) : inactivityLabel ? (
-                    <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
-                  ) : (
-                    <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
+                  {/* 2. Block tools */}
+                  {roundTools.length > 0 && (
+                    <HarnessActivityBoundary key={`harness-block-tools-${block.id}-${bIdx}`}>
+                      <HarnessSteps
+                        tools={roundTools}
+                        isActive={isBlockActive}
+                        showSteps={harnessUi?.showSteps !== false}
+                        reduceMotion={harnessUi?.reduceMotion === true}
+                      />
+                    </HarnessActivityBoundary>
                   )}
                 </div>
-              ) : (
+              )
+            })}
+          </div>
+        ) : (
+          <>
+            {/* Fallback Harness Tools */}
+            {harnessToolCalls.length > 0 && (
+              <HarnessActivityBoundary key={isActive ? 'harness-activity-active' : 'harness-activity-complete'}>
+                <HarnessSteps
+                  tools={harnessToolCalls}
+                  isActive={Boolean(isActive && isRunningTool)}
+                  showSteps={harnessUi?.showSteps !== false}
+                  reduceMotion={harnessUi?.reduceMotion === true}
+                />
+              </HarnessActivityBoundary>
+            )}
+
+            {/* Harness Message Content Body */}
+            {(hasContent || isActive) && (
+              <div className="w-full text-text-primary" data-prism-ai-message="true">
                 <AiMessage
                   msg={msg}
                   currentChatId={currentChatId}
@@ -1291,20 +1295,81 @@ const AiMessageRow = React.memo(function AiMessageRow({
                   activeToolLabel={activeToolLabel}
                   isHarness={isHarness}
                 />
-              )}
-            </div>
-          )}
-        </>
-      )}
+              </div>
+            )}
+          </>
+        )}
 
-      {/* 3. Thinking Header: ALWAYS at the bottom of the message, ONLY while actively thinking, disappears when done */}
-      {isActive && msg.isThinking && (
-        <div className="w-full mt-2 select-none flex items-center gap-1.5">
-          <span className="thinking-shimmer-text text-[13px] font-medium leading-normal inline-block">
+        {/* Harness Thinking indicator at bottom */}
+        {isActive && msg.isThinking && (
+          <div className="w-full mt-2 select-none flex items-center gap-1.5">
+            <span className="thinking-shimmer-text text-[13px] font-medium leading-normal inline-block">
+              Thinking
+            </span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Non-Harness (Chat Mode): 100% exact match of commit f34043601d1dc5b5166c5cfb13bacc3446cddd78
+  return (
+    <div
+      key={i}
+      className="w-full flex flex-col items-start px-4 py-3.5 transition-all duration-700 animate-message"
+    >
+      {/* 1. Active State Header: "Thinking" shimming remains sticky until turn completes */}
+      {isActive && hasThoughtInTurn && (
+        <div className="w-full mb-1.5 select-none flex flex-col items-start gap-1">
+          <span className="thinking-shimmer-text text-[13px] font-medium leading-normal inline-block pb-[1.5px]">
             Thinking
           </span>
         </div>
       )}
+
+      {/* 2. Finished State Indicator (Static Gray Text) */}
+      {!isActive && (
+        <>
+          {
+            hasTools ? (
+              <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
+                Worked for {workedSec > 0 ? workedSec : 1} {workedSec === 1 ? 'second' : 'seconds'}
+              </div>
+            ) : hasThinking ? (
+              <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
+                Thought for {thinkingSec} {thinkingSec === 1 ? 'second' : 'seconds'}
+              </div>
+            ) : null /* Instant message: no header */
+          }
+        </>
+      )}
+
+      <div className="w-full text-text-primary" data-prism-ai-message="true">
+        {!hasContent && isActive ? (
+          <div className="flex items-center gap-1.5 h-6 select-none">
+            {activeToolLabel ? (
+              <ToolCallIndicator overrideLabel={activeToolLabel} />
+            ) : inactivityLabel ? (
+              <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
+            ) : (
+              <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
+            )}
+          </div>
+        ) : (
+          <AiMessage
+            msg={msg}
+            currentChatId={currentChatId}
+            handleLoadChat={handleLoadChat}
+            markdownComponents={markdownComponents}
+            onOpenBrowserTab={onOpenBrowserTab}
+            onSendSuggestion={onSendSuggestion}
+            suggestionMessageKey={suggestionMessageKey}
+            isSuggestionSendDisabled={isSuggestionSendDisabled}
+            inactivityLabel={inactivityLabel}
+            activeToolLabel={activeToolLabel}
+          />
+        )}
+      </div>
     </div>
   )
 })
@@ -3467,6 +3532,23 @@ function RealApp(): React.JSX.Element {
                 })
               }
 
+              const workStartTime = lastMsg.workStartTime || Date.now()
+              const currentWorkedDuration = Math.max(
+                1,
+                Math.round((Date.now() - workStartTime) / 1000)
+              )
+
+              let duration = lastMsg.thinkingDuration
+              let startTime = lastMsg.thinkingStartTime
+
+              if (isThinking && !startTime) {
+                startTime = Date.now()
+              } else if (!isThinking && lastMsg.isThinking && startTime) {
+                const roundDur = Math.max(1, Math.round((Date.now() - startTime) / 1000))
+                duration = (duration || 0) + roundDur
+                startTime = undefined
+              }
+
               let harnessRounds = lastMsg.harnessRounds ? [...lastMsg.harnessRounds] : []
               if (isHarness) {
                 const currentRound = data.harnessRound || 1
@@ -3494,9 +3576,15 @@ function RealApp(): React.JSX.Element {
                 thoughts,
                 content: finalResponse,
                 isThinking,
+                thinkingStartTime: startTime,
+                thinkingDuration: duration,
+                workStartTime,
+                workedDuration: currentWorkedDuration,
                 isWritingToolCall,
                 toolType,
-                streamingToolCalls: isHarness ? lastMsg.streamingToolCalls : streamingToolCalls,
+                streamingToolCalls: isHarness
+                  ? lastMsg.streamingToolCalls
+                  : (streamingToolCalls || lastMsg.streamingToolCalls),
                 isConnecting: false,
                 toolCalls: updatedToolCalls,
                 harnessRounds: isHarness && harnessRounds.length > 0 ? harnessRounds : lastMsg.harnessRounds
@@ -3535,8 +3623,10 @@ function RealApp(): React.JSX.Element {
       const {
         chatId,
         thoughts,
-        finalResponse
-      } = data
+        finalResponse,
+        thinkingDuration: eventDuration,
+        workedDuration: eventWorkedDuration
+      } = data as typeof data & { thinkingDuration?: number; workedDuration?: number }
       setRunningChats((prev) => {
         const next = { ...prev }
         delete next[chatId]
@@ -3552,6 +3642,23 @@ function RealApp(): React.JSX.Element {
             const lastMsg = newMessages[lastMsgIndex]
 
             if (lastMsg && lastMsg.role === 'ai') {
+              let duration = eventDuration !== undefined ? eventDuration : lastMsg.thinkingDuration
+              if (duration === undefined && lastMsg.thinkingStartTime) {
+                const roundDur = Math.max(
+                  1,
+                  Math.round((Date.now() - lastMsg.thinkingStartTime) / 1000)
+                )
+                duration = (lastMsg.thinkingDuration || 0) + roundDur
+              }
+
+              const workStartTime = lastMsg.workStartTime || Date.now()
+              let finalWorkedDuration =
+                eventWorkedDuration !== undefined
+                  ? eventWorkedDuration
+                  : lastMsg.workedDuration !== undefined
+                    ? lastMsg.workedDuration
+                    : Math.max(1, Math.round((Date.now() - workStartTime) / 1000))
+
               let promotedToolCalls = lastMsg.toolCalls || []
               if (lastMsg.streamingToolCalls && lastMsg.streamingToolCalls.length > 0) {
                 const completedStreaming = lastMsg.streamingToolCalls.filter(
@@ -3623,6 +3730,8 @@ function RealApp(): React.JSX.Element {
                 content: finalResponse,
                 isStreaming: false,
                 isThinking: false,
+                thinkingDuration: duration,
+                workedDuration: finalWorkedDuration,
                 isWritingToolCall: false,
                 isConnecting: false,
                 toolCalls: promotedToolCalls,
