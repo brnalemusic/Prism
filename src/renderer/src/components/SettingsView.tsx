@@ -2156,7 +2156,7 @@ export function SettingsView({
                       placeholder="Instructions specific to this project..."
                     />
                     <span className="block text-[10px] text-text-muted">
-                      Repo Instructions: {selectedHarnessProject.rootPath}/AGENTS.md —{' '}
+                      Repo Instructions: {harnessInstructionStatus?.repoInstructionPaths.join(', ') || `${selectedHarnessProject.rootPath}/AGENTS.md`} —{' '}
                       {harnessInstructionStatus?.repoExists
                         ? `${harnessInstructionStatus.repoIncludedCharacters.toLocaleString()} of ${harnessInstructionStatus.repoCharacters.toLocaleString()} characters included`
                         : 'not present'}

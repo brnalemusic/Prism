@@ -256,6 +256,41 @@ test('Harness instructions preserve precedence and cap oversized AGENTS.md', asy
   }
 })
 
+test('Harness discovers Prism repo instructions in .agents/rules', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-harness-prompt-rules-'))
+  try {
+    const instructionPath = path.join(root, '.agents', 'rules', 'AGENTS.md')
+    await fs.mkdir(path.dirname(instructionPath), { recursive: true })
+    await fs.writeFile(instructionPath, 'NESTED_REPO_MARKER')
+    const settings: EffectiveHarnessSettings = {
+      toolManifestVersion: 2,
+      projectsRoot: root,
+      defaultPermissionMode: 'ask',
+      defaultMaxRounds: 200,
+      enabledTools: ['read'],
+      maxReadLines: 800,
+      maxReadCharacters: 80_000,
+      maxTerminalOutputCharacters: 100_000,
+      maxContextCharacters: 80_000,
+      webPageCount: 5,
+      showSteps: true,
+      showThinking: true,
+      animateActivity: true,
+      reduceMotion: false,
+      userGlobalInstructions: '',
+      yoloAcknowledged: false,
+      project: { rootPath: root, displayName: 'Prompt test', createdAt: Date.now(), updatedAt: Date.now() }
+    }
+    const result = await buildHarnessSystemPrompt(settings)
+    const status = await getHarnessInstructionStatus(settings)
+    assert.match(result.prompt, /NESTED_REPO_MARKER/)
+    assert.equal(result.repoInstructionsLoaded, true)
+    assert.deepEqual(status.repoInstructionPaths, [instructionPath])
+  } finally {
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})
+
 test('Harness pins its session model and never falls through to Chat selection', () => {
   assert.equal(
     resolveRequestModelKey('harness', undefined, 'provider:harness-model', 'provider:chat-model'),

@@ -24,7 +24,7 @@ interface CachedHarnessPrompt {
   settingsFingerprint: string
   result: HarnessPromptResult
   stale: boolean
-  watcher?: FSWatcher
+  watchers?: FSWatcher[]
 }
 
 const promptCache = new Map<string, CachedHarnessPrompt>()
@@ -44,19 +44,36 @@ function settingsFingerprint(settings: EffectiveHarnessSettings): string {
   })
 }
 
-function watchProjectInstructions(cacheKey: string, rootPath: string): FSWatcher | undefined {
-  try {
-    return watchDirectory(rootPath, { persistent: false }, (_eventType, filename) => {
-      if (!filename || filename.toString().toLowerCase() === 'agents.md') {
-        const cached = promptCache.get(cacheKey)
-        if (cached) cached.stale = true
-      }
-    })
-  } catch {
-    // The next Settings change still invalidates this entry. Some remote filesystems
-    // do not implement fs.watch consistently, so prompting remains functional.
-    return undefined
+function repoInstructionCandidatePaths(rootPath: string): string[] {
+  return [
+    path.join(rootPath, 'AGENTS.md'),
+    path.join(rootPath, '.agents', 'AGENTS.md'),
+    path.join(rootPath, '.agents', 'rules', 'AGENTS.md')
+  ]
+}
+
+function watchProjectInstructions(cacheKey: string, rootPath: string): FSWatcher[] {
+  const candidates = repoInstructionCandidatePaths(rootPath).map((filePath) => path.resolve(filePath))
+  const directories = [...new Set([rootPath, ...candidates.map((filePath) => path.dirname(filePath))])]
+  const watchers: FSWatcher[] = []
+
+  for (const directory of directories) {
+    try {
+      watchers.push(
+        watchDirectory(directory, { persistent: false }, (_eventType, filename) => {
+          if (!filename) return
+          if (candidates.includes(path.resolve(directory, filename.toString()))) {
+            const cached = promptCache.get(cacheKey)
+            if (cached) cached.stale = true
+          }
+        })
+      )
+    } catch {
+      // A candidate directory may not exist. Its parent watcher will notice when it
+      // is created; Settings changes also invalidate the cached prompt.
+    }
   }
+  return watchers
 }
 
 const CORE_PROMPT = `# Prism Harness
@@ -114,13 +131,26 @@ function instructionSection(title: string, content: string): string {
   return trimmed ? `\n\n# ${title}\n${trimmed}` : ''
 }
 
-async function readRepoInstructions(rootPath: string): Promise<string> {
-  const agentsPath = path.join(rootPath, 'AGENTS.md')
-  try {
-    return await fs.readFile(agentsPath, 'utf8')
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return ''
-    throw error
+interface RepoInstructions {
+  content: string
+  paths: string[]
+}
+
+async function readRepoInstructions(rootPath: string): Promise<RepoInstructions> {
+  const files = await Promise.all(
+    repoInstructionCandidatePaths(rootPath).map(async (filePath) => {
+      try {
+        return { path: filePath, content: await fs.readFile(filePath, 'utf8') }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+        throw error
+      }
+    })
+  )
+  const found = files.filter((file): file is { path: string; content: string } => file !== null)
+  return {
+    content: found.map((file) => file.content).filter((content) => content.trim()).join('\n\n'),
+    paths: found.filter((file) => file.content.trim()).map((file) => file.path)
   }
 }
 
@@ -137,7 +167,8 @@ export async function buildHarnessSystemPrompt(
     0,
     HARNESS_USER_INSTRUCTIONS_MAX_CHARACTERS
   )
-  const repoInstructions = await readRepoInstructions(settings.project.rootPath)
+  const repoInstructionFiles = await readRepoInstructions(settings.project.rootPath)
+  const repoInstructions = repoInstructionFiles.content
   const context = `\n\n# Runtime context\nProject: ${path.basename(settings.project.rootPath)}\nThe current project root is ".".\nPermission profile: ${settings.defaultPermissionMode}\nMaximum tool rounds: ${settings.defaultMaxRounds}\nEnabled tools: ${settings.enabledTools.join(', ')}`
 
   const requiredTail =
@@ -188,7 +219,7 @@ export async function buildHarnessSystemPrompt(
       id: 'repo-instructions',
       kind: 'repo',
       label: 'repo-instructions · AGENTS.md',
-      origin: path.join(settings.project.rootPath, 'AGENTS.md'),
+      origin: repoInstructionFiles.paths.join(', '),
       content: includedRepoInstructions,
       characterCount: includedRepoInstructions.length
     })
@@ -231,12 +262,12 @@ export async function getHarnessSystemPrompt(
   }
 
   const result = await buildHarnessSystemPrompt(settings, systemPromptLabel)
-  cached?.watcher?.close()
+  cached?.watchers?.forEach((watcher) => watcher.close())
   promptCache.set(key, {
     settingsFingerprint: signature,
     result,
     stale: false,
-    watcher: watchProjectInstructions(key, settings.project.rootPath)
+    watchers: watchProjectInstructions(key, settings.project.rootPath)
   })
   return result
 }
@@ -258,8 +289,9 @@ export async function getHarnessInstructionStatus(
     projectPath: settings.project.rootPath,
     coreCharacters: CORE_PROMPT.length,
     globalCharacters,
-    repoExists: Boolean(repoInstructions.trim()),
-    repoCharacters: repoInstructions.length,
+    repoExists: Boolean(repoInstructions.content.trim()),
+    repoInstructionPaths: repoInstructions.paths,
+    repoCharacters: repoInstructions.content.length,
     repoIncludedCharacters: result.repoInstructionsCharacters,
     projectCharacters,
     totalCharacters: result.prompt.length,

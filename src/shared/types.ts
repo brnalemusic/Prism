@@ -229,6 +229,8 @@ export interface HarnessInstructionStatus {
   coreCharacters: number
   globalCharacters: number
   repoExists: boolean
+  /** Repository instruction files discovered in their precedence order. */
+  repoInstructionPaths: string[]
   repoCharacters: number
   repoIncludedCharacters: number
   projectCharacters: number

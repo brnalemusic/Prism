@@ -3848,14 +3848,32 @@ function RealApp(): React.JSX.Element {
                 const targetRound = data.round || lastMsg.harnessRounds[lastMsg.harnessRounds.length - 1].round
                 let rIdx = lastMsg.harnessRounds.findIndex((r) => r.round === targetRound)
                 if (rIdx === -1) {
-                  rIdx = lastMsg.harnessRounds.length - 1
+                  const updatedRounds = [
+                    ...lastMsg.harnessRounds,
+                    { round: targetRound, content: '', toolCalls: [] }
+                  ]
+                  rIdx = updatedRounds.length - 1
+                  updatedRounds[rIdx] = {
+                    ...updatedRounds[rIdx],
+                    toolCalls: applyToolCallStart(updatedRounds[rIdx].toolCalls || [], data)
+                  }
+                  lastMsg.harnessRounds = updatedRounds
+                } else {
+                  const updatedRounds = [...lastMsg.harnessRounds]
+                  updatedRounds[rIdx] = {
+                    ...updatedRounds[rIdx],
+                    toolCalls: applyToolCallStart(updatedRounds[rIdx].toolCalls || [], data)
+                  }
+                  lastMsg.harnessRounds = updatedRounds
                 }
-                const updatedRounds = [...lastMsg.harnessRounds]
-                updatedRounds[rIdx] = {
-                  ...updatedRounds[rIdx],
-                  toolCalls: applyToolCallStart(updatedRounds[rIdx].toolCalls || [], data)
-                }
-                lastMsg.harnessRounds = updatedRounds
+              } else if (tab.sessionMode === 'harness') {
+                lastMsg.harnessRounds = [
+                  {
+                    round: data.round || 1,
+                    content: '',
+                    toolCalls: applyToolCallStart([], data)
+                  }
+                ]
               }
               newMessages[targetMsgIndex] = lastMsg
             }
@@ -3922,14 +3940,32 @@ function RealApp(): React.JSX.Element {
                 const targetRound = data.round || lastMsg.harnessRounds[lastMsg.harnessRounds.length - 1].round
                 let rIdx = lastMsg.harnessRounds.findIndex((r) => r.round === targetRound)
                 if (rIdx === -1) {
-                  rIdx = lastMsg.harnessRounds.length - 1
+                  const updatedRounds = [
+                    ...lastMsg.harnessRounds,
+                    { round: targetRound, content: '', toolCalls: [] }
+                  ]
+                  rIdx = updatedRounds.length - 1
+                  updatedRounds[rIdx] = {
+                    ...updatedRounds[rIdx],
+                    toolCalls: applyToolCallEnd(updatedRounds[rIdx].toolCalls || [], data)
+                  }
+                  lastMsg.harnessRounds = updatedRounds
+                } else {
+                  const updatedRounds = [...lastMsg.harnessRounds]
+                  updatedRounds[rIdx] = {
+                    ...updatedRounds[rIdx],
+                    toolCalls: applyToolCallEnd(updatedRounds[rIdx].toolCalls || [], data)
+                  }
+                  lastMsg.harnessRounds = updatedRounds
                 }
-                const updatedRounds = [...lastMsg.harnessRounds]
-                updatedRounds[rIdx] = {
-                  ...updatedRounds[rIdx],
-                  toolCalls: applyToolCallEnd(updatedRounds[rIdx].toolCalls || [], data)
-                }
-                lastMsg.harnessRounds = updatedRounds
+              } else if (tab.sessionMode === 'harness') {
+                lastMsg.harnessRounds = [
+                  {
+                    round: data.round || 1,
+                    content: '',
+                    toolCalls: applyToolCallEnd([], data)
+                  }
+                ]
               }
               newMessages[lastMsgIndex] = lastMsg
             }
