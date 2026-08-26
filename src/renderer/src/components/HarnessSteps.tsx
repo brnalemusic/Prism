@@ -46,6 +46,7 @@ function compact(value: string, maxLength = 58): string {
 }
 
 function stringArg(args: Record<string, unknown>, keys: string[]): string {
+  if (!args || typeof args !== 'object') return ''
   for (const key of keys) {
     const value = args[key]
     if (typeof value === 'string' && value.trim()) return value.trim()
@@ -54,7 +55,16 @@ function stringArg(args: Record<string, unknown>, keys: string[]): string {
 }
 
 function targetPath(args: Record<string, unknown>): string {
-  return stringArg(args, ['path', 'filePath', 'file_path', 'directory', 'cwd'])
+  return stringArg(args, [
+    'path',
+    'filePath',
+    'file_path',
+    'directory',
+    'cwd',
+    'targetFile',
+    'TargetFile',
+    'sourcePath'
+  ])
 }
 
 function patchTargets(patch: string): string[] {
@@ -125,6 +135,7 @@ function getToolChangeStats(tool: ToolCallItem): ChangeStats | null {
 }
 
 function describeTool(tool: ToolCallItem): string {
+  if (!tool) return 'Tool'
   const args = asHarnessRecord(tool.args)
   const active = isToolActive(tool)
   const path = targetPath(args)
@@ -218,7 +229,7 @@ function describeTool(tool: ToolCallItem): string {
     case 'to_ask':
       return active ? 'Waiting for your answer' : 'Asked a question'
     default:
-      return tool.name.replace(/_/g, ' ')
+      return tool.name ? String(tool.name).replace(/_/g, ' ') : 'Tool'
   }
 }
 
@@ -283,7 +294,8 @@ function DetailBlock({
 }
 
 function FormattedDescription({ text }: { text: string }): React.JSX.Element {
-  const parts = text.split(/(`[^`]+`)/g)
+  if (!text) return <></>
+  const parts = String(text).split(/(`[^`]+`)/g)
   return (
     <span>
       {parts.map((part, i) => {
@@ -462,9 +474,17 @@ function ToolRow({ tool }: { tool: ToolCallItem }): React.JSX.Element {
                     ) : (
                       <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words p-2 font-mono text-[10px] leading-relaxed text-text-secondary custom-scrollbar">
                         {tool.name === 'exec_command' || tool.name === 'read_terminal_output' ? (
-                          <AnsiRenderer text={tool.terminalOutput || output} />
-                        ) : (
+                          <AnsiRenderer
+                            text={
+                              typeof (tool.terminalOutput || output) === 'string'
+                                ? (tool.terminalOutput || output)
+                                : stringifyHarnessValue(tool.terminalOutput || output)
+                            }
+                          />
+                        ) : typeof output === 'string' ? (
                           output
+                        ) : (
+                          stringifyHarnessValue(output)
                         )}
                       </pre>
                     )}

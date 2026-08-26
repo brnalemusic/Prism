@@ -61,6 +61,22 @@ function parseSources(value: unknown): HarnessSource[] {
 
 export function decodeHarnessToolResult(result?: string): DecodedHarnessToolResult {
   if (!result) return { outputText: '', output: '', sources: [] }
+  if (typeof result !== 'string') {
+    if (isRecord(result)) {
+      const rawRecord = result as Record<string, unknown>
+      const rawOutput = rawRecord.ok === false ? rawRecord.error : rawRecord.output
+      const envelopeSources = parseSources(rawRecord.sources)
+      return {
+        ok: typeof rawRecord.ok === 'boolean' ? rawRecord.ok : undefined,
+        outputText: stringifyHarnessValue(rawOutput ?? result),
+        output: rawOutput ?? result,
+        diff: isRecord(rawOutput) && typeof rawOutput.diff === 'string' ? rawOutput.diff : undefined,
+        sources: envelopeSources,
+        runId: isRecord(rawOutput) && typeof rawOutput.runId === 'string' ? rawOutput.runId : undefined
+      }
+    }
+    return { outputText: String(result), output: result, sources: [] }
+  }
   try {
     const parsedEnvelope = JSON.parse(result) as unknown
     if (!isRecord(parsedEnvelope)) {

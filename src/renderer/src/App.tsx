@@ -1098,14 +1098,17 @@ interface HarnessBlockItem {
 
 function getHarnessMessageBlocks(
   harnessRounds?: HarnessRoundItem[],
-  fallbackToolCalls?: ToolCallItem[]
+  fallbackToolCalls?: ToolCallItem[],
+  streamingToolCalls?: StreamingToolCall[]
 ): HarnessBlockItem[] {
+  const consolidatedFallback = consolidateToolCalls(fallbackToolCalls, streamingToolCalls)
+
   if (!harnessRounds || harnessRounds.length === 0) {
-    if (fallbackToolCalls && fallbackToolCalls.length > 0) {
+    if (consolidatedFallback.length > 0) {
       return [
         {
           id: 'fallback-tools',
-          toolCalls: fallbackToolCalls,
+          toolCalls: consolidatedFallback,
           isLatest: true
         }
       ]
@@ -1118,7 +1121,11 @@ function getHarnessMessageBlocks(
   for (let i = 0; i < harnessRounds.length; i++) {
     const round = harnessRounds[i]
     const hasText = Boolean(round.content && round.content.trim())
-    const hasTools = Boolean(round.toolCalls && round.toolCalls.length > 0)
+    const isLastRound = i === harnessRounds.length - 1
+    const roundTools = isLastRound
+      ? consolidateToolCalls(round.toolCalls, streamingToolCalls)
+      : (round.toolCalls || [])
+    const hasTools = Boolean(roundTools && roundTools.length > 0)
 
     if (!hasText && !hasTools) continue
 
@@ -1127,7 +1134,7 @@ function getHarnessMessageBlocks(
     if (!hasText && blocks.length > 0) {
       const prevBlock = blocks[blocks.length - 1]
       if (hasTools) {
-        prevBlock.toolCalls = [...(prevBlock.toolCalls || []), ...(round.toolCalls || [])]
+        prevBlock.toolCalls = [...(prevBlock.toolCalls || []), ...roundTools]
       }
       continue
     }
@@ -1137,13 +1144,21 @@ function getHarnessMessageBlocks(
       id: `block-${round.round}-${i}`,
       content: hasText ? round.content : undefined,
       thoughts: round.thoughts,
-      toolCalls: hasTools ? [...(round.toolCalls || [])] : undefined,
+      toolCalls: hasTools ? roundTools : undefined,
       isLatest: false
     })
   }
 
   if (blocks.length > 0) {
     blocks[blocks.length - 1].isLatest = true
+  } else if (consolidatedFallback.length > 0) {
+    return [
+      {
+        id: 'fallback-tools',
+        toolCalls: consolidatedFallback,
+        isLatest: true
+      }
+    ]
   }
 
   return blocks
@@ -1210,8 +1225,8 @@ const AiMessageRow = React.memo(function AiMessageRow({
 
   const harnessBlocks = useMemo(() => {
     if (!isHarness) return []
-    return getHarnessMessageBlocks(msg.harnessRounds, msg.toolCalls)
-  }, [isHarness, msg.harnessRounds, msg.toolCalls])
+    return getHarnessMessageBlocks(msg.harnessRounds, msg.toolCalls, msg.streamingToolCalls)
+  }, [isHarness, msg.harnessRounds, msg.toolCalls, msg.streamingToolCalls])
 
   const harnessToolCalls = useMemo(
     () => (isHarness ? consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls) : []),
@@ -1288,7 +1303,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
             )}
 
             {/* Harness Message Content Body */}
-            {(hasContent || isActive) && (
+            {hasContent && (
               <div className="w-full text-text-primary" data-prism-ai-message="true">
                 <AiMessage
                   msg={msg}
@@ -3989,7 +4004,7 @@ function RealApp(): React.JSX.Element {
                 ? existingMsgIndex
                 : newMessages.findLastIndex((msg) => msg.role === 'ai')
             if (targetMsgIndex !== -1) {
-              const lastMsg = { ...newMessages[targetMsgIndex] }
+              const lastMsg = { ...newMessages[targetMsgIndex], isConnecting: false }
               lastMsg.toolCalls = applyToolCallStart(lastMsg.toolCalls || [], data)
               if (lastMsg.streamingToolCalls?.length) {
                 const remainingStreamingCalls = lastMsg.streamingToolCalls.filter((call) =>
@@ -4802,24 +4817,19 @@ function RealApp(): React.JSX.Element {
                   activeWorkflow={null}
                   setActiveWorkflow={() => {}}
                   renderedMessages={
-                    <HarnessActivityBoundary
-                      key={`${tab.chatId || tab.id}-${tab.messages.length}`}
-                      fallbackMessage="This Harness response could not render. You can retry it or continue the conversation."
-                    >
-                      <TabMessagesList
-                        messages={tab.messages}
-                        tabId={tab.id}
-                        currentChatId={tab.chatId}
-                        handleLoadChat={handleLoadHarnessSession}
-                        isSuggestionSendDisabled={tab.isProcessing || !isOnline}
-                        onSendSuggestion={(tabId, payload) =>
-                          handleHarnessSuggestionSend(tabId, payload)
-                        }
-                        sessionMode="harness"
-                        harnessUi={harnessUi}
-                        harnessContextSnapshot={tab.harnessContextSnapshot}
-                      />
-                    </HarnessActivityBoundary>
+                    <TabMessagesList
+                      messages={tab.messages}
+                      tabId={tab.id}
+                      currentChatId={tab.chatId}
+                      handleLoadChat={handleLoadHarnessSession}
+                      isSuggestionSendDisabled={tab.isProcessing || !isOnline}
+                      onSendSuggestion={(tabId, payload) =>
+                        handleHarnessSuggestionSend(tabId, payload)
+                      }
+                      sessionMode="harness"
+                      harnessUi={harnessUi}
+                      harnessContextSnapshot={tab.harnessContextSnapshot}
+                    />
                   }
                 />
               )
