@@ -4,7 +4,7 @@ export type StreamFrameCanceller = (handle: number) => void
 /** Keeps the latest cumulative chunk for each chat without letting chats overwrite each other. */
 export class PerChatStreamBuffer<T extends { chatId: string }> {
   private readonly pending = new Map<string, T>()
-  private readonly scheduled = new Map<string, number>()
+  private rafHandle: number | null = null
   private readonly schedule: StreamFrameScheduler
   private readonly cancel: StreamFrameCanceller
   private readonly consume: (value: T) => void
@@ -22,43 +22,60 @@ export class PerChatStreamBuffer<T extends { chatId: string }> {
   push(value: T): void {
     if (!value || !value.chatId) return
     this.pending.set(value.chatId, value)
-    if (this.scheduled.has(value.chatId)) return
-    const handle = this.schedule(() => {
-      this.scheduled.delete(value.chatId)
-      const pending = this.pending.get(value.chatId)
-      if (!pending) return
-      this.pending.delete(value.chatId)
-      try {
-        this.consume(pending)
-      } catch (err) {
-        console.error('Error consuming stream chunk:', err)
-      }
-    })
-    this.scheduled.set(value.chatId, handle)
+    if (this.rafHandle === null) {
+      this.rafHandle = this.schedule(() => {
+        this.rafHandle = null
+        const chunks = Array.from(this.pending.values())
+        this.pending.clear()
+        for (const chunk of chunks) {
+          try {
+            this.consume(chunk)
+          } catch (err) {
+            console.error('Error consuming stream chunk:', err)
+          }
+        }
+      })
+    }
   }
 
   flush(chatId: string): void {
     if (!chatId) return
-    const handle = this.scheduled.get(chatId)
-    if (handle !== undefined) this.cancel(handle)
-    this.scheduled.delete(chatId)
-    const pending = this.pending.get(chatId)
-    if (!pending) return
+    const chunk = this.pending.get(chatId)
     this.pending.delete(chatId)
-    try {
-      this.consume(pending)
-    } catch (err) {
-      console.error('Error flushing stream chunk:', err)
+    if (this.pending.size === 0 && this.rafHandle !== null) {
+      this.cancel(this.rafHandle)
+      this.rafHandle = null
+    }
+    if (chunk) {
+      try {
+        this.consume(chunk)
+      } catch (err) {
+        console.error('Error flushing stream chunk:', err)
+      }
     }
   }
 
   flushAll(): void {
-    for (const chatId of [...this.pending.keys()]) this.flush(chatId)
+    if (this.rafHandle !== null) {
+      this.cancel(this.rafHandle)
+      this.rafHandle = null
+    }
+    const chunks = Array.from(this.pending.values())
+    this.pending.clear()
+    for (const chunk of chunks) {
+      try {
+        this.consume(chunk)
+      } catch (err) {
+        console.error('Error flushing all stream chunks:', err)
+      }
+    }
   }
 
   clear(): void {
-    for (const handle of this.scheduled.values()) this.cancel(handle)
-    this.scheduled.clear()
+    if (this.rafHandle !== null) {
+      this.cancel(this.rafHandle)
+      this.rafHandle = null
+    }
     this.pending.clear()
   }
 }

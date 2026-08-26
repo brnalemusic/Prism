@@ -3523,9 +3523,24 @@ function RealApp(): React.JSX.Element {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
             const isHarness = tab.sessionMode === 'harness'
-            const lastMsgIndex = newMessages.length - 1
-            const lastMsg = newMessages[lastMsgIndex]
+            let lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
 
+            if (lastMsgIndex === -1) {
+              newMessages.push({
+                role: 'ai',
+                content: finalResponse || '',
+                thoughts: thoughts || '',
+                isStreaming: true,
+                isThinking: Boolean(isThinking),
+                thinkingStartTime: isThinking ? Date.now() : undefined,
+                workStartTime: Date.now(),
+                isConnecting: false,
+                toolCalls: []
+              })
+              lastMsgIndex = newMessages.length - 1
+            }
+
+            const lastMsg = newMessages[lastMsgIndex]
             if (lastMsg && lastMsg.role === 'ai') {
               let updatedToolCalls = lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
 
@@ -3647,9 +3662,23 @@ function RealApp(): React.JSX.Element {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
             const isHarness = tab.sessionMode === 'harness'
-            const lastMsgIndex = newMessages.length - 1
-            const lastMsg = newMessages[lastMsgIndex]
+            let lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
 
+            if (lastMsgIndex === -1) {
+              newMessages.push({
+                role: 'ai',
+                content: finalResponse || '',
+                thoughts: thoughts || '',
+                isStreaming: false,
+                isThinking: false,
+                workStartTime: Date.now(),
+                isConnecting: false,
+                toolCalls: []
+              })
+              lastMsgIndex = newMessages.length - 1
+            }
+
+            const lastMsg = newMessages[lastMsgIndex]
             if (lastMsg && lastMsg.role === 'ai') {
               let duration = eventDuration !== undefined ? eventDuration : lastMsg.thinkingDuration
               if (duration === undefined && lastMsg.thinkingStartTime) {
