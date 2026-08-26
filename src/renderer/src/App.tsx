@@ -1052,8 +1052,9 @@ const AiMessage = React.memo(function AiMessage({
               </div>
             )}
 
-          {/* Source pills at the bottom of the AI message turn, above Copy & TTS */}
-          {showActions !== false &&
+          {/* Source pills at the bottom of the AI message turn, above Copy & TTS - rendered ONLY when the AI finishes its response */}
+          {!msg.isStreaming &&
+            showActions !== false &&
             (messageSources.sources.length > 0 || messageSources.fetchSubagents.length > 0) && (
               <div className="w-full mt-1 mb-0.5">
                 <SourcePills

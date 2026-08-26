@@ -698,6 +698,21 @@
     animation: download-progress-slide 1.1s ease-in-out infinite;
   }
 
+  @keyframes source-pill-fade-in {
+    0% {
+      opacity: 0;
+      transform: translate3d(0, 6px, 0) scale(0.95);
+    }
+    100% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  .animate-source-pill {
+    animation: source-pill-fade-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
   .loading-dots-container {
     display: flex;
     align-items: center;

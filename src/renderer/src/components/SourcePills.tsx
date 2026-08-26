@@ -48,7 +48,13 @@ export function SourceFavicon({
   )
 }
 
-export function SourcePill({ source }: { source: HarnessSource }): React.JSX.Element {
+export function SourcePill({
+  source,
+  index = 0
+}: {
+  source: HarnessSource
+  index?: number
+}): React.JSX.Element {
   const domain = source.domain || getDomainFromUrl(source.url)
 
   return (
@@ -56,7 +62,8 @@ export function SourcePill({ source }: { source: HarnessSource }): React.JSX.Ele
       type="button"
       onClick={() => void window.api.openExternalUrl(source.url)}
       title={`${source.title}\n${source.url}`}
-      className="group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] hover:border-white/[0.16] text-[11.5px] text-text-secondary hover:text-text-primary transition-all duration-150 cursor-pointer shadow-xs max-w-[220px]"
+      style={{ animationDelay: `${index * 55}ms` }}
+      className="animate-source-pill group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] hover:border-white/[0.16] text-[11.5px] text-text-secondary hover:text-text-primary transition-[colors,border-color,box-shadow] duration-150 cursor-pointer shadow-xs max-w-[220px]"
     >
       <SourceFavicon source={source} />
       <span className="truncate font-normal">{domain}</span>
@@ -65,9 +72,11 @@ export function SourcePill({ source }: { source: HarnessSource }): React.JSX.Ele
 }
 
 export function FetchSubagentPill({
-  subagent
+  subagent,
+  index = 0
 }: {
   subagent: DecodedFetchSubagent
+  index?: number
 }): React.JSX.Element {
   const [isOpen, setIsOpen] = useState(false)
 
@@ -77,7 +86,8 @@ export function FetchSubagentPill({
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
         title={subagent.query ? `Fetch Subagent: ${subagent.query}` : 'Fetch Subagent'}
-        className={`group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] transition-all duration-150 cursor-pointer shadow-xs max-w-[260px] ${
+        style={{ animationDelay: `${index * 55}ms` }}
+        className={`animate-source-pill group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] transition-[colors,border-color,box-shadow] duration-150 cursor-pointer shadow-xs max-w-[260px] ${
           isOpen
             ? 'bg-accent-primary/20 border border-accent-primary/40 text-accent-primary'
             : 'bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] hover:border-white/[0.16] text-text-secondary hover:text-text-primary'
@@ -164,20 +174,26 @@ export function SourcePills({
   const totalCount = deduplicatedSources.length + (fetchSubagents?.length || 0)
   if (totalCount === 0) return null
 
+  let pillIndex = 0
+
   return (
     <div
       className={
         className ||
-        'flex flex-wrap items-center gap-1.5 pt-1.5 pb-0.5 select-none animate-fade-in'
+        'flex flex-wrap items-center gap-1.5 pt-1.5 pb-0.5 select-none'
       }
       aria-label="Search sources"
     >
       {fetchSubagents &&
         fetchSubagents.map((subagent, idx) => (
-          <FetchSubagentPill key={`subagent-${idx}-${subagent.query}`} subagent={subagent} />
+          <FetchSubagentPill
+            key={`subagent-${idx}-${subagent.query}`}
+            subagent={subagent}
+            index={pillIndex++}
+          />
         ))}
       {deduplicatedSources.map((source) => (
-        <SourcePill key={source.url} source={source} />
+        <SourcePill key={source.url} source={source} index={pillIndex++} />
       ))}
     </div>
   )
