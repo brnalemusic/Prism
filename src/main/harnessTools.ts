@@ -4,7 +4,6 @@ import type { IpcMainEvent } from 'electron'
 import type {
   EffectiveHarnessSettings,
   HarnessApprovalItem,
-  HarnessSource,
   HarnessToolName
 } from '../shared/types'
 import type { OpenAiToolDefinition } from './ai/types'

@@ -254,7 +254,9 @@ export async function fetchAndSummarizeWeb(
   let modelId = options.modelId
   if (!provider || !modelId) {
     const config = loadConfig()
-    provider = config.providers.find((p) => p.isEnabled) || config.providers[0]
+    provider =
+      config.providers.find((p) => p.models && p.models.some((m) => m.enabled)) ||
+      config.providers[0]
     modelId = config.lastSelectedChatModel || config.quickLauncherModel || 'gpt-4o'
   }
 
@@ -287,12 +289,12 @@ export async function fetchAndSummarizeWeb(
       { role: 'user', content: userContent }
     ],
     [], // No tools for subagent
+    options.signal || new AbortController().signal,
     {
       onTextDelta: () => {},
       onReasoningDelta: () => {},
       onToolCallDelta: () => {}
-    },
-    options.signal || new AbortController().signal
+    }
   )
 
   let summary = result.text.trim()

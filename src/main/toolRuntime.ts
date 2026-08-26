@@ -435,7 +435,9 @@ export async function executeValidatedTool(
       context.apiKey,
       context.signal,
       context.chatId,
-      context.disabledSkills
+      context.disabledSkills,
+      context.provider,
+      context.modelId
     )
     const { output, attachments } = normalizeSystemToolOutput(rawOutput)
     if (attachments.length > 0) {

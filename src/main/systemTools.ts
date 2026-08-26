@@ -25,7 +25,8 @@ import {
   DownloadProgress,
   SessionMode,
   TodoState,
-  ArtifactItem
+  ArtifactItem,
+  ProviderConfig
 } from '../shared/types'
 
 import { loadConfig, saveConfig, SlashWorkflow } from './config'
@@ -1826,40 +1827,6 @@ export async function detailedDomPage(url?: string, signal?: AbortSignal): Promi
   })
 }
 
-/**
- * Automatically clicks common cookie consent banners to expose the main page content.
- */
-async function handleConsentBanners(page: any) {
-  try {
-    const selectors = [
-      'button:has-text("Accept all")',
-      'button:has-text("Aceitar tudo")',
-      'button:has-text("Aceptar todo")',
-      'button:has-text("I agree")',
-      'button:has-text("Concordo")',
-      'button:has-text("Concordar")',
-      'button:has-text("Accept")',
-      'button:has-text("Aceitar")',
-      'button:has-text("Agree")',
-      'button:has-text("Aceito")',
-      'button:has-text("Accept All")'
-    ]
-
-    for (const selector of selectors) {
-      const locator = page.locator(selector).first()
-      if ((await locator.count()) > 0 && (await locator.isVisible())) {
-        console.log(`handleConsentBanners: Clicking consent button matching "${selector}"`)
-        await locator.click()
-        await page.waitForTimeout(1000).catch(() => {})
-        break
-      }
-    }
-  } catch (err) {
-    console.warn('handleConsentBanners: Error handling banners:', err)
-  }
-}
-
-
 const ARCADIA_MODEL_NAMES: Record<string, string> = {
   'prism-ai/arcadia-1.0-mini': 'Arcadia-1.0 Mini',
   'prism-ai/arcadia-1.0-flash': 'Arcadia-1.0 Flash',
@@ -2396,7 +2363,9 @@ export async function executeSystemTool(
   apiKey?: string,
   signal?: AbortSignal,
   chatId?: string,
-  disabledSkills?: string[]
+  disabledSkills?: string[],
+  provider?: ProviderConfig,
+  modelId?: string
 ): Promise<SystemToolOutput> {
   if (chatId) {
     _currentSessionIdForTodo = chatId
@@ -2598,8 +2567,8 @@ export async function executeSystemTool(
       const query = typeof args.query === 'string' ? args.query.trim() : ''
       if (!query) throw new Error('A query or topic is required for web_fetch.')
       const result = await fetchAndSummarizeWeb(query, {
-        provider: context.provider,
-        modelId: context.modelId,
+        provider,
+        modelId,
         signal
       })
       return JSON.stringify(result)
