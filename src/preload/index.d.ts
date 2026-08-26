@@ -18,6 +18,7 @@ import type {
   HarnessProjectOverrides,
   HarnessInstructionStatus,
   HarnessContextSnapshot,
+  HarnessSettings,
   RetryImageGenerationRequest,
   SaveGeneratedImageRequest,
   SaveGeneratedImageResult,
@@ -162,6 +163,16 @@ export interface PrismAPI {
     projectPath: string,
     overrides: HarnessProjectOverrides
   ) => Promise<{ project: HarnessProjectConfig }>
+  deleteHarnessProject: (rootPath: string) => Promise<HarnessSettings>
+  checkHarnessProject: (
+    rootPath: string
+  ) => Promise<{ exists: boolean; isDirectory: boolean; isGit: boolean }>
+  checkAllHarnessProjects: () => Promise<
+    Record<string, { exists: boolean; isDirectory: boolean; isGit: boolean }>
+  >
+  recreateHarnessProjectFolder: (rootPath: string) => Promise<{ project: HarnessProjectConfig }>
+  resolveHarnessStartupProject: () => Promise<HarnessProjectConfig | null>
+  openFolderInExplorer: (folderPath: string) => Promise<string>
   onDownloadProgress: (callback: (data: DownloadProgress) => void) => () => void
   demoDownloadPrism: () => Promise<DemoDownloadResult>
   demoRunPrismInstaller: () => Promise<DemoProcessResult>

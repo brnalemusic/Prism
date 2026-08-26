@@ -147,7 +147,10 @@ export type HarnessToolName =
   | 'read_terminal_output'
   | 'web_search'
 
+export type HarnessStartupProjectMode = 'last_opened' | 'default_project' | 'prompt'
+
 export interface HarnessProjectOverrides {
+  displayName?: string
   permissionMode?: HarnessPermissionMode
   maxRounds?: number
   enabledTools?: HarnessToolName[]
@@ -188,6 +191,8 @@ export interface HarnessSettings {
   reduceMotion: boolean
   /** Fixed roots keep every Harness tab pinned to one project. */
   tabProjectMode: 'fixed' | 'grouped'
+  startupProjectMode: HarnessStartupProjectMode
+  defaultProjectPath?: string
   userGlobalInstructions: string
   yoloAcknowledged: boolean
   lastProjectPath?: string
@@ -196,7 +201,7 @@ export interface HarnessSettings {
 
 export interface EffectiveHarnessSettings extends Omit<
   HarnessSettings,
-  'projects' | 'lastProjectPath'
+  'projects' | 'lastProjectPath' | 'defaultProjectPath'
 > {
   project: HarnessProjectConfig
 }

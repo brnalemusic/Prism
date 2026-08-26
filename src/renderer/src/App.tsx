@@ -2238,7 +2238,7 @@ function RealApp(): React.JSX.Element {
       const newId = `harness-${Date.now()}`
       const project = forceProjectPicker
         ? null
-        : await window.api.getHarnessProject(config?.harness.lastProjectPath).catch(() => null)
+        : await window.api.resolveHarnessStartupProject().catch(() => null)
       const newTab: TabSession = {
         id: newId,
         chatId: undefined,
@@ -2262,7 +2262,7 @@ function RealApp(): React.JSX.Element {
         setIsHarnessProjectModalOpen(true)
       }
     },
-    [config?.harness.lastProjectPath, config?.lastSelectedChatModel]
+    [config?.lastSelectedChatModel]
   )
 
   const handleOpenHarness = useCallback((): void => {
@@ -3651,8 +3651,7 @@ function RealApp(): React.JSX.Element {
         thinkingDuration: eventDuration,
         workedDuration: eventWorkedDuration
       } = data as typeof data & { thinkingDuration?: number; workedDuration?: number }
-      // Only flush this conversation. Other tabs keep their independent frame.
-      flushPendingChunk(chatId)
+      // Finalize flushes only this conversation before closing its phase state.
       const finalPhase = chunkBuffer.finalize(chatId)
       setRunningChats((prev) => {
         const next = { ...prev }
@@ -3794,7 +3793,6 @@ function RealApp(): React.JSX.Element {
 
     const removeChatErrorListener = window.api.onChatError((data) => {
       const { error, chatId, workspace } = data
-      flushPendingChunk(chatId)
       const finalPhase = chunkBuffer.finalize(chatId)
       setRunningChats((prev) => {
         const next = { ...prev }

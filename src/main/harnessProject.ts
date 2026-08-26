@@ -104,7 +104,10 @@ export function updateHarnessProject(
     ...previous,
     ...overrides,
     rootPath: resolvedRoot,
-    displayName: previous.displayName,
+    displayName:
+      overrides.displayName !== undefined && overrides.displayName.trim()
+        ? overrides.displayName.trim()
+        : previous.displayName,
     userProjectInstructions: overrides.userProjectInstructions?.slice(0, 5000),
     updatedAt: Date.now()
   }
@@ -114,6 +117,94 @@ export function updateHarnessProject(
   }
   if (!saveConfig({ harness }, config)) throw new Error('Could not save project overrides.')
   return { project, settings: harness }
+}
+
+export function deleteHarnessProject(rootPath: string): HarnessSettings {
+  const config = loadConfig()
+  const resolvedRoot = path.resolve(rootPath)
+  const key = projectKey(resolvedRoot)
+  const updatedProjects = { ...config.harness.projects }
+  delete updatedProjects[key]
+
+  const remainingKeys = Object.keys(updatedProjects)
+  let lastProjectPath = config.harness.lastProjectPath
+  if (lastProjectPath && projectKey(lastProjectPath) === key) {
+    lastProjectPath = remainingKeys.length > 0 ? updatedProjects[remainingKeys[0]].rootPath : undefined
+  }
+
+  let defaultProjectPath = config.harness.defaultProjectPath
+  if (defaultProjectPath && projectKey(defaultProjectPath) === key) {
+    defaultProjectPath = undefined
+  }
+
+  const harness: HarnessSettings = {
+    ...config.harness,
+    lastProjectPath,
+    defaultProjectPath,
+    projects: updatedProjects
+  }
+  if (!saveConfig({ harness }, config)) throw new Error('Could not delete Harness project.')
+  return harness
+}
+
+export async function checkHarnessProjectFolder(
+  rootPath: string
+): Promise<{ exists: boolean; isDirectory: boolean; isGit: boolean }> {
+  try {
+    const resolvedRoot = path.resolve(rootPath)
+    const stats = await fs.stat(resolvedRoot)
+    if (!stats.isDirectory()) {
+      return { exists: true, isDirectory: false, isGit: false }
+    }
+    let isGit = false
+    try {
+      const gitStats = await fs.stat(path.join(resolvedRoot, '.git'))
+      isGit = gitStats.isDirectory() || gitStats.isFile()
+    } catch {
+      isGit = false
+    }
+    return { exists: true, isDirectory: true, isGit }
+  } catch {
+    return { exists: false, isDirectory: false, isGit: false }
+  }
+}
+
+export async function checkAllHarnessProjects(): Promise<
+  Record<string, { exists: boolean; isDirectory: boolean; isGit: boolean }>
+> {
+  const config = loadConfig()
+  const results: Record<string, { exists: boolean; isDirectory: boolean; isGit: boolean }> = {}
+  for (const [key, project] of Object.entries(config.harness.projects)) {
+    results[key] = await checkHarnessProjectFolder(project.rootPath)
+  }
+  return results
+}
+
+export async function recreateHarnessProjectFolder(rootPath: string): Promise<HarnessProjectResult> {
+  const config = loadConfig()
+  const resolvedRoot = path.resolve(rootPath)
+  const key = projectKey(resolvedRoot)
+  const existing = config.harness.projects[key]
+  const displayName = existing?.displayName || path.basename(resolvedRoot)
+  return registerProject(resolvedRoot, displayName)
+}
+
+export function resolveHarnessStartupProject(
+  customSettings?: HarnessSettings
+): HarnessProjectConfig | null {
+  const settings = customSettings || loadConfig().harness
+  if (settings.startupProjectMode === 'prompt') {
+    return null
+  }
+  if (settings.startupProjectMode === 'default_project' && settings.defaultProjectPath) {
+    const defaultProject = getHarnessProject(settings.defaultProjectPath)
+    if (defaultProject) return defaultProject
+  }
+  if (settings.lastProjectPath) {
+    return getHarnessProject(settings.lastProjectPath)
+  }
+  const remaining = Object.values(settings.projects)
+  return remaining.length > 0 ? remaining[0] : null
 }
 
 export function getHarnessProject(rootPath?: string): HarnessProjectConfig | null {
@@ -147,6 +238,7 @@ export function getEffectiveHarnessSettings(rootPath?: string): EffectiveHarness
     animateActivity: project.animateActivity ?? settings.animateActivity,
     reduceMotion: project.reduceMotion ?? settings.reduceMotion,
     tabProjectMode: settings.tabProjectMode,
+    startupProjectMode: settings.startupProjectMode,
     userGlobalInstructions: settings.userGlobalInstructions,
     yoloAcknowledged: settings.yoloAcknowledged,
     project

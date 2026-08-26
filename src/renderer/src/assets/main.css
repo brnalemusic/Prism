@@ -780,18 +780,9 @@
     will-change: opacity;
   }
 
-  .streaming-character-pending,
-  .streaming-element-pending {
-    visibility: hidden;
-    opacity: 0 !important;
-    animation: none !important;
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .streaming-character-fade,
-    .streaming-element-fade,
-    .streaming-character-pending,
-    .streaming-element-pending {
+    .streaming-element-fade {
       animation: none;
       visibility: visible;
       opacity: 1;

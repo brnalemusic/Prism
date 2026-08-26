@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import {
   FloppyDisk as Save,
@@ -46,7 +46,9 @@ import {
   Code,
   FolderSimple,
   Files,
-  GitBranch
+  GitBranch,
+  Star,
+  ArrowSquareOut
 } from '@phosphor-icons/react'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import { EnterpriseActivationModal } from './EnterpriseActivationModal'
@@ -122,6 +124,8 @@ const DEFAULT_HARNESS_SETTINGS: HarnessSettings = {
   animateActivity: true,
   reduceMotion: false,
   tabProjectMode: 'fixed',
+  startupProjectMode: 'last_opened',
+  defaultProjectPath: undefined,
   userGlobalInstructions: '',
   yoloAcknowledged: false,
   projects: {}
@@ -319,6 +323,23 @@ export function SettingsView({
   const [harnessInstructionStatus, setHarnessInstructionStatus] =
     useState<HarnessInstructionStatus | null>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+
+  const [harnessProjectsHealth, setHarnessProjectsHealth] = useState<
+    Record<string, { exists: boolean; isDirectory: boolean; isGit: boolean }>
+  >({})
+
+  const refreshHarnessHealth = useCallback(async (): Promise<void> => {
+    try {
+      const results = await window.api.checkAllHarnessProjects()
+      setHarnessProjectsHealth(results)
+    } catch (e) {
+      console.error('Failed to check harness projects health:', e)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshHarnessHealth()
+  }, [refreshHarnessHealth, config.harness.projects])
 
   const harnessProjectEntries = Object.entries(config.harness.projects)
   const preferredHarnessProject = Object.values(config.harness.projects).find(
@@ -1834,6 +1855,88 @@ export function SettingsView({
 
         <div className="space-y-4">
           <SettingsGroupLabel
+            title="Startup project"
+            description="Choose which workspace is loaded when opening Harness or launching new tabs."
+          />
+          <div className="settings-card space-y-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              {(
+                [
+                  {
+                    id: 'last_opened',
+                    title: 'Last opened project',
+                    description: 'Automatically resumes whichever project was active last.'
+                  },
+                  {
+                    id: 'default_project',
+                    title: 'Designated default',
+                    description: 'Always opens a specific pre-selected workspace.'
+                  },
+                  {
+                    id: 'prompt',
+                    title: 'Always ask',
+                    description: 'Opens the project selector modal on every new tab or launch.'
+                  }
+                ] as const
+              ).map((mode) => {
+                const active = config.harness.startupProjectMode === mode.id
+                return (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => {
+                      updateHarness({
+                        startupProjectMode: mode.id,
+                        defaultProjectPath:
+                          mode.id === 'default_project'
+                            ? config.harness.defaultProjectPath ||
+                              effectiveHarnessProjectPath ||
+                              Object.values(config.harness.projects)[0]?.rootPath
+                            : config.harness.defaultProjectPath
+                      })
+                    }}
+                    className={clsx(
+                      'settings-card cursor-pointer text-left transition-colors',
+                      active && 'border-accent-primary/35 bg-accent-primary/[0.06]'
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-text-primary">{mode.title}</span>
+                      {active && <Check size={13} weight="bold" className="text-accent-primary" />}
+                    </div>
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-text-secondary/70">
+                      {mode.description}
+                    </p>
+                  </button>
+                )
+              })}
+            </div>
+
+            {config.harness.startupProjectMode === 'default_project' && (
+              <div className="space-y-2 border-t border-white/[0.06] pt-3">
+                <label className="text-xs font-semibold text-text-primary block">
+                  Designated default project
+                </label>
+                {harnessProjectEntries.length === 0 ? (
+                  <p className="text-xs text-text-muted">No projects registered yet.</p>
+                ) : (
+                  <CustomSelect
+                    value={config.harness.defaultProjectPath || effectiveHarnessProjectPath}
+                    onChange={(val) => updateHarness({ defaultProjectPath: val })}
+                    options={harnessProjectEntries.map(([, project]) => ({
+                      value: project.rootPath,
+                      label: project.displayName,
+                      icon: <Star size={14} className="text-accent-primary" weight="fill" />
+                    }))}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <SettingsGroupLabel
             title="Default permissions"
             description="Projects inherit this profile unless they define an override."
           />
@@ -2077,10 +2180,33 @@ export function SettingsView({
         </div>
 
         <div className="space-y-4">
-          <SettingsGroupLabel
-            title="Project overrides"
-            description="Override defaults only where this project needs different behavior."
-          />
+          <div className="flex items-center justify-between gap-3">
+            <SettingsGroupLabel
+              title="Project overrides"
+              description="Override defaults only where this project needs different behavior."
+            />
+            {Object.entries(harnessProjectsHealth).some(([, h]) => !h.exists || !h.isDirectory) && (
+              <button
+                type="button"
+                onClick={async () => {
+                  for (const [key, h] of Object.entries(harnessProjectsHealth)) {
+                    if (!h.exists || !h.isDirectory) {
+                      const proj = config.harness.projects[key]
+                      if (proj) {
+                        const updated = await window.api.deleteHarnessProject(proj.rootPath)
+                        updateHarness(updated)
+                      }
+                    }
+                  }
+                  void refreshHarnessHealth()
+                }}
+                className="settings-secondary-button text-amber-300 border-amber-500/30 hover:bg-amber-500/15 cursor-pointer text-xs"
+              >
+                <Trash size={13} />
+                Clean missing projects
+              </button>
+            )}
+          </div>
           {harnessProjectEntries.length === 0 ? (
             <div className="settings-card flex items-center gap-3 text-xs text-text-secondary">
               <Files size={18} className="text-text-muted" />
@@ -2091,209 +2217,331 @@ export function SettingsView({
               <CustomSelect
                 value={effectiveHarnessProjectPath}
                 onChange={setSelectedHarnessProjectPath}
-                options={harnessProjectEntries.map(([, project]) => ({
-                  value: project.rootPath,
-                  label: project.displayName,
-                  icon: <FolderSimple size={15} className="text-accent-primary" />
-                }))}
+                options={harnessProjectEntries.map(([key, project]) => {
+                  const health = harnessProjectsHealth[key]
+                  const isMissing = health && (!health.exists || !health.isDirectory)
+                  return {
+                    value: project.rootPath,
+                    label: isMissing ? `${project.displayName} (Missing on disk)` : project.displayName,
+                    icon: isMissing ? (
+                      <Warning size={15} weight="fill" className="text-amber-400" />
+                    ) : (
+                      <FolderSimple size={15} className="text-accent-primary" />
+                    )
+                  }
+                })}
               />
 
-              {selectedHarnessProject && (
-                <>
-                  <div className="rounded-lg border border-[var(--border-default)] bg-[var(--surface-lowest)] px-3 py-2 font-mono text-[10px] text-text-muted break-all">
-                    {selectedHarnessProject.rootPath}
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <label className="settings-card space-y-2">
-                      <span className="text-xs font-semibold text-text-primary">
-                        Permission override
-                      </span>
-                      <select
-                        value={selectedHarnessProject.permissionMode || ''}
-                        onChange={(event) => {
-                          const value = event.target.value as HarnessPermissionMode | ''
-                          if (value === 'yolo' && !config.harness.yoloAcknowledged) {
-                            setPendingYoloTarget('project')
-                            setShowYoloWarning(true)
-                            return
-                          }
-                          updateSelectedHarnessProject({ permissionMode: value || undefined })
-                        }}
-                        className="settings-text-input w-full text-xs"
-                      >
-                        <option value="">Inherit global</option>
-                        <option value="ask">Ask for Permissions</option>
-                        <option value="independent">Independent Agent</option>
-                        <option value="yolo">YOLO</option>
-                      </select>
-                    </label>
-                    <HarnessOptionalNumberField
-                      label="Round budget override"
-                      inherited={config.harness.defaultMaxRounds}
-                      value={selectedHarnessProject.maxRounds}
-                      min={1}
-                      max={1000}
-                      onChange={(value) => updateSelectedHarnessProject({ maxRounds: value })}
-                    />
-                  </div>
+              {selectedHarnessProject && (() => {
+                const selectedKey = selectedHarnessProjectEntry?.[0] || ''
+                const selectedHealth = harnessProjectsHealth[selectedKey]
+                const isSelectedMissing = selectedHealth && (!selectedHealth.exists || !selectedHealth.isDirectory)
+                const isSelectedDefault = config.harness.defaultProjectPath === selectedHarnessProject.rootPath
 
-                  <label className="block space-y-1.5">
-                    <span className="flex items-center justify-between text-xs font-semibold text-text-primary">
-                      User Project Instructions
-                      <span className="font-mono text-[10px] text-text-muted">
-                        {(selectedHarnessProject.userProjectInstructions || '').length}/5000
-                      </span>
-                    </span>
-                    <textarea
-                      value={selectedHarnessProject.userProjectInstructions || ''}
-                      maxLength={5000}
-                      onChange={(event) =>
-                        updateSelectedHarnessProject({
-                          userProjectInstructions: event.target.value
-                        })
-                      }
-                      className="settings-text-input min-h-28 resize-y font-mono text-xs leading-relaxed"
-                      placeholder="Instructions specific to this project..."
-                    />
-                    <span className="block text-[10px] text-text-muted">
-                      Repo Instructions: {harnessInstructionStatus?.repoInstructionPaths.join(', ') || `${selectedHarnessProject.rootPath}/AGENTS.md`} —{' '}
-                      {harnessInstructionStatus?.repoExists
-                        ? `${harnessInstructionStatus.repoIncludedCharacters.toLocaleString()} of ${harnessInstructionStatus.repoCharacters.toLocaleString()} characters included`
-                        : 'not present'}
-                      .
-                    </span>
-                    {harnessInstructionStatus?.warnings.map((warning) => (
-                      <span key={warning} className="block text-[10px] text-status-warning">
-                        {warning}
-                      </span>
-                    ))}
-                  </label>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs font-semibold text-text-primary">Tool override</span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateSelectedHarnessProject({
-                            enabledTools: selectedHarnessProject.enabledTools
-                              ? undefined
-                              : [...config.harness.enabledTools]
-                          })
-                        }
-                        className="settings-secondary-button cursor-pointer"
-                      >
-                        {selectedHarnessProject.enabledTools ? 'Use global tools' : 'Customize'}
-                      </button>
-                    </div>
-                    {selectedHarnessProject.enabledTools && (
-                      <div className="grid grid-cols-2 gap-1.5 rounded-xl border border-[var(--border-default)] bg-[var(--surface-lowest)] p-2 sm:grid-cols-3">
-                        {HARNESS_TOOLS.map((tool) => {
-                          const enabled =
-                            selectedHarnessProject.enabledTools?.includes(tool.name) === true
-                          return (
-                            <button
-                              key={tool.name}
-                              type="button"
-                              onClick={() => toggleProjectTool(tool.name)}
-                              className={clsx(
-                                'rounded-lg border px-2 py-1.5 text-left font-mono text-[10px] transition-colors',
-                                enabled
-                                  ? 'border-accent-primary/25 bg-accent-primary/10 text-accent-primary'
-                                  : 'border-transparent text-text-muted hover:bg-white/[0.04]'
-                              )}
-                            >
-                              {tool.name}
-                            </button>
-                          )
-                        })}
+                return (
+                  <>
+                    {isSelectedMissing && (
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs text-amber-200 shadow-md">
+                        <div className="flex items-center gap-2.5">
+                          <Warning size={16} weight="fill" className="text-amber-400 shrink-0" />
+                          <div>
+                            <span className="font-semibold text-amber-300">Project folder not found on disk</span>
+                            <p className="font-mono text-[10px] text-amber-200/70">{selectedHarnessProject.rootPath}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await window.api.recreateHarnessProjectFolder(selectedHarnessProject.rootPath)
+                                void refreshHarnessHealth()
+                              } catch (e) {
+                                console.error(e)
+                              }
+                            }}
+                            className="settings-secondary-button text-amber-300 border-amber-500/30 hover:bg-amber-500/20 cursor-pointer"
+                          >
+                            Recreate folder
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const updated = await window.api.deleteHarnessProject(selectedHarnessProject.rootPath)
+                              updateHarness(updated)
+                              void refreshHarnessHealth()
+                            }}
+                            className="settings-secondary-button text-status-error hover:bg-status-error/15 cursor-pointer"
+                          >
+                            Remove from Prism
+                          </button>
+                        </div>
                       </div>
                     )}
-                  </div>
 
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <HarnessOptionalNumberField
-                      label="Read lines"
-                      inherited={config.harness.maxReadLines}
-                      value={selectedHarnessProject.maxReadLines}
-                      min={1}
-                      max={5000}
-                      onChange={(value) => updateSelectedHarnessProject({ maxReadLines: value })}
-                    />
-                    <HarnessOptionalNumberField
-                      label="Read characters"
-                      inherited={config.harness.maxReadCharacters}
-                      value={selectedHarnessProject.maxReadCharacters}
-                      min={1000}
-                      max={500000}
-                      onChange={(value) =>
-                        updateSelectedHarnessProject({ maxReadCharacters: value })
-                      }
-                    />
-                    <HarnessOptionalNumberField
-                      label="Terminal output"
-                      inherited={config.harness.maxTerminalOutputCharacters}
-                      value={selectedHarnessProject.maxTerminalOutputCharacters}
-                      min={1000}
-                      max={1000000}
-                      onChange={(value) =>
-                        updateSelectedHarnessProject({ maxTerminalOutputCharacters: value })
-                      }
-                    />
-                    <HarnessOptionalNumberField
-                      label="Web context"
-                      inherited={config.harness.maxContextCharacters}
-                      value={selectedHarnessProject.maxContextCharacters}
-                      min={10000}
-                      max={200000}
-                      onChange={(value) =>
-                        updateSelectedHarnessProject({ maxContextCharacters: value })
-                      }
-                    />
-                    <HarnessOptionalNumberField
-                      label="Web pages"
-                      inherited={config.harness.webPageCount}
-                      value={selectedHarnessProject.webPageCount}
-                      min={3}
-                      max={5}
-                      onChange={(value) => updateSelectedHarnessProject({ webPageCount: value })}
-                    />
-                  </div>
+                    <div className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--surface-lowest)] px-3 py-2 font-mono text-[10px] text-text-muted break-all">
+                      <span className="truncate">{selectedHarnessProject.rootPath}</span>
+                      {isSelectedMissing && (
+                        <span className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-300 uppercase">
+                          Missing
+                        </span>
+                      )}
+                    </div>
 
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {(
-                      [
-                        ['showSteps', 'Show Steps', config.harness.showSteps],
-                        ['animateActivity', 'Activity animations', config.harness.animateActivity],
-                        ['reduceMotion', 'Reduce motion', config.harness.reduceMotion]
-                      ] as const
-                    ).map(([key, label, inherited]) => {
-                      const current = selectedHarnessProject[key]
-                      return (
-                        <label key={key} className="settings-card space-y-2">
-                          <span className="text-xs font-semibold text-text-primary">{label}</span>
-                          <select
-                            value={current === undefined ? '' : current ? 'on' : 'off'}
-                            onChange={(event) =>
-                              updateSelectedHarnessProject({
-                                [key]:
-                                  event.target.value === ''
-                                    ? undefined
-                                    : event.target.value === 'on'
-                              })
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-text-primary block">
+                        Project display name
+                      </label>
+                      <input
+                        type="text"
+                        value={selectedHarnessProject.displayName}
+                        onChange={(event) =>
+                          updateSelectedHarnessProject({ displayName: event.target.value })
+                        }
+                        placeholder="Project name"
+                        className="settings-text-input w-full text-xs"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label className="settings-card space-y-2">
+                        <span className="text-xs font-semibold text-text-primary">
+                          Permission override
+                        </span>
+                        <select
+                          value={selectedHarnessProject.permissionMode || ''}
+                          onChange={(event) => {
+                            const value = event.target.value as HarnessPermissionMode | ''
+                            if (value === 'yolo' && !config.harness.yoloAcknowledged) {
+                              setPendingYoloTarget('project')
+                              setShowYoloWarning(true)
+                              return
                             }
-                            className="settings-text-input w-full text-xs"
-                          >
-                            <option value="">Inherit ({inherited ? 'on' : 'off'})</option>
-                            <option value="on">On</option>
-                            <option value="off">Off</option>
-                          </select>
-                        </label>
-                      )
-                    })}
-                  </div>
-                </>
-              )}
+                            updateSelectedHarnessProject({ permissionMode: value || undefined })
+                          }}
+                          className="settings-text-input w-full text-xs"
+                        >
+                          <option value="">Inherit global</option>
+                          <option value="ask">Ask for Permissions</option>
+                          <option value="independent">Independent Agent</option>
+                          <option value="yolo">YOLO</option>
+                        </select>
+                      </label>
+                      <HarnessOptionalNumberField
+                        label="Round budget override"
+                        inherited={config.harness.defaultMaxRounds}
+                        value={selectedHarnessProject.maxRounds}
+                        min={1}
+                        max={1000}
+                        onChange={(value) => updateSelectedHarnessProject({ maxRounds: value })}
+                      />
+                    </div>
+
+                    <label className="block space-y-1.5">
+                      <span className="flex items-center justify-between text-xs font-semibold text-text-primary">
+                        User Project Instructions
+                        <span className="font-mono text-[10px] text-text-muted">
+                          {(selectedHarnessProject.userProjectInstructions || '').length}/5000
+                        </span>
+                      </span>
+                      <textarea
+                        value={selectedHarnessProject.userProjectInstructions || ''}
+                        maxLength={5000}
+                        onChange={(event) =>
+                          updateSelectedHarnessProject({
+                            userProjectInstructions: event.target.value
+                          })
+                        }
+                        className="settings-text-input min-h-28 resize-y font-mono text-xs leading-relaxed"
+                        placeholder="Instructions specific to this project..."
+                      />
+                      <span className="block text-[10px] text-text-muted">
+                        Repo Instructions: {harnessInstructionStatus?.repoInstructionPaths.join(', ') || `${selectedHarnessProject.rootPath}/AGENTS.md`} —{' '}
+                        {harnessInstructionStatus?.repoExists
+                          ? `${harnessInstructionStatus.repoIncludedCharacters.toLocaleString()} of ${harnessInstructionStatus.repoCharacters.toLocaleString()} characters included`
+                          : 'not present'}
+                        .
+                      </span>
+                      {harnessInstructionStatus?.warnings.map((warning) => (
+                        <span key={warning} className="block text-[10px] text-status-warning">
+                          {warning}
+                        </span>
+                      ))}
+                    </label>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs font-semibold text-text-primary">Tool override</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateSelectedHarnessProject({
+                              enabledTools: selectedHarnessProject.enabledTools
+                                ? undefined
+                                : [...config.harness.enabledTools]
+                            })
+                          }
+                          className="settings-secondary-button cursor-pointer"
+                        >
+                          {selectedHarnessProject.enabledTools ? 'Use global tools' : 'Customize'}
+                        </button>
+                      </div>
+                      {selectedHarnessProject.enabledTools && (
+                        <div className="grid grid-cols-2 gap-1.5 rounded-xl border border-[var(--border-default)] bg-[var(--surface-lowest)] p-2 sm:grid-cols-3">
+                          {HARNESS_TOOLS.map((tool) => {
+                            const enabled =
+                              selectedHarnessProject.enabledTools?.includes(tool.name) === true
+                            return (
+                              <button
+                                key={tool.name}
+                                type="button"
+                                onClick={() => toggleProjectTool(tool.name)}
+                                className={clsx(
+                                  'rounded-lg border px-2 py-1.5 text-left font-mono text-[10px] transition-colors',
+                                  enabled
+                                    ? 'border-accent-primary/25 bg-accent-primary/10 text-accent-primary'
+                                    : 'border-transparent text-text-muted hover:bg-white/[0.04]'
+                                )}
+                              >
+                                {tool.name}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <HarnessOptionalNumberField
+                        label="Read lines"
+                        inherited={config.harness.maxReadLines}
+                        value={selectedHarnessProject.maxReadLines}
+                        min={1}
+                        max={5000}
+                        onChange={(value) => updateSelectedHarnessProject({ maxReadLines: value })}
+                      />
+                      <HarnessOptionalNumberField
+                        label="Read characters"
+                        inherited={config.harness.maxReadCharacters}
+                        value={selectedHarnessProject.maxReadCharacters}
+                        min={1000}
+                        max={500000}
+                        onChange={(value) =>
+                          updateSelectedHarnessProject({ maxReadCharacters: value })
+                        }
+                      />
+                      <HarnessOptionalNumberField
+                        label="Terminal output"
+                        inherited={config.harness.maxTerminalOutputCharacters}
+                        value={selectedHarnessProject.maxTerminalOutputCharacters}
+                        min={1000}
+                        max={1000000}
+                        onChange={(value) =>
+                          updateSelectedHarnessProject({ maxTerminalOutputCharacters: value })
+                        }
+                      />
+                      <HarnessOptionalNumberField
+                        label="Web context"
+                        inherited={config.harness.maxContextCharacters}
+                        value={selectedHarnessProject.maxContextCharacters}
+                        min={10000}
+                        max={200000}
+                        onChange={(value) =>
+                          updateSelectedHarnessProject({ maxContextCharacters: value })
+                        }
+                      />
+                      <HarnessOptionalNumberField
+                        label="Web pages"
+                        inherited={config.harness.webPageCount}
+                        value={selectedHarnessProject.webPageCount}
+                        min={3}
+                        max={5}
+                        onChange={(value) => updateSelectedHarnessProject({ webPageCount: value })}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {(
+                        [
+                          ['showSteps', 'Show Steps', config.harness.showSteps],
+                          ['animateActivity', 'Activity animations', config.harness.animateActivity],
+                          ['reduceMotion', 'Reduce motion', config.harness.reduceMotion]
+                        ] as const
+                      ).map(([key, label, inherited]) => {
+                        const current = selectedHarnessProject[key]
+                        return (
+                          <label key={key} className="settings-card space-y-2">
+                            <span className="text-xs font-semibold text-text-primary">{label}</span>
+                            <select
+                              value={current === undefined ? '' : current ? 'on' : 'off'}
+                              onChange={(event) =>
+                                updateSelectedHarnessProject({
+                                  [key]:
+                                    event.target.value === ''
+                                      ? undefined
+                                      : event.target.value === 'on'
+                                })
+                              }
+                              className="settings-text-input w-full text-xs"
+                            >
+                              <option value="">Inherit ({inherited ? 'on' : 'off'})</option>
+                              <option value="on">On</option>
+                              <option value="off">Off</option>
+                            </select>
+                          </label>
+                        )
+                      })}
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] pt-3">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            updateHarness({
+                              defaultProjectPath: isSelectedDefault ? undefined : selectedHarnessProject.rootPath,
+                              startupProjectMode: isSelectedDefault ? 'last_opened' : 'default_project'
+                            })
+                          }}
+                          className={clsx(
+                            'settings-secondary-button cursor-pointer',
+                            isSelectedDefault && 'text-accent-primary border-accent-primary/30'
+                          )}
+                        >
+                          <Star
+                            size={14}
+                            weight={isSelectedDefault ? 'fill' : 'regular'}
+                            className={isSelectedDefault ? 'text-accent-primary' : ''}
+                          />
+                          {isSelectedDefault ? 'Default startup project' : 'Set as default'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void window.api.openFolderInExplorer(selectedHarnessProject.rootPath)}
+                          className="settings-secondary-button cursor-pointer"
+                          title="Open in File Explorer"
+                        >
+                          <ArrowSquareOut size={14} />
+                          Open folder
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const updated = await window.api.deleteHarnessProject(selectedHarnessProject.rootPath)
+                          updateHarness(updated)
+                          void refreshHarnessHealth()
+                        }}
+                        className="settings-secondary-button text-status-error hover:bg-status-error/15 cursor-pointer"
+                        title="Remove project from Prism"
+                      >
+                        <Trash size={14} />
+                        Delete project
+                      </button>
+                    </div>
+                  </>
+                )
+              })()}
             </div>
           )}
         </div>

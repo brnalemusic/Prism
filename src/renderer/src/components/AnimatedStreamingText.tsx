@@ -51,7 +51,7 @@ interface StreamingTimeline {
 }
 
 const DEFAULT_CHARACTER_CADENCE = 4
-const MIN_CHARACTER_CADENCE = 0.35
+const MIN_TIMELINE_INCREMENT = 0.001
 const MAX_CHARACTER_CADENCE = 500
 const OPACITY_DURATION = 260
 const COLOR_DURATION = 390
@@ -59,8 +59,8 @@ const CADENCE_SAMPLE_COUNT = 6
 const INITIAL_REVEAL_WINDOW = 320
 const MIN_PREDICTED_CHUNK_INTERVAL = 40
 const MAX_PREDICTED_CHUNK_INTERVAL = 4000
-/** Prevents a continuously arriving stream from pushing the visible text indefinitely into the future. */
-export const MAX_STREAMING_BACKLOG_DELAY_MS = 320
+/** Target window used to drain a burst without changing the grapheme order. */
+export const STREAMING_BACKLOG_WINDOW_MS = 320
 
 const idleAnimationClock: StreamingAnimationClock = {
   renderTime: 0,
@@ -171,9 +171,11 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
       timeline.cadenceSamples.length > 0
         ? getWeightedChunkInterval(timeline.cadenceSamples)
         : INITIAL_REVEAL_WINDOW
-    const queueSafeCadence = predictedChunkInterval / Math.max(1, pendingUnits + addedLength)
+    const queueSafeCadence =
+      Math.min(predictedChunkInterval, STREAMING_BACKLOG_WINDOW_MS) /
+      Math.max(1, pendingUnits + addedLength)
     renderCadence = Math.max(
-      MIN_CHARACTER_CADENCE,
+      MIN_TIMELINE_INCREMENT,
       Math.min(MAX_CHARACTER_CADENCE, renderCadence, queueSafeCadence)
     )
 
@@ -187,8 +189,7 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
       if (existing) return existing.endAt > renderTime ? existing : undefined
       if (!isNew || !isVisuallyStreaming) return undefined
 
-      const maxStartAt = renderTime + MAX_STREAMING_BACKLOG_DELAY_MS
-      const startAt = Math.min(Math.max(renderTime, timeline.nextStartAt), maxStartAt)
+      const startAt = Math.max(renderTime, timeline.nextStartAt)
       const timing = {
         startAt,
         endAt: startAt + duration,
@@ -196,10 +197,7 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
         units: Math.max(1, units)
       }
       timeline.timings.set(token, timing)
-      timeline.nextStartAt = Math.min(
-        startAt + renderCadence * timing.units,
-        maxStartAt
-      )
+      timeline.nextStartAt = startAt + renderCadence * timing.units
       timeline.maxEndAt = Math.max(timeline.maxEndAt, timing.endAt)
       return timing
     }
@@ -269,22 +267,20 @@ function reschedulePendingTimings(timeline: StreamingTimeline, now: number, cade
     .filter(([, timing]) => timing.startAt > now)
     .sort(([leftToken], [rightToken]) => getTokenStart(leftToken) - getTokenStart(rightToken))
 
-  const maxStartAt = now + MAX_STREAMING_BACKLOG_DELAY_MS
+  const lastStartedAt = Array.from(timeline.timings.values()).reduce(
+    (latestStart, timing) =>
+      timing.startAt <= now ? Math.max(latestStart, timing.startAt) : latestStart,
+    Number.NEGATIVE_INFINITY
+  )
+  let nextStartAt = Number.isFinite(lastStartedAt) ? Math.max(now, lastStartedAt + cadence) : now
+
   for (const [, timing] of pendingTimings) {
-    if (timing.startAt > maxStartAt) {
-      timing.startAt = maxStartAt
-      timing.endAt = maxStartAt + timing.duration
-    }
+    timing.startAt = nextStartAt
+    timing.endAt = nextStartAt + timing.duration
+    nextStartAt += cadence * timing.units
   }
 
-  const pendingNextStart = pendingTimings.reduce(
-    (latestStart, [, timing]) => Math.max(latestStart, timing.startAt + cadence * timing.units),
-    now
-  )
-  timeline.nextStartAt = Math.min(
-    Math.max(timeline.nextStartAt, pendingNextStart),
-    maxStartAt
-  )
+  timeline.nextStartAt = nextStartAt
   timeline.maxEndAt = Array.from(timeline.timings.values()).reduce(
     (latestEnd, timing) => Math.max(latestEnd, timing.endAt),
     0
@@ -361,8 +357,6 @@ interface HastNode {
 
 const STREAMING_CHARACTER_FADE_CLASS = 'streaming-character-fade'
 const STREAMING_ELEMENT_FADE_CLASS = 'streaming-element-fade'
-const STREAMING_CHARACTER_PENDING_CLASS = 'streaming-character-pending'
-const STREAMING_ELEMENT_PENDING_CLASS = 'streaming-element-pending'
 
 interface GraphemePart {
   segment: string
@@ -473,16 +467,13 @@ function createFadeSpan(
   textNode: HastNode,
   value: string,
   token: string,
-  delay: number,
-  isPending: boolean
+  delay: number
 ): HastNode {
   return {
     type: 'element',
     tagName: 'span',
     properties: {
-      className: [
-        isPending ? STREAMING_CHARACTER_PENDING_CLASS : STREAMING_CHARACTER_FADE_CLASS
-      ],
+      className: [STREAMING_CHARACTER_FADE_CLASS],
       dataStreamToken: token,
       'data-stream-token': token,
       dataStreamDelay: String(delay),
@@ -545,8 +536,7 @@ function splitTextNodeForFade(
         node,
         grapheme.segment,
         token,
-        timing.startAt - animationClock.renderTime,
-        timing.startAt > animationClock.renderTime
+        timing.startAt - animationClock.renderTime
       )
     )
   }
@@ -607,12 +597,7 @@ export function createStreamingFadeRehypePlugin(
               )
 
               if (timing) {
-                addClassName(
-                  child,
-                  timing.startAt > streamStats.animationClock.renderTime
-                    ? STREAMING_ELEMENT_PENDING_CLASS
-                    : STREAMING_ELEMENT_FADE_CLASS
-                )
+                addClassName(child, STREAMING_ELEMENT_FADE_CLASS)
                 setStreamTiming(
                   child,
                   token,
@@ -799,18 +784,14 @@ export const CodeBlock = ({
   const streamDelay = dataStreamDelayAttribute ?? dataStreamDelay
   const streamingElementClass = className
     ?.split(/\s+/)
-    .find(
-      (name) =>
-        name === STREAMING_ELEMENT_FADE_CLASS || name === STREAMING_ELEMENT_PENDING_CLASS
-    )
+    .find((name) => name === STREAMING_ELEMENT_FADE_CLASS)
   const animationStyle = getStreamingAnimationStyle(style, streamDelay)
   const codeClassName = className
     ?.split(/\s+/)
     .filter(
       (name) =>
         name &&
-        name !== STREAMING_ELEMENT_FADE_CLASS &&
-        name !== STREAMING_ELEMENT_PENDING_CLASS
+        name !== STREAMING_ELEMENT_FADE_CLASS
     )
     .join(' ')
 

@@ -20,6 +20,7 @@ import type {
   HarnessProjectOverrides,
   HarnessInstructionStatus,
   HarnessContextSnapshot,
+  HarnessSettings,
   ToolAttachment,
   RetryImageGenerationRequest,
   SaveGeneratedImageRequest,
@@ -377,6 +378,21 @@ const api = {
     overrides: HarnessProjectOverrides
   ): Promise<{ project: HarnessProjectConfig }> =>
     ipcRenderer.invoke('harness-update-project', projectPath, overrides),
+  deleteHarnessProject: (rootPath: string): Promise<HarnessSettings> =>
+    ipcRenderer.invoke('harness-delete-project', rootPath),
+  checkHarnessProject: (
+    rootPath: string
+  ): Promise<{ exists: boolean; isDirectory: boolean; isGit: boolean }> =>
+    ipcRenderer.invoke('harness-check-project', rootPath),
+  checkAllHarnessProjects: (): Promise<
+    Record<string, { exists: boolean; isDirectory: boolean; isGit: boolean }>
+  > => ipcRenderer.invoke('harness-check-all-projects'),
+  recreateHarnessProjectFolder: (rootPath: string): Promise<{ project: HarnessProjectConfig }> =>
+    ipcRenderer.invoke('harness-recreate-project-folder', rootPath),
+  resolveHarnessStartupProject: (): Promise<HarnessProjectConfig | null> =>
+    ipcRenderer.invoke('harness-resolve-startup-project'),
+  openFolderInExplorer: (folderPath: string): Promise<string> =>
+    ipcRenderer.invoke('open-folder-in-explorer', folderPath),
   onDownloadProgress: (callback: (data: DownloadProgress) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, data: DownloadProgress): void => callback(data)
     ipcRenderer.on('download-progress', listener)

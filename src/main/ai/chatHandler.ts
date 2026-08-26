@@ -40,7 +40,7 @@ import { hasConfiguredImageGenerationRoute } from './imageGeneration'
 import { isStrictBase64 } from './imageGenerationCore'
 import { asDataUrl, imageAttachments } from '../toolAttachments'
 import { dedupeImageAttachments, formatImageAssetReference, isImageAssetId } from '../imageAssets'
-import { getEffectiveHarnessSettings } from '../harnessProject'
+import { checkHarnessProjectFolder, getEffectiveHarnessSettings } from '../harnessProject'
 import { getHarnessSystemPrompt } from '../harnessPrompt'
 import {
   executeHarnessTool,
@@ -430,13 +430,24 @@ export async function handleChatMessage(
   }
   const harnessSettings =
     requestSessionMode === 'harness' ? getEffectiveHarnessSettings(requestDisciplinePath) : null
-  if (requestSessionMode === 'harness' && !harnessSettings) {
-    safeSend(event.sender, 'chat-reply-error', {
-      error: 'The selected Harness project is not registered. Reopen it from the project picker.',
-      chatId,
-      workspace
-    })
-    return
+  if (requestSessionMode === 'harness') {
+    if (!harnessSettings) {
+      safeSend(event.sender, 'chat-reply-error', {
+        error: 'The selected Harness project is not registered. Reopen it from the project picker.',
+        chatId,
+        workspace
+      })
+      return
+    }
+    const folderHealth = await checkHarnessProjectFolder(requestDisciplinePath)
+    if (!folderHealth.exists || !folderHealth.isDirectory) {
+      safeSend(event.sender, 'chat-reply-error', {
+        error: `The project directory "${requestDisciplinePath}" does not exist on disk. Please recreate the folder or select another project.`,
+        chatId,
+        workspace
+      })
+      return
+    }
   }
 
   // Check if first message

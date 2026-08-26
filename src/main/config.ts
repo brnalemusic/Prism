@@ -114,6 +114,8 @@ export function createDefaultHarnessSettings(): HarnessSettings {
     animateActivity: true,
     reduceMotion: false,
     tabProjectMode: 'fixed',
+    startupProjectMode: 'last_opened',
+    defaultProjectPath: undefined,
     userGlobalInstructions: '',
     yoloAcknowledged: false,
     projects: {}
@@ -193,6 +195,7 @@ const VALID_THEMES = new Set([
 ])
 const VALID_SESSION_MODES = new Set(['conversation', 'execution', 'discipline', 'harness'])
 const VALID_HARNESS_PERMISSION_MODES = new Set(['ask', 'independent', 'yolo'])
+const VALID_HARNESS_STARTUP_MODES = new Set(['last_opened', 'default_project', 'prompt'])
 const VALID_HARNESS_TOOLS = new Set<string>(DEFAULT_HARNESS_TOOLS)
 const VALID_PRISM_THINKING_LEVELS = new Set(['minimal', 'low', 'medium', 'high'])
 const PRISM_CLOUD_MODEL_IDS = new Set([
@@ -473,6 +476,15 @@ function normalizeConfig(config: AppConfig): AppConfig {
     animateActivity: rawHarness.animateActivity !== false,
     reduceMotion: rawHarness.reduceMotion === true,
     tabProjectMode: rawHarness.tabProjectMode === 'grouped' ? 'grouped' : 'fixed',
+    startupProjectMode:
+      typeof rawHarness.startupProjectMode === 'string' &&
+      VALID_HARNESS_STARTUP_MODES.has(rawHarness.startupProjectMode)
+        ? (rawHarness.startupProjectMode as 'last_opened' | 'default_project' | 'prompt')
+        : 'last_opened',
+    defaultProjectPath:
+      typeof rawHarness.defaultProjectPath === 'string' && rawHarness.defaultProjectPath.trim()
+        ? path.resolve(rawHarness.defaultProjectPath)
+        : undefined,
     userGlobalInstructions:
       typeof rawHarness.userGlobalInstructions === 'string'
         ? rawHarness.userGlobalInstructions.slice(0, 5000)

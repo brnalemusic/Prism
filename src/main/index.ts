@@ -97,10 +97,15 @@ import { IS_DEMO } from '../shared/demo'
 import { safeSend } from './safeSend'
 import { getTerminalProcessesForChat } from './terminalProcessManager'
 import {
+  checkAllHarnessProjects,
+  checkHarnessProjectFolder,
   createHarnessProject,
+  deleteHarnessProject,
   getEffectiveHarnessSettings,
   getHarnessProject,
   openHarnessProject,
+  recreateHarnessProjectFolder,
+  resolveHarnessStartupProject,
   updateHarnessProject
 } from './harnessProject'
 import { resolveHarnessApproval } from './harnessApproval'
@@ -1474,6 +1479,43 @@ if (!gotTheLock) {
       safeSend(mainWindow, 'config-changed', currentConfig)
       safeSend(launcherWindow, 'config-changed', currentConfig)
       return updated
+    })
+
+    ipcMain.handle('harness-delete-project', (_event, rootPath: string) => {
+      const updatedSettings = deleteHarnessProject(rootPath)
+      currentConfig = loadConfig()
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
+      return updatedSettings
+    })
+
+    ipcMain.handle('harness-check-project', async (_event, rootPath: string) => {
+      return await checkHarnessProjectFolder(rootPath)
+    })
+
+    ipcMain.handle('harness-check-all-projects', async () => {
+      return await checkAllHarnessProjects()
+    })
+
+    ipcMain.handle('harness-recreate-project-folder', async (_event, rootPath: string) => {
+      const result = await recreateHarnessProjectFolder(rootPath)
+      currentConfig = loadConfig()
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
+      return result
+    })
+
+    ipcMain.handle('harness-resolve-startup-project', () => {
+      return resolveHarnessStartupProject()
+    })
+
+    ipcMain.handle('open-folder-in-explorer', async (_event, folderPath: string) => {
+      try {
+        const err = await shell.openPath(folderPath)
+        return err ? `Error: ${err}` : 'Success'
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`
+      }
     })
 
     ipcMain.on(

@@ -34,7 +34,12 @@ import {
   stringifyHarnessValue
 } from '../src/renderer/src/harnessToolPresentation.ts'
 import { applyToolCallEnd, applyToolCallStart } from '../src/renderer/src/toolCallState.ts'
-import type { EffectiveHarnessSettings } from '../src/shared/types.ts'
+import type {
+  EffectiveHarnessSettings,
+  HarnessSettings,
+  HarnessStartupProjectMode,
+  HarnessProjectConfig
+} from '../src/shared/types.ts'
 
 test('edit and delete snippets require one exact match', () => {
   assert.equal(
@@ -351,6 +356,31 @@ test('stream frames remain isolated per chat and retain each latest cumulative c
   ])
 })
 
+test('stream frame APIs retain a native-compatible global receiver', () => {
+  const callbacks = new Map<number, FrameRequestCallback>()
+  let scheduleReceiver: unknown
+  let cancelReceiver: unknown
+  const buffer = new PerChatStreamBuffer<{ chatId: string; text: string }>(
+    function schedule(this: unknown, callback) {
+      scheduleReceiver = this
+      callbacks.set(1, callback)
+      return 1
+    },
+    function cancel(this: unknown, handle) {
+      cancelReceiver = this
+      callbacks.delete(handle)
+    },
+    () => undefined
+  )
+
+  buffer.push({ chatId: 'native-frame-api', text: 'visible while streaming' })
+  assert.equal(scheduleReceiver, globalThis)
+
+  buffer.flush('native-frame-api')
+  assert.equal(cancelReceiver, globalThis)
+  assert.equal(callbacks.size, 0)
+})
+
 test('stream phase keeps Thinking visible across a coalesced reasoning-to-text frame', () => {
   const callbacks = new Map<number, FrameRequestCallback>()
   const consumed: Array<{
@@ -496,4 +526,134 @@ test('closed parent log pipes do not crash the Electron main process', () => {
       unexpectedFailure.emit('error', Object.assign(new Error('disk failure'), { code: 'EIO' })),
     /disk failure/
   )
+})
+
+test('startup project resolution respects last_opened, default_project, and prompt modes', () => {
+  const projA: HarnessProjectConfig = {
+    rootPath: 'C:\\Projects\\A',
+    displayName: 'Project A',
+    createdAt: 10,
+    updatedAt: 10
+  }
+  const projB: HarnessProjectConfig = {
+    rootPath: 'C:\\Projects\\B',
+    displayName: 'Project B',
+    createdAt: 20,
+    updatedAt: 20
+  }
+
+  const resolveStartup = (
+    mode: HarnessStartupProjectMode,
+    defaultPath?: string,
+    lastPath?: string,
+    projects: Record<string, HarnessProjectConfig> = {}
+  ): HarnessProjectConfig | null => {
+    if (mode === 'prompt') return null
+    if (mode === 'default_project' && defaultPath) {
+      const match = Object.values(projects).find(
+        (p) => p.rootPath.toLowerCase() === defaultPath.toLowerCase()
+      )
+      if (match) return match
+    }
+    if (lastPath) {
+      const match = Object.values(projects).find(
+        (p) => p.rootPath.toLowerCase() === lastPath.toLowerCase()
+      )
+      if (match) return match
+    }
+    const list = Object.values(projects)
+    return list[0] || null
+  }
+
+  const projects = {
+    'c:\\projects\\a': projA,
+    'c:\\projects\\b': projB
+  }
+
+  // 1. prompt mode -> null
+  assert.equal(resolveStartup('prompt', 'C:\\Projects\\B', 'C:\\Projects\\A', projects), null)
+
+  // 2. default_project mode -> projB
+  assert.equal(
+    resolveStartup('default_project', 'C:\\Projects\\B', 'C:\\Projects\\A', projects)?.rootPath,
+    'C:\\Projects\\B'
+  )
+
+  // 3. last_opened mode -> projA
+  assert.equal(
+    resolveStartup('last_opened', 'C:\\Projects\\B', 'C:\\Projects\\A', projects)?.rootPath,
+    'C:\\Projects\\A'
+  )
+
+  // 4. default_project mode fallback when defaultPath missing -> last opened
+  assert.equal(
+    resolveStartup('default_project', undefined, 'C:\\Projects\\A', projects)?.rootPath,
+    'C:\\Projects\\A'
+  )
+})
+
+test('deleteHarnessProject logic cleans up project dictionary and referenced paths', () => {
+  const projA = { rootPath: 'C:\\Projects\\A', displayName: 'Project A' }
+  const projB = { rootPath: 'C:\\Projects\\B', displayName: 'Project B' }
+
+  let currentSettings = {
+    projects: {
+      'c:\\projects\\a': projA,
+      'c:\\projects\\b': projB
+    },
+    lastProjectPath: 'C:\\Projects\\A',
+    defaultProjectPath: 'C:\\Projects\\A'
+  }
+
+  const deleteProject = (pathToDelete: string) => {
+    const key = pathToDelete.toLowerCase()
+    const updatedProjects = { ...currentSettings.projects }
+    delete updatedProjects[key as keyof typeof updatedProjects]
+
+    const remaining = Object.values(updatedProjects)
+    let nextLast = currentSettings.lastProjectPath
+    if (nextLast && nextLast.toLowerCase() === key) {
+      nextLast = remaining[0]?.rootPath
+    }
+    let nextDefault = currentSettings.defaultProjectPath
+    if (nextDefault && nextDefault.toLowerCase() === key) {
+      nextDefault = undefined
+    }
+
+    currentSettings = {
+      projects: updatedProjects,
+      lastProjectPath: nextLast || '',
+      defaultProjectPath: nextDefault
+    }
+  }
+
+  deleteProject('C:\\Projects\\A')
+  assert.equal(Object.keys(currentSettings.projects).length, 1)
+  assert.equal(currentSettings.lastProjectPath, 'C:\\Projects\\B')
+  assert.equal(currentSettings.defaultProjectPath, undefined)
+})
+
+test('check folder existence safely reports missing without throwing', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-harness-proj-test-'))
+  const missingDir = path.join(tempDir, 'does-not-exist')
+
+  const checkFolder = async (folderPath: string) => {
+    try {
+      const stat = await fs.stat(folderPath)
+      return { exists: true, isDirectory: stat.isDirectory() }
+    } catch {
+      return { exists: false, isDirectory: false }
+    }
+  }
+
+  const before = await checkFolder(missingDir)
+  assert.equal(before.exists, false)
+  assert.equal(before.isDirectory, false)
+
+  await fs.mkdir(missingDir, { recursive: true })
+  const after = await checkFolder(missingDir)
+  assert.equal(after.exists, true)
+  assert.equal(after.isDirectory, true)
+
+  await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {})
 })

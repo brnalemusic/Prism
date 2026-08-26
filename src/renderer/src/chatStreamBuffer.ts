@@ -85,8 +85,11 @@ export class PerChatStreamBuffer<T extends { chatId: string }> {
     cancel: StreamFrameCanceller,
     consume: (value: T, phase: StreamPhaseSnapshot) => void
   ) {
-    this.schedule = schedule
-    this.cancel = cancel
+    // Browser frame APIs are Web IDL methods and must keep the renderer global
+    // as their receiver. Calling a raw requestAnimationFrame stored on this
+    // class as `this.schedule()` can fail before the pending chunk is consumed.
+    this.schedule = (callback) => schedule.call(globalThis, callback)
+    this.cancel = (handle) => cancel.call(globalThis, handle)
     this.consume = consume
   }
 
