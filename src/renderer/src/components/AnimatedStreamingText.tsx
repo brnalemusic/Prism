@@ -59,6 +59,8 @@ const CADENCE_SAMPLE_COUNT = 6
 const INITIAL_REVEAL_WINDOW = 320
 const MIN_PREDICTED_CHUNK_INTERVAL = 40
 const MAX_PREDICTED_CHUNK_INTERVAL = 4000
+/** Prevents a continuously arriving stream from pushing the visible text indefinitely into the future. */
+export const MAX_STREAMING_BACKLOG_DELAY_MS = 320
 
 const idleAnimationClock: StreamingAnimationClock = {
   renderTime: 0,
@@ -185,7 +187,8 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
       if (existing) return existing.endAt > renderTime ? existing : undefined
       if (!isNew || !isVisuallyStreaming) return undefined
 
-      const startAt = Math.max(renderTime, timeline.nextStartAt)
+      const maxStartAt = renderTime + MAX_STREAMING_BACKLOG_DELAY_MS
+      const startAt = Math.min(Math.max(renderTime, timeline.nextStartAt), maxStartAt)
       const timing = {
         startAt,
         endAt: startAt + duration,
@@ -193,7 +196,10 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
         units: Math.max(1, units)
       }
       timeline.timings.set(token, timing)
-      timeline.nextStartAt = startAt + renderCadence * timing.units
+      timeline.nextStartAt = Math.min(
+        startAt + renderCadence * timing.units,
+        maxStartAt
+      )
       timeline.maxEndAt = Math.max(timeline.maxEndAt, timing.endAt)
       return timing
     }
@@ -263,20 +269,22 @@ function reschedulePendingTimings(timeline: StreamingTimeline, now: number, cade
     .filter(([, timing]) => timing.startAt > now)
     .sort(([leftToken], [rightToken]) => getTokenStart(leftToken) - getTokenStart(rightToken))
 
-  const lastStartedAt = Array.from(timeline.timings.values()).reduce(
-    (latestStart, timing) =>
-      timing.startAt <= now ? Math.max(latestStart, timing.startAt) : latestStart,
-    Number.NEGATIVE_INFINITY
-  )
-  let nextStartAt = Number.isFinite(lastStartedAt) ? Math.max(now, lastStartedAt + cadence) : now
-
+  const maxStartAt = now + MAX_STREAMING_BACKLOG_DELAY_MS
   for (const [, timing] of pendingTimings) {
-    timing.startAt = nextStartAt
-    timing.endAt = nextStartAt + timing.duration
-    nextStartAt += cadence * timing.units
+    if (timing.startAt > maxStartAt) {
+      timing.startAt = maxStartAt
+      timing.endAt = maxStartAt + timing.duration
+    }
   }
 
-  timeline.nextStartAt = nextStartAt
+  const pendingNextStart = pendingTimings.reduce(
+    (latestStart, [, timing]) => Math.max(latestStart, timing.startAt + cadence * timing.units),
+    now
+  )
+  timeline.nextStartAt = Math.min(
+    Math.max(timeline.nextStartAt, pendingNextStart),
+    maxStartAt
+  )
   timeline.maxEndAt = Array.from(timeline.timings.values()).reduce(
     (latestEnd, timing) => Math.max(latestEnd, timing.endAt),
     0

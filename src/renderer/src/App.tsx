@@ -98,7 +98,11 @@ import {
   isToolCancelledResult,
   isToolErrorResult
 } from './toolCallState'
-import { PerChatStreamBuffer } from './chatStreamBuffer'
+import {
+  PerChatStreamBuffer,
+  thinkingDurationSeconds
+} from './chatStreamBuffer'
+import type { StreamPhaseSnapshot } from './chatStreamBuffer'
 
 const DiscordVoiceGlowOverlay = lazy(() =>
   import('./components/DiscordVoiceGlowOverlay').then(({ DiscordVoiceGlowOverlay }) => ({
@@ -1194,12 +1198,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
   const isHarness = sessionMode === 'harness'
 
   const hasTools = !!(msg.toolCalls && msg.toolCalls.length > 0)
-  const thinkingSec =
-    msg.thinkingDuration !== undefined
-      ? msg.thinkingDuration
-      : msg.thoughts && msg.thoughts.trim() !== ''
-        ? Math.max(1, Math.round(msg.thoughts.length / 120))
-        : 0
+  const thinkingSec = msg.thinkingDuration !== undefined ? msg.thinkingDuration : 0
   const hasThinking = thinkingSec > 0
   const workedSec = msg.workedDuration !== undefined ? msg.workedDuration : thinkingSec
 
@@ -1586,6 +1585,12 @@ const TabMessagesList = React.memo(function TabMessagesList({
     </div>
   )
 })
+
+function findActiveStreamingMessageIndex(messages: Message[]): number {
+  const lastIndex = messages.length - 1
+  const lastMessage = messages[lastIndex]
+  return lastMessage?.role === 'ai' && lastMessage.isStreaming ? lastIndex : -1
+}
 
 function RealApp(): React.JSX.Element {
   const [bootComplete, setBootComplete] = useState(false)
@@ -3506,13 +3511,13 @@ function RealApp(): React.JSX.Element {
     })
 
     const flushChunk = (
-      data: Parameters<Parameters<typeof window.api.onChatChunk>[0]>[0]
+      data: Parameters<Parameters<typeof window.api.onChatChunk>[0]>[0],
+      phase: StreamPhaseSnapshot
     ): void => {
       const {
         chatId,
         thoughts,
         finalResponse,
-        isThinking,
         isWritingToolCall,
         toolType,
         streamingToolCalls
@@ -3523,7 +3528,7 @@ function RealApp(): React.JSX.Element {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
             const isHarness = tab.sessionMode === 'harness'
-            let lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
+            let lastMsgIndex = findActiveStreamingMessageIndex(newMessages)
 
             if (lastMsgIndex === -1) {
               newMessages.push({
@@ -3531,8 +3536,11 @@ function RealApp(): React.JSX.Element {
                 content: finalResponse || '',
                 thoughts: thoughts || '',
                 isStreaming: true,
-                isThinking: Boolean(isThinking),
-                thinkingStartTime: isThinking ? Date.now() : undefined,
+                isThinking: phase.showThinking,
+                thinkingStartTime: phase.activeThinking
+                  ? phase.thinkingStartedAt || Date.now()
+                  : undefined,
+                thinkingDuration: thinkingDurationSeconds(phase.thinkingDurationMs) || undefined,
                 workStartTime: Date.now(),
                 isConnecting: false,
                 toolCalls: []
@@ -3562,16 +3570,11 @@ function RealApp(): React.JSX.Element {
                 Math.round((Date.now() - workStartTime) / 1000)
               )
 
-              let duration = lastMsg.thinkingDuration
-              let startTime = lastMsg.thinkingStartTime
-
-              if (isThinking && !startTime) {
-                startTime = Date.now()
-              } else if (!isThinking && lastMsg.isThinking && startTime) {
-                const roundDur = Math.max(1, Math.round((Date.now() - startTime) / 1000))
-                duration = (duration || 0) + roundDur
-                startTime = undefined
-              }
+              const phaseDuration = thinkingDurationSeconds(phase.thinkingDurationMs)
+              const duration = Math.max(lastMsg.thinkingDuration || 0, phaseDuration) || undefined
+              const startTime = phase.activeThinking
+                ? phase.thinkingStartedAt || lastMsg.thinkingStartTime || Date.now()
+                : undefined
 
               let harnessRounds = lastMsg.harnessRounds ? [...lastMsg.harnessRounds] : []
               if (isHarness) {
@@ -3599,7 +3602,7 @@ function RealApp(): React.JSX.Element {
                 ...lastMsg,
                 thoughts,
                 content: finalResponse,
-                isThinking,
+                isThinking: phase.showThinking,
                 thinkingStartTime: startTime,
                 thinkingDuration: duration,
                 workStartTime,
@@ -3641,9 +3644,6 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeChatEndListener = window.api.onChatEnd((data) => {
-      // Only flush this conversation. Other tabs keep their independent frame.
-      flushPendingChunk(data.chatId)
-
       const {
         chatId,
         thoughts,
@@ -3651,6 +3651,9 @@ function RealApp(): React.JSX.Element {
         thinkingDuration: eventDuration,
         workedDuration: eventWorkedDuration
       } = data as typeof data & { thinkingDuration?: number; workedDuration?: number }
+      // Only flush this conversation. Other tabs keep their independent frame.
+      flushPendingChunk(chatId)
+      const finalPhase = chunkBuffer.finalize(chatId)
       setRunningChats((prev) => {
         const next = { ...prev }
         delete next[chatId]
@@ -3662,7 +3665,7 @@ function RealApp(): React.JSX.Element {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
             const isHarness = tab.sessionMode === 'harness'
-            let lastMsgIndex = newMessages.findLastIndex((msg) => msg.role === 'ai')
+            let lastMsgIndex = findActiveStreamingMessageIndex(newMessages)
 
             if (lastMsgIndex === -1) {
               newMessages.push({
@@ -3671,6 +3674,9 @@ function RealApp(): React.JSX.Element {
                 thoughts: thoughts || '',
                 isStreaming: false,
                 isThinking: false,
+                thinkingDuration:
+                  Math.max(eventDuration || 0, thinkingDurationSeconds(finalPhase.thinkingDurationMs)) ||
+                  undefined,
                 workStartTime: Date.now(),
                 isConnecting: false,
                 toolCalls: []
@@ -3680,14 +3686,12 @@ function RealApp(): React.JSX.Element {
 
             const lastMsg = newMessages[lastMsgIndex]
             if (lastMsg && lastMsg.role === 'ai') {
-              let duration = eventDuration !== undefined ? eventDuration : lastMsg.thinkingDuration
-              if (duration === undefined && lastMsg.thinkingStartTime) {
-                const roundDur = Math.max(
-                  1,
-                  Math.round((Date.now() - lastMsg.thinkingStartTime) / 1000)
-                )
-                duration = (lastMsg.thinkingDuration || 0) + roundDur
-              }
+              const duration =
+                Math.max(
+                  lastMsg.thinkingDuration || 0,
+                  eventDuration || 0,
+                  thinkingDurationSeconds(finalPhase.thinkingDurationMs)
+                ) || undefined
 
               const workStartTime = lastMsg.workStartTime || Date.now()
               let finalWorkedDuration =
@@ -3791,6 +3795,7 @@ function RealApp(): React.JSX.Element {
     const removeChatErrorListener = window.api.onChatError((data) => {
       const { error, chatId, workspace } = data
       flushPendingChunk(chatId)
+      const finalPhase = chunkBuffer.finalize(chatId)
       setRunningChats((prev) => {
         const next = { ...prev }
         delete next[chatId]
@@ -3801,7 +3806,7 @@ function RealApp(): React.JSX.Element {
         prevTabs.map((tab) => {
           if (tab.chatId === chatId) {
             const newMessages = [...tab.messages]
-            const lastMsgIndex = newMessages.length - 1
+            const lastMsgIndex = findActiveStreamingMessageIndex(newMessages)
             const lastMsg = newMessages[lastMsgIndex]
             const isCancel = error.includes('cancelled')
 
@@ -3819,6 +3824,10 @@ function RealApp(): React.JSX.Element {
                 isStreaming: false,
                 isThinking: false,
                 isConnecting: false,
+                thinkingDuration: Math.max(
+                  lastMsg.thinkingDuration || 0,
+                  thinkingDurationSeconds(finalPhase.thinkingDurationMs)
+                ) || undefined,
                 toolCalls: updatedToolCalls
               }
             }
