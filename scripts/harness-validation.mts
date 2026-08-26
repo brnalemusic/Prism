@@ -24,7 +24,10 @@ import {
   resolveRequestModelKey,
   resolveRunWorkspace
 } from '../src/main/ai/sessionRuntime.ts'
-import { PerChatStreamBuffer } from '../src/renderer/src/chatStreamBuffer.ts'
+import {
+  PerChatStreamBuffer,
+  thinkingDurationSeconds
+} from '../src/renderer/src/chatStreamBuffer.ts'
 import {
   asHarnessRecord,
   decodeHarnessToolResult,
@@ -346,6 +349,104 @@ test('stream frames remain isolated per chat and retain each latest cumulative c
     { chatId: 'harness-1', text: 'harness-final' },
     { chatId: 'chat-1', text: 'chat-final' }
   ])
+})
+
+test('stream phase keeps Thinking visible across a coalesced reasoning-to-text frame', () => {
+  const callbacks = new Map<number, FrameRequestCallback>()
+  const consumed: Array<{
+    value: { chatId: string; text: string; isThinking: boolean }
+    showThinking: boolean
+    activeThinking: boolean
+    thinkingDurationMs: number
+  }> = []
+  let nextHandle = 1
+  const buffer = new PerChatStreamBuffer(
+    (callback) => {
+      const handle = nextHandle++
+      callbacks.set(handle, callback)
+      return handle
+    },
+    (handle) => callbacks.delete(handle),
+    (value, phase) =>
+      consumed.push({
+        value,
+        showThinking: phase.showThinking,
+        activeThinking: phase.activeThinking,
+        thinkingDurationMs: phase.thinkingDurationMs
+      })
+  )
+
+  buffer.push({ chatId: 'chat-thinking', text: 'thought', isThinking: true }, 1_000)
+  buffer.push({ chatId: 'chat-thinking', text: 'answer', isThinking: false }, 3_000)
+  for (const callback of [...callbacks.values()]) callback(0)
+
+  assert.equal(consumed.length, 1)
+  assert.equal(consumed[0].value.text, 'answer')
+  assert.equal(consumed[0].showThinking, true)
+  assert.equal(consumed[0].activeThinking, false)
+  assert.equal(thinkingDurationSeconds(consumed[0].thinkingDurationMs), 2)
+  assert.equal(
+    thinkingDurationSeconds(buffer.finalize('chat-thinking', 5_000).thinkingDurationMs),
+    2
+  )
+})
+
+test('finalizing a cancelled thinking stream preserves its elapsed duration', () => {
+  const buffer = new PerChatStreamBuffer(
+    () => 1,
+    () => undefined,
+    () => undefined
+  )
+
+  buffer.push({ chatId: 'cancelled-thinking', text: 'partial', isThinking: true }, 10_000)
+  const finalPhase = buffer.finalize('cancelled-thinking', 30_000)
+
+  assert.equal(finalPhase.activeThinking, false)
+  assert.equal(thinkingDurationSeconds(finalPhase.thinkingDurationMs), 20)
+})
+
+test('finalizing a cancelled response flushes its latest cumulative text', () => {
+  const callbacks = new Map<number, FrameRequestCallback>()
+  const consumed: Array<{ chatId: string; text: string }> = []
+  const buffer = new PerChatStreamBuffer<{ chatId: string; text: string }>(
+    (callback) => {
+      callbacks.set(1, callback)
+      return 1
+    },
+    (handle) => callbacks.delete(handle),
+    (value) => consumed.push(value)
+  )
+
+  buffer.push({ chatId: 'cancelled-response', text: 'partial' })
+  buffer.push({ chatId: 'cancelled-response', text: 'partial response received' })
+  buffer.finalize('cancelled-response')
+
+  assert.deepEqual(consumed, [
+    { chatId: 'cancelled-response', text: 'partial response received' }
+  ])
+  assert.equal(callbacks.size, 0)
+})
+
+test('large cumulative stream payloads are retained without intermediate React updates', () => {
+  const callbacks = new Map<number, FrameRequestCallback>()
+  const consumed: Array<{ chatId: string; text: string }> = []
+  let nextHandle = 1
+  const buffer = new PerChatStreamBuffer<{ chatId: string; text: string }>(
+    (callback) => {
+      const handle = nextHandle++
+      callbacks.set(handle, callback)
+      return handle
+    },
+    (handle) => callbacks.delete(handle),
+    (value) => consumed.push(value)
+  )
+  const largeText = 'x'.repeat(100_000)
+
+  buffer.push({ chatId: 'large-chat', text: largeText.slice(0, 20) })
+  buffer.push({ chatId: 'large-chat', text: largeText })
+  for (const callback of [...callbacks.values()]) callback(0)
+
+  assert.deepEqual(consumed, [{ chatId: 'large-chat', text: largeText }])
 })
 
 test('tool lifecycle reconciles by call id even when an end event arrives first', () => {

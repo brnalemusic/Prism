@@ -94,7 +94,11 @@ export class PerChatStreamBuffer<T extends { chatId: string }> {
     if (!value || !value.chatId) return
     const phaseState = this.phases.get(value.chatId) || createPhaseState()
     this.phases.set(value.chatId, phaseState)
-    const phase = updatePhaseState(phaseState, Boolean((value as { isThinking?: boolean }).isThinking), now)
+    const phase = updatePhaseState(
+      phaseState,
+      Boolean((value as { isThinking?: boolean }).isThinking),
+      now
+    )
     this.pending.set(value.chatId, { value, phase })
 
     if (this.scheduled.has(value.chatId)) return
@@ -132,6 +136,7 @@ export class PerChatStreamBuffer<T extends { chatId: string }> {
   }
 
   finalize(chatId: string, now = Date.now()): StreamPhaseSnapshot {
+    this.flush(chatId)
     const state = this.phases.get(chatId)
     if (!state) {
       return {
