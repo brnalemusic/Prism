@@ -62,7 +62,7 @@ export function SourcePill({
       type="button"
       onClick={() => void window.api.openExternalUrl(source.url)}
       title={`${source.title}\n${source.url}`}
-      style={{ animationDelay: `${index * 55}ms` }}
+      style={{ animationDelay: `${index * 120}ms` }}
       className="animate-source-pill group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] hover:border-white/[0.16] text-[11.5px] text-text-secondary hover:text-text-primary transition-[colors,border-color,box-shadow] duration-150 cursor-pointer shadow-xs max-w-[220px]"
     >
       <SourceFavicon source={source} />
@@ -86,7 +86,7 @@ export function FetchSubagentPill({
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
         title={subagent.query ? `Fetch Subagent: ${subagent.query}` : 'Fetch Subagent'}
-        style={{ animationDelay: `${index * 55}ms` }}
+        style={{ animationDelay: `${index * 120}ms` }}
         className={`animate-source-pill group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] transition-[colors,border-color,box-shadow] duration-150 cursor-pointer shadow-xs max-w-[260px] ${
           isOpen
             ? 'bg-accent-primary/20 border border-accent-primary/40 text-accent-primary'
