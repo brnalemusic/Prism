@@ -2044,8 +2044,9 @@ ${browserRule}
   - Absolute paths required for file operations.
   - Commands run in \`${shellName}\` (${shellSyntax}).
   - Parallel native tool calls allowed.
-  - Do not invent tool results, paths, or citations.
-- **Search:** Use web_search (fetches top 5 matching pages with full text content) or web_fetch (synthesizes 20 web pages into a detailed summary via a dedicated subagent). Prism renders the read pages and subagent sources automatically.
+- **Search Protocol:**
+  - Standard search: Use \`web_search\` for standard quick queries (fetches top 5 matching pages with full text content).
+  - Deep Research: Always use \`web_fetch\` when the user asks for deep research, deep search, an in-depth/thorough investigation, or whenever the topic requires exhaustive, comprehensive web investigation across 20 source pages synthesized by a dedicated subagent.
 - **Prism Docs:** Use internal_docs_list, internal_docs_read, internal_docs_search for Prism system queries.
 - **YouTube Assistant Protocol:** When searching for YouTube videos, search via \`web_search\` with query \`site:youtube.com <SEARCH_QUERY>\`. Output the final result enclosed in a styled card container block (\`<div style="border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 18px 20px; background: rgba(255, 255, 255, 0.03); margin: 12px 0;">...</div>\`) containing 🎬 title, customized description, up to 3 clickable HTML <a> button links (primary bold red #ff0000, alternatives dark charcoal #272727), and the suggestion chip below the card: \`<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>\`.
 - **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}

@@ -242,13 +242,13 @@ export const toolsManifest: ToolDefinition[] = [
   ),
   tool(
     'web_search',
-    'Search DuckDuckGo and automatically read the top matching source pages.',
+    'Search DuckDuckGo and automatically read the top 5 matching source pages. Use for standard quick search queries.',
     { query: stringSchema('Focused web search query.') },
     ['query']
   ),
   tool(
     'web_fetch',
-    'Search 20 web pages on a topic and synthesize the findings via a dedicated subagent into a detailed summary (500 to 4000 characters).',
+    'Deep web research tool. Automatically searches and reads 20 source web pages on a topic and synthesizes the findings via a dedicated subagent into a comprehensive, detailed summary (500 to 4000 characters). Always call web_fetch when the user requests a deep search, deep research, comprehensive analysis, or whenever a complex topic demands thorough multi-source investigation.',
     { query: stringSchema('Focused research topic or search query.') },
     ['query']
   ),

@@ -162,7 +162,7 @@ const DEFAULT_CONFIG: AppConfig = {
       name: 'Search',
       description: 'Perform deep web research on a topic',
       systemInstruction:
-        'Deep web research mode. Use web_search to find information, verify facts across sources, and output a structured summary with references.',
+        'Deep web research mode. Always use web_fetch for comprehensive, in-depth multi-source research (synthesizing 20 web sources), or web_search for standard queries.',
       toolConstraints: ['web_search', 'web_fetch', 'open_browser_link']
     },
     {

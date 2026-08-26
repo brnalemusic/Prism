@@ -186,8 +186,8 @@ const STATIC_TOOLS = [
   { name: 'web_search', label: 'Web Search', desc: 'Search DuckDuckGo and read source pages' },
   {
     name: 'web_fetch',
-    label: 'Web Fetch',
-    desc: 'Synthesize 20 web sources via dedicated subagent'
+    label: 'Deep Web Search',
+    desc: 'Deep research synthesizing 20 web sources via subagent'
   },
   {
     name: 'open_browser_link',

@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
-import { GlobeSimple, Robot, X } from '@phosphor-icons/react'
+import { GlobeSimple, Robot, X, BookOpen, CaretDown } from '@phosphor-icons/react'
 import type { HarnessSource } from '../../../shared/types'
 import type { Message, ToolCallItem } from '../types/tab'
 import { decodeHarnessToolResult, type DecodedFetchSubagent } from '../harnessToolPresentation'
@@ -79,6 +79,8 @@ export function FetchSubagentPill({
   index?: number
 }): React.JSX.Element {
   const [isOpen, setIsOpen] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(false)
+  const isLongContent = subagent.summary.length > 250
 
   return (
     <>
@@ -122,12 +124,45 @@ export function FetchSubagentPill({
             </button>
           </div>
 
-          {/* Subagent Markdown Response */}
-          <div className="text-[12.5px] leading-relaxed text-text-primary/90 space-y-2 max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-              {subagent.summary}
-            </ReactMarkdown>
+          {/* Subagent Markdown Response Container with Alpha Mask Fade */}
+          <div className="relative">
+            <div
+              style={
+                !isExpanded && isLongContent
+                  ? {
+                      WebkitMaskImage:
+                        'linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 50%, rgba(0,0,0,0) 100%)',
+                      maskImage:
+                        'linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 50%, rgba(0,0,0,0) 100%)'
+                    }
+                  : undefined
+              }
+              className={`text-[12.5px] leading-relaxed text-text-primary/90 space-y-2 max-w-none transition-all duration-300 ${
+                !isExpanded && isLongContent
+                  ? 'max-h-[125px] overflow-hidden'
+                  : 'max-h-none'
+              }`}
+            >
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                {subagent.summary}
+              </ReactMarkdown>
+            </div>
           </div>
+
+          {/* "Read the full article" toggle button */}
+          {!isExpanded && isLongContent && (
+            <div className="pt-0.5 select-none">
+              <button
+                type="button"
+                onClick={() => setIsExpanded(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11.5px] font-medium text-accent-primary hover:text-accent-secondary bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/20 hover:border-accent-primary/30 transition-all duration-150 cursor-pointer shadow-xs"
+              >
+                <BookOpen size={13} weight="bold" />
+                <span>Read the full article</span>
+                <CaretDown size={12} weight="bold" />
+              </button>
+            </div>
+          )}
 
           {/* Real Sources read by the subagent */}
           {subagent.sources && subagent.sources.length > 0 && (
