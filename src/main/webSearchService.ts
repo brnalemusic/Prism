@@ -24,12 +24,12 @@ export interface WebFetchResult {
 
 export function decodeEntities(value: string): string {
   return value
-    .replace(/&amp;/gi, '&')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&#(\d+);/g, (_match, code) => String.fromCodePoint(Number(code)))
+    .replace(/&amp;/gi, '&')
 }
 
 export function safeWebUrl(rawUrl: string): URL {
