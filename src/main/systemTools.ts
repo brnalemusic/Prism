@@ -2046,7 +2046,7 @@ ${browserRule}
   - Parallel native tool calls allowed.
 - **Search Protocol:**
   - Standard search: Use \`web_search\` for standard quick queries (fetches top 5 matching pages with full text content).
-  - Deep Research: Always use \`web_fetch\` when the user asks for deep research, deep search, an in-depth/thorough investigation, or whenever the topic requires exhaustive, comprehensive web investigation across 20 source pages synthesized by a dedicated subagent.
+  - Deep Research: Always use \`web_fetch\` when the user asks for deep research, deep search, an in-depth/thorough investigation, or whenever the topic requires exhaustive, comprehensive web investigation across 20 source pages synthesized by a dedicated subagent. You must provide: 1) \`title\`: a descriptive research title formulated strictly in the user's conversational language that defines the main topic; 2) \`queries\`: exactly 4 distinct Google-style search queries exploring different aspects and variants of that topic, formulated in whichever language yields the best global results (e.g. English for tech/global topics). Each query retrieves 5 pages (4 x 5 = 20 total pages).
 - **Prism Docs:** Use internal_docs_list, internal_docs_read, internal_docs_search for Prism system queries.
 - **YouTube Assistant Protocol:** When searching for YouTube videos, search via \`web_search\` with query \`site:youtube.com <SEARCH_QUERY>\`. Output the final result enclosed in a styled card container block (\`<div style="border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 18px 20px; background: rgba(255, 255, 255, 0.03); margin: 12px 0;">...</div>\`) containing 🎬 title, customized description, up to 3 clickable HTML <a> button links (primary bold red #ff0000, alternatives dark charcoal #272727), and the suggestion chip below the card: \`<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>\`.
 - **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}
@@ -2565,13 +2565,34 @@ export async function executeSystemTool(
       return JSON.stringify(result)
     }
     case 'web_fetch': {
-      const query = typeof args.query === 'string' ? args.query.trim() : ''
-      if (!query) throw new Error('A query or topic is required for web_fetch.')
-      const result = await fetchAndSummarizeWeb(query, {
-        provider,
-        modelId,
-        signal
-      })
+      const title =
+        typeof args.title === 'string' && args.title.trim()
+          ? args.title.trim()
+          : typeof args.query === 'string' && args.query.trim()
+            ? args.query.trim()
+            : 'Deep Research'
+
+      let queries: string[] = []
+      if (Array.isArray(args.queries) && args.queries.length > 0) {
+        queries = args.queries
+          .map((q) => (typeof q === 'string' ? q.trim() : ''))
+          .filter(Boolean)
+      } else if (typeof args.query === 'string' && args.query.trim()) {
+        queries = [args.query.trim()]
+      }
+
+      if (queries.length === 0) {
+        throw new Error('At least one search query or topic is required for web_fetch.')
+      }
+
+      const result = await fetchAndSummarizeWeb(
+        { title, queries },
+        {
+          provider,
+          modelId,
+          signal
+        }
+      )
       return JSON.stringify(result)
     }
 

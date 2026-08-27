@@ -512,6 +512,38 @@ test('malformed Harness tool data is normalized into a renderable fallback', () 
   assert.equal(stringifyHarnessValue(circular), '[object Object]')
 })
 
+test('Deep Research subagent tool data decodes title, queries, and summary', () => {
+  const payload = JSON.stringify({
+    ok: true,
+    output: JSON.stringify({
+      title: 'Dominance of Chinese AI companies in the 2026 market',
+      queries: [
+        'Chinese AI competitiveness 2026',
+        'Chinese AI benchmarks 2026',
+        'Market highlight of Chinese AI companies 2026',
+        'What is the state of the Chinese AI market in 2026?'
+      ],
+      summary: 'Comprehensive analysis exceeding 1000 characters...',
+      sources: [
+        {
+          title: 'Source 1',
+          url: 'https://example.com/article1',
+          domain: 'example.com',
+          faviconUrl: ''
+        }
+      ],
+      isSubagentFetch: true
+    })
+  })
+
+  const decoded = decodeHarnessToolResult(payload)
+  assert.ok(decoded.fetchSubagent)
+  assert.equal(decoded.fetchSubagent.title, 'Dominance of Chinese AI companies in the 2026 market')
+  assert.equal(decoded.fetchSubagent.query, 'Dominance of Chinese AI companies in the 2026 market')
+  assert.equal(decoded.fetchSubagent.queries?.length, 4)
+  assert.equal(decoded.fetchSubagent.sources.length, 1)
+})
+
 test('closed parent log pipes do not crash the Electron main process', () => {
   const brokenPipe = new EventEmitter()
   installBrokenPipeGuard(brokenPipe)

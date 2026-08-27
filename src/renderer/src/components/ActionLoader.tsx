@@ -24,7 +24,7 @@ import { PptxArtifactCard } from './PptxArtifactCard'
 // Tool labels mapping for simplified display
 const TOOL_LABELS: Record<string, string> = {
   web_search: 'Searching web',
-  web_fetch: 'Deep searching the web',
+  web_fetch: 'Deep researching the web',
   read_skill: 'Reading skill',
   execute_terminal_command: 'Running terminal command',
   run_command: 'Running terminal command',
@@ -327,6 +327,7 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
 
   const url = getStringArg(toolCall.args, 'url')
   const query = getStringArg(toolCall.args, 'query')
+  const title = getStringArg(toolCall.args, 'title')
   const isYoutube = /youtube\.com|youtu\.be|^\/youtube|\byoutube\b/i.test(`${url} ${query}`)
 
   const isDone =
@@ -392,8 +393,8 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
         : query || 'Collecting web results.'
     tone = isYoutube ? 'youtube' : 'search'
   } else if (toolCall.name === 'web_fetch') {
-    displayTitle = 'Deep Searching the Web'
-    displayDetail = query || 'Synthesizing 20 source pages.'
+    displayTitle = 'Deep Research'
+    displayDetail = title || query || 'Synthesizing 20 source pages.'
     tone = 'search'
   } else if (toolCall.name === 'search_chat_history') {
     displayTitle = 'Searching Memory'

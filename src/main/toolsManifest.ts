@@ -248,9 +248,21 @@ export const toolsManifest: ToolDefinition[] = [
   ),
   tool(
     'web_fetch',
-    'Deep web research tool. Automatically searches and reads 20 source web pages on a topic and synthesizes the findings via a dedicated subagent into a comprehensive, detailed summary (500 to 4000 characters). Always call web_fetch when the user requests a deep search, deep research, comprehensive analysis, or whenever a complex topic demands thorough multi-source investigation.',
-    { query: stringSchema('Focused research topic or search query.') },
-    ['query']
+    'Deep web research tool. Automatically executes 4 distinct Google-style search queries (retrieving 5 pages per query, totaling 20 source web pages) on different facets of a topic, and synthesizes the findings via a dedicated subagent into a comprehensive, detailed summary (at least 1000 characters minimum, up to 4000 characters). Always call web_fetch when the user requests a deep search, deep research, comprehensive analysis, or whenever a complex topic demands thorough multi-source investigation.',
+    {
+      title: stringSchema(
+        "Descriptive research title specifying the main extraction topic. MUST be written in the user's conversational language (e.g. 'Dominância das empresas chinesas de IA no mercado de 2026' if talking in Portuguese). This title guides subagent focus and appears in the user interface."
+      ),
+      queries: {
+        type: 'array',
+        description:
+          "Exactly 4 distinct Google-style web search queries exploring different aspects and variants of the topic. Formulate them as Google search queries in whichever language yields the highest quality global results (e.g. English for global/tech topics, or the user's language for regional topics). Each query retrieves 5 web pages (4 x 5 = 20 total pages).",
+        minItems: 4,
+        maxItems: 4,
+        items: stringSchema('A focused Google-style web search query.')
+      }
+    },
+    ['title', 'queries']
   ),
   tool(
     'open_browser_link',

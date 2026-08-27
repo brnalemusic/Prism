@@ -786,6 +786,7 @@
       streaming-character-color 390ms cubic-bezier(0.2, 0.82, 0.2, 1)
         var(--streaming-character-delay, 0ms) both;
     display: inline;
+    will-change: opacity;
   }
 
   .streaming-element-fade {

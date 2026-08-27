@@ -81,13 +81,14 @@ export function FetchSubagentPill({
   const [isOpen, setIsOpen] = useState(false)
   const [isExpanded, setIsExpanded] = useState(false)
   const isLongContent = subagent.summary.length > 250
+  const displayTitle = subagent.title || subagent.query
 
   return (
     <>
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        title={subagent.query ? `Fetch Subagent: ${subagent.query}` : 'Fetch Subagent'}
+        title={displayTitle ? `Deep Research: ${displayTitle}` : 'Deep Research'}
         style={{ animationDelay: `${index * 120}ms` }}
         className={`animate-source-pill group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11.5px] transition-[colors,border-color,box-shadow] duration-150 cursor-pointer shadow-xs max-w-[260px] ${
           isOpen
@@ -96,7 +97,7 @@ export function FetchSubagentPill({
         }`}
       >
         <Robot size={13} className="shrink-0 text-accent-primary" />
-        <span className="truncate font-medium">Fetch Subagent</span>
+        <span className="truncate font-medium">Deep Research</span>
       </button>
 
       {isOpen && (
@@ -106,11 +107,11 @@ export function FetchSubagentPill({
             <div className="flex items-center gap-2 min-w-0">
               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-accent-primary/15 text-accent-primary text-[11px] font-semibold tracking-wide uppercase">
                 <Robot size={13} />
-                Fetch Subagent
+                Deep Research
               </span>
-              {subagent.query && (
+              {displayTitle && (
                 <span className="text-[11.5px] text-text-muted truncate font-normal">
-                  "{subagent.query}"
+                  "{displayTitle}"
                 </span>
               )}
             </div>
@@ -222,7 +223,7 @@ export function SourcePills({
       {fetchSubagents &&
         fetchSubagents.map((subagent, idx) => (
           <FetchSubagentPill
-            key={`subagent-${idx}-${subagent.query}`}
+            key={`subagent-${idx}-${subagent.title || subagent.query}`}
             subagent={subagent}
             index={pillIndex++}
           />
@@ -264,7 +265,7 @@ export function extractMessageSources(msg: Message): ExtractedMessageSources {
     const decoded = decodeHarnessToolResult(tool.result)
 
     if (decoded.fetchSubagent) {
-      const subagentKey = `${decoded.fetchSubagent.query}-${decoded.fetchSubagent.summary}`
+      const subagentKey = `${decoded.fetchSubagent.title || decoded.fetchSubagent.query}-${decoded.fetchSubagent.summary}`
       if (!seenSubagents.has(subagentKey)) {
         seenSubagents.add(subagentKey)
         fetchSubagents.push(decoded.fetchSubagent)

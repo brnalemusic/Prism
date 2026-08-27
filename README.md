@@ -9,7 +9,7 @@
 
 ### The Open, Multi-Provider Desktop AI Copilot & Autonomous Execution Engine
 
-[![Version](https://img.shields.io/badge/version-9.0.0-alpha.2-38bdf8?style=for-the-badge&logo=electron&logoColor=white)](https://github.com/brnalemusic/Prism)
+[![Version](https://img.shields.io/badge/version-9.0.0-alpha.3-38bdf8?style=for-the-badge&logo=electron&logoColor=white)](https://github.com/brnalemusic/Prism)
 [![License](https://img.shields.io/badge/license-PRISM%20LICENSE%201.0-eab308?style=for-the-badge)](./LICENSE)
 
 <br />
@@ -231,7 +231,7 @@ Prism equips connected AI models with a comprehensive manifest of native system 
 │ search_installed_applications │ Discovers installed software shortcuts and executables                 │
 │ open_application              │ Launches an application or opens a file in the default OS handler      │
 │ web_search                    │ Searches DuckDuckGo and reads full content of top 5 source pages       │
-│ web_fetch                     │ Synthesizes 20 web sources via dedicated subagent (500–4000 chars)     │
+│ web_fetch                     │ Synthesizes 20 web sources (4 queries x 5) via subagent (1000–4000 chars) │
 │ open_browser_link             │ Opens an HTTP/HTTPS link in the default system browser                 │
 │ open_browser                  │ Launches or connects to the persistent Playwright browser session      │
 │ browser_navigate              │ Navigates active Playwright browser to an address                      │

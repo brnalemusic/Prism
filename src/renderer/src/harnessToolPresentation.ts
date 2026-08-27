@@ -1,7 +1,9 @@
 import type { HarnessSource } from '../../shared/types'
 
 export interface DecodedFetchSubagent {
+  title?: string
   query: string
+  queries?: string[]
   summary: string
   sources: HarnessSource[]
 }
@@ -68,8 +70,16 @@ function parseSources(value: unknown): HarnessSource[] {
 
 function extractFetchSubagent(record: Record<string, unknown>, sources: HarnessSource[]): DecodedFetchSubagent | undefined {
   if (record.isSubagentFetch === true || (typeof record.summary === 'string' && Array.isArray(record.sources))) {
+    const rawTitle = typeof record.title === 'string' ? record.title.trim() : ''
+    const rawQuery = typeof record.query === 'string' ? record.query.trim() : ''
+    const rawQueries = Array.isArray(record.queries)
+      ? record.queries.map((q) => (typeof q === 'string' ? q.trim() : '')).filter(Boolean)
+      : []
+
     return {
-      query: typeof record.query === 'string' ? record.query : '',
+      title: rawTitle || rawQuery,
+      query: rawQuery || rawTitle,
+      queries: rawQueries,
       summary: typeof record.summary === 'string' ? record.summary : '',
       sources
     }

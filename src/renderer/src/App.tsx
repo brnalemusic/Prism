@@ -196,6 +196,19 @@ function rehypeParseMath(): (tree: HastNode) => void {
   }
 }
 
+const STATIC_REMARK_PLUGINS = [
+  remarkGfm,
+  remarkMath,
+  remarkBreaks,
+  disableIndentedCode as unknown as import('unified').Pluggable
+]
+
+const STATIC_COMPLETED_REHYPE_PLUGINS = [
+  rehypeRaw,
+  rehypeParseMath,
+  rehypeKatex
+]
+
 const MarkdownComponents: Components = {
   a: ({ href, children, className, style, ...props }: React.ComponentPropsWithoutRef<'a'>) => {
     const imageExtensions = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i
@@ -899,18 +912,15 @@ const AiMessage = React.memo(function AiMessage({
                 className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
               >
                 <ReactMarkdown
-                  remarkPlugins={[
-                    remarkGfm,
-                    remarkMath,
-                    remarkBreaks,
-                    disableIndentedCode as unknown as import('unified').Pluggable
-                  ]}
-                  rehypePlugins={[
-                    rehypeRaw,
-                    rehypeParseMath,
-                    rehypeKatex,
-                    createStreamingFadeRehypePlugin(streamStats, startOffset)
-                  ]}
+                  remarkPlugins={STATIC_REMARK_PLUGINS}
+                  rehypePlugins={
+                    msg.isStreaming
+                      ? [
+                          ...STATIC_COMPLETED_REHYPE_PLUGINS,
+                          createStreamingFadeRehypePlugin(streamStats, startOffset)
+                        ]
+                      : STATIC_COMPLETED_REHYPE_PLUGINS
+                  }
                   components={markdownComponents}
                 >
                   {part}
@@ -1169,6 +1179,146 @@ function getHarnessMessageBlocks(
   return blocks
 }
 
+function getHarnessUiConfig(
+  config: AppConfig | null,
+  disciplinePath?: string
+): { showSteps: boolean; showThinking: boolean; reduceMotion: boolean } | undefined {
+  if (!config) return undefined
+  const harnessProject = disciplinePath
+    ? Object.values(config.harness.projects || {}).find(
+        (project) => project.rootPath.toLowerCase() === disciplinePath.toLowerCase()
+      )
+    : undefined
+  return {
+    showSteps: harnessProject?.showSteps ?? config.harness.showSteps,
+    showThinking: harnessProject?.showThinking ?? config.harness.showThinking,
+    reduceMotion:
+      (harnessProject?.reduceMotion ?? config.harness.reduceMotion) ||
+      !(harnessProject?.animateActivity ?? config.harness.animateActivity)
+  }
+}
+
+interface HarnessBlockViewProps {
+  block: HarnessBlockItem
+  bIdx: number
+  msg: Message
+  isActive: boolean
+  isRunningTool: boolean
+  currentChatId?: string
+  handleLoadChat?: (id: string) => void
+  markdownComponents: Components
+  onOpenBrowserTab?: () => void
+  onSendSuggestion?: (payload: string, suggestionKey: string) => boolean
+  suggestionMessageKey: string
+  isSuggestionSendDisabled: boolean
+  inactivityLabel?: string | null
+  activeToolLabel?: string | null
+  isHarness?: boolean
+  harnessUi?: {
+    showSteps: boolean
+    reduceMotion: boolean
+  }
+}
+
+const HarnessBlockView = React.memo(
+  function HarnessBlockView({
+    block,
+    bIdx,
+    msg,
+    isActive,
+    isRunningTool,
+    currentChatId,
+    handleLoadChat,
+    markdownComponents,
+    onOpenBrowserTab,
+    onSendSuggestion,
+    suggestionMessageKey,
+    isSuggestionSendDisabled,
+    inactivityLabel,
+    activeToolLabel,
+    isHarness,
+    harnessUi
+  }: HarnessBlockViewProps) {
+    const isLatest = block.isLatest
+    const roundTools = useMemo(
+      () => consolidateToolCalls(block.toolCalls, isLatest ? msg.streamingToolCalls : undefined),
+      [block.toolCalls, isLatest, msg.streamingToolCalls]
+    )
+    const hasBlockContent = Boolean(block.content && block.content.trim())
+    const isBlockActive = isLatest && Boolean(isActive && isRunningTool)
+
+    const blockMsg = useMemo(
+      () => ({
+        ...msg,
+        content: block.content || '',
+        thoughts: block.thoughts,
+        isStreaming: isLatest ? !!msg.isStreaming : false,
+        isThinking: isLatest ? !!msg.isThinking : false
+      }),
+      [msg, isLatest, block.content, block.thoughts]
+    )
+
+    return (
+      <div key={`harness-block-${block.id}-${bIdx}`} className="w-full flex flex-col gap-2">
+        {/* 1. Block textual preface/content */}
+        {hasBlockContent && (
+          <div className="w-full text-text-primary" data-prism-ai-message="true">
+            <AiMessage
+              msg={blockMsg}
+              currentChatId={currentChatId}
+              handleLoadChat={handleLoadChat}
+              markdownComponents={markdownComponents}
+              onOpenBrowserTab={onOpenBrowserTab}
+              onSendSuggestion={onSendSuggestion}
+              suggestionMessageKey={suggestionMessageKey}
+              isSuggestionSendDisabled={isSuggestionSendDisabled}
+              inactivityLabel={inactivityLabel}
+              activeToolLabel={activeToolLabel}
+              isHarness={isHarness}
+              showActions={isLatest}
+            />
+          </div>
+        )}
+
+        {/* 2. Block tools */}
+        {roundTools.length > 0 && (
+          <HarnessActivityBoundary key={`harness-block-tools-${block.id}-${bIdx}`}>
+            <HarnessSteps
+              tools={roundTools}
+              isActive={isBlockActive}
+              showSteps={harnessUi?.showSteps !== false}
+              reduceMotion={harnessUi?.reduceMotion === true}
+            />
+          </HarnessActivityBoundary>
+        )}
+      </div>
+    )
+  },
+  (prev, next) => {
+    if (!prev.block.isLatest && !next.block.isLatest) {
+      return (
+        prev.block.id === next.block.id &&
+        prev.block.content === next.block.content &&
+        prev.block.thoughts === next.block.thoughts &&
+        prev.block.toolCalls === next.block.toolCalls &&
+        prev.harnessUi?.showSteps === next.harnessUi?.showSteps &&
+        prev.harnessUi?.reduceMotion === next.harnessUi?.reduceMotion
+      )
+    }
+    return (
+      prev.block === next.block &&
+      prev.msg === next.msg &&
+      prev.isActive === next.isActive &&
+      prev.isRunningTool === next.isRunningTool &&
+      prev.isSuggestionSendDisabled === next.isSuggestionSendDisabled &&
+      prev.activeToolLabel === next.activeToolLabel &&
+      prev.inactivityLabel === next.inactivityLabel &&
+      prev.harnessUi?.showSteps === next.harnessUi?.showSteps &&
+      prev.harnessUi?.reduceMotion === next.harnessUi?.reduceMotion
+    )
+  }
+)
+
 interface AiMessageRowProps {
   msg: Message
   i: number
@@ -1184,6 +1334,21 @@ interface AiMessageRowProps {
     showSteps: boolean
     reduceMotion: boolean
   }
+}
+
+const areAiMessageRowPropsEqual = (
+  prevProps: AiMessageRowProps,
+  nextProps: AiMessageRowProps
+): boolean => {
+  if (prevProps.msg !== nextProps.msg) return false
+  if (prevProps.isSuggestionSendDisabled !== nextProps.isSuggestionSendDisabled) return false
+  if (prevProps.currentChatId !== nextProps.currentChatId) return false
+  if (prevProps.sessionMode !== nextProps.sessionMode) return false
+  if (prevProps.suggestionMessageKey !== nextProps.suggestionMessageKey) return false
+  if (prevProps.markdownComponents !== nextProps.markdownComponents) return false
+  if (prevProps.harnessUi?.showSteps !== nextProps.harnessUi?.showSteps) return false
+  if (prevProps.harnessUi?.reduceMotion !== nextProps.harnessUi?.reduceMotion) return false
+  return true
 }
 
 const AiMessageRow = React.memo(function AiMessageRow({
@@ -1214,7 +1379,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
     (msg.toolCalls && msg.toolCalls.some((t) => t.status === 'running' || t.status === 'writing'))
   )
 
-  const isActive = msg.isStreaming || msg.isThinking || isRunningTool || msg.isConnecting
+  const isActive = Boolean(msg.isStreaming || msg.isThinking || isRunningTool || msg.isConnecting)
   const isHarness = sessionMode === 'harness'
 
   const hasTools = !!(msg.toolCalls && msg.toolCalls.length > 0)
@@ -1247,51 +1412,27 @@ const AiMessageRow = React.memo(function AiMessageRow({
       >
         {harnessBlocks.length > 0 ? (
           <div className="w-full flex flex-col gap-2.5">
-            {harnessBlocks.map((block, bIdx) => {
-              const isLatest = block.isLatest
-              const roundTools = consolidateToolCalls(
-                block.toolCalls,
-                isLatest ? msg.streamingToolCalls : undefined
-              )
-              const hasBlockContent = Boolean(block.content && block.content.trim())
-              const isBlockActive = isLatest && Boolean(isActive && isRunningTool)
-
-              return (
-                <div key={`harness-block-${block.id}-${bIdx}`} className="w-full flex flex-col gap-2">
-                  {/* 1. Block textual preface/content */}
-                  {hasBlockContent && (
-                    <div className="w-full text-text-primary" data-prism-ai-message="true">
-                      <AiMessage
-                        msg={{ ...msg, content: block.content || '', thoughts: block.thoughts }}
-                        currentChatId={currentChatId}
-                        handleLoadChat={handleLoadChat}
-                        markdownComponents={markdownComponents}
-                        onOpenBrowserTab={onOpenBrowserTab}
-                        onSendSuggestion={onSendSuggestion}
-                        suggestionMessageKey={suggestionMessageKey}
-                        isSuggestionSendDisabled={isSuggestionSendDisabled}
-                        inactivityLabel={inactivityLabel}
-                        activeToolLabel={activeToolLabel}
-                        isHarness={isHarness}
-                        showActions={isLatest}
-                      />
-                    </div>
-                  )}
-
-                  {/* 2. Block tools */}
-                  {roundTools.length > 0 && (
-                    <HarnessActivityBoundary key={`harness-block-tools-${block.id}-${bIdx}`}>
-                      <HarnessSteps
-                        tools={roundTools}
-                        isActive={isBlockActive}
-                        showSteps={harnessUi?.showSteps !== false}
-                        reduceMotion={harnessUi?.reduceMotion === true}
-                      />
-                    </HarnessActivityBoundary>
-                  )}
-                </div>
-              )
-            })}
+            {harnessBlocks.map((block, bIdx) => (
+              <HarnessBlockView
+                key={`harness-block-${block.id}-${bIdx}`}
+                block={block}
+                bIdx={bIdx}
+                msg={msg}
+                isActive={isActive}
+                isRunningTool={isRunningTool}
+                currentChatId={currentChatId}
+                handleLoadChat={handleLoadChat}
+                markdownComponents={markdownComponents}
+                onOpenBrowserTab={onOpenBrowserTab}
+                onSendSuggestion={onSendSuggestion}
+                suggestionMessageKey={suggestionMessageKey}
+                isSuggestionSendDisabled={isSuggestionSendDisabled}
+                inactivityLabel={inactivityLabel}
+                activeToolLabel={activeToolLabel}
+                isHarness={isHarness}
+                harnessUi={harnessUi}
+              />
+            ))}
           </div>
         ) : (
           <>
@@ -1400,7 +1541,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
       </div>
     </div>
   )
-})
+}, areAiMessageRowPropsEqual)
 
 interface UserMessageRowProps {
   msg: Message
@@ -1409,6 +1550,18 @@ interface UserMessageRowProps {
   onSendSuggestion?: (payload: string, suggestionKey: string) => boolean
   suggestionMessageKey: string
   isSuggestionSendDisabled: boolean
+}
+
+const areUserMessageRowPropsEqual = (
+  prevProps: UserMessageRowProps,
+  nextProps: UserMessageRowProps
+): boolean => {
+  return (
+    prevProps.msg === nextProps.msg &&
+    prevProps.isSuggestionSendDisabled === nextProps.isSuggestionSendDisabled &&
+    prevProps.suggestionMessageKey === nextProps.suggestionMessageKey &&
+    prevProps.markdownComponents === nextProps.markdownComponents
+  )
 }
 
 const UserMessageRow = React.memo(function UserMessageRow({
@@ -1472,13 +1625,8 @@ const UserMessageRow = React.memo(function UserMessageRow({
           <SuggestionRuntimeContext.Provider value={suggestionRuntime}>
             <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base break-words">
               <ReactMarkdown
-                remarkPlugins={[
-                  remarkGfm,
-                  remarkMath,
-                  remarkBreaks,
-                  disableIndentedCode as unknown as import('unified').Pluggable
-                ]}
-                rehypePlugins={[rehypeRaw, rehypeParseMath, rehypeKatex]}
+                remarkPlugins={STATIC_REMARK_PLUGINS}
+                rehypePlugins={STATIC_COMPLETED_REHYPE_PLUGINS}
                 components={markdownComponents}
               >
                 {msg.content}
@@ -1489,20 +1637,9 @@ const UserMessageRow = React.memo(function UserMessageRow({
       </div>
     </div>
   )
-})
+}, areUserMessageRowPropsEqual)
 
-const TabMessagesList = React.memo(function TabMessagesList({
-  messages,
-  tabId,
-  currentChatId,
-  handleLoadChat,
-  onOpenBrowserTab,
-  isSuggestionSendDisabled,
-  onSendSuggestion,
-  sessionMode,
-  harnessUi,
-  harnessContextSnapshot
-}: {
+interface TabMessagesListProps {
   messages: Message[]
   tabId: string
   currentChatId?: string
@@ -1517,7 +1654,36 @@ const TabMessagesList = React.memo(function TabMessagesList({
     showThinking: boolean
     reduceMotion: boolean
   }
-}) {
+}
+
+const areTabMessagesListPropsEqual = (
+  prevProps: TabMessagesListProps,
+  nextProps: TabMessagesListProps
+): boolean => {
+  if (prevProps.messages !== nextProps.messages) return false
+  if (prevProps.tabId !== nextProps.tabId) return false
+  if (prevProps.currentChatId !== nextProps.currentChatId) return false
+  if (prevProps.isSuggestionSendDisabled !== nextProps.isSuggestionSendDisabled) return false
+  if (prevProps.sessionMode !== nextProps.sessionMode) return false
+  if (prevProps.harnessContextSnapshot !== nextProps.harnessContextSnapshot) return false
+  if (prevProps.harnessUi?.showSteps !== nextProps.harnessUi?.showSteps) return false
+  if (prevProps.harnessUi?.showThinking !== nextProps.harnessUi?.showThinking) return false
+  if (prevProps.harnessUi?.reduceMotion !== nextProps.harnessUi?.reduceMotion) return false
+  return true
+}
+
+const TabMessagesList = React.memo(function TabMessagesList({
+  messages,
+  tabId,
+  currentChatId,
+  handleLoadChat,
+  onOpenBrowserTab,
+  isSuggestionSendDisabled,
+  onSendSuggestion,
+  sessionMode,
+  harnessUi,
+  harnessContextSnapshot
+}: TabMessagesListProps) {
   const markdownComponents = useMemo(
     () => ({
       ...MarkdownComponents,
@@ -1604,7 +1770,7 @@ const TabMessagesList = React.memo(function TabMessagesList({
       })}
     </div>
   )
-})
+}, areTabMessagesListPropsEqual)
 
 function findActiveStreamingMessageIndex(messages: Message[]): number {
   const lastIndex = messages.length - 1
@@ -4575,18 +4741,7 @@ function RealApp(): React.JSX.Element {
               {tabs.map((tab) => {
                 const visibleIndex = visibleTabs.findIndex((vt) => vt.id === tab.id)
                 const isVisible = visibleIndex !== -1
-                const harnessProject = Object.values(config?.harness.projects || {}).find(
-                  (project) => project.rootPath.toLowerCase() === tab.disciplinePath.toLowerCase()
-                )
-                const harnessUi = config
-                  ? {
-                      showSteps: harnessProject?.showSteps ?? config.harness.showSteps,
-                      showThinking: harnessProject?.showThinking ?? config.harness.showThinking,
-                      reduceMotion:
-                        (harnessProject?.reduceMotion ?? config.harness.reduceMotion) ||
-                        !(harnessProject?.animateActivity ?? config.harness.animateActivity)
-                    }
-                  : undefined
+                const harnessUi = getHarnessUiConfig(config, tab.disciplinePath)
 
                 if (!isVisible && tab.tabType !== 'browser') {
                   return null
@@ -4743,15 +4898,7 @@ function RealApp(): React.JSX.Element {
               const harnessProject = Object.values(config?.harness.projects || {}).find(
                 (project) => project.rootPath.toLowerCase() === tab.disciplinePath.toLowerCase()
               )
-              const harnessUi = config
-                ? {
-                    showSteps: harnessProject?.showSteps ?? config.harness.showSteps,
-                    showThinking: harnessProject?.showThinking ?? config.harness.showThinking,
-                    reduceMotion:
-                      (harnessProject?.reduceMotion ?? config.harness.reduceMotion) ||
-                      !(harnessProject?.animateActivity ?? config.harness.animateActivity)
-                  }
-                : undefined
+              const harnessUi = getHarnessUiConfig(config, tab.disciplinePath)
               return (
                 <ChatPane
                   tab={tab}
@@ -4828,9 +4975,7 @@ function RealApp(): React.JSX.Element {
                       currentChatId={tab.chatId}
                       handleLoadChat={handleLoadHarnessSession}
                       isSuggestionSendDisabled={tab.isProcessing || !isOnline}
-                      onSendSuggestion={(tabId, payload) =>
-                        handleHarnessSuggestionSend(tabId, payload)
-                      }
+                      onSendSuggestion={handleHarnessSuggestionSend}
                       sessionMode="harness"
                       harnessUi={harnessUi}
                       harnessContextSnapshot={tab.harnessContextSnapshot}

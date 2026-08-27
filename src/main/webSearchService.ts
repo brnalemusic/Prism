@@ -8,8 +8,15 @@ export interface WebSearchResult {
   pages: Array<HarnessSource & { content: string }>
 }
 
+export interface WebFetchParams {
+  title: string
+  queries: string[]
+}
+
 export interface WebFetchResult {
+  title: string
   query: string
+  queries: string[]
   summary: string
   sources: HarnessSource[]
   isSubagentFetch: true
@@ -235,21 +242,89 @@ export async function searchAndReadWeb(
 }
 
 export async function fetchAndSummarizeWeb(
-  query: string,
+  params: string | WebFetchParams,
   options: {
     provider?: ProviderConfig
     modelId?: string
     signal?: AbortSignal
   }
 ): Promise<WebFetchResult> {
-  // 1. Fetch and read up to 20 web pages
-  const searchResult = await searchAndReadWeb(
-    query,
-    { maxContextCharacters: 200_000, webPageCount: 20 },
-    options.signal
+  const title =
+    typeof params === 'string'
+      ? params.trim()
+      : params.title?.trim() || 'Deep Research'
+
+  const rawQueries =
+    typeof params === 'string'
+      ? [params.trim()]
+      : Array.isArray(params.queries) && params.queries.length > 0
+        ? params.queries.map((q) => q.trim()).filter(Boolean)
+        : [title]
+
+  const queries = rawQueries.length > 0 ? rawQueries : [title]
+
+  // 1. Fetch candidate URLs for each query concurrently
+  const targetPerQuery = queries.length === 1 ? 20 : Math.max(5, Math.ceil(20 / queries.length))
+  const candidateLists = await Promise.all(
+    queries.map(async (q) => {
+      try {
+        return await fetchDuckDuckGoCandidateUrls(q, targetPerQuery * 3, options.signal)
+      } catch {
+        return []
+      }
+    })
   )
 
-  // 2. Prepare subagent model & provider
+  // Deduplicate candidate URLs across queries while preserving query association
+  const seenCandidateUrls = new Set<string>()
+  const queryCandidates: Array<{ query: string; urls: string[] }> = []
+  for (let i = 0; i < queries.length; i++) {
+    const q = queries[i]
+    const list = candidateLists[i] || []
+    const uniqueForQuery: string[] = []
+    for (const u of list) {
+      if (!seenCandidateUrls.has(u)) {
+        seenCandidateUrls.add(u)
+        uniqueForQuery.push(u)
+      }
+    }
+    queryCandidates.push({ query: q, urls: uniqueForQuery })
+  }
+
+  // 2. Fetch and read web pages (targetPerQuery per query, up to 20 total)
+  const queryPages = await Promise.all(
+    queryCandidates.map(async ({ query, urls }) => {
+      const pages: Array<HarnessSource & { content: string; queryOrigin: string }> = []
+      for (const url of urls) {
+        if (pages.length >= targetPerQuery) break
+        try {
+          const html = await fetchHtml(url, options.signal)
+          const extracted = pageText(html, 10_000)
+          if (extracted.content.length < 200) continue
+          const parsed = new URL(url)
+          pages.push({
+            title: extracted.title,
+            url,
+            domain: parsed.hostname.replace(/^www\./, ''),
+            faviconUrl: `${parsed.origin}/favicon.ico`,
+            content: extracted.content,
+            queryOrigin: query
+          })
+        } catch {
+          // Continue to next candidate
+        }
+      }
+      return pages
+    })
+  )
+
+  const allPages = queryPages.flat()
+
+  if (allPages.length === 0) {
+    throw new Error('DuckDuckGo returned no readable source pages for the research queries.')
+  }
+
+  // 3. Prepare subagent model & provider
   let provider = options.provider
   let modelId = options.modelId
   if (!provider || !modelId) {
@@ -261,25 +336,29 @@ export async function fetchAndSummarizeWeb(
   }
 
   if (!provider) {
-    throw new Error('No enabled AI provider available for Fetch Subagent.')
+    throw new Error('No enabled AI provider available for Deep Research subagent.')
   }
 
-  const formattedPages = searchResult.pages
+  const formattedPages = allPages
     .map(
       (page, idx) =>
-        `### Source ${idx + 1}: ${page.title}\nURL: ${page.url}\n\n${page.content.slice(0, 9500)}`
+        `### Source ${idx + 1}: ${page.title}\nURL: ${page.url}\n(Search Angle: "${page.queryOrigin}")\n\n${page.content.slice(0, 9500)}`
     )
     .join('\n\n---\n\n')
 
   const systemInstruction =
-    'You are a focused web research subagent. Your only task is to thoroughly synthesize and summarize the information from the 20 web pages provided below to answer the user inquiry directly.\n\n' +
+    'You are a dedicated web research subagent. Your task is to thoroughly synthesize and analyze the information from the web source pages provided below.\n\n' +
+    `PRIMARY RESEARCH TOPIC:\n"${title}"\n\n` +
     'MANDATORY RULES:\n' +
-    '1. Provide a comprehensive, detailed, clear, and informative response in Markdown.\n' +
-    '2. Ground all facts in the provided source pages and reference/cite the sources.\n' +
-    '3. Do NOT artificially truncate or end abruptly.\n' +
-    '4. Do NOT use conversational greetings, preamble, or meta-commentary.'
+    '1. LANGUAGE REQUIREMENT: You MUST write your entire response strictly in the same language as the PRIMARY RESEARCH TOPIC title above (e.g. if the title is in Portuguese, respond in Portuguese; if in English, respond in English). Synthesize and translate any foreign-language sources into this language.\n' +
+    '2. COMPREHENSIVE COVERAGE: You must thoroughly cover ALL topics, perspectives, and key findings gathered from all search queries and source pages. Do not omit any relevant facet of the research.\n' +
+    '3. PRIMARY FOCUS: Keep the PRIMARY RESEARCH TOPIC as your central theme and anchor. Give it the highest depth and priority while connecting all surrounding angles into a coherent narrative.\n' +
+    '4. LENGTH REQUIREMENT: Provide an extensive, in-depth Markdown synthesis of AT LEAST 1000 CHARACTERS minimum (typically between 1000 and 4000 characters). Do not write brief summaries or artificially truncate.\n' +
+    '5. CITATIONS & FACTUALITY: Ground every fact, statistic, and statement in the provided source pages and reference the source numbers (e.g. [Source 1], [Source 3]).\n' +
+    '6. FORMAT: Use clear Markdown with headings, bullet points, and paragraphs. Do NOT include conversational greetings, preamble, or meta-commentary.'
 
-  const userContent = `User query: "${query}"\n\nWeb Search Sources (20 pages):\n\n${formattedPages}`
+  const queriesList = queries.map((q, i) => `${i + 1}. "${q}"`).join('\n')
+  const userContent = `Research Title: "${title}"\n\nSearch Queries Executed:\n${queriesList}\n\nWeb Search Sources (${allPages.length} pages):\n\n${formattedPages}`
 
   const result = await streamOpenAiCompletion(
     provider,
@@ -300,9 +379,16 @@ export async function fetchAndSummarizeWeb(
   const summary = result.text.trim()
 
   return {
-    query,
+    title,
+    query: title,
+    queries,
     summary,
-    sources: searchResult.sources,
+    sources: allPages.map((page) => ({
+      title: page.title,
+      url: page.url,
+      domain: page.domain,
+      faviconUrl: page.faviconUrl
+    })),
     isSubagentFetch: true
   }
 }
