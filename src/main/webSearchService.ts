@@ -92,7 +92,7 @@ export function pageText(
   maximumCharacters: number
 ): { title: string; content: string } {
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
-  const title = decodeEntities((titleMatch?.[1] || 'Untitled page').replace(/<[^>]+>/g, '')).trim()
+  const title = decodeEntities(titleMatch?.[1] || 'Untitled page').replace(/[<>]/g, '').trim()
   const content = decodeEntities(
     html
       .replace(/<!--[\s\S]*?-->/g, ' ')
