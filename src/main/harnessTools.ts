@@ -307,7 +307,9 @@ async function prepareSimpleChange(
     if (mode !== 'create' && mode !== 'overwrite')
       throw new Error('arguments.mode must be create or overwrite.')
     if (mode === 'create' && exists)
-      throw new Error('The file already exists; use mode "overwrite".')
+      throw new Error(
+        'The file already exists; use mode "overwrite", or "read" and "edit" the original file.'
+      )
     if (mode === 'overwrite' && !exists)
       throw new Error('The file does not exist; use mode "create".')
     return [
