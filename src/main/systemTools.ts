@@ -2045,8 +2045,8 @@ ${browserRule}
   - Commands run in \`${shellName}\` (${shellSyntax}).
   - Parallel native tool calls allowed.
 - **Search Protocol:**
-  - Standard search: Use \`web_search\` for standard quick queries (fetches top 5 matching pages with full text content).
-  - Deep Research: Always use \`web_fetch\` when the user asks for deep research, deep search, an in-depth/thorough investigation, or whenever the topic requires exhaustive, comprehensive web investigation across 20 source pages synthesized by a dedicated subagent. You must provide: 1) \`title\`: a descriptive research title formulated strictly in the user's conversational language that defines the main topic; 2) \`queries\`: exactly 4 distinct Google-style search queries exploring different aspects and variants of that topic, formulated in whichever language yields the best global results (e.g. English for tech/global topics). Each query retrieves 5 pages (4 x 5 = 20 total pages).
+  - Standard search: Use \`web_search\` for standard quick queries and set \`resultCount\` to control how many Sources are returned (minimum 1, recommended 2–4, 5–8 only for specific cases, maximum 10).
+  - Deep Research: Always use \`web_fetch\` when the user asks for deep research, deep search, an in-depth/thorough investigation, or whenever the topic requires exhaustive, comprehensive web investigation across up to 50 source pages synthesized by a dedicated subagent. You must provide: 1) \`title\`: a descriptive research title formulated strictly in the user's conversational language that defines the main topic; 2) \`queries\`: exactly 5 distinct Google-style search queries exploring different aspects and variants of that topic, formulated in whichever language yields the best global results (e.g. English for tech/global topics). Each query retrieves 10 pages (5 x 10 = up to 50 total Sources), with up to 15,000 characters from each Source sent to the subagent.
 - **Prism Docs:** Use internal_docs_list, internal_docs_read, internal_docs_search for Prism system queries.
 - **YouTube Assistant Protocol:** When searching for YouTube videos, search via \`web_search\` with query \`site:youtube.com <SEARCH_QUERY>\`. Output the final result enclosed in a styled card container block (\`<div style="border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 18px 20px; background: rgba(255, 255, 255, 0.03); margin: 12px 0;">...</div>\`) containing 🎬 title, customized description, up to 3 clickable HTML <a> button links (primary bold red #ff0000, alternatives dark charcoal #272727), and the suggestion chip below the card: \`<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>\`.
 - **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}
@@ -2557,9 +2557,13 @@ export async function executeSystemTool(
         query = args.searches[0].query.trim()
       }
       if (!query) throw new Error('A search query is required.')
+      const resultCount = Number(args.resultCount)
+      if (!Number.isInteger(resultCount) || resultCount < 1 || resultCount > 10) {
+        throw new Error('resultCount must be an integer between 1 and 10.')
+      }
       const result = await searchAndReadWeb(
         query,
-        { maxContextCharacters: 40_000, webPageCount: 5 },
+        { maxContextCharacters: 15_000 * resultCount, webPageCount: resultCount },
         signal
       )
       return JSON.stringify(result)

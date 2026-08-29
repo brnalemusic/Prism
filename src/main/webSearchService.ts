@@ -22,6 +22,10 @@ export interface WebFetchResult {
   isSubagentFetch: true
 }
 
+const DEEP_RESEARCH_QUERY_COUNT = 5
+const DEEP_RESEARCH_SOURCES_PER_QUERY = 10
+const DEEP_RESEARCH_CHARACTERS_PER_SOURCE = 15_000
+
 export function decodeEntities(value: string): string {
   return value
     .replace(/&quot;/gi, '"')
@@ -200,6 +204,9 @@ export async function searchAndReadWeb(
   signal?: AbortSignal
 ): Promise<WebSearchResult> {
   const targetCount = options.webPageCount
+  if (!Number.isInteger(targetCount) || targetCount < 1 || targetCount > 10) {
+    throw new Error('webPageCount must be an integer between 1 and 10.')
+  }
   const maxContext = options.maxContextCharacters || 40_000
   const candidateUrls = await fetchDuckDuckGoCandidateUrls(query, targetCount * 2, signal)
 
@@ -262,9 +269,14 @@ export async function fetchAndSummarizeWeb(
         : [title]
 
   const queries = rawQueries.length > 0 ? rawQueries : [title]
+  if (queries.length !== DEEP_RESEARCH_QUERY_COUNT) {
+    throw new Error(
+      `web_fetch requires exactly ${DEEP_RESEARCH_QUERY_COUNT} search queries.`
+    )
+  }
 
   // 1. Fetch candidate URLs for each query concurrently
-  const targetPerQuery = queries.length === 1 ? 20 : Math.max(5, Math.ceil(20 / queries.length))
+  const targetPerQuery = DEEP_RESEARCH_SOURCES_PER_QUERY
   const candidateLists = await Promise.all(
     queries.map(async (q) => {
       try {
@@ -291,7 +303,7 @@ export async function fetchAndSummarizeWeb(
     queryCandidates.push({ query: q, urls: uniqueForQuery })
   }
 
-  // 2. Fetch and read web pages (targetPerQuery per query, up to 20 total)
+  // 2. Fetch and read web pages (10 per query, up to 50 total)
   const queryPages = await Promise.all(
     queryCandidates.map(async ({ query, urls }) => {
       const pages: Array<HarnessSource & { content: string; queryOrigin: string }> = []
@@ -299,7 +311,7 @@ export async function fetchAndSummarizeWeb(
         if (pages.length >= targetPerQuery) break
         try {
           const html = await fetchHtml(url, options.signal)
-          const extracted = pageText(html, 10_000)
+          const extracted = pageText(html, DEEP_RESEARCH_CHARACTERS_PER_SOURCE)
           if (extracted.content.length < 200) continue
           const parsed = new URL(url)
           pages.push({
@@ -342,7 +354,7 @@ export async function fetchAndSummarizeWeb(
   const formattedPages = allPages
     .map(
       (page, idx) =>
-        `### Source ${idx + 1}: ${page.title}\nURL: ${page.url}\n(Search Angle: "${page.queryOrigin}")\n\n${page.content.slice(0, 9500)}`
+        `### Source ${idx + 1}: ${page.title}\nURL: ${page.url}\n(Search Angle: "${page.queryOrigin}")\n\n${page.content.slice(0, DEEP_RESEARCH_CHARACTERS_PER_SOURCE)}`
     )
     .join('\n\n---\n\n')
 

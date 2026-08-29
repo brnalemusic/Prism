@@ -38,10 +38,11 @@ const text = (description: string, enumValues?: string[]): JsonSchema => ({
   description,
   ...(enumValues ? { enum: enumValues } : {})
 })
-const integer = (description: string, minimum = 1): JsonSchema => ({
+const integer = (description: string, minimum = 1, maximum?: number): JsonSchema => ({
   type: 'integer',
   description,
-  minimum
+  minimum,
+  ...(maximum === undefined ? {} : { maximum })
 })
 const boolean = (description: string): JsonSchema => ({ type: 'boolean', description })
 const definition = (
@@ -206,9 +207,16 @@ export const HARNESS_TOOL_DEFINITIONS: ToolDefinition[] = [
   ),
   definition(
     'web_search',
-    'Search DuckDuckGo HTML and automatically read the top reachable source pages.',
-    { query: text('Focused web search query.') },
-    ['query']
+    'Search DuckDuckGo HTML and automatically read the requested number of reachable source pages.',
+    {
+      query: text('Focused web search query.'),
+      resultCount: integer(
+        'Number of Sources to return. Minimum: 1. Recommended: 2–4. Use 5–8 only for specific cases. Maximum: 10.',
+        1,
+        10
+      )
+    },
+    ['query', 'resultCount']
   )
 ]
 
@@ -632,8 +640,16 @@ async function executeOperation(
     )
   }
   if (name === 'web_search') {
+    const resultCount = args.resultCount
+    if (!Number.isInteger(resultCount) || (resultCount as number) < 1 || (resultCount as number) > 10) {
+      throw new Error('resultCount must be an integer between 1 and 10.')
+    }
     return JSON.stringify(
-      await searchAndReadWeb(requiredString(args, 'query'), context.settings, context.signal)
+      await searchAndReadWeb(
+        requiredString(args, 'query'),
+        { ...context.settings, webPageCount: resultCount as number },
+        context.signal
+      )
     )
   }
   throw new Error(`Unsupported Harness tool: ${name}`)

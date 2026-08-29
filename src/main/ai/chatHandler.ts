@@ -637,7 +637,7 @@ export async function handleChatMessage(
       fullPrompt += `\n\n# Active Workflow: ${matchedWorkflow.name}\n${matchedWorkflow.systemInstruction}`
     }
     if (requestSessionMode !== 'harness' && isForceSearch && !isYoutubeMode) {
-      fullPrompt += `\n\n# Web Search Requirement\nThe user has explicitly enabled Web Search for this prompt. You MUST use the 'web_search' tool to search the internet for current up-to-date information before returning your response.`
+      fullPrompt += `\n\n# Web Search Requirement\nThe user has explicitly enabled Web Search for this prompt. You MUST use the 'web_search' tool to search the internet for current up-to-date information before returning your response. Set resultCount from 1 to 10; use 2–4 in most cases and 5–8 only for specific needs.`
     }
     if (requestSessionMode !== 'harness' && isYoutubeMode) {
       fullPrompt += `\n\n# YouTube Video Search Protocol (Active YouTube App Mode)
@@ -645,7 +645,7 @@ You are acting as the specialized YouTube Assistant. The user wants to find YouT
 STRICT EXECUTION PROTOCOL:
 1. SEARCH VIA GOOGLE QUERY: You MUST search using the 'web_search' tool with the exact query format:
    \`site:youtube.com <SEARCH_QUERY>\`
-   (e.g., web_search({ query: "site:youtube.com Thinking Space II verified" })).
+   (e.g., web_search({ query: "site:youtube.com Thinking Space II verified", resultCount: 3 })).
    This uses Google search to instantly and reliably locate the official YouTube video URLs (https://www.youtube.com/watch?v=...), channel names, video titles, and snippets.
 2. OUTPUT FORMAT (MANDATORY STYLED CARD BLOCK): You MUST format your final response by wrapping the title, description, and buttons in an HTML card container block, followed by the suggestion chip below it:
 

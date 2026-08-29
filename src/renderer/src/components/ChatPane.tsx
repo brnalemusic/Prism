@@ -108,7 +108,6 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     const [isDraggingSplit, setIsDraggingSplit] = useState(false)
     const [isDragTargetSplit, setIsDragTargetSplit] = useState(false)
     const isHarness = tab.sessionMode === 'harness'
-    const harnessProjectName = tab.disciplinePath.split(/[\\/]/).pop() || 'this project'
 
     const [recentProjects, setRecentProjects] = useState<{ path: string; name: string }[]>([])
     const [projectHealthMap, setProjectHealthMap] = useState<Record<string, boolean>>({})
@@ -705,9 +704,9 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                     <h1 className="text-3xl sm:text-4xl tracking-wide hero-shimmer-text">
                       {isHarness
                         ? tab.disciplinePath
-                          ? `Ask to build in ${harnessProjectName}...`
+                          ? 'Build & Edit'
                           : 'Choose a project to build'
-                        : 'Ask to search, answer, analyze...'}
+                        : 'Search & Create'}
                     </h1>
                     <p className="text-sm text-text-secondary/80">
                       {isHarness

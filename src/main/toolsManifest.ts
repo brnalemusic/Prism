@@ -242,13 +242,19 @@ export const toolsManifest: ToolDefinition[] = [
   ),
   tool(
     'web_search',
-    'Search DuckDuckGo and automatically read the top 5 matching source pages. Use for standard quick search queries.',
-    { query: stringSchema('Focused web search query.') },
-    ['query']
+    'Search DuckDuckGo and automatically read the requested number of matching source pages. Use for standard quick search queries. Request 2–4 sources in most cases, 5–8 only for specific needs, and never more than 10.',
+    {
+      query: stringSchema('Focused web search query.'),
+      resultCount: integerSchema(
+        'Number of Sources to return. Minimum: 1. Recommended: 2–4. Use 5–8 only for specific cases. Maximum: 10.',
+        { minimum: 1, maximum: 10 }
+      )
+    },
+    ['query', 'resultCount']
   ),
   tool(
     'web_fetch',
-    'Deep web research tool. Automatically executes 4 distinct Google-style search queries (retrieving 5 pages per query, totaling 20 source web pages) on different facets of a topic, and synthesizes the findings via a dedicated subagent into a comprehensive, detailed summary (at least 1000 characters minimum, up to 4000 characters). Always call web_fetch when the user requests a deep search, deep research, comprehensive analysis, or whenever a complex topic demands thorough multi-source investigation.',
+    'Deep web research tool. Automatically executes 5 distinct Google-style search queries (retrieving 10 pages per query, totaling up to 50 source web pages) on different facets of a topic, and synthesizes up to 15,000 characters from each Source via a dedicated subagent into a comprehensive, detailed summary (at least 1000 characters minimum, up to 4000 characters). Always call web_fetch when the user requests a deep search, deep research, comprehensive analysis, or whenever a complex topic demands thorough multi-source investigation.',
     {
       title: stringSchema(
         "Descriptive research title specifying the main extraction topic. MUST be written in the user's conversational language (e.g. 'Dominância das empresas chinesas de IA no mercado de 2026' if talking in Portuguese). This title guides subagent focus and appears in the user interface."
@@ -256,9 +262,9 @@ export const toolsManifest: ToolDefinition[] = [
       queries: {
         type: 'array',
         description:
-          "Exactly 4 distinct Google-style web search queries exploring different aspects and variants of the topic. Formulate them as Google search queries in whichever language yields the highest quality global results (e.g. English for global/tech topics, or the user's language for regional topics). Each query retrieves 5 web pages (4 x 5 = 20 total pages).",
-        minItems: 4,
-        maxItems: 4,
+          "Exactly 5 distinct Google-style web search queries exploring different aspects and variants of the topic. Formulate them as Google search queries in whichever language yields the highest quality global results (e.g. English for global/tech topics, or the user's language for regional topics). Each query retrieves 10 web pages (5 x 10 = up to 50 total Sources).",
+        minItems: 5,
+        maxItems: 5,
         items: stringSchema('A focused Google-style web search query.')
       }
     },

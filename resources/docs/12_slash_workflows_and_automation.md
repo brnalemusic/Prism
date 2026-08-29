@@ -34,3 +34,5 @@ Deletes a custom workflow by command or ID.
 | --- | --- | --- | --- |
 | `/search` | Search | Perform deep web research on a topic | `web_search`, `web_fetch`, `open_browser_link` |
 | `/summarize` | Summarizer | Extract key points, check errors, and format structured summaries | All tools allowed |
+
+The Search workflow uses `web_fetch` for deep research with exactly five queries and up to ten readable Sources per query (up to 50 Sources total). Up to 15,000 characters from each Source are provided to the research subagent. For standard `web_search` calls, the model sets `resultCount` from 1 to 10; 2–4 is recommended, while 5–8 is reserved for specific cases.
