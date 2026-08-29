@@ -1,5 +1,6 @@
 import '@fontsource-variable/geist'
 import '@fontsource-variable/jetbrains-mono'
+import '@fontsource/rubik-spray-paint'
 import './assets/main.css'
 
 import { lazy, StrictMode, Suspense } from 'react'

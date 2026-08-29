@@ -702,12 +702,12 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
               <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-full bg-transparent select-none">
                 <div className="w-full max-w-[720px] flex flex-col items-center gap-6 z-10 my-auto">
                   <div className="flex flex-col items-center text-center space-y-2">
-                    <h1 className="text-3xl font-bold tracking-tight text-text-primary">
+                    <h1 className="text-3xl sm:text-4xl tracking-wide hero-shimmer-text">
                       {isHarness
                         ? tab.disciplinePath
-                          ? `What should Harness change in ${harnessProjectName}?`
-                          : 'Choose a project for Harness'
-                        : 'What would you like to build?'}
+                          ? `Ask to build in ${harnessProjectName}...`
+                          : 'Choose a project to build'
+                        : 'Ask to search, answer, analyze...'}
                     </h1>
                     <p className="text-sm text-text-secondary/80">
                       {isHarness
