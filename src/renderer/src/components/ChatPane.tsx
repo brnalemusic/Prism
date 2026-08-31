@@ -55,6 +55,8 @@ interface ChatPaneProps {
   onUpdateTabFile: (id: string, file: TabSession['attachedFile']) => void
   onUpdateTabQuote?: (id: string, quote: string | null) => void
   onUpdateTabDisabledSkills?: (id: string, disabledSkills: string[]) => void
+  onAddHarnessExplorerContext?: (selection: import('../../../shared/types').HarnessExplorerSelection) => boolean
+  onRemoveHarnessExplorerContext?: (relativePath: string) => void
   harnessPermissionMode?: HarnessPermissionMode
   onHarnessPermissionModeChange?: (mode: HarnessPermissionMode) => void
   onOpenUpgradePlans?: () => void
@@ -92,6 +94,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     onUpdateTabFile,
     onUpdateTabQuote,
     onUpdateTabDisabledSkills,
+    onAddHarnessExplorerContext,
+    onRemoveHarnessExplorerContext,
     harnessPermissionMode,
     onHarnessPermissionModeChange,
     onOpenUpgradePlans,
@@ -778,6 +782,9 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       onHarnessPermissionModeChange={onHarnessPermissionModeChange}
                       onOpenUpgradePlans={onOpenUpgradePlans}
                       isEnterprise={isEnterprise}
+                      harnessExplorerContext={isHarness ? tab.harnessExplorerContext || [] : undefined}
+                      onAddHarnessExplorerContext={onAddHarnessExplorerContext}
+                      onRemoveHarnessExplorerContext={onRemoveHarnessExplorerContext}
                     />
                     {renderProjectDropdown('bottom')}
                   </div>
@@ -878,6 +885,9 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                   onHarnessPermissionModeChange={onHarnessPermissionModeChange}
                   onOpenUpgradePlans={onOpenUpgradePlans}
                   isEnterprise={isEnterprise}
+                  harnessExplorerContext={isHarness ? tab.harnessExplorerContext || [] : undefined}
+                  onAddHarnessExplorerContext={onAddHarnessExplorerContext}
+                  onRemoveHarnessExplorerContext={onRemoveHarnessExplorerContext}
                 />
                 {renderProjectDropdown('top')}
               </div>

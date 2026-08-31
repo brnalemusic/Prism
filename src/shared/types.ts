@@ -244,6 +244,47 @@ export interface HarnessInstructionStatus {
   warnings: string[]
 }
 
+export type HarnessExplorerItemKind = 'file' | 'directory'
+
+export interface HarnessExplorerItem {
+  name: string
+  kind: HarnessExplorerItemKind
+  relativePath: string
+  absolutePath: string
+}
+
+export interface HarnessExplorerSelection {
+  name: string
+  kind: HarnessExplorerItemKind
+  relativePath: string
+}
+
+export interface HarnessExplorerDirectoryResult {
+  ok: boolean
+  items: HarnessExplorerItem[]
+  error?: string
+}
+
+export interface HarnessExplorerActionResult {
+  ok: boolean
+  error?: string
+}
+
+export interface HarnessExplorerContextItem {
+  selection: HarnessExplorerSelection
+  absolutePath?: string
+  truncated: boolean
+  warnings: string[]
+}
+
+export interface HarnessExplorerContextSnapshot {
+  version: 1
+  createdAt: number
+  projectPath: string
+  items: HarnessExplorerContextItem[]
+  warnings: string[]
+}
+
 export type HarnessContextInjectionKind = 'system' | 'global' | 'repo' | 'project'
 
 export interface HarnessContextInjectionEntry {

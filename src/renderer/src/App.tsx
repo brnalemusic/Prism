@@ -2097,6 +2097,22 @@ function RealApp(): React.JSX.Element {
     [harnessTabs, activeHarnessTabId]
   )
 
+  const addHarnessExplorerContext = useCallback((selection: import('../../shared/types').HarnessExplorerSelection): boolean => {
+    const tabId = activeHarnessTabIdRef.current
+    const tab = harnessTabsRef.current.find((entry) => entry.id === tabId)
+    if (!tab) return false
+    const current = tab.harnessExplorerContext || []
+    if (current.some((entry) => entry.relativePath.toLowerCase() === selection.relativePath.toLowerCase())) return true
+    if (current.length >= 5) return false
+    setHarnessTabs((previous) => previous.map((entry) => entry.id === tabId ? { ...entry, harnessExplorerContext: [...(entry.harnessExplorerContext || []), selection] } : entry))
+    return true
+  }, [])
+
+  const removeHarnessExplorerContext = useCallback((relativePath: string): void => {
+    const tabId = activeHarnessTabIdRef.current
+    setHarnessTabs((previous) => previous.map((entry) => entry.id === tabId ? { ...entry, harnessExplorerContext: (entry.harnessExplorerContext || []).filter((selection) => selection.relativePath.toLowerCase() !== relativePath.toLowerCase()) } : entry))
+  }, [])
+
   const selectHarnessProjectForTab = useCallback(
     (tabId: string, project: HarnessProjectConfig): void => {
       const existingTab = harnessTabsRef.current.find((tab) => tab.id === tabId)
@@ -2119,7 +2135,8 @@ function RealApp(): React.JSX.Element {
                 ...tab,
                 workspace: 'harness',
                 sessionMode: 'harness',
-                disciplinePath: project.rootPath
+                disciplinePath: project.rootPath,
+                harnessExplorerContext: []
               }
             : tab
         )
@@ -2439,7 +2456,8 @@ function RealApp(): React.JSX.Element {
         isTodoOpen: false,
         selectedModel: harnessModel,
         isSearchEnabled: false,
-        disabledSkills: []
+        disabledSkills: [],
+        harnessExplorerContext: []
       }
       setHarnessTabs((previous) => [...previous, newTab])
       setActiveHarnessTabId(newId)
@@ -2759,6 +2777,7 @@ function RealApp(): React.JSX.Element {
 
       const extractMessageText = (c: any): string => {
         if (!c) return ''
+        if (typeof c.visible_user_content === 'string') return c.visible_user_content
         if (typeof c.content === 'string') return c.content
         if (Array.isArray(c.content)) {
           return c.content
@@ -3206,7 +3225,8 @@ function RealApp(): React.JSX.Element {
             selectedModel: loadedModel,
             isSearchEnabled: false,
             disabledSkills: loadedDisabledSkills,
-            harnessContextSnapshot
+            harnessContextSnapshot,
+            harnessExplorerContext: []
           }
           setActiveWorkspaceTabId(newId)
           if (workspace === 'chat') setVisibleTabIds([newId])
@@ -3223,7 +3243,8 @@ function RealApp(): React.JSX.Element {
               disciplinePath: loadedDisciplinePath,
               selectedModel: loadedModel,
               disabledSkills: loadedDisabledSkills,
-              harnessContextSnapshot
+              harnessContextSnapshot,
+              harnessExplorerContext: []
             }
           }
           return t
@@ -3391,6 +3412,7 @@ function RealApp(): React.JSX.Element {
       const activeQuote = isSuggestion
         ? undefined
         : currentTab.quotedText || quotedTextRef.current || undefined
+      const explorerContext = isSuggestion ? [] : currentTab.harnessExplorerContext || []
       const displayContent = text.replace(/<attached_file[^>]*\/>/gi, '').trim()
       const userMessage: Message = {
         role: 'user',
@@ -3429,7 +3451,8 @@ function RealApp(): React.JSX.Element {
         attachedFile: activeFile || undefined,
         quote: activeQuote,
         modelKey: currentTab.selectedModel,
-        reasoningLevel: getReasoningLevelForModel(currentTab.selectedModel)
+        reasoningLevel: getReasoningLevelForModel(currentTab.selectedModel),
+        explorerContext
       })
       if (!isSuggestion) {
         setQuotedText(null)
@@ -3689,7 +3712,14 @@ function RealApp(): React.JSX.Element {
                 toolCalls: []
               })
             }
-            return { ...t, chatId, messages: msgs, isProcessing: true }
+            return {
+              ...t,
+              chatId,
+              messages: msgs,
+              isProcessing: true,
+              harnessExplorerContext:
+                workspace === 'harness' ? [] : t.harnessExplorerContext
+            }
           }
           return t
         })
@@ -4503,6 +4533,10 @@ function RealApp(): React.JSX.Element {
           setIsSearchModalOpen(true)
         }}
         authUser={authUser}
+        harnessProjectPath={activeHarnessTab?.disciplinePath}
+        harnessExplorerContext={activeHarnessTab?.harnessExplorerContext || []}
+        onAddHarnessExplorerContext={addHarnessExplorerContext}
+        onRemoveHarnessExplorerContext={removeHarnessExplorerContext}
         onOpenAuth={() => setIsAuthModalOpen(true)}
         onOpenProfile={() => setIsProfileModalOpen(true)}
       />
@@ -4516,6 +4550,10 @@ function RealApp(): React.JSX.Element {
     handleChatDeleted,
     activeTab.chatId,
     activeHarnessTab?.chatId,
+    activeHarnessTab?.disciplinePath,
+    activeHarnessTab?.harnessExplorerContext,
+    addHarnessExplorerContext,
+    removeHarnessExplorerContext,
     runningChats,
     config,
     authUser
@@ -4963,6 +5001,8 @@ function RealApp(): React.JSX.Element {
                     )
                   }}
                   onUpdateTabDisabledSkills={() => {}}
+                  onAddHarnessExplorerContext={addHarnessExplorerContext}
+                  onRemoveHarnessExplorerContext={removeHarnessExplorerContext}
                   onToggleSearch={() => {}}
                   onOpenScreenshotModal={() => setIsScreenshotModalOpen(true)}
                   onOpenYoutubeModal={() => {}}

@@ -18,10 +18,11 @@ import { LoadingDots } from './LoadingDots'
 import { Spinner } from './Spinner'
 import { AnimatedStreamingText, StreamContext, useStreamStats } from './AnimatedStreamingText'
 import type { AppConfig } from '../../../main/config'
-import type { SessionMode } from '../../../shared/types'
+import type { HarnessExplorerSelection, SessionMode } from '../../../shared/types'
 import { FolderChatsPanel } from './FolderChatsPanel'
 import { UserAccountCard } from './UserAccountCard'
 import prismIcon from '../../../../resources/icon.png?asset'
+import { HarnessExplorer } from './HarnessExplorer'
 
 interface ChatSession {
   id: string
@@ -50,6 +51,10 @@ interface SidebarProps {
   authUser?: import('../../../shared/types').UserProfile | null
   onOpenAuth?: () => void
   onOpenProfile?: () => void
+  harnessProjectPath?: string
+  harnessExplorerContext?: HarnessExplorerSelection[]
+  onAddHarnessExplorerContext?: (selection: HarnessExplorerSelection) => boolean
+  onRemoveHarnessExplorerContext?: (relativePath: string) => void
 }
 
 interface StreamTitleWrapperProps {
@@ -103,7 +108,11 @@ export function Sidebar({
   onClose,
   authUser,
   onOpenAuth,
-  onOpenProfile
+  onOpenProfile,
+  harnessProjectPath,
+  harnessExplorerContext = [],
+  onAddHarnessExplorerContext,
+  onRemoveHarnessExplorerContext
 }: SidebarProps): React.JSX.Element {
   const [chats, setChats] = useState<ChatSession[]>([])
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
@@ -386,17 +395,12 @@ export function Sidebar({
         {/* The regular sidebar intentionally owns only Chat history. Harness
             history lives in its focused project modal. */}
         {activeView === 'harness' ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-5">
-            <div className="mt-auto mb-auto space-y-2 text-center">
-              <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.035] text-text-secondary">
-                <Code size={16} weight="bold" />
-              </div>
-              <p className="text-xs font-medium text-text-secondary">Harness workspace</p>
-              <p className="text-[11px] leading-relaxed text-text-muted">
-                Project conversations are available from the floating history control.
-              </p>
-            </div>
-          </div>
+          <HarnessExplorer
+            projectPath={harnessProjectPath}
+            selections={harnessExplorerContext}
+            onAdd={onAddHarnessExplorerContext || (() => false)}
+            onRemove={onRemoveHarnessExplorerContext || (() => {})}
+          />
         ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-3">
           <div className="mb-2 flex shrink-0 items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted/70">

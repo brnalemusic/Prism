@@ -14,6 +14,7 @@ import {
   CaretRight,
   FilePdf,
   FilePpt,
+  File,
   Trash,
   Lightning,
   Globe,
@@ -31,8 +32,9 @@ import { ReasoningSelector } from './ReasoningSelector'
 import { ModelSelector } from './ModelSelector'
 import type { AttachedFile } from '../types/tab'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
-import type { HarnessPermissionMode, SessionMode } from '../../../shared/types'
+import type { HarnessExplorerSelection, HarnessPermissionMode, SessionMode } from '../../../shared/types'
 import { triggerErrorPopup, isShortcutPressed } from '../utils'
+import { HARNESS_EXPLORER_MIME } from './HarnessExplorer'
 
 interface InputBarProps {
   onSend: (
@@ -79,6 +81,9 @@ interface InputBarProps {
   onHarnessPermissionModeChange?: (mode: HarnessPermissionMode) => void
   onOpenUpgradePlans?: () => void
   isEnterprise?: boolean
+  harnessExplorerContext?: HarnessExplorerSelection[]
+  onAddHarnessExplorerContext?: (selection: HarnessExplorerSelection) => boolean
+  onRemoveHarnessExplorerContext?: (relativePath: string) => void
 }
 
 export interface InputBarHandle {
@@ -122,7 +127,10 @@ export const InputBar = React.memo(
         harnessPermissionMode = 'ask',
         onHarnessPermissionModeChange,
         onOpenUpgradePlans,
-        isEnterprise
+        isEnterprise,
+        harnessExplorerContext = [],
+        onAddHarnessExplorerContext,
+        onRemoveHarnessExplorerContext
       },
       ref
     ) => {
@@ -132,6 +140,7 @@ export const InputBar = React.memo(
       const [showSkillsMenu, setShowSkillsMenu] = useState(false)
       const [showModeMenu, setShowModeMenu] = useState(false)
       const [showHarnessPermissionMenu, setShowHarnessPermissionMenu] = useState(false)
+      const [isExplorerDropTarget, setIsExplorerDropTarget] = useState(false)
 
       const isSkillEnabled = (skillKey: string): boolean => {
         const currentDisabled = disabledSkills ?? config?.disabledSkills ?? []
@@ -513,6 +522,47 @@ export const InputBar = React.memo(
             inputRef.current?.focus()
           }, 0)
         }
+      }
+
+      const handleExplorerDragOver = (event: React.DragEvent<HTMLDivElement>): void => {
+        if (!event.dataTransfer.types.includes(HARNESS_EXPLORER_MIME)) return
+        event.preventDefault()
+        event.stopPropagation()
+        event.dataTransfer.dropEffect = 'copy'
+        setIsExplorerDropTarget(true)
+      }
+
+      const handleExplorerDrop = (event: React.DragEvent<HTMLDivElement>): void => {
+        const serialized = event.dataTransfer.getData(HARNESS_EXPLORER_MIME)
+        if (!serialized) return
+        event.preventDefault()
+        event.stopPropagation()
+        setIsExplorerDropTarget(false)
+        try {
+          const selection = JSON.parse(serialized) as HarnessExplorerSelection
+          if (selection.kind === 'file' && !onAddHarnessExplorerContext?.(selection)) {
+            triggerErrorPopup('You can send up to 5 files or folders per Harness tab.')
+          }
+        } catch {
+          triggerErrorPopup('The dropped Explorer item is invalid.')
+        }
+      }
+
+      const renderHarnessExplorerChips = (): React.JSX.Element | null => {
+        if (harnessExplorerContext.length === 0) return null
+        return (
+          <div className="w-full pb-2 flex flex-wrap gap-1.5 animate-soft-pop select-none">
+            {harnessExplorerContext.map((selection) => (
+              <div key={selection.relativePath} title={selection.relativePath} className="flex max-w-[210px] items-center gap-1.5 rounded-lg border border-accent-primary/25 bg-accent-primary/8 px-2 py-1 text-[10px] text-text-secondary">
+                {selection.kind === 'directory' ? <Folder size={11} weight="fill" className="shrink-0 text-accent-primary" /> : <File size={11} className="shrink-0 text-accent-primary" />}
+                <span className="truncate">{selection.name}</span>
+                <button type="button" onClick={() => onRemoveHarnessExplorerContext?.(selection.relativePath)} className="shrink-0 rounded p-0.5 text-text-muted hover:bg-white/[0.08] hover:text-text-primary" aria-label={`Remove ${selection.name} context`}>
+                  <X size={9} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )
       }
 
       const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -1322,12 +1372,16 @@ export const InputBar = React.memo(
             </div>
 
             <div
+              onDragOver={handleExplorerDragOver}
+              onDragLeave={() => setIsExplorerDropTarget(false)}
+              onDrop={handleExplorerDrop}
               className={clsx(
                 'liquid-glass-input flex-1 flex flex-col rounded-3xl p-5 transition-all duration-300 relative input-border-glow overflow-visible',
                 modeStyles,
                 isFocused && !disabled && 'active',
                 isProcessing && 'input-bar-processing',
-                disabled && !isProcessing && 'opacity-60'
+                disabled && !isProcessing && 'opacity-60',
+                isExplorerDropTarget && 'ring-2 ring-accent-primary/70 bg-accent-primary/5'
               )}
             >
               {/* Subtle internal theme center glow (+30% brightness on focus) */}
@@ -1344,6 +1398,7 @@ export const InputBar = React.memo(
                 />
               </div>
               {renderQuotedPreview()}
+              {renderHarnessExplorerChips()}
               {attachedFile && (
                 <div className="w-full pb-3 flex flex-wrap items-center justify-start gap-3 relative animate-soft-pop select-none">
                   <div className="relative group/thumb flex items-center gap-2">
@@ -1457,12 +1512,16 @@ export const InputBar = React.memo(
 
           <div className="relative">
             <div
+              onDragOver={handleExplorerDragOver}
+              onDragLeave={() => setIsExplorerDropTarget(false)}
+              onDrop={handleExplorerDrop}
               className={clsx(
                 'liquid-glass-input relative rounded-[26px] transition-all duration-300 input-border-glow flex flex-col overflow-visible px-4.5 pt-4 pb-3',
                 modeStyles,
                 isFocused && !disabled && 'active',
                 isProcessing && 'input-bar-processing',
-                disabled && !isProcessing && 'opacity-60'
+                disabled && !isProcessing && 'opacity-60',
+                isExplorerDropTarget && 'ring-2 ring-accent-primary/70 bg-accent-primary/5'
               )}
             >
               {/* Subtle internal theme center glow (+30% brightness on focus) */}
@@ -1479,6 +1538,7 @@ export const InputBar = React.memo(
                 />
               </div>
               {renderQuotedPreview()}
+              {renderHarnessExplorerChips()}
               {attachedFile && (
                 <div className="w-full pb-3 flex flex-wrap items-center justify-start gap-3 relative animate-soft-pop select-none">
                   <div className="relative group/thumb flex items-center gap-2">

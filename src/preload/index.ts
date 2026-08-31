@@ -25,7 +25,10 @@ import type {
   RetryImageGenerationRequest,
   SaveGeneratedImageRequest,
   SaveGeneratedImageResult,
-  WorkspaceKind
+  WorkspaceKind,
+  HarnessExplorerSelection,
+  HarnessExplorerDirectoryResult,
+  HarnessExplorerActionResult
 } from '../shared/types'
 import type { ChatSession } from '../main/history'
 import type {
@@ -160,6 +163,7 @@ const api = {
     quote?: string
     modelKey?: string
     reasoningLevel?: string
+    explorerContext?: HarnessExplorerSelection[]
   }): void => ipcRenderer.send('harness-message', data),
   setHarnessSessionModel: (chatId: string, modelKey: string): Promise<boolean> =>
     ipcRenderer.invoke('set-harness-session-model', chatId, modelKey),
@@ -391,6 +395,26 @@ const api = {
     ipcRenderer.invoke('harness-recreate-project-folder', rootPath),
   resolveHarnessStartupProject: (): Promise<HarnessProjectConfig | null> =>
     ipcRenderer.invoke('harness-resolve-startup-project'),
+  listHarnessDirectory: (
+    projectPath: string,
+    relativePath = '.'
+  ): Promise<HarnessExplorerDirectoryResult> =>
+    ipcRenderer.invoke('harness-list-directory', projectPath, relativePath),
+  openHarnessExplorerFile: (
+    projectPath: string,
+    selection: HarnessExplorerSelection
+  ): Promise<HarnessExplorerActionResult> =>
+    ipcRenderer.invoke('harness-open-explorer-file', projectPath, selection),
+  copyHarnessExplorerPath: (
+    projectPath: string,
+    selection: HarnessExplorerSelection
+  ): Promise<HarnessExplorerActionResult> =>
+    ipcRenderer.invoke('harness-copy-explorer-path', projectPath, selection),
+  showHarnessExplorerItem: (
+    projectPath: string,
+    selection: HarnessExplorerSelection
+  ): Promise<HarnessExplorerActionResult> =>
+    ipcRenderer.invoke('harness-show-explorer-item', projectPath, selection),
   openFolderInExplorer: (folderPath: string): Promise<string> =>
     ipcRenderer.invoke('open-folder-in-explorer', folderPath),
   onDownloadProgress: (callback: (data: DownloadProgress) => void): (() => void) => {

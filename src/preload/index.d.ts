@@ -22,7 +22,10 @@ import type {
   RetryImageGenerationRequest,
   SaveGeneratedImageRequest,
   SaveGeneratedImageResult,
-  WorkspaceKind
+  WorkspaceKind,
+  HarnessExplorerSelection,
+  HarnessExplorerDirectoryResult,
+  HarnessExplorerActionResult
 } from '../shared/types'
 import type {
   DemoDownloadResult,
@@ -78,6 +81,7 @@ export interface PrismAPI {
     quote?: string
     modelKey?: string
     reasoningLevel?: string
+    explorerContext?: HarnessExplorerSelection[]
   }) => void
   setHarnessSessionModel: (chatId: string, modelKey: string) => Promise<boolean>
 
@@ -172,6 +176,22 @@ export interface PrismAPI {
   >
   recreateHarnessProjectFolder: (rootPath: string) => Promise<{ project: HarnessProjectConfig }>
   resolveHarnessStartupProject: () => Promise<HarnessProjectConfig | null>
+  listHarnessDirectory: (
+    projectPath: string,
+    relativePath?: string
+  ) => Promise<HarnessExplorerDirectoryResult>
+  openHarnessExplorerFile: (
+    projectPath: string,
+    selection: HarnessExplorerSelection
+  ) => Promise<HarnessExplorerActionResult>
+  copyHarnessExplorerPath: (
+    projectPath: string,
+    selection: HarnessExplorerSelection
+  ) => Promise<HarnessExplorerActionResult>
+  showHarnessExplorerItem: (
+    projectPath: string,
+    selection: HarnessExplorerSelection
+  ) => Promise<HarnessExplorerActionResult>
   openFolderInExplorer: (folderPath: string) => Promise<string>
   onDownloadProgress: (callback: (data: DownloadProgress) => void) => () => void
   demoDownloadPrism: () => Promise<DemoDownloadResult>

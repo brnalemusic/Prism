@@ -11,6 +11,7 @@ import {
   desktopCapturer,
   dialog,
   session,
+  clipboard,
   type NativeImage
 } from 'electron'
 import { join, dirname } from 'path'
@@ -93,6 +94,7 @@ import {
   checkInternetConnectivity
 } from './connection'
 import type { ApplicationInfo } from '../shared/types'
+import type { HarnessExplorerSelection } from '../shared/types'
 import { IS_DEMO } from '../shared/demo'
 import { safeSend } from './safeSend'
 import { getTerminalProcessesForChat } from './terminalProcessManager'
@@ -111,6 +113,10 @@ import {
 import { resolveHarnessApproval } from './harnessApproval'
 import { getHarnessInstructionStatus } from './harnessPrompt'
 import { installProcessOutputGuards } from './brokenPipeGuard'
+import {
+  listHarnessDirectory,
+  resolveHarnessExplorerItem
+} from './harnessExplorer'
 
 installProcessOutputGuards()
 
@@ -1508,6 +1514,58 @@ if (!gotTheLock) {
     ipcMain.handle('harness-resolve-startup-project', () => {
       return resolveHarnessStartupProject()
     })
+
+    ipcMain.handle(
+      'harness-list-directory',
+      async (_event, projectPath: string, relativePath: string) => {
+        if (!getEffectiveHarnessSettings(projectPath)) {
+          return { ok: false, items: [], error: 'The Harness project is not registered.' }
+        }
+        return listHarnessDirectory(projectPath, relativePath)
+      }
+    )
+
+    ipcMain.handle(
+      'harness-open-explorer-file',
+      async (_event, projectPath: string, selection: HarnessExplorerSelection) => {
+        try {
+          if (!getEffectiveHarnessSettings(projectPath)) throw new Error('The Harness project is not registered.')
+          if (selection.kind !== 'file') throw new Error('Only files can be opened.')
+          const target = await resolveHarnessExplorerItem(projectPath, selection)
+          const error = await shell.openPath(target)
+          return error ? { ok: false, error } : { ok: true }
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) }
+        }
+      }
+    )
+
+    ipcMain.handle(
+      'harness-copy-explorer-path',
+      async (_event, projectPath: string, selection: HarnessExplorerSelection) => {
+        try {
+          if (!getEffectiveHarnessSettings(projectPath)) throw new Error('The Harness project is not registered.')
+          clipboard.writeText(await resolveHarnessExplorerItem(projectPath, selection))
+          return { ok: true }
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) }
+        }
+      }
+    )
+
+    ipcMain.handle(
+      'harness-show-explorer-item',
+      async (_event, projectPath: string, selection: HarnessExplorerSelection) => {
+        try {
+          if (!getEffectiveHarnessSettings(projectPath)) throw new Error('The Harness project is not registered.')
+          const target = await resolveHarnessExplorerItem(projectPath, selection)
+          shell.showItemInFolder(target)
+          return { ok: true }
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) }
+        }
+      }
+    )
 
     ipcMain.handle('open-folder-in-explorer', async (_event, folderPath: string) => {
       try {

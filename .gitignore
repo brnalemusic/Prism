@@ -35,6 +35,8 @@ electron.vite.config.*.mjs
 import*.py
 supabase/.temp
 supabase/migrations
+.claude/
+.kilo/
 
 # License Security & Keys
 scripts/license-keys/

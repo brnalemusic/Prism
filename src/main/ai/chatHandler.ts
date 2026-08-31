@@ -7,7 +7,8 @@ import {
   HarnessApprovalItem,
   HarnessToolName,
   HarnessContextSnapshot,
-  EffectiveHarnessSettings
+  EffectiveHarnessSettings,
+  HarnessExplorerSelection
 } from '../../shared/types'
 import type { ToolImageAttachment } from '../toolAttachments'
 import { getSystemToolsPrompt, setActiveCwd, setCurrentSessionIdForTodo } from '../systemTools'
@@ -52,6 +53,7 @@ import {
 import { requestHarnessApproval, cancelHarnessApprovalsForChat } from '../harnessApproval'
 import type { ToolResultEnvelope } from '../toolRuntime'
 import { resolveRequestModelKey, resolveRunWorkspace } from './sessionRuntime'
+import { readHarnessExplorerContext } from '../harnessExplorer'
 
 export const activeRuns = new Map<string, ActiveRun>()
 export const lastScreenshots = new Map<string, string>()
@@ -277,6 +279,7 @@ export interface ChatMessagePayload {
   modelKey?: string
   reasoningLevel?: string
   disabledSkills?: string[]
+  explorerContext?: HarnessExplorerSelection[]
 }
 
 /** Dedicated entrypoint: the Harness never travels through the Chat IPC channel. */
@@ -310,6 +313,10 @@ export async function handleChatMessage(
   const screenshot = typeof data === 'object' ? data.screenshot : undefined
   const quote = typeof data === 'object' ? data.quote : undefined
   const attachedFile = typeof data === 'object' ? data.attachedFile : undefined
+  const explorerContext =
+    workspace === 'harness' && typeof data === 'object' && Array.isArray(data.explorerContext)
+      ? data.explorerContext
+      : []
 
   const sessionMode = typeof data === 'object' ? data.sessionMode : undefined
   const disciplinePath = typeof data === 'object' ? data.disciplinePath : undefined
@@ -462,6 +469,24 @@ export async function handleChatMessage(
     role: 'user',
     content: userText,
     quote: quote || undefined
+  }
+
+  if (harnessSettings && explorerContext.length > 0) {
+    const resolvedContext = await readHarnessExplorerContext(
+      harnessSettings.project.rootPath,
+      explorerContext,
+      harnessSettings.maxContextCharacters
+    )
+    userMessage.harness_explorer_context = resolvedContext.snapshot
+    userMessage.visible_user_content = userText
+    userMessage.content = `${userText}\n\n${resolvedContext.block}`
+    if (resolvedContext.snapshot.warnings.length > 0) {
+      safeSend(event.sender, 'harness-prompt-warning', {
+        chatId,
+        warnings: resolvedContext.snapshot.warnings,
+        repoInstructionsLoaded: false
+      })
+    }
   }
 
   const incomingImages = collectIncomingImages(screenshot, attachedFile)
