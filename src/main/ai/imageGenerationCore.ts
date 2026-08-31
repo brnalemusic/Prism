@@ -1,4 +1,9 @@
-import type { ProviderConfig, ProviderModel } from '../../shared/types'
+import type {
+  ImageGenerationAdapter,
+  ImageGenerationCapabilities,
+  ProviderConfig,
+  ProviderModel
+} from '../../shared/types'
 
 export const IMAGE_GENERATION_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
 
@@ -52,7 +57,46 @@ export interface ImageSourceDescriptor {
 }
 
 export function isImageGenerationCompletionType(value: string): boolean {
-  return value === 'chat_completions' || value === 'responses' || value === 'puter_native'
+  return (
+    value === 'chat_completions' ||
+    value === 'responses' ||
+    value === 'gemini_native' ||
+    value === 'puter_native'
+  )
+}
+
+export function defaultImageGenerationCapabilities(
+  completionType: string
+): ImageGenerationCapabilities | null {
+  if (completionType === 'puter_native') {
+    return { adapter: 'puter', generate: true, edit: true }
+  }
+  if (completionType === 'responses') {
+    return { adapter: 'openai_responses', generate: true, edit: true }
+  }
+  if (completionType === 'gemini_native') {
+    return { adapter: 'gemini_generate_content', generate: true, edit: true }
+  }
+  if (completionType === 'chat_completions') {
+    return { adapter: 'openai_images', generate: true, edit: true }
+  }
+  return null
+}
+
+export function resolveImageGenerationCapabilities(
+  provider: ProviderConfig,
+  model: ProviderModel
+): ImageGenerationCapabilities | null {
+  return model.imageGeneration || defaultImageGenerationCapabilities(provider.completionType)
+}
+
+export function supportsImageGenerationOperation(
+  provider: ProviderConfig,
+  model: ProviderModel,
+  operation: ImageGenerationOperation
+): boolean {
+  const capabilities = resolveImageGenerationCapabilities(provider, model)
+  return Boolean(capabilities && capabilities[operation])
 }
 
 export function hasImageGenerationCredentials(provider: ProviderConfig): boolean {
@@ -133,6 +177,46 @@ export function buildImageGenerationEndpoint(
   return parsed.toString().replace(/\/$/, '')
 }
 
+function normalizedApiRoot(baseUrl: string): URL {
+  const parsed = new URL(baseUrl.trim())
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('Provider base URL must use HTTP or HTTPS.')
+  }
+  parsed.search = ''
+  parsed.hash = ''
+  parsed.pathname = trimOperationPath(parsed.pathname).replace(/\/$/, '')
+  return parsed
+}
+
+export function buildAdapterImageEndpoint(input: {
+  baseUrl: string
+  adapter: ImageGenerationAdapter
+  model: string
+  operation: ImageGenerationOperation
+  endpoint?: string
+  stabilityEngine?: 'core' | 'ultra'
+}): string {
+  if (input.endpoint) return new URL(input.endpoint).toString().replace(/\/$/, '')
+  if (input.adapter === 'openai_images') {
+    return buildImageGenerationEndpoint(input.baseUrl, input.operation)
+  }
+  const parsed = normalizedApiRoot(input.baseUrl)
+  if (input.adapter === 'openai_responses') {
+    parsed.pathname = `${parsed.pathname}/responses`
+  } else if (input.adapter === 'gemini_generate_content') {
+    parsed.pathname = `${parsed.pathname.replace(/\/openai$/i, '')}/models/${encodeURIComponent(input.model)}:generateContent`
+  } else if (input.adapter === 'stability') {
+    const stabilityRoot = parsed.pathname.replace(/\/v2beta.*$/i, '').replace(/\/$/, '')
+    parsed.pathname =
+      input.operation === 'edit'
+        ? `${stabilityRoot}/v2beta/stable-image/edit/search-and-replace`
+        : `${stabilityRoot}/v2beta/stable-image/generate/${input.stabilityEngine || 'core'}`
+  } else {
+    throw new Error('The selected image adapter does not use an HTTP endpoint.')
+  }
+  return parsed.toString().replace(/\/$/, '')
+}
+
 export function buildImageEditFormData(input: {
   model: string
   prompt: string
@@ -201,6 +285,47 @@ export function parseImageGenerationResponse(payload: unknown): ImageSourceDescr
     }
   }
 
+  if (sources.length === 0) {
+    throw new ImageGenerationError({
+      code: 'IMAGE_MALFORMED_RESPONSE',
+      userMessage: 'The image provider did not return a usable image.',
+      retryable: true
+    })
+  }
+  return sources
+}
+
+export function parseAdapterImageResponse(
+  payload: unknown,
+  adapter: ImageGenerationAdapter
+): ImageSourceDescriptor[] {
+  if (adapter === 'openai_images') return parseImageGenerationResponse(payload)
+  const sources: ImageSourceDescriptor[] = []
+  const visit = (value: unknown, key = ''): void => {
+    if (typeof value === 'string') {
+      if (
+        /^(?:https?:\/\/)/i.test(value) &&
+        /(?:url|image_url)$/i.test(key)
+      ) {
+        sources.push({ type: 'url', value })
+      } else if (
+        isStrictBase64(value) &&
+        /(?:b64_json|base64|image|result|data)$/i.test(key)
+      ) {
+        sources.push({ type: 'base64', value: value.replace(/\s/g, '') })
+      }
+      return
+    }
+    if (!value || typeof value !== 'object') return
+    if (Array.isArray(value)) {
+      value.forEach((entry) => visit(entry, key))
+      return
+    }
+    for (const [childKey, child] of Object.entries(value as Record<string, unknown>)) {
+      visit(child, childKey)
+    }
+  }
+  visit(payload)
   if (sources.length === 0) {
     throw new ImageGenerationError({
       code: 'IMAGE_MALFORMED_RESPONSE',

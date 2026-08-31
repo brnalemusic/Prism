@@ -11,7 +11,7 @@ import {
 import { resolveExactProviderAndModel } from './providerManager'
 import { generatePuterImage } from './puterClient'
 import {
-  buildImageGenerationEndpoint,
+  buildAdapterImageEndpoint,
   buildImageEditFormData,
   detectImageMimeType,
   ImageGenerationError,
@@ -22,11 +22,14 @@ import {
   isStrictBase64,
   mapImageGenerationHttpError,
   parseBase64ImageDataUrl,
-  parseImageGenerationResponse,
+  parseAdapterImageResponse,
+  resolveImageGenerationCapabilities,
+  supportsImageGenerationOperation,
   type ImageGenerationOperation,
   type ImageGenerationMimeType,
   type ImageSourceDescriptor
 } from './imageGenerationCore'
+import type { ImageGenerationCapabilities } from '../../shared/types'
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024
@@ -58,7 +61,12 @@ export function resolveConfiguredImageGenerationRoute(): {
     )
   }
   const { provider, model } = resolveExactProviderAndModel(route)
-  if (!provider || !model || !isImageGenerationCompletionType(provider.completionType)) {
+  if (
+    !provider ||
+    !model ||
+    !isImageGenerationCompletionType(provider.completionType) ||
+    !resolveImageGenerationCapabilities(provider, model)
+  ) {
     throw routeError(
       'IMAGE_ROUTE_STALE',
       'The configured image-generation route is no longer available.'
@@ -585,6 +593,92 @@ function buildImageRequest(
   }
 }
 
+function imageDataPart(attachment: ToolImageAttachment): string {
+  validateEditSource(attachment)
+  return asDataUrl(attachment)
+}
+
+function buildAdapterImageRequest(
+  args: ImageGenerationArguments,
+  capabilities: ImageGenerationCapabilities,
+  modelId: string,
+  apiKey: string,
+  sourceAttachment?: ToolImageAttachment
+): RequestInit {
+  const renderModel = capabilities.renderModel || modelId
+  if (capabilities.adapter === 'openai_images') {
+    return buildImageRequest(args, renderModel, apiKey, sourceAttachment)
+  }
+  if (capabilities.adapter === 'openai_responses') {
+    const input: Array<Record<string, unknown>> = [{ type: 'input_text', text: args.prompt }]
+    if (sourceAttachment) {
+      input.push({ type: 'input_image', image_url: imageDataPart(sourceAttachment) })
+    }
+    return {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: modelId,
+        input: [{ role: 'user', content: input }],
+        tools: [
+          {
+            type: 'image_generation',
+            ...(capabilities.renderModel ? { model: capabilities.renderModel } : {}),
+            size: args.size,
+            ...(args.quality ? { quality: args.quality } : {})
+          }
+        ],
+        tool_choice: { type: 'image_generation' }
+      })
+    }
+  }
+  if (capabilities.adapter === 'gemini_generate_content') {
+    const parts: Array<Record<string, unknown>> = [{ text: args.prompt }]
+    if (sourceAttachment) {
+      validateEditSource(sourceAttachment)
+      parts.push({
+        inlineData: { mimeType: sourceAttachment.mimeType, data: sourceAttachment.data }
+      })
+    }
+    return {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts }],
+        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
+      })
+    }
+  }
+  if (capabilities.adapter === 'stability') {
+    const form = new FormData()
+    form.append('prompt', args.prompt)
+    form.append('output_format', 'png')
+    const ratio = imageGenerationSizeToRatio(args.size)
+    if (ratio) form.append('aspect_ratio', `${ratio.w}:${ratio.h}`)
+    if (sourceAttachment) {
+      const bytes = validateEditSource(sourceAttachment)
+      const buffer = new ArrayBuffer(bytes.byteLength)
+      new Uint8Array(buffer).set(bytes)
+      form.append(
+        'image',
+        new Blob([buffer], { type: sourceAttachment.mimeType }),
+        sourceFilename(sourceAttachment)
+      )
+      form.append('search_prompt', args.prompt)
+    }
+    return {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'image/*, application/json' },
+      body: form
+    }
+  }
+  throw new ImageGenerationError({
+    code: 'IMAGE_ENDPOINT_UNSUPPORTED',
+    userMessage: 'The selected image adapter is not available.',
+    retryable: false
+  })
+}
+
 export async function generateImage(
   args: ImageGenerationArguments,
   signal?: AbortSignal,
@@ -599,6 +693,17 @@ export async function generateImage(
     })
   }
   const { provider, model } = resolveConfiguredImageGenerationRoute()
+  const capabilities = resolveImageGenerationCapabilities(provider, model)
+  if (!capabilities || !supportsImageGenerationOperation(provider, model, args.operation)) {
+    throw new ImageGenerationError({
+      code: args.operation === 'edit' ? 'IMAGE_EDIT_UNSUPPORTED' : 'IMAGE_MODEL_UNSUPPORTED',
+      userMessage:
+        args.operation === 'edit'
+          ? 'The selected model cannot edit images.'
+          : 'The selected model cannot generate images.',
+      retryable: false
+    })
+  }
   let sourceAttachment: ToolImageAttachment | undefined
   if (args.operation === 'edit') {
     if (!chatId || !args.sourceImageRef) {
@@ -615,7 +720,7 @@ export async function generateImage(
       )
     }
   }
-  if (provider.completionType === 'puter_native') {
+  if (capabilities.adapter === 'puter') {
     const attachments = await generatePuterImages(args, provider, model, sourceAttachment, signal)
     const verb = args.operation === 'edit' ? 'Edited' : 'Generated'
     const references = attachments
@@ -632,7 +737,16 @@ export async function generateImage(
   }
   let endpoint: string
   try {
-    endpoint = buildImageGenerationEndpoint(provider.baseUrl, args.operation)
+    endpoint = buildAdapterImageEndpoint({
+      baseUrl: provider.baseUrl,
+      adapter: capabilities.adapter,
+      model: model.id,
+      operation: args.operation,
+      ...(capabilities.endpoint ? { endpoint: capabilities.endpoint } : {}),
+      ...(capabilities.stabilityEngine
+        ? { stabilityEngine: capabilities.stabilityEngine }
+        : {})
+    })
   } catch {
     throw new ImageGenerationError({
       code: 'IMAGE_ROUTE_STALE',
@@ -644,7 +758,7 @@ export async function generateImage(
   try {
     response = await fetchWithTimeout(
       endpoint,
-      buildImageRequest(args, model.id, provider.apiKey, sourceAttachment),
+      buildAdapterImageRequest(args, capabilities, model.id, provider.apiKey, sourceAttachment),
       signal,
       180_000
     )
@@ -664,6 +778,15 @@ export async function generateImage(
   let payload: unknown
   try {
     const bytes = await readResponseBody(response, MAX_RESPONSE_BYTES, signal, 180_000)
+    const responseType = response.headers.get('content-type') || ''
+    if (response.ok && responseType.toLowerCase().startsWith('image/')) {
+      const attachment = validateDecodedImage(bytes, responseType)
+      attachment.assetId = randomUUID()
+      return {
+        output: `${args.operation === 'edit' ? 'Edited' : 'Generated'} 1 image successfully.\nImage references:\n- ${imageAssetReference(attachment)}`,
+        attachments: [attachment]
+      }
+    }
     payload = JSON.parse(bytes.toString('utf8'))
   } catch (error) {
     if (error instanceof ImageGenerationError) throw error
@@ -689,7 +812,7 @@ export async function generateImage(
     )
   }
 
-  const sources = parseImageGenerationResponse(payload).slice(0, args.n)
+  const sources = parseAdapterImageResponse(payload, capabilities.adapter).slice(0, args.n)
   const attachments: ToolImageAttachment[] = []
   let firstError: unknown
   for (const source of sources) {

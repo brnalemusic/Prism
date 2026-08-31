@@ -1433,7 +1433,13 @@ export function SettingsView({
             <ModelSelector
               selectedModel={config.imageGenerationModel || ''}
               onModelChange={(modelKey) => setConfig({ ...config, imageGenerationModel: modelKey })}
-              allowedCompletionTypes={['chat_completions', 'responses', 'puter_native']}
+              allowedCompletionTypes={[
+                'chat_completions',
+                'responses',
+                'gemini_native',
+                'puter_native'
+              ]}
+              imageGenerationOnly
               allowClear
               align="right"
             />

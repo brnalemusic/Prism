@@ -329,6 +329,25 @@ export type CompletionType =
   | 'gemini_native'
   | 'puter_native'
 
+export type ImageGenerationAdapter =
+  | 'openai_images'
+  | 'openai_responses'
+  | 'gemini_generate_content'
+  | 'stability'
+  | 'puter'
+
+export interface ImageGenerationCapabilities {
+  adapter: ImageGenerationAdapter
+  generate: boolean
+  edit: boolean
+  /** Optional image renderer used by an orchestration/LLM model. */
+  renderModel?: string
+  /** Optional absolute endpoint override for non-standard provider deployments. */
+  endpoint?: string
+  /** Stability API route variant. */
+  stabilityEngine?: 'core' | 'ultra'
+}
+
 export interface ProviderModel {
   id: string
   name?: string
@@ -336,6 +355,7 @@ export interface ProviderModel {
   provider?: string
   enabled: boolean
   isTrusted: boolean
+  imageGeneration?: ImageGenerationCapabilities
 }
 
 export interface ProviderConfig {

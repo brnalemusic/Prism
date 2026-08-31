@@ -4,7 +4,17 @@ Prism exposes image generation and editing through the native `generate_image` t
 
 ## Intelligence Routing
 
-Configure the route in **Settings > Intelligence Routing > Image Generation Model**. Prism stores the exact `providerId:modelId` key in `imageGenerationModel` and does not fall back to the selected chat model. Enabled models from OpenAI-compatible `chat_completions`/`responses` providers and native Puter providers appear in this selector.
+Configure the route in **Settings > Intelligence Routing > Image Generation Model**. Prism stores the exact `providerId:modelId` key in `imageGenerationModel` and does not fall back to the selected chat model. Image behavior is configured per model in the API provider wizard, independently from the provider's conversational completion type.
+
+Supported image adapters are:
+
+- **OpenAI Images** for direct `/images/generations` and `/images/edits` models such as GPT-Image.
+- **OpenAI Responses** for LLM-overhead models that invoke the `image_generation` tool. A separate render model may be declared in model metadata.
+- **Gemini GenerateContent** for Gemini image models, including Nano Banana-style generation and editing with inline image parts.
+- **Stability AI** for Stable Image Core/Ultra generation and Stability multipart editing.
+- **Puter Native** for account-backed `puter.ai.txt2img()` generation and editing.
+
+Each model declares creation and editing capabilities separately. An optional absolute endpoint override supports compatible gateways with non-standard routes. Models without explicit metadata retain the legacy default for their provider protocol, so existing OpenAI-compatible and Puter routes continue to work.
 
 Enabled models from a connected **Puter.js Native** provider also appear in this selector. Puter lists its complete account-visible model catalog; Prism does not guess which entries can generate images, so select the model you intend to use. Puter User-Pays generation and editing call `puter.ai.txt2img()` through the native SDK using the connected account session, never an API key or OpenAI-compatible image endpoint. The Puter session is stored separately from API keys.
 
@@ -12,7 +22,9 @@ When no valid route exists, the tool is omitted from the model's available tools
 
 ## Provider request
 
-The main process resolves the configured provider and sends JSON `POST /v1/images/generations` requests for creation. When `operation` is `edit`, it resolves the required `source_image_ref` inside the current chat and sends the source bytes through the standard multipart `POST /v1/images/edits` route. Both operations support `prompt`, `size`, `quality`, and a bounded image count. Prism accepts OpenAI-compatible `data[].b64_json` and `data[].url` responses. Puter Native is the exception: it maps `size` to an aspect ratio, sends edits as a data-URI `input_image`, invokes `puter.ai.txt2img()` once per requested output, and validates the returned image source with the same attachment pipeline.
+The main process resolves the configured provider, model capabilities, and adapter before constructing a request. Direct OpenAI requests use JSON generation and multipart editing. Responses requests supply the image tool and optional source image. Gemini requests use `generateContent`, image response modalities, and inline source data. Stability requests use its native multipart routes and accept binary or JSON image results. Puter maps `size` to an aspect ratio, sends edits as a data-URI `input_image`, and invokes `puter.ai.txt2img()` once per requested output.
+
+Responses are normalized from OpenAI `data[].b64_json`/`data[].url`, Responses image tool output, Gemini `inlineData`, Stability binary/JSON payloads, and Puter URLs/data URIs before entering the shared validation pipeline.
 
 Remote image URLs are treated as untrusted. Prism accepts only HTTP(S), limits response sizes, verifies PNG/JPEG/WebP signatures, decodes the image, and validates its dimensions. Authentication is retried only for URLs on the configured provider origin and is never forwarded to a different origin.
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   buildImageEditFormData,
+  buildAdapterImageEndpoint,
   buildImageGenerationEndpoint,
   canRetryImageGenerationResult,
   detectImageMimeType,
@@ -12,6 +13,7 @@ import {
   isStrictBase64,
   mapImageGenerationHttpError,
   parseBase64ImageDataUrl,
+  parseAdapterImageResponse,
   parseImageGenerationResponse,
   resolveExactImageRouteFromProviders,
   sanitizeGeneratedImageFilename
@@ -42,6 +44,37 @@ test('builds normalized OpenAI-compatible image endpoints', () => {
   assert.equal(
     buildImageGenerationEndpoint('https://example.test/v1/images/generations', 'edit'),
     'https://example.test/v1/images/edits'
+  )
+})
+
+test('builds provider-specific image endpoints', () => {
+  assert.equal(
+    buildAdapterImageEndpoint({
+      baseUrl: 'https://api.openai.com/v1',
+      adapter: 'openai_responses',
+      model: 'gpt-5.4-image-2',
+      operation: 'generate'
+    }),
+    'https://api.openai.com/v1/responses'
+  )
+  assert.equal(
+    buildAdapterImageEndpoint({
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      adapter: 'gemini_generate_content',
+      model: 'gemini-image-model',
+      operation: 'edit'
+    }),
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-image-model:generateContent'
+  )
+  assert.equal(
+    buildAdapterImageEndpoint({
+      baseUrl: 'https://api.stability.ai',
+      adapter: 'stability',
+      model: 'stable-image-ultra',
+      operation: 'generate',
+      stabilityEngine: 'ultra'
+    }),
+    'https://api.stability.ai/v2beta/stable-image/generate/ultra'
   )
 })
 
@@ -82,6 +115,27 @@ test('accepts OpenAI URL and base64 response forms and rejects empty responses',
     () => parseImageGenerationResponse({ data: [{ url: 'file:///tmp/image.png' }] }),
     (error) =>
       error instanceof ImageGenerationError && error.details.code === 'IMAGE_MALFORMED_RESPONSE'
+  )
+})
+
+test('normalizes Responses, Gemini, and Stability image payloads', () => {
+  assert.deepEqual(
+    parseAdapterImageResponse(
+      { output: [{ type: 'image_generation_call', result: 'YWJjZA==' }] },
+      'openai_responses'
+    ),
+    [{ type: 'base64', value: 'YWJjZA==' }]
+  )
+  assert.deepEqual(
+    parseAdapterImageResponse(
+      { candidates: [{ content: { parts: [{ inlineData: { data: 'YWJjZA==' } }] } }] },
+      'gemini_generate_content'
+    ),
+    [{ type: 'base64', value: 'YWJjZA==' }]
+  )
+  assert.deepEqual(
+    parseAdapterImageResponse({ image: 'YWJjZA==' }, 'stability'),
+    [{ type: 'base64', value: 'YWJjZA==' }]
   )
 })
 
@@ -138,7 +192,7 @@ test('validates base64 and detects supported image signatures', () => {
 test('recognizes only supported route types and sanitizes download names', () => {
   assert.equal(isImageGenerationCompletionType('chat_completions'), true)
   assert.equal(isImageGenerationCompletionType('responses'), true)
-  assert.equal(isImageGenerationCompletionType('gemini_native'), false)
+  assert.equal(isImageGenerationCompletionType('gemini_native'), true)
   assert.equal(isImageGenerationCompletionType('puter_native'), true)
   assert.equal(
     sanitizeGeneratedImageFilename('../unsafe<>name.png', 'image/png', new Date('2026-08-24')),

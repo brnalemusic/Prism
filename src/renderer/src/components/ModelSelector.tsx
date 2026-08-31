@@ -10,6 +10,7 @@ import {
 import { clsx } from 'clsx'
 import { isShortcutPressed } from '../utils'
 import type { CompletionType } from '../../../shared/types'
+import type { ImageGenerationCapabilities } from '../../../shared/types'
 
 interface ActiveModelItem {
   providerId: string
@@ -20,6 +21,7 @@ interface ActiveModelItem {
     name?: string
     enabled: boolean
     isTrusted: boolean
+    imageGeneration?: ImageGenerationCapabilities
   }
   fullKey: string
   completionType: CompletionType
@@ -35,6 +37,7 @@ interface ModelSelectorProps {
   menuPlacement?: 'top' | 'bottom'
   allowedCompletionTypes?: CompletionType[]
   allowClear?: boolean
+  imageGenerationOnly?: boolean
 }
 
 export interface ModelSelectorHandle {
@@ -52,7 +55,8 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
       align = 'right',
       menuPlacement = 'bottom',
       allowedCompletionTypes,
-      allowClear = false
+      allowClear = false,
+      imageGenerationOnly = false
     },
     ref
   ) => {
@@ -177,9 +181,12 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
       }
     }, [isOpen, shortcut, disabled])
 
-    const eligibleModels = allowedCompletionTypes?.length
+    const completionEligibleModels = allowedCompletionTypes?.length
       ? activeModels.filter((item) => allowedCompletionTypes.includes(item.completionType))
       : activeModels
+    const eligibleModels = imageGenerationOnly
+      ? completionEligibleModels.filter((item) => item.model.imageGeneration?.generate !== false)
+      : completionEligibleModels
 
     // Find currently selected model display item
     const selectedItem = eligibleModels.find(
