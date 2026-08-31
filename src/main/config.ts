@@ -6,7 +6,8 @@ import {
   ProviderConfig,
   HarnessSettings,
   HarnessToolName,
-  HarnessProjectConfig
+  HarnessProjectConfig,
+  ImageGenerationCapabilities
 } from '../shared/types'
 
 export interface SlashWorkflow {
@@ -496,6 +497,28 @@ function normalizeConfig(config: AppConfig): AppConfig {
         : undefined,
     projects: normalizedProjects
   }
+  const normalizeImageCapabilities = (
+    value: ProviderConfig['models'][number]['imageGeneration']
+  ): ProviderConfig['models'][number]['imageGeneration'] => {
+    if (!value) return undefined
+    const legacyState = (
+      operation: 'generate' | 'edit'
+    ): ImageGenerationCapabilities['generate'] => {
+      const operationValue = value[operation]
+      if (typeof operationValue !== 'boolean') return operationValue
+      return operationValue
+        ? { status: 'unknown' }
+        : { status: 'unsupported', reason: 'This operation was disabled in model settings.' }
+    }
+    return {
+      ...value,
+      mode: 'automatic',
+      preferredAdapter: value.preferredAdapter || value.adapter,
+      generate: legacyState('generate'),
+      edit: legacyState('edit')
+    }
+  }
+
   const providers = (Array.isArray(config.providers) ? config.providers : []).map((provider) => {
     if (
       provider?.completionType === 'puter_native' &&
@@ -504,9 +527,23 @@ function normalizeConfig(config: AppConfig): AppConfig {
     ) {
       // Older Prism releases stored the account session in apiKey. Keep existing
       // Puter accounts working while making the User-Pays credential explicit.
-      return { ...provider, puterAuthToken: provider.apiKey, apiKey: '' }
+      return {
+        ...provider,
+        puterAuthToken: provider.apiKey,
+        apiKey: '',
+        models: (provider.models || []).map((model) => ({
+          ...model,
+          imageGeneration: normalizeImageCapabilities(model.imageGeneration)
+        }))
+      }
     }
-    return provider
+    return {
+      ...provider,
+      models: (provider.models || []).map((model) => ({
+        ...model,
+        imageGeneration: normalizeImageCapabilities(model.imageGeneration)
+      }))
+    }
   })
 
   return {

@@ -5,9 +5,12 @@ import {
   buildAdapterImageEndpoint,
   buildImageGenerationEndpoint,
   canRetryImageGenerationResult,
+  defaultImageGenerationCapabilities,
   detectImageMimeType,
+  getImageGenerationCapabilityState,
   hasImageGenerationCredentials,
   imageGenerationSizeToRatio,
+  isImageGenerationProtocolIncompatibility,
   ImageGenerationError,
   isImageGenerationCompletionType,
   isStrictBase64,
@@ -15,8 +18,10 @@ import {
   parseBase64ImageDataUrl,
   parseAdapterImageResponse,
   parseImageGenerationResponse,
+  resolveImageGenerationCandidates,
   resolveExactImageRouteFromProviders,
-  sanitizeGeneratedImageFilename
+  sanitizeGeneratedImageFilename,
+  shouldForwardImageToolAttachments
 } from '../src/main/ai/imageGenerationCore.ts'
 import {
   deriveImageGenerationLifecycle,
@@ -160,6 +165,9 @@ test('maps provider failures to safe actionable image errors', () => {
     'The selected model cannot edit images.'
   )
   assert.equal(mapImageGenerationHttpError(503, 'unavailable').retryable, true)
+  assert.equal(mapImageGenerationHttpError(400, 'unsupported endpoint').code, 'IMAGE_ENDPOINT_UNSUPPORTED')
+  assert.equal(isImageGenerationProtocolIncompatibility(mapImageGenerationHttpError(404, 'route not found')), true)
+  assert.equal(isImageGenerationProtocolIncompatibility(mapImageGenerationHttpError(400, 'invalid size')), false)
 })
 
 test('validates opaque image references and deduplicates identical visual payloads', () => {
@@ -202,6 +210,45 @@ test('recognizes only supported route types and sanitizes download names', () =>
     sanitizeGeneratedImageFilename('', 'image/jpeg', new Date('2026-08-24')),
     'prism-generated-image-2026-08-24.jpg'
   )
+})
+
+test('defaults image capability state to automatic and preserves operation independence', () => {
+  const provider = {
+    id: 'openai',
+    name: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1',
+    apiKey: 'secret',
+    completionType: 'chat_completions' as const,
+    isTrusted: true,
+    models: []
+  }
+  const model = {
+    id: 'text-looking-model',
+    enabled: true,
+    isTrusted: false,
+    imageGeneration: { adapter: 'openai_images' as const, generate: true, edit: true }
+  }
+  const capabilities = defaultImageGenerationCapabilities(provider.completionType)
+  assert.equal(getImageGenerationCapabilityState(capabilities, 'generate').status, 'unknown')
+  assert.equal(getImageGenerationCapabilityState({ ...capabilities!, edit: { status: 'unsupported' } }, 'generate').status, 'unknown')
+  assert.equal(resolveImageGenerationCandidates({ provider, model, operation: 'generate' })[0], 'openai_images')
+})
+
+test('orders known protocols deterministically and keeps unknown models eligible', () => {
+  const provider = {
+    id: 'custom',
+    name: 'Custom Gateway',
+    baseUrl: 'https://gateway.example.test/v1',
+    apiKey: 'secret',
+    completionType: 'responses' as const,
+    isTrusted: false,
+    models: []
+  }
+  const model = { id: 'vision-text-2026', enabled: true, isTrusted: false }
+  assert.deepEqual(resolveImageGenerationCandidates({ provider, model, operation: 'generate' }), [
+    'openai_responses',
+    'openai_images'
+  ])
 })
 
 test('accepts native Puter sessions without API keys and converts image sizes to ratios', () => {
@@ -315,4 +362,9 @@ test('derives deterministic UI lifecycle transitions', () => {
   assert.equal(resolveGeneratedImageAspectRatio(1, 1536, 1024, false), 1)
   assert.equal(resolveGeneratedImageAspectRatio(1, 1536, 1024, true), 1.5)
   assert.equal(resolveGeneratedImageAspectRatio(1, 1024, 1536, true), 2 / 3)
+})
+
+test('does not resend generated Puter images to models without vision input', () => {
+  assert.equal(shouldForwardImageToolAttachments('generate_image'), false)
+  assert.equal(shouldForwardImageToolAttachments('computer_use_see_screen'), true)
 })

@@ -56,6 +56,23 @@ export interface ImageSourceDescriptor {
   value: string
 }
 
+export interface ImageGenerationCapabilityState {
+  status: 'unknown' | 'supported' | 'unsupported'
+  reason?: string
+  checkedAt?: number
+  adapter?: ImageGenerationAdapter
+}
+
+export interface ImageGenerationCandidateContext {
+  provider: ProviderConfig
+  model: ProviderModel
+  operation: ImageGenerationOperation
+}
+
+export function shouldForwardImageToolAttachments(toolName?: string): boolean {
+  return toolName !== 'generate_image'
+}
+
 export function isImageGenerationCompletionType(value: string): boolean {
   return (
     value === 'chat_completions' ||
@@ -69,25 +86,70 @@ export function defaultImageGenerationCapabilities(
   completionType: string
 ): ImageGenerationCapabilities | null {
   if (completionType === 'puter_native') {
-    return { adapter: 'puter', generate: true, edit: true }
+    return {
+      mode: 'automatic',
+      preferredAdapter: 'puter',
+      generate: { status: 'unknown' },
+      edit: { status: 'unknown' }
+    }
   }
-  if (completionType === 'responses') {
-    return { adapter: 'openai_responses', generate: true, edit: true }
+  if (!isImageGenerationCompletionType(completionType)) return null
+  return {
+    mode: 'automatic',
+    generate: { status: 'unknown' },
+    edit: { status: 'unknown' }
   }
-  if (completionType === 'gemini_native') {
-    return { adapter: 'gemini_generate_content', generate: true, edit: true }
+}
+
+function asCapabilityState(
+  value: ImageGenerationCapabilities['generate'] | undefined,
+  legacyAutomatic = false
+): ImageGenerationCapabilityState {
+  if (typeof value === 'boolean') {
+    return value
+      ? { status: legacyAutomatic ? 'unknown' : 'supported' }
+      : { status: 'unsupported', reason: 'This operation was disabled in model settings.' }
   }
-  if (completionType === 'chat_completions') {
-    return { adapter: 'openai_images', generate: true, edit: true }
-  }
-  return null
+  return value && typeof value === 'object' && typeof value.status === 'string'
+    ? value
+    : { status: 'unknown' }
+}
+
+export function getImageGenerationCapabilityState(
+  capabilities: ImageGenerationCapabilities | null | undefined,
+  operation: ImageGenerationOperation
+): ImageGenerationCapabilityState {
+  return asCapabilityState(capabilities?.[operation], capabilities?.mode !== 'manual')
 }
 
 export function resolveImageGenerationCapabilities(
   provider: ProviderConfig,
   model: ProviderModel
 ): ImageGenerationCapabilities | null {
-  return model.imageGeneration || defaultImageGenerationCapabilities(provider.completionType)
+  const defaults = defaultImageGenerationCapabilities(provider.completionType)
+  const stored = model.imageGeneration
+  if (!stored) return defaults
+  const capabilities: ImageGenerationCapabilities = {
+    ...defaults,
+    ...stored,
+    mode: stored.mode || 'automatic',
+    preferredAdapter: stored.preferredAdapter || stored.adapter || defaults?.preferredAdapter,
+    generate: stored.generate ?? defaults?.generate ?? { status: 'unknown' },
+    edit: stored.edit ?? defaults?.edit ?? { status: 'unknown' }
+  }
+  const fingerprint = imageGenerationRouteFingerprint(provider, model)
+  for (const operation of ['generate', 'edit'] as const) {
+    const state = capabilities[operation]
+    if (
+      typeof state === 'object' &&
+      state &&
+      state.routeFingerprint &&
+      state.routeFingerprint !== fingerprint
+    ) {
+      capabilities[operation] = { status: 'unknown' }
+    }
+  }
+  return capabilities
 }
 
 export function supportsImageGenerationOperation(
@@ -96,7 +158,77 @@ export function supportsImageGenerationOperation(
   operation: ImageGenerationOperation
 ): boolean {
   const capabilities = resolveImageGenerationCapabilities(provider, model)
-  return Boolean(capabilities && capabilities[operation])
+  return getImageGenerationCapabilityState(capabilities, operation).status !== 'unsupported'
+}
+
+function modelText(provider: ProviderConfig, model: ProviderModel): string {
+  return `${provider.name} ${provider.baseUrl} ${model.id} ${model.name || ''}`.toLowerCase()
+}
+
+/** Returns protocol hints in deterministic order without treating model names as an allowlist. */
+export function resolveImageGenerationCandidates({
+  provider,
+  model,
+  operation
+}: ImageGenerationCandidateContext): ImageGenerationAdapter[] {
+  const capabilities = resolveImageGenerationCapabilities(provider, model)
+  const operationState = getImageGenerationCapabilityState(capabilities, operation)
+  const successfulAdapter =
+    operationState.status === 'supported'
+      ? operationState.adapter
+      : undefined
+  const hintedAdapter = capabilities?.preferredAdapter || capabilities?.adapter
+  const addSuccessfulFirst = (candidates: ImageGenerationAdapter[]): ImageGenerationAdapter[] =>
+    successfulAdapter
+      ? [successfulAdapter, ...candidates.filter((candidate) => candidate !== successfulAdapter)]
+      : candidates
+
+  if (provider.completionType === 'puter_native') return addSuccessfulFirst(['puter'])
+  if (provider.completionType === 'gemini_native') return addSuccessfulFirst(['gemini_generate_content'])
+
+  const text = modelText(provider, model)
+  if (/stability\.ai|stable-image|stable-diffusion/.test(text)) {
+    return addSuccessfulFirst([...(hintedAdapter ? [hintedAdapter] : []), 'stability', 'openai_images'])
+  }
+  if (/responses|image[_ -]?generation|gpt-image|dall[\s-]?e/.test(text)) {
+    return addSuccessfulFirst([...(hintedAdapter ? [hintedAdapter] : []), 'openai_images', 'openai_responses'])
+  }
+  if (provider.completionType === 'responses') {
+    return addSuccessfulFirst([...(hintedAdapter ? [hintedAdapter] : []), 'openai_responses', 'openai_images'])
+  }
+  if (provider.completionType === 'chat_completions') {
+    return addSuccessfulFirst([...(hintedAdapter ? [hintedAdapter] : []), 'openai_images', 'openai_responses'])
+  }
+  return []
+}
+
+export function imageCapabilityState(
+  status: ImageGenerationCapabilityState['status'],
+  adapter?: ImageGenerationAdapter,
+  reason?: string
+): ImageGenerationCapabilityState {
+  return {
+    status,
+    ...(adapter ? { adapter } : {}),
+    ...(reason ? { reason: reason.slice(0, 500) } : {}),
+    checkedAt: Date.now()
+  }
+}
+
+export function imageGenerationRouteFingerprint(
+  provider: Pick<ProviderConfig, 'id' | 'baseUrl' | 'apiKey' | 'completionType'>,
+  model: Pick<ProviderModel, 'id' | 'provider' | 'imageGeneration'>
+): string {
+  return [
+    provider.id,
+    provider.baseUrl.trim(),
+    provider.apiKey,
+    provider.completionType,
+    model.id,
+    model.provider || '',
+    model.imageGeneration?.endpoint || '',
+    model.imageGeneration?.stabilityEngine || ''
+  ].join('|')
 }
 
 export function hasImageGenerationCredentials(provider: ProviderConfig): boolean {
@@ -380,6 +512,27 @@ function providerMessageSuggestsUnsupportedModel(message: string): boolean {
   )
 }
 
+function providerMessageSuggestsUnsupportedProtocol(message: string): boolean {
+  return /(?:unsupported|not supported|not implemented|unavailable).*(?:endpoint|route|method|image generation|image editing)|(?:endpoint|route|method|image generation|image editing).*(?:unsupported|not supported|not implemented|unavailable)/i.test(message)
+}
+
+export function isImageGenerationProtocolIncompatibility(
+  error: unknown
+): boolean {
+  const details =
+    error instanceof ImageGenerationError
+      ? error.details
+      : error && typeof error === 'object' && 'code' in error
+        ? (error as Partial<ImageGenerationErrorDetails>)
+        : null
+  if (!details) return false
+  return (
+    details.code === 'IMAGE_ENDPOINT_UNSUPPORTED' ||
+    details.code === 'IMAGE_MODEL_UNSUPPORTED' ||
+    details.code === 'IMAGE_EDIT_UNSUPPORTED'
+  )
+}
+
 export function mapImageGenerationHttpError(
   status: number,
   providerMessage = '',
@@ -448,12 +601,23 @@ export function mapImageGenerationHttpError(
   }
   if (status === 400 || status === 422) {
     const unsupportedModel = providerMessageSuggestsUnsupportedModel(providerMessage)
+    const unsupportedProtocol = providerMessageSuggestsUnsupportedProtocol(providerMessage)
     return {
-      code: unsupportedModel ? 'IMAGE_MODEL_UNSUPPORTED' : 'IMAGE_INVALID_OPTIONS',
+      code: unsupportedModel
+        ? 'IMAGE_MODEL_UNSUPPORTED'
+        : unsupportedProtocol
+          ? operation === 'edit'
+            ? 'IMAGE_EDIT_UNSUPPORTED'
+            : 'IMAGE_ENDPOINT_UNSUPPORTED'
+          : 'IMAGE_INVALID_OPTIONS',
       userMessage: unsupportedModel
         ? operation === 'edit'
           ? 'The selected model cannot edit images.'
           : 'The selected model cannot generate images.'
+        : unsupportedProtocol
+          ? operation === 'edit'
+            ? 'The selected provider or model does not support image editing.'
+            : 'The selected provider does not support image generation at this endpoint.'
         : operation === 'edit'
           ? 'The image provider rejected the edit request or source image.'
           : 'The image provider rejected the requested options.',

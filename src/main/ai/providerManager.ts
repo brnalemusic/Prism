@@ -9,7 +9,14 @@ import {
   isPuterHost
 } from './trustedRegistry'
 import { fetchPuterModels, fetchPuterModelsViaSDK } from './puterClient'
-import { resolveExactImageRouteFromProviders } from './imageGenerationCore'
+import {
+  imageGenerationRouteFingerprint,
+  resolveExactImageRouteFromProviders,
+  type ImageGenerationOperation,
+  type ImageGenerationCapabilityState
+} from './imageGenerationCore'
+import type { ImageGenerationAdapter } from '../../shared/types'
+import type { ImageGenerationCapabilities } from '../../shared/types'
 
 export interface FetchModelsResult {
   success: boolean
@@ -275,11 +282,74 @@ export function resolveProviderAndModel(fullKey?: string): {
 
 export function saveProviders(providers: ProviderConfig[]): boolean {
   const config = loadConfig()
-  config.providers = (providers || []).filter((p) => p && p.id !== PRISM_PROVIDER_ID)
+  const previous = Array.isArray(config.providers) ? config.providers : []
+  config.providers = (providers || [])
+    .filter((p) => p && p.id !== PRISM_PROVIDER_ID)
+    .map((provider) => {
+      const oldProvider = previous.find((candidate) => candidate?.id === provider.id)
+      const oldFingerprintByModel = new Map(
+        oldProvider
+          ? oldProvider.models.map((model) => [
+              model.id,
+              imageGenerationRouteFingerprint(oldProvider, model)
+            ])
+          : []
+      )
+      return {
+        ...provider,
+        models: (provider.models || []).map((model) => {
+          const oldFingerprint = oldFingerprintByModel.get(model.id)
+          const nextFingerprint = imageGenerationRouteFingerprint(provider, model)
+          if (oldFingerprint && oldFingerprint !== nextFingerprint) {
+            return { ...model, imageGeneration: undefined }
+          }
+          return model
+        })
+      }
+    })
   config.userGeminiKey = ''
   config.userNvidiaNimKey = ''
   config.userOpenaiKey = ''
   return saveConfig(config)
+}
+
+export function saveImageGenerationCapability(
+  routeKey: string,
+  operation: ImageGenerationOperation,
+  state: ImageGenerationCapabilityState,
+  resolvedAdapter?: ImageGenerationAdapter
+): boolean {
+  const config = loadConfig()
+  const providers = Array.isArray(config.providers) ? config.providers : []
+  const { provider, model } = resolveExactImageRouteFromProviders(providers, routeKey)
+  if (!provider || !model) return false
+  const nextState = {
+    ...state,
+    routeFingerprint: imageGenerationRouteFingerprint(provider, model),
+    ...(resolvedAdapter ? { adapter: resolvedAdapter } : {})
+  }
+  const updatedProviders = providers.map((candidate) => {
+    if (candidate.id !== provider.id) return candidate
+    return {
+      ...candidate,
+      models: candidate.models.map((candidateModel) => {
+        if (candidateModel.id !== model.id) return candidateModel
+        const current: Partial<ImageGenerationCapabilities> = candidateModel.imageGeneration || {}
+        return {
+          ...candidateModel,
+          imageGeneration: {
+            ...current,
+            mode: 'automatic' as const,
+            generate: current.generate || { status: 'unknown' as const },
+            edit: current.edit || { status: 'unknown' as const },
+            ...(resolvedAdapter ? { resolvedAdapter } : {}),
+            [operation]: nextState
+          }
+        }
+      })
+    }
+  })
+  return saveConfig({ providers: updatedProviders }, config)
 }
 
 export function deleteProvider(providerId: string): boolean {

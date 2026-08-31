@@ -4,6 +4,7 @@ import { puter } from '@heyputer/puter.js'
 import { ProviderConfig, ProviderModel } from '../../shared/types'
 import { isModelTrusted } from './trustedRegistry'
 import { asDataUrl, imageAttachments } from '../toolAttachments'
+import { shouldForwardImageToolAttachments } from './imageGenerationCore'
 import type { StreamCallbacks, StreamResult } from './openaiClient'
 import type { OpenAiMessage, OpenAiToolDefinition, OpenAiToolCall } from './types'
 
@@ -548,6 +549,10 @@ export function sanitizePuterMessages(messages: OpenAiMessage[]): OpenAiMessage[
 
     const attachments = imageAttachments(m.tool_attachments)
     if (m.role === 'tool' && attachments.length > 0) {
+      // The generation tool already reports success and opaque image references
+      // in its text result. Sending its output back as vision input breaks Puter
+      // chat models that can generate images but cannot inspect them.
+      if (!shouldForwardImageToolAttachments(m.name)) return [cleanMsg]
       return [
         cleanMsg,
         {

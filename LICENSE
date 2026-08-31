@@ -1,29 +1,75 @@
-PRISM LICENSE 1.0
+PRISM LICENSE 1.1
 
 Copyright (c) 2026 Breno Alexandrē. All rights reserved.
 
-1. PERMISSIONS FOR INDIVIDUALS
-Subject to the terms and conditions of this License, individual natural persons are granted a non-exclusive, worldwide, royalty-free license to:
-  a. Download, install, execute, and use Prism and PrismCLI for personal, educational, or non-commercial purposes.
-  b. Modify the source code for personal use.
-  c. Create and distribute open-source or closed-source derivative works (forks), provided that:
-     i. Prominent credit and attribution are given to "Prism" and the original creator "Breno Alexandrē" in all copies, documentation, and user interfaces.
-     ii. The derivative work constitutes a Qualified Fork (as defined in Section 3).
+1. DEFINITIONS
 
-2. COMMERCIAL AND CORPORATE USE RESTRICTIONS
-  a. Any deployment, execution, or use of Prism or PrismCLI on hardware, infrastructure, or assets owned, leased, or managed by a corporate entity or commercial enterprise (e.g., CNPJ in Brazil, LLC/Inc in the USA, or equivalent corporate structures worldwide) REQUIRES a separate, valid Commercial License from the Copyright Holder.
-  b. Commercial entities and corporate users are strictly prohibited from executing, modifying, or creating derivative versions of Prism or PrismCLI without obtaining a prior written Commercial License from the Copyright Holder.
-  c. To inquire about or purchase a Commercial License, contact Breno Alexandrē at: https://github.com/brnalemusic
+1.1 "Licensor" and "Copyright Holder" mean Breno Alexandrē.
 
-3. QUALIFIED FORKS AND SAAS/HOSTED SERVICES
-  a. Creation of commercial, revenue-generating, or Software-as-a-Service (SaaS) products based on Prism technology is permitted ONLY if the derivative work is a "Qualified Fork".
-  b. A "Qualified Fork" means a substantially modified derivative work that incorporates significant, original code changes, features, or unique value additions created by the modifier.
-  c. Direct re-hosting, re-selling, re-skinning, or offering of the unmodified original Prism codebase, binaries, or technologies as a commercial service or paid distribution is strictly PROHIBITED.
-  d. All Qualified Forks must maintain proper attribution to "Prism" and "Breno Alexandrē".
+1.2 "Prism Technology" means the Prism desktop application, PrismCLI, their source code, binaries, releases, documentation, bundled assets, and any portion or derivative of them.
 
-4. TRADEMARK & BRANDING PROTECTION
-  a. This License does NOT grant any permission to use the trade names, trademarks, service marks, or product names of the Licensor, including but not limited to "Prism" and "PrismCLI", or any associated logos, graphics, and brand assets.
-  b. No fork, derivative work, or commercial product may be named "Prism" or "PrismCLI", nor utilize the official Prism logos or branding without explicit prior written authorization from Breno Alexandrē.
+1.3 "Individual User" means a natural person acting solely in their personal capacity, and not on behalf of, for the benefit of, or using hardware, infrastructure, accounts, or other assets controlled by a Commercial Entity.
 
-5. DISCLAIMER OF WARRANTY & LIMITATION OF LIABILITY
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER (BRENO ALEXANDRĒ) BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+1.4 "Commercial Entity" means any company, corporation, partnership, limited-liability entity, sole proprietorship, nonprofit organization, government body, educational institution acting in an organizational capacity, or other legal or commercial organization. This includes, without limitation, entities registered as a CNPJ in Brazil, LLC, Inc., corporation, partnership, or equivalent organization in any jurisdiction.
+
+1.5 "Commercial License" means a separate, valid, written license agreement granted by the Copyright Holder that expressly authorizes the relevant Commercial Entity to use Prism Technology.
+
+1.6 "AI Model Service" means any artificial-intelligence model, model API, account, subscription, token allowance, or inference service used through Prism Technology, whether provided by the Licensor (including Arcadia), by a third party (including OpenAI, Google, Anthropic, xAI, or any other provider), or by the user locally.
+
+1.7 "Qualified Fork" means a derivative work that materially and substantially transforms Prism Technology through significant original code, features, functionality, or other unique value created by its modifier. A Qualified Fork is not created merely by changing branding, styling, configuration, model providers, prompts, packaging, deployment method, or by making minor fixes or additions.
+
+2. LICENSE GRANT TO INDIVIDUAL USERS
+
+Subject to this License, an Individual User is granted a non-exclusive, worldwide, royalty-free, non-transferable license to:
+
+  a. download, install, execute, and use Prism Technology for personal, educational, or other non-commercial purposes;
+  b. inspect and modify the source code for their personal use; and
+  c. create and distribute an open-source or closed-source derivative work, provided that the derivative work is a Qualified Fork and complies with Sections 4 and 5.
+
+No right is granted under this Section to use Prism Technology on behalf of a Commercial Entity or through hardware, infrastructure, accounts, or assets owned, leased, managed, or controlled by a Commercial Entity.
+
+3. COMMERCIAL ENTITY USE REQUIRES A COMMERCIAL LICENSE
+
+3.1 A Commercial Entity must obtain a valid Commercial License before it downloads, installs, executes, deploys, accesses, modifies, distributes, or otherwise uses any Prism Technology.
+
+3.2 This requirement applies regardless of:
+
+  a. whether the use is internal, external, commercial, non-commercial, experimental, educational, or production use;
+  b. whether the Commercial Entity earns revenue from the use; or
+  c. which AI Model Service is used, including free or paid Arcadia models, free or paid third-party models, user-supplied API keys, local models, or no AI Model Service at all.
+
+3.3 An Arcadia subscription, Arcadia plan, AI Model Service account, token purchase, or access to any free model does not constitute a Commercial License and does not authorize a Commercial Entity to use Prism Technology.
+
+3.4 Conversely, a Commercial License governs permission to use Prism Technology. It does not include AI Model Service access, model subscriptions, API credits, tokens, or rights granted separately by an AI Model Service provider.
+
+3.5 Without a Commercial License, a Commercial Entity is prohibited from executing, modifying, creating derivative versions of, distributing, deploying, hosting, or otherwise using Prism Technology.
+
+3.6 To inquire about or purchase a Commercial License, contact the Copyright Holder at: https://github.com/brnalemusic
+
+4. QUALIFIED FORKS, COMMERCIAL PRODUCTS, AND HOSTED SERVICES
+
+4.1 A commercial, revenue-generating, hosted, or Software-as-a-Service product based on Prism Technology may be created or offered only as a Qualified Fork, with the attribution required by Section 5, and subject to any Commercial License required by Section 3.
+
+4.2 Directly re-hosting, re-selling, re-packaging, re-skinning, sublicensing, or offering the unmodified or substantially unmodified Prism Technology, source code, or binaries as a paid product or service is prohibited.
+
+4.3 A derivative work does not become a Qualified Fork merely because it connects Prism Technology to a different AI Model Service, changes a model's availability or pricing, changes visual design, or adds superficial functionality.
+
+4.4 This Section does not authorize use of the Prism or PrismCLI names, logos, or other branding. Branding is governed by Section 5.
+
+5. ATTRIBUTION, TRADEMARKS, AND BRANDING
+
+5.1 Every Qualified Fork and every permitted distribution of a derivative work must provide prominent attribution to "Prism" and "Breno Alexandrē" in its copies, documentation, and user interface, where a user interface exists.
+
+5.2 This License grants no permission to use the Licensor's trade names, trademarks, service marks, product names, logos, graphics, or other brand assets, including "Prism" and "PrismCLI".
+
+5.3 No fork, derivative work, commercial product, hosted service, or other offering may be named "Prism" or "PrismCLI", or use the official Prism logos or branding, without the Copyright Holder's prior written authorization.
+
+6. NO OTHER RIGHTS
+
+6.1 Except for the express permissions in this License or in a separate written Commercial License, all rights in Prism Technology are reserved by the Copyright Holder.
+
+6.2 No permission is granted by implication, estoppel, or otherwise.
+
+7. DISCLAIMER OF WARRANTY AND LIMITATION OF LIABILITY
+
+THE PRISM TECHNOLOGY IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE PRISM TECHNOLOGY OR THE USE OF OR OTHER DEALINGS IN THE PRISM TECHNOLOGY.

@@ -8,7 +8,7 @@ import {
   type SystemToolResult,
   type ToolImageAttachment
 } from '../toolAttachments'
-import { resolveExactProviderAndModel } from './providerManager'
+import { resolveExactProviderAndModel, saveImageGenerationCapability } from './providerManager'
 import { generatePuterImage } from './puterClient'
 import {
   buildAdapterImageEndpoint,
@@ -24,12 +24,14 @@ import {
   parseBase64ImageDataUrl,
   parseAdapterImageResponse,
   resolveImageGenerationCapabilities,
-  supportsImageGenerationOperation,
+  resolveImageGenerationCandidates,
+  getImageGenerationCapabilityState,
+  isImageGenerationProtocolIncompatibility,
   type ImageGenerationOperation,
   type ImageGenerationMimeType,
   type ImageSourceDescriptor
 } from './imageGenerationCore'
-import type { ImageGenerationCapabilities } from '../../shared/types'
+import type { ImageGenerationAdapter, ImageGenerationCapabilities } from '../../shared/types'
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024
@@ -64,8 +66,7 @@ export function resolveConfiguredImageGenerationRoute(): {
   if (
     !provider ||
     !model ||
-    !isImageGenerationCompletionType(provider.completionType) ||
-    !resolveImageGenerationCapabilities(provider, model)
+    !isImageGenerationCompletionType(provider.completionType)
   ) {
     throw routeError(
       'IMAGE_ROUTE_STALE',
@@ -527,6 +528,7 @@ async function generatePuterImages(
     } catch (error) {
       if (error instanceof ImageGenerationError) {
         if (error.details.code === 'IMAGE_CANCELLED') throw error
+        if (isExplicitIncompatibility(error)) throw error
         firstError ??= error
       } else {
         firstError ??= puterImageError(error)
@@ -601,15 +603,16 @@ function imageDataPart(attachment: ToolImageAttachment): string {
 function buildAdapterImageRequest(
   args: ImageGenerationArguments,
   capabilities: ImageGenerationCapabilities,
+  adapter: ImageGenerationAdapter,
   modelId: string,
   apiKey: string,
   sourceAttachment?: ToolImageAttachment
 ): RequestInit {
   const renderModel = capabilities.renderModel || modelId
-  if (capabilities.adapter === 'openai_images') {
+  if (adapter === 'openai_images') {
     return buildImageRequest(args, renderModel, apiKey, sourceAttachment)
   }
-  if (capabilities.adapter === 'openai_responses') {
+  if (adapter === 'openai_responses') {
     const input: Array<Record<string, unknown>> = [{ type: 'input_text', text: args.prompt }]
     if (sourceAttachment) {
       input.push({ type: 'input_image', image_url: imageDataPart(sourceAttachment) })
@@ -632,7 +635,7 @@ function buildAdapterImageRequest(
       })
     }
   }
-  if (capabilities.adapter === 'gemini_generate_content') {
+  if (adapter === 'gemini_generate_content') {
     const parts: Array<Record<string, unknown>> = [{ text: args.prompt }]
     if (sourceAttachment) {
       validateEditSource(sourceAttachment)
@@ -649,7 +652,7 @@ function buildAdapterImageRequest(
       })
     }
   }
-  if (capabilities.adapter === 'stability') {
+  if (adapter === 'stability') {
     const form = new FormData()
     form.append('prompt', args.prompt)
     form.append('output_format', 'png')
@@ -679,6 +682,10 @@ function buildAdapterImageRequest(
   })
 }
 
+function isExplicitIncompatibility(error: unknown): boolean {
+  return isImageGenerationProtocolIncompatibility(error)
+}
+
 export async function generateImage(
   args: ImageGenerationArguments,
   signal?: AbortSignal,
@@ -694,7 +701,8 @@ export async function generateImage(
   }
   const { provider, model } = resolveConfiguredImageGenerationRoute()
   const capabilities = resolveImageGenerationCapabilities(provider, model)
-  if (!capabilities || !supportsImageGenerationOperation(provider, model, args.operation)) {
+  const operationState = getImageGenerationCapabilityState(capabilities, args.operation)
+  if (operationState.status === 'unsupported') {
     throw new ImageGenerationError({
       code: args.operation === 'edit' ? 'IMAGE_EDIT_UNSUPPORTED' : 'IMAGE_MODEL_UNSUPPORTED',
       userMessage:
@@ -720,31 +728,99 @@ export async function generateImage(
       )
     }
   }
-  if (capabilities.adapter === 'puter') {
-    const attachments = await generatePuterImages(args, provider, model, sourceAttachment, signal)
-    const verb = args.operation === 'edit' ? 'Edited' : 'Generated'
-    const references = attachments
-      .map((attachment) => imageAssetReference(attachment))
-      .filter((reference): reference is string => Boolean(reference))
-    return {
-      output:
-        `${verb} ${attachments.length} image${attachments.length === 1 ? '' : 's'} successfully.` +
-        (references.length > 0
-          ? `\nImage references:\n${references.map((ref) => `- ${ref}`).join('\n')}`
-          : ''),
-      attachments
+  const candidates = resolveImageGenerationCandidates({ provider, model, operation: args.operation })
+  if (candidates.length === 0) {
+    throw new ImageGenerationError({
+      code: 'IMAGE_ENDPOINT_UNSUPPORTED',
+      userMessage: 'The selected provider does not expose a supported image protocol.',
+      retryable: false
+    })
+  }
+  let lastError: unknown
+  for (const adapter of candidates) {
+    try {
+      let attachments: ToolImageAttachment[]
+      if (adapter === 'puter') {
+        attachments = await generatePuterImages(args, provider, model, sourceAttachment, signal)
+      } else {
+        attachments = await generateHttpImages(
+          args,
+          provider,
+          model,
+          capabilities,
+          adapter,
+          sourceAttachment,
+          signal
+        )
+      }
+      saveImageGenerationCapability(
+        `${provider.id}:${model.id}`,
+        args.operation,
+        { status: 'supported', checkedAt: Date.now(), adapter },
+        adapter
+      )
+      const verb = args.operation === 'edit' ? 'Edited' : 'Generated'
+      const references = attachments
+        .map((attachment) => imageAssetReference(attachment))
+        .filter((reference): reference is string => Boolean(reference))
+      return {
+        output:
+          `${verb} ${attachments.length} image${attachments.length === 1 ? '' : 's'} successfully.` +
+          (references.length > 0
+            ? `\nImage references:\n${references.map((ref) => `- ${ref}`).join('\n')}`
+            : ''),
+        attachments
+      }
+    } catch (error) {
+      lastError = error
+      if (signal?.aborted) throw abortError()
+      if (!isExplicitIncompatibility(error)) throw error
     }
+  }
+  const unsupported = lastError instanceof ImageGenerationError ? lastError : undefined
+  saveImageGenerationCapability(
+    `${provider.id}:${model.id}`,
+    args.operation,
+    {
+      status: 'unsupported',
+      reason: unsupported?.details.providerMessage || unsupported?.message,
+      checkedAt: Date.now()
+    }
+  )
+  if (unsupported) throw unsupported
+  throw new ImageGenerationError({
+    code: 'IMAGE_MODEL_UNSUPPORTED',
+    userMessage: 'The selected model cannot generate or edit images.',
+    retryable: false
+  })
+}
+
+async function generateHttpImages(
+  args: ImageGenerationArguments,
+  provider: NonNullable<ReturnType<typeof resolveExactProviderAndModel>['provider']>,
+  model: NonNullable<ReturnType<typeof resolveExactProviderAndModel>['model']>,
+  capabilities: ImageGenerationCapabilities | null,
+  adapter: ImageGenerationAdapter,
+  sourceAttachment: ToolImageAttachment | undefined,
+  signal?: AbortSignal
+): Promise<ToolImageAttachment[]> {
+  const effectiveCapabilities: ImageGenerationCapabilities = {
+    ...(capabilities || {}),
+    adapter,
+    mode: 'automatic',
+    generate: capabilities?.generate || { status: 'unknown' },
+    edit: capabilities?.edit || { status: 'unknown' }
   }
   let endpoint: string
   try {
     endpoint = buildAdapterImageEndpoint({
       baseUrl: provider.baseUrl,
-      adapter: capabilities.adapter,
+      adapter,
       model: model.id,
       operation: args.operation,
-      ...(capabilities.endpoint ? { endpoint: capabilities.endpoint } : {}),
-      ...(capabilities.stabilityEngine
-        ? { stabilityEngine: capabilities.stabilityEngine }
+      ...(effectiveCapabilities.endpoint ? { endpoint: effectiveCapabilities.endpoint } : {}),
+      ...(effectiveCapabilities.stabilityEngine
+        ? { stabilityEngine: effectiveCapabilities.stabilityEngine }
         : {})
     })
   } catch {
@@ -758,7 +834,14 @@ export async function generateImage(
   try {
     response = await fetchWithTimeout(
       endpoint,
-      buildAdapterImageRequest(args, capabilities, model.id, provider.apiKey, sourceAttachment),
+      buildAdapterImageRequest(
+        args,
+        effectiveCapabilities,
+        adapter,
+        model.id,
+        provider.apiKey,
+        sourceAttachment
+      ),
       signal,
       180_000
     )
@@ -782,10 +865,7 @@ export async function generateImage(
     if (response.ok && responseType.toLowerCase().startsWith('image/')) {
       const attachment = validateDecodedImage(bytes, responseType)
       attachment.assetId = randomUUID()
-      return {
-        output: `${args.operation === 'edit' ? 'Edited' : 'Generated'} 1 image successfully.\nImage references:\n- ${imageAssetReference(attachment)}`,
-        attachments: [attachment]
-      }
+      return [attachment]
     }
     payload = JSON.parse(bytes.toString('utf8'))
   } catch (error) {
@@ -812,7 +892,7 @@ export async function generateImage(
     )
   }
 
-  const sources = parseAdapterImageResponse(payload, capabilities.adapter).slice(0, args.n)
+  const sources = parseAdapterImageResponse(payload, adapter).slice(0, args.n)
   const attachments: ToolImageAttachment[] = []
   let firstError: unknown
   for (const source of sources) {
@@ -836,18 +916,7 @@ export async function generateImage(
         })
   }
 
-  const verb = args.operation === 'edit' ? 'Edited' : 'Generated'
-  const references = attachments
-    .map((attachment) => imageAssetReference(attachment))
-    .filter((reference): reference is string => Boolean(reference))
-  return {
-    output:
-      `${verb} ${attachments.length} image${attachments.length === 1 ? '' : 's'} successfully.` +
-      (references.length > 0
-        ? `\nImage references:\n${references.map((ref) => `- ${ref}`).join('\n')}`
-        : ''),
-    attachments
-  }
+  return attachments
 }
 
 export function asImageGenerationArguments(

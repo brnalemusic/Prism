@@ -336,10 +336,29 @@ export type ImageGenerationAdapter =
   | 'stability'
   | 'puter'
 
+export type ImageGenerationCapabilityStatus = 'unknown' | 'supported' | 'unsupported'
+
+export interface ImageGenerationOperationCapability {
+  status: ImageGenerationCapabilityStatus
+  reason?: string
+  checkedAt?: number
+  adapter?: ImageGenerationAdapter
+  routeFingerprint?: string
+}
+
 export interface ImageGenerationCapabilities {
-  adapter: ImageGenerationAdapter
-  generate: boolean
-  edit: boolean
+  /** Automatic detection is the normal mode; manual is retained for migration metadata. */
+  mode?: 'automatic' | 'manual'
+  /** Adapter metadata is a hint. It must not prevent automatic fallback. */
+  preferredAdapter?: ImageGenerationAdapter
+  /** Last adapter that completed the operation successfully. */
+  resolvedAdapter?: ImageGenerationAdapter
+  /** Legacy adapter field, retained so old provider JSON can be normalized safely. */
+  adapter?: ImageGenerationAdapter
+  generate: ImageGenerationOperationCapability | boolean
+  edit: ImageGenerationOperationCapability | boolean
+  /** Fingerprint of the provider/model route used to verify this state. */
+  routeFingerprint?: string
   /** Optional image renderer used by an orchestration/LLM model. */
   renderModel?: string
   /** Optional absolute endpoint override for non-standard provider deployments. */

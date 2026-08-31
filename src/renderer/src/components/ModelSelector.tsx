@@ -5,12 +5,16 @@ import {
   MagnifyingGlass,
   CheckCircle,
   Warning,
+  XCircle,
   Crown
 } from '@phosphor-icons/react'
 import { clsx } from 'clsx'
 import { isShortcutPressed } from '../utils'
 import type { CompletionType } from '../../../shared/types'
-import type { ImageGenerationCapabilities } from '../../../shared/types'
+import type {
+  ImageGenerationCapabilities,
+  ImageGenerationOperationCapability
+} from '../../../shared/types'
 
 interface ActiveModelItem {
   providerId: string
@@ -37,7 +41,7 @@ interface ModelSelectorProps {
   menuPlacement?: 'top' | 'bottom'
   allowedCompletionTypes?: CompletionType[]
   allowClear?: boolean
-  imageGenerationOnly?: boolean
+  imageGenerationStatus?: boolean
 }
 
 export interface ModelSelectorHandle {
@@ -56,7 +60,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
       menuPlacement = 'bottom',
       allowedCompletionTypes,
       allowClear = false,
-      imageGenerationOnly = false
+      imageGenerationStatus = false
     },
     ref
   ) => {
@@ -184,9 +188,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
     const completionEligibleModels = allowedCompletionTypes?.length
       ? activeModels.filter((item) => allowedCompletionTypes.includes(item.completionType))
       : activeModels
-    const eligibleModels = imageGenerationOnly
-      ? completionEligibleModels.filter((item) => item.model.imageGeneration?.generate !== false)
-      : completionEligibleModels
+    const eligibleModels = completionEligibleModels
 
     // Find currently selected model display item
     const selectedItem = eligibleModels.find(
@@ -356,6 +358,28 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
                           item.fullKey.includes('arcadia-1.1-flash')
 
                         const isLocked = isArcadia11 && !isEnterprise
+                        const generationState = item.model.imageGeneration?.generate
+                        const editState = item.model.imageGeneration?.edit
+                        const getStatus = (
+                          state: ImageGenerationOperationCapability | boolean | undefined
+                        ): 'auto' | 'supported' | 'unsupported' =>
+                          typeof state === 'boolean'
+                            ? state
+                              ? 'supported'
+                              : 'unsupported'
+                            : state?.status === 'supported'
+                              ? 'supported'
+                              : state?.status === 'unsupported'
+                                ? 'unsupported'
+                                : 'auto'
+                        const generationStatus = getStatus(generationState)
+                        const editStatus = getStatus(editState)
+                        const generationReason =
+                          generationState && typeof generationState !== 'boolean'
+                            ? generationState.reason
+                            : undefined
+                        const editReason =
+                          editState && typeof editState !== 'boolean' ? editState.reason : undefined
 
                         return (
                           <button
@@ -398,6 +422,33 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
                                   <span>Enterprise</span>
                                 </span>
                               )}
+                              {imageGenerationStatus &&
+                              (generationStatus === 'unsupported' || editStatus === 'unsupported') ? (
+                                <span
+                                  title={`Generation: ${generationStatus === 'unsupported' ? generationReason || 'The provider rejected image generation.' : 'available'}. Editing: ${editStatus === 'unsupported' ? editReason || 'The provider rejected image editing.' : 'available'}.`}
+                                  aria-label={`Image capability status: generation ${generationStatus}, editing ${editStatus}`}
+                                  className="flex items-center gap-1 text-[10px] text-red-400 cursor-help"
+                                >
+                                  <XCircle size={13} weight="fill" />
+                                </span>
+                              ) : imageGenerationStatus &&
+                                (generationStatus === 'supported' || editStatus === 'supported') ? (
+                                <span
+                                  title={`Image capabilities verified: generation ${generationStatus}, editing ${editStatus}.`}
+                                  aria-label={`Image capability status: generation ${generationStatus}, editing ${editStatus}`}
+                                  className="text-status-success cursor-help"
+                                >
+                                  <CheckCircle size={13} weight="fill" />
+                                </span>
+                              ) : imageGenerationStatus ? (
+                                <span
+                                  title="Image protocol will be detected automatically on the first generation or edit."
+                                  aria-label="Image protocol will be detected automatically"
+                                  className="rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wider text-text-muted border border-white/[0.12]"
+                                >
+                                  Auto
+                                </span>
+                              ) : null}
                               {isSelected && (
                                 <Check
                                   size={14}

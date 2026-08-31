@@ -230,7 +230,13 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
         completionType
       })
       if (res.success && res.models) {
-        setModels(res.models)
+        const existingById = new Map(models.map((model) => [model.id, model]))
+        setModels(
+          res.models.map((model) => ({
+            ...model,
+            imageGeneration: existingById.get(model.id)?.imageGeneration || model.imageGeneration
+          }))
+        )
       } else {
         setFetchError(res.error || 'Failed to fetch models from provider')
       }
@@ -243,35 +249,6 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
 
   const handleToggleModel = (id: string): void => {
     setModels((prev) => (prev || []).map((m) => (m.id === id ? { ...m, enabled: !m.enabled } : m)))
-  }
-
-  const updateImageCapabilities = (
-    id: string,
-    update: Partial<NonNullable<ProviderModel['imageGeneration']>>
-  ): void => {
-    setModels((previous) =>
-      previous.map((model) => {
-        if (model.id !== id) return model
-        const fallbackAdapter =
-          completionType === 'responses'
-            ? 'openai_responses'
-            : completionType === 'gemini_native'
-              ? 'gemini_generate_content'
-              : completionType === 'puter_native'
-                ? 'puter'
-                : 'openai_images'
-        return {
-          ...model,
-          imageGeneration: {
-            adapter: model.imageGeneration?.adapter || fallbackAdapter,
-            generate: model.imageGeneration?.generate ?? true,
-            edit: model.imageGeneration?.edit ?? true,
-            ...model.imageGeneration,
-            ...update
-          }
-        }
-      })
-    )
   }
 
   const handleEnableAll = (): void => {
@@ -749,66 +726,6 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
                           )}
                         </div>
                       </div>
-                      {m.enabled && (
-                        <div
-                          className="flex items-center gap-1.5 ml-2"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <select
-                            aria-label={`Image adapter for ${m.id}`}
-                            value={m.imageGeneration?.adapter || ''}
-                            onChange={(event) => {
-                              if (!event.target.value) {
-                                setModels((previous) =>
-                                  previous.map((model) =>
-                                    model.id === m.id
-                                      ? { ...model, imageGeneration: undefined }
-                                      : model
-                                  )
-                                )
-                                return
-                              }
-                              updateImageCapabilities(m.id, {
-                                adapter: event.target.value as NonNullable<
-                                  ProviderModel['imageGeneration']
-                                >['adapter']
-                              })
-                            }}
-                            className="max-w-36 rounded-lg border border-white/[0.1] bg-black/30 px-2 py-1 text-[10px] text-text-secondary"
-                          >
-                            <option value="">Default image protocol</option>
-                            <option value="openai_images">OpenAI Images (direct)</option>
-                            <option value="openai_responses">Responses (LLM overhead)</option>
-                            <option value="gemini_generate_content">Gemini GenerateContent</option>
-                            <option value="stability">Stability AI</option>
-                            <option value="puter">Puter Native</option>
-                          </select>
-                          {m.imageGeneration && (
-                            <>
-                              <label className="flex items-center gap-1 text-[10px] text-text-muted">
-                                <input
-                                  type="checkbox"
-                                  checked={m.imageGeneration.generate}
-                                  onChange={(event) =>
-                                    updateImageCapabilities(m.id, { generate: event.target.checked })
-                                  }
-                                />
-                                Create
-                              </label>
-                              <label className="flex items-center gap-1 text-[10px] text-text-muted">
-                                <input
-                                  type="checkbox"
-                                  checked={m.imageGeneration.edit}
-                                  onChange={(event) =>
-                                    updateImageCapabilities(m.id, { edit: event.target.checked })
-                                  }
-                                />
-                                Edit
-                              </label>
-                            </>
-                          )}
-                        </div>
-                      )}
                     </div>
                   ))
                 )}

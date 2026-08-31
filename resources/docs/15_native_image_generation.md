@@ -4,7 +4,7 @@ Prism exposes image generation and editing through the native `generate_image` t
 
 ## Intelligence Routing
 
-Configure the route in **Settings > Intelligence Routing > Image Generation Model**. Prism stores the exact `providerId:modelId` key in `imageGenerationModel` and does not fall back to the selected chat model. Image behavior is configured per model in the API provider wizard, independently from the provider's conversational completion type.
+Configure the route in **Settings > Intelligence Routing > Image Generation Model**. Prism stores the exact `providerId:modelId` key in `imageGenerationModel` and does not fall back to the selected chat model. Every enabled model from an addressable provider remains selectable, including unknown and text-looking model names.
 
 Supported image adapters are:
 
@@ -14,15 +14,15 @@ Supported image adapters are:
 - **Stability AI** for Stable Image Core/Ultra generation and Stability multipart editing.
 - **Puter Native** for account-backed `puter.ai.txt2img()` generation and editing.
 
-Each model declares creation and editing capabilities separately. An optional absolute endpoint override supports compatible gateways with non-standard routes. Models without explicit metadata retain the legacy default for their provider protocol, so existing OpenAI-compatible and Puter routes continue to work.
+Prism detects the image protocol on the first real generation or edit request. It does not send a paid probe when a provider is saved. Protocol metadata and the model registry are hints only; automatic detection tries addressable candidates sequentially and never hides a model by name. Generation and editing are tracked independently, with a cached successful adapter for each operation.
 
 Enabled models from a connected **Puter.js Native** provider also appear in this selector. Puter lists its complete account-visible model catalog; Prism does not guess which entries can generate images, so select the model you intend to use. Puter User-Pays generation and editing call `puter.ai.txt2img()` through the native SDK using the connected account session, never an API key or OpenAI-compatible image endpoint. The Puter session is stored separately from API keys.
 
-When no valid route exists, the tool is omitted from the model's available tools. Removed providers, disabled models, missing credentials, and incompatible provider types make a previously saved route stale rather than causing an implicit fallback.
+When no valid route exists, the tool is omitted from the model's available tools. Removed providers, disabled models, missing credentials, and incompatible provider types make a previously saved route stale rather than causing an implicit fallback. Fallback continues only for an explicit unsupported endpoint, method, or model response; authentication, quota, rate limits, invalid options, timeouts, network errors, malformed payloads, and decoding failures stop immediately.
 
 ## Provider request
 
-The main process resolves the configured provider, model capabilities, and adapter before constructing a request. Direct OpenAI requests use JSON generation and multipart editing. Responses requests supply the image tool and optional source image. Gemini requests use `generateContent`, image response modalities, and inline source data. Stability requests use its native multipart routes and accept binary or JSON image results. Puter maps `size` to an aspect ratio, sends edits as a data-URI `input_image`, and invokes `puter.ai.txt2img()` once per requested output.
+The main process resolves the configured provider and model, then selects a protocol candidate. Direct OpenAI requests use JSON generation and multipart editing. Responses requests supply the image tool and optional source image. Gemini requests use `generateContent`, image response modalities, and inline source data. Stability requests use its native multipart routes and accept binary or JSON image results. Puter maps `size` to an aspect ratio, sends edits as a data-URI `input_image`, and invokes `puter.ai.txt2img()` once per requested output.
 
 Responses are normalized from OpenAI `data[].b64_json`/`data[].url`, Responses image tool output, Gemini `inlineData`, Stability binary/JSON payloads, and Puter URLs/data URIs before entering the shared validation pipeline.
 

@@ -1439,8 +1439,8 @@ export function SettingsView({
                 'gemini_native',
                 'puter_native'
               ]}
-              imageGenerationOnly
               allowClear
+              imageGenerationStatus
               align="right"
             />
           </div>
