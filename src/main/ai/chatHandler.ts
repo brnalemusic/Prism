@@ -963,7 +963,14 @@ function convertHistoryToOpenAi(history: OpenAiMessage[]): OpenAiMessage[] {
           tool_call_id: m.tool_call_id || `call_${Date.now()}`,
           name: m.name,
           content,
-          tool_attachments: dedupeImageAttachments(imageAttachments(m.tool_attachments), seenImages)
+          ...(m.name === 'generate_image'
+            ? {}
+            : {
+                tool_attachments: dedupeImageAttachments(
+                  imageAttachments(m.tool_attachments),
+                  seenImages
+                )
+              })
         }
       }
       let content =

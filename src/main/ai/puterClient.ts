@@ -604,6 +604,19 @@ export async function streamPuterCompletion(
     stream: true
   }
 
+  const hasImageInput = formattedMessages.some(
+    (message) =>
+      message.role === 'user' &&
+      Array.isArray(message.content) &&
+      message.content.some((part) => part.type === 'image_url')
+  )
+  if (hasImageInput) {
+    // The public Puter chat overload sets this flag when an image is passed as
+    // its media argument. Prism sends normalized messages directly through the
+    // driver, so preserve the same signal for vision-capable models.
+    driverArgs.vision = true
+  }
+
   if (tools && tools.length > 0) {
     driverArgs.tools = tools
   }

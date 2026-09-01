@@ -41,6 +41,7 @@ import {
 } from './toolRuntime'
 import { normalizePrismThinkingLevel } from './ai/prismThinking'
 import { streamOpenAiCompletion } from './ai/openaiClient'
+import { shouldForwardImageToolAttachments } from './ai/imageGenerationCore'
 import { is } from '@electron-toolkit/utils'
 import { broadcastIpc, safeSend } from './safeSend'
 import { createVoiceOverlayWindow, closeVoiceOverlayWindow, voiceOverlayWindow } from './index'
@@ -523,7 +524,8 @@ async function executeLiveToolCalls(
     })
     activeVoiceOverlayTool = null
 
-    const visualParts = (execution.attachments || [])
+    const visualParts = shouldForwardImageToolAttachments(name)
+      ? (execution.attachments || [])
       .filter((attachment) => attachment.kind === 'image')
       .map((attachment) => ({
         inlineData: {
@@ -531,6 +533,7 @@ async function executeLiveToolCalls(
           data: attachment.data
         }
       }))
+      : []
 
     functionResponses.push({
       id: callId,
@@ -1960,7 +1963,7 @@ function convertHistoryToOpenAi(history: OpenAiMessage[]): OpenAiMessage[] {
           tool_call_id: m.tool_call_id || `call_${Date.now()}`,
           name: m.name,
           content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-          tool_attachments: m.tool_attachments
+          ...(m.name === 'generate_image' ? {} : { tool_attachments: m.tool_attachments })
         }
       }
       const content =

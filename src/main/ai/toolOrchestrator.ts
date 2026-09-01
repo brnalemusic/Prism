@@ -10,6 +10,7 @@ import { streamOpenAiCompletion, StreamResult } from './openaiClient'
 import { OpenAiMessage, OpenAiToolDefinition } from './types'
 import { ToolAttachment } from '../toolAttachments'
 import { createPinnedModelInvoker } from './sessionRuntime'
+import { shouldForwardImageToolAttachments } from './imageGenerationCore'
 
 export interface OrchestratorStreamState {
   round: number
@@ -371,7 +372,9 @@ export async function runToolOrchestration(
         tool_call_id: callId,
         name: toolCall.name,
         content: execution.modelContent,
-        ...(execution.attachments ? { tool_attachments: execution.attachments } : {}),
+        ...(execution.attachments && shouldForwardImageToolAttachments(toolCall.name)
+          ? { tool_attachments: execution.attachments }
+          : {}),
         tool_metadata: {
           originalArguments: toolCall.args,
           validatedArguments: execution.args,
@@ -379,7 +382,11 @@ export async function runToolOrchestration(
         }
       }
       options.messages.push(toolMessage)
-      options.onHistoryMessage?.(toolMessage)
+      options.onHistoryMessage?.(
+        execution.attachments && !shouldForwardImageToolAttachments(toolCall.name)
+          ? { ...toolMessage, tool_attachments: execution.attachments }
+          : toolMessage
+      )
 
       if (!execution.envelope.ok && !execution.envelope.error.retryable) {
         nonRetryableFailure = execution.envelope.error.message
