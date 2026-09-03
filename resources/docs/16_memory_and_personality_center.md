@@ -8,8 +8,11 @@ with budgeted top-K; pinned facts ride the always-on `# Core Profile`; `observeC
 fires after each completed turn (never Harness, never error paths). Verification: `npm run
 test:memory` (28/28) + `test:persona` (9/9), typecheck node+web clean, real-data catch-up over
 18 chats (0 errors), headless E2E chain (extraction → store → recall + pinned core blocks),
-dev boot without renderer errors. Remaining (out of scope): live GUI click-through and a
-real-provider end-to-end proof; no git commit until the user's next decision.
+dev boot without renderer errors. Shipped after that: the AI `memory` tool
+(add/replace/remove over the USER.md/MEMORY.md analogs via the store service, credential gate,
+budgets 1375/2200, never writes `possible`) plus token-cheap active-save guidance on the persona
+surfaces. Remaining: heuristic detector robustness rework (next pass), live GUI click-through and
+a real-provider end-to-end proof; no git commit until the user's next decision.
 
 Constraint reminders that apply to every step:
 

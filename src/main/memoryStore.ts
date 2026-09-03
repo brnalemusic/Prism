@@ -9,7 +9,12 @@ import * as os from 'os'
 import * as path from 'path'
 import {
   DEFAULT_MEMORY_CONFIG,
+  MEMORY_GENERAL_BUDGET,
+  MEMORY_PROFILE_BUDGET,
+  MEMORY_TOOL_ENTRY_CAP,
   buildTurnRecallBlock,
+  foldAccents,
+  isCredentialLike,
   keywordize,
   normalizeMemoryConfig,
   runExtraction,
@@ -29,6 +34,8 @@ import type {
   MemoryStats,
   MemoryStoreEvent,
   MemoryTier,
+  MemoryToolCall,
+  MemoryToolResult,
   MemoryWrite
 } from '../shared/memoryCore.ts'
 
@@ -99,6 +106,7 @@ export interface MemoryService {
   observeCompletedTurn(chatId: string): void
   startupCatchUp(): CatchUpReport
   runMaintenance(): number
+  memoryTool(call: MemoryToolCall, chatId?: string): MemoryToolResult
 }
 
 let activeMemoryService: MemoryService | null = null
@@ -131,6 +139,32 @@ export function appendTurnRecallBlock(
     return prompt
   }
 }
+/** Thin executor adapter: systemTools `case 'memory'` -> store service. */
+export function executeMemoryTool(args: Record<string, unknown>, chatId?: string): string {
+  const action = String(args.action ?? '')
+  const target = String(args.target ?? '')
+  if (!['add', 'replace', 'remove'].includes(action)) {
+    return JSON.stringify({ ok: false, message: 'Error: unknown action "' + action + '". Use add, replace or remove.', usage: '' } satisfies MemoryToolResult)
+  }
+  if (!['user', 'memory'].includes(target)) {
+    return JSON.stringify({ ok: false, message: 'Error: unknown target "' + target + '". Use "user" (profile facts) or "memory" (general facts).', usage: '' } satisfies MemoryToolResult)
+  }
+  const service = activeMemoryService
+  if (!service) {
+    return JSON.stringify({ ok: false, message: 'Error: memory store is not available yet.', usage: '' } satisfies MemoryToolResult)
+  }
+  const result = service.memoryTool(
+    {
+      action: action as MemoryToolCall['action'],
+      target: target as MemoryToolCall['target'],
+      content: typeof args.content === 'string' ? args.content : undefined,
+      old_text: typeof args.old_text === 'string' ? args.old_text : undefined
+    },
+    chatId ?? 'tool'
+  )
+  return JSON.stringify(result)
+}
+
 
 export function createMemoryService(options: MemoryServiceOptions): MemoryService {
   const chatsDir = options.chatsDir
@@ -550,6 +584,116 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
       }, 4000)
       timer.unref()
       debounceTimers.set(chatId, timer)
+    },
+
+    memoryTool(call: MemoryToolCall, chatId = 'tool'): MemoryToolResult {
+      const USER_KINDS: MemoryKind[] = ['about_user', 'preference']
+      const GENERAL_KINDS: MemoryKind[] = ['fact', 'event', 'project', 'behavioral']
+      const targetKinds = call.target === 'user' ? USER_KINDS : GENERAL_KINDS
+      const budget = call.target === 'user' ? MEMORY_PROFILE_BUDGET : MEMORY_GENERAL_BUDGET
+      const usageText = (): string => {
+        const used = (kinds: MemoryKind[]): number =>
+          readStore()
+            .memories.filter((m) => !m.archived && m.tier === 'committed' && kinds.includes(m.kind))
+            .reduce((sum, m) => sum + m.content.length, 0)
+        return 'user ' + used(USER_KINDS) + '/' + MEMORY_PROFILE_BUDGET + ' · memory ' + used(GENERAL_KINDS) + '/' + MEMORY_GENERAL_BUDGET
+      }
+      const store = readStore()
+      const scope = store.memories.filter(
+        (m) => !m.archived && m.tier === 'committed' && targetKinds.includes(m.kind)
+      )
+      const used = scope.reduce((sum, m) => sum + m.content.length, 0)
+      const refuse = (message: string): MemoryToolResult => ({ ok: false, message, usage: usageText() })
+
+      if (call.action === 'add') {
+        const content = (call.content ?? '').trim()
+        if (!content) return refuse('Error: content is required for add.')
+        if (content.length > MEMORY_TOOL_ENTRY_CAP) {
+          return refuse('Error: entry too long (' + content.length + ' chars, max ' + MEMORY_TOOL_ENTRY_CAP + '). Keep it compact.')
+        }
+        if (isCredentialLike(content)) {
+          return refuse('Error: content looks like a secret or credential and was refused.')
+        }
+        const folded = (value: string): string => foldAccents(value.toLowerCase())
+        if (scope.some((m) => folded(m.content) === folded(content))) {
+          return { ok: true, message: 'No duplicate added — this fact is already saved.', usage: usageText() }
+        }
+        if (used + content.length > budget) {
+          return refuse('Error: ' + call.target + ' store is full (' + used + '/' + budget + '). Consolidate existing entries (replace/remove) before adding.')
+        }
+        const kind: MemoryKind =
+          call.target === 'user'
+            ? /\b(gosto|prefiro|prefere|adoro|odeio|detesto|curto|favorit|like|prefer|love|hate)\b|n[ãa]o\s+gosto/i.test(content)
+              ? 'preference'
+              : 'about_user'
+            : 'fact'
+        const polarity =
+          kind === 'preference'
+            ? /\b(odeio|detesto|hate|can'?t\s+stand)\b|n[ãa]o\s+gosto|don'?t\s+like/i.test(content)
+              ? 'negative'
+              : 'positive'
+            : 'neutral'
+        const created = now()
+        const entry: MemoryEntry = {
+          id: randomUUID(),
+          kind,
+          content,
+          factKey: 'tool.' + call.target + '.' + slugifyKey(content).slice(0, 60),
+          polarity,
+          confidence: 0.95,
+          tier: 'committed',
+          sourceChatId: chatId,
+          createdAt: created,
+          confirmedAt: created,
+          lastSeenAt: created,
+          lastAccessedAt: created,
+          accessCount: 0,
+          pinned: false,
+          archived: false,
+          keywords: keywordize(content)
+        }
+        store.memories.push(entry)
+        writeStore(store)
+        emit('write', [entry], chatId)
+        return { ok: true, message: 'Added to long-term memory.', usage: usageText(), entry }
+      }
+
+      const oldText = (call.old_text ?? '').trim()
+      if (!oldText) return refuse('Error: old_text is required for replace/remove.')
+      const foldedText = foldAccents(oldText.toLowerCase())
+      const matches = scope.filter((m) => foldAccents(m.content.toLowerCase()).includes(foldedText))
+      if (matches.length === 0) {
+        return { ok: false, message: 'Error: no memory contains that text. Current entries:', matches: scope.slice(0, 5).map((m) => m.content), usage: usageText() }
+      }
+      if (matches.length > 1) {
+        return { ok: false, message: 'Error: old_text matches multiple entries — make it more specific.', matches: matches.map((m) => m.content), usage: usageText() }
+      }
+      const entry = matches[0]
+
+      if (call.action === 'replace') {
+        const content = (call.content ?? '').trim()
+        if (!content) return refuse('Error: content is required for replace.')
+        if (content.length > MEMORY_TOOL_ENTRY_CAP) {
+          return refuse('Error: entry too long (' + content.length + ' chars, max ' + MEMORY_TOOL_ENTRY_CAP + '). Keep it compact.')
+        }
+        if (isCredentialLike(content)) {
+          return refuse('Error: content looks like a secret or credential and was refused.')
+        }
+        entry.content = content
+        entry.keywords = keywordize(content)
+        entry.confidence = 0.95
+        entry.confirmedAt = now()
+        entry.lastSeenAt = now()
+        writeStore(store)
+        emit('write', [entry], chatId)
+        return { ok: true, message: 'Memory updated.', usage: usageText(), entry }
+      }
+
+      // remove: soft archive (restorable), never a destructive delete.
+      entry.archived = true
+      writeStore(store)
+      emit('archived', [entry], chatId)
+      return { ok: true, message: 'Memory removed (archived; restorable).', usage: usageText(), entry }
     },
 
     startupCatchUp(): CatchUpReport {

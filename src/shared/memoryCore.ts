@@ -120,6 +120,37 @@ export interface MemoryStoreEvent {
   entries: MemoryEntry[]
   chatId?: string
 }
+// ---------------------------------------------------------------------------
+// AI memory tool (Hermes-style add/replace/remove over USER.md/MEMORY.md analogs)
+// ---------------------------------------------------------------------------
+
+export type MemoryToolTarget = 'user' | 'memory'
+export type MemoryToolAction = 'add' | 'replace' | 'remove'
+
+export interface MemoryToolCall {
+  action: MemoryToolAction
+  target: MemoryToolTarget
+  /** Full fact for `add`, or the new full fact for `replace`. */
+  content?: string
+  /** Short unique substring of the existing entry for `replace`/`remove`. */
+  old_text?: string
+}
+
+export interface MemoryToolResult {
+  ok: boolean
+  message: string
+  /** Hermes-style capacity line, e.g. "user 320/1375 · memory 210/2200". */
+  usage: string
+  entry?: MemoryEntry
+  matches?: string[]
+}
+
+/** Total char budgets per store (mirrors Hermes' USER.md/MEMORY.md limits). */
+export const MEMORY_PROFILE_BUDGET = 1375
+export const MEMORY_GENERAL_BUDGET = 2200
+/** Per-entry cap for AI-written facts (keeps prompts lean). */
+export const MEMORY_TOOL_ENTRY_CAP = 280
+
 
 // ---------------------------------------------------------------------------
 // Config
@@ -493,7 +524,7 @@ function hasForgetLead(sentence: string): boolean {
   return FORGET_LEADS.some((pattern) => pattern.test(sentence))
 }
 
-function isCredentialLike(text: string): boolean {
+export function isCredentialLike(text: string): boolean {
   return CREDENTIAL_GATE.some((pattern) => pattern.test(text))
 }
 

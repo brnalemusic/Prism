@@ -31,7 +31,7 @@ import {
 
 import { loadConfig, saveConfig, SlashWorkflow } from './config'
 import { compilePersona } from '../shared/persona'
-import { getActiveMemoryService } from './memoryStore'
+import { executeMemoryTool, getActiveMemoryService } from './memoryStore'
 import { MEMORY_PROFILE_HEADER, buildMemoryContextBlock } from '../shared/memoryCore'
 import { searchAndReadWeb, fetchAndSummarizeWeb } from './webSearchService'
 import { requestDiscordVoiceLeave } from './discordGateway'
@@ -2022,6 +2022,18 @@ export function getSystemToolsPrompt(
     }
   })()
 
+  // AI memory guidance (Hermes-style): the model actively curates long-term
+  // memory through the memory tool. Same surface guard as persona; never Harness.
+  const memoryGuidanceSection = (() => {
+    if (target === 'subagent' || target === 'both' || sessionMode === 'harness') return ''
+    return `# Long-Term Memory
+You maintain Prism's long-term memory with the memory tool \u2014 proactively, in the same turn, without waiting to be asked.
+- Save stable preferences, corrections, and durable facts about the user (name, age, job, location, family, projects, communication style) with target "user".
+- Save general notes, conventions and project facts with target "memory".
+- Correct stale facts with replace (old_text = short unique substring); remove facts that are no longer true; update instead of duplicating.
+- Keep entries compact. Never save secrets, credentials, or guesses as facts. The user's current message always wins over stored memory.`
+  })()
+
   if (target === 'launcher') {
     return `# Identity & Context
 Role: Prism AI in Quick Launcher.
@@ -2032,7 +2044,7 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | 
 - Use simple Markdown. Absolute paths for file tools; commands run in \`${shellName}\` (${shellSyntax}); shared single browser session.
 - **Auto-Open:** App/link/path sent alone → open via open_browser_link or open_application.
 - **Transitions:** Complex/long tasks → open_main_app.
-- Natively invoke tools in parallel when applicable.${personaSection}${coreMemorySection}`
+- Natively invoke tools in parallel when applicable.${personaSection}${coreMemorySection}${memoryGuidanceSection}`
   }
 
   if (sessionMode === 'conversation' && target === 'main') {
@@ -2044,7 +2056,7 @@ Context: ${date} | ${platform} | Home: ${homeDir} | CWD: ${cwd}
 # Rules
 - No tool access. Reply with text/Markdown.
 - Match user language. Be direct, factual, concise.
-${inlineSuggestionsRule}${personaSection}${coreMemorySection}`
+${inlineSuggestionsRule}${personaSection}${coreMemorySection}${memoryGuidanceSection}`
   }
 
   const disciplineRule =
@@ -2078,7 +2090,7 @@ ${browserRule}
 - **Prism Docs:** internal_docs_list / internal_docs_read / internal_docs_search for Prism system questions.
 - **YouTube Assistant:** For YouTube video searches, search via \`web_search\` with query \`site:youtube.com <SEARCH_QUERY>\`. Enclose the result in a styled HTML card (\`<div style="border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:18px 20px;background:rgba(255,255,255,0.03);margin:12px 0;">\`) containing 🎬 title, customized description, up to 3 clickable HTML <a> buttons (primary bold red #ff0000, alternatives dark charcoal #272727), and the suggestion chip below the card: \`<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>\`.
 - **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}
-${inlineSuggestionsRule}${skillsSection}${disabledSkillsSection}${personaSection}${coreMemorySection}`
+${inlineSuggestionsRule}${skillsSection}${disabledSkillsSection}${personaSection}${coreMemorySection}${memoryGuidanceSection}`
 }
 
 export interface InstalledApplicationResult {
@@ -2826,6 +2838,8 @@ export async function executeSystemTool(
       return await searchChatHistory(args.query || '')
     case 'search_chat_memory':
       return await searchChatMemory(args.query || '')
+    case 'memory':
+      return executeMemoryTool(args, chatId)
     case 'render_chat_history': {
       const query = args.query || ''
       const cleanId = query.replace('chat_', '').replace('.json', '').trim()

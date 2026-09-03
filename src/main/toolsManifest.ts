@@ -561,6 +561,23 @@ export const toolsManifest: ToolDefinition[] = [
       html: stringSchema('Updated complete slide HTML and CSS.')
     },
     ['html']
+  ),
+  tool(
+    'memory',
+    "Manage Prism's long-term memory. add: save a new fact. replace: correct or update an existing fact (old_text = short unique substring of the current entry; content = the new full fact). remove: delete a fact that is no longer true (old_text = short unique substring). target \"user\" stores profile facts about the user (name, age, preferences, communication style); target \"memory\" stores general facts and notes. Save proactively after the user states a stable preference, correction or durable personal fact \u2014 do not wait to be asked. Keep entries compact; update instead of duplicating. Never save secrets or credentials. The user's current message always wins over stored memory.",
+    {
+      action: stringSchema('Which operation to perform.', {
+        enum: ['add', 'replace', 'remove']
+      }),
+      target: stringSchema('Which store to operate on.', { enum: ['user', 'memory'] }),
+      content: stringSchema(
+        "The full fact to save (add/replace). Compact, information-dense, written in the user's language."
+      ),
+      old_text: stringSchema(
+        'Short unique substring identifying the existing entry (replace/remove).'
+      )
+    },
+    ['action', 'target']
   )
 ]
 

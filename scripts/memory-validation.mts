@@ -16,7 +16,7 @@ import {
   shouldArchiveEntry
 } from '../src/shared/memoryCore.ts'
 import type { ExtractionResult, MemoryEntry, MemoryConfig } from '../src/shared/memoryCore.ts'
-import { createMemoryService } from '../src/main/memoryStore.ts'
+import { createMemoryService, executeMemoryTool } from '../src/main/memoryStore.ts'
 
 const NOW = 1_700_000_000_000
 
@@ -589,3 +589,108 @@ test('headless E2E chain: extraction → store write → recall + pinned core bl
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
+// ---------------------------------------------------------------------------
+// AI memory tool (Hermes-style USER.md / MEMORY.md management)
+// ---------------------------------------------------------------------------
+
+test('memory tool: add commits to the right store, respects budgets and guards', () => {
+  const root = tempRoot()
+  try {
+    const service = createMemoryService({
+      chatsDir: path.join(root, 'chats'),
+      memoryDir: path.join(root, 'memory')
+    })
+    const add = (target: 'user' | 'memory', content: string) =>
+      service.memoryTool({ action: 'add', target, content }, 'chat-tool-1')
+
+    const userFact = add('user', 'O usuário prefere respostas curtas.')
+    assert.equal(userFact.ok, true)
+    assert.ok(userFact.usage.includes('user '))
+    assert.ok(userFact.entry)
+    assert.equal(userFact.entry!.tier, 'committed')
+    assert.equal(userFact.entry!.kind, 'preference')
+    assert.equal(userFact.entry!.polarity, 'positive')
+    assert.ok(userFact.entry!.factKey!.startsWith('tool.user.'))
+
+    const memoryFact = add('memory', 'O projeto usa React 19.')
+    assert.equal(memoryFact.ok, true)
+    assert.equal(memoryFact.entry!.kind, 'fact')
+
+    // Duplicate rejected without writing.
+    const dup = add('user', 'O usuário prefere respostas curtas.')
+    assert.equal(dup.ok, true)
+    assert.ok(dup.message.includes('duplicate'))
+    assert.equal(service.list().length, 2)
+
+    // The tool never writes 'possible' entries.
+    assert.equal(service.list().some((m) => m.tier === 'possible'), false)
+
+    // Security gate refuses credentials.
+    const secret = add('memory', 'Minha senha é hunter2 e meu token api_key=abc123')
+    assert.equal(secret.ok, false)
+    assert.ok(secret.message.includes('secret') || secret.message.includes('credential'))
+
+    // Per-entry cap.
+    assert.equal(add('memory', 'x'.repeat(400)).ok, false)
+
+    // Budget error surfaces usage for consolidation.
+    const overBudget = add('user', 'y'.repeat(1400))
+    assert.equal(overBudget.ok, false)
+    assert.ok(overBudget.usage.includes('1375'))
+
+    // Adapter used by the tool runtime round-trips through the same path.
+    const adapter = JSON.parse(
+      executeMemoryTool({ action: 'add', target: 'user', content: 'O usuário gosta de café.' }, 'c1')
+    )
+    assert.equal(adapter.ok, true)
+    assert.ok(adapter.entry.factKey.startsWith('tool.user.'))
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('memory tool: replace and remove via unique substring, ambiguity refused', () => {
+  const root = tempRoot()
+  try {
+    const service = createMemoryService({
+      chatsDir: path.join(root, 'chats'),
+      memoryDir: path.join(root, 'memory')
+    })
+    service.memoryTool({ action: 'add', target: 'user', content: 'O usuário se chama Ana.' }, 'c1')
+    service.memoryTool({ action: 'add', target: 'user', content: 'O usuário mora em São Paulo.' }, 'c1')
+
+    // Replace with a unique substring.
+    const replaced = service.memoryTool(
+      { action: 'replace', target: 'user', old_text: 'se chama Ana', content: 'O usuário se chama Ana Clara.' },
+      'c1'
+    )
+    assert.equal(replaced.ok, true)
+    assert.equal(replaced.entry!.content, 'O usuário se chama Ana Clara.')
+    assert.equal(replaced.entry!.confidence, 0.95)
+    assert.ok(replaced.entry!.keywords.length > 0)
+
+    // Ambiguity: substring matches two entries.
+    const ambiguous = service.memoryTool({ action: 'remove', target: 'user', old_text: 'O usuário' }, 'c1')
+    assert.equal(ambiguous.ok, false)
+    assert.ok(Array.isArray(ambiguous.matches) && ambiguous.matches.length === 2)
+
+    // No match lists current entries as guidance.
+    const missing = service.memoryTool({ action: 'remove', target: 'user', old_text: 'não existe isso' }, 'c1')
+    assert.equal(missing.ok, false)
+    assert.ok(Array.isArray(missing.matches) && missing.matches.length >= 1)
+
+    // Remove soft-archives (restorable).
+    const removed = service.memoryTool({ action: 'remove', target: 'user', old_text: 'se chama Ana Clara' }, 'c1')
+    assert.equal(removed.ok, true)
+    assert.equal(service.list().length, 1)
+    assert.equal(service.list({ includeArchived: true }).filter((m) => m.archived).length, 1)
+
+    // Target scoping: preference content on 'memory' never touches the user scope.
+    service.memoryTool({ action: 'add', target: 'memory', content: 'O usuário prefere café forte.' }, 'c1')
+    const userScope = service.list().filter((m) => m.kind === 'preference')
+    assert.equal(userScope.length, 0)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+

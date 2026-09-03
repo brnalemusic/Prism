@@ -37,6 +37,7 @@ supabase/.temp
 supabase/migrations
 .claude/
 .kilo/
+.freebuff/
 
 # License Security & Keys
 scripts/license-keys/
