@@ -12,6 +12,8 @@ Plan is enforced as read-only by the main process, independently of the project'
 
 The Harness model publishes a completed plan through the native `plan` tool. Prism renders its Markdown in a dedicated review surface that temporarily replaces the Harness InputBar while review is pending. The conversation remains visible, the plan body scrolls independently, and the action area remains available at the bottom.
 
+The review surface uses the same Markdown pipeline as completed chat messages, including GFM, raw HTML handling, and KaTeX for inline (`$...$`) and display (`$$...$$`) LaTeX.
+
 - **Accept & Continue** approves the plan and changes the current session to Build.
 - **New Build Chat** prepares complementary context from the entire source conversation, creates a clean Build session in the exact same project, and automatically sends the approved plan plus that context for implementation.
 - **Request changes** sends a revision request while keeping the session in Plan. The request can also be sent with `Ctrl+Enter` or `Cmd+Enter`.

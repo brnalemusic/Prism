@@ -1,10 +1,8 @@
 import React, { useId, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkBreaks from 'remark-breaks'
-import remarkGfm from 'remark-gfm'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import { ArrowRight, CheckCircle, CircleNotch, PaperPlaneRight, X } from '@phosphor-icons/react'
 import type { HarnessPhase } from '../../../shared/types'
-import { StaticMarkdownComponents } from './AnimatedStreamingText'
+import { STATIC_COMPLETED_REHYPE_PLUGINS, STATIC_REMARK_PLUGINS } from '../markdownRenderer'
 
 interface ImplementationPlanCardProps {
   markdown?: string
@@ -12,6 +10,7 @@ interface ImplementationPlanCardProps {
   isPreparing?: boolean
   busyLabel?: string
   error?: string | null
+  markdownComponents: Components
   onAcceptHere: () => void
   onAcceptNewChat: () => void
   onFeedback: (feedback: string) => void
@@ -24,6 +23,7 @@ export function ImplementationPlanCard({
   isPreparing = false,
   busyLabel = 'Updating implementation plan…',
   error,
+  markdownComponents,
   onAcceptHere,
   onAcceptNewChat,
   onFeedback,
@@ -76,8 +76,9 @@ export function ImplementationPlanCard({
         {isApprovedPlanExpanded && (
           <div className="implementation-plan-surface__body implementation-plan-surface__body--approved custom-scrollbar select-text">
             <ReactMarkdown
-              remarkPlugins={[remarkGfm, remarkBreaks]}
-              components={StaticMarkdownComponents}
+              remarkPlugins={STATIC_REMARK_PLUGINS}
+              rehypePlugins={STATIC_COMPLETED_REHYPE_PLUGINS}
+              components={markdownComponents}
             >
               {markdown}
             </ReactMarkdown>
@@ -128,8 +129,9 @@ export function ImplementationPlanCard({
           </div>
         ) : (
           <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkBreaks]}
-            components={StaticMarkdownComponents}
+            remarkPlugins={STATIC_REMARK_PLUGINS}
+            rehypePlugins={STATIC_COMPLETED_REHYPE_PLUGINS}
+            components={markdownComponents}
           >
             {markdown}
           </ReactMarkdown>
@@ -146,32 +148,34 @@ export function ImplementationPlanCard({
         <div className="implementation-plan-surface__feedback">
           <label htmlFor={feedbackId}>Request a revision</label>
           <div className="implementation-plan-surface__feedback-control">
-            <textarea
-              id={feedbackId}
-              rows={2}
-              value={feedback}
-              onChange={(event) => setFeedback(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-                  event.preventDefault()
-                  submitFeedback()
-                }
-              }}
-              disabled={isPreparing}
-              placeholder="Describe what should change in this plan…"
-              className="implementation-plan-surface__textarea"
-            />
-            <button
-              type="button"
-              disabled={isPreparing || !feedback.trim()}
-              onClick={submitFeedback}
-              className="implementation-plan-surface__feedback-submit"
-              title="Request changes"
-              aria-label="Request changes to the Implementation Plan"
-            >
-              <PaperPlaneRight size={15} weight="fill" />
-              <span>Request changes</span>
-            </button>
+            <div className="implementation-plan-surface__feedback-editor">
+              <textarea
+                id={feedbackId}
+                rows={2}
+                value={feedback}
+                onChange={(event) => setFeedback(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                    event.preventDefault()
+                    submitFeedback()
+                  }
+                }}
+                disabled={isPreparing}
+                placeholder="Describe what should change in this plan…"
+                className="implementation-plan-surface__textarea"
+              />
+              <button
+                type="button"
+                disabled={isPreparing || !feedback.trim()}
+                onClick={submitFeedback}
+                className="implementation-plan-surface__feedback-submit"
+                title="Request changes"
+                aria-label="Request changes to the Implementation Plan"
+              >
+                <PaperPlaneRight size={15} weight="fill" />
+                <span className="sr-only">Request changes</span>
+              </button>
+            </div>
           </div>
           <p className="implementation-plan-surface__feedback-hint">
             Press Ctrl or Cmd + Enter to send.
@@ -188,7 +192,7 @@ export function ImplementationPlanCard({
               type="button"
               disabled={isPreparing || !hasPlan}
               onClick={onAcceptNewChat}
-              className="implementation-plan-surface__secondary-action"
+              className="implementation-plan-surface__primary-action"
               aria-label="Accept plan and continue in a new Build chat"
             >
               New Build Chat
@@ -198,7 +202,7 @@ export function ImplementationPlanCard({
               type="button"
               disabled={isPreparing || !hasPlan}
               onClick={onAcceptHere}
-              className="implementation-plan-surface__primary-action"
+              className="implementation-plan-surface__secondary-action"
               aria-label="Accept plan and continue in this chat"
             >
               <CheckCircle size={14} weight="fill" />

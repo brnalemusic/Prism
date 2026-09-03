@@ -1,11 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import ReactMarkdown, { Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import remarkMath from 'remark-math'
-import remarkBreaks from 'remark-breaks'
-import rehypeRaw from 'rehype-raw'
-import rehypeKatex from 'rehype-katex'
-import 'katex/dist/katex.min.css'
 import { PrismBackground } from './components/PrismBackground'
 import { LoadingScreen } from './components/LoadingScreen'
 import { OfflineBanner } from './components/OfflineBanner'
@@ -60,6 +54,7 @@ import {
   useStreamStats,
   CodeBlock
 } from './components/AnimatedStreamingText'
+import { STATIC_COMPLETED_REHYPE_PLUGINS, STATIC_REMARK_PLUGINS } from './markdownRenderer'
 import clsx from 'clsx'
 import {
   Quotes,
@@ -123,96 +118,6 @@ const SettingsView = lazy(() =>
   import('./components/SettingsView').then(({ SettingsView }) => ({ default: SettingsView }))
 )
 
-interface HastNode {
-  type: string
-  tagName?: string
-  value?: string
-  children?: HastNode[]
-  properties?: Record<string, unknown>
-}
-
-function disableIndentedCode(this: {
-  data: () => { micromarkExtensions?: { disable: { null: string[] } }[] }
-}): void {
-  const data = this.data()
-  const micromarkExtensions = data.micromarkExtensions || (data.micromarkExtensions = [])
-  micromarkExtensions.push({
-    disable: {
-      null: ['codeIndented']
-    }
-  })
-}
-
-function rehypeParseMath(): (tree: HastNode) => void {
-  return (tree: HastNode) => {
-    function transform(node: HastNode): void {
-      if (!node.children) return
-
-      const newChildren: HastNode[] = []
-      for (const child of node.children) {
-        if (child.type === 'element' && (child.tagName === 'pre' || child.tagName === 'code')) {
-          transform(child)
-          newChildren.push(child)
-          continue
-        }
-
-        if (child.type === 'text') {
-          const text = child.value || ''
-          const regex = /(\$\$[\s\S]+?\$\$|\$[^\s$][^$]*?[^\s$]\$|\$[^\s$]\$)/g
-          const parts = text.split(regex)
-
-          if (parts.length > 1) {
-            for (const part of parts) {
-              if (!part) continue
-
-              if (part.startsWith('$$') && part.endsWith('$$')) {
-                const equation = part.slice(2, -2).trim()
-                newChildren.push({
-                  type: 'element',
-                  tagName: 'div',
-                  properties: { className: ['math', 'math-display'] },
-                  children: [{ type: 'text', value: equation }]
-                })
-              } else if (part.startsWith('$') && part.endsWith('$')) {
-                const equation = part.slice(1, -1).trim()
-                newChildren.push({
-                  type: 'element',
-                  tagName: 'span',
-                  properties: { className: ['math', 'math-inline'] },
-                  children: [{ type: 'text', value: equation }]
-                })
-              } else {
-                newChildren.push({ type: 'text', value: part })
-              }
-            }
-          } else {
-            newChildren.push(child)
-          }
-        } else {
-          transform(child)
-          newChildren.push(child)
-        }
-      }
-      node.children = newChildren
-    }
-
-    transform(tree)
-  }
-}
-
-const STATIC_REMARK_PLUGINS = [
-  remarkGfm,
-  remarkMath,
-  remarkBreaks,
-  disableIndentedCode as unknown as import('unified').Pluggable
-]
-
-const STATIC_COMPLETED_REHYPE_PLUGINS = [
-  rehypeRaw,
-  rehypeParseMath,
-  rehypeKatex
-]
-
 const MarkdownComponents: Components = {
   a: ({ href, children, className, style, ...props }: React.ComponentPropsWithoutRef<'a'>) => {
     const imageExtensions = /\.(jpg|jpeg|png|gif|webp|svg|avif)$/i
@@ -262,6 +167,12 @@ const MarkdownComponents: Components = {
 const PrismSuggestionMarkdownComponents = {
   'prism-suggestion': PrismSuggestion
 } as unknown as Components
+
+const conventionalMarkdownComponents: Components = {
+  ...MarkdownComponents,
+  ...StaticMarkdownComponents,
+  ...PrismSuggestionMarkdownComponents
+}
 
 function consolidateToolCalls(
   toolCalls?: ToolCallItem[],
@@ -1688,15 +1599,6 @@ const TabMessagesList = React.memo(function TabMessagesList({
   harnessUi,
   harnessContextSnapshot
 }: TabMessagesListProps) {
-  const markdownComponents = useMemo(
-    () => ({
-      ...MarkdownComponents,
-      ...StaticMarkdownComponents,
-      ...PrismSuggestionMarkdownComponents
-    }),
-    []
-  )
-
   const handleSendRowSuggestion = useCallback(
     (payload: string, suggestionKey: string) => {
       return onSendSuggestion(tabId, payload, suggestionKey)
@@ -1715,11 +1617,11 @@ const TabMessagesList = React.memo(function TabMessagesList({
       {sessionMode === 'harness' &&
         harnessContextSnapshot &&
         !messages.some((message) => message.role === 'context') && (
-        <HarnessContextInjection
-          snapshot={harnessContextSnapshot}
-          reduceMotion={harnessUi?.reduceMotion}
-        />
-      )}
+          <HarnessContextInjection
+            snapshot={harnessContextSnapshot}
+            reduceMotion={harnessUi?.reduceMotion}
+          />
+        )}
       {messages.map((msg, i) => {
         if (msg.role === 'context' && msg.contextSnapshot) {
           return (
@@ -1747,7 +1649,7 @@ const TabMessagesList = React.memo(function TabMessagesList({
               key={i}
               msg={msg}
               i={i}
-              markdownComponents={markdownComponents}
+              markdownComponents={conventionalMarkdownComponents}
               onSendSuggestion={handleSendRowSuggestion}
               suggestionMessageKey={`${currentChatId || tabId}:user:${i}`}
               isSuggestionSendDisabled={isSuggestionSendDisabled}
@@ -1762,7 +1664,7 @@ const TabMessagesList = React.memo(function TabMessagesList({
             i={i}
             currentChatId={currentChatId}
             handleLoadChat={handleLoadChat}
-            markdownComponents={markdownComponents}
+            markdownComponents={conventionalMarkdownComponents}
             onOpenBrowserTab={handleOpenBrowser}
             onSendSuggestion={handleSendRowSuggestion}
             suggestionMessageKey={`${currentChatId || tabId}:${i}`}
@@ -2105,14 +2007,14 @@ function RealApp(): React.JSX.Element {
   )
 
   const addHarnessExplorerContext = useCallback((selection: import('../../shared/types').HarnessExplorerSelection): boolean => {
-    const tabId = activeHarnessTabIdRef.current
-    const tab = harnessTabsRef.current.find((entry) => entry.id === tabId)
-    if (!tab) return false
-    const current = tab.harnessExplorerContext || []
+      const tabId = activeHarnessTabIdRef.current
+      const tab = harnessTabsRef.current.find((entry) => entry.id === tabId)
+      if (!tab) return false
+      const current = tab.harnessExplorerContext || []
     if (current.some((entry) => entry.relativePath.toLowerCase() === selection.relativePath.toLowerCase())) return true
-    if (current.length >= 5) return false
+      if (current.length >= 5) return false
     setHarnessTabs((previous) => previous.map((entry) => entry.id === tabId ? { ...entry, harnessExplorerContext: [...(entry.harnessExplorerContext || []), selection] } : entry))
-    return true
+      return true
   }, [])
 
   const removeHarnessExplorerContext = useCallback((relativePath: string): void => {
@@ -2225,20 +2127,20 @@ function RealApp(): React.JSX.Element {
   }, [])
 
   const handleAnswerPrism = useCallback((quoteText: string): void => {
-    if (activeView === 'harness') {
-      setHarnessTabs((previous) =>
-        previous.map((tab) =>
-          tab.id === activeHarnessTabIdRef.current ? { ...tab, quotedText: quoteText } : tab
+      if (activeView === 'harness') {
+        setHarnessTabs((previous) =>
+          previous.map((tab) =>
+            tab.id === activeHarnessTabIdRef.current ? { ...tab, quotedText: quoteText } : tab
+          )
         )
-      )
-    } else {
-      setTabs((prev) =>
-        prev.map((t) => (t.id === activeTabIdRef.current ? { ...t, quotedText: quoteText } : t))
-      )
-    }
-    setQuotedText(quoteText)
-    window.getSelection()?.removeAllRanges()
-    setFloatingMenu(null)
+      } else {
+        setTabs((prev) =>
+          prev.map((t) => (t.id === activeTabIdRef.current ? { ...t, quotedText: quoteText } : t))
+        )
+      }
+      setQuotedText(quoteText)
+      window.getSelection()?.removeAllRanges()
+      setFloatingMenu(null)
   }, [activeView])
 
   const isOnlineRef = useRef(isOnline)
@@ -3131,10 +3033,10 @@ function RealApp(): React.JSX.Element {
             if (workspace === 'harness') {
               if (!lastMsg.harnessRounds) {
                 lastMsg.harnessRounds = [{
-                  round: 1,
-                  content: lastMsg.content,
-                  thoughts: lastMsg.thoughts,
-                  toolCalls: lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
+                    round: 1,
+                    content: lastMsg.content,
+                    thoughts: lastMsg.thoughts,
+                    toolCalls: lastMsg.toolCalls ? [...lastMsg.toolCalls] : []
                 }]
               }
               lastMsg.harnessRounds.push({
@@ -3604,23 +3506,23 @@ function RealApp(): React.JSX.Element {
 
   const handleHarnessPhaseChange = useCallback(
     (tabId: string, phase: 'plan' | 'build'): void => {
-      const currentTab = harnessTabsRef.current.find((tab) => tab.id === tabId)
-      if (!currentTab || currentTab.harnessPhase === phase) return
-      const previousPhase = currentTab.harnessPhase || 'build'
-      setHarnessTabs((previous) =>
-        previous.map((tab) => (tab.id === tabId ? { ...tab, harnessPhase: phase } : tab))
-      )
-      if (currentTab.chatId) {
-        void window.api.setHarnessSessionPhase(currentTab.chatId, phase).then((saved) => {
-          if (saved) return
-          setHarnessTabs((previous) =>
+    const currentTab = harnessTabsRef.current.find((tab) => tab.id === tabId)
+    if (!currentTab || currentTab.harnessPhase === phase) return
+    const previousPhase = currentTab.harnessPhase || 'build'
+    setHarnessTabs((previous) =>
+      previous.map((tab) => (tab.id === tabId ? { ...tab, harnessPhase: phase } : tab))
+    )
+    if (currentTab.chatId) {
+      void window.api.setHarnessSessionPhase(currentTab.chatId, phase).then((saved) => {
+        if (saved) return
+        setHarnessTabs((previous) =>
             previous.map((tab) =>
               tab.id === tabId ? { ...tab, harnessPhase: previousPhase } : tab
             )
-          )
-          setHarnessPromptWarnings(['The Harness Plan/Build mode could not be saved.'])
-        })
-      }
+        )
+        setHarnessPromptWarnings(['The Harness Plan/Build mode could not be saved.'])
+      })
+    }
     },
     []
   )
@@ -4226,9 +4128,9 @@ function RealApp(): React.JSX.Element {
                 isThinking: false,
                 isConnecting: false,
                 thinkingDuration: Math.max(
-                  lastMsg.thinkingDuration || 0,
-                  thinkingDurationSeconds(finalPhase.thinkingDurationMs)
-                ) || undefined,
+                    lastMsg.thinkingDuration || 0,
+                    thinkingDurationSeconds(finalPhase.thinkingDurationMs)
+                  ) || undefined,
                 toolCalls: updatedToolCalls
               }
             }
@@ -4929,26 +4831,26 @@ function RealApp(): React.JSX.Element {
 
         {/* Chat retains its own conventional tab surface. */}
         {activeView === 'chat' && <TabBar
-          tabs={tabs}
-          activeTabId={activeTabId}
-          visibleTabIds={visibleTabIds}
-          selectedModel={selectedModel || activeTab.selectedModel}
-          onModelChange={handleModelChange}
-          onOpenUpgradePlans={() => setIsPlansModalOpen(true)}
-          isEnterprise={isEnterpriseUser}
-          onSelectTab={handleSelectTab}
-          onCloseTab={handleCloseTab}
-          onCloseOtherTabs={handleCloseOtherTabs}
-          onNewTab={handleNewChat}
-          onOpenBrowserTab={() => handleOpenBrowserTab(activeTabId)}
-          onToggleSplitTab={handleToggleSplitTab}
-          onStopAgent={(tabId) => {
-            const targetTab = tabs.find((t) => t.id === tabId)
-            if (targetTab?.chatId) {
-              window.api.cancelChat(targetTab.chatId)
-            }
-          }}
-          onReorderTabs={handleReorderTabs}
+            tabs={tabs}
+            activeTabId={activeTabId}
+            visibleTabIds={visibleTabIds}
+            selectedModel={selectedModel || activeTab.selectedModel}
+            onModelChange={handleModelChange}
+            onOpenUpgradePlans={() => setIsPlansModalOpen(true)}
+            isEnterprise={isEnterpriseUser}
+            onSelectTab={handleSelectTab}
+            onCloseTab={handleCloseTab}
+            onCloseOtherTabs={handleCloseOtherTabs}
+            onNewTab={handleNewChat}
+            onOpenBrowserTab={() => handleOpenBrowserTab(activeTabId)}
+            onToggleSplitTab={handleToggleSplitTab}
+            onStopAgent={(tabId) => {
+              const targetTab = tabs.find((t) => t.id === tabId)
+              if (targetTab?.chatId) {
+                window.api.cancelChat(targetTab.chatId)
+              }
+            }}
+            onReorderTabs={handleReorderTabs}
         />}
 
         {/* Main Grid View for Tab Panes */}
@@ -4999,6 +4901,7 @@ function RealApp(): React.JSX.Element {
                         todo={tab.chatId ? chatTodos[tab.chatId] || null : null}
                         terminalProcesses={tab.chatId ? terminalProcesses[tab.chatId] || [] : []}
                         config={config}
+                        markdownComponents={conventionalMarkdownComponents}
                         isKeyMissing={isKeyMissing}
                         isOnline={isOnline}
                         onFocus={handleSelectTab}
@@ -5132,6 +5035,7 @@ function RealApp(): React.JSX.Element {
                   todo={tab.chatId ? chatTodos[tab.chatId] || null : null}
                   terminalProcesses={tab.chatId ? terminalProcesses[tab.chatId] || [] : []}
                   config={config}
+                  markdownComponents={conventionalMarkdownComponents}
                   isKeyMissing={isKeyMissing}
                   isOnline={isOnline}
                   onFocus={handleSelectHarnessTab}

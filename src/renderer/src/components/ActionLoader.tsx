@@ -23,6 +23,7 @@ import { PptxArtifactCard } from './PptxArtifactCard'
 
 // Tool labels mapping for simplified display
 const TOOL_LABELS: Record<string, string> = {
+  to_ask: 'Preparing questions for you',
   web_search: 'Searching web',
   web_fetch: 'Deep researching the web',
   read_skill: 'Reading skill',

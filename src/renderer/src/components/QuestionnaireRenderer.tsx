@@ -109,7 +109,7 @@ export function QuestionnaireCard({
   return (
     <div className="w-[70%] mx-auto relative select-none animate-fade-in z-20 transition-all duration-300">
       {/* Card */}
-      <div className="liquid-glass-docked relative overflow-hidden rounded-t-2xl rounded-b-none px-5 py-4">
+      <div className="questionnaire-surface liquid-glass-docked relative overflow-hidden rounded-t-2xl rounded-b-none px-5 py-4">
         {/* Subtle internal theme center glow */}
         <div className="absolute inset-0 rounded-t-2xl overflow-hidden pointer-events-none">
           <div

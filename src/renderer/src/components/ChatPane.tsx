@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useLayoutEffect, useState, useMemo, useCallback } from 'react'
+import type { Components } from 'react-markdown'
 import clsx from 'clsx'
 import {
   CaretDown,
@@ -69,6 +70,7 @@ interface ChatPaneProps {
   onAcceptPlanNewChat?: (markdown: string) => void
   onSendPlanFeedback?: (feedback: string) => void
   onCancelPlan?: () => void
+  markdownComponents: Components
   onOpenUpgradePlans?: () => void
   isEnterprise?: boolean
   onToggleSearch?: (enabled?: boolean) => void
@@ -116,6 +118,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     onAcceptPlanNewChat,
     onSendPlanFeedback,
     onCancelPlan,
+    markdownComponents,
     onOpenUpgradePlans,
     isEnterprise,
     onToggleSearch,
@@ -482,7 +485,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
       isHarness &&
       tab.harnessPhase === 'plan' &&
       tab.dismissedPlanMarkdown === undefined &&
-      (hasVisibleImplementationPlan || tab.isProcessing)
+      hasVisibleImplementationPlan
 
     const renderPlanReviewSurface = (): React.JSX.Element | null => {
       if (
@@ -502,6 +505,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
           isPreparing={isPlanPreparing}
           busyLabel={planBusyLabel}
           error={planError}
+          markdownComponents={markdownComponents}
           onAcceptHere={() => onAcceptPlanHere(implementationPlan || '')}
           onAcceptNewChat={() => onAcceptPlanNewChat(implementationPlan || '')}
           onFeedback={onSendPlanFeedback}
@@ -527,6 +531,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
           markdown={implementationPlan || undefined}
           phase="build"
           error={planError}
+          markdownComponents={markdownComponents}
           onAcceptHere={() => onAcceptPlanHere(implementationPlan || '')}
           onAcceptNewChat={() => onAcceptPlanNewChat(implementationPlan || '')}
           onFeedback={onSendPlanFeedback}
@@ -883,6 +888,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                         }
                         harnessPermissionMode={harnessPermissionMode}
                         onHarnessPermissionModeChange={onHarnessPermissionModeChange}
+                        harnessPhase={tab.harnessPhase}
+                        onHarnessPhaseChange={onHarnessPhaseChange}
                         onOpenUpgradePlans={onOpenUpgradePlans}
                         isEnterprise={isEnterprise}
                         harnessExplorerContext={
