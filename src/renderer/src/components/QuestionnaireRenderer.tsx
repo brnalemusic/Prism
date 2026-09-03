@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import { clsx } from 'clsx'
 import {
   Check,
@@ -9,21 +9,13 @@ import {
   CheckCircle
 } from '@phosphor-icons/react'
 import type { ToolCall } from './ActionLoader'
-
-interface QuestionOption {
-  value: string
-  label: string
-  allow_custom_input?: boolean
-}
-
-interface Question {
-  id: string
-  type: 'multiple-choice' | 'essay'
-  title: string
-  prompt: string
-  options?: QuestionOption[]
-  placeholder?: string
-}
+import {
+  materializeQuestionnaireResponses,
+  normalizeQuestionnaire,
+  QUESTIONNAIRE_CUSTOM_OPTION_VALUE as CUSTOM_OPTION_VALUE,
+  type QuestionnaireAnswer as QuestionAnswer,
+  type QuestionnaireQuestion as Question
+} from '../../../shared/questionnaire'
 
 interface QuestionnaireRendererProps {
   toolCall: ToolCall
@@ -39,7 +31,7 @@ export function DoneSummary({
   sessionId
 }: {
   questions: Question[]
-  submittedResponses: Record<string, string>
+  submittedResponses: Record<string, QuestionAnswer>
   sessionId: string
 }): React.JSX.Element {
   return (
@@ -58,7 +50,10 @@ export function DoneSummary({
 
       <div className="flex flex-col gap-4 select-text">
         {questions.map((q) => {
-          const answer = submittedResponses[q.id] || 'No response'
+          const rawAnswer = submittedResponses[q.id]
+          const answer = Array.isArray(rawAnswer)
+            ? rawAnswer.join(', ') || 'No response'
+            : rawAnswer || 'No response'
           return (
             <div key={q.id} className="flex flex-col gap-1">
               <span className="text-[10px] font-mono font-semibold uppercase tracking-widest text-text-secondary">
@@ -95,12 +90,12 @@ export function QuestionnaireCard({
   onEditStep
 }: {
   questions: Question[]
-  answers: Record<string, string>
+  answers: Record<string, QuestionAnswer>
   customValues: Record<string, string>
   currentStep: number
   validationError: string | null
   isSubmitting: boolean
-  onSelectOption: (id: string, value: string) => void
+  onSelectOption: (question: Question, value: string) => void
   onCustomInputChange: (id: string, text: string) => void
   onEssayChange: (id: string, text: string) => void
   onNext: () => void
@@ -158,16 +153,24 @@ export function QuestionnaireCard({
         {isReviewStep ? (
           <div className="flex flex-col gap-3 mb-4 max-h-[40vh] overflow-y-auto no-scrollbar pr-0.5">
             {questions.map((q, idx) => {
-              const rawVal = answers[q.id] || ''
-              let displayVal = rawVal
-              if (q.type === 'multiple-choice' && rawVal) {
-                const opt = q.options?.find((o) => o.value === rawVal)
-                if (opt?.allow_custom_input && customValues[q.id]) {
-                  displayVal = customValues[q.id]
-                } else {
-                  displayVal = opt?.label || rawVal
-                }
-              }
+              const rawAnswer = answers[q.id]
+              const selectedValues = Array.isArray(rawAnswer)
+                ? rawAnswer
+                : rawAnswer
+                  ? [rawAnswer]
+                  : []
+              const displayVal =
+                q.type === 'essay'
+                  ? typeof rawAnswer === 'string'
+                    ? rawAnswer
+                    : ''
+                  : selectedValues
+                      .map((value) => {
+                        if (value === CUSTOM_OPTION_VALUE) return customValues[q.id] || ''
+                        return q.options?.find((option) => option.value === value)?.label || value
+                      })
+                      .filter(Boolean)
+                      .join(', ')
               return (
                 <div
                   key={q.id}
@@ -197,7 +200,13 @@ export function QuestionnaireCard({
           /* ---- QUESTION STEP ---- */
           (() => {
             const q = questions[currentStep]
-            const selectedVal = answers[q.id] || ''
+            const rawAnswer = answers[q.id]
+            const selectedValues = Array.isArray(rawAnswer)
+              ? rawAnswer
+              : rawAnswer
+                ? [rawAnswer]
+                : []
+            const selectedVal = typeof rawAnswer === 'string' ? rawAnswer : ''
             return (
               <div className="flex flex-col gap-3 mb-4 animate-fade-in">
                 {/* Category label */}
@@ -217,15 +226,22 @@ export function QuestionnaireCard({
                 )}
 
                 {/* Multiple-choice options */}
-                {q.type === 'multiple-choice' && q.options && (
+                {(q.type === 'multiple-choice' || q.type === 'multiple-select') && q.options && (
                   <div className="flex flex-col gap-1.5">
+                    {q.type === 'multiple-select' && (
+                      <p className="text-[10px] text-text-muted">
+                        {q.max_selections
+                          ? `Select up to ${q.max_selections} options.`
+                          : 'Select as many options as you want.'}
+                      </p>
+                    )}
                     {q.options.map((opt) => {
-                      const isSelected = selectedVal === opt.value
+                      const isSelected = selectedValues.includes(opt.value)
                       return (
                         <div key={opt.value} className="flex flex-col gap-1.5">
                           <button
                             type="button"
-                            onClick={() => onSelectOption(q.id, opt.value)}
+                            onClick={() => onSelectOption(q, opt.value)}
                             className={clsx(
                               'w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-left transition-all duration-250 text-xs font-medium cursor-pointer select-none',
                               isSelected
@@ -233,10 +249,25 @@ export function QuestionnaireCard({
                                 : 'border-white/[0.05] bg-white/[0.01] text-text-secondary hover:bg-white/[0.04] hover:border-white/[0.09] hover:text-text-primary'
                             )}
                           >
-                            <span>{opt.label}</span>
+                            <span className="min-w-0 pr-3">
+                              <span className="flex flex-wrap items-center gap-1.5 text-text-primary">
+                                <span>{opt.label}</span>
+                                {opt.recommended && (
+                                  <span className="rounded-full border border-accent-primary/25 bg-accent-primary/10 px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.08em] text-accent-primary">
+                                    Recommended
+                                  </span>
+                                )}
+                              </span>
+                              {opt.description && (
+                                <span className="mt-0.5 block text-[10.5px] font-normal leading-relaxed text-text-muted">
+                                  {opt.description}
+                                </span>
+                              )}
+                            </span>
                             <div
                               className={clsx(
-                                'h-4 w-4 rounded-full border flex items-center justify-center transition-all duration-250 shrink-0',
+                                'h-4 w-4 border flex items-center justify-center transition-all duration-250 shrink-0',
+                                q.type === 'multiple-select' ? 'rounded-[5px]' : 'rounded-full',
                                 isSelected
                                   ? 'border-accent-primary bg-accent-primary text-background-main'
                                   : 'border-white/20 bg-black/20'
@@ -354,24 +385,49 @@ export function QuestionnaireWizard({
 }: QuestionnaireRendererProps): React.JSX.Element | null {
   const sessionId = (toolCall.args.session_id as string) || ''
 
-  let questions: Question[] = []
-  try {
-    const raw = toolCall.args.questions
-    questions = typeof raw === 'string' ? JSON.parse(raw) : (raw as Question[])
-  } catch {
-    // ignore
-  }
+  const questions = useMemo(
+    () => normalizeQuestionnaire(toolCall.args.questions),
+    [toolCall.args.questions]
+  )
 
-  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [answers, setAnswers] = useState<Record<string, QuestionAnswer>>({})
   const [customValues, setCustomValues] = useState<Record<string, string>>({})
   const [currentStep, setCurrentStep] = useState(0)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const handleSelectOption = useCallback((questionId: string, value: string) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: value }))
+  useEffect(() => {
+    setAnswers({})
+    setCustomValues({})
+    setCurrentStep(0)
     setValidationError(null)
-  }, [])
+    setIsSubmitting(false)
+  }, [sessionId])
+
+  const handleSelectOption = useCallback((question: Question, value: string) => {
+    if (question.type !== 'multiple-select') {
+      setAnswers((previous) => ({ ...previous, [question.id]: value }))
+      setValidationError(null)
+      return
+    }
+    const current = Array.isArray(answers[question.id])
+      ? (answers[question.id] as string[])
+      : []
+    if (current.includes(value)) {
+      setAnswers((previous) => ({
+        ...previous,
+        [question.id]: current.filter((entry) => entry !== value)
+      }))
+      setValidationError(null)
+      return
+    }
+    if (question.max_selections && current.length >= question.max_selections) {
+      setValidationError(`Select no more than ${question.max_selections} options`)
+      return
+    }
+    setAnswers((previous) => ({ ...previous, [question.id]: [...current, value] }))
+    setValidationError(null)
+  }, [answers])
 
   const handleCustomInputChange = useCallback((questionId: string, text: string) => {
     setCustomValues((prev) => ({ ...prev, [questionId]: text }))
@@ -386,19 +442,23 @@ export function QuestionnaireWizard({
   const validateCurrentStep = (): boolean => {
     if (currentStep >= questions.length) return true
     const q = questions[currentStep]
-    const val = answers[q.id] || ''
-    if (q.type === 'multiple-choice') {
-      if (!val) {
+    const answer = answers[q.id]
+    if (q.type === 'multiple-choice' || q.type === 'multiple-select') {
+      const values = Array.isArray(answer) ? answer : answer ? [answer] : []
+      if (values.length === 0) {
         setValidationError('Please select an option')
         return false
       }
-      const opt = q.options?.find((o) => o.value === val)
-      if (opt?.allow_custom_input && !(customValues[q.id] || '').trim()) {
+      if (q.max_selections && values.length > q.max_selections) {
+        setValidationError(`Select no more than ${q.max_selections} options`)
+        return false
+      }
+      if (values.includes(CUSTOM_OPTION_VALUE) && !(customValues[q.id] || '').trim()) {
         setValidationError('Please specify your answer')
         return false
       }
     } else if (q.type === 'essay') {
-      if (!val.trim()) {
+      if (typeof answer !== 'string' || !answer.trim()) {
         setValidationError('Please fill out this field')
         return false
       }
@@ -423,18 +483,7 @@ export function QuestionnaireWizard({
 
   const handleSubmit = () => {
     // Build final responses
-    const finalResponses: Record<string, string> = {}
-    for (const q of questions) {
-      const val = answers[q.id] || ''
-      if (q.type === 'multiple-choice') {
-        const opt = q.options?.find((o) => o.value === val)
-        finalResponses[q.id] = opt?.allow_custom_input
-          ? customValues[q.id] || ''
-          : opt?.label || val
-      } else {
-        finalResponses[q.id] = val
-      }
-    }
+    const finalResponses = materializeQuestionnaireResponses(questions, answers, customValues)
 
     setIsSubmitting(true)
     if (window.api?.submitQuestionnaire) {

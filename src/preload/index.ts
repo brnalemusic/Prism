@@ -12,6 +12,7 @@ import type {
   ApplicationInfo,
   FileSearchResult,
   SessionMode,
+  HarnessPhase,
   TodoState,
   AttachedFile,
   TerminalProcessSnapshot,
@@ -171,7 +172,18 @@ const api = {
     modelKey?: string
     reasoningLevel?: string
     explorerContext?: HarnessExplorerSelection[]
+    harnessPhase?: HarnessPhase
   }): void => ipcRenderer.send('harness-message', data),
+  setHarnessSessionPhase: (chatId: string, phase: HarnessPhase): Promise<boolean> =>
+    ipcRenderer.invoke('set-harness-session-phase', chatId, phase),
+  prepareHarnessPlanHandoff: (data: {
+    chatId: string
+    projectPath: string
+    modelKey: string
+    plan: string
+  }): Promise<{ context: string }> => ipcRenderer.invoke('prepare-harness-plan-handoff', data),
+  cancelHarnessPlanHandoff: (chatId: string): void =>
+    ipcRenderer.send('cancel-harness-plan-handoff', chatId),
   setHarnessSessionModel: (chatId: string, modelKey: string): Promise<boolean> =>
     ipcRenderer.invoke('set-harness-session-model', chatId, modelKey),
   setModel: (modelKey: string): void => ipcRenderer.send('set-model', modelKey),
@@ -740,7 +752,7 @@ const api = {
   submitQuestionnaire: (data: {
     chatId: string
     sessionId: string
-    responses: Record<string, string>
+    responses: Record<string, string | string[]>
   }): void => ipcRenderer.send('submit-questionnaire', data),
   generateTts: (text: string): Promise<string> => ipcRenderer.invoke('generate-tts', text),
   transcribeAudio: (audioBase64: string): Promise<string> =>

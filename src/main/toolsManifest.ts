@@ -425,22 +425,32 @@ export const toolsManifest: ToolDefinition[] = [
         items: objectSchema(
           {
             id: stringSchema('Unique question ID.'),
-            type: stringSchema('Question type.', { enum: ['multiple-choice', 'essay'] }),
+            type: stringSchema('Question type.', {
+              enum: ['multiple-choice', 'multiple-select', 'essay']
+            }),
             title: stringSchema('Short category title.'),
             prompt: stringSchema('Question shown to the user.'),
             options: {
               type: 'array',
-              description: 'Choices for a multiple-choice question.',
+              description: 'Choices for a multiple-choice or multiple-select question.',
               minItems: 2,
               maxItems: 10,
               items: objectSchema(
                 {
                   value: stringSchema('Stable choice value.'),
-                  label: stringSchema('User-facing choice label.')
+                  label: stringSchema('Short user-facing choice title.'),
+                  description: stringSchema('Explanation shown below the choice title.'),
+                  recommended: booleanSchema(
+                    'Set true when this is the best option you recommend to the user.'
+                  )
                 },
                 ['value', 'label']
               )
-            }
+            },
+            max_selections: integerSchema(
+              'Optional maximum selections for multiple-select. Omit to allow any number.',
+              { minimum: 1, maximum: 10 }
+            )
           },
           ['id', 'type', 'title', 'prompt']
         )

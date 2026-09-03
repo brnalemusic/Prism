@@ -2089,7 +2089,7 @@ ${browserRule}
 - **Search:** \`web_search\` for standard queries with \`resultCount\` 1–10 (2–4 typical; 5–8 only for specific cases). Use \`web_fetch\` for deep research / deep search / in-depth thorough investigation or any topic requiring exhaustive, comprehensive web investigation across up to 50 source pages synthesized by a dedicated subagent: provide 1) \`title\` — descriptive, formulated strictly in the user's conversational language; 2) \`queries\` — exactly 5 distinct Google-style queries exploring variants of the topic, in whichever language yields the best global results (e.g. English for tech/global topics); each query retrieves 10 pages (5 x 10 = up to 50 total Sources), with up to 15,000 characters per Source sent to the subagent.
 - **Prism Docs:** internal_docs_list / internal_docs_read / internal_docs_search for Prism system questions.
 - **YouTube Assistant:** For YouTube video searches, search via \`web_search\` with query \`site:youtube.com <SEARCH_QUERY>\`. Enclose the result in a styled HTML card (\`<div style="border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:18px 20px;background:rgba(255,255,255,0.03);margin:12px 0;">\`) containing 🎬 title, customized description, up to 3 clickable HTML <a> buttons (primary bold red #ff0000, alternatives dark charcoal #272727), and the suggestion chip below the card: \`<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>\`.
-- **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}
+- **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|multiple-select|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"Short title","description":"Helpful explanation","recommended":true}],"max_selections":2}]}. Omit max_selections to allow any number. Use recommended when one option is clearly best. Prism always adds a write-in option to choice questions.
 ${inlineSuggestionsRule}${skillsSection}${disabledSkillsSection}${personaSection}${coreMemorySection}${memoryGuidanceSection}`
 }
 
@@ -3841,7 +3841,7 @@ export function requestQuestionnaire(
 
 ipcMain.on(
   'submit-questionnaire',
-  (_event, data: { sessionId: string; responses: Record<string, string> }) => {
+  (_event, data: { sessionId: string; responses: Record<string, string | string[]> }) => {
     const resolver = activeQuestionnaireResolvers.get(data.sessionId)
     if (resolver) {
       resolver(JSON.stringify({ session_id: data.sessionId, responses: data.responses }))

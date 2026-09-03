@@ -10,6 +10,7 @@ import type {
   ApplicationInfo,
   FileSearchResult,
   SessionMode,
+  HarnessPhase,
   TodoState,
   TerminalProcessSnapshot,
   ToolAttachment,
@@ -89,7 +90,16 @@ export interface PrismAPI {
     modelKey?: string
     reasoningLevel?: string
     explorerContext?: HarnessExplorerSelection[]
+    harnessPhase?: HarnessPhase
   }) => void
+  setHarnessSessionPhase: (chatId: string, phase: HarnessPhase) => Promise<boolean>
+  prepareHarnessPlanHandoff: (data: {
+    chatId: string
+    projectPath: string
+    modelKey: string
+    plan: string
+  }) => Promise<{ context: string }>
+  cancelHarnessPlanHandoff: (chatId: string) => void
   setHarnessSessionModel: (chatId: string, modelKey: string) => Promise<boolean>
 
   setModel: (modelKey: string) => void
@@ -321,7 +331,7 @@ export interface PrismAPI {
   submitQuestionnaire: (data: {
     chatId: string
     sessionId: string
-    responses: Record<string, string>
+    responses: Record<string, string | string[]>
   }) => void
   generateTts: (text: string) => Promise<string>
   transcribeAudio: (audioBase64: string) => Promise<string>

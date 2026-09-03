@@ -4,7 +4,8 @@ import type {
   ArtifactItem,
   ToolAttachment,
   HarnessContextSnapshot,
-  HarnessExplorerSelection
+  HarnessExplorerSelection,
+  HarnessPhase
 } from '../../../shared/types'
 
 export interface AttachedFile {
@@ -83,6 +84,7 @@ export interface TabSession {
   quotedText?: string | null
   attachedFile: AttachedFile | null
   sessionMode: SessionMode
+  harnessPhase?: HarnessPhase
   workspace?: WorkspaceKind
   disciplinePath: string
   isProcessing: boolean
@@ -99,4 +101,5 @@ export interface TabSession {
   disabledSkills?: string[]
   harnessContextSnapshot?: HarnessContextSnapshot
   harnessExplorerContext?: HarnessExplorerSelection[]
+  dismissedPlanMarkdown?: string
 }

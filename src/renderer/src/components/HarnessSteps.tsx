@@ -28,6 +28,7 @@ const HARNESS_LABELS: Record<HarnessToolName, string> = {
   find: 'Found files',
   grep: 'Searched code',
   to_ask: 'Asked a question',
+  plan: 'Prepared implementation plan',
   write: 'Wrote file',
   edit: 'Edited file',
   delete_lines: 'Deleted lines',
@@ -228,6 +229,8 @@ function describeTool(tool: ToolCallItem): string {
           : 'Searched the web'
     case 'to_ask':
       return active ? 'Waiting for your answer' : 'Asked a question'
+    case 'plan':
+      return active ? 'Preparing implementation plan' : 'Prepared implementation plan'
     default:
       return tool.name ? String(tool.name).replace(/_/g, ' ') : 'Tool'
   }

@@ -24,6 +24,8 @@ import {
   initGemini,
   handleChatMessage,
   handleHarnessMessage,
+  prepareHarnessPlanHandoff,
+  cancelHarnessPlanHandoff,
   setChatModel,
   cancelChatMessage,
   activeRuns,
@@ -79,7 +81,8 @@ import {
   deleteChatSession,
   searchChatsOffline,
   hydrateHistoryToolAttachments,
-  updateChatSessionModel
+  updateChatSessionModel,
+  updateHarnessSessionPhase
 } from './history'
 import {
   cancelImageGenerationRetries,
@@ -1033,6 +1036,12 @@ if (!gotTheLock) {
     // IPC Handlers
     ipcMain.on('chat-message', handleChatMessage)
     ipcMain.on('harness-message', handleHarnessMessage)
+    ipcMain.handle('prepare-harness-plan-handoff', (_event, data) =>
+      prepareHarnessPlanHandoff(data)
+    )
+    ipcMain.on('cancel-harness-plan-handoff', (_event, chatId: string) => {
+      cancelHarnessPlanHandoff(chatId)
+    })
 
     // Register browser session action emitter so the renderer can watch AI browser interactions
     setBrowserActionEmitter((action) => {
@@ -1087,6 +1096,10 @@ if (!gotTheLock) {
     })
     ipcMain.handle('set-harness-session-model', (_event, chatId: string, modelKey: string) => {
       return updateChatSessionModel(chatId, modelKey, 'harness')
+    })
+    ipcMain.handle('set-harness-session-phase', (_event, chatId: string, phase: 'plan' | 'build') => {
+      if (phase !== 'plan' && phase !== 'build') return false
+      return updateHarnessSessionPhase(chatId, phase)
     })
     ipcMain.on('set-think-mode', (_event, val) => {
       safeSend(mainWindow, 'think-mode-changed', val)

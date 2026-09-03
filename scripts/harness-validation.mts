@@ -12,6 +12,19 @@ import {
   replaceUniqueAfter
 } from '../src/main/harnessFileOperations.ts'
 import { resolveHarnessProjectPath } from '../src/main/harnessPathPolicy.ts'
+import {
+  getHarnessToolNamesForPhase,
+  isReadOnlyHarnessPlanCommand
+} from '../src/main/harnessPlan.ts'
+import {
+  materializeQuestionnaireResponses,
+  normalizeQuestionnaire,
+  QUESTIONNAIRE_CUSTOM_OPTION_VALUE
+} from '../src/shared/questionnaire.ts'
+import {
+  buildHarnessImplementationHandoff,
+  parseHarnessPlanCommand
+} from '../src/shared/harnessPlanCommand.ts'
 import { harnessWildcardRegex } from '../src/main/harnessGlob.ts'
 import { grepFiles } from '../src/main/harnessGrep.ts'
 import {
@@ -214,6 +227,108 @@ test('Harness path policy rejects absolute paths and traversal', async () => {
   }
 })
 
+test('Plan mode terminal gate permits inspection and rejects mutation or external paths', () => {
+  assert.equal(isReadOnlyHarnessPlanCommand('git status --short'), true)
+  assert.equal(isReadOnlyHarnessPlanCommand('rg -n "Harness" src'), true)
+  assert.equal(isReadOnlyHarnessPlanCommand('Get-Content src/main/index.ts'), true)
+  assert.equal(isReadOnlyHarnessPlanCommand('Set-Content src/main/index.ts changed'), false)
+  assert.equal(isReadOnlyHarnessPlanCommand('Get-Content ../secret.txt'), false)
+  assert.equal(isReadOnlyHarnessPlanCommand('git status; git reset --hard'), false)
+  assert.equal(isReadOnlyHarnessPlanCommand('rg Harness | Set-Content result.txt'), false)
+})
+
+test('Plan phase exposes inspection plus plan and never exposes mutation tools', () => {
+  const enabled = [
+    'read',
+    'to_ask',
+    'write',
+    'apply_patch',
+    'exec_command',
+    'web_search'
+  ] as const
+  assert.deepEqual(getHarnessToolNamesForPhase([...enabled], 'plan'), [
+    'read',
+    'to_ask',
+    'exec_command',
+    'web_search',
+    'plan'
+  ])
+  assert.deepEqual(getHarnessToolNamesForPhase([...enabled, 'plan'], 'build'), [...enabled])
+  assert.deepEqual(getHarnessToolNamesForPhase(['read'], 'plan'), ['read', 'to_ask', 'plan'])
+})
+
+test('Harness recognizes only the dollar-prefixed Plan command and preserves its request', () => {
+  assert.deepEqual(parseHarnessPlanCommand('$plan'), { matched: true, request: '' })
+  assert.deepEqual(parseHarnessPlanCommand('$PLAN inspect this project'), {
+    matched: true,
+    request: 'inspect this project'
+  })
+  assert.equal(parseHarnessPlanCommand('/plan inspect this project').matched, false)
+  assert.equal(parseHarnessPlanCommand('$planner').matched, false)
+})
+
+test('Build handoff combines the approved plan and prepared context', () => {
+  const handoff = buildHarnessImplementationHandoff('## Steps\n- Change runtime', '## Context\nUse project A')
+  assert.match(handoff, /# Approved Implementation Plan/)
+  assert.match(handoff, /Change runtime/)
+  assert.match(handoff, /# Implementation Context/)
+  assert.match(handoff, /Use project A/)
+  assert.match(handoff, /Begin implementing this plan now/)
+})
+
+test('Questionnaires normalize multiple selection, limits, and the native write-in option', () => {
+  const questions = normalizeQuestionnaire([
+    {
+      id: 'features',
+      type: 'multiple-select',
+      title: 'Features',
+      prompt: 'Choose features',
+      max_selections: 2,
+      options: [
+        {
+          value: 'search',
+          label: 'Search',
+          description: 'Search the current project.',
+          recommended: true
+        },
+        { value: QUESTIONNAIRE_CUSTOM_OPTION_VALUE, label: 'Conflicting custom value' }
+      ]
+    },
+    {
+      id: 'approach',
+      type: 'multiple-choice',
+      title: 'Approach',
+      prompt: 'Choose one',
+      options: [{ value: 'native', label: 'Native' }]
+    }
+  ])
+
+  assert.equal(questions[0].max_selections, 2)
+  assert.equal(questions[0].options?.[0].description, 'Search the current project.')
+  assert.equal(questions[0].options?.[0].recommended, true)
+  assert.deepEqual(
+    questions[0].options?.map((option) => option.value),
+    ['search', QUESTIONNAIRE_CUSTOM_OPTION_VALUE]
+  )
+  assert.equal(questions[1].max_selections, undefined)
+  assert.equal(questions[1].options?.at(-1)?.label, 'Write your own answer')
+
+  assert.deepEqual(
+    materializeQuestionnaireResponses(
+      questions,
+      {
+        features: ['search', QUESTIONNAIRE_CUSTOM_OPTION_VALUE],
+        approach: QUESTIONNAIRE_CUSTOM_OPTION_VALUE
+      },
+      { features: 'Timeline', approach: 'Custom architecture' }
+    ),
+    {
+      features: ['Search', 'Timeline'],
+      approach: 'Custom architecture'
+    }
+  )
+})
+
 test('Harness instructions preserve precedence and cap oversized AGENTS.md', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-harness-prompt-'))
   try {
@@ -254,6 +369,14 @@ test('Harness instructions preserve precedence and cap oversized AGENTS.md', asy
       ['system', 'global', 'repo', 'project']
     )
     assert.equal(result.entries[2].content.includes('REPO_MARKER'), true)
+
+    const planResult = await buildHarnessSystemPrompt(settings, '@test/harness', 'plan')
+    assert.match(planResult.prompt, /# Plan mode/)
+    assert.match(planResult.prompt, /call the plan tool/)
+    assert.match(planResult.prompt, /MUST NOT create, edit, move, or delete files/)
+    assert.match(planResult.prompt, /whenever there is uncertainty, missing information/)
+    assert.match(planResult.prompt, /fully aligned with no material gaps/)
+    assert.notEqual(planResult.fingerprint, result.fingerprint)
 
     const status = await getHarnessInstructionStatus(settings)
     assert.equal(status.repoExists, true)

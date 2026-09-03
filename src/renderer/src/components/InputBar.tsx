@@ -32,7 +32,12 @@ import { ReasoningSelector } from './ReasoningSelector'
 import { ModelSelector } from './ModelSelector'
 import type { AttachedFile } from '../types/tab'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
-import type { HarnessExplorerSelection, HarnessPermissionMode, SessionMode } from '../../../shared/types'
+import type {
+  HarnessExplorerSelection,
+  HarnessPermissionMode,
+  HarnessPhase,
+  SessionMode
+} from '../../../shared/types'
 import { triggerErrorPopup, isShortcutPressed } from '../utils'
 import { HARNESS_EXPLORER_MIME } from './HarnessExplorer'
 
@@ -79,6 +84,8 @@ interface InputBarProps {
   onDisabledSkillsChange?: (skills: string[]) => void
   harnessPermissionMode?: HarnessPermissionMode
   onHarnessPermissionModeChange?: (mode: HarnessPermissionMode) => void
+  harnessPhase?: HarnessPhase
+  onHarnessPhaseChange?: (phase: HarnessPhase) => void
   onOpenUpgradePlans?: () => void
   isEnterprise?: boolean
   harnessExplorerContext?: HarnessExplorerSelection[]
@@ -126,6 +133,8 @@ export const InputBar = React.memo(
         onDisabledSkillsChange,
         harnessPermissionMode = 'ask',
         onHarnessPermissionModeChange,
+        harnessPhase = 'build',
+        onHarnessPhaseChange,
         onOpenUpgradePlans,
         isEnterprise,
         harnessExplorerContext = [],
@@ -977,6 +986,32 @@ export const InputBar = React.memo(
           </div>
 
           <div className="flex shrink-0 items-center gap-2 relative">
+            {sessionMode === 'harness' && onHarnessPhaseChange && (
+              <div
+                className="flex items-center rounded-xl border border-white/[0.09] bg-white/[0.025] p-0.5"
+                aria-label="Harness workflow"
+              >
+                {(['plan', 'build'] as const).map((phase) => (
+                  <button
+                    key={phase}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onHarnessPhaseChange(phase)}
+                    aria-pressed={harnessPhase === phase}
+                    className={clsx(
+                      'rounded-[9px] px-2.5 py-1 text-[11px] font-semibold capitalize transition-all duration-150',
+                      harnessPhase === phase
+                        ? 'bg-white/[0.11] text-text-primary shadow-[var(--glass-specular-top)]'
+                        : 'text-text-muted hover:text-text-secondary',
+                      disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                    )}
+                  >
+                    {phase}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {sessionMode === 'harness' && onModelChange && (
               <ModelSelector
                 selectedModel={selectedModel}

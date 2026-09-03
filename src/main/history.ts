@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { randomUUID } from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
-import { SessionMode, WorkspaceKind, ArtifactItem, TodoState } from '../shared/types'
+import { SessionMode, WorkspaceKind, ArtifactItem, TodoState, HarnessPhase } from '../shared/types'
 import type { OpenAiMessage } from './ai/types'
 import { ToolImageAttachment, ToolImageReference, imageAttachments } from './toolAttachments'
 import {
@@ -19,6 +19,7 @@ export interface ChatSession {
   lastUpdated: number
   messages: OpenAiMessage[]
   sessionMode?: SessionMode
+  harnessPhase?: HarnessPhase
   /** Workspace discriminator. Older Harness records are migrated on read. */
   workspace?: WorkspaceKind
   disciplinePath?: string
@@ -536,7 +537,8 @@ export function saveChatSession(
   disciplinePath?: string,
   model?: string,
   isDiscord?: boolean,
-  disabledSkills?: string[]
+  disabledSkills?: string[],
+  harnessPhase?: HarnessPhase
 ): boolean {
   ensureChatsDir()
   const cleanId = sanitizeId(id)
@@ -549,6 +551,7 @@ export function saveChatSession(
     let existingPath = disciplinePath
     let existingModel = model
     let existingDisabledSkills = disabledSkills
+    let existingHarnessPhase = harnessPhase
     let existingWorkspace: WorkspaceKind | undefined
 
     // If title or modes not provided, try to keep the existing ones from the file
@@ -557,7 +560,8 @@ export function saveChatSession(
       existingMode === undefined ||
       existingPath === undefined ||
       existingModel === undefined ||
-      existingDisabledSkills === undefined
+      existingDisabledSkills === undefined ||
+      existingHarnessPhase === undefined
     ) {
       if (fs.existsSync(filePath)) {
         try {
@@ -584,6 +588,9 @@ export function saveChatSession(
           }
           if (existingDisabledSkills === undefined) {
             existingDisabledSkills = existingData.disabledSkills
+          }
+          if (existingHarnessPhase === undefined) {
+            existingHarnessPhase = existingData.harnessPhase
           }
         } catch {
           /* ignore parse errors */
@@ -634,6 +641,12 @@ export function saveChatSession(
       lastUpdated: Date.now(),
       messages: messagesToSave,
       sessionMode: existingMode,
+      harnessPhase:
+        existingMode === 'harness'
+          ? existingHarnessPhase === 'plan'
+            ? 'plan'
+            : 'build'
+          : undefined,
       workspace:
         existingMode === 'harness' || (existingMode === undefined && existingWorkspace === 'harness')
           ? 'harness'
@@ -650,6 +663,24 @@ export function saveChatSession(
     return true
   } catch (error) {
     console.error(`Failed to save chat session ${id}:`, error)
+    return false
+  }
+}
+
+/** Updates the persisted Plan/Build workflow without changing session messages. */
+export function updateHarnessSessionPhase(id: string, harnessPhase: HarnessPhase): boolean {
+  const cleanId = sanitizeId(id)
+  if (!cleanId) return false
+  const session = loadChatSession(cleanId, 'harness')
+  if (!session) return false
+  const filePath = path.join(CHATS_DIR, `chat_${cleanId}.json`)
+  try {
+    session.harnessPhase = harnessPhase
+    session.lastUpdated = Date.now()
+    fs.writeFileSync(filePath, JSON.stringify(session, null, 2))
+    return true
+  } catch (error) {
+    console.error(`Failed to update Harness phase ${id}:`, error)
     return false
   }
 }

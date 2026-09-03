@@ -8,7 +8,8 @@ import {
   HarnessToolName,
   HarnessContextSnapshot,
   EffectiveHarnessSettings,
-  HarnessExplorerSelection
+  HarnessExplorerSelection,
+  HarnessPhase
 } from '../../shared/types'
 import type { ToolImageAttachment } from '../toolAttachments'
 import { getSystemToolsPrompt, setActiveCwd, setCurrentSessionIdForTodo } from '../systemTools'
@@ -51,6 +52,7 @@ import {
   harnessToolRequiresExternalApproval,
   previewHarnessTool
 } from '../harnessTools'
+import { getHarnessToolNamesForPhase, isReadOnlyHarnessPlanCommand } from '../harnessPlan'
 import { requestHarnessApproval, cancelHarnessApprovalsForChat } from '../harnessApproval'
 import type { ToolResultEnvelope } from '../toolRuntime'
 import { resolveRequestModelKey, resolveRunWorkspace } from './sessionRuntime'
@@ -59,6 +61,7 @@ import { readHarnessExplorerContext } from '../harnessExplorer'
 export const activeRuns = new Map<string, ActiveRun>()
 export const lastScreenshots = new Map<string, string>()
 const deletedActiveChats = new Set<string>()
+const activePlanHandoffs = new Map<string, AbortController>()
 const currentSessionId = ''
 
 let currentSelectedChatModel = ''
@@ -102,7 +105,9 @@ function createHarnessBeforeToolBatch(
   signal: AbortSignal
 ): NonNullable<ToolOrchestratorOptions['beforeToolBatch']> {
   return async (calls) => {
-    const callsRequiringApproval = calls.filter((call) => call.name !== 'to_ask')
+    const callsRequiringApproval = calls.filter(
+      (call) => call.name !== 'to_ask' && call.name !== 'plan'
+    )
     if (callsRequiringApproval.length === 0) return true
     const needsApproval =
       settings.defaultPermissionMode === 'ask' ||
@@ -113,7 +118,7 @@ function createHarnessBeforeToolBatch(
         ))
     if (!needsApproval) return true
     const items: HarnessApprovalItem[] = await Promise.all(
-      calls.map(async (call) => {
+      callsRequiringApproval.map(async (call) => {
         try {
           return await previewHarnessTool(call.callId, call.name, call.args, projectPath)
         } catch (error) {
@@ -137,9 +142,41 @@ function createHarnessBeforeToolBatch(
 
 function createHarnessToolExecutor(
   projectPath: string,
-  settings: EffectiveHarnessSettings
+  settings: EffectiveHarnessSettings,
+  phase: HarnessPhase
 ): NonNullable<ToolOrchestratorOptions['executeTool']> {
   return async (name, args, context, loopGuard) => {
+    if (phase === 'plan') {
+      const allowed = new Set([
+        'read', 'list', 'find', 'grep', 'to_ask', 'plan',
+        'exec_command', 'read_terminal_output', 'web_search'
+      ])
+      let planError: string | null = allowed.has(name)
+        ? null
+        : `The ${name} tool is unavailable in Plan mode.`
+      if (!planError && name === 'exec_command') {
+        let command = ''
+        try {
+          const parsed = typeof args === 'string' ? JSON.parse(args) : args
+          command =
+            parsed && typeof parsed === 'object' && typeof parsed.cmd === 'string'
+              ? parsed.cmd
+              : ''
+        } catch {
+          command = ''
+        }
+        if (!isReadOnlyHarnessPlanCommand(command)) {
+          planError = 'Plan mode only allows terminal commands that are provably read-only.'
+        }
+      }
+      if (planError) {
+        const envelope: ToolResultEnvelope = {
+          ok: false,
+          error: { code: 'EXECUTION_FAILED', message: planError, retryable: false }
+        }
+        return { args: {}, envelope, modelContent: JSON.stringify(envelope) }
+      }
+    }
     const repeatedError = loopGuard.register(name, args)
     if (repeatedError) {
       const envelope: ToolResultEnvelope = { ok: false, error: repeatedError }
@@ -281,6 +318,7 @@ export interface ChatMessagePayload {
   reasoningLevel?: string
   disabledSkills?: string[]
   explorerContext?: HarnessExplorerSelection[]
+  harnessPhase?: HarnessPhase
 }
 
 /** Dedicated entrypoint: the Harness never travels through the Chat IPC channel. */
@@ -301,6 +339,83 @@ export async function handleHarnessMessage(
     },
     'harness'
   )
+}
+
+export async function prepareHarnessPlanHandoff(data: {
+  chatId: string
+  projectPath: string
+  modelKey: string
+  plan: string
+}): Promise<{ context: string }> {
+  const session = loadChatSession(data.chatId, 'harness')
+  if (!session || !session.disciplinePath) {
+    throw new Error('The source Harness session could not be loaded.')
+  }
+  if (!isSameProjectPath(session.disciplinePath, data.projectPath)) {
+    throw new Error('The handoff must remain in the source Harness project.')
+  }
+  const publishedPlans = session.messages.flatMap((message) =>
+    (message.tool_calls || [])
+      .filter((call) => call.function.name === 'plan')
+      .map((call) => {
+        try {
+          const args = JSON.parse(call.function.arguments) as { markdown?: unknown }
+          return typeof args.markdown === 'string' ? args.markdown.trim() : ''
+        } catch {
+          return ''
+        }
+      })
+  )
+  if (!data.plan.trim() || !publishedPlans.includes(data.plan.trim())) {
+    throw new Error('The selected implementation plan is not part of the source session.')
+  }
+  const { provider, model } = resolveProviderAndModel(data.modelKey || session.model)
+  if (!provider || !model || !provider.apiKey) {
+    throw new Error('The source Harness model is unavailable.')
+  }
+
+  activePlanHandoffs.get(data.chatId)?.abort()
+  const controller = new AbortController()
+  activePlanHandoffs.set(data.chatId, controller)
+  try {
+    const history = hydrateHistoryToolAttachments(data.chatId, session.messages)
+    const messages: OpenAiMessage[] = [
+      {
+        role: 'system',
+        content:
+          'You are preparing a precise implementation handoff for another coding agent. Use the complete source conversation to close gaps, preserve decisions and constraints, summarize repository discoveries, identify likely files and risks, and state validation expectations. Do not repeat the implementation plan verbatim. Return only the complementary handoff context in concise Markdown.'
+      },
+      ...convertHistoryToOpenAi(history),
+      {
+        role: 'user',
+        content: `Prepare the final complementary context for this approved implementation plan:\n\n${data.plan}`
+      }
+    ]
+    const result = await streamOpenAiCompletion(
+      provider,
+      model.id,
+      messages,
+      [],
+      controller.signal,
+      {
+        onTextDelta: () => {},
+        onReasoningDelta: () => {},
+        onToolCallDelta: () => {}
+      }
+    )
+    const context = result.text.trim()
+    if (!context) throw new Error('The model returned an empty implementation context.')
+    return { context }
+  } finally {
+    if (activePlanHandoffs.get(data.chatId) === controller) {
+      activePlanHandoffs.delete(data.chatId)
+    }
+  }
+}
+
+export function cancelHarnessPlanHandoff(chatId: string): void {
+  activePlanHandoffs.get(chatId)?.abort()
+  activePlanHandoffs.delete(chatId)
 }
 
 export async function handleChatMessage(
@@ -337,6 +452,14 @@ export async function handleChatMessage(
   }
 
   const session = loadChatSession(chatId, workspace)
+  const requestHarnessPhase: HarnessPhase =
+    workspace === 'harness' &&
+    typeof data === 'object' &&
+    (data.harnessPhase === 'plan' || data.harnessPhase === 'build')
+      ? data.harnessPhase
+      : workspace === 'harness' && session?.harnessPhase === 'plan'
+        ? 'plan'
+        : 'build'
   const payloadModelKey =
     typeof data === 'object' && typeof data.modelKey === 'string' ? data.modelKey.trim() : ''
   const requestModelKey = resolveRequestModelKey(
@@ -520,7 +643,8 @@ export async function handleChatMessage(
       requestDisciplinePath,
       requestModelKey,
       false,
-      disabledSkills
+      disabledSkills,
+      requestHarnessPhase
     )
     broadcastIpc('chat-session-created', { id: chatId })
   } else {
@@ -532,7 +656,8 @@ export async function handleChatMessage(
       requestDisciplinePath,
       requestModelKey,
       undefined,
-      disabledSkills
+      disabledSkills,
+      requestHarnessPhase
     )
   }
 
@@ -589,7 +714,8 @@ export async function handleChatMessage(
       const existingSnapshot = contextMessages[contextMessages.length - 1]?.harness_context_snapshot
       const harnessPrompt = await getHarnessSystemPrompt(
         harnessSettings,
-        harnessSystemPromptLabel(model.id)
+        harnessSystemPromptLabel(model.id),
+        requestHarnessPhase
       )
       const needsContextInjection =
         !existingSnapshot || existingSnapshot.fingerprint !== harnessPrompt.fingerprint
@@ -625,7 +751,8 @@ export async function handleChatMessage(
           requestDisciplinePath,
           requestModelKey,
           undefined,
-          disabledSkills
+          disabledSkills,
+          requestHarnessPhase
         )
         broadcastIpc('harness-context-injection', { chatId, snapshot })
         if (harnessPrompt.warnings.length) {
@@ -708,7 +835,9 @@ STRICT BUTTON RULES:
 
     const getToolsForSessionMode = (): OpenAiToolDefinition[] => {
       if (requestSessionMode === 'harness' && harnessSettings) {
-        return getHarnessOpenAiToolDefinitions(harnessSettings.enabledTools)
+        return getHarnessOpenAiToolDefinitions(
+          getHarnessToolNamesForPhase(harnessSettings.enabledTools, requestHarnessPhase)
+        )
       }
       const tools =
         requestSessionMode === 'conversation'
@@ -787,7 +916,7 @@ STRICT BUTTON RULES:
           )
         : undefined,
       executeTool: harnessSettings
-        ? createHarnessToolExecutor(requestDisciplinePath, harnessSettings)
+        ? createHarnessToolExecutor(requestDisciplinePath, harnessSettings, requestHarnessPhase)
         : undefined,
       onStreamEvent: (streamEvent, state) => {
         const timing = thinkingTimes.get(state.round) || {}
@@ -877,7 +1006,10 @@ STRICT BUTTON RULES:
           undefined,
           requestSessionMode,
           requestDisciplinePath,
-          requestModelKey
+          requestModelKey,
+          undefined,
+          undefined,
+          requestHarnessPhase
         )
       },
       finalInstruction:
@@ -1255,7 +1387,11 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
         ? createHarnessBeforeToolBatch(chatId, projectPath, harnessSettings, abortController.signal)
         : undefined,
       executeTool: harnessSettings
-        ? createHarnessToolExecutor(projectPath, harnessSettings)
+        ? createHarnessToolExecutor(
+            projectPath,
+            harnessSettings,
+            chatSession.harnessPhase === 'plan' ? 'plan' : 'build'
+          )
         : undefined,
       onStreamEvent: (streamEvent, state) => {
         const timing = thinkingTimes.get(state.round) || {}

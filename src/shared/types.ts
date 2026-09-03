@@ -123,6 +123,9 @@ export interface AttachedFile {
 
 export type SessionMode = 'conversation' | 'execution' | 'discipline' | 'harness'
 
+/** Active workflow inside an isolated Harness session. */
+export type HarnessPhase = 'plan' | 'build'
+
 /**
  * Product-level boundary for persisted sessions and renderer state. `harness`
  * is intentionally separate from the Chat workspace even though it reuses the
@@ -138,6 +141,7 @@ export type HarnessToolName =
   | 'find'
   | 'grep'
   | 'to_ask'
+  | 'plan'
   | 'write'
   | 'edit'
   | 'delete_lines'

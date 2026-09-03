@@ -103,6 +103,10 @@ import {
   thinkingDurationSeconds
 } from './chatStreamBuffer'
 import type { StreamPhaseSnapshot } from './chatStreamBuffer'
+import {
+  buildHarnessImplementationHandoff,
+  parseHarnessPlanCommand
+} from '../../shared/harnessPlanCommand'
 
 const DiscordVoiceGlowOverlay = lazy(() =>
   import('./components/DiscordVoiceGlowOverlay').then(({ DiscordVoiceGlowOverlay }) => ({
@@ -2016,6 +2020,9 @@ function RealApp(): React.JSX.Element {
   const [visibleTabIds, setVisibleTabIds] = useState<string[]>(['tab-1'])
   const [harnessTabs, setHarnessTabs] = useState<TabSession[]>([])
   const [activeHarnessTabId, setActiveHarnessTabId] = useState<string>('')
+  const [planHandoffState, setPlanHandoffState] = useState<
+    Record<string, { preparing: boolean; error?: string }>
+  >({})
 
   const tabsRef = useRef(tabs)
   useEffect(() => {
@@ -2451,6 +2458,7 @@ function RealApp(): React.JSX.Element {
         attachedFile: null,
         workspace: 'harness',
         sessionMode: 'harness',
+        harnessPhase: 'build',
         disciplinePath: project?.rootPath || '',
         isProcessing: false,
         isTodoOpen: false,
@@ -3194,6 +3202,8 @@ function RealApp(): React.JSX.Element {
       const historyItem = chats.find((item) => item.id === chatId)
       const title = historyItem?.title || 'Chat'
       const loadedMode: SessionMode = workspace === 'harness' ? 'harness' : historyItem?.sessionMode || 'execution'
+      const loadedHarnessPhase =
+        workspace === 'harness' && historyItem?.harnessPhase === 'plan' ? 'plan' : 'build'
       const loadedDisciplinePath: string =
         loadedMode === 'discipline' || loadedMode === 'harness'
           ? historyItem?.disciplinePath || ''
@@ -3219,6 +3229,7 @@ function RealApp(): React.JSX.Element {
             inputText: '',
             attachedFile: null,
             sessionMode: loadedMode,
+            harnessPhase: workspace === 'harness' ? loadedHarnessPhase : undefined,
             disciplinePath: loadedDisciplinePath,
             isProcessing: false,
             isTodoOpen: false,
@@ -3240,6 +3251,7 @@ function RealApp(): React.JSX.Element {
               title,
               messages,
               sessionMode: loadedMode,
+              harnessPhase: workspace === 'harness' ? loadedHarnessPhase : undefined,
               disciplinePath: loadedDisciplinePath,
               selectedModel: loadedModel,
               disabledSkills: loadedDisabledSkills,
@@ -3394,9 +3406,15 @@ function RealApp(): React.JSX.Element {
     (
       targetTabId: string,
       text: string,
-      options: { file?: AttachedFile | null; isSuggestion?: boolean } = {}
+      options: {
+        file?: AttachedFile | null
+        isSuggestion?: boolean
+        phaseOverride?: 'plan' | 'build'
+        tabOverride?: TabSession
+      } = {}
     ): boolean => {
-      const currentTab = harnessTabsRef.current.find((tab) => tab.id === targetTabId)
+      const currentTab =
+        options.tabOverride || harnessTabsRef.current.find((tab) => tab.id === targetTabId)
       if (!currentTab || currentTab.isProcessing || !isOnlineRef.current || !text.trim()) {
         return false
       }
@@ -3407,6 +3425,7 @@ function RealApp(): React.JSX.Element {
       }
 
       const isSuggestion = options.isSuggestion === true
+      const harnessPhase = options.phaseOverride || currentTab.harnessPhase || 'build'
       const chatId = currentTab.chatId || `harness-${Date.now()}`
       const activeFile = isSuggestion ? undefined : options.file || currentTab.attachedFile
       const activeQuote = isSuggestion
@@ -3434,6 +3453,7 @@ function RealApp(): React.JSX.Element {
             chatId,
             workspace: 'harness' as const,
             sessionMode: 'harness' as const,
+            harnessPhase,
             isProcessing: true,
             messages: [...tab.messages, userMessage]
           }
@@ -3452,7 +3472,8 @@ function RealApp(): React.JSX.Element {
         quote: activeQuote,
         modelKey: currentTab.selectedModel,
         reasoningLevel: getReasoningLevelForModel(currentTab.selectedModel),
-        explorerContext
+        explorerContext,
+        harnessPhase
       })
       if (!isSuggestion) {
         setQuotedText(null)
@@ -3465,6 +3486,24 @@ function RealApp(): React.JSX.Element {
 
   const handleHarnessSend = useCallback(
     (text: string, file?: AttachedFile | null): void => {
+      const command = parseHarnessPlanCommand(text)
+      if (command.matched) {
+        const tabId = activeHarnessTabIdRef.current
+        const currentTab = harnessTabsRef.current.find((tab) => tab.id === tabId)
+        setHarnessTabs((previous) =>
+          previous.map((tab) =>
+            tab.id === tabId ? { ...tab, harnessPhase: 'plan', inputText: '' } : tab
+          )
+        )
+        if (currentTab?.chatId) {
+          void window.api.setHarnessSessionPhase(currentTab.chatId, 'plan')
+        }
+        const request = command.request
+        if (request) {
+          sendHarnessMessageToTab(tabId, request, { file, phaseOverride: 'plan' })
+        }
+        return
+      }
       sendHarnessMessageToTab(activeHarnessTabIdRef.current, text, { file })
     },
     [sendHarnessMessageToTab]
@@ -3561,6 +3600,154 @@ function RealApp(): React.JSX.Element {
       }
     },
     [isEnterpriseUser]
+  )
+
+  const handleHarnessPhaseChange = useCallback(
+    (tabId: string, phase: 'plan' | 'build'): void => {
+      const currentTab = harnessTabsRef.current.find((tab) => tab.id === tabId)
+      if (!currentTab || currentTab.harnessPhase === phase) return
+      const previousPhase = currentTab.harnessPhase || 'build'
+      setHarnessTabs((previous) =>
+        previous.map((tab) => (tab.id === tabId ? { ...tab, harnessPhase: phase } : tab))
+      )
+      if (currentTab.chatId) {
+        void window.api.setHarnessSessionPhase(currentTab.chatId, phase).then((saved) => {
+          if (saved) return
+          setHarnessTabs((previous) =>
+            previous.map((tab) =>
+              tab.id === tabId ? { ...tab, harnessPhase: previousPhase } : tab
+            )
+          )
+          setHarnessPromptWarnings(['The Harness Plan/Build mode could not be saved.'])
+        })
+      }
+    },
+    []
+  )
+
+  const handleAcceptPlanHere = useCallback((tabId: string): void => {
+    const tab = harnessTabsRef.current.find((entry) => entry.id === tabId)
+    if (!tab) return
+    setHarnessTabs((previous) =>
+      previous.map((entry) =>
+        entry.id === tabId
+          ? { ...entry, harnessPhase: 'build', dismissedPlanMarkdown: undefined }
+          : entry
+      )
+    )
+    if (tab.chatId) void window.api.setHarnessSessionPhase(tab.chatId, 'build')
+  }, [])
+
+  const handleSendPlanFeedback = useCallback(
+    (tabId: string, feedback: string): void => {
+      setHarnessTabs((previous) =>
+        previous.map((entry) =>
+          entry.id === tabId ? { ...entry, dismissedPlanMarkdown: undefined } : entry
+        )
+      )
+      sendHarnessMessageToTab(
+        tabId,
+        `Revise the current Implementation Plan using this feedback:\n\n${feedback}`,
+        { phaseOverride: 'plan' }
+      )
+    },
+    [sendHarnessMessageToTab]
+  )
+
+  const handleCancelPlan = useCallback((tabId: string, markdown: string): void => {
+    const tab = harnessTabsRef.current.find((entry) => entry.id === tabId)
+    if (tab?.chatId) {
+      window.api.cancelHarnessPlanHandoff(tab.chatId)
+      if (tab.isProcessing) window.api.cancelChat(tab.chatId)
+    }
+    setPlanHandoffState((previous) => ({
+      ...previous,
+      [tabId]: { preparing: false }
+    }))
+    setHarnessTabs((previous) =>
+      previous.map((entry) =>
+        entry.id === tabId
+          ? { ...entry, harnessPhase: 'plan', dismissedPlanMarkdown: markdown }
+          : entry
+      )
+    )
+  }, [])
+
+  const handleAcceptPlanNewChat = useCallback(
+    async (tabId: string, plan: string): Promise<void> => {
+      const sourceTab = harnessTabsRef.current.find((entry) => entry.id === tabId)
+      if (!sourceTab?.chatId || !sourceTab.disciplinePath || !sourceTab.selectedModel) return
+      if (harnessTabsRef.current.length >= 5) {
+        setPlanHandoffState((previous) => ({
+          ...previous,
+          [tabId]: { preparing: false, error: 'Close a Harness tab before creating the Build handoff.' }
+        }))
+        return
+      }
+
+      setPlanHandoffState((previous) => ({
+        ...previous,
+        [tabId]: { preparing: true }
+      }))
+      try {
+        const { context } = await window.api.prepareHarnessPlanHandoff({
+          chatId: sourceTab.chatId,
+          projectPath: sourceTab.disciplinePath,
+          modelKey: sourceTab.selectedModel,
+          plan
+        })
+        const newTabId = `harness-${Date.now()}`
+        const newTab: TabSession = {
+          id: newTabId,
+          chatId: undefined,
+          title: 'Implementation Handoff',
+          messages: [],
+          inputText: '',
+          attachedFile: null,
+          workspace: 'harness',
+          sessionMode: 'harness',
+          harnessPhase: 'build',
+          disciplinePath: sourceTab.disciplinePath,
+          isProcessing: false,
+          isTodoOpen: false,
+          selectedModel: sourceTab.selectedModel,
+          isSearchEnabled: false,
+          disabledSkills: [],
+          harnessExplorerContext: []
+        }
+        setHarnessTabs((previous) => [
+          ...previous.map((entry) =>
+            entry.id === tabId ? { ...entry, harnessPhase: 'build' as const } : entry
+          ),
+          newTab
+        ])
+        void window.api.setHarnessSessionPhase(sourceTab.chatId, 'build')
+        setActiveHarnessTabId(newTabId)
+        setPlanHandoffState((previous) => ({
+          ...previous,
+          [tabId]: { preparing: false }
+        }))
+        const handoffMessage = buildHarnessImplementationHandoff(plan, context)
+        sendHarnessMessageToTab(newTabId, handoffMessage, {
+          phaseOverride: 'build',
+          tabOverride: newTab
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (/abort/i.test(message)) {
+          setPlanHandoffState((previous) => ({
+            ...previous,
+            [tabId]: { preparing: false }
+          }))
+          return
+        }
+        setPlanHandoffState((previous) => ({
+          ...previous,
+          [tabId]: { preparing: false, error: message }
+        }))
+      }
+    },
+    [sendHarnessMessageToTab]
   )
 
   const handleHarnessPermissionModeChange = useCallback(
@@ -4966,6 +5153,31 @@ function RealApp(): React.JSX.Element {
                   onHarnessPermissionModeChange={(mode) =>
                     handleHarnessPermissionModeChange(tab.id, mode)
                   }
+                  onHarnessPhaseChange={(phase) => handleHarnessPhaseChange(tab.id, phase)}
+                  isPlanPreparing={planHandoffState[tab.id]?.preparing || tab.isProcessing}
+                  planBusyLabel={
+                    planHandoffState[tab.id]?.preparing
+                      ? 'Preparing implementation context…'
+                      : 'Revising implementation plan…'
+                  }
+                  planError={planHandoffState[tab.id]?.error}
+                  onAcceptPlanHere={() => handleAcceptPlanHere(tab.id)}
+                  onAcceptPlanNewChat={(markdown) =>
+                    void handleAcceptPlanNewChat(tab.id, markdown)
+                  }
+                  onSendPlanFeedback={(feedback) =>
+                    handleSendPlanFeedback(tab.id, feedback)
+                  }
+                  onCancelPlan={() => {
+                    const latestPlan = [...tab.messages]
+                      .reverse()
+                      .flatMap((message) => [...(message.toolCalls || [])].reverse())
+                      .find((call) => call.name === 'plan' && typeof call.args.markdown === 'string')
+                    handleCancelPlan(
+                      tab.id,
+                      typeof latestPlan?.args.markdown === 'string' ? latestPlan.args.markdown : ''
+                    )
+                  }}
                   onOpenUpgradePlans={() => setIsPlansModalOpen(true)}
                   isEnterprise={isEnterpriseUser}
                   onSelectFolder={() => {

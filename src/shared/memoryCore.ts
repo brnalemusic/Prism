@@ -254,8 +254,8 @@ const stripPunctuationEnd = (text: string): string =>
 
 const WEIGHT = {
   explicit: 0.55,
-  slot: 0.45,
-  preference: 0.4,
+  slot: 0.85,
+  preference: 0.85,
   repetition: 0.1,
   correction: 0.15,
   vague: -0.25,
@@ -273,7 +273,7 @@ const DAY_MS = 86_400_000
 const EXPLICIT_REQUESTS = [
   /^lembre\s+que/i, /^lembra\s+que/i, /^lembre-se\s+que/i, /^lembre\s+de/i, /^lembra\s+de/i,
   /^guarda\s+isso/i, /^guarde\s+isso/i, /^anota\s+(a[íi]|isso)/i, /^anote\s+(a[íi]|isso)/i,
-  /^memoriza\s+isso/i, /^memorize\s+isso/i, /^n[ãa]o\s+esque[çc](a|e)\s+que/i, /^lembra\s+disso/i,
+  /^memoriza\s+isso/i, /^memorize\s+isso/i, /^n[ãa]o\s+esque[çc](a|e)\s+que/i, /^lembra\s+disso/i, /^lembr[ae]\s+q\b/i,
   /^remember\s+that/i, /^remember\s+this/i, /^note\s+that/i, /^keep\s+in\s+mind\s+that/i,
   /^don'?t\s+forget\s+that/i, /^dont\s+forget\s+that/i, /^make\s+a\s+note\s+that/i
 ]
@@ -290,7 +290,8 @@ const CORRECTION_SIGNALS = [
   /\bna\s+verdade\b/i, /\bcorrigindo\b/i, /\bcorrige\b/i, /\batualiza\b/i, /\bupdate\b/i,
   /\bmudei\s+de\s+ideia\b/i, /\bnao\s+muda\b/i, /\bnao,\s*[eé]\b/i, /\bn[ãa]o,\s*[eé]\b/i,
   /\bdesculpa,\s*n[ãa]o\b/i, /\bactually\b/i, /\bcorrection\b/i, /\bnever\s+mind\b/i,
-  /\bi\s+changed\s+my\s+mind\b/i, /\bwait,\s*n[ãa]?o\b/i, /\bwait,\s*no\b/i
+  /\bi\s+changed\s+my\s+mind\b/i, /\bwait,\s*n[ãa]?o\b/i, /\bwait,\s*no\b/i,
+  /\bmy\s+bad\b/i
 ]
 
 const NARROW_TEMPORAL = /\b(hoje|amanh[ãa]|essa\s+semana|esta\s+semana|essa\s+noite|tonight|this\s+week|this\s+evening|agora|right\s+now|esta\s+noite)\b/i
@@ -324,17 +325,45 @@ const PREFERENCE_POSITIVE = [
   /\beu\s+prefiro\b/i, /\bgosto\s+muito\s+de\b/i, /\beu\s+gosto\s+de\b/i, /\beu\s+adoro\b/i,
   /\beu\s+amo\b/i, /\bsempre\s+uso\b/i, /\beu\s+curto\b/i,
   /\bi\s+prefer\b/i, /\bi\s+(really\s+)?love\b/i, /\bi\s+like\b/i, /\bi\s+enjoy\b/i,
-  /\bi\s+always\s+use\b/i
+  /\bi\s+always\s+use\b/i,
+  // Bare PT verb forms are natural first-person speech ("gosto de café",
+  // "adoro praia"); the negation window guards "não gosto de" spans.
+  /\bgosto\s+de\b/i, /\badoro\b/i, /\bamo\b/i, /\bprefiro\b/i,
+  /\bsempre\s+(?:tomo|como|uso|jogo|assisto|ou[uv]?[çc]o|leio|pratico|corro|treino)\b/i,
+  /\bi\s+(?:really|actually|totally|absolutely|just)\s+love\b/i,
+  /\bi\s+always\s+(?:have|drink|eat|use|play)\b/i
 ]
 
 const PREFERENCE_NEGATIVE = [
   /\beu\s+n[ãa]o\s+gosto\s+de\b/i, /\beu\s+odeio\b/i, /\beu\s+detesto\b/i, /\beu\s+evito\b/i,
   /\bn[ãa]o\s+gosto\s+de\b/i, /\beu\s+nunca\s+uso\b/i,
   /\bi\s+don'?t\s+like\b/i, /\bi\s+dont\s+like\b/i, /\bi\s+hate\b/i, /\bi\s+avoid\b/i,
-  /\bi\s+never\s+use\b/i
+  /\bi\s+never\s+use\b/i,
+  /\bodeio\b/i, /\bdetesto\b/i, /\bn[ãa]o\s+suporto\b/i, /\bn[ãa]o\s+aguento\b/i,
+  /\bcan'?t\s+stand\b/i, /\bcant\s+stand\b/i,
+  /\beu\s+nunca\s+(?:como|tomo|uso|jogo|assisto|leio)\b/i,
+  /\bi\s+never\s+(?:eat|drink|use|play)\b/i
 ]
 
-const PREF_OBJECT_BOUNDARY = /\s+(mas|por[ée]m|e\s+tamb[ée]m|quando|se\s+eu|enquanto|because|but|though|when|while|and\s+also)\b/i
+const PREF_VERB_AFTER =
+  '(?:eu\\s+)?(?:gosto|adoro|amo|odeio|detesto|prefiro|n[ãa]o\\s+gosto|n[ãa]o\\s+suporto|n[ãa]o\\s+aguento|suporto|like|love|hate|enjoy|prefer|can\'?t\\s+stand)'
+const PREF_CLAUSE_CUT = new RegExp(
+  '\\s+(?:mas|por[ée]m|porque|but|because|though|although|when|while|quando|enquanto|se\\s+eu|if\\s+i|e\\s+tamb[ée]m|and\\s+also)\\b' +
+    '|\\s+(?:e|y|&)\\s+(?=' + PREF_VERB_AFTER + ')' +
+    '|,\\s*(?=' + PREF_VERB_AFTER + ')',
+  'i'
+)
+const PREF_TEMPORAL_CUT =
+  /\s+(?:de\s+manh[ãa]|de\s+noite|à\s+noite|à\s+tarde|pela\s+manh[ãa]|pela\s+tarde|aos\s+fins\s+de\s+semana|nos\s+fins\s+de\s+semana|todas\s+as\s+manh[ãa]s|todo\s+dia|todos\s+os\s+dias|every\s+(?:morning|night|afternoon|evening|day|weekend)|in\s+the\s+(?:morning|afternoon|evening)|at\s+night|no\s+almo[çc]o|no\s+jantar)\b/i
+const PREF_OBJECT_LEAD =
+  /^(?:o\s+|a\s+|os\s+|as\s+|um\s+|uma\s+|the\s+|an\s+|muito\s+|realmente\s+|bastante\s+|really\s+|very\s+|actually\s+|totally\s+|just\s+)/i
+const NEGATION_WINDOW = /\b(?:n[ãa]o|nunca|not|never|don'?t|dont|can'?t|cant)\b/i
+
+const FAVORITE_PATTERN =
+  /\b(?:minha\s+(?:comida|bebida|sobremesa|cor|m[úu]sica|banda|s[ée]rie|anime)\s+favorita\s+[ée]\s+|meu\s+(?:prato|filme|livro|jogo|time|esporte|lugar|cidade|animal|hobby|artista)\s+favorito\s+[ée]\s+|my\s+favorite\s+(?:food|dish|drink|dessert|color|music|band|movie|film|book|series|show|anime|game|sport|team|place|city|animal|hobby|artist)\s+is\s+)([A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9 .'\-]{1,40}?)(?=\s*(?:,|\.|;|$|\bmas\b|\bbut\b|\band\b|\be\b))/i
+
+const THIRD_PERSON =
+  /\b(?:ele|ela|eles|elas|voc[êe])\s+(?:gosta|adora|odeia|detesta|prefere|curte|mora|moram|tem|trabalha|estuda|disse|acha|falou|vai)\b|\b(?:meu|minha|meus|minhas)\s+(?:amig[oa]s?|chefe|m[ãa]e|pai|irm[ãa]o?[s]?|filh[oa]s?|esposa|marido|namorad[oa]|colega|vizinh[oa]|av[óoô]|tio|tia|prim[oa]|sobrinh[oa]|cachorro|c[ãa]o|gata?|pet|companheir[oa]|professor[ea]|cliente|s[óo]cio)\s+(?:gosta|adora|odeia|detesta|prefere|curte|mora|moram|tem|trabalha|estuda|disse|acha|falou|vai)\b/i
 
 // ---------------------------------------------------------------------------
 // Slot extraction
@@ -349,7 +378,7 @@ interface SlotMatch {
 }
 
 const PROFESSIONS = new Set([
-  'dev', 'developer', 'programador', 'programadora', 'engenheiro', 'engenheira', 'designer',
+  'dev', 'developer', 'desenvolvedor', 'desenvolvedora', 'programador', 'programadora', 'engenheiro', 'engenheira', 'designer',
   'advogado', 'advogada', 'médico', 'medica', 'professor', 'professora', 'analista',
   'gerente', 'consultor', 'consultora', 'estudante', 'pesquisador', 'pesquisadora',
   'escritor', 'escritora', 'fotógrafo', 'fotografa', 'contador', 'contadora', 'arquiteto',
@@ -382,33 +411,56 @@ const trimFiller = (value: string): string => {
 const capturedValue = (match: string): string =>
   trimFiller(match).split(/\s+/).slice(0, 6).join(' ')
 
-function extractSlots(sentence: string): SlotMatch | null {
-  let best: SlotMatch | null = null
-  const prefer = (candidate: SlotMatch): void => {
-    // Prefer structured slots (about_user/project) over generic preference hits.
-    if (!best || candidate.kind !== 'preference') best = candidate
+const NAME_REJECT = /^(?:later|tomorrow|back|soon|when|if|sometime|anytime|maybe|perhaps|now|again|after|quando|quiser|depois|mais\s+tarde|a[íi]|agora|tamb[ée]m)\b/i
+
+const DESCRIPTOR_RE =
+  /^(?:brasileir[oa]?|portugu[êe]s|american[oa]?|ingl[êe]s|espanhol[oa]?|franc[êe]s|italian[oa]?|alem[ãa]o|japon[êe]s|chin[êe]s|corean[oa]?|mexican[oa]?|argentin[oa]?|canadense|australian[oa]?|holand[êe]s|sueco|noruegu[êe]s|dinamarqu[êe]s|polon[êe]s|r[úu]ss[oa]?|turco|grec[oa]?|indian[oa]?|[áa]rabe|african[oa]?|paulista|carioca|mineir[oa]?|ga[úu]ch[oa]?|nordestin[oa]?|sulista|baian[oa]?|pernambucan[oa]?|cearense|paranaense|catarinense|capixaba|vegetarian[oa]?|vegan[oa]?|casad[oa]?|solteir[oa]?|divorciad[oa]?|vi[úu]v[oa]?|estudante|trabalhador|aposentad[oa]?|desempregad[oa]?|aut[ôo]nom[oa]?|dev|developer|desenvolvedor[ea]?|programador[ea]?|analista|gerente|consultor[ea]?|pesquisador[ea]?|escritor[ea]?|fot[óo]graf[oa]?|contador[ea]?|cientista|bartender|chef|tradutor[ea]?|veterin[áa]ri[oa]?|piloto|atleta|m[úu]sic[oa]?|artista|bailarin[oa]?|brasilian|american|portuguese|english|spanish|french|italian|german|japanese|chinese|korean|mexican|argentine|canadian|australian|dutch|swedish|norwegian|polish|russian|turkish|greek|indian|arab|african|vegetarian|vegan|married|single|divorced|widowed|student|retired|unemployed|freelancer|teacher|doctor|engineer|lawyer|nurse|psychologist|architect|developer|programmer|analyst|manager|consultant|researcher|writer|photographer|accountant|scientist|translator|veterinarian|pilot|athlete|musician|artist|dancer)\b/i
+
+const STUDY_REJECT = /^(?:todos|todo|muito|sempre|nunca|bastante|aqui|hoje|agora|every|always|never|much|here|today|now|a\s+lot|hard)\b/i
+
+/**
+ * Extracts every structured slot a sentence carries — a single turn can hold
+ * several facts ("meu nome é Ana e eu tenho 19 anos" → name + age). Each slot
+ * gets its own factKey; the caller reconciles them independently.
+ */
+function extractSlots(sentence: string): SlotMatch[] {
+  const found = new Map<string, SlotMatch>()
+  const add = (candidate: SlotMatch | null): void => {
+    if (!candidate || !candidate.factKey) return
+    if (!found.has(candidate.factKey)) found.set(candidate.factKey, candidate)
   }
 
-  // Name
-  let match = sentence.match(
-    /(?:me\s+chamo|meu\s+nome\s+[eé]\s+|pode\s+me\s+chamar\s+de)\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' .-]{1,48}?)(?=\s*(?:,|\.|;|$|\be\s+eu\b|\bmas\b))/i
-  )
-  if (!match) {
-    match = sentence.match(
+  // Name — PT "me chamo/meu nome é/me chama de", EN "my name is/call me";
+  // capitalized "sou X"/"i'm X" only when X is not a descriptor/profession.
+  const nameMatch =
+    sentence.match(
+      /(?:me\s+cham(?:o|a|e)\s+de|meu\s+nome\s+[eé]\s+|pode\s+me\s+chamar\s+de)\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' .-]{1,48}?)(?=\s*(?:,|\.|;|$|\be\s+(?:eu\s+)?|\bmas\b))/i
+    ) ??
+    sentence.match(
+      /\b(?:eu\s+)?[sS]ou\s+([A-ZÀ-Ý][A-Za-zÀ-ÿ' .-]{1,48}?)(?=\s*(?:,|\.|;|$|\be\s+|\bmas\b))/
+    ) ??
+    sentence.match(
       /(?:my\s+name\s+is|call\s+me|i['’]m\s+called)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' .-]{1,48}?)(?=\s*(?:,|\.|;|$|\band\b|\bbut\b))/i
+    ) ??
+    sentence.match(
+      /[Ii]['’]m\s+([A-Z][A-Za-zÀ-ÿ' .-]{1,48}?)(?=\s*(?:,|\.|;|$|\band\b|\bbut\b))/
     )
-  }
-  if (match && match[1]) {
-    const value = capturedValue(match[1])
-    if (value.length >= 2) {
-      prefer({ kind: 'about_user', factKey: `user.name=${slugifyKey(value)}`, content: sentence, polarity: 'neutral' })
+  if (nameMatch && nameMatch[1]) {
+    const value = capturedValue(nameMatch[1])
+    if (value.length >= 2 && !NAME_REJECT.test(value) && !DESCRIPTOR_RE.test(value)) {
+      add({ kind: 'about_user', factKey: `user.name=${slugifyKey(value)}`, content: sentence, polarity: 'neutral' })
     }
   }
 
-  // Age
-  match = sentence.match(/\b(?:tenho|i['’]m|i\s+am)\s+(\d{1,3})\s+(?:anos|years?)\b/i)
+  // Age — first-person only; "anos de experiência" is not an age.
+  let match = sentence.match(
+    /\b(?:(?:tenho|i['’]m|i\s+am)\s+(\d{1,3})\s+(?:anos|years?)(?!\s+de\s+(?:experi[ée]ncia|trabalho|estudo|carreira|empresa|mercado|profiss[ãa]o)|of\s+(?:experience|work|study|service|employment))|(?:minha\s+idade\s+[eé]\s+|my\s+age\s+is\s+)(\d{1,3}))\b/i
+  )
   if (match) {
-    prefer({ kind: 'about_user', factKey: `user.age=${match[1]}`, content: sentence, polarity: 'neutral' })
+    const age = match[1] ?? match[2]
+    if (age) {
+      add({ kind: 'about_user', factKey: `user.age=${age}`, content: sentence, polarity: 'neutral' })
+    }
   }
 
   // Birthday (numeric or written)
@@ -417,7 +469,7 @@ function extractSlots(sentence: string): SlotMatch | null {
     const month = match[1]
     const day = match[2]
     const year = match[3] ? `-${match[3]}` : ''
-    prefer({
+    add({
       kind: 'about_user',
       factKey: `user.birthday=${month}-${day}${year}`,
       content: sentence,
@@ -432,75 +484,126 @@ function extractSlots(sentence: string): SlotMatch | null {
   if (match && match[1]) {
     const value = capturedValue(match[1])
     if (value.length >= 2) {
-      prefer({ kind: 'about_user', factKey: `user.location=${slugifyKey(value)}`, content: sentence, polarity: 'neutral' })
+      add({ kind: 'about_user', factKey: `user.location=${slugifyKey(value)}`, content: sentence, polarity: 'neutral' })
     }
   }
 
   // Pets / kids
-  match = sentence.match(/\b(?:tenho|i\s+have\s+a?n?)\s+(?:um|uma|a\s+)?(cachorro|c[ãa]o|dog|gato|gata|cat|p[áa]ssaro|bird|peixe|fish|coelho|rabbit|hamster)\b/i)
+  match = sentence.match(/\b(?:tenho|i\s+have\s+a?n?)\s+(?:(?:um|uma|a|dois|duas|tr[êe]s|[\d]+)\s+)?(cachorro|cachorros|c[ãa]o|c[ãa]es|dog|dogs|gato|gatos|gata|gatas|cat|cats|p[áa]ssaro|p[áa]ssaros|bird|birds|peixe|peixes|fish|coelho|coelhos|rabbit|hamster|hamsters)\b/i)
   if (match) {
     const pet = slugifyKey(match[1])
-    prefer({ kind: 'about_user', factKey: `user.family.pet=${pet}`, content: sentence, polarity: 'neutral' })
+    add({ kind: 'about_user', factKey: `user.family.pet=${pet}`, content: sentence, polarity: 'neutral' })
   }
   match = sentence.match(/\b(?:tenho|i\s+have)\s+(\d+|dois|duas|tr[êe]s|tres|um|uma|two|three|four)\s+(?:filhos?|filhas?|kids?|children)\b/i)
   if (match) {
-    prefer({ kind: 'about_user', factKey: `user.family.children=${slugifyKey(match[1])}`, content: sentence, polarity: 'neutral' })
+    add({ kind: 'about_user', factKey: `user.family.children=${slugifyKey(match[1])}`, content: sentence, polarity: 'neutral' })
   }
 
-  // Occupation: "sou <profissão>", "trabalho com/como X", "i work as X", "i'm a <profissão>"
+  // Occupation: "sou <profissão>", "trabalho com/como X", "i work as/with X"
   const profession = hasProfessionWord(sentence)
   if (profession && /\b(?:sou|sou\s+(?:um|uma|o|a)\s+|i['’]m\s+(?:a|an)\s+|i\s+am\s+(?:a|an)\s+)/i.test(sentence)) {
-    prefer({ kind: 'about_user', factKey: `user.occupation=${slugifyKey(profession)}`, content: sentence, polarity: 'neutral' })
+    add({ kind: 'about_user', factKey: `user.occupation=${slugifyKey(profession)}`, content: sentence, polarity: 'neutral' })
   } else {
-    match = sentence.match(/\b(?:trabalho\s+(?:com|como)\s+|i\s+work\s+(?:as|with)\s+)([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ .'-]{1,40}?)(?=\s*(?:,|\.|;|$|\bmas\b|\bno\b|\bna\b|\bat\b|\bfor\b|\band\b))/i)
+    match = sentence.match(/\b(?:trabalho\s+(?:com|como)\s+|i\s+work\s+(?:as|with)\s+)(?:um\s+|uma\s+|o\s+|a\s+|as\s+|os\s+|the\s+|an\s+)?([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ .'-]{1,40}?)(?=\s*(?:,|\.|;|$|\bmas\b|\bno\b|\bna\b|\bat\b|\bfor\b|\band\b|\bh[áa]\b))/i)
     if (match && match[1]) {
       const value = capturedValue(match[1])
       if (value.length >= 2) {
-        prefer({ kind: 'about_user', factKey: `user.occupation=${slugifyKey(value)}`, content: sentence, polarity: 'neutral' })
+        add({ kind: 'about_user', factKey: `user.occupation=${slugifyKey(value)}`, content: sentence, polarity: 'neutral' })
       }
     }
   }
 
-  // Active project (PT: "estou trabalhando em um projeto chamado X" / EN: "I'm
-  // working on a project named X", plus "meu/no projeto X" shorthand).
+  // Study — "eu estudo engenharia", "i study X" (distinct from occupation).
+  match = sentence.match(/\b(?:eu\s+estudo|estudo|estou\s+estudando|i['’]m\s+studying|i\s+study)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ .'-]{1,40}?)(?=\s*(?:,|\.|;|$|\bmas\b|\bbut\b|\band\b|\be\b|\bpara\b|\bat\b|\bfor\b|\bna\b|\bno\b|\bem\b|\bde\b|\bda\b|\bdo\b))/i)
+  if (match && match[1]) {
+    const value = capturedValue(match[1])
+    if (value.length >= 2 && !STUDY_REJECT.test(value)) {
+      add({ kind: 'about_user', factKey: `user.study=${slugifyKey(value)}`, content: sentence, polarity: 'neutral' })
+    }
+  }
+
+  // Active project — "estou trabalhando em um projeto chamado X", "meu/no
+  // projeto X"; the capture stops at verbs so "meu projeto X está com bug"
+  // yields the clean key user.project=x.
   match = sentence.match(
-    /\b(?:meu\s+projeto\s+|no\s+projeto\s+|estou\s+trabalhando\s+(?:em\s+)?(?:um\s+|uma\s+|meu\s+|minha\s+)?projeto\s+|i['’]m\s+working\s+on\s+(?:a\s+|my\s+)?project\s+|my\s+project\s+)(?:chamado\s+|chamada\s+|named\s+|called\s+)?([A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9 .'_-]{1,60}?)(?=\s*(?:,|\.|;|$|\bcom\b|\bpara\b|\bwith\b|\bto\b))/i
+    /\b(?:meu\s+projeto\s+|no\s+projeto\s+|estou\s+trabalhando\s+(?:em\s+)?(?:um\s+|uma\s+|meu\s+|minha\s+)?projeto\s+|i['’]m\s+working\s+on\s+(?:a\s+|my\s+)?project\s+|my\s+project\s+)(?:chamado\s+|chamada\s+|named\s+|called\s+)?([A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9 .'_-]{1,60}?)(?=\s*(?:,|\.|;|$|\bcom\b|\bpara\b|\bwith\b|\bto\b|\best[áa]\b|\besta\b|\bé\b|\be\b|\bfoi\b|\bis\b|\bwas\b|\bhas\b|\bhave\b|\bh[áa]\b|\bque\b|\bwhich\b|\bthat\b|\bficou\b|\bestava\b|\bser[áa]\b|\bem\b|\bno\b|\bna\b))/i
   )
   if (match && match[1]) {
     const value = capturedValue(match[1])
     if (value.length >= 2) {
-      prefer({ kind: 'project', factKey: `user.project=${slugifyKey(value)}`, content: sentence, polarity: 'neutral' })
+      add({ kind: 'project', factKey: `user.project=${slugifyKey(value)}`, content: sentence, polarity: 'neutral' })
     }
   }
 
-  return best
+  return [...found.values()]
 }
 
-function extractPreference(sentence: string): SlotMatch | null {
-  const lower = foldAccents(sentence).toLowerCase()
-  const positive = PREFERENCE_POSITIVE.find((pattern) => pattern.test(sentence))
-  const negative = PREFERENCE_NEGATIVE.find((pattern) => pattern.test(sentence))
-  const predicate = positive ?? negative
-  if (!predicate) return null
-  const polarity: MemoryPolarity = positive ? 'positive' : 'negative'
-  const execResult = predicate.exec(sentence)
-  if (!execResult) return null
-  let object = sentence.slice(execResult.index + execResult[0].length)
-  object = object.replace(PREF_OBJECT_BOUNDARY, '').trim()
-  object = trimFiller(object)
-  // Drop leading intensifiers: "gosto muito de X" already consumed "muito".
-  object = object.replace(/^(?:muito|realmente|really|a\s+maioria\s+das\s+vezes)\s+/i, '')
-  const slug = slugifyKey(object)
-  if (!slug || object.split(/\s+/).length > 14) return null
-  if (lower.includes('?') || !/[A-Za-zÀ-ÿ0-9]/.test(object)) return null
-  return {
-    kind: 'preference',
-    factKey: `pref.${slug}`,
-    content: sentence,
-    polarity,
-    isPreference: true
-  }
+
+/** True when a negation word sits in the same clause before the match
+ * ("não gosto de café" → the negative patterns own that span). A comma or
+ * connector resets the scope: "não gosto de café, prefiro chá" keeps chá. */
+const negationInClause = (sentence: string, index: number): boolean => {
+  const before = sentence.slice(0, index)
+  const boundary = Math.max(
+    before.lastIndexOf(','),
+    before.lastIndexOf(';'),
+    before.lastIndexOf('.'),
+    before.lastIndexOf('!'),
+    before.lastIndexOf('?'),
+    before.lastIndexOf(':'),
+    before.lastIndexOf(' mas '),
+    before.lastIndexOf(' e '),
+    before.lastIndexOf(' but '),
+    before.lastIndexOf(' and ')
+  )
+  return NEGATION_WINDOW.test(before.slice(boundary + 1))
 }
+
+/**
+ * Extracts every preference a sentence carries ("gosto de café mas odeio
+ * leite" → pref.cafe + pref.leite). Positive hits preceded by a negation are
+ * skipped — the negative patterns own those spans.
+ */
+function extractPreferences(sentence: string): SlotMatch[] {
+  const results = new Map<string, SlotMatch>()
+  const addPreference = (polarity: MemoryPolarity, key: string): void => {
+    if (!results.has(key)) {
+      results.set(key, { kind: 'preference', factKey: key, content: sentence, polarity, isPreference: true })
+    }
+  }
+  const scan = (patterns: RegExp[], polarity: 'positive' | 'negative'): void => {
+    for (const pattern of patterns) {
+      const global = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`)
+      let match: RegExpExecArray | null
+      while ((match = global.exec(sentence)) !== null) {
+        if (match[0].length === 0) {
+          global.lastIndex += 1
+          continue
+        }
+        if (polarity === 'positive' && negationInClause(sentence, match.index)) continue
+        let object = sentence.slice(match.index + match[0].length)
+        object = object.split(PREF_CLAUSE_CUT)[0].replace(PREF_TEMPORAL_CUT, '').trim()
+        object = object.replace(PREF_OBJECT_LEAD, '').trim()
+        object = trimFiller(object)
+        if (!object || object.split(/\s+/).length > 14 || !/[A-Za-zÀ-ÿ0-9]/.test(object)) continue
+        const slug = slugifyKey(object)
+        if (slug.length < 2) continue
+        addPreference(polarity, `pref.${slug}`)
+      }
+    }
+  }
+  scan(PREFERENCE_POSITIVE, 'positive')
+  scan(PREFERENCE_NEGATIVE, 'negative')
+
+  // "minha comida favorita é X" / "my favorite food is X" — captured group.
+  const favorite = sentence.match(FAVORITE_PATTERN)
+  if (favorite && favorite[1]) {
+    const slug = slugifyKey(capturedValue(favorite[1]))
+    if (slug.length >= 2) addPreference('positive', `pref.${slug}`)
+  }
+  return [...results.values()]
+}
+
 
 // ---------------------------------------------------------------------------
 // Scoring & reconciliation
@@ -541,7 +644,7 @@ function scoreCandidate(slot: SlotMatch, sentence: string): Candidate {
   if (hypothetical) rawScore += WEIGHT.hypothetical
   if (narrowTemporal) rawScore += WEIGHT.temporalNarrow
   const wordCount = sentence.split(/\s+/).length
-  const vague = !slot.factKey || wordCount < 3
+  const vague = wordCount < 2
   if (vague) rawScore += WEIGHT.vague
   if (explicit) rawScore = Math.max(rawScore, WEIGHT.commitFloor)
   return {
@@ -685,38 +788,35 @@ export function runExtraction(
       if (EXPLICITLY_NEVER_MIND.some((pattern) => pattern.test(sentence))) continue
       // Second-hand / quoted statements about other people are never facts.
       if (SECOND_HAND.some((pattern) => pattern.test(sentence))) continue
+      // Third-person statements describe someone else, and questions ask
+      // rather than disclose — neither is a fact about the user.
+      if (THIRD_PERSON.test(sentence)) continue
+      if (sentence.includes('?')) continue
 
-      // Stage 3/4: structured slots first, preference polarity as fallback.
-      let slot = extractSlots(sentence) ?? extractPreference(sentence)
+      // Stage 3/4: one sentence can carry several facts ("meu nome é Ana e eu
+      // tenho 19 anos" → name + age), so collect every structured slot and
+      // preference candidate and dedupe by factKey.
+      const batch = new Map<string, SlotMatch>()
+      for (const slot of [...extractSlots(sentence), ...extractPreferences(sentence)]) {
+        if (slot.factKey && !batch.has(slot.factKey)) batch.set(slot.factKey, slot)
+      }
       // Explicit "remember that X" without any recognizable slot still commits
       // X as a plain fact (kind 'fact'), per the command tier.
-      if (!slot && isExplicitRequest(sentence)) {
-        slot = {
+      if (batch.size === 0 && isExplicitRequest(sentence)) {
+        batch.set(sentence, {
           kind: 'fact',
           factKey: `fact.${slugifyKey(sentence).slice(0, 80)}`,
           content: sentence,
           polarity: 'neutral'
-        }
+        })
       }
-      if (!slot) continue
-
-      const candidate = scoreCandidate(slot, sentence)
-      // Conservative capture: lone structured slots / polarized preferences that
-      // do not yet clear the commit bar still reach the possible-suggestion
-      // queue (never auto-committed, never injected) instead of being dropped.
-      if (
-        !candidate.explicit &&
-        !candidate.hypothetical &&
-        !candidate.narrowTemporal &&
-        !!slot.factKey &&
-        candidate.rawScore < config.suggestThreshold
-      ) {
-        candidate.rawScore = config.suggestThreshold
+      for (const slot of batch.values()) {
+        const candidate = scoreCandidate(slot, sentence)
+        const key = slot.factKey ?? sentence
+        const existingBatch = seen.get(key)
+        if (existingBatch && existingBatch.rawScore >= candidate.rawScore) continue
+        seen.set(key, candidate)
       }
-      const key = slot.factKey ?? sentence
-      const existingBatch = seen.get(key)
-      if (existingBatch && existingBatch.rawScore >= candidate.rawScore) continue
-      seen.set(key, candidate)
     }
   }
 

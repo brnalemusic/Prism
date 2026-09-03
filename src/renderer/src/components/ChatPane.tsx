@@ -17,10 +17,12 @@ import {
 import { InputBar, InputBarHandle } from './InputBar'
 import TodoPanel from './TodoPanel'
 import { QuestionnaireWizard } from './QuestionnaireRenderer'
+import { ImplementationPlanCard } from './ImplementationPlanCard'
 import type { TabSession } from '../types/tab'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
 import type {
   HarnessPermissionMode,
+  HarnessPhase,
   TerminalProcessSnapshot,
   TodoState
 } from '../../../shared/types'
@@ -59,6 +61,14 @@ interface ChatPaneProps {
   onRemoveHarnessExplorerContext?: (relativePath: string) => void
   harnessPermissionMode?: HarnessPermissionMode
   onHarnessPermissionModeChange?: (mode: HarnessPermissionMode) => void
+  onHarnessPhaseChange?: (phase: HarnessPhase) => void
+  isPlanPreparing?: boolean
+  planBusyLabel?: string
+  planError?: string | null
+  onAcceptPlanHere?: (markdown: string) => void
+  onAcceptPlanNewChat?: (markdown: string) => void
+  onSendPlanFeedback?: (feedback: string) => void
+  onCancelPlan?: () => void
   onOpenUpgradePlans?: () => void
   isEnterprise?: boolean
   onToggleSearch?: (enabled?: boolean) => void
@@ -98,6 +108,14 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     onRemoveHarnessExplorerContext,
     harnessPermissionMode,
     onHarnessPermissionModeChange,
+    onHarnessPhaseChange,
+    isPlanPreparing,
+    planBusyLabel,
+    planError,
+    onAcceptPlanHere,
+    onAcceptPlanNewChat,
+    onSendPlanFeedback,
+    onCancelPlan,
     onOpenUpgradePlans,
     isEnterprise,
     onToggleSearch,
@@ -440,6 +458,45 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
       return null
     }, [tab.messages, tab.chatId])
 
+    const implementationPlan = useMemo(() => {
+      for (let messageIndex = tab.messages.length - 1; messageIndex >= 0; messageIndex--) {
+        const calls = tab.messages[messageIndex].toolCalls || []
+        for (let callIndex = calls.length - 1; callIndex >= 0; callIndex--) {
+          const call = calls[callIndex]
+          if (call.name === 'plan' && typeof call.args.markdown === 'string' && call.args.markdown.trim()) {
+            return call.args.markdown.trim()
+          }
+        }
+      }
+      return null
+    }, [tab.messages])
+
+    const renderImplementationPlan = (): React.JSX.Element | null => {
+      if (
+        !implementationPlan ||
+        implementationPlan === tab.dismissedPlanMarkdown ||
+        !onAcceptPlanHere ||
+        !onAcceptPlanNewChat ||
+        !onSendPlanFeedback ||
+        !onCancelPlan
+      ) {
+        return null
+      }
+      return (
+        <ImplementationPlanCard
+          markdown={implementationPlan}
+          phase={tab.harnessPhase || 'build'}
+          isPreparing={isPlanPreparing}
+          busyLabel={planBusyLabel}
+          error={planError}
+          onAcceptHere={() => onAcceptPlanHere(implementationPlan)}
+          onAcceptNewChat={() => onAcceptPlanNewChat(implementationPlan)}
+          onFeedback={onSendPlanFeedback}
+          onCancel={onCancelPlan}
+        />
+      )
+    }
+
     const scrollContainerRef = useRef<HTMLDivElement>(null)
     const [showScrollButton, setShowScrollButton] = useState(false)
     const isAtBottomRef = useRef(true)
@@ -708,14 +765,18 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                     <h1 className="text-3xl sm:text-4xl tracking-wide hero-shimmer-text">
                       {isHarness
                         ? tab.disciplinePath
-                          ? 'Build & Edit'
+                          ? tab.harnessPhase === 'plan'
+                            ? 'Plan with context'
+                            : 'Build & Edit'
                           : 'Choose a project to build'
                         : 'Search & Create'}
                     </h1>
                     <p className="text-sm text-text-secondary/80">
                       {isHarness
                         ? tab.disciplinePath
-                          ? 'Describe the outcome. Harness will inspect, clarify material decisions, then implement and verify the work.'
+                          ? tab.harnessPhase === 'plan'
+                            ? 'Describe the outcome. Harness will inspect the project, clarify decisions, and prepare a native Implementation Plan without changing files.'
+                            : 'Describe the outcome. Harness will inspect, implement, and verify the work.'
                           : 'Harness is isolated to one project. Use + to choose the folder where it may work.'
                         : 'Prism session is ready. Type your request or choose a mode.'}
                     </p>
@@ -735,6 +796,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                         chatId={activeQuestionnaire.chatId}
                       />
                     )}
+                    {renderImplementationPlan()}
                     {renderMissingFolderBanner()}
                     <InputBar
                       ref={inputBarRef}
@@ -841,6 +903,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                     chatId={activeQuestionnaire.chatId}
                   />
                 )}
+                {renderImplementationPlan()}
                 <InputBar
                   ref={inputBarRef}
                   onSend={handleSendInputBar}
@@ -883,6 +946,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                   onDisabledSkillsChange={(skills) => onUpdateTabDisabledSkills?.(tab.id, skills)}
                   harnessPermissionMode={harnessPermissionMode}
                   onHarnessPermissionModeChange={onHarnessPermissionModeChange}
+                  harnessPhase={tab.harnessPhase}
+                  onHarnessPhaseChange={onHarnessPhaseChange}
                   onOpenUpgradePlans={onOpenUpgradePlans}
                   isEnterprise={isEnterprise}
                   harnessExplorerContext={isHarness ? tab.harnessExplorerContext || [] : undefined}

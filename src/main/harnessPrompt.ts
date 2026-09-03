@@ -3,6 +3,7 @@ import * as path from 'path'
 import { createHash } from 'crypto'
 import type {
   EffectiveHarnessSettings,
+  HarnessPhase,
   HarnessContextInjectionEntry,
   HarnessInstructionStatus
 } from '../shared/types'
@@ -126,6 +127,19 @@ You are an autonomous coding agent operating inside one project workspace. Work 
 - Do not expose internal tool IDs. Refer to actions by their clear purpose.
 - When web_search was used, ground claims in the returned pages; Prism renders the read pages separately as Sources.`
 
+const PLAN_PHASE_PROMPT = `# Plan mode
+You are preparing an implementation plan, not implementing the request.
+- Inspect the project thoroughly enough to ground the plan in the current code.
+- You may read and search the project, search the web when necessary, and run only clearly read-only terminal commands.
+- You MUST NOT create, edit, move, or delete files, install dependencies, change Git state, or run a command that can mutate the project.
+- You MUST use to_ask whenever there is uncertainty, missing information, a decision that needs the user's answer, or anything that needs explanation or confirmation. Continue asking the minimum focused follow-up questions needed until the request, behavior, constraints, and acceptance criteria are fully aligned with no material gaps. Never publish a plan while an answer could materially change it.
+- For choice questions, give every option a short label and a separate useful description. Set recommended to true on the option you judge best when there is a clear recommendation.
+- When the plan is ready, call the plan tool with the complete implementation plan in Markdown. Do not merely print the plan as ordinary assistant text.
+- The plan must identify affected areas, data/runtime flow, UI states, failure and cancellation behavior, compatibility, validation, and any remaining risks.`
+
+const BUILD_PHASE_PROMPT = `# Build mode
+Implement the user's request. The plan tool is unavailable in this phase.`
+
 function instructionSection(title: string, content: string): string {
   const trimmed = content.trim()
   return trimmed ? `\n\n# ${title}\n${trimmed}` : ''
@@ -156,7 +170,8 @@ async function readRepoInstructions(rootPath: string): Promise<RepoInstructions>
 
 export async function buildHarnessSystemPrompt(
   settings: EffectiveHarnessSettings,
-  systemPromptLabel = '@prism/harness-system-prompt'
+  systemPromptLabel = '@prism/harness-system-prompt',
+  phase: HarnessPhase = 'build'
 ): Promise<HarnessPromptResult> {
   const warnings: string[] = []
   const globalInstructions = settings.userGlobalInstructions.slice(
@@ -169,7 +184,8 @@ export async function buildHarnessSystemPrompt(
   )
   const repoInstructionFiles = await readRepoInstructions(settings.project.rootPath)
   const repoInstructions = repoInstructionFiles.content
-  const context = `\n\n# Runtime context\nProject: ${path.basename(settings.project.rootPath)}\nThe current project root is ".".\nPermission profile: ${settings.defaultPermissionMode}\nMaximum tool rounds: ${settings.defaultMaxRounds}\nEnabled tools: ${settings.enabledTools.join(', ')}`
+  const phasePrompt = phase === 'plan' ? PLAN_PHASE_PROMPT : BUILD_PHASE_PROMPT
+  const context = `\n\n${phasePrompt}\n\n# Runtime context\nProject: ${path.basename(settings.project.rootPath)}\nThe current project root is ".".\nHarness phase: ${phase}\nPermission profile: ${settings.defaultPermissionMode}\nMaximum tool rounds: ${settings.defaultMaxRounds}\nEnabled tools: ${settings.enabledTools.join(', ')}`
 
   const requiredTail =
     instructionSection('User Project Instructions', projectInstructions) + context
@@ -252,16 +268,17 @@ export async function buildHarnessSystemPrompt(
  */
 export async function getHarnessSystemPrompt(
   settings: EffectiveHarnessSettings,
-  systemPromptLabel = '@prism/harness-system-prompt'
+  systemPromptLabel = '@prism/harness-system-prompt',
+  phase: HarnessPhase = 'build'
 ): Promise<HarnessPromptResult> {
-  const key = promptCacheKey(settings, systemPromptLabel)
-  const signature = settingsFingerprint(settings)
+  const key = promptCacheKey(settings, `${systemPromptLabel}:${phase}`)
+  const signature = `${settingsFingerprint(settings)}:${phase}`
   const cached = promptCache.get(key)
   if (cached && !cached.stale && cached.settingsFingerprint === signature) {
     return cached.result
   }
 
-  const result = await buildHarnessSystemPrompt(settings, systemPromptLabel)
+  const result = await buildHarnessSystemPrompt(settings, systemPromptLabel, phase)
   cached?.watchers?.forEach((watcher) => watcher.close())
   promptCache.set(key, {
     settingsFingerprint: signature,

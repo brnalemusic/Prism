@@ -115,24 +115,31 @@ export const HARNESS_TOOL_DEFINITIONS: ToolDefinition[] = [
           type: 'object',
           properties: {
             id: text('Unique question ID.'),
-            type: text('Question type.', ['multiple-choice', 'essay']),
+            type: text('Question type.', ['multiple-choice', 'multiple-select', 'essay']),
             title: text('Short category title.'),
             prompt: text('Question shown to the user.'),
             options: {
               type: 'array',
               minItems: 2,
               maxItems: 10,
-              description: 'Choices for a multiple-choice question.',
+              description: 'Choices for a multiple-choice or multiple-select question.',
               items: {
                 type: 'object',
                 properties: {
                   value: text('Stable choice value.'),
-                  label: text('User-facing choice label.')
+                  label: text('Short user-facing choice title.'),
+                  description: text('Explanation shown below the choice title.'),
+                  recommended: boolean(
+                    'Set true when this is the best option you recommend to the user.'
+                  )
                 },
                 required: ['value', 'label'],
                 additionalProperties: false
               }
-            }
+            },
+            max_selections: integer(
+              'Optional maximum selections for multiple-select. Omit to allow any number.'
+            )
           },
           required: ['id', 'type', 'title', 'prompt'],
           additionalProperties: false
@@ -140,6 +147,12 @@ export const HARNESS_TOOL_DEFINITIONS: ToolDefinition[] = [
       }
     },
     ['session_id', 'questions']
+  ),
+  definition(
+    'plan',
+    'Publish the complete implementation plan for the user to review. Call this only after inspecting the project and resolving material decisions.',
+    { markdown: text('The complete implementation plan in Markdown.') },
+    ['markdown']
   ),
   definition(
     'write',
@@ -226,6 +239,7 @@ const LABELS: Record<HarnessToolName, string> = {
   find: 'Finding files',
   grep: 'Searching code',
   to_ask: 'Asking a question',
+  plan: 'Preparing implementation plan',
   write: 'Writing file',
   edit: 'Editing file',
   delete_lines: 'Deleting lines',
@@ -576,6 +590,10 @@ async function executeOperation(
   }
   if (name === 'to_ask') {
     return requestQuestionnaire(args, context.signal)
+  }
+  if (name === 'plan') {
+    const markdown = requiredString(args, 'markdown')
+    return JSON.stringify({ published: true, markdown })
   }
   if (['write', 'edit', 'delete_lines'].includes(name)) {
     const changes = await prepareSimpleChange(name, args, root)
