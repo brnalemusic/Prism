@@ -4,7 +4,7 @@
 
 Prism 7.0.1 operates on an **Open Multi-Provider & Dynamic Model Architecture**. Instead of hardcoding vendor-locked or fine-tuned model keys, Prism features a modular cognitive dispatching core (`src/main/ai/`) that connects to any cloud LLM vendor or local model engine.
 
-Users can attach Google AI Studio, OpenAI, Anthropic Claude, OpenRouter, NVIDIA NIM, GroqCloud, Cerebras AI, or custom OpenAI-compatible / Anthropic-compatible / Responses API-compatible endpoints (such as local Ollama, LM Studio, or vLLM setups).
+Users can attach Google AI Studio, OpenAI, Anthropic Claude, OpenRouter, NVIDIA NIM, GroqCloud, Cerebras AI, Puter.js, or custom OpenAI-compatible / Anthropic-compatible / Responses API-compatible endpoints (such as local Ollama, LM Studio, or vLLM setups).
 
 ---
 
@@ -36,7 +36,7 @@ export interface ProviderConfig {
 ### Supported Completion Paradigms
 
 1. **`chat_completions` (OpenAI SSE Standard):**
-   - Standard `/chat/completions` payload format used by OpenAI, Google AI Studio OpenAI-compat bridge (`/openai/chat/completions`), OpenRouter, NVIDIA NIM, Groq, Cerebras, Ollama, LM Studio, etc.
+   - Standard `/chat/completions` payload format used by OpenAI, Google AI Studio OpenAI-compat bridge (`/openai/chat/completions`), OpenRouter, NVIDIA NIM, Groq, Cerebras, Puter.js, Ollama, LM Studio, etc.
 2. **`anthropic_messages` (Anthropic Messages API):**
    - Native `/messages` endpoint structure used by Anthropic Claude endpoints, requiring `x-api-key` and `anthropic-version: 2023-06-01` headers.
 3. **`responses` (OpenAI Responses API):**
@@ -56,12 +56,21 @@ Prism comes pre-configured with a trusted registry of popular AI cloud providers
 - **NVIDIA NIM:** `https://integrate.api.nvidia.com/v1`
 - **GroqCloud:** `https://api.groq.com/openai/v1`
 - **Cerebras AI:** `https://api.cerebras.ai/v1`
+- **Puter.js:** `https://api.puter.com/puterai/openai/v1`
 
 ### 3.2. Dynamic Model Fetching (`providerManager.ts`)
 
-When adding or refreshing a provider, Prism queries `${baseUrl}/models` (or `${baseUrl}/openai/models` for Google endpoints).
+When adding or refreshing a provider, Prism queries `${baseUrl}/models` (or `${baseUrl}/openai/models` for Google endpoints, and native Puter.js `puter.ai.listModels()` for Puter.js).
 - Models returned by the endpoint are cross-referenced with `TRUSTED_MODELS_LIST`.
 - Known trusted models are enabled by default; non-trusted or experimental custom models can be enabled manually in Settings.
+
+### 3.3. Puter.js Native Account Integration (`puterClient.ts`)
+
+For Puter.js, Prism provides a native integration powered by `@heyputer/puter.js`:
+- **Default Browser Authentication:** Users can connect their existing Puter account directly via their default OS browser (`shell.openExternal`) rather than manually copying API keys. Prism listens on an ephemeral local HTTP server (`127.0.0.1:<port>`), captures the OAuth callback token, serves a Prism confirmation page, and initializes the native Puter session.
+- **Native Model Discovery:** Discovers the 800+ models available on Puter directly via `puter.ai.listModels()` on the official SDK.
+- **Native Driver & Tool Calling (`streamPuterCompletion`):** Supports live NDJSON streaming completions and native tool calling (function calling) directly via `https://api.puter.com/drivers/call` (`puter-chat-completion`), handling tool chunk extraction and multi-turn tool loops with sanitization.
+- **Hybrid Support:** Users retain the ability to either connect an account or input a manual API token in the provider wizard.
 
 ---
 
@@ -71,8 +80,9 @@ Prism allows users to independently assign different models to different functio
 
 1. **Main Chat Model (`lastSelectedChatModel` / `defaultModel`):** The primary engine used for complex coding, interactive chat, and general computer use tasks.
 2. **Web Search Model (`searchModel`):** Optimized model for analyzing Google search grounding results and extracting factual context.
-4. **Quick Launcher Model (`quickLauncherModel`):** Low-latency model for instant overlay queries, math evaluation, and app launches.
-5. **Speech-to-Text / Dictation Model (`sttModel`):** Model for parsing voice dictation audio transcripts.
+3. **Quick Launcher Model (`quickLauncherModel`):** Low-latency model for instant overlay queries, math evaluation, and app launches.
+4. **Speech-to-Text / Dictation Model (`sttModel`):** Model for parsing voice dictation audio. Dedicated Whisper/ASR models return their raw transcription immediately, without an editorial prompt or a second LLM pass. Multimodal models that understand audio use Prism's live speech editor to remove fillers and repetitions, resolve false starts and self-corrections to the final intended wording, improve clarity and structure, and preserve explicit requests for the main assistant.
+5. **Generative Browser Model (`generativeBrowserModel`):** Dedicated model for live HTML5 + CSS website generation and interactive subpage synthesis via `generate:` prompts.
 
 ---
 

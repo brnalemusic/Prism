@@ -631,8 +631,8 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
               } else {
                 const isSearch =
                   item.writingToolName === 'web_search' ||
+                  item.writingToolName === 'web_fetch' ||
                   item.writingToolName === 'search_chat_history' ||
-                  item.writingToolName === 'saw_link_from_url' ||
                   item.writingToolName === 'search'
                 const toolType = isSearch ? 'search' : 'task'
                 return (
@@ -717,6 +717,8 @@ export function QuickLauncher(): React.JSX.Element {
   const [quickLauncherMode, setQuickLauncherMode] = useState<'simple' | 'advanced'>('simple')
   const inputRef = useRef<HTMLInputElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const launcherScrollRef = useRef<HTMLDivElement>(null)
+  const shouldFollowLauncherRef = useRef(true)
   const [attachedScreenshot, setAttachedScreenshot] = useState<string | null>(null)
   const [glowState, setGlowState] = useState<'idle' | 'processing' | 'glow-master'>('idle')
   const [launcherOpacity, setLauncherOpacity] = useState(1)
@@ -1026,10 +1028,25 @@ export function QuickLauncher(): React.JSX.Element {
     }
   }, [])
 
-  // Scroll to bottom of chat
+  // Only follow the mini-chat stream while the user is already at its bottom.
   useEffect(() => {
-    if (chatEndRef.current) {
-      chatEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    const el = launcherScrollRef.current
+    if (!el) return
+
+    const handleScroll = (): void => {
+      const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      shouldFollowLauncherRef.current = distanceToBottom <= 24
+    }
+
+    el.addEventListener('scroll', handleScroll, { passive: true })
+    handleScroll()
+    return () => el.removeEventListener('scroll', handleScroll)
+  }, [isMiniChatOpen])
+
+  useEffect(() => {
+    const el = launcherScrollRef.current
+    if (el && shouldFollowLauncherRef.current) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
     }
   }, [launcherMessages])
 
@@ -1774,7 +1791,7 @@ export function QuickLauncher(): React.JSX.Element {
               </button>
             </div>
             {/* Chat Messages Log */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            <div ref={launcherScrollRef} className="flex-1 overflow-y-auto p-6 space-y-4">
               {launcherMessages.map((msg, i) => (
                 <div key={i} className="flex flex-col gap-2 relative">
                   {msg.role === 'user' ? (

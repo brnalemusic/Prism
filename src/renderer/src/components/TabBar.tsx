@@ -130,7 +130,7 @@ export const TabBar: React.FC<TabBarProps> = ({
   const isContextTabVisible = contextMenu ? visibleTabIds.includes(contextMenu.tabId) : false
 
   return (
-    <div className="flex h-12 w-full items-center justify-between border-b border-[var(--border-subtle)] bg-black px-4 select-none z-30 relative">
+    <div className="flex h-12 w-full items-center justify-between border-b border-white/[0.08] bg-black/20 backdrop-blur-2xl px-4 select-none z-30 relative shadow-[inset_0_-1px_0_rgba(255,255,255,0.03)]">
       {/* Tabs Container */}
       <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-3 py-1 overflow-hidden">
         {tabs.map((tab) => {
@@ -177,16 +177,16 @@ export const TabBar: React.FC<TabBarProps> = ({
                 setDraggedTabId(null)
               }}
               className={clsx(
-                'group relative flex h-8 items-center gap-2 rounded-lg px-2.5 text-xs font-medium transition-colors duration-200 cursor-pointer shrink flex-1 min-w-[80px] max-w-[180px] border animate-tab-appear',
+                'group relative flex h-8 items-center gap-2 rounded-xl px-2.5 text-xs font-medium transition-all duration-150 cursor-pointer shrink flex-1 min-w-[80px] max-w-[180px] border animate-tab-appear',
                 isDragging
                   ? 'opacity-30 scale-95 border-dashed border-accent-primary/40 bg-white/[0.02]'
                   : isDragOver
-                    ? 'bg-accent-primary/15 border-accent-primary text-text-primary shadow-[0_0_12px_rgba(255,255,255,0.15)] scale-[1.03] z-10'
+                    ? 'bg-accent-primary/15 border-accent-primary text-text-primary shadow-[0_0_16px_var(--accent-glow)] scale-[1.03] z-10'
                     : isActive
-                      ? 'bg-[var(--surface-raised)] text-text-primary border-accent-primary/45'
+                      ? 'bg-white/[0.08] text-text-primary border-white/[0.18] shadow-[var(--glass-specular-top),0_0_20px_var(--accent-glow)] backdrop-blur-md'
                       : isVisible
-                        ? 'bg-[var(--surface)] text-text-secondary hover:bg-[var(--surface-raised)] border-[var(--border-default)]'
-                        : 'bg-transparent text-text-muted hover:bg-[var(--surface)] hover:text-text-secondary border-transparent'
+                        ? 'bg-white/[0.03] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary border-white/[0.06]'
+                        : 'bg-transparent text-text-muted hover:bg-white/[0.03] hover:text-text-secondary border-transparent'
               )}
             >
               {/* Status icon / spinner */}
@@ -242,7 +242,7 @@ export const TabBar: React.FC<TabBarProps> = ({
 
         {/* Attached Plus (+) & Dropdown Button Group */}
         <div ref={plusBtnGroupRef} className="shrink-0 flex items-center">
-          <div className="flex items-center rounded-lg border border-[var(--border-default)] bg-[var(--surface)] transition-colors duration-200 hover:border-[var(--border-strong)] overflow-hidden">
+          <div className="flex items-center rounded-xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-md shadow-[var(--glass-specular-top)] transition-all duration-200 hover:border-white/[0.14] overflow-hidden">
             {/* Left Button: Plus (+) */}
             <button
               type="button"
@@ -251,7 +251,7 @@ export const TabBar: React.FC<TabBarProps> = ({
               disabled={isMaxTabs}
               title={isMaxTabs ? 'Maximum 10 tabs reached' : 'New tab'}
               className={clsx(
-                'flex h-8 px-2.5 items-center justify-center transition-all duration-200 cursor-pointer text-text-secondary hover:bg-white/[0.07] hover:text-text-primary active:scale-95 border-r border-white/[0.06]',
+                'flex h-8 px-2.5 items-center justify-center transition-all duration-150 cursor-pointer text-text-secondary hover:bg-white/[0.07] hover:text-text-primary active:scale-95 border-r border-white/[0.06]',
                 isMaxTabs && 'opacity-30 cursor-not-allowed hover:bg-transparent text-text-muted'
               )}
             >

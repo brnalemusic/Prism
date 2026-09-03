@@ -239,7 +239,9 @@ const ALWAYS_BLOCKED_RULES: CommandRule[] = [
     reason: 'HKLM registry mutation is blocked'
   },
   {
-    pattern: commandRule(String.raw`net(?:\.exe)?\s+(?:user|localgroup|accounts|share|stop|start|use)`),
+    pattern: commandRule(
+      String.raw`net(?:\.exe)?\s+(?:user|localgroup|accounts|share|stop|start|use)`
+    ),
     reason: 'account, share, network, or service control commands are blocked'
   },
   {
@@ -295,7 +297,7 @@ function normalizeCommandForScan(command: string): string {
     .replace(/\s+/g, ' ')
 }
 
-function assertCommandAllowed(command: string): void {
+export function assertCommandAllowed(command: string): void {
   const trimmed = command.trim()
   if (!trimmed) throw new CommandBlockedError('empty commands are not allowed')
   if (trimmed.length > MAX_COMMAND_LENGTH) {

@@ -1,7 +1,22 @@
 import { ProviderConfig, ProviderModel, CompletionType } from '../../shared/types'
 import { loadConfig, saveConfig } from '../config'
 import { isUserAuthenticated, isUserEmailVerifiedSync } from '../supabaseAuth'
-import { isModelTrusted, normalizeBaseUrl, isGoogleHost, isAnthropicHost } from './trustedRegistry'
+import {
+  isModelTrusted,
+  normalizeBaseUrl,
+  isGoogleHost,
+  isAnthropicHost,
+  isPuterHost
+} from './trustedRegistry'
+import { fetchPuterModels, fetchPuterModelsViaSDK } from './puterClient'
+import {
+  imageGenerationRouteFingerprint,
+  resolveExactImageRouteFromProviders,
+  type ImageGenerationOperation,
+  type ImageGenerationCapabilityState
+} from './imageGenerationCore'
+import type { ImageGenerationAdapter } from '../../shared/types'
+import type { ImageGenerationCapabilities } from '../../shared/types'
 
 export interface FetchModelsResult {
   success: boolean
@@ -36,7 +51,8 @@ function getModelList(payload: unknown): string[] {
 export async function fetchModelsFromProvider(
   baseUrl: string,
   apiKey: string,
-  completionType: CompletionType
+  completionType: CompletionType,
+  puterAuthToken?: string
 ): Promise<FetchModelsResult> {
   const normUrl = normalizeBaseUrl(baseUrl)
   if (!normUrl) {
@@ -44,8 +60,31 @@ export async function fetchModelsFromProvider(
   }
 
   const isGoogle = isGoogleHost(normUrl)
+  const isPuter = isPuterHost(normUrl)
+
+  if (isPuter) {
+    if (completionType === 'puter_native') {
+      const puterSdkRes = await fetchPuterModelsViaSDK(puterAuthToken || undefined)
+      if (puterSdkRes.success && puterSdkRes.models.length > 0) {
+        return puterSdkRes
+      }
+      if (!puterSdkRes.success) {
+        return puterSdkRes
+      }
+    } else {
+      const puterRes = await fetchPuterModels(apiKey || undefined)
+      if (puterRes.success && puterRes.models.length > 0) {
+        return puterRes
+      }
+    }
+  }
+
   const googleBaseUrl = normUrl.replace(/\/openai$/, '')
-  const endpoint = isGoogle ? `${googleBaseUrl}/models` : `${normUrl}/models`
+  const endpoint = isPuter
+    ? 'https://api.puter.com/puterai/chat/models/details'
+    : isGoogle
+      ? `${googleBaseUrl}/models`
+      : `${normUrl}/models`
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
@@ -128,6 +167,7 @@ export function getAllProviders(): ProviderConfig[] {
       name: p?.name || 'Unnamed Provider',
       baseUrl: p?.baseUrl || '',
       apiKey: p?.apiKey || '',
+      puterAuthToken: p?.puterAuthToken || '',
       completionType: isGoogleHost(p?.baseUrl || '')
         ? 'gemini_native'
         : p?.completionType || 'chat_completions',
@@ -149,6 +189,7 @@ export function getActiveModels(): Array<{
   isProviderTrusted: boolean
   model: ProviderModel
   fullKey: string // format: providerId:modelId
+  completionType: CompletionType
 }> {
   const providers = getAllProviders()
   const result: Array<{
@@ -157,6 +198,7 @@ export function getActiveModels(): Array<{
     isProviderTrusted: boolean
     model: ProviderModel
     fullKey: string
+    completionType: CompletionType
   }> = []
 
   for (const p of providers) {
@@ -168,13 +210,21 @@ export function getActiveModels(): Array<{
           providerName: p.name,
           isProviderTrusted: p.isTrusted,
           model: m,
-          fullKey: `${p.id}:${m.id}`
+          fullKey: `${p.id}:${m.id}`,
+          completionType: p.completionType
         })
       }
     }
   }
 
   return result
+}
+
+export function resolveExactProviderAndModel(fullKey?: string): {
+  provider: ProviderConfig | null
+  model: ProviderModel | null
+} {
+  return resolveExactImageRouteFromProviders(getAllProviders(), fullKey)
 }
 
 export function resolveProviderAndModel(fullKey?: string): {
@@ -232,11 +282,74 @@ export function resolveProviderAndModel(fullKey?: string): {
 
 export function saveProviders(providers: ProviderConfig[]): boolean {
   const config = loadConfig()
-  config.providers = (providers || []).filter((p) => p && p.id !== PRISM_PROVIDER_ID)
+  const previous = Array.isArray(config.providers) ? config.providers : []
+  config.providers = (providers || [])
+    .filter((p) => p && p.id !== PRISM_PROVIDER_ID)
+    .map((provider) => {
+      const oldProvider = previous.find((candidate) => candidate?.id === provider.id)
+      const oldFingerprintByModel = new Map(
+        oldProvider
+          ? oldProvider.models.map((model) => [
+              model.id,
+              imageGenerationRouteFingerprint(oldProvider, model)
+            ])
+          : []
+      )
+      return {
+        ...provider,
+        models: (provider.models || []).map((model) => {
+          const oldFingerprint = oldFingerprintByModel.get(model.id)
+          const nextFingerprint = imageGenerationRouteFingerprint(provider, model)
+          if (oldFingerprint && oldFingerprint !== nextFingerprint) {
+            return { ...model, imageGeneration: undefined }
+          }
+          return model
+        })
+      }
+    })
   config.userGeminiKey = ''
   config.userNvidiaNimKey = ''
   config.userOpenaiKey = ''
   return saveConfig(config)
+}
+
+export function saveImageGenerationCapability(
+  routeKey: string,
+  operation: ImageGenerationOperation,
+  state: ImageGenerationCapabilityState,
+  resolvedAdapter?: ImageGenerationAdapter
+): boolean {
+  const config = loadConfig()
+  const providers = Array.isArray(config.providers) ? config.providers : []
+  const { provider, model } = resolveExactImageRouteFromProviders(providers, routeKey)
+  if (!provider || !model) return false
+  const nextState = {
+    ...state,
+    routeFingerprint: imageGenerationRouteFingerprint(provider, model),
+    ...(resolvedAdapter ? { adapter: resolvedAdapter } : {})
+  }
+  const updatedProviders = providers.map((candidate) => {
+    if (candidate.id !== provider.id) return candidate
+    return {
+      ...candidate,
+      models: candidate.models.map((candidateModel) => {
+        if (candidateModel.id !== model.id) return candidateModel
+        const current: Partial<ImageGenerationCapabilities> = candidateModel.imageGeneration || {}
+        return {
+          ...candidateModel,
+          imageGeneration: {
+            ...current,
+            mode: 'automatic' as const,
+            generate: current.generate || { status: 'unknown' as const },
+            edit: current.edit || { status: 'unknown' as const },
+            ...(resolvedAdapter ? { resolvedAdapter } : {}),
+            [operation]: nextState
+          }
+        }
+      })
+    }
+  })
+  return saveConfig({ providers: updatedProviders }, config)
 }
 
 export function deleteProvider(providerId: string): boolean {

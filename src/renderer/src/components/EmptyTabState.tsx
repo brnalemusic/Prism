@@ -7,19 +7,22 @@ interface EmptyTabStateProps {
 
 export const EmptyTabState: React.FC<EmptyTabStateProps> = ({ onNewTab }) => {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-6 select-none animate-fade-in text-center relative overflow-hidden bg-black">
+    <div className="flex-1 flex flex-col items-center justify-center p-6 select-none animate-fade-in text-center relative overflow-hidden bg-transparent">
+      {/* Soft central ambient glow */}
+      <div className="absolute w-[360px] h-[360px] rounded-full bg-[radial-gradient(circle,var(--home-glow-color-2)_0%,transparent_70%)] blur-[60px] pointer-events-none opacity-80" />
+
       <div className="relative z-10 flex flex-col items-center max-w-md mx-auto">
-        <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-xl border border-[var(--border-default)] bg-[var(--surface)]">
-          <Hexagon size={28} weight="duotone" className="text-accent-primary" />
+        <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/[0.12] bg-white/[0.04] backdrop-blur-xl shadow-[var(--glass-specular-top),0_0_28px_var(--accent-glow)]">
+          <Hexagon size={32} weight="duotone" className="text-accent-primary" />
         </div>
 
         {/* Heading */}
-        <h2 className="text-2xl font-semibold tracking-tight text-text-primary mb-2">
+        <h2 className="text-2xl font-bold tracking-tight text-text-primary mb-2.5">
           Prism is ready
         </h2>
 
         {/* Subtitle */}
-        <p className="text-sm text-text-secondary mb-8 leading-relaxed max-w-sm">
+        <p className="text-sm text-text-secondary/80 mb-8 leading-relaxed max-w-sm">
           No open tabs. Start a new tab to begin asking questions, executing code, or browsing.
         </p>
 
@@ -27,7 +30,7 @@ export const EmptyTabState: React.FC<EmptyTabStateProps> = ({ onNewTab }) => {
         <button
           type="button"
           onClick={onNewTab}
-          className="group relative inline-flex items-center gap-2.5 px-5 py-2.5 rounded-lg bg-white hover:bg-neutral-200 text-black font-semibold text-sm transition-colors duration-200 cursor-pointer"
+          className="group relative inline-flex items-center gap-2.5 px-6 py-3 rounded-xl bg-white hover:bg-neutral-100 text-black font-semibold text-sm transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] shadow-[0_12px_32px_rgba(255,255,255,0.18)] cursor-pointer"
         >
           <Plus
             size={18}
@@ -38,13 +41,13 @@ export const EmptyTabState: React.FC<EmptyTabStateProps> = ({ onNewTab }) => {
         </button>
 
         {/* Subtle Keyboard Hint */}
-        <span className="mt-4 text-[11px] text-text-muted font-mono tracking-wide">
+        <span className="mt-5 text-[11px] text-text-muted font-mono tracking-wide">
           Press{' '}
-          <kbd className="px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/[0.08] text-text-secondary">
+          <kbd className="px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-white/[0.08] text-text-secondary font-semibold">
             Ctrl
           </kbd>{' '}
           +{' '}
-          <kbd className="px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/[0.08] text-text-secondary">
+          <kbd className="px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-white/[0.08] text-text-secondary font-semibold">
             N
           </kbd>{' '}
           to open

@@ -30,7 +30,7 @@ O **Prism** é um assistente de IA para desktop de código aberto, multiplatafor
 1. **Google AI Studio**: Suporte nativo para a família Gemini (ex: `gemini-3.6-flash`, `gemini-3.6-pro`).
 2. **OpenAI**: Endpoints GPT (ex: `gpt-5.6-sol`, `gpt-4o`).
 3. **Anthropic Claude**: Endpoint de mensagens nativo Anthropic (ex: `claude-sonnet-5`).
-4. **Provedores de Nuvem Acelerados**: OpenRouter, NVIDIA NIM, GroqCloud, Cerebras AI.
+4. **Provedores de Nuvem Acelerados**: OpenRouter, NVIDIA NIM, GroqCloud, Cerebras AI, Puter.js.
 5. **Modelos Locais & Endpoints Customizados**: Integração com Ollama, LM Studio, vLLM e LocalAI através de Base URL configurável e suporte às APIs compatíveis com OpenAI ou Anthropic.
 
 ---

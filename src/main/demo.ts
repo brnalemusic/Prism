@@ -6,6 +6,9 @@ import os from 'os'
 import { loadConfig, saveConfig, type AppConfig } from './config'
 import { registerDemoDownloadHandlers } from './demoDownload'
 import { safeSend } from './safeSend'
+import { installProcessOutputGuards } from './brokenPipeGuard'
+
+installProcessOutputGuards()
 
 const WINDOW_STATE_FILE = join(
   process.env.LOCALAPPDATA || join(os.homedir(), 'AppData', 'Local'),

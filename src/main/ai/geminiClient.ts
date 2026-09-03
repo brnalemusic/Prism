@@ -14,6 +14,7 @@ import type { StreamCallbacks, StreamResult } from './openaiClient'
 import { isPrismCloudProvider, normalizePrismThinkingLevel } from './prismThinking'
 import { initializePrismCloudTransport } from '../connection'
 import { asDataUrl, imageAttachments } from '../toolAttachments'
+import { shouldForwardImageToolAttachments } from './imageGenerationCore'
 
 const thinkingLevelMap: Record<PrismThinkingLevel, ThinkingLevel> = {
   minimal: ThinkingLevel.MINIMAL,
@@ -28,11 +29,24 @@ function parseDataUrl(url: string): { mimeType: string; data: string } | null {
 }
 
 function messageTextParts(message: OpenAiMessage): Part[] {
-  if (typeof message.content === 'string') return message.content ? [{ text: message.content }] : []
+  if (typeof message.content === 'string') {
+    if (!message.content) return []
+    let text = message.content
+    if (message.role === 'user' && message.quote && !text.startsWith('> ')) {
+      text = `> ${message.quote}\n\n${text}`
+    }
+    return [{ text }]
+  }
   if (!Array.isArray(message.content)) return []
   const parts: Part[] = []
   for (const entry of message.content) {
-    if (entry.type === 'text' && entry.text) parts.push({ text: entry.text })
+    if (entry.type === 'text' && entry.text) {
+      let text = entry.text
+      if (message.role === 'user' && message.quote && !text.startsWith('> ')) {
+        text = `> ${message.quote}\n\n${text}`
+      }
+      parts.push({ text })
+    }
     const dataUrl = entry.image_url?.url ? parseDataUrl(entry.image_url.url) : null
     if (dataUrl) parts.push({ inlineData: dataUrl })
   }
@@ -108,7 +122,10 @@ export function convertMessagesToGemini(messages: OpenAiMessage[]): {
       }
       const toolParts: Part[] = [responsePart]
 
-      for (const attachment of imageAttachments(message.tool_attachments)) {
+      const attachments = shouldForwardImageToolAttachments(message.name)
+        ? imageAttachments(message.tool_attachments)
+        : []
+      for (const attachment of attachments) {
         const dataUrl = parseDataUrl(asDataUrl(attachment))
         if (dataUrl) {
           toolParts.push({ inlineData: dataUrl })

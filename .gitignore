@@ -14,7 +14,6 @@ ace_*
 .env
 .geminiignore
 PROTOTYPE.md
-DESIGN.md
 RESOLVING_COT.md
 Token Usage/
 toolcalls.json
@@ -36,6 +35,9 @@ electron.vite.config.*.mjs
 import*.py
 supabase/.temp
 supabase/migrations
+.claude/
+.kilo/
+.freebuff/
 
 # License Security & Keys
 scripts/license-keys/

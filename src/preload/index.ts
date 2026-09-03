@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent, webFrame } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+
+// Increase max listeners to prevent warnings when multiple React components subscribe to config/events
+ipcRenderer.setMaxListeners(50)
 import type { StructuredChatResponse, StreamingToolCall } from '../main/ai'
 import type { AppConfig } from '../main/config'
 import type {
@@ -9,11 +12,33 @@ import type {
   ApplicationInfo,
   FileSearchResult,
   SessionMode,
+  HarnessPhase,
   TodoState,
   AttachedFile,
-  TerminalProcessSnapshot
+  TerminalProcessSnapshot,
+  HarnessApprovalRequest,
+  HarnessProjectConfig,
+  HarnessProjectOverrides,
+  HarnessInstructionStatus,
+  HarnessContextSnapshot,
+  HarnessSettings,
+  ToolAttachment,
+  RetryImageGenerationRequest,
+  SaveGeneratedImageRequest,
+  SaveGeneratedImageResult,
+  WorkspaceKind,
+  HarnessExplorerSelection,
+  HarnessExplorerDirectoryResult,
+  HarnessExplorerActionResult
 } from '../shared/types'
 import type { ChatSession } from '../main/history'
+import type {
+  MemoryEntry,
+  MemoryListOptions,
+  MemoryPatch,
+  MemoryStats,
+  MemoryStoreEvent
+} from '../shared/memoryCore'
 import type {
   DemoDownloadResult,
   DemoInstallProgress,
@@ -138,42 +163,103 @@ const api = {
     reasoningLevel?: string
     disabledSkills?: string[]
   }): void => ipcRenderer.send('chat-message', data),
+  sendHarnessMessage: (data: {
+    message: string
+    chatId?: string
+    projectPath: string
+    attachedFile?: AttachedFile
+    quote?: string
+    modelKey?: string
+    reasoningLevel?: string
+    explorerContext?: HarnessExplorerSelection[]
+    harnessPhase?: HarnessPhase
+  }): void => ipcRenderer.send('harness-message', data),
+  setHarnessSessionPhase: (chatId: string, phase: HarnessPhase): Promise<boolean> =>
+    ipcRenderer.invoke('set-harness-session-phase', chatId, phase),
+  prepareHarnessPlanHandoff: (data: {
+    chatId: string
+    projectPath: string
+    modelKey: string
+    plan: string
+  }): Promise<{ context: string }> => ipcRenderer.invoke('prepare-harness-plan-handoff', data),
+  cancelHarnessPlanHandoff: (chatId: string): void =>
+    ipcRenderer.send('cancel-harness-plan-handoff', chatId),
+  setHarnessSessionModel: (chatId: string, modelKey: string): Promise<boolean> =>
+    ipcRenderer.invoke('set-harness-session-model', chatId, modelKey),
   setModel: (modelKey: string): void => ipcRenderer.send('set-model', modelKey),
   clearChat: (): void => ipcRenderer.send('clear-chat'),
   cancelChat: (chatId?: string): void => ipcRenderer.send('chat-cancel', chatId),
   onChatStart: (
-    callback: (data: { chatId: string; userMessage?: { role: 'user'; content: string } }) => void
+    callback: (data: {
+      chatId: string
+      workspace: WorkspaceKind
+      userMessage?: { role: 'user'; content: string }
+    }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { chatId: string; userMessage?: { role: 'user'; content: string } }
+      data: {
+        chatId: string
+        workspace: WorkspaceKind
+        userMessage?: { role: 'user'; content: string }
+      }
     ): void => callback(data)
     ipcRenderer.on('chat-reply-start', listener)
     return () => ipcRenderer.removeListener('chat-reply-start', listener)
   },
   onChatChunk: (
-    callback: (data: StructuredChatResponse & { chatId: string }) => void
+    callback: (
+      data: StructuredChatResponse & {
+        chatId: string
+        workspace: WorkspaceKind
+        harnessRound?: number
+        harnessRoundContent?: string
+        harnessRoundThoughts?: string
+      }
+    ) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: StructuredChatResponse & { chatId: string }
+      data: StructuredChatResponse & {
+        chatId: string
+        workspace: WorkspaceKind
+        harnessRound?: number
+        harnessRoundContent?: string
+        harnessRoundThoughts?: string
+      }
     ): void => callback(data)
     ipcRenderer.on('chat-reply-chunk', listener)
     return () => ipcRenderer.removeListener('chat-reply-chunk', listener)
   },
   onChatEnd: (
-    callback: (data: StructuredChatResponse & { chatId: string }) => void
+    callback: (
+      data: StructuredChatResponse & {
+        chatId: string
+        workspace: WorkspaceKind
+        harnessRoundContent?: string
+        harnessRoundThoughts?: string
+      }
+    ) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: StructuredChatResponse & { chatId: string }
+      data: StructuredChatResponse & {
+        chatId: string
+        workspace: WorkspaceKind
+        harnessRoundContent?: string
+        harnessRoundThoughts?: string
+      }
     ): void => callback(data)
     ipcRenderer.on('chat-reply-end', listener)
     return () => ipcRenderer.removeListener('chat-reply-end', listener)
   },
-  onChatError: (callback: (data: { error: string; chatId: string }) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, data: { error: string; chatId: string }): void =>
-      callback(data)
+  onChatError: (
+    callback: (data: { error: string; chatId: string; workspace: WorkspaceKind }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: { error: string; chatId: string; workspace: WorkspaceKind }
+    ): void => callback(data)
     ipcRenderer.on('chat-reply-error', listener)
     return () => ipcRenderer.removeListener('chat-reply-error', listener)
   },
@@ -184,6 +270,7 @@ const api = {
       args: Record<string, unknown>
       timestamp?: number
       chatId: string
+      workspace: WorkspaceKind
     }) => void
   ): (() => void) => {
     const listener = (
@@ -194,17 +281,35 @@ const api = {
         args: Record<string, unknown>
         timestamp?: number
         chatId: string
+        workspace: WorkspaceKind
+        round?: number
       }
     ): void => callback(data)
     ipcRenderer.on('chat-tool-start', listener)
     return () => ipcRenderer.removeListener('chat-tool-start', listener)
   },
   onToolEnd: (
-    callback: (data: { callId: string; name: string; result: string; chatId: string }) => void
+    callback: (data: {
+      callId: string
+      name: string
+      result: string
+      attachments?: ToolAttachment[]
+      chatId: string
+      workspace: WorkspaceKind
+      round?: number
+    }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { callId: string; name: string; result: string; chatId: string }
+      data: {
+        callId: string
+        name: string
+        result: string
+        attachments?: ToolAttachment[]
+        chatId: string
+        workspace: WorkspaceKind
+        round?: number
+      }
     ): void => callback(data)
     ipcRenderer.on('chat-tool-end', listener)
     return () => ipcRenderer.removeListener('chat-tool-end', listener)
@@ -251,6 +356,86 @@ const api = {
     ipcRenderer.on('chat-tool-update', listener)
     return () => ipcRenderer.removeListener('chat-tool-update', listener)
   },
+  onHarnessApprovalRequest: (callback: (data: HarnessApprovalRequest) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: HarnessApprovalRequest): void =>
+      callback(data)
+    ipcRenderer.on('harness-approval-request', listener)
+    return () => ipcRenderer.removeListener('harness-approval-request', listener)
+  },
+  resolveHarnessApproval: (requestId: string, approved: boolean): void =>
+    ipcRenderer.send('harness-resolve-approval', { requestId, approved }),
+  onHarnessPromptWarning: (
+    callback: (data: {
+      chatId: string
+      warnings: string[]
+      repoInstructionsLoaded: boolean
+    }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: { chatId: string; warnings: string[]; repoInstructionsLoaded: boolean }
+    ): void => callback(data)
+    ipcRenderer.on('harness-prompt-warning', listener)
+    return () => ipcRenderer.removeListener('harness-prompt-warning', listener)
+  },
+  onHarnessContextInjection: (
+    callback: (data: { chatId: string; snapshot: HarnessContextSnapshot }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: { chatId: string; snapshot: HarnessContextSnapshot }
+    ): void => callback(data)
+    ipcRenderer.on('harness-context-injection', listener)
+    return () => ipcRenderer.removeListener('harness-context-injection', listener)
+  },
+  createHarnessProject: (name: string): Promise<{ project: HarnessProjectConfig }> =>
+    ipcRenderer.invoke('harness-create-project', name),
+  openHarnessProject: (projectPath?: string): Promise<{ project: HarnessProjectConfig } | null> =>
+    ipcRenderer.invoke('harness-open-project', projectPath),
+  getHarnessProject: (projectPath?: string): Promise<HarnessProjectConfig | null> =>
+    ipcRenderer.invoke('harness-get-project', projectPath),
+  getHarnessInstructionStatus: (projectPath?: string): Promise<HarnessInstructionStatus | null> =>
+    ipcRenderer.invoke('harness-get-instruction-status', projectPath),
+  updateHarnessProject: (
+    projectPath: string,
+    overrides: HarnessProjectOverrides
+  ): Promise<{ project: HarnessProjectConfig }> =>
+    ipcRenderer.invoke('harness-update-project', projectPath, overrides),
+  deleteHarnessProject: (rootPath: string): Promise<HarnessSettings> =>
+    ipcRenderer.invoke('harness-delete-project', rootPath),
+  checkHarnessProject: (
+    rootPath: string
+  ): Promise<{ exists: boolean; isDirectory: boolean; isGit: boolean }> =>
+    ipcRenderer.invoke('harness-check-project', rootPath),
+  checkAllHarnessProjects: (): Promise<
+    Record<string, { exists: boolean; isDirectory: boolean; isGit: boolean }>
+  > => ipcRenderer.invoke('harness-check-all-projects'),
+  recreateHarnessProjectFolder: (rootPath: string): Promise<{ project: HarnessProjectConfig }> =>
+    ipcRenderer.invoke('harness-recreate-project-folder', rootPath),
+  resolveHarnessStartupProject: (): Promise<HarnessProjectConfig | null> =>
+    ipcRenderer.invoke('harness-resolve-startup-project'),
+  listHarnessDirectory: (
+    projectPath: string,
+    relativePath = '.'
+  ): Promise<HarnessExplorerDirectoryResult> =>
+    ipcRenderer.invoke('harness-list-directory', projectPath, relativePath),
+  openHarnessExplorerFile: (
+    projectPath: string,
+    selection: HarnessExplorerSelection
+  ): Promise<HarnessExplorerActionResult> =>
+    ipcRenderer.invoke('harness-open-explorer-file', projectPath, selection),
+  copyHarnessExplorerPath: (
+    projectPath: string,
+    selection: HarnessExplorerSelection
+  ): Promise<HarnessExplorerActionResult> =>
+    ipcRenderer.invoke('harness-copy-explorer-path', projectPath, selection),
+  showHarnessExplorerItem: (
+    projectPath: string,
+    selection: HarnessExplorerSelection
+  ): Promise<HarnessExplorerActionResult> =>
+    ipcRenderer.invoke('harness-show-explorer-item', projectPath, selection),
+  openFolderInExplorer: (folderPath: string): Promise<string> =>
+    ipcRenderer.invoke('open-folder-in-explorer', folderPath),
   onDownloadProgress: (callback: (data: DownloadProgress) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, data: DownloadProgress): void => callback(data)
     ipcRenderer.on('download-progress', listener)
@@ -357,6 +542,27 @@ const api = {
   getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('get-config'),
   saveConfig: (config: Partial<AppConfig>): Promise<boolean> =>
     ipcRenderer.invoke('save-config', config),
+  memoryList: (options?: MemoryListOptions): Promise<MemoryEntry[]> =>
+    ipcRenderer.invoke('memory-list', options),
+  memoryUpdate: (id: string, patch: MemoryPatch): Promise<MemoryEntry | null> =>
+    ipcRenderer.invoke('memory-update', id, patch),
+  memoryArchive: (id: string): Promise<boolean> => ipcRenderer.invoke('memory-archive', id),
+  memoryRestore: (id: string): Promise<boolean> => ipcRenderer.invoke('memory-restore', id),
+  memoryDelete: (id: string): Promise<boolean> => ipcRenderer.invoke('memory-delete', id),
+  memoryStats: (): Promise<MemoryStats> => ipcRenderer.invoke('memory-stats'),
+  memoryToggleAuto: (enabled: boolean): Promise<boolean> =>
+    ipcRenderer.invoke('memory-toggle-auto', enabled),
+  onMemoryEvent: (callback: (event: MemoryStoreEvent) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: MemoryStoreEvent): void => callback(data)
+    ipcRenderer.on('memory-write', listener)
+    ipcRenderer.on('memory-suggest', listener)
+    ipcRenderer.on('memory-archived', listener)
+    return () => {
+      ipcRenderer.removeListener('memory-write', listener)
+      ipcRenderer.removeListener('memory-suggest', listener)
+      ipcRenderer.removeListener('memory-archived', listener)
+    }
+  },
   selectFolder: (): Promise<string | null> => ipcRenderer.invoke('select-folder'),
   setSessionMode: (mode: SessionMode, disciplinePath?: string): void =>
     ipcRenderer.send('set-session-mode', { mode, disciplinePath }),
@@ -370,10 +576,24 @@ const api = {
   getToolDefinitions: (): Promise<any[]> => ipcRenderer.invoke('get-tool-definitions'),
   getChats: (): Promise<Omit<ChatSession, 'messages'>[]> => ipcRenderer.invoke('get-chats'),
   loadChat: (id: string): Promise<any[]> => ipcRenderer.invoke('load-chat', id),
+  getHarnessSessions: (): Promise<Omit<ChatSession, 'messages'>[]> =>
+    ipcRenderer.invoke('get-harness-sessions'),
+  loadHarnessSession: (id: string): Promise<any[]> =>
+    ipcRenderer.invoke('load-harness-session', id),
+  searchHarnessSessions: (query: string): Promise<any> =>
+    ipcRenderer.invoke('search-harness-sessions', query),
   isChatRunning: (id: string): Promise<boolean> => ipcRenderer.invoke('is-chat-running', id),
   getChatModel: (id: string): Promise<string | undefined> =>
     ipcRenderer.invoke('get-chat-model', id),
   deleteChat: (id: string): Promise<boolean> => ipcRenderer.invoke('delete-chat', id),
+  deleteHarnessSession: (id: string): Promise<boolean> =>
+    ipcRenderer.invoke('delete-harness-session', id),
+  retryImageGeneration: (
+    request: RetryImageGenerationRequest
+  ): Promise<{ started: boolean; error?: string }> =>
+    ipcRenderer.invoke('retry-image-generation', request),
+  saveGeneratedImage: (request: SaveGeneratedImageRequest): Promise<SaveGeneratedImageResult> =>
+    ipcRenderer.invoke('save-generated-image', request),
   getRunningChats: (): Promise<string[]> => ipcRenderer.invoke('get-running-chats'),
   setThinkMode: (val: boolean): void => ipcRenderer.send('set-think-mode', val),
   setSearchEnabled: (val: boolean): void => ipcRenderer.send('set-search-enabled', val),
@@ -399,6 +619,9 @@ const api = {
     ipcRenderer.removeAllListeners('chat-tool-start')
     ipcRenderer.removeAllListeners('chat-tool-end')
     ipcRenderer.removeAllListeners('chat-tool-update')
+    ipcRenderer.removeAllListeners('harness-approval-request')
+    ipcRenderer.removeAllListeners('harness-prompt-warning')
+    ipcRenderer.removeAllListeners('harness-context-injection')
     ipcRenderer.removeAllListeners('discord-voice-state')
     ipcRenderer.removeAllListeners('discord-voice-speaking')
     ipcRenderer.removeAllListeners('discord-voice-audio-level')
@@ -529,7 +752,7 @@ const api = {
   submitQuestionnaire: (data: {
     chatId: string
     sessionId: string
-    responses: Record<string, string>
+    responses: Record<string, string | string[]>
   }): void => ipcRenderer.send('submit-questionnaire', data),
   generateTts: (text: string): Promise<string> => ipcRenderer.invoke('generate-tts', text),
   transcribeAudio: (audioBase64: string): Promise<string> =>
@@ -689,11 +912,30 @@ const api = {
   fetchProviderModels: (params: any): Promise<any> => {
     return ipcRenderer.invoke('fetch-provider-models', params)
   },
+  loginWithPuter: (): Promise<any> => {
+    return ipcRenderer.invoke('puter-login')
+  },
+  cancelPuterLogin: (): Promise<boolean> => {
+    return ipcRenderer.invoke('puter-cancel-login')
+  },
   getActiveModels: (): Promise<any> => {
     return ipcRenderer.invoke('get-active-models')
   },
-  onToolCallDelta: (callback: (delta: any) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, delta: any): void => callback(delta)
+  onToolCallDelta: (
+    callback: (
+      delta: import('../shared/types').StreamToolCallDelta & {
+        chatId: string
+        workspace: WorkspaceKind
+      }
+    ) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      delta: import('../shared/types').StreamToolCallDelta & {
+        chatId: string
+        workspace: WorkspaceKind
+      }
+    ): void => callback(delta)
     ipcRenderer.on('chat-tool-call-delta', listener)
     return () => ipcRenderer.removeListener('chat-tool-call-delta', listener)
   },
@@ -723,6 +965,50 @@ const api = {
     ipcRenderer.invoke('open-external-url', url),
   closeBrowser: (): Promise<string> => ipcRenderer.invoke('close-browser'),
   resetBrowserIdle: (): void => ipcRenderer.send('reset-browser-idle'),
+  generateBrowserSite: (data: { prompt: string; sessionId: string; history?: any[] }): void =>
+    ipcRenderer.send('browser-generate-site', data),
+  cancelBrowserGeneration: (sessionId?: string): void =>
+    ipcRenderer.send('browser-cancel-generation', sessionId),
+  onBrowserGenStart: (
+    callback: (data: import('../shared/types').BrowserGenStartEvent) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: import('../shared/types').BrowserGenStartEvent
+    ): void => callback(data)
+    ipcRenderer.on('browser-gen-start', listener)
+    return () => ipcRenderer.removeListener('browser-gen-start', listener)
+  },
+  onBrowserGenChunk: (
+    callback: (data: import('../shared/types').BrowserGenChunkEvent) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: import('../shared/types').BrowserGenChunkEvent
+    ): void => callback(data)
+    ipcRenderer.on('browser-gen-chunk', listener)
+    return () => ipcRenderer.removeListener('browser-gen-chunk', listener)
+  },
+  onBrowserGenEnd: (
+    callback: (data: import('../shared/types').BrowserGenEndEvent) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: import('../shared/types').BrowserGenEndEvent
+    ): void => callback(data)
+    ipcRenderer.on('browser-gen-end', listener)
+    return () => ipcRenderer.removeListener('browser-gen-end', listener)
+  },
+  onBrowserGenError: (
+    callback: (data: import('../shared/types').BrowserGenErrorEvent) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: import('../shared/types').BrowserGenErrorEvent
+    ): void => callback(data)
+    ipcRenderer.on('browser-gen-error', listener)
+    return () => ipcRenderer.removeListener('browser-gen-error', listener)
+  },
   activateLicense: (key: string): Promise<import('../shared/types').ActivationResult> =>
     ipcRenderer.invoke('activate-license', key),
   deactivateLicense: (): Promise<boolean> => ipcRenderer.invoke('deactivate-license'),

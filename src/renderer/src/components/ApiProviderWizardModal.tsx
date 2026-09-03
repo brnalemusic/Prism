@@ -8,7 +8,13 @@ import {
   Check,
   X,
   ArrowRight,
-  ArrowLeft
+  ArrowLeft,
+  SignIn,
+  User,
+  Key,
+  SpinnerGap,
+  ArrowSquareOut,
+  Sparkle
 } from '@phosphor-icons/react'
 
 const TRUSTED_PROVIDERS_META: Array<{
@@ -42,7 +48,16 @@ const TRUSTED_PROVIDERS_META: Array<{
     name: 'GroqCloud',
     completionType: 'chat_completions'
   },
-  { baseUrl: 'https://api.cerebras.ai/v1', name: 'Cerebras AI', completionType: 'chat_completions' }
+  {
+    baseUrl: 'https://api.cerebras.ai/v1',
+    name: 'Cerebras AI',
+    completionType: 'chat_completions'
+  },
+  {
+    baseUrl: 'https://api.puter.com/puterai/openai/v1',
+    name: 'Puter.js',
+    completionType: 'chat_completions'
+  }
 ]
 
 function normalizeUrl(url: string): string {
@@ -51,6 +66,23 @@ function normalizeUrl(url: string): string {
     cleaned = cleaned.slice(0, -1)
   }
   return cleaned
+}
+
+function getHostnameFromUrl(url: string): string | null {
+  try {
+    return new URL(url).hostname.toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+function isPuterHostname(hostname: string): boolean {
+  return hostname === 'puter.com' || hostname.endsWith('.puter.com')
+}
+
+function isPuterBaseUrl(url: string): boolean {
+  const hostname = getHostnameFromUrl(url)
+  return hostname ? isPuterHostname(hostname) : false
 }
 
 function findTrusted(url: string): (typeof TRUSTED_PROVIDERS_META)[number] | undefined {
@@ -72,6 +104,9 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
   const [step, setStep] = useState<number>(1)
   const [baseUrl, setBaseUrl] = useState<string>(initialProvider?.baseUrl || '')
   const [apiKey, setApiKey] = useState<string>(initialProvider?.apiKey || '')
+  const [puterAuthToken, setPuterAuthToken] = useState<string>(
+    initialProvider?.puterAuthToken || ''
+  )
   const [name, setName] = useState<string>(initialProvider?.name || '')
   const [completionType, setCompletionType] = useState<CompletionType>(
     initialProvider?.completionType || 'chat_completions'
@@ -83,6 +118,78 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
 
   const trustedMeta = findTrusted(baseUrl)
   const isTrusted = !!trustedMeta
+  const isPuter = Boolean(trustedMeta?.name === 'Puter.js' || (baseUrl && isPuterBaseUrl(baseUrl)))
+
+  const [authMode, setAuthMode] = useState<'account' | 'key'>(
+    initialProvider?.completionType === 'puter_native' || !initialProvider?.apiKey
+      ? 'account'
+      : 'key'
+  )
+  const [isLoggingInPuter, setIsLoggingInPuter] = useState<boolean>(false)
+  const [puterLoginError, setPuterLoginError] = useState<string>('')
+  const [puterUsername, setPuterUsername] = useState<string>('')
+
+  const handlePuterBrowserLogin = async (): Promise<void> => {
+    setIsLoggingInPuter(true)
+    setPuterLoginError('')
+    try {
+      const res = await window.api.loginWithPuter()
+      if (res && res.success && res.token) {
+        setPuterAuthToken(res.token)
+        setApiKey('')
+        setCompletionType('puter_native')
+        if (res.username) {
+          setPuterUsername(res.username)
+        }
+        setIsLoggingInPuter(false)
+        setStep(5)
+        // Automatically fetch models using native Puter.js
+        setIsFetchingModels(true)
+        setFetchError('')
+        try {
+          const fetchRes = await window.api.fetchProviderModels({
+            baseUrl,
+            apiKey: '',
+            puterAuthToken: res.token,
+            completionType: 'puter_native'
+          })
+          if (fetchRes && fetchRes.success && fetchRes.models) {
+            setModels(fetchRes.models)
+          } else {
+            setFetchError(fetchRes?.error || 'Failed to fetch models from Puter.js')
+          }
+        } catch (fetchErr: unknown) {
+          setFetchError(
+            fetchErr instanceof Error ? fetchErr.message : 'Error connecting to Puter.js'
+          )
+        } finally {
+          setIsFetchingModels(false)
+        }
+      } else {
+        setPuterLoginError(res?.error || 'Puter login was not completed')
+        setIsLoggingInPuter(false)
+      }
+    } catch (err: unknown) {
+      setPuterLoginError(err instanceof Error ? err.message : 'Failed to connect to Puter')
+      setIsLoggingInPuter(false)
+    }
+  }
+
+  const handleCancelPuterLogin = async (): Promise<void> => {
+    try {
+      await window.api.cancelPuterLogin()
+    } catch {
+      // ignore
+    }
+    setIsLoggingInPuter(false)
+  }
+
+  const handleClose = (): void => {
+    if (isLoggingInPuter) {
+      window.api.cancelPuterLogin?.()
+    }
+    onClose()
+  }
 
   const handleNextFromUrl = (): void => {
     if (!baseUrl.trim()) return
@@ -94,6 +201,15 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
   }
 
   const handleNextFromKey = (): void => {
+    if (isPuter && authMode === 'account') {
+      if (!puterAuthToken.trim()) {
+        handlePuterBrowserLogin()
+        return
+      }
+      setStep(5)
+      return
+    }
+
     if (!apiKey.trim()) return
     if (isTrusted) {
       // Skip name step if provider is trusted and name is immutable
@@ -107,9 +223,22 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
     setIsFetchingModels(true)
     setFetchError('')
     try {
-      const res = await window.api.fetchProviderModels({ baseUrl, apiKey, completionType })
+      const res = await window.api.fetchProviderModels({
+        baseUrl,
+        apiKey,
+        ...(completionType === 'puter_native' ? { puterAuthToken } : {}),
+        completionType
+      })
       if (res.success && res.models) {
-        setModels(res.models)
+        const existingById = new Map(models.map((model) => [model.id, model]))
+        setModels(
+          res.models.map((model) => ({
+            ...model,
+            // Preserve the user's selection, including trusted models they disabled.
+            enabled: existingById.get(model.id)?.enabled ?? model.enabled,
+            imageGeneration: existingById.get(model.id)?.imageGeneration || model.imageGeneration
+          }))
+        )
       } else {
         setFetchError(res.error || 'Failed to fetch models from provider')
       }
@@ -124,12 +253,31 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
     setModels((prev) => (prev || []).map((m) => (m.id === id ? { ...m, enabled: !m.enabled } : m)))
   }
 
+  const handleEnableAll = (): void => {
+    if (searchQuery.trim()) {
+      const filteredIdSet = new Set(filteredModels.map((m) => m.id))
+      setModels((prev) => (prev || []).map((m) => (filteredIdSet.has(m.id) ? { ...m, enabled: true } : m)))
+    } else {
+      setModels((prev) => (prev || []).map((m) => ({ ...m, enabled: true })))
+    }
+  }
+
+  const handleDisableAll = (): void => {
+    if (searchQuery.trim()) {
+      const filteredIdSet = new Set(filteredModels.map((m) => m.id))
+      setModels((prev) => (prev || []).map((m) => (filteredIdSet.has(m.id) ? { ...m, enabled: false } : m)))
+    } else {
+      setModels((prev) => (prev || []).map((m) => ({ ...m, enabled: false })))
+    }
+  }
+
   const handleSave = (): void => {
     const provider: ProviderConfig = {
       id: initialProvider?.id || `provider_${Date.now()}`,
       name: isTrusted ? trustedMeta!.name : name.trim() || 'Custom Provider',
       baseUrl: normalizeUrl(baseUrl),
-      apiKey: apiKey.trim(),
+      apiKey: isPuter && authMode === 'account' ? '' : apiKey.trim(),
+      ...(isPuter && authMode === 'account' ? { puterAuthToken: puterAuthToken.trim() } : {}),
       completionType,
       isTrusted,
       models
@@ -144,6 +292,9 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
       (m.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (m.name && m.name.toLowerCase().includes(searchQuery.toLowerCase())))
   )
+
+  const enabledCount = (models || []).filter((m) => m.enabled).length
+  const filteredEnabledCount = filteredModels.filter((m) => m.enabled).length
 
   const stepList = isTrusted
     ? [
@@ -188,7 +339,7 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
             ) : null}
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 text-text-muted hover:text-text-primary rounded-xl hover:bg-white/[0.08] transition-colors shrink-0"
             title="Close modal"
           >
@@ -246,22 +397,169 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
                   </span>
                 </div>
               )}
+
+              {!initialProvider && !baseUrl.includes('puter') && (
+                <div className="pt-1 flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBaseUrl('https://api.puter.com/puterai/openai/v1')
+                      setName('Puter.js')
+                      setCompletionType('puter_native')
+                      setAuthMode('account')
+                      setStep(2)
+                    }}
+                    className="text-[11px] text-text-muted hover:text-purple-300 transition-all inline-flex items-center gap-1.5 py-1.5 px-3 rounded-xl bg-white/[0.02] hover:bg-purple-500/10 border border-white/[0.06] hover:border-purple-500/25"
+                  >
+                    <span>Want to use Puter.js?</span>
+                    <span className="text-[10px] text-purple-400 font-semibold">&rarr; Connect Account</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
           {step === 2 && (
-            <div className="space-y-3.5">
-              <label className="block text-xs font-semibold text-text-primary">
-                API Key for {isTrusted ? trustedMeta?.name : baseUrl}
-              </label>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="sk-..."
-                className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-text-primary placeholder-text-muted focus:outline-none focus:border-white/30 focus:ring-1 focus:ring-white/20 transition-all text-xs sm:text-sm font-mono"
-                autoFocus
-              />
+            <div className="space-y-4">
+              {isPuter ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-text-primary">
+                      Authentication Method for Puter.js
+                    </label>
+                  </div>
+
+                  {/* Tab switch between Account and Manual Key */}
+                  <div className="flex p-1 bg-white/[0.04] border border-white/[0.08] rounded-xl gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMode('account')
+                        setCompletionType('puter_native')
+                      }}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-medium transition-all ${
+                        authMode === 'account'
+                          ? 'bg-text-primary text-black font-semibold shadow-sm'
+                          : 'text-text-secondary hover:text-text-primary'
+                      }`}
+                    >
+                      <User size={14} weight={authMode === 'account' ? 'fill' : 'regular'} />
+                      <span>Puter Account (Native)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMode('key')
+                        setCompletionType('chat_completions')
+                      }}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-medium transition-all ${
+                        authMode === 'key'
+                          ? 'bg-text-primary text-black font-semibold shadow-sm'
+                          : 'text-text-secondary hover:text-text-primary'
+                      }`}
+                    >
+                      <Key size={14} weight={authMode === 'key' ? 'fill' : 'regular'} />
+                      <span>Manual API Key</span>
+                    </button>
+                  </div>
+
+                  {authMode === 'account' ? (
+                    <div className="space-y-3.5 pt-1">
+                      <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-3">
+                        <div className="flex items-start gap-3">
+                          <div className="p-2 rounded-xl bg-text-primary/10 text-text-primary border border-text-primary/20 shrink-0">
+                            <Sparkle size={18} weight="fill" />
+                          </div>
+                          <div className="space-y-1 min-w-0">
+                            <h4 className="text-xs font-bold text-text-primary">
+                              Puter.js Native Account Login
+                            </h4>
+                            <p className="text-[11px] text-text-secondary/80 leading-relaxed">
+                              Connect your Puter account directly in your default browser. Prism will securely receive the authentication session and discover available models automatically.
+                            </p>
+                          </div>
+                        </div>
+
+                        {isLoggingInPuter ? (
+                          <div className="p-3.5 rounded-xl bg-text-primary/5 border border-text-primary/20 space-y-2.5">
+                            <div className="flex items-center gap-2 text-xs font-medium text-text-primary">
+                              <SpinnerGap size={16} className="animate-spin text-text-primary shrink-0" />
+                              <span>Browser opened. Waiting for login confirmation in your default browser...</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleCancelPuterLogin}
+                              className="px-3 py-1.5 bg-white/[0.08] hover:bg-white/[0.15] text-text-secondary text-xs rounded-lg font-medium transition-all"
+                            >
+                              Cancel Login
+                            </button>
+                          </div>
+                        ) : puterAuthToken ? (
+                          <div className="p-3 rounded-xl bg-status-success/15 border border-status-success/30 text-status-success text-xs flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <CheckCircle size={16} weight="fill" className="shrink-0" />
+                              <span className="truncate">
+                                Account connected successfully! {puterUsername ? `(@${puterUsername})` : ''}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handlePuterBrowserLogin}
+                              className="px-2.5 py-1 bg-status-success/20 hover:bg-status-success/30 text-status-success rounded-lg text-[11px] font-semibold transition-all shrink-0"
+                            >
+                              Reconnect
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={handlePuterBrowserLogin}
+                            className="w-full py-3 px-4 bg-text-primary hover:bg-white text-black font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-[0.98]"
+                          >
+                            <SignIn size={16} weight="bold" />
+                            <span>Sign In with Puter Account (Browser)</span>
+                            <ArrowSquareOut size={14} weight="bold" className="opacity-70" />
+                          </button>
+                        )}
+
+                        {puterLoginError && (
+                          <div className="p-3 bg-status-error/10 border border-status-error/20 text-status-error text-xs rounded-xl">
+                            {puterLoginError}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3.5 pt-1">
+                      <label className="block text-xs font-semibold text-text-primary">
+                        Puter API Key / Token
+                      </label>
+                      <input
+                        type="password"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        placeholder="Enter Puter token or API key..."
+                        className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-text-primary placeholder-text-muted focus:outline-none focus:border-white/30 focus:ring-1 focus:ring-white/20 transition-all text-xs sm:text-sm font-mono"
+                        autoFocus
+                      />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <label className="block text-xs font-semibold text-text-primary">
+                    API Key for {isTrusted ? trustedMeta?.name : baseUrl}
+                  </label>
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="sk-..."
+                    className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-text-primary placeholder-text-muted focus:outline-none focus:border-white/30 focus:ring-1 focus:ring-white/20 transition-all text-xs sm:text-sm font-mono"
+                    autoFocus
+                  />
+                </>
+              )}
             </div>
           )}
 
@@ -305,6 +603,11 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
                     type: 'gemini_native',
                     label: 'Gemini Native (GenerateContent)',
                     desc: 'Native Google Gemini API format.'
+                  },
+                  {
+                    type: 'puter_native',
+                    label: 'Puter.js Native (User-Pays Driver)',
+                    desc: 'Official Puter driver protocol (/drivers/call) using connected user account credits.'
                   }
                 ].map((item) => (
                   <div
@@ -349,18 +652,44 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
               )}
 
               {models.length > 0 && (
-                <div className="relative">
-                  <MagnifyingGlass
-                    size={16}
-                    className="absolute left-3.5 top-3.5 text-text-muted"
-                  />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search model name or ID..."
-                    className="w-full pl-10 pr-4 py-2.5 bg-white/[0.04] border border-white/[0.1] rounded-xl text-text-primary text-xs placeholder-text-muted focus:outline-none focus:border-white/30"
-                  />
+                <div className="space-y-2.5">
+                  <div className="relative">
+                    <MagnifyingGlass
+                      size={16}
+                      className="absolute left-3.5 top-3 text-text-muted"
+                    />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search model name or ID..."
+                      className="w-full pl-10 pr-4 py-2 bg-white/[0.04] border border-white/[0.1] rounded-xl text-text-primary text-xs placeholder-text-muted focus:outline-none focus:border-white/30"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs px-1">
+                    <span className="text-[11px] text-text-muted">
+                      {searchQuery.trim()
+                        ? `${filteredModels.length} matching (${filteredEnabledCount} enabled)`
+                        : `${enabledCount} of ${models.length} enabled`}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleEnableAll}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/[0.05] hover:bg-white/[0.1] text-text-secondary hover:text-text-primary border border-white/[0.06] transition-all active:scale-[0.98]"
+                      >
+                        Enable All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDisableAll}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/[0.05] hover:bg-white/[0.1] text-text-secondary hover:text-text-primary border border-white/[0.06] transition-all active:scale-[0.98]"
+                      >
+                        Disable All
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -382,7 +711,7 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
                           : 'bg-white/[0.03] border-white/[0.05] text-text-muted hover:bg-white/[0.06]'
                       }`}
                     >
-                      <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
                         <div
                           className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${m.enabled ? 'bg-text-primary border-text-primary text-black' : 'border-white/20'}`}
                         >

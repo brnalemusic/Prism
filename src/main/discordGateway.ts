@@ -33,6 +33,7 @@ import { getChatModel, activeRuns } from './ai/chatHandler'
 import { runToolOrchestration } from './ai/toolOrchestrator'
 import { OpenAiMessage } from './ai/types'
 import { getSystemToolsPrompt, setCurrentSessionIdForTodo } from './systemTools'
+import { appendTurnRecallBlock, getActiveMemoryService } from './memoryStore'
 import {
   executeValidatedTool,
   getGeminiFunctionDeclarations,
@@ -41,6 +42,7 @@ import {
 } from './toolRuntime'
 import { normalizePrismThinkingLevel } from './ai/prismThinking'
 import { streamOpenAiCompletion } from './ai/openaiClient'
+import { shouldForwardImageToolAttachments } from './ai/imageGenerationCore'
 import { is } from '@electron-toolkit/utils'
 import { broadcastIpc, safeSend } from './safeSend'
 import { createVoiceOverlayWindow, closeVoiceOverlayWindow, voiceOverlayWindow } from './index'
@@ -497,7 +499,8 @@ async function executeLiveToolCalls(
             name,
             args: validatedArgs,
             timestamp: Date.now(),
-            chatId: history.chatId
+            chatId: history.chatId,
+            workspace: 'chat'
           })
           activeVoiceOverlayTool = { callId, name }
         }
@@ -517,11 +520,13 @@ async function executeLiveToolCalls(
       callId,
       name,
       result: execution.modelContent,
-      chatId: history.chatId
+      chatId: history.chatId,
+      workspace: 'chat'
     })
     activeVoiceOverlayTool = null
 
-    const visualParts = (execution.attachments || [])
+    const visualParts = shouldForwardImageToolAttachments(name)
+      ? (execution.attachments || [])
       .filter((attachment) => attachment.kind === 'image')
       .map((attachment) => ({
         inlineData: {
@@ -529,6 +534,7 @@ async function executeLiveToolCalls(
           data: attachment.data
         }
       }))
+      : []
 
     functionResponses.push({
       id: callId,
@@ -750,7 +756,8 @@ export function replayVoiceOverlayState(): void {
       name: activeVoiceOverlayTool.name,
       args: {},
       timestamp: Date.now(),
-      chatId
+      chatId,
+      workspace: 'chat'
     })
   }
 }
@@ -1078,8 +1085,38 @@ function handleLiveMessage(msg: any, aiSession: any, apiKey: string): void {
     if (activeVoiceHistory) {
       activeVoiceHistory.activeUserMessageIndex = null
       activeVoiceHistory.activeAssistantMessageIndex = null
+      // Post-turn extraction trigger (M2): once per completed live-voice turn,
+      // after transcripts are persisted (appendVoiceTranscript persists eagerly).
+      try {
+        getActiveMemoryService()?.observeCompletedTurn(activeVoiceHistory.chatId)
+      } catch (err) {
+        console.error('[Memory] observeCompletedTurn failed:', err)
+      }
     }
   }
+}
+
+/**
+ * Per-turn recall for live voice (M2): appends the compact memory block to the
+ * Gemini Live system instruction at session (re)connect, using the last user
+ * line of the in-memory transcript as the query. Smaller budget than chat text
+ * because the instruction rides every spoken turn.
+ */
+function voiceMemoryRecallBlock(): string {
+  if (!activeVoiceHistory?.messages?.length) return ''
+  const lastUserLine = [...activeVoiceHistory.messages]
+    .reverse()
+    .find(
+      (m) =>
+        m.role === 'user' &&
+        typeof m.content === 'string' &&
+        m.content.trim().length > 0
+    )
+  return appendTurnRecallBlock(
+    '',
+    typeof lastUserLine?.content === 'string' ? lastUserLine.content : undefined,
+    { maxChars: 450, maxEntries: 4 }
+  )
 }
 
 async function reconnectLiveVoiceSession(continueAfterSkillUnlock = false): Promise<boolean> {
@@ -1113,13 +1150,8 @@ async function reconnectLiveVoiceSession(continueAfterSkillUnlock = false): Prom
         outputAudioTranscription: {},
         systemInstruction:
           `${getSystemToolsPrompt(modelName, 'main', undefined, 'execution', '')}\n\n` +
-          '# Discord Voice Gateway\n' +
-          'You are speaking with the user through Discord voice. Use the available tools whenever they are needed. ' +
-          'When you use a tool, wait for its result before answering. Keep spoken answers concise and clear. ' +
-          'Do not decide to leave because an isolated phrase in a transcript mentions leaving the call; consider the full conversation and use discord_leave_voice only when the user asks or leaving is contextually appropriate. ' +
-          'When discord_leave_voice confirms a leave request, say a brief personalized goodbye and do not call any more tools. ' +
-          'When a screenshot is returned, inspect it before answering the user.' +
-          historyContextPrompt,
+          DISCORD_VOICE_GATEWAY_BLOCK +
+          historyContextPrompt + voiceMemoryRecallBlock(),
         tools: [
           {
             functionDeclarations: getGeminiFunctionDeclarations(activeVoiceHistory?.chatId)
@@ -1191,6 +1223,9 @@ async function reconnectLiveVoiceSession(continueAfterSkillUnlock = false): Prom
   }
 }
 
+const DISCORD_VOICE_GATEWAY_BLOCK = `# Discord Voice Gateway
+You are speaking with the user through Discord voice. Use tools when needed and wait for their results before answering. Keep spoken answers concise. Do not leave because an isolated transcript phrase mentions leaving; only leave when the user asks or it is contextually appropriate, then say a brief goodbye and stop. Inspect screenshots before answering.`
+
 async function startLiveVoiceSession(
   guild: any,
   voiceChannel: any,
@@ -1234,12 +1269,8 @@ async function startLiveVoiceSession(
         outputAudioTranscription: {},
         systemInstruction:
           `${getSystemToolsPrompt(normalizedModelName, 'main', undefined, 'execution', '')}\n\n` +
-          '# Discord Voice Gateway\n' +
-          'You are speaking with the user through Discord voice. Use the available tools whenever they are needed. ' +
-          'When you use a tool, wait for its result before answering. Keep spoken answers concise and clear. ' +
-          'Do not decide to leave because an isolated phrase in a transcript mentions leaving the call; consider the full conversation and use discord_leave_voice only when the user asks or leaving is contextually appropriate. ' +
-          'When discord_leave_voice confirms a leave request, say a brief personalized goodbye and do not call any more tools. ' +
-          'When a screenshot is returned, inspect it before answering the user.',
+          DISCORD_VOICE_GATEWAY_BLOCK +
+          voiceMemoryRecallBlock(),
         tools: [
           {
             functionDeclarations: getGeminiFunctionDeclarations(voiceChatId)
@@ -1758,6 +1789,7 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
   // Broadcast user message and start reply event to Prism renderer UI
   broadcastIpc('chat-reply-start', {
     chatId,
+    workspace: 'chat',
     userMessage: { role: 'user', content: userText }
   })
 
@@ -1772,7 +1804,10 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
     isCloud
   )
   const botName = client?.user?.username || 'AI'
-  const discordSystemPrompt = `${baseSystemPrompt}\n\n# Discord Gateway Mode\nYou are ${botName} running on Discord via Prism Gateway. Adopt the name ${botName} and NOT Prism. Keep responses concise due to Discord limits (max 2000 chars). Use simple Markdown only (bold, italics, H1-H3, code blocks). Do not use HTML or Markdown tables.`
+  let discordSystemPrompt = `${baseSystemPrompt}\n\n# Discord Gateway Mode\nYou are ${botName} on Discord via Prism Gateway - adopt ${botName}, NOT Prism. Keep replies concise (≤2000 chars). Simple Markdown only (bold, italics, H1-H3, code blocks); no HTML/tables.`
+  // Long-term memory recall (M2): relevant facts ride this turn's prompt. Pinned
+  // facts already ride the static core profile inside baseSystemPrompt.
+  discordSystemPrompt = appendTurnRecallBlock(discordSystemPrompt, userText)
 
   const messagesForApi: OpenAiMessage[] = [
     { role: 'system', content: discordSystemPrompt },
@@ -1848,7 +1883,7 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
       reasoningLevel: normalizePrismThinkingLevel(provider, model.id, 'minimal'),
       onStreamEvent: (streamEvent, state) => {
         if (streamEvent.type === 'tool') {
-          broadcastIpc('chat-tool-call-delta', { chatId, ...streamEvent.delta })
+          broadcastIpc('chat-tool-call-delta', { chatId, workspace: 'chat', ...streamEvent.delta })
           currentToolsText = `*⚙️ ${streamEvent.delta.name || 'Working'}...*`
           updateDiscordMessage(currentText)
         } else {
@@ -1862,6 +1897,7 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
 
           broadcastIpc('chat-reply-chunk', {
             chatId,
+            workspace: 'chat',
             thoughts: parsed.thoughts,
             finalResponse: parsed.content,
             isThinking: streamEvent.type === 'reasoning',
@@ -1884,7 +1920,8 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
             name,
             args,
             timestamp: Date.now(),
-            chatId
+            chatId,
+            workspace: 'chat'
           })
           if (is.dev) console.log(`[Discord Gateway] Tool Start: ${name}`, args)
         }
@@ -1894,7 +1931,8 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
           callId: call.callId,
           name: call.name,
           result: call.modelContent,
-          chatId
+          chatId,
+          workspace: 'chat'
         })
         if (is.dev) console.log(`[Discord Gateway] Tool End: ${call.name}`)
         currentToolsText = ''
@@ -1916,17 +1954,30 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
     currentToolsText = ''
     await updateDiscordMessage(discordFinalOutput, true)
 
+    // Post-turn extraction trigger (M2): success path only (inside try, after the
+    // final history save); Discord text never runs Harness sessions.
+    try {
+      getActiveMemoryService()?.observeCompletedTurn(chatId)
+    } catch (err) {
+      console.error('[Memory] observeCompletedTurn failed:', err)
+    }
+
     broadcastIpc('chat-reply-end', {
       thoughts: finalOutput.thoughts,
       finalResponse: finalOutput.content,
       rawText: finalOutput.content,
       isThinking: false,
       chatId,
+      workspace: 'chat',
       ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})
     })
   } catch (error: any) {
     console.error('[Discord Gateway] Error:', error)
-    broadcastIpc('chat-reply-error', { error: error.message || 'Unknown error occurred.', chatId })
+    broadcastIpc('chat-reply-error', {
+      error: error.message || 'Unknown error occurred.',
+      chatId,
+      workspace: 'chat'
+    })
     if (replyMessage) {
       await replyMessage.edit(`*Error:* ${error.message || 'Unknown error occurred.'}`)
     } else {
@@ -1948,7 +1999,7 @@ function convertHistoryToOpenAi(history: OpenAiMessage[]): OpenAiMessage[] {
           tool_call_id: m.tool_call_id || `call_${Date.now()}`,
           name: m.name,
           content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-          tool_attachments: m.tool_attachments
+          ...(m.name === 'generate_image' ? {} : { tool_attachments: m.tool_attachments })
         }
       }
       const content =

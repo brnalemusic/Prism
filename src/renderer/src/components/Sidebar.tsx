@@ -9,7 +9,8 @@ import {
   CaretDown,
   CaretRight,
   NotePencil,
-  SidebarSimple
+  SidebarSimple,
+  Code
 } from '@phosphor-icons/react'
 import React, { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
@@ -17,10 +18,11 @@ import { LoadingDots } from './LoadingDots'
 import { Spinner } from './Spinner'
 import { AnimatedStreamingText, StreamContext, useStreamStats } from './AnimatedStreamingText'
 import type { AppConfig } from '../../../main/config'
-import type { SessionMode } from '../../../shared/types'
+import type { HarnessExplorerSelection, SessionMode } from '../../../shared/types'
 import { FolderChatsPanel } from './FolderChatsPanel'
 import { UserAccountCard } from './UserAccountCard'
 import prismIcon from '../../../../resources/icon.png?asset'
+import { HarnessExplorer } from './HarnessExplorer'
 
 interface ChatSession {
   id: string
@@ -36,6 +38,7 @@ interface SidebarProps {
   onViewChange: (view: string) => void
   onLoadChat: (id: string) => void
   onNewChat: (force?: boolean) => void
+  onStartHarness?: () => void
   onChatDeleted: (id: string) => void
   currentChatId?: string
   runningChats?: Record<string, boolean>
@@ -48,6 +51,10 @@ interface SidebarProps {
   authUser?: import('../../../shared/types').UserProfile | null
   onOpenAuth?: () => void
   onOpenProfile?: () => void
+  harnessProjectPath?: string
+  harnessExplorerContext?: HarnessExplorerSelection[]
+  onAddHarnessExplorerContext?: (selection: HarnessExplorerSelection) => boolean
+  onRemoveHarnessExplorerContext?: (relativePath: string) => void
 }
 
 interface StreamTitleWrapperProps {
@@ -89,6 +96,7 @@ export function Sidebar({
   onViewChange,
   onLoadChat,
   onNewChat,
+  onStartHarness,
   onChatDeleted,
   currentChatId,
   runningChats = {},
@@ -100,7 +108,11 @@ export function Sidebar({
   onClose,
   authUser,
   onOpenAuth,
-  onOpenProfile
+  onOpenProfile,
+  harnessProjectPath,
+  harnessExplorerContext = [],
+  onAddHarnessExplorerContext,
+  onRemoveHarnessExplorerContext
 }: SidebarProps): React.JSX.Element {
   const [chats, setChats] = useState<ChatSession[]>([])
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
@@ -165,17 +177,14 @@ export function Sidebar({
     refreshChats()
     const interval = setInterval(refreshChats, 10000)
 
-    const removeCreatedListener = window.api.onChatSessionCreated(({ id }) => {
-      setChats((prev) => {
-        if (prev.some((c) => c.id === id)) return prev
-        return [{ id, title: '', lastUpdated: Date.now() }, ...prev]
-      })
+    // The main process broadcasts lifecycle events for both workspaces. Reload
+    // through the Chat-only IPC endpoint instead of inserting an unknown id.
+    const removeCreatedListener = window.api.onChatSessionCreated(() => {
+      void refreshChats()
     })
 
-    const removeTitleListener = window.api.onChatTitleReceived(({ id, title }) => {
-      setChats((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, title, lastUpdated: Date.now() } : c))
-      )
+    const removeTitleListener = window.api.onChatTitleReceived(() => {
+      void refreshChats()
     })
 
     return () => {
@@ -289,7 +298,7 @@ export function Sidebar({
   return (
     <aside
       className={clsx(
-        'relative h-full flex flex-row border-r border-[var(--border-default)] bg-[var(--sidebar-bg)] transition-all duration-300 ease-in-out overflow-hidden',
+        'relative h-full flex flex-row border-r border-white/[0.08] bg-black/25 backdrop-blur-3xl transition-all duration-300 ease-in-out overflow-hidden z-20 select-none shadow-[1px_0_0_0_rgba(255,255,255,0.03),8px_0_32px_rgba(0,0,0,0.35)]',
         isOpen
           ? viewMoreGroupId
             ? 'w-[580px] opacity-100'
@@ -306,7 +315,7 @@ export function Sidebar({
             <img
               src={prismIcon}
               alt="Prism Logo"
-              className="h-7 w-7 rounded-lg object-cover border border-[var(--border-default)] self-center"
+              className="h-7 w-7 rounded-lg object-cover border border-white/[0.12] shadow-md self-center"
             />
             <div className="flex items-baseline gap-1.5 min-w-0">
               <h1 className="text-sm font-semibold text-text-primary tracking-wide">Prism</h1>
@@ -327,47 +336,72 @@ export function Sidebar({
           {isOpen && onClose && (
             <button
               onClick={onClose}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-[var(--sidebar-hover)] hover:text-text-primary transition-colors duration-200 cursor-pointer"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-text-secondary/60 hover:bg-white/[0.06] hover:text-text-primary transition-all duration-150 cursor-pointer active:scale-95"
               title="Collapse sidebar"
             >
-              <SidebarSimple size={16} weight="bold" />
+              <SidebarSimple size={15} weight="bold" />
             </button>
           )}
         </div>
 
-        {/* New Chat Action */}
+        {/* Workspace action */}
         <div className="px-3 pb-2 pt-1 shrink-0">
           <button
-            onClick={() => onNewChat()}
-            className="group flex w-full items-center justify-center gap-2.5 rounded-lg bg-[var(--sidebar-surface)] hover:bg-[var(--sidebar-hover)] text-xs font-medium text-text-primary transition-colors duration-200 cursor-pointer py-2.5 px-3 border border-[var(--border-default)] hover:border-[var(--border-strong)]"
+            onClick={() => (activeView === 'harness' ? onStartHarness?.() : onNewChat())}
+            className="group flex w-full items-center justify-center gap-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] text-xs font-semibold text-text-primary transition-all duration-200 cursor-pointer py-2.5 px-3 border border-white/[0.12] hover:border-white/[0.22] shadow-[var(--glass-specular-top),0_4px_16px_rgba(0,0,0,0.3)] active:scale-[0.98]"
           >
-            <NotePencil
-              size={16}
+            {activeView === 'harness' ? (
+              <Code
+                size={15}
+                weight="bold"
+                className="text-text-secondary group-hover:text-white transition-colors"
+              />
+            ) : (
+              <NotePencil
+              size={15}
               weight="bold"
               className="text-text-secondary group-hover:text-white transition-colors"
-            />
-            <span>New Chat</span>
+              />
+            )}
+            <span>{activeView === 'harness' ? 'Start Harness' : 'New Chat'}</span>
           </button>
         </div>
 
         {/* Navigation Items */}
         <nav className="flex shrink-0 flex-col gap-0.5 px-3 py-2">
           <NavItem
-            icon={<ChatTeardropText size={16} weight={activeView === 'chat' ? 'fill' : 'bold'} />}
+            icon={<ChatTeardropText size={15} weight={activeView === 'chat' ? 'fill' : 'bold'} />}
             label="Chat"
             active={activeView === 'chat'}
             onClick={(): void => onViewChange('chat')}
           />
           <NavItem
-            icon={<MagnifyingGlass size={16} weight="bold" />}
-            label="Search"
-            onClick={onOpenSearch}
+            icon={<Code size={15} weight={activeView === 'harness' ? 'fill' : 'bold'} />}
+            label="Harness"
+            active={activeView === 'harness'}
+            onClick={(): void => onViewChange('harness')}
           />
+          {activeView !== 'harness' && (
+            <NavItem
+              icon={<MagnifyingGlass size={15} weight="bold" />}
+              label="Search"
+              onClick={onOpenSearch}
+            />
+          )}
         </nav>
 
-        <div className="mx-3 h-px shrink-0 bg-[var(--border-subtle)]" />
+        <div className="mx-3 h-px shrink-0 bg-white/[0.06]" />
 
-        {/* History & Groups */}
+        {/* The regular sidebar intentionally owns only Chat history. Harness
+            history lives in its focused project modal. */}
+        {activeView === 'harness' ? (
+          <HarnessExplorer
+            projectPath={harnessProjectPath}
+            selections={harnessExplorerContext}
+            onAdd={onAddHarnessExplorerContext || (() => false)}
+            onRemove={onRemoveHarnessExplorerContext || (() => {})}
+          />
+        ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-3">
           <div className="mb-2 flex shrink-0 items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted/70">
             <Clock size={11} weight="bold" />
@@ -430,10 +464,10 @@ export function Sidebar({
                               onLoadChat(chat.id)
                             }}
                             className={clsx(
-                              'min-h-[32px] w-full truncate rounded-lg px-2.5 py-1.5 pr-7 text-left text-xs transition-all duration-200 active:scale-[0.98] select-none cursor-pointer',
+                              'min-h-[32px] w-full truncate rounded-xl px-2.5 py-1.5 pr-7 text-left text-xs transition-all duration-150 active:scale-[0.98] select-none cursor-pointer',
                               currentChatId === chat.id
-                                ? 'bg-white/[0.06] text-text-primary font-medium'
-                                : 'text-text-secondary hover:bg-white/[0.025] hover:text-text-primary'
+                                ? 'bg-white/[0.08] border border-white/[0.1] text-white font-semibold shadow-[var(--glass-specular-top)] backdrop-blur-md'
+                                : 'text-text-secondary/80 hover:bg-white/[0.035] hover:text-text-primary'
                             )}
                             title={chat.title}
                           >
@@ -481,9 +515,10 @@ export function Sidebar({
             )}
           </div>
         </div>
+        )}
 
         {/* Footer */}
-        <div className="mt-auto p-3 shrink-0 border-t border-[var(--border-subtle)] bg-[var(--sidebar-bg)]">
+        <div className="mt-auto p-3 shrink-0 border-t border-white/[0.07] bg-transparent">
           <UserAccountCard
             user={authUser || null}
             onOpenAuth={onOpenAuth || (() => {})}
@@ -503,7 +538,7 @@ export function Sidebar({
       {/* Right Column - Folder Chats Panel */}
       <div
         className={clsx(
-          'h-full flex flex-col border-l border-[var(--border-default)] bg-[var(--sidebar-bg)] transition-all duration-300 ease-in-out overflow-hidden',
+          'h-full flex flex-col border-l border-white/[0.07] bg-transparent transition-all duration-300 ease-in-out overflow-hidden',
           viewMoreGroupId ? 'w-[320px] opacity-100' : 'w-0 opacity-0 pointer-events-none'
         )}
       >
@@ -549,10 +584,10 @@ function NavItem({
     <button
       onClick={onClick}
       className={clsx(
-        'group relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs transition-colors duration-200 cursor-pointer select-none',
+        'group relative flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs transition-all duration-150 cursor-pointer select-none',
         active
-          ? 'bg-[var(--sidebar-surface)] text-text-primary font-medium'
-          : 'text-text-secondary hover:bg-[var(--sidebar-hover)] hover:text-text-primary'
+          ? 'bg-white/[0.07] border border-white/[0.09] text-text-primary font-semibold shadow-sm backdrop-blur-md'
+          : 'text-text-secondary/80 hover:bg-white/[0.035] hover:text-text-primary'
       )}
     >
       {active && (

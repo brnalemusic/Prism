@@ -1,4 +1,12 @@
-import type { SessionMode, ArtifactItem } from '../../../shared/types'
+import type {
+  SessionMode,
+  WorkspaceKind,
+  ArtifactItem,
+  ToolAttachment,
+  HarnessContextSnapshot,
+  HarnessExplorerSelection,
+  HarnessPhase
+} from '../../../shared/types'
 
 export interface AttachedFile {
   name: string
@@ -21,15 +29,29 @@ export interface ToolCallItem {
   name: string
   args: Record<string, unknown>
   result?: string
+  attachments?: ToolAttachment[]
   status: 'writing' | 'running' | 'cooldown' | 'done' | 'error' | 'cancelled'
   addedLines?: number
   removedLines?: number
   readLines?: { start: number; end: number }[]
   searchUpdates?: string[]
+  terminalOutput?: string
+  runId?: string
+  startedAt?: number
+  finishedAt?: number
+  round?: number
+}
+
+export interface HarnessRoundItem {
+  round: number
+  content: string
+  thoughts?: string
+  toolCalls?: ToolCallItem[]
+  streamingToolCalls?: StreamingToolCall[]
 }
 
 export interface Message {
-  role: 'user' | 'ai' | 'separator'
+  role: 'user' | 'ai' | 'separator' | 'context'
   content: string
   thoughts?: string
   isStreaming?: boolean
@@ -46,7 +68,11 @@ export interface Message {
   isConnecting?: boolean
   screenshot?: string
   file?: AttachedFile
+  quote?: string
   separatorType?: 'error' | 'cancel'
+  contextSnapshot?: HarnessContextSnapshot
+  harnessRound?: number
+  harnessRounds?: HarnessRoundItem[]
 }
 
 export interface TabSession {
@@ -55,8 +81,11 @@ export interface TabSession {
   title: string
   messages: Message[]
   inputText: string
+  quotedText?: string | null
   attachedFile: AttachedFile | null
   sessionMode: SessionMode
+  harnessPhase?: HarnessPhase
+  workspace?: WorkspaceKind
   disciplinePath: string
   isProcessing: boolean
   isTodoOpen: boolean
@@ -70,4 +99,7 @@ export interface TabSession {
   artifacts?: ArtifactItem[]
   selectedArtifactId?: string | null
   disabledSkills?: string[]
+  harnessContextSnapshot?: HarnessContextSnapshot
+  harnessExplorerContext?: HarnessExplorerSelection[]
+  dismissedPlanMarkdown?: string
 }

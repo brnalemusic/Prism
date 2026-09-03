@@ -44,7 +44,7 @@ export function useActiveToolLabel(msg: ActiveToolLabelTarget | undefined): {
     ].filter(
       (tc) =>
         tc.name &&
-        tc.name !== 'to_ask' &&
+        (tc.name !== 'to_ask' || tc.status === 'writing' || tc.status === 'running') &&
         tc.name !== 'render_chat_history' &&
         tc.name !== 'malformed_tool_call'
     )

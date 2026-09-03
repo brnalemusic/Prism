@@ -76,7 +76,7 @@ export function ReasoningSelector({
 
       {isOpen && (
         <div
-          className="absolute bottom-full right-0 mb-2 z-50 p-2 animate-soft-pop text-left border border-white/[0.08] bg-[#141517] rounded-2xl shadow-xl"
+          className="glass-dropdown-panel absolute bottom-full right-0 mb-2 z-50 p-2 animate-soft-pop text-left"
           style={{ width: '8.5rem' }}
         >
           <div className="px-2.5 py-1 text-[10px] font-bold text-text-secondary/50 border-b border-white/[0.04] mb-1 select-none">

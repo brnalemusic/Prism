@@ -10,7 +10,7 @@ Prism is an open-source Electron + React desktop AI assistant built with TypeScr
 
 Contributors MUST follow these guidelines strictly:
 
-1. **Language Policy (`AGENTS.md` Rule 2 & 3):**
+1. **Language Policy (`.agents/rules/AGENTS.md` Rule 1.2 & 1.3):**
    - The Prism visual interface, UI/UX text, documentation, and code comments **MUST be in English**.
 2. **Source Control Rules:**
    - Never commit raw build output folders (`dist/`, `out/`, `node_modules/`).

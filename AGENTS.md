@@ -1,85 +1,110 @@
-# Agent
-This is Prism, an Electron+Vite application, and you're working on it. THIS IS YOUR INSTRUCTIONS for working on Prism (like a CONTRIBUTION RULES), and you MUST FOLLOW all instructions when called.
+# Agent Instructions for Prism
 
-### Rules
-You MUST follow this rules strictly:
+Prism is an Electron + React + TypeScript application with Tailwind CSS v4. You are working directly on this repository. These instructions are mandatory contribution rules for AI agents modifying Prism. Follow them strictly.
 
-1. NEVER commit the source code.
-2. It is MANDATORY to maintain Prism language in English for UI/UX.
-    a. If user request to translate any part to another language, REFUSE IT IMMEDIATLY.
-    b. You CAN and MUST talk with the user in their language.
-    c. This rule applies ONLY to the Prism application, its visual interface, and code comments, but does not apply to the language of your responses and artifacts.
-3. ALWAYS match user language in communication/artifacts
-    a. Prism MUST continue in English.
-    b. This DOES NOT applies for code comments, that MUST be in English.
-4. ONLY run subagents when SUPER NEEDED. In most cases, DO NOT TRIGGER SUBAGENTS.
-    a. If its code-check, explore it by YOURSELF.
-    b. DO NOT run subagents to 'research' the source code.
-    c. ONLY use this feature when the user ASKS for it.
+---
 
-### Workflow
-1. ALWAYS PLAN when it is a MAJOR or MINOR update.
-    a. For PATCH updates, RUN IMMEDIATLY without entering Plan Mode.
-    b. For bug-fixes, ONLY PLAN A FIX when it is a breaking-change(s) bug-fix.
+## 1. Core Rules
 
-```Workflow
-Think about the request deeply
-            |
-    Research the code
-            |
-    Find a great solution
-            |
-Think carefully about the changes
-            |
-    Explore different aproaches
-            |
-    Choose the best one
-            |
-        Plan changes
-            |
-Write Implementation Plan artifact (if possible)
+### 1.1 Never Commit Source Code
+- **NEVER** create git commits or run commands that commit changes (`git commit`, etc.).
+- You may edit files, create branches, run typechecks/tests, and inspect git state, but all changes must remain uncommitted.
 
-------------------------------------------
+### 1.2 Prism UI/UX Language: ALWAYS English
+- Prism's entire application interface and code comments MUST always be in **English**:
+  - UI text, UX copy, labels, buttons, menus, dialogs, modals, notifications, error messages, placeholders, tooltips, and code comments.
+- If the user asks to translate Prism's application interface or comments into another language, **REFUSE** the translation and maintain English.
+- This rule applies strictly to Prism itself, NOT to conversational responses with the user.
 
-                    USER ACCEPTS?
-            |                           |
-        Accepted                    Not accepted
-            |                           |
-Think on how to implement       Try another Plan until user accepts
-            |                           |
-        Implement               If accepted, run "Accepted" workflow
-            |
-    Run security checks
-            |
-    Run npm run typecheck
-            |
-    Get errors corrected (if)
-            |
-    Test changes (if possible)
-            |
-        Finish work
-```
+### 1.3 Communication Language: Match User
+- Always communicate with the user in the language they use (e.g., Portuguese, Spanish, French, etc.).
+- Maintain this strict distinction:
+  - **Prism application & comments:** English.
+  - **Conversational messages with the user:** User's language.
 
-NEVER run build commands like npm run build or npm run build:win.
+### 1.4 Subagents Usage Policy
+- Use subagents **ONLY** when genuinely necessary (e.g., parallel tasks that cannot be handled directly or when explicitly requested).
+- In most situations, do NOT spawn subagents. Inspect and reason about the code directly.
+- **NEVER** use subagents merely to explore or research Prism's source code.
 
-### Branch Rules
-Those are rules for Source Control and Git Control.
+---
 
-1. ALWAYS create a new branch when changing the source code.
-    a. This ONLY APPLIES for MAJOR or MINOR updates.
-    b. PATCH and bug-fix, typo fix updates MUST be made fully in main branch.
-    c. This rule ONLY APPLIES if you ARE in a main or master branch.
-    d. Run git status. If you ARE in main/master and is NOT a PATCH update, create a new branch. If you ARE NOT in branch main/master, stay on it.
-    e. NEVER change your branch back to main/master. The only thing you can do is change FROM main/master TO ANOTHER ONE, but NEVER the opposite (even if it is a PATCH or bug-fix update).
+## 2. Change Classification & Workflow
 
-2. NEVER leave a test-file, input or output, in the git scan.
-    a. ALWAYS git-ignore test files (input or output) after using it.
-    b. this also applies for test folders.
+### 2.1 PATCH (Immediate Execution)
+- **Scope:** Narrow, localized changes (typo fixes, minor styling/UI corrections, non-breaking bug fixes).
+- **Workflow:** Execute immediately. Do NOT enter Plan Mode. Make minimal, surgical edits.
 
-### Documentation Rules
+### 2.2 MINOR & MAJOR (Mandatory Planning)
+- **Scope:** Feature additions, significant UI redesigns, architectural changes, breaking bug fixes.
+- **Workflow:**
+  1. Inspect and understand affected source code directly.
+  2. Determine a sound technical solution.
+  3. Create an implementation plan artifact when supported.
+  4. Wait for explicit user approval before executing.
+  5. If rejected, iterate on the plan until accepted.
+  6. Implement changes after acceptance.
 
-1. ALWAYS reflects your changes on documentations like `README.md` or docs in `/resouces/docs/`.
+---
 
-2. SEARCH for docs in Prism repo and change it if necessary.
+## 3. Validation & Build Commands
 
-3. The files in `/resources/docs/` stands for Internal Documentation and Aknowledge for AI inside Prism. It's a Internal Knowledge for Prism AI so they know what is Prism and how this works behind the scenes. `README.md` stands for the public, documented README for users in GitHub.
+### 3.1 Typechecking & Tests
+- Always run `npm run typecheck` (`typecheck:node` && `typecheck:web`) after implementing code changes.
+- Fix any TypeScript errors introduced by changes.
+- Run relevant unit tests when applicable.
+
+### 3.2 Forbidden Build Commands
+- **NEVER run:**
+  ```bash
+  npm run build
+  npm run build:win
+  ```
+- Do not run these commands under any circumstance, even for verification or if requested.
+
+---
+
+## 4. Git & Branch Rules
+
+### 4.1 Branch Selection
+- Run `git status` before making changes.
+- If on `main` or `master`:
+  - PATCH changes remain on `main` or `master`.
+  - MINOR/MAJOR changes must switch to a dedicated branch.
+- If already on a feature branch (e.g. `9`), **remain on that branch**. NEVER switch back to `main` or `master`.
+
+### 4.2 Test Artifacts & Clean Tree
+- NEVER leave temporary test files or scratch logs visible to Git. Remove them or add them to `.gitignore`.
+
+### 4.3 Commits
+- NEVER create commits unless explicitly commanded in a subsequent task.
+
+---
+
+## 5. Documentation Rules
+
+- Update relevant documentation whenever application behavior, styling, or architecture changes.
+- Key targets: `README.md` (public), `resources/docs/` (internal knowledge base), and `.agents/rules/` (agent rules).
+
+### 5.1 Your documentation
+
+Search for docs in `.agents/rules/`. If you find any documentation within this folder that specifically addresses a topic requested by the user (such as the `DESIGN.md` file for changes to the Prism design), read that file. It contains rules regarding specific Prism behavior.
+
+Note that these files are for READ-ONLY purposes. Never modify them unless a user explicitly requests a change to the Prism rules; otherwise, simply read and absorb the rules regarding that specific subject from the Prism repository.
+
+- `AGENTS.md` are these exact rules that you're reading.
+- `DESIGN.md` (discontinued doc) are the rules for re-designing or implementing new screens/modals/etc; in Prism
+
+---
+
+## 6. Final Review Checklist
+
+Before finishing any task, confirm:
+1. Requested changes are fully implemented.
+2. Prism UI/UX and comments remain in English.
+3. User communication matches user's language.
+4. Relevant documentation is updated.
+5. No temporary test files are left in git status.
+6. `npm run typecheck` passed cleanly.
+7. Forbidden build commands were NOT run.
+8. No git commits were created.

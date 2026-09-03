@@ -1,6 +1,9 @@
 import { executeSystemTool } from './systemTools'
 import { getToolDefinition, JsonSchema, ToolDefinition, toolsManifest } from './toolsManifest'
 import { SystemToolOutput, ToolAttachment } from './toolAttachments'
+import type { ProviderConfig } from '../shared/types'
+import type { ImageGenerationErrorCode } from './ai/imageGenerationCore'
+import { imageGenerationToolError } from './ai/imageGeneration'
 
 export type ToolErrorCode =
   | 'UNKNOWN_TOOL'
@@ -9,6 +12,7 @@ export type ToolErrorCode =
   | 'REPEATED_CALL'
   | 'EXECUTION_FAILED'
   | 'CANCELLED'
+  | ImageGenerationErrorCode
 
 export interface ToolError {
   code: ToolErrorCode
@@ -32,6 +36,8 @@ export interface ToolExecutionContext {
   signal?: AbortSignal
   chatId?: string
   disabledSkills?: string[]
+  provider?: ProviderConfig
+  modelId?: string
   onStart?: (args: Record<string, unknown>) => void
 }
 
@@ -290,6 +296,21 @@ function validateCrossFieldRules(
   ) {
     return ['arguments.endLine must be greater than or equal to arguments.startLine.']
   }
+  if (
+    definition.name === 'generate_image' &&
+    args.operation === 'edit' &&
+    (typeof args.source_image_ref !== 'string' || !args.source_image_ref.trim())
+  ) {
+    return ['arguments.source_image_ref is required when operation is edit.']
+  }
+  if (
+    definition.name === 'generate_image' &&
+    args.operation !== 'edit' &&
+    typeof args.source_image_ref === 'string' &&
+    args.source_image_ref.trim()
+  ) {
+    return ['arguments.source_image_ref can only be used when operation is edit.']
+  }
   return []
 }
 
@@ -414,7 +435,9 @@ export async function executeValidatedTool(
       context.apiKey,
       context.signal,
       context.chatId,
-      context.disabledSkills
+      context.disabledSkills,
+      context.provider,
+      context.modelId
     )
     const { output, attachments } = normalizeSystemToolOutput(rawOutput)
     if (attachments.length > 0) {
@@ -448,6 +471,21 @@ export async function executeValidatedTool(
       ...(attachments.length > 0 ? { attachments } : {})
     }
   } catch (error) {
+    const imageError = imageGenerationToolError(error)
+    if (imageError) {
+      const envelope: ToolResultEnvelope = {
+        ok: false,
+        error: {
+          code: imageError.details.code,
+          message: imageError.details.userMessage,
+          details: {
+            imageGeneration: imageError.details
+          },
+          retryable: imageError.details.retryable
+        }
+      }
+      return { args: validation.args, envelope, modelContent: JSON.stringify(envelope) }
+    }
     const cancelled =
       context.signal?.aborted || (error instanceof Error && error.name === 'AbortError')
     const envelope: ToolResultEnvelope = {

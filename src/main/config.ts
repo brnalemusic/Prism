@@ -1,7 +1,20 @@
 import { app, safeStorage } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
-import { SessionMode, ProviderConfig } from '../shared/types'
+import {
+  SessionMode,
+  ProviderConfig,
+  HarnessSettings,
+  HarnessToolName,
+  HarnessProjectConfig,
+  ImageGenerationCapabilities
+} from '../shared/types'
+import { DEFAULT_PERSONA, normalizePersona, type PersonaSettings } from '../shared/persona'
+import {
+  DEFAULT_MEMORY_CONFIG,
+  normalizeMemoryConfig,
+  type MemoryConfig
+} from '../shared/memoryCore'
 
 export interface SlashWorkflow {
   id: string
@@ -25,6 +38,8 @@ export interface AppConfig {
   sttModel?: string
   quickLauncherModel?: string
   searchModel?: string
+  generativeBrowserModel?: string
+  imageGenerationModel?: string
   minimizeToTray: boolean
   autoLaunch: boolean
   quickLauncherMode?: 'simple' | 'advanced'
@@ -67,12 +82,61 @@ export interface AppConfig {
   discordGatewayModel?: string
   discordGatewayVoiceModel?: string
   disabledSkills?: string[]
+  harness: HarnessSettings
+  persona: PersonaSettings
+  memory: MemoryConfig
+}
+
+export const DEFAULT_HARNESS_TOOLS: HarnessToolName[] = [
+  'read',
+  'list',
+  'find',
+  'grep',
+  'to_ask',
+  'write',
+  'edit',
+  'delete_lines',
+  'apply_patch',
+  'exec_command',
+  'write_stdin',
+  'read_terminal_output',
+  'web_search'
+]
+
+const defaultHarnessProjectsRoot = (): string =>
+  path.join(app.getPath('documents'), 'PrismProjects')
+
+export function createDefaultHarnessSettings(): HarnessSettings {
+  return {
+    toolManifestVersion: 2,
+    projectsRoot: defaultHarnessProjectsRoot(),
+    defaultPermissionMode: 'ask',
+    defaultMaxRounds: 200,
+    enabledTools: [...DEFAULT_HARNESS_TOOLS],
+    maxReadLines: 800,
+    maxReadCharacters: 80_000,
+    maxTerminalOutputCharacters: 100_000,
+    maxContextCharacters: 80_000,
+    webPageCount: 5,
+    showSteps: true,
+    showThinking: true,
+    animateActivity: true,
+    reduceMotion: false,
+    tabProjectMode: 'fixed',
+    startupProjectMode: 'last_opened',
+    defaultProjectPath: undefined,
+    userGlobalInstructions: '',
+    yoloAcknowledged: false,
+    projects: {}
+  }
 }
 
 const DEFAULT_CONFIG: AppConfig = {
   disabledSkills: [],
   hasResetV8Keys: false,
   suppressLicenseModal: false,
+  persona: { ...DEFAULT_PERSONA },
+  memory: { ...DEFAULT_MEMORY_CONFIG },
   launcherShortcut: 'CommandOrControl+Space',
   modelSelectionShortcut: 'CommandOrControl+M',
   screenshotShortcut: 'Ctrl+Alt+Space',
@@ -85,6 +149,8 @@ const DEFAULT_CONFIG: AppConfig = {
   sttModel: '',
   quickLauncherModel: '',
   searchModel: '',
+  generativeBrowserModel: '',
+  imageGenerationModel: '',
   discordBotToken: '',
   discordGatewayEnabled: false,
   discordGatewayModel: '',
@@ -99,6 +165,7 @@ const DEFAULT_CONFIG: AppConfig = {
   terminalShell: 'powershell.exe',
   sessionMode: 'execution',
   disciplinePath: '',
+  harness: createDefaultHarnessSettings(),
   workflows: [
     {
       id: 'default-search',
@@ -106,8 +173,8 @@ const DEFAULT_CONFIG: AppConfig = {
       name: 'Search',
       description: 'Perform deep web research on a topic',
       systemInstruction:
-        'Deep web research mode. Use web_search to find information, verify facts across sources, and output a structured summary with references.',
-      toolConstraints: ['web_search', 'saw_link_from_url', 'open_browser_link']
+        'Deep web research mode. Always use web_fetch for comprehensive, in-depth multi-source research (synthesizing up to 50 web Sources), or web_search with an explicit resultCount from 1 to 10 for standard queries.',
+      toolConstraints: ['web_search', 'web_fetch', 'open_browser_link']
     },
     {
       id: 'default-summarize',
@@ -137,7 +204,10 @@ const VALID_THEMES = new Set([
   'violet',
   'white'
 ])
-const VALID_SESSION_MODES = new Set(['conversation', 'execution', 'discipline'])
+const VALID_SESSION_MODES = new Set(['conversation', 'execution', 'discipline', 'harness'])
+const VALID_HARNESS_PERMISSION_MODES = new Set(['ask', 'independent', 'yolo'])
+const VALID_HARNESS_STARTUP_MODES = new Set(['last_opened', 'default_project', 'prompt'])
+const VALID_HARNESS_TOOLS = new Set<string>(DEFAULT_HARNESS_TOOLS)
 const VALID_PRISM_THINKING_LEVELS = new Set(['minimal', 'low', 'medium', 'high'])
 const PRISM_CLOUD_MODEL_IDS = new Set([
   'prism-ai/arcadia-1.0-mini',
@@ -152,10 +222,7 @@ const PRISM_CLOUD_MODEL_IDS = new Set([
 
 export function migrateLegacyModelKey(key: string): string {
   if (!key || typeof key !== 'string') return ''
-  if (
-    key === 'gemini-3.1-flash-lite' ||
-    key === 'prism_provider:gemini-3.1-flash-lite'
-  ) {
+  if (key === 'gemini-3.1-flash-lite' || key === 'prism_provider:gemini-3.1-flash-lite') {
     return 'prism_provider:prism-ai/arcadia-1.0-mini'
   }
   if (
@@ -275,7 +342,219 @@ export function synthesizeLegacyProviders(config: Partial<AppConfig>): ProviderC
 }
 
 function normalizeConfig(config: AppConfig): AppConfig {
-  const providers = Array.isArray(config.providers) ? [...config.providers] : []
+  const defaultHarness = createDefaultHarnessSettings()
+  const rawHarness = config.harness || defaultHarness
+  const upgradeHarnessToolDefaults = rawHarness.toolManifestVersion !== 2
+  const normalizeInteger = (
+    value: unknown,
+    fallback: number,
+    minimum: number,
+    maximum: number
+  ): number =>
+    typeof value === 'number' && Number.isInteger(value) && value >= minimum && value <= maximum
+      ? value
+      : fallback
+  const normalizedProjects: Record<string, HarnessProjectConfig> = {}
+  if (
+    rawHarness.projects &&
+    typeof rawHarness.projects === 'object' &&
+    !Array.isArray(rawHarness.projects)
+  ) {
+    for (const rawProject of Object.values(rawHarness.projects)) {
+      if (!rawProject || typeof rawProject !== 'object' || Array.isArray(rawProject)) continue
+      const candidate = rawProject as Partial<HarnessProjectConfig>
+      if (typeof candidate.rootPath !== 'string' || !candidate.rootPath.trim()) continue
+      const rootPath = path.resolve(candidate.rootPath)
+      const project: HarnessProjectConfig = {
+        rootPath,
+        displayName:
+          typeof candidate.displayName === 'string' && candidate.displayName.trim()
+            ? candidate.displayName.trim()
+            : path.basename(rootPath),
+        createdAt:
+          typeof candidate.createdAt === 'number' && Number.isFinite(candidate.createdAt)
+            ? candidate.createdAt
+            : Date.now(),
+        updatedAt:
+          typeof candidate.updatedAt === 'number' && Number.isFinite(candidate.updatedAt)
+            ? candidate.updatedAt
+            : Date.now(),
+        permissionMode:
+          typeof candidate.permissionMode === 'string' &&
+          VALID_HARNESS_PERMISSION_MODES.has(candidate.permissionMode)
+            ? candidate.permissionMode
+            : undefined,
+        maxRounds:
+          candidate.maxRounds === undefined
+            ? undefined
+            : normalizeInteger(candidate.maxRounds, defaultHarness.defaultMaxRounds, 1, 1000),
+        enabledTools: Array.isArray(candidate.enabledTools)
+          ? (Array.from(
+              new Set([
+                ...candidate.enabledTools.filter((name) => VALID_HARNESS_TOOLS.has(name)),
+                ...(upgradeHarnessToolDefaults ? ['to_ask'] : [])
+              ])
+            ) as HarnessToolName[])
+          : undefined,
+        maxReadLines:
+          candidate.maxReadLines === undefined
+            ? undefined
+            : normalizeInteger(candidate.maxReadLines, defaultHarness.maxReadLines, 1, 5000),
+        maxReadCharacters:
+          candidate.maxReadCharacters === undefined
+            ? undefined
+            : normalizeInteger(
+                candidate.maxReadCharacters,
+                defaultHarness.maxReadCharacters,
+                1000,
+                500_000
+              ),
+        maxTerminalOutputCharacters:
+          candidate.maxTerminalOutputCharacters === undefined
+            ? undefined
+            : normalizeInteger(
+                candidate.maxTerminalOutputCharacters,
+                defaultHarness.maxTerminalOutputCharacters,
+                1000,
+                1_000_000
+              ),
+        maxContextCharacters:
+          candidate.maxContextCharacters === undefined
+            ? undefined
+            : normalizeInteger(
+                candidate.maxContextCharacters,
+                defaultHarness.maxContextCharacters,
+                10_000,
+                200_000
+              ),
+        webPageCount:
+          candidate.webPageCount === undefined
+            ? undefined
+            : normalizeInteger(candidate.webPageCount, defaultHarness.webPageCount, 3, 5),
+        showSteps: typeof candidate.showSteps === 'boolean' ? candidate.showSteps : undefined,
+        showThinking:
+          typeof candidate.showThinking === 'boolean' ? candidate.showThinking : undefined,
+        animateActivity:
+          typeof candidate.animateActivity === 'boolean' ? candidate.animateActivity : undefined,
+        reduceMotion:
+          typeof candidate.reduceMotion === 'boolean' ? candidate.reduceMotion : undefined,
+        userProjectInstructions:
+          typeof candidate.userProjectInstructions === 'string'
+            ? candidate.userProjectInstructions.slice(0, 5000)
+            : undefined
+      }
+      const key = rootPath.replace(/[\\/]+$/, '')
+      normalizedProjects[process.platform === 'win32' ? key.toLowerCase() : key] = project
+    }
+  }
+  const normalizedHarness: HarnessSettings = {
+    ...defaultHarness,
+    ...rawHarness,
+    toolManifestVersion: 2,
+    projectsRoot:
+      typeof rawHarness.projectsRoot === 'string' && rawHarness.projectsRoot.trim()
+        ? path.resolve(rawHarness.projectsRoot.trim())
+        : defaultHarness.projectsRoot,
+    defaultPermissionMode: VALID_HARNESS_PERMISSION_MODES.has(rawHarness.defaultPermissionMode)
+      ? rawHarness.defaultPermissionMode
+      : defaultHarness.defaultPermissionMode,
+    defaultMaxRounds: normalizeInteger(rawHarness.defaultMaxRounds, 200, 1, 1000),
+    enabledTools: Array.isArray(rawHarness.enabledTools)
+      ? (Array.from(
+          new Set([
+            ...rawHarness.enabledTools.filter((name) => VALID_HARNESS_TOOLS.has(name)),
+            ...(upgradeHarnessToolDefaults ? ['to_ask'] : [])
+          ])
+        ) as HarnessToolName[])
+      : [...DEFAULT_HARNESS_TOOLS],
+    maxReadLines: normalizeInteger(rawHarness.maxReadLines, 800, 1, 5000),
+    maxReadCharacters: normalizeInteger(rawHarness.maxReadCharacters, 80_000, 1000, 500_000),
+    maxTerminalOutputCharacters: normalizeInteger(
+      rawHarness.maxTerminalOutputCharacters,
+      100_000,
+      1000,
+      1_000_000
+    ),
+    maxContextCharacters: normalizeInteger(
+      rawHarness.maxContextCharacters,
+      80_000,
+      10_000,
+      200_000
+    ),
+    webPageCount: normalizeInteger(rawHarness.webPageCount, 5, 3, 5),
+    showSteps: rawHarness.showSteps !== false,
+    showThinking: rawHarness.showThinking !== false,
+    animateActivity: rawHarness.animateActivity !== false,
+    reduceMotion: rawHarness.reduceMotion === true,
+    tabProjectMode: rawHarness.tabProjectMode === 'grouped' ? 'grouped' : 'fixed',
+    startupProjectMode:
+      typeof rawHarness.startupProjectMode === 'string' &&
+      VALID_HARNESS_STARTUP_MODES.has(rawHarness.startupProjectMode)
+        ? (rawHarness.startupProjectMode as 'last_opened' | 'default_project' | 'prompt')
+        : 'last_opened',
+    defaultProjectPath:
+      typeof rawHarness.defaultProjectPath === 'string' && rawHarness.defaultProjectPath.trim()
+        ? path.resolve(rawHarness.defaultProjectPath)
+        : undefined,
+    userGlobalInstructions:
+      typeof rawHarness.userGlobalInstructions === 'string'
+        ? rawHarness.userGlobalInstructions.slice(0, 5000)
+        : '',
+    yoloAcknowledged: rawHarness.yoloAcknowledged === true,
+    lastProjectPath:
+      typeof rawHarness.lastProjectPath === 'string' && rawHarness.lastProjectPath.trim()
+        ? path.resolve(rawHarness.lastProjectPath)
+        : undefined,
+    projects: normalizedProjects
+  }
+  const normalizeImageCapabilities = (
+    value: ProviderConfig['models'][number]['imageGeneration']
+  ): ProviderConfig['models'][number]['imageGeneration'] => {
+    if (!value) return undefined
+    const legacyState = (
+      operation: 'generate' | 'edit'
+    ): ImageGenerationCapabilities['generate'] => {
+      const operationValue = value[operation]
+      if (typeof operationValue !== 'boolean') return operationValue
+      return operationValue
+        ? { status: 'unknown' }
+        : { status: 'unsupported', reason: 'This operation was disabled in model settings.' }
+    }
+    return {
+      ...value,
+      mode: 'automatic',
+      preferredAdapter: value.preferredAdapter || value.adapter,
+      generate: legacyState('generate'),
+      edit: legacyState('edit')
+    }
+  }
+
+  const providers = (Array.isArray(config.providers) ? config.providers : []).map((provider) => {
+    if (
+      provider?.completionType === 'puter_native' &&
+      !provider.puterAuthToken?.trim() &&
+      provider.apiKey?.trim()
+    ) {
+      // Older Prism releases stored the account session in apiKey. Keep existing
+      // Puter accounts working while making the User-Pays credential explicit.
+      return {
+        ...provider,
+        puterAuthToken: provider.apiKey,
+        apiKey: '',
+        models: (provider.models || []).map((model) => ({
+          ...model,
+          imageGeneration: normalizeImageCapabilities(model.imageGeneration)
+        }))
+      }
+    }
+    return {
+      ...provider,
+      models: (provider.models || []).map((model) => ({
+        ...model,
+        imageGeneration: normalizeImageCapabilities(model.imageGeneration)
+      }))
+    }
+  })
 
   return {
     ...config,
@@ -304,13 +583,22 @@ function normalizeConfig(config: AppConfig): AppConfig {
         ? migrateLegacyModelKey(config.quickLauncherModel)
         : '',
     searchModel:
-      typeof config.searchModel === 'string'
-        ? migrateLegacyModelKey(config.searchModel)
+      typeof config.searchModel === 'string' ? migrateLegacyModelKey(config.searchModel) : '',
+    generativeBrowserModel:
+      typeof config.generativeBrowserModel === 'string'
+        ? migrateLegacyModelKey(config.generativeBrowserModel)
+        : '',
+    imageGenerationModel:
+      typeof config.imageGenerationModel === 'string'
+        ? migrateLegacyModelKey(config.imageGenerationModel)
         : '',
     discordBotToken: typeof config.discordBotToken === 'string' ? config.discordBotToken : '',
-    discordGatewayEnabled: typeof config.discordGatewayEnabled === 'boolean' ? config.discordGatewayEnabled : false,
-    discordGatewayModel: typeof config.discordGatewayModel === 'string' ? config.discordGatewayModel : '',
-    discordGatewayVoiceModel: typeof config.discordGatewayVoiceModel === 'string' ? config.discordGatewayVoiceModel : '',
+    discordGatewayEnabled:
+      typeof config.discordGatewayEnabled === 'boolean' ? config.discordGatewayEnabled : false,
+    discordGatewayModel:
+      typeof config.discordGatewayModel === 'string' ? config.discordGatewayModel : '',
+    discordGatewayVoiceModel:
+      typeof config.discordGatewayVoiceModel === 'string' ? config.discordGatewayVoiceModel : '',
     ttsVoice: VALID_VOICES.has(config.ttsVoice) ? config.ttsVoice : DEFAULT_CONFIG.ttsVoice,
     theme: VALID_THEMES.has(config.theme)
       ? (config.theme as AppConfig['theme'])
@@ -332,6 +620,9 @@ function normalizeConfig(config: AppConfig): AppConfig {
       typeof config.disciplinePath === 'string'
         ? config.disciplinePath
         : DEFAULT_CONFIG.disciplinePath,
+    harness: normalizedHarness,
+    persona: normalizePersona(config.persona),
+    memory: normalizeMemoryConfig(config.memory),
     modelReasoningLevels: normalizeReasoningLevels(config.modelReasoningLevels)
   }
 }
@@ -409,41 +700,48 @@ export function loadConfig(): AppConfig {
 
     const config = normalizeConfig({ ...DEFAULT_CONFIG, ...parsedConfig })
 
-    if (
+    const normalizedReasoningLevelsChanged =
       JSON.stringify(parsedConfig.modelReasoningLevels || {}) !==
       JSON.stringify(config.modelReasoningLevels || {})
-    ) {
+    const normalizedProvidersChanged =
+      JSON.stringify(parsedConfig.providers || []) !== JSON.stringify(config.providers || [])
+    if (normalizedReasoningLevelsChanged || normalizedProvidersChanged) {
       try {
         fs.writeFileSync(
           CONFIG_FILE,
           JSON.stringify(
-            { ...parsedConfig, modelReasoningLevels: config.modelReasoningLevels },
+            {
+              ...parsedConfig,
+              modelReasoningLevels: config.modelReasoningLevels,
+              providers: config.providers
+            },
             null,
             2
           )
         )
       } catch (migrationError) {
-        console.error(
-          '[Config] Failed to persist Prism Cloud thinking-level migration:',
-          migrationError
-        )
+        console.error('[Config] Failed to persist config normalization:', migrationError)
       }
     }
 
-    // Decrypt API keys inside providers if safeStorage was used
+    // Decrypt provider credentials if safeStorage was used.
     if (config.providers && Array.isArray(config.providers)) {
       config.providers = config.providers.map((p) => {
-        let key = p.apiKey || ''
-        const isHex = /^[0-9a-fA-F]+$/.test(key)
-        if (key && safeStorage.isEncryptionAvailable() && isHex) {
+        const decrypt = (value: string, label: string): string => {
+          const isHex = /^[0-9a-fA-F]+$/.test(value)
+          if (!value || !safeStorage.isEncryptionAvailable() || !isHex) return value
           try {
-            const buffer = Buffer.from(key, 'hex')
-            key = safeStorage.decryptString(buffer)
+            return safeStorage.decryptString(Buffer.from(value, 'hex'))
           } catch (e) {
-            console.error(`Failed to decrypt provider ${p.name} key:`, e)
+            console.error(`Failed to decrypt provider ${p.name} ${label}:`, e)
+            return value
           }
         }
-        return { ...p, apiKey: key }
+        return {
+          ...p,
+          apiKey: decrypt(p.apiKey || '', 'API key'),
+          puterAuthToken: decrypt(p.puterAuthToken || '', 'Puter session')
+        }
       })
     }
 
@@ -473,28 +771,34 @@ export function saveConfig(config: Partial<AppConfig>, currentConfig?: AppConfig
     const mergedConfig = { ...existingConfig, ...config }
     const configToSave = normalizeConfig(mergedConfig)
 
-    // Encrypt API keys inside providers using safeStorage if not already encrypted
+    // Encrypt provider credentials using safeStorage if not already encrypted.
     if (configToSave.providers && Array.isArray(configToSave.providers)) {
       configToSave.providers = configToSave.providers.map((p) => {
-        let key = p.apiKey || ''
-        let isAlreadyEncrypted = false
-        if (key && /^[0-9a-fA-F]+$/.test(key)) {
-          try {
-            safeStorage.decryptString(Buffer.from(key, 'hex'))
-            isAlreadyEncrypted = true
-          } catch {
-            isAlreadyEncrypted = false
+        const encrypt = (value: string, label: string): string => {
+          let encryptedValue = value
+          let isAlreadyEncrypted = false
+          if (encryptedValue && /^[0-9a-fA-F]+$/.test(encryptedValue)) {
+            try {
+              safeStorage.decryptString(Buffer.from(encryptedValue, 'hex'))
+              isAlreadyEncrypted = true
+            } catch {
+              isAlreadyEncrypted = false
+            }
           }
-        }
-        if (key && safeStorage.isEncryptionAvailable() && !isAlreadyEncrypted) {
-          try {
-            const encrypted = safeStorage.encryptString(key)
-            key = encrypted.toString('hex')
-          } catch (e) {
-            console.error(`Failed to encrypt provider ${p.name} key:`, e)
+          if (encryptedValue && safeStorage.isEncryptionAvailable() && !isAlreadyEncrypted) {
+            try {
+              encryptedValue = safeStorage.encryptString(encryptedValue).toString('hex')
+            } catch (e) {
+              console.error(`Failed to encrypt provider ${p.name} ${label}:`, e)
+            }
           }
+          return encryptedValue
         }
-        return { ...p, apiKey: key }
+        return {
+          ...p,
+          apiKey: encrypt(p.apiKey || '', 'API key'),
+          puterAuthToken: encrypt(p.puterAuthToken || '', 'Puter session')
+        }
       })
     }
 

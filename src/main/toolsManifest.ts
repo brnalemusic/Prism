@@ -57,7 +57,47 @@ const tool = (
 const pathArg = stringSchema('Absolute filesystem path.')
 const contentArg = stringSchema('Complete UTF-8 text content. Preserve whitespace exactly.')
 
+export const COMPUTER_READ_FILE_DEFAULT_LIMIT = 500
+export const COMPUTER_READ_FILE_MAX_LINES = 800
+export const COMPUTER_READ_FILE_MAX_CHARACTERS = 80_000
+
 export const toolsManifest: ToolDefinition[] = [
+  tool(
+    'generate_image',
+    'Generate a new image or edit a specific image already available in this conversation. You decide when a visual is appropriate and must supply a complete, polished final prompt. For edits, set operation to "edit" and copy the exact prism-image://asset/<uuid> reference announced with the intended image into source_image_ref. Never invent references or use filesystem paths. Generated outputs become part of this assistant response and receive references that can be edited later.',
+    {
+      prompt: stringSchema(
+        'Complete final prompt to send to the configured image-generation model.'
+      ),
+      operation: stringSchema(
+        'Whether to create a new image or edit an existing chat image asset.',
+        {
+          enum: ['generate', 'edit'],
+          default: 'generate'
+        }
+      ),
+      source_image_ref: stringSchema(
+        'Exact Prism image reference to edit, such as prism-image://asset/<uuid>. Required only when operation is edit.'
+      ),
+      size: stringSchema('Requested output dimensions.', {
+        enum: [
+          '256x256',
+          '512x512',
+          '1024x1024',
+          '1024x1536',
+          '1536x1024',
+          '1024x1792',
+          '1792x1024'
+        ],
+        default: '1024x1024'
+      }),
+      quality: stringSchema('Provider-supported output quality.', {
+        enum: ['auto', 'low', 'medium', 'high', 'standard', 'hd']
+      }),
+      n: integerSchema('Number of images to generate.', { default: 1, minimum: 1, maximum: 4 })
+    },
+    ['prompt']
+  ),
   tool(
     'discord_leave_voice',
     'Requests leaving the current Discord voice channel. Use this when the user asks you to leave, or when the full conversation makes ending the voice session appropriate. After it succeeds, say a brief personalized goodbye and do not call more tools.',
@@ -66,13 +106,13 @@ export const toolsManifest: ToolDefinition[] = [
   ),
   tool(
     'execute_terminal_command',
-    'Run one command in the user-configured terminal shell.',
+    'Run one command in the user-configured terminal shell. Short commands return their exit code and output immediately. Long-running processes yield a six-digit Run ID and continue in the background. You do NOT need to poll: Prism will automatically resume/notify you upon completion or when input is needed.',
     { command: stringSchema('Exact shell command to execute.') },
     ['command']
   ),
   tool(
     'read_terminal_output',
-    'Read the accumulated terminal output so far for a background or interactive terminal command using its six-digit Run ID.',
+    'Read the accumulated terminal output so far for a background or interactive terminal command using its six-digit Run ID. Use ONLY to inspect intermediate output of live persistent services or for targeted debugging. DO NOT poll in a loop to wait for completion.',
     { runId: stringSchema('Six-digit Run ID of the terminal process.') },
     ['runId']
   ),
@@ -81,13 +121,19 @@ export const toolsManifest: ToolDefinition[] = [
     'Send input text and/or simulated keyboard key combinations (such as Arrow keys, Enter, Ctrl+B, Shift+Alt+L, etc.) to the standard input (stdin) of a running terminal command.',
     {
       runId: stringSchema('Six-digit Run ID of the terminal process.'),
-      input: stringSchema('Optional text to write to stdin. Confirmed with Enter automatically by default.'),
+      input: stringSchema(
+        'Optional text to write to stdin. Confirmed with Enter automatically by default.'
+      ),
       keys: {
         type: 'array',
-        description: 'Optional list of key names or modifier combinations to press in order, e.g. ["ArrowUp", "ArrowUp", "Enter"], ["Ctrl+B"], ["Shift+Alt+L"], ["Tab"], ["Escape"], ["Ctrl+C"].',
+        description:
+          'Optional list of key names or modifier combinations to press in order, e.g. ["ArrowUp", "ArrowUp", "Enter"], ["Ctrl+B"], ["Shift+Alt+L"], ["Tab"], ["Escape"], ["Ctrl+C"].',
         items: stringSchema('Key name or combo string.')
       },
-      pressEnter: booleanSchema('Whether to automatically confirm input text with Enter/newline. Default is true.', true)
+      pressEnter: booleanSchema(
+        'Whether to automatically confirm input text with Enter/newline. Default is true.',
+        true
+      )
     },
     ['runId']
   ),
@@ -171,11 +217,14 @@ export const toolsManifest: ToolDefinition[] = [
         default: 1,
         minimum: 1
       }),
-      limit: integerSchema('Maximum number of lines to return.', {
-        default: 200,
-        minimum: 1,
-        maximum: 500
-      })
+      limit: integerSchema(
+        `Maximum number of lines to return (up to ${COMPUTER_READ_FILE_MAX_LINES}; the selected content is capped at ${COMPUTER_READ_FILE_MAX_CHARACTERS.toLocaleString('en-US')} characters).`,
+        {
+          default: COMPUTER_READ_FILE_DEFAULT_LIMIT,
+          minimum: 1,
+          maximum: COMPUTER_READ_FILE_MAX_LINES
+        }
+      )
     },
     ['path']
   ),
@@ -193,29 +242,33 @@ export const toolsManifest: ToolDefinition[] = [
   ),
   tool(
     'web_search',
-    'Search the web using one or more titled queries.',
+    'Search DuckDuckGo and automatically read the requested number of matching source pages. Use for standard quick search queries. Request 2–4 sources in most cases, 5–8 only for specific needs, and never more than 10.',
     {
-      searches: {
-        type: 'array',
-        description: 'Search requests to execute in order.',
-        minItems: 1,
-        maxItems: 10,
-        items: objectSchema(
-          {
-            title: stringSchema('Concise action title shown in the UI.'),
-            query: stringSchema('Search-engine query.')
-          },
-          ['title', 'query']
-        )
-      }
+      query: stringSchema('Focused web search query.'),
+      resultCount: integerSchema(
+        'Number of Sources to return. Minimum: 1. Recommended: 2–4. Use 5–8 only for specific cases. Maximum: 10.',
+        { minimum: 1, maximum: 10 }
+      )
     },
-    ['searches']
+    ['query', 'resultCount']
   ),
   tool(
-    'saw_link_from_url',
-    'Read the main text content of a web URL.',
-    { url: stringSchema('HTTP or HTTPS URL.') },
-    ['url']
+    'web_fetch',
+    'Deep web research tool. Automatically executes 5 distinct Google-style search queries (retrieving 10 pages per query, totaling up to 50 source web pages) on different facets of a topic, and synthesizes up to 15,000 characters from each Source via a dedicated subagent into a comprehensive, detailed summary (at least 1000 characters minimum, up to 4000 characters). Always call web_fetch when the user requests a deep search, deep research, comprehensive analysis, or whenever a complex topic demands thorough multi-source investigation.',
+    {
+      title: stringSchema(
+        "Descriptive research title specifying the main extraction topic. MUST be written in the user's conversational language (e.g. 'Dominância das empresas chinesas de IA no mercado de 2026' if talking in Portuguese). This title guides subagent focus and appears in the user interface."
+      ),
+      queries: {
+        type: 'array',
+        description:
+          "Exactly 5 distinct Google-style web search queries exploring different aspects and variants of the topic. Formulate them as Google search queries in whichever language yields the highest quality global results (e.g. English for global/tech topics, or the user's language for regional topics). Each query retrieves 10 web pages (5 x 10 = up to 50 total Sources).",
+        minItems: 5,
+        maxItems: 5,
+        items: stringSchema('A focused Google-style web search query.')
+      }
+    },
+    ['title', 'queries']
   ),
   tool(
     'open_browser_link',
@@ -295,7 +348,10 @@ export const toolsManifest: ToolDefinition[] = [
     ['instructions']
   ),
   tool('computer_use_see_screen', 'Capture a screenshot of the entire screen.', {
-    appName: stringSchema('Optional window/app name (ignored, full desktop screen is always captured).', { default: 'Entire Screen' })
+    appName: stringSchema(
+      'Optional window/app name (ignored, full desktop screen is always captured).',
+      { default: 'Entire Screen' }
+    )
   }),
   tool('configure_prism', 'Change non-secret Prism settings. At least one property is required.', {
     launcherShortcut: stringSchema('Quick Launcher hotkey.'),
@@ -310,6 +366,8 @@ export const toolsManifest: ToolDefinition[] = [
     searchModel: stringSchema('Search model key.'),
     quickLauncherModel: stringSchema('Quick Launcher model key.'),
     sttModel: stringSchema('Speech-to-text model key.'),
+    generativeBrowserModel: stringSchema('Generative AI Browser model key.'),
+    imageGenerationModel: stringSchema('Native image-generation model route key.'),
     minimizeToTray: booleanSchema('Whether closing Prism minimizes it to the tray.'),
     autoLaunch: booleanSchema('Whether Prism starts with the operating system.'),
     quickLauncherMode: stringSchema('Quick Launcher mode.', { enum: ['simple', 'advanced'] }),
@@ -367,22 +425,32 @@ export const toolsManifest: ToolDefinition[] = [
         items: objectSchema(
           {
             id: stringSchema('Unique question ID.'),
-            type: stringSchema('Question type.', { enum: ['multiple-choice', 'essay'] }),
+            type: stringSchema('Question type.', {
+              enum: ['multiple-choice', 'multiple-select', 'essay']
+            }),
             title: stringSchema('Short category title.'),
             prompt: stringSchema('Question shown to the user.'),
             options: {
               type: 'array',
-              description: 'Choices for a multiple-choice question.',
+              description: 'Choices for a multiple-choice or multiple-select question.',
               minItems: 2,
               maxItems: 10,
               items: objectSchema(
                 {
                   value: stringSchema('Stable choice value.'),
-                  label: stringSchema('User-facing choice label.')
+                  label: stringSchema('Short user-facing choice title.'),
+                  description: stringSchema('Explanation shown below the choice title.'),
+                  recommended: booleanSchema(
+                    'Set true when this is the best option you recommend to the user.'
+                  )
                 },
                 ['value', 'label']
               )
-            }
+            },
+            max_selections: integerSchema(
+              'Optional maximum selections for multiple-select. Omit to allow any number.',
+              { minimum: 1, maximum: 10 }
+            )
           },
           ['id', 'type', 'title', 'prompt']
         )
@@ -463,7 +531,9 @@ export const toolsManifest: ToolDefinition[] = [
     'read_skill',
     'Read a specialized skill file from Prism internal skills library to learn guidelines and unlock execution tools for specific tasks.',
     {
-      skill_name: stringSchema('Filename of the skill to read, e.g. "pdf_skill.md" or "pptx_skill.md".')
+      skill_name: stringSchema(
+        'Filename of the skill to read, e.g. "pdf_skill.md" or "pptx_skill.md".'
+      )
     },
     ['skill_name']
   ),
@@ -501,6 +571,23 @@ export const toolsManifest: ToolDefinition[] = [
       html: stringSchema('Updated complete slide HTML and CSS.')
     },
     ['html']
+  ),
+  tool(
+    'memory',
+    "Manage Prism's long-term memory. add: save a new fact. replace: correct or update an existing fact (old_text = short unique substring of the current entry; content = the new full fact). remove: delete a fact that is no longer true (old_text = short unique substring). target \"user\" stores profile facts about the user (name, age, preferences, communication style); target \"memory\" stores general facts and notes. Save proactively after the user states a stable preference, correction or durable personal fact \u2014 do not wait to be asked. Keep entries compact; update instead of duplicating. Never save secrets or credentials. The user's current message always wins over stored memory.",
+    {
+      action: stringSchema('Which operation to perform.', {
+        enum: ['add', 'replace', 'remove']
+      }),
+      target: stringSchema('Which store to operate on.', { enum: ['user', 'memory'] }),
+      content: stringSchema(
+        "The full fact to save (add/replace). Compact, information-dense, written in the user's language."
+      ),
+      old_text: stringSchema(
+        'Short unique substring identifying the existing entry (replace/remove).'
+      )
+    },
+    ['action', 'target']
   )
 ]
 

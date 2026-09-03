@@ -4,7 +4,9 @@ import {
   CompletionType,
   StreamToolCallDelta,
   TodoState,
-  PrismThinkingLevel
+  PrismThinkingLevel,
+  HarnessContextSnapshot,
+  HarnessExplorerContextSnapshot
 } from '../../shared/types'
 import type { ToolResultEnvelope } from '../toolRuntime'
 import type { ToolAttachment, ToolImageReference } from '../toolAttachments'
@@ -79,6 +81,8 @@ export interface OpenAiMessage {
   tool_call_id?: string
   tool_attachments?: ToolAttachment[]
   tool_attachment_refs?: ToolImageReference[]
+  image_attachments?: ToolAttachment[]
+  image_attachment_refs?: ToolImageReference[]
   tool_metadata?: {
     originalArguments: unknown
     validatedArguments: Record<string, unknown>
@@ -88,12 +92,18 @@ export interface OpenAiMessage {
   thinking_duration?: number
   isSystemNotification?: boolean
   hidden?: boolean
+  harness_context_snapshot?: HarnessContextSnapshot
+  harness_explorer_context?: HarnessExplorerContextSnapshot
+  visible_user_content?: string
+  quote?: string
   provider_metadata?: {
     gemini?: {
       content: GeminiContentData
     }
   }
 }
+
+export type OpenAiToolCall = NonNullable<OpenAiMessage['tool_calls']>[number]
 
 export interface OpenAiToolDefinition {
   type: 'function'

@@ -217,7 +217,7 @@ export const MiniAppRenderer: React.FC<MiniAppProps> = ({
             ref={iframeRef}
             srcDoc={combinedCode}
             className="w-full h-full border-none bg-transparent"
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-same-origin"
             title={title}
           />
         )}

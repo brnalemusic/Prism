@@ -10,9 +10,31 @@ import type {
   ApplicationInfo,
   FileSearchResult,
   SessionMode,
+  HarnessPhase,
   TodoState,
-  TerminalProcessSnapshot
+  TerminalProcessSnapshot,
+  ToolAttachment,
+  HarnessApprovalRequest,
+  HarnessProjectConfig,
+  HarnessProjectOverrides,
+  HarnessInstructionStatus,
+  HarnessContextSnapshot,
+  HarnessSettings,
+  RetryImageGenerationRequest,
+  SaveGeneratedImageRequest,
+  SaveGeneratedImageResult,
+  WorkspaceKind,
+  HarnessExplorerSelection,
+  HarnessExplorerDirectoryResult,
+  HarnessExplorerActionResult
 } from '../shared/types'
+import type {
+  MemoryEntry,
+  MemoryListOptions,
+  MemoryPatch,
+  MemoryStats,
+  MemoryStoreEvent
+} from '../shared/memoryCore'
 import type {
   DemoDownloadResult,
   DemoInstallProgress,
@@ -59,17 +81,62 @@ export interface PrismAPI {
     reasoningLevel?: string
     disabledSkills?: string[]
   }) => void
+  sendHarnessMessage: (data: {
+    message: string
+    chatId?: string
+    projectPath: string
+    attachedFile?: AttachedFile
+    quote?: string
+    modelKey?: string
+    reasoningLevel?: string
+    explorerContext?: HarnessExplorerSelection[]
+    harnessPhase?: HarnessPhase
+  }) => void
+  setHarnessSessionPhase: (chatId: string, phase: HarnessPhase) => Promise<boolean>
+  prepareHarnessPlanHandoff: (data: {
+    chatId: string
+    projectPath: string
+    modelKey: string
+    plan: string
+  }) => Promise<{ context: string }>
+  cancelHarnessPlanHandoff: (chatId: string) => void
+  setHarnessSessionModel: (chatId: string, modelKey: string) => Promise<boolean>
 
   setModel: (modelKey: string) => void
   clearChat: () => void
   cancelChat: (chatId?: string) => void
   onChatStart: (
-    callback: (data: { chatId: string; userMessage?: { role: 'user'; content: string } }) => void
+    callback: (data: {
+      chatId: string
+      workspace: WorkspaceKind
+      userMessage?: { role: 'user'; content: string }
+    }) => void
   ) => () => void
 
-  onChatChunk: (callback: (data: StructuredChatResponse & { chatId: string }) => void) => () => void
-  onChatEnd: (callback: (data: StructuredChatResponse & { chatId: string }) => void) => () => void
-  onChatError: (callback: (data: { error: string; chatId: string }) => void) => () => void
+  onChatChunk: (
+    callback: (
+      data: StructuredChatResponse & {
+        chatId: string
+        workspace: WorkspaceKind
+        harnessRound?: number
+        harnessRoundContent?: string
+        harnessRoundThoughts?: string
+      }
+    ) => void
+  ) => () => void
+  onChatEnd: (
+    callback: (
+      data: StructuredChatResponse & {
+        chatId: string
+        workspace: WorkspaceKind
+        harnessRoundContent?: string
+        harnessRoundThoughts?: string
+      }
+    ) => void
+  ) => () => void
+  onChatError: (
+    callback: (data: { error: string; chatId: string; workspace: WorkspaceKind }) => void
+  ) => () => void
   onToolStart: (
     callback: (data: {
       callId: string
@@ -77,16 +144,72 @@ export interface PrismAPI {
       args: Record<string, unknown>
       timestamp?: number
       chatId: string
+      workspace: WorkspaceKind
+      round?: number
     }) => void
   ) => () => void
   onToolEnd: (
-    callback: (data: { callId: string; name: string; result: string; chatId: string }) => void
+    callback: (data: {
+      callId: string
+      name: string
+      result: string
+      attachments?: ToolAttachment[]
+      chatId: string
+      workspace: WorkspaceKind
+      round?: number
+    }) => void
   ) => () => void
   onDiscordVoiceState: (callback: (data: DiscordVoiceStateEvent) => void) => () => void
   onDiscordVoiceSpeaking: (callback: (data: DiscordVoiceSpeakingEvent) => void) => () => void
   onDiscordVoiceAudioLevel: (callback: (data: DiscordVoiceAudioLevelEvent) => void) => () => void
   onDiscordVoiceOutput: (callback: (data: { chatId: string }) => void) => () => void
   onToolUpdate: (callback: (data: ToolUpdate & { chatId: string }) => void) => () => void
+  onHarnessApprovalRequest: (callback: (data: HarnessApprovalRequest) => void) => () => void
+  resolveHarnessApproval: (requestId: string, approved: boolean) => void
+  onHarnessPromptWarning: (
+    callback: (data: {
+      chatId: string
+      warnings: string[]
+      repoInstructionsLoaded: boolean
+    }) => void
+  ) => () => void
+  onHarnessContextInjection: (
+    callback: (data: { chatId: string; snapshot: HarnessContextSnapshot }) => void
+  ) => () => void
+  createHarnessProject: (name: string) => Promise<{ project: HarnessProjectConfig }>
+  openHarnessProject: (projectPath?: string) => Promise<{ project: HarnessProjectConfig } | null>
+  getHarnessProject: (projectPath?: string) => Promise<HarnessProjectConfig | null>
+  getHarnessInstructionStatus: (projectPath?: string) => Promise<HarnessInstructionStatus | null>
+  updateHarnessProject: (
+    projectPath: string,
+    overrides: HarnessProjectOverrides
+  ) => Promise<{ project: HarnessProjectConfig }>
+  deleteHarnessProject: (rootPath: string) => Promise<HarnessSettings>
+  checkHarnessProject: (
+    rootPath: string
+  ) => Promise<{ exists: boolean; isDirectory: boolean; isGit: boolean }>
+  checkAllHarnessProjects: () => Promise<
+    Record<string, { exists: boolean; isDirectory: boolean; isGit: boolean }>
+  >
+  recreateHarnessProjectFolder: (rootPath: string) => Promise<{ project: HarnessProjectConfig }>
+  resolveHarnessStartupProject: () => Promise<HarnessProjectConfig | null>
+  listHarnessDirectory: (
+    projectPath: string,
+    relativePath?: string
+  ) => Promise<HarnessExplorerDirectoryResult>
+  openHarnessExplorerFile: (
+    projectPath: string,
+    selection: HarnessExplorerSelection
+  ) => Promise<HarnessExplorerActionResult>
+  copyHarnessExplorerPath: (
+    projectPath: string,
+    selection: HarnessExplorerSelection
+  ) => Promise<HarnessExplorerActionResult>
+  showHarnessExplorerItem: (
+    projectPath: string,
+    selection: HarnessExplorerSelection
+  ) => Promise<HarnessExplorerActionResult>
+  openFolderInExplorer: (folderPath: string) => Promise<string>
   onDownloadProgress: (callback: (data: DownloadProgress) => void) => () => void
   demoDownloadPrism: () => Promise<DemoDownloadResult>
   demoRunPrismInstaller: () => Promise<DemoProcessResult>
@@ -129,6 +252,14 @@ export interface PrismAPI {
   captureWindow: (sourceId: string) => Promise<string>
   getConfig: () => Promise<AppConfig>
   saveConfig: (config: Partial<AppConfig>) => Promise<boolean>
+  memoryList: (options?: MemoryListOptions) => Promise<MemoryEntry[]>
+  memoryUpdate: (id: string, patch: MemoryPatch) => Promise<MemoryEntry | null>
+  memoryArchive: (id: string) => Promise<boolean>
+  memoryRestore: (id: string) => Promise<boolean>
+  memoryDelete: (id: string) => Promise<boolean>
+  memoryStats: () => Promise<MemoryStats>
+  memoryToggleAuto: (enabled: boolean) => Promise<boolean>
+  onMemoryEvent: (callback: (event: MemoryStoreEvent) => void) => () => void
   selectFolder: () => Promise<string | null>
   setSessionMode: (mode: SessionMode, disciplinePath?: string) => void
   getSessionMode: () => Promise<{ mode: SessionMode; disciplinePath?: string }>
@@ -140,9 +271,17 @@ export interface PrismAPI {
   getToolDefinitions: () => Promise<any[]>
   getChats: () => Promise<Omit<ChatSession, 'messages'>[]>
   loadChat: (id: string) => Promise<any[]>
+  getHarnessSessions: () => Promise<Omit<ChatSession, 'messages'>[]>
+  loadHarnessSession: (id: string) => Promise<any[]>
+  searchHarnessSessions: (query: string) => Promise<any>
   isChatRunning: (id: string) => Promise<boolean>
   getChatModel: (id: string) => Promise<string | undefined>
   deleteChat: (id: string) => Promise<boolean>
+  deleteHarnessSession: (id: string) => Promise<boolean>
+  retryImageGeneration: (
+    request: RetryImageGenerationRequest
+  ) => Promise<{ started: boolean; error?: string }>
+  saveGeneratedImage: (request: SaveGeneratedImageRequest) => Promise<SaveGeneratedImageResult>
   getRunningChats: () => Promise<string[]>
   setThinkMode: (val: boolean) => void
   setSearchEnabled: (val: boolean) => void
@@ -192,7 +331,7 @@ export interface PrismAPI {
   submitQuestionnaire: (data: {
     chatId: string
     sessionId: string
-    responses: Record<string, string>
+    responses: Record<string, string | string[]>
   }) => void
   generateTts: (text: string) => Promise<string>
   transcribeAudio: (audioBase64: string) => Promise<string>
@@ -251,12 +390,21 @@ export interface PrismAPI {
   fetchProviderModels: (params: {
     baseUrl: string
     apiKey: string
+    puterAuthToken?: string
     completionType: import('../shared/types').CompletionType
   }) => Promise<{
     success: boolean
     models: import('../shared/types').ProviderModel[]
     error?: string
   }>
+  loginWithPuter: () => Promise<{
+    success: boolean
+    token?: string
+    username?: string
+    user?: any
+    error?: string
+  }>
+  cancelPuterLogin: () => Promise<boolean>
   getActiveModels: () => Promise<
     Array<{
       providerId: string
@@ -264,10 +412,16 @@ export interface PrismAPI {
       isProviderTrusted: boolean
       model: import('../shared/types').ProviderModel
       fullKey: string
+      completionType: import('../shared/types').CompletionType
     }>
   >
   onToolCallDelta: (
-    callback: (delta: import('../shared/types').StreamToolCallDelta & { chatId: string }) => void
+    callback: (
+      delta: import('../shared/types').StreamToolCallDelta & {
+        chatId: string
+        workspace: WorkspaceKind
+      }
+    ) => void
   ) => () => void
   onBrowserAction: (
     callback: (action: import('../shared/types').BrowserAction) => void
@@ -280,6 +434,20 @@ export interface PrismAPI {
   openExternalUrl: (url: string) => Promise<import('../shared/types').OpenExternalUrlResult>
   closeBrowser: () => Promise<string>
   resetBrowserIdle: () => void
+  generateBrowserSite: (data: { prompt: string; sessionId: string; history?: any[] }) => void
+  cancelBrowserGeneration: (sessionId?: string) => void
+  onBrowserGenStart: (
+    callback: (data: import('../shared/types').BrowserGenStartEvent) => void
+  ) => () => void
+  onBrowserGenChunk: (
+    callback: (data: import('../shared/types').BrowserGenChunkEvent) => void
+  ) => () => void
+  onBrowserGenEnd: (
+    callback: (data: import('../shared/types').BrowserGenEndEvent) => void
+  ) => () => void
+  onBrowserGenError: (
+    callback: (data: import('../shared/types').BrowserGenErrorEvent) => void
+  ) => () => void
   activateLicense: (key: string) => Promise<import('../shared/types').ActivationResult>
   deactivateLicense: () => Promise<boolean>
   getLicenseInfo: () => Promise<import('../shared/types').LicenseInfo | null>
