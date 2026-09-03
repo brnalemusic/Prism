@@ -70,34 +70,37 @@ test('EN: explicit command auto-commits a fact', () => {
   assert.equal(result.suggestions.length, 0)
 })
 
-test('PT: lone self-disclosure lands as a suggestion, not a commit', () => {
+test('PT: lone self-disclosure auto-commits (first-person slots are high-precision)', () => {
   const result = runExtraction(base(['Meu nome é Ana.']))
-  assert.equal(result.commits.length, 0)
-  assert.equal(result.suggestions.length, 1)
-  assert.equal(result.suggestions[0].factKey, 'user.name=ana')
+  assert.equal(result.commits.length, 1)
+  assert.equal(result.commits[0].factKey, 'user.name=ana')
+  assert.ok(result.commits[0].confidence >= 0.8)
+  assert.equal(result.suggestions.length, 0)
 })
 
-test('EN: lone structured slot stays a suggestion', () => {
+test('EN: lone structured slot auto-commits', () => {
   const result = runExtraction(base(['I live in São Paulo.']))
-  assert.equal(result.commits.length, 0)
-  assert.equal(result.suggestions[0].factKey, 'user.location=sao-paulo')
+  assert.equal(result.commits.length, 1)
+  assert.equal(result.commits[0].factKey, 'user.location=sao-paulo')
+  assert.equal(result.suggestions.length, 0)
 })
 
-test('PT/EN: bare preference is suggested, never committed', () => {
+test('PT/EN: bare preference auto-commits with positive polarity', () => {
   for (const message of ['Eu gosto muito de café.', 'I really love coffee.']) {
     const result = runExtraction(base([message]))
-    assert.equal(result.commits.length, 0, message)
-    assert.equal(result.suggestions.length, 1, message)
-    assert.ok(result.suggestions[0].factKey?.startsWith('pref.'), message)
-    assert.equal(result.suggestions[0].polarity, 'positive', message)
+    assert.equal(result.commits.length, 1, message)
+    assert.equal(result.suggestions.length, 0, message)
+    assert.ok(result.commits[0].factKey?.startsWith('pref.'), message)
+    assert.equal(result.commits[0].polarity, 'positive', message)
   }
 })
 
-test('PT/EN: negative preference keeps polarity negative', () => {
+test('PT/EN: negative preference commits with negative polarity', () => {
   for (const message of ['Eu odeio café.', "I don't like cilantro."]) {
     const result = runExtraction(base([message]))
-    assert.equal(result.suggestions[0].polarity, 'negative', message)
-    assert.ok(result.suggestions[0].factKey?.startsWith('pref.'), message)
+    assert.equal(result.commits.length, 1, message)
+    assert.equal(result.commits[0].polarity, 'negative', message)
+    assert.ok(result.commits[0].factKey?.startsWith('pref.'), message)
   }
 })
 
@@ -131,9 +134,7 @@ test('hypothetical statements demote below extraction', () => {
   }
 })
 
-test('second explicit confirmation promotes a possible memory to committed', () => {
-  const first = runExtraction(base(['Meu nome é Ana.']))
-  assert.equal(first.suggestions.length, 1)
+test('an independent re-mention promotes a seeded possible memory to committed', () => {
   const entry: MemoryEntry = {
     id: 'm1',
     kind: 'about_user',
@@ -236,9 +237,9 @@ test('re-mention in the same chat refreshes without promoting', () => {
 
 test('PT/EN: project and pet slots produce project/about_user keys', () => {
   const ptProject = runExtraction(base(['Estou trabalhando em um projeto chamado Atlas.']))
-  assert.ok(ptProject.suggestions[0].factKey?.startsWith('user.project='))
+  assert.ok(ptProject.commits[0].factKey?.startsWith('user.project='))
   const enPet = runExtraction(base(['I have a dog named Rex.']))
-  assert.equal(enPet.suggestions[0].factKey, 'user.family.pet=dog')
+  assert.equal(enPet.commits[0].factKey, 'user.family.pet=dog')
 })
 
 test('explicit forget commands produce ForgetOps', () => {
@@ -475,7 +476,7 @@ test('store catch-up extracts real chat files, persists, and is idempotent', () 
     const entries = service.list()
     assert.ok(entries.some((entry) => entry.factKey === 'user.name=ana'))
     assert.ok(entries.some((entry) => entry.factKey === 'user.location=sao-paulo'))
-    assert.ok(entries.every((entry) => entry.tier === 'possible'))
+    assert.ok(entries.some((entry) => entry.tier === 'committed'))
 
     // Idempotent: a second catch-up over the same files adds nothing.
     const again = service.startupCatchUp()
@@ -694,3 +695,95 @@ test('memory tool: replace and remove via unique substring, ambiguity refused', 
   }
 })
 
+
+// ---------------------------------------------------------------------------
+// Adversarial robustness corpus — messy PT-BR / EN real speech
+// ---------------------------------------------------------------------------
+
+test('adversarial corpus: triggers, natural phrasings, corrections, negation, multi-intent, precision', () => {
+  const cases = [
+    { id: 't1', lang: 'PT', msg: 'lembre que eu gosto de café', commitKeys: ['pref.cafe'], pos: true },
+    { id: 't2', lang: 'PT', msg: 'Lembra que meu aniversário é 12/03', commitKeys: ['user.birthday'] },
+    { id: 't3', lang: 'PT', msg: 'me chame de Ana', commitKeys: ['user.name'] },
+    { id: 't4', lang: 'EN', msg: 'remember that I love pizza', commitKeys: ['pref.pizza'], pos: true },
+    { id: 't5', lang: 'PT', msg: 'lembre q eu gosto de café', commitKeys: ['pref.cafe'], pos: true },
+    { id: 'n1', lang: 'PT', msg: 'eu tenho 24 anos', commitKeys: ['user.age'] },
+    { id: 'n2', lang: 'EN', msg: "i'm 24 years old", commitKeys: ['user.age'] },
+    { id: 'n3', lang: 'PT', msg: 'moro em Porto Alegre', commitKeys: ['user.location'] },
+    { id: 'n4', lang: 'EN', msg: 'I live in Lisbon', commitKeys: ['user.location'] },
+    { id: 'n5', lang: 'PT', msg: 'sou desenvolvedor', commitKeys: ['user.occupation'] },
+    { id: 'n6', lang: 'EN', msg: "i'm a developer", commitKeys: ['user.occupation'] },
+    { id: 'n7', lang: 'PT', msg: 'meu nome é João', commitKeys: ['user.name'] },
+    { id: 'n8', lang: 'EN', msg: 'my name is John', commitKeys: ['user.name'] },
+    { id: 'n9', lang: 'PT', msg: 'tenho um cachorro chamado Rex', commitKeys: ['user.family.pet'] },
+    { id: 'n10', lang: 'PT', msg: 'eu estudo engenharia', commitKeys: ['user.study'] },
+    { id: 'n11', lang: 'PT', msg: 'a minha idade é 19 anos', commitKeys: ['user.age'] },
+    { id: 'neg1', lang: 'PT', msg: 'eu não gosto de queijo', commitKeys: ['pref.queijo'], neg: true },
+    { id: 'neg2', lang: 'PT', msg: 'odeio acordar cedo', commitKeys: ['pref.acordar'], neg: true },
+    { id: 'neg3', lang: 'EN', msg: 'i hate waking up early', commitKeys: ['pref.waking'], neg: true },
+    { id: 'neg4', lang: 'PT', msg: 'não suporto atraso', commitKeys: ['pref.atraso'], neg: true },
+    { id: 'neg5', lang: 'EN', msg: "can't stand cilantro", commitKeys: ['pref.cilantro'], neg: true },
+    { id: 'c1', lang: 'PT', msg: 'na verdade, eu não gosto de café, prefiro chá', commitKeys: ['pref.cafe', 'pref.cha'] },
+    { id: 'c2', lang: 'EN', msg: 'my bad, I actually love pineapple on pizza', commitKeys: ['pref.pineapple'], pos: true },
+    { id: 'sh1', lang: 'PT', msg: 'meu amigo disse que ele gosta de café' },
+    { id: 'sh2', lang: 'EN', msg: 'she said she hates coffee' },
+    { id: 'sh3', lang: 'PT', msg: 'no trabalho eles usam Node' },
+    { id: 'sh4', lang: 'PT', msg: 'meu chefe acha que eu sou ótimo' },
+    { id: 'a1', lang: 'PT', msg: 'meu amigo tem 30 anos' },
+    { id: 'a2', lang: 'EN', msg: 'she adores coffee' },
+    { id: 'a3', lang: 'PT', msg: 'minha mãe mora em Curitiba' },
+    { id: 'a4', lang: 'PT', msg: 'meu gato gosta de atum' },
+    { id: 'a5', lang: 'PT', msg: 'vocú gosta de futebol?' },
+    { id: 'a6', lang: 'PT', msg: 'tenho 10 anos de experiéncia em vendas' },
+    { id: 'q1', lang: 'PT', msg: 'hoje eu vou ao dentista' },
+    { id: 'q2', lang: 'PT', msg: 'se eu comprar um carro, vai ser elétrico' },
+    { id: 'q3', lang: 'PT', msg: 'talvez eu mude de cidade' },
+    { id: 'q4', lang: 'EN', msg: 'I might move to Berlin' },
+    { id: 'q5', lang: 'PT', msg: 'pretendo começar a correr' },
+    { id: 'q6', lang: 'PT', msg: 'não sei se gosto de café' },
+    { id: 'q7', lang: 'EN', msg: "i'm not sure if I like coffee" },
+    { id: 's1', lang: 'PT', msg: 'tó ligado que vocú lembra das parada' },
+    { id: 's2', lang: 'PT', msg: 'me chama de Biel', commitKeys: ['user.name'] },
+    { id: 's3', lang: 'EN', msg: 'bro, call me Ace', commitKeys: ['user.name'] },
+    { id: 's4', lang: 'PT', msg: 'meu nome e ana', commitKeys: ['user.name'] },
+    { id: 's5', lang: 'PT', msg: 'eu gosto de cafe', commitKeys: ['pref.cafe'], pos: true },
+    { id: 'm1', lang: 'PT', msg: 'meu nome é Ana e eu tenho 19 anos', commitKeys: ['user.name', 'user.age'] },
+    { id: 'm2', lang: 'EN', msg: "I'm John, I live in Dublin and I love tea", commitKeys: ['user.name', 'user.location', 'pref.tea'] },
+    { id: 'm3', lang: 'PT', msg: 'gosto de café mas odeio leite', commitKeys: ['pref.cafe', 'pref.leite'] },
+    { id: 'm4', lang: 'PT', msg: 'meu nome é João e eu odeio acordar cedo', commitKeys: ['user.name', 'pref.acordar'] },
+    { id: 'm5', lang: 'EN', msg: 'my name is John, i work as a designer', commitKeys: ['user.name', 'user.occupation'] },
+    { id: 'x1', lang: 'PT', msg: 'minha senha é hunter2' },
+    { id: 'x2', lang: 'EN', msg: 'my password is hunter2' },
+    { id: 'x3', lang: 'PT', msg: 'api_key = sk-1234567890abcdef' },
+    { id: 'q8', lang: 'PT', msg: 'vocú lembra onde eu deixei minhas chaves?' },
+    { id: 'q9', lang: 'PT', msg: 'eu quero uma pizza' },
+    { id: 'q10', lang: 'EN', msg: 'can you help me with Python?' },
+    { id: 'q11', lang: 'PT', msg: 'não lembre disso' },
+    { id: 'q12', lang: 'PT', msg: 'meu projeto X está com bug', commitKeys: ['user.project'] },
+    { id: 'h1', lang: 'PT', msg: 'eu sempre tomo café de manhã', commitKeys: ['pref.cafe'], pos: true },
+    { id: 'h2', lang: 'EN', msg: 'i always have coffee in the morning', commitKeys: ['pref.coffee'], pos: true },
+    { id: 'h3', lang: 'PT', msg: 'eu nunca como carne', commitKeys: ['pref.carne'], neg: true },
+    { id: 'h4', lang: 'PT', msg: 'minha comida favorita é pizza', commitKeys: ['pref.pizza'], pos: true },
+    { id: 'h5', lang: 'PT', msg: 'faz um ano que trabalho com dados', commitKeys: ['user.occupation'] },
+    { id: 'h6', lang: 'PT', msg: 'tenho 2 gatos', commitKeys: ['user.family.pet'] },
+    { id: 'h7', lang: 'PT', msg: 'gosto muito de café', commitKeys: ['pref.cafe'], pos: true },
+  ] as const
+
+  for (const c of cases) {
+    const message = `${c.id}: ${c.msg}`
+    const result = runExtraction(base([c.msg], c.id))
+    const commits = result.commits.map((w) => w.factKey ?? '')
+    const suggests = result.suggestions.map((w) => w.factKey ?? '')
+    if (!('commitKeys' in c)) {
+      assert.equal(commits.length + suggests.length, 0, `${message}: expected none, got ${JSON.stringify(commits)}`)
+      continue
+    }
+    for (const k of c.commitKeys) {
+      const hit = result.commits.find((w) => w.factKey?.startsWith(k))
+      assert.ok(hit, `${message}: missing commit ${k} (got ${JSON.stringify(commits)})`)
+      if ('neg' in c && hit) assert.equal(hit.polarity, 'negative', `${message}: ${k} polarity`)
+      if ('pos' in c && hit) assert.equal(hit.polarity, 'positive', `${message}: ${k} polarity`)
+    }
+    assert.ok(commits.length <= c.commitKeys.length, `${message}: unexpected extra commits ${JSON.stringify(commits)}`)
+  }
+})

@@ -6,13 +6,16 @@ engine (`memoryCore.ts`), store + recall/trigger wiring (`memoryStore.ts`, `chat
 (SettingsView). Recall blocks ride every Chat/Discord text turn and voice session (re)connect
 with budgeted top-K; pinned facts ride the always-on `# Core Profile`; `observeCompletedTurn`
 fires after each completed turn (never Harness, never error paths). Verification: `npm run
-test:memory` (28/28) + `test:persona` (9/9), typecheck node+web clean, real-data catch-up over
+test:memory` (31/31) + `test:persona` (9/9), typecheck node+web clean, real-data catch-up over
 18 chats (0 errors), headless E2E chain (extraction → store → recall + pinned core blocks),
 dev boot without renderer errors. Shipped after that: the AI `memory` tool
 (add/replace/remove over the USER.md/MEMORY.md analogs via the store service, credential gate,
 budgets 1375/2200, never writes `possible`) plus token-cheap active-save guidance on the persona
-surfaces. Remaining: heuristic detector robustness rework (next pass), live GUI click-through and
-a real-provider end-to-end proof; no git commit until the user's next decision.
+surfaces. Detector robustness rework (shipped): high-precision first-person facts now auto-commit
+(slot/preference weights 0.85, the old conservative floor removed), the review queue keeps only
+hypotheticals, narrow temporals and soft conflicts, multi-intent turns split per factKey, and a
+65-case adversarial PT/EN corpus (26/54 to 65/65) is a permanent suite test. Remaining: live GUI
+click-through and a real-provider end-to-end proof; local commits per the user's decisions.
 
 Constraint reminders that apply to every step:
 
@@ -134,12 +137,13 @@ Stages, in order:
 
 1. **Redaction gate** — credential/secret patterns (`api[_-]?key\s*=`, `password`, 32+ hex tokens) → never extracted, even on explicit command. Excluded chats are skipped here.
 2. **Commands** — PT/EN explicit triggers ("lembre que…", "remember that…", "esquece/apaga a memória de…", "delete/forget that…") → commit or `ForgetOp`.
-3. **Slots & self-disclosure** — lexicon+regex slots: name, age, birthday, occupation, location, family/pet, active project (`user.name=…`, `user.age=…`, `user.project.<slug>`).
+3. **Slots & self-disclosure** — lexicon+regex slots: name, age, birthday, occupation, study, location, family/pet, active project (`user.name=…`, `user.age=…`, `user.project.<slug>`). One sentence can yield several facts (multi-intent turns split per factKey).
 4. **Preferences with polarity** — "eu prefiro / gosto / odeio / sempre / nunca", "I prefer / like / hate / always / never"; negation on the object is stored (`pref.coffee=negative`), never drops the entry.
 5. **Qualifier demotion** — narrow temporals ("hoje/amanhã/esta semana") → `event` + `expiresAt` when date parseable, else `possible`; conditionals/hypotheticals ("se eu / talvez / pretendo", "if I / maybe / I plan to") → demote; second-hand quotes ("meu chefe disse…", "he said…") → **drop**.
 6. **Repetition & refresh** — same `factKey` seen in another chat or >24h later: `confidence = min(0.95, +0.10)`, `confirmedAt = now`, `accessCount++`; two independent confirmations promote `possible → committed`.
 7. **Contradiction resolution** — decision table (see 3.4).
 8. **Scoring → tiers** — weight catalog (§6 of the extraction spec); `≥ commitThreshold` → commit + toast; `≥ suggestThreshold` → `possible` queue (never injected until confirmed); below → drop.
+> **Tiering note (shipped):** high-precision first-person slots and preferences weigh 0.85 and auto-commit on first sight; the old conservative floor that parked every lone fact in the review queue is removed, so the `possible` queue now only receives hypotheticals, narrow temporals and soft conflicts.
 9. **Index & dedup** — lowercase/accent-insensitive normalization for keys only; exact `factKey` merge; fuzzy merge by bigram/Jaccard `≥ 0.92`; human review for `0.75–0.92` duplicates.
 
 ### 3.4 Contradiction decision table
