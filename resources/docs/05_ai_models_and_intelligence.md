@@ -81,7 +81,7 @@ Prism allows users to independently assign different models to different functio
 1. **Main Chat Model (`lastSelectedChatModel` / `defaultModel`):** The primary engine used for complex coding, interactive chat, and general computer use tasks.
 2. **Web Search Model (`searchModel`):** Optimized model for analyzing Google search grounding results and extracting factual context.
 3. **Quick Launcher Model (`quickLauncherModel`):** Low-latency model for instant overlay queries, math evaluation, and app launches.
-4. **Speech-to-Text / Dictation Model (`sttModel`):** Model for parsing voice dictation audio transcripts.
+4. **Speech-to-Text / Dictation Model (`sttModel`):** Model for parsing voice dictation audio. Dedicated Whisper/ASR models return their raw transcription immediately, without an editorial prompt or a second LLM pass. Multimodal models that understand audio use Prism's live speech editor to remove fillers and repetitions, resolve false starts and self-corrections to the final intended wording, improve clarity and structure, and preserve explicit requests for the main assistant.
 5. **Generative Browser Model (`generativeBrowserModel`):** Dedicated model for live HTML5 + CSS website generation and interactive subpage synthesis via `generate:` prompts.
 
 ---

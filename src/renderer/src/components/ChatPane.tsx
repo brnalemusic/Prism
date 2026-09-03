@@ -809,7 +809,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       {isHarness
                         ? tab.disciplinePath
                           ? tab.harnessPhase === 'plan'
-                            ? 'Plan with context'
+                            ? 'Plan & Research'
                             : 'Build & Edit'
                           : 'Choose a project to build'
                         : 'Search & Create'}
@@ -818,7 +818,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       {isHarness
                         ? tab.disciplinePath
                           ? tab.harnessPhase === 'plan'
-                            ? 'Describe the outcome. Harness will inspect the project, clarify decisions, and prepare a native Implementation Plan without changing files.'
+                            ? 'Describe the outcome. Harness will research the project and prepare an Implementation Plan.'
                             : 'Describe the outcome. Harness will inspect, implement, and verify the work.'
                           : 'Harness is isolated to one project. Use + to choose the folder where it may work.'
                         : 'Prism session is ready. Type your request or choose a mode.'}
