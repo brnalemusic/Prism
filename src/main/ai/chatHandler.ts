@@ -23,6 +23,7 @@ import {
 import { resolveProviderAndModel, PRISM_PROVIDER_ID } from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
 import { ActiveRun, OpenAiMessage, OpenAiToolDefinition } from './types'
+import { appendTurnRecallBlock, getActiveMemoryService } from '../memoryStore'
 import { safeSend, broadcastIpc } from '../safeSend'
 import { getOpenAiToolDefinitions } from '../toolRuntime'
 import { unlockBrowserToolsForSession } from '../skillsManager'
@@ -696,6 +697,13 @@ STRICT BUTTON RULES:
 3. OPENING THE FOUND VIDEO: If the user sends "Open the YouTube video that you've found for me." or asks to open/play the video, immediately call 'open_browser_link' with the target video URL to open it in their browser.`
     }
 
+    // Long-term memory recall (M2): relevant facts ride this turn's prompt.
+    // Never injected into Harness prompts; pinned facts already ride the
+    // static core-profile block, so they are excluded here (no duplication).
+    if (requestSessionMode !== 'harness') {
+      fullPrompt = appendTurnRecallBlock(fullPrompt, userText)
+    }
+
     setCurrentSessionIdForTodo(chatId)
 
     const getToolsForSessionMode = (): OpenAiToolDefinition[] => {
@@ -899,6 +907,15 @@ STRICT BUTTON RULES:
       harnessRoundThoughts: finalRoundOutput.thoughts,
       ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})
     })
+    // Post-turn extraction trigger (M2): only after a real assistant
+    // completion (never on error paths); Harness turns stay excluded.
+    if (requestSessionMode !== 'harness' && workspace === 'chat') {
+      try {
+        getActiveMemoryService()?.observeCompletedTurn(chatId)
+      } catch (err) {
+        console.error('[Memory] observeCompletedTurn failed:', err)
+      }
+    }
   } catch (error: unknown) {
     const caughtError = error instanceof Error ? error : new Error(String(error))
     if (abortController.signal.aborted || caughtError.name === 'AbortError') {

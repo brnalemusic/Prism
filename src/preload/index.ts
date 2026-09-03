@@ -32,6 +32,13 @@ import type {
 } from '../shared/types'
 import type { ChatSession } from '../main/history'
 import type {
+  MemoryEntry,
+  MemoryListOptions,
+  MemoryPatch,
+  MemoryStats,
+  MemoryStoreEvent
+} from '../shared/memoryCore'
+import type {
   DemoDownloadResult,
   DemoInstallProgress,
   DemoOpenResult,
@@ -523,6 +530,27 @@ const api = {
   getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('get-config'),
   saveConfig: (config: Partial<AppConfig>): Promise<boolean> =>
     ipcRenderer.invoke('save-config', config),
+  memoryList: (options?: MemoryListOptions): Promise<MemoryEntry[]> =>
+    ipcRenderer.invoke('memory-list', options),
+  memoryUpdate: (id: string, patch: MemoryPatch): Promise<MemoryEntry | null> =>
+    ipcRenderer.invoke('memory-update', id, patch),
+  memoryArchive: (id: string): Promise<boolean> => ipcRenderer.invoke('memory-archive', id),
+  memoryRestore: (id: string): Promise<boolean> => ipcRenderer.invoke('memory-restore', id),
+  memoryDelete: (id: string): Promise<boolean> => ipcRenderer.invoke('memory-delete', id),
+  memoryStats: (): Promise<MemoryStats> => ipcRenderer.invoke('memory-stats'),
+  memoryToggleAuto: (enabled: boolean): Promise<boolean> =>
+    ipcRenderer.invoke('memory-toggle-auto', enabled),
+  onMemoryEvent: (callback: (event: MemoryStoreEvent) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: MemoryStoreEvent): void => callback(data)
+    ipcRenderer.on('memory-write', listener)
+    ipcRenderer.on('memory-suggest', listener)
+    ipcRenderer.on('memory-archived', listener)
+    return () => {
+      ipcRenderer.removeListener('memory-write', listener)
+      ipcRenderer.removeListener('memory-suggest', listener)
+      ipcRenderer.removeListener('memory-archived', listener)
+    }
+  },
   selectFolder: (): Promise<string | null> => ipcRenderer.invoke('select-folder'),
   setSessionMode: (mode: SessionMode, disciplinePath?: string): void =>
     ipcRenderer.send('set-session-mode', { mode, disciplinePath }),

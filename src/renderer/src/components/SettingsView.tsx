@@ -48,7 +48,11 @@ import {
   Files,
   GitBranch,
   Star,
-  ArrowSquareOut
+  ArrowSquareOut,
+  Brain,
+  PushPin,
+  Archive,
+  Smiley
 } from '@phosphor-icons/react'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import { EnterpriseActivationModal } from './EnterpriseActivationModal'
@@ -62,6 +66,18 @@ import type {
   HarnessToolName,
   SessionMode
 } from '../../../shared/types'
+import {
+  DEFAULT_PERSONA,
+  TONE_PRESETS,
+  TONE_PRESET_IDS,
+  PERSONA_DIMENSIONS,
+  SLANG_OPTIONS,
+  compilePersona,
+  buildPersonaPreview,
+  type PersonaSettings
+} from '../../../shared/persona'
+import { DEFAULT_MEMORY_CONFIG } from '../../../shared/memoryCore'
+import type { MemoryEntry, MemoryStats } from '../../../shared/memoryCore'
 import { ApiManagerSettings } from './ApiManagerSettings'
 import { ModelSelector } from './ModelSelector'
 import { QuantumPhysicsGame } from './QuantumPhysicsGame'
@@ -136,6 +152,8 @@ type SectionId =
   | 'shortcuts'
   | 'system'
   | 'voice'
+  | 'personality'
+  | 'memory'
   | 'providers'
   | 'intelligence'
   | 'runtime'
@@ -156,6 +174,15 @@ interface NavSection {
   categoryLabel: string
   description: string
   keywords: string[]
+}
+
+const MEMORY_KIND_LABELS: Record<string, string> = {
+  about_user: 'Profile',
+  preference: 'Preference',
+  fact: 'Fact',
+  event: 'Event',
+  project: 'Project',
+  behavioral: 'Behavioral'
 }
 
 function DiscordIcon({ size = 18 }: { size?: number }): React.JSX.Element {
@@ -309,6 +336,8 @@ export function SettingsView({
     workflows: [],
     sessionMode: 'execution',
     disciplinePath: '',
+    persona: { ...DEFAULT_PERSONA },
+    memory: { ...DEFAULT_MEMORY_CONFIG },
     harness: DEFAULT_HARNESS_SETTINGS
   })
 
@@ -365,6 +394,56 @@ export function SettingsView({
       harness: { ...current.harness, ...updates }
     }))
   }
+
+  const updatePersona = (patch: Partial<PersonaSettings>): void => {
+    setConfig((current) => ({
+      ...current,
+      persona: { ...(current.persona ?? DEFAULT_PERSONA), ...patch }
+    }))
+  }
+
+  // Memory center state (plan step 4 UI)
+  const [memoryEntries, setMemoryEntries] = useState<MemoryEntry[]>([])
+  const [memoryStats, setMemoryStats] = useState<MemoryStats | null>(null)
+  const [memorySearch, setMemorySearch] = useState('')
+  const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null)
+  const [editingMemoryText, setEditingMemoryText] = useState('')
+  const [confirmDeleteMemoryId, setConfirmDeleteMemoryId] = useState<string | null>(null)
+
+  const loadMemory = useCallback(async (): Promise<void> => {
+    try {
+      const [entries, stats] = await Promise.all([
+        window.api.memoryList(),
+        window.api.memoryStats()
+      ])
+      setMemoryEntries(entries)
+      setMemoryStats(stats)
+    } catch (err) {
+      console.error('Failed to load memory center:', err)
+    }
+  }, [])
+
+  /** Fire a store action, then refresh both lists and stats. */
+  const runMemoryAction = useCallback(
+    (action: () => Promise<unknown>): void => {
+      void action()
+        .catch((err) => console.error('Memory action failed:', err))
+        .finally(() => {
+          void loadMemory()
+        })
+    },
+    [loadMemory]
+  )
+
+  useEffect(() => {
+    if (activeSection !== 'memory') return
+    void loadMemory()
+    // Live updates: new captures/suggestions/archivals flow in from the engine.
+    const unsubscribe = window.api.onMemoryEvent(() => {
+      void loadMemory()
+    })
+    return unsubscribe
+  }, [activeSection, loadMemory])
 
   const updateSelectedHarnessProject = (updates: Partial<HarnessProjectConfig>): void => {
     if (!selectedHarnessProjectEntry) return
@@ -795,6 +874,8 @@ export function SettingsView({
       workflows: config.workflows,
       sessionMode: 'execution',
       disciplinePath: '',
+      persona: { ...DEFAULT_PERSONA },
+      memory: { ...DEFAULT_MEMORY_CONFIG },
       harness: {
         ...DEFAULT_HARNESS_SETTINGS,
         projectsRoot: config.harness.projectsRoot,
@@ -893,6 +974,56 @@ export function SettingsView({
         'images',
         'generate',
         'ai'
+      ]
+    },
+    {
+      id: 'personality',
+      label: 'Personality & Tone',
+      icon: <Smiley size={17} weight="duotone" />,
+      category: 'ai',
+      categoryLabel: 'AI & Runtime',
+      description: 'Tone presets and tuning for how Prism speaks across chat, launcher and Discord.',
+      keywords: [
+        'personality',
+        'persona',
+        'tone',
+        'voice',
+        'style',
+        'vibe',
+        'emoji',
+        'slang',
+        'humor',
+        'formality',
+        'proximity',
+        'verbosity',
+        'friendly',
+        'cynical',
+        'philosophical',
+        'warm',
+        'quirky',
+        'motivational',
+        'communication'
+      ]
+    },
+    {
+      id: 'memory',
+      label: 'Memory',
+      icon: <Brain size={17} weight="duotone" />,
+      category: 'ai',
+      categoryLabel: 'AI & Runtime',
+      description: 'Review what Prism remembers about you, pin core facts, and accept or reject suggestions.',
+      keywords: [
+        'memory',
+        'memories',
+        'remember',
+        'recall',
+        'forget',
+        'pin',
+        'suggestions',
+        'facts',
+        'preferences',
+        'core profile',
+        'long-term'
       ]
     },
     {
@@ -1404,6 +1535,205 @@ export function SettingsView({
       </div>
     </div>
   )
+
+  const renderPersonality = (): React.JSX.Element => {
+    const persona = config.persona ?? DEFAULT_PERSONA
+    const compiled = compilePersona(persona)
+    const preview = buildPersonaPreview(persona)
+    const resetPersona = (): void => updatePersona({ ...DEFAULT_PERSONA })
+    return (
+      <div className="space-y-8 animate-soft-pop">
+        <SectionHeader
+          title="Personality & Tone"
+          subtitle="Shape how Prism talks to you. Pick a preset from a predefined arsenal, then tune closeness, formality, humor, verbosity, emojis and slang with a few taps. Applies to Chat, the Quick Launcher and Discord (text and live voice) — never to Harness coding sessions. Style never overrides accuracy, safety or tool rules, and Prism always matches your language."
+        />
+
+        <ToggleRow
+          title="Enable Personality Profile"
+          description="When enabled, a compact Communication Style block is injected into the system prompt of every supported surface."
+          checked={persona.enabled}
+          onChange={() => updatePersona({ enabled: !persona.enabled })}
+        />
+
+        <div
+          className={clsx(
+            'space-y-4 transition-opacity',
+            !persona.enabled && 'pointer-events-none opacity-45 select-none'
+          )}
+        >
+          <SettingsGroupLabel
+            title="Tone Preset"
+            description="A predefined voice. Each preset is a bundle of style tokens — not free-form instructions."
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {TONE_PRESET_IDS.map((id) => {
+              const preset = TONE_PRESETS[id]
+              const isActive = persona.preset === id
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => updatePersona({ preset: id })}
+                  className={clsx(
+                    'group relative flex flex-col rounded-xl border p-4 text-left transition-all duration-200 cursor-pointer outline-none active:scale-[0.98]',
+                    isActive
+                      ? 'border-accent-primary bg-accent-primary/[0.08] ring-1 ring-accent-primary/30 shadow-[0_0_20px_var(--accent-glow)]'
+                      : 'border-[var(--border-default)] bg-[var(--surface)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)]'
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2.5">
+                    <div
+                      className={clsx(
+                        'flex h-9 w-9 items-center justify-center rounded-lg border transition-colors',
+                        isActive
+                          ? 'border-accent-primary/30 bg-accent-primary/15 text-accent-primary'
+                          : 'border-[var(--border-default)] bg-[var(--surface-lowest)] text-text-muted group-hover:text-text-primary'
+                      )}
+                    >
+                      <Smiley size={18} weight="duotone" />
+                    </div>
+                    {isActive && (
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accent-primary text-black">
+                        <Check size={12} weight="bold" />
+                      </span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-sm font-bold text-text-primary">{preset.label}</span>
+                    <p className="text-xs text-text-secondary/70 mt-1 leading-relaxed">
+                      {preset.description}
+                    </p>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div
+          className={clsx(
+            'space-y-4 transition-opacity',
+            !persona.enabled && 'pointer-events-none opacity-45 select-none'
+          )}
+        >
+          <SettingsGroupLabel
+            title="Tuning Dials"
+            description="Fine adjustments layered on top of the preset. Values left at their middle default stay out of the prompt to keep it lean."
+          />
+          {PERSONA_DIMENSIONS.map((dimension) => {
+            const value = persona[dimension.key]
+            return (
+              <div key={dimension.key} className="settings-card flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-sm font-semibold text-text-primary">
+                    {dimension.label}
+                  </span>
+                  <span className="text-xs font-mono font-bold text-accent-primary">
+                    {dimension.steps[value]}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {dimension.steps.map((step, index) => (
+                    <button
+                      key={step}
+                      type="button"
+                      onClick={() =>
+                        updatePersona({ [dimension.key]: index } as Partial<PersonaSettings>)
+                      }
+                      className={clsx(
+                        'flex-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition-all cursor-pointer',
+                        value === index
+                          ? 'bg-accent-primary text-black font-bold shadow-sm'
+                          : 'text-text-secondary hover:text-text-primary bg-[var(--surface-lowest)] border border-[var(--border-subtle)]'
+                      )}
+                    >
+                      {step}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+
+          <div className="settings-card flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm font-semibold text-text-primary">Slang & Regionalisms</span>
+              <span className="text-xs font-mono font-bold text-accent-primary">
+                {SLANG_OPTIONS.find((option) => option.value === persona.slang)?.label}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {SLANG_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => updatePersona({ slang: option.value })}
+                  className={clsx(
+                    'flex-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition-all cursor-pointer',
+                    persona.slang === option.value
+                      ? 'bg-accent-primary text-black font-bold shadow-sm'
+                      : 'text-text-secondary hover:text-text-primary bg-[var(--surface-lowest)] border border-[var(--border-subtle)]'
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end pt-1">
+            <button
+              type="button"
+              onClick={resetPersona}
+              className="text-xs font-semibold text-text-muted hover:text-text-primary transition-colors cursor-pointer inline-flex items-center gap-1.5"
+            >
+              <RotateCcw size={12} />
+              Reset profile to defaults
+            </button>
+          </div>
+        </div>
+
+        {/* Live preview — rendered locally, no LLM involved */}
+        <div className="space-y-4">
+          <SettingsGroupLabel
+            title="Live Preview"
+            description="Instant sample shaped by your profile, rendered locally with zero AI calls. The exact block below is what gets injected into the system prompt."
+          />
+          <div className="settings-card flex flex-col gap-4">
+            <div className="flex flex-wrap gap-1.5">
+              {preview.summary.map((chip) => (
+                <span
+                  key={chip}
+                  className="font-mono text-[10px] uppercase tracking-wide px-2 py-1 rounded-md bg-[var(--surface-lowest)] border border-[var(--border-default)] text-text-secondary"
+                >
+                  {chip}
+                </span>
+              ))}
+            </div>
+            <div className="rounded-xl border border-[var(--border-default)] bg-[var(--surface-lowest)] p-3.5">
+              <span className="text-xs text-text-secondary/70 italic leading-relaxed">
+                “{preview.sample}”
+              </span>
+            </div>
+            {persona.enabled && compiled ? (
+              <div className="flex flex-col gap-1.5">
+                <span className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
+                  Injected Communication Style ({compiled.split(/\s+/).filter(Boolean).length} words)
+                </span>
+                <pre className="whitespace-pre-wrap break-words rounded-xl border border-[var(--border-subtle)] bg-black/40 p-3.5 font-mono text-[11px] text-text-secondary/90 leading-relaxed">
+                  {compiled}
+                </pre>
+              </div>
+            ) : (
+              <span className="text-[11px] text-text-muted">
+                Personality is off — no extra instructions are injected and Prism keeps its default voice.
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const renderIntelligence = (): React.JSX.Element => (
     <div className="space-y-8 animate-soft-pop">
@@ -3550,6 +3880,283 @@ export function SettingsView({
     </div>
   )
 
+  const renderMemory = (): React.JSX.Element => {
+    const autoExtract = config.memory?.autoExtract ?? DEFAULT_MEMORY_CONFIG.autoExtract
+    const stats = memoryStats
+    const query = memorySearch.trim().toLowerCase()
+    const matchesQuery = (entry: MemoryEntry): boolean => {
+      if (!query) return true
+      const haystack = `${entry.content} ${entry.keywords.join(' ')} ${entry.factKey ?? ''}`.toLowerCase()
+      return query.split(/\s+/).every((term) => haystack.includes(term))
+    }
+    const committed = memoryEntries.filter((entry) => entry.tier === 'committed' && matchesQuery(entry))
+    const possible = memoryEntries.filter((entry) => entry.tier === 'possible' && matchesQuery(entry))
+
+    const startEdit = (entry: MemoryEntry): void => {
+      setEditingMemoryId(entry.id)
+      setEditingMemoryText(entry.content)
+      setConfirmDeleteMemoryId(null)
+    }
+    const cancelEdit = (): void => {
+      setEditingMemoryId(null)
+      setEditingMemoryText('')
+    }
+    const saveEdit = (): void => {
+      const text = editingMemoryText.trim()
+      if (!text || !editingMemoryId) {
+        cancelEdit()
+        return
+      }
+      runMemoryAction(() => window.api.memoryUpdate(editingMemoryId, { content: text }))
+      cancelEdit()
+    }
+
+    const kindBadge = (kind: string): React.JSX.Element => (
+      <span className="shrink-0 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-lowest)] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-text-muted">
+        {MEMORY_KIND_LABELS[kind] ?? kind}
+      </span>
+    )
+
+    const entryMeta = (entry: MemoryEntry): string => {
+      const date = new Date(entry.confirmedAt).toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric'
+      })
+      return `${date} · ${Math.round(entry.confidence * 100)}% · ${entry.sourceChatId.slice(0, 18)}`
+    }
+
+    const actionButton = (
+      key: string,
+      onClick: () => void,
+      icon: React.ReactNode,
+      label: string,
+      danger = false
+    ): React.JSX.Element => (
+      <button
+        key={key}
+        type="button"
+        title={label}
+        aria-label={label}
+        onClick={onClick}
+        className={clsx(
+          'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-all cursor-pointer active:scale-95',
+          danger
+            ? 'border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20'
+            : 'border-[var(--border-default)] bg-[var(--surface-lowest)] text-text-muted hover:text-text-primary hover:border-[var(--border-strong)]'
+        )}
+      >
+        {icon}
+      </button>
+    )
+
+    const renderCommittedRow = (entry: MemoryEntry): React.JSX.Element => {
+      const isEditing = editingMemoryId === entry.id
+      const isConfirmingDelete = confirmDeleteMemoryId === entry.id
+      return (
+        <div
+          key={entry.id}
+          className="settings-card flex items-center gap-3 px-3.5 py-2.5"
+        >
+          <button
+            type="button"
+            title={entry.pinned ? 'Unpin from core profile' : 'Pin to core profile (always injected)'}
+            aria-label="Toggle pin"
+            onClick={() =>
+              runMemoryAction(() => window.api.memoryUpdate(entry.id, { pinned: !entry.pinned }))
+            }
+            className={clsx(
+              'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-all cursor-pointer active:scale-95',
+              entry.pinned
+                ? 'border-accent-primary/40 bg-accent-primary/15 text-accent-primary'
+                : 'border-transparent text-text-muted opacity-60 hover:opacity-100 hover:border-[var(--border-default)]'
+            )}
+          >
+            <PushPin size={13} weight={entry.pinned ? 'fill' : 'regular'} />
+          </button>
+
+          <div className="min-w-0 flex-1">
+            {isEditing ? (
+              <div className="flex items-center gap-2">
+                <input
+                  autoFocus
+                  type="text"
+                  value={editingMemoryText}
+                  onChange={(e) => setEditingMemoryText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveEdit()
+                    if (e.key === 'Escape') cancelEdit()
+                  }}
+                  className="settings-text-input w-full px-2.5 py-1 text-xs"
+                />
+                {actionButton('save-edit', saveEdit, <Check size={13} weight="bold" />, 'Save')}
+                {actionButton('cancel-edit', cancelEdit, <X size={13} weight="bold" />, 'Cancel')}
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 min-w-0">
+                <span className="text-xs text-text-primary leading-relaxed break-words">
+                  {entry.content}
+                </span>
+              </div>
+            )}
+            {!isEditing && (
+              <div className="mt-1 flex items-center gap-2">
+                {kindBadge(entry.kind)}
+                <span className="text-[10px] font-mono text-text-muted">{entryMeta(entry)}</span>
+              </div>
+            )}
+          </div>
+
+          {!isEditing && !isConfirmingDelete && (
+            <div className="flex shrink-0 items-center gap-1">
+              {actionButton('edit', () => startEdit(entry), <Pencil size={13} />, 'Edit')}
+              {actionButton('archive', () => runMemoryAction(() => window.api.memoryArchive(entry.id)), <Archive size={13} />, 'Archive (soft, restorable)')}
+              {actionButton('delete', () => setConfirmDeleteMemoryId(entry.id), <Trash size={13} />, 'Delete permanently', true)}
+            </div>
+          )}
+          {!isEditing && isConfirmingDelete && (
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmDeleteMemoryId(null)
+                  runMemoryAction(() => window.api.memoryDelete(entry.id))
+                }}
+                className="flex items-center gap-1 rounded-lg border border-red-500/40 bg-red-500/15 px-2 py-1 text-[10px] font-bold text-red-300 cursor-pointer hover:bg-red-500/25 active:scale-95 transition-all"
+              >
+                <Trash size={11} /> Delete permanently
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteMemoryId(null)}
+                className="flex h-6 w-6 items-center justify-center rounded-lg border border-[var(--border-default)] text-text-muted cursor-pointer hover:text-text-primary"
+                aria-label="Cancel delete"
+              >
+                <X size={11} weight="bold" />
+              </button>
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    const renderPossibleRow = (entry: MemoryEntry): React.JSX.Element => (
+      <div key={entry.id} className="settings-card flex items-center gap-3 px-3.5 py-2.5">
+        <div className="min-w-0 flex-1">
+          <span className="text-xs text-text-primary leading-relaxed break-words">
+            {entry.content}
+          </span>
+          <div className="mt-1 flex items-center gap-2">
+            {kindBadge(entry.kind)}
+            <span className="text-[10px] font-mono text-text-muted">{entryMeta(entry)}</span>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {actionButton(
+            'accept',
+            () => runMemoryAction(() => window.api.memoryUpdate(entry.id, { tier: 'committed' })),
+            <Check size={13} weight="bold" />,
+            'Accept — commit to memory'
+          )}
+          {actionButton(
+            'reject',
+            () => runMemoryAction(() => window.api.memoryDelete(entry.id)),
+            <X size={13} weight="bold" />,
+            'Reject and remove'
+          )}
+        </div>
+      </div>
+    )
+
+    return (
+      <div className="space-y-8 animate-soft-pop">
+        <SectionHeader
+          title="Memory"
+          subtitle="Prism learns from your conversations entirely on-device and with zero AI calls: stable facts are committed automatically, everything uncertain lands below for your review, and accepted memories are injected into prompts (top matches per turn, plus pinned core facts) so Prism remembers you across chats."
+        />
+
+        <ToggleRow
+          title="Auto-capture memory from conversations"
+          description="After each completed Chat, Discord text and voice turn, Prism scans for stable facts and preferences and writes them to your local memory store. Turn it off to stop new captures — existing memories stay."
+          checked={autoExtract}
+          onChange={() => {
+            const next = !autoExtract
+            setConfig((current) => ({
+              ...current,
+              memory: {
+                ...(current.memory ?? DEFAULT_MEMORY_CONFIG),
+                autoExtract: next
+              }
+            }))
+            void window.api.memoryToggleAuto(next)
+          }}
+        />
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="settings-card flex flex-col gap-1 items-start">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-text-muted">Committed</span>
+            <span className="text-lg font-bold text-accent-primary">{stats?.committed ?? 0}</span>
+          </div>
+          <div className="settings-card flex flex-col gap-1 items-start">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-text-muted">Awaiting Review</span>
+            <span className="text-lg font-bold text-amber-400">{stats?.possible ?? 0}</span>
+          </div>
+          <div className="settings-card flex flex-col gap-1 items-start">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-text-muted">Pinned to Core</span>
+            <span className="text-lg font-bold text-text-primary">{stats?.pinned ?? 0}</span>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <SettingsGroupLabel
+            title="Awaiting Your Review"
+            description="Low-confidence captures, conflicts and corrections. Nothing here ever reaches a prompt until you accept it here or it is confirmed again in conversation."
+          />
+          {possible.length === 0 ? (
+            <span className="text-xs text-text-muted">
+              {query
+                ? 'No suggestions match your search.'
+                : 'Nothing awaiting review — everything captured so far passed with high confidence.'}
+            </span>
+          ) : (
+            <div className="space-y-2">
+              {possible.map(renderPossibleRow)}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <SettingsGroupLabel
+              title="Committed Memories"
+              description="Facts Prism remembers. Pin the few you always want in context (the core profile), edit anything, archive instead of delete to keep it restorable."
+            />
+            <div className="relative w-full sm:w-64">
+              <MagnifyingGlass size={13} className="absolute left-3 top-2.5 text-text-muted" />
+              <input
+                type="text"
+                value={memorySearch}
+                onChange={(e) => setMemorySearch(e.target.value)}
+                placeholder="Search memories..."
+                className="settings-text-input pl-8 py-1.5 text-xs"
+              />
+            </div>
+          </div>
+          {committed.length === 0 ? (
+            <span className="text-xs text-text-muted">
+              {query
+                ? 'No committed memories match your search.'
+                : 'No committed memories yet. Have a conversation and Prism will start building its memory here — or accept suggestions above.'}
+            </span>
+          ) : (
+            <div className="space-y-2">
+              {committed.map(renderCommittedRow)}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   const renderActiveSection = (): React.JSX.Element => {
     switch (activeSection) {
       case 'appearance':
@@ -3560,6 +4167,10 @@ export function SettingsView({
         return renderSystem()
       case 'voice':
         return renderVoice()
+      case 'personality':
+        return renderPersonality()
+      case 'memory':
+        return renderMemory()
       case 'providers':
         return <ApiManagerSettings />
       case 'intelligence':

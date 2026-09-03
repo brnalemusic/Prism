@@ -28,6 +28,13 @@ import type {
   HarnessExplorerActionResult
 } from '../shared/types'
 import type {
+  MemoryEntry,
+  MemoryListOptions,
+  MemoryPatch,
+  MemoryStats,
+  MemoryStoreEvent
+} from '../shared/memoryCore'
+import type {
   DemoDownloadResult,
   DemoInstallProgress,
   DemoOpenResult,
@@ -235,6 +242,14 @@ export interface PrismAPI {
   captureWindow: (sourceId: string) => Promise<string>
   getConfig: () => Promise<AppConfig>
   saveConfig: (config: Partial<AppConfig>) => Promise<boolean>
+  memoryList: (options?: MemoryListOptions) => Promise<MemoryEntry[]>
+  memoryUpdate: (id: string, patch: MemoryPatch) => Promise<MemoryEntry | null>
+  memoryArchive: (id: string) => Promise<boolean>
+  memoryRestore: (id: string) => Promise<boolean>
+  memoryDelete: (id: string) => Promise<boolean>
+  memoryStats: () => Promise<MemoryStats>
+  memoryToggleAuto: (enabled: boolean) => Promise<boolean>
+  onMemoryEvent: (callback: (event: MemoryStoreEvent) => void) => () => void
   selectFolder: () => Promise<string | null>
   setSessionMode: (mode: SessionMode, disciplinePath?: string) => void
   getSessionMode: () => Promise<{ mode: SessionMode; disciplinePath?: string }>

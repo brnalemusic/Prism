@@ -30,6 +30,9 @@ import {
 } from '../shared/types'
 
 import { loadConfig, saveConfig, SlashWorkflow } from './config'
+import { compilePersona } from '../shared/persona'
+import { getActiveMemoryService } from './memoryStore'
+import { MEMORY_PROFILE_HEADER, buildMemoryContextBlock } from '../shared/memoryCore'
 import { searchAndReadWeb, fetchAndSummarizeWeb } from './webSearchService'
 import { requestDiscordVoiceLeave } from './discordGateway'
 import {
@@ -1986,6 +1989,39 @@ export function getSystemToolsPrompt(
     }
   }
 
+  // Personality profile (M1): chat, launcher and conversation surfaces only.
+  // Harness and subagent prompts stay neutral — persona never touches them.
+  const personaSection = (() => {
+    if (target === 'subagent' || target === 'both' || sessionMode === 'harness') return ''
+    try {
+      const text = compilePersona(loadConfig().persona)
+      return text ? `\n\n${text}` : ''
+    } catch (err) {
+      console.error('Failed to load persona prompt:', err)
+      return ''
+    }
+  })()
+
+  // Pinned core memories (M2): the always-on profile block (USER.md analog).
+  // Same surface guard as persona; skipped when the store is not up yet.
+  const coreMemorySection = (() => {
+    if (target === 'subagent' || target === 'both' || sessionMode === 'harness') return ''
+    try {
+      const service = getActiveMemoryService()
+      if (!service) return ''
+      const block = buildMemoryContextBlock(service.list(), {
+        pinnedOnly: true,
+        maxChars: 600,
+        maxEntries: 8,
+        header: MEMORY_PROFILE_HEADER
+      })
+      return block ? `\n\n${block}` : ''
+    } catch (err) {
+      console.error('Failed to load pinned memory prompt:', err)
+      return ''
+    }
+  })()
+
   if (target === 'launcher') {
     return `# Identity & Context
 Role: Prism AI in Quick Launcher.
@@ -1993,10 +2029,10 @@ Model: ${modelIdentity}
 Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
 # Rules
-- Use simple Markdown.
-- **Auto-Open:** If an app, link, or path is sent alone, open it via open_browser_link or open_application.
-- **Transitions:** For complex/long tasks, call open_main_app.
-- Natively invoke tools in parallel when applicable. Absolute paths required for file tools. Commands run in \`${shellName}\` (${shellSyntax}). Shared single browser session.`
+- Use simple Markdown. Absolute paths for file tools; commands run in \`${shellName}\` (${shellSyntax}); shared single browser session.
+- **Auto-Open:** App/link/path sent alone → open via open_browser_link or open_application.
+- **Transitions:** Complex/long tasks → open_main_app.
+- Natively invoke tools in parallel when applicable.${personaSection}${coreMemorySection}`
   }
 
   if (sessionMode === 'conversation' && target === 'main') {
@@ -2006,9 +2042,9 @@ Model: ${modelIdentity}
 Context: ${date} | ${platform} | Home: ${homeDir} | CWD: ${cwd}
 
 # Rules
-- Conversation Mode: No tool access. Reply using text/Markdown.
-- Match user language. Be direct, factual, and concise.
-${inlineSuggestionsRule}`
+- No tool access. Reply with text/Markdown.
+- Match user language. Be direct, factual, concise.
+${inlineSuggestionsRule}${personaSection}${coreMemorySection}`
   }
 
   const disciplineRule =
@@ -2025,8 +2061,8 @@ ${inlineSuggestionsRule}`
   const isBrowserDisabled = effectiveDisabledSkills.includes('browser')
 
   const browserRule = isBrowserDisabled
-    ? '- **Auto-Open & Links:** Open URLs/links in OS system browser via `open_browser_link` by default.'
-    : '- **Auto-Open & Links:** Open URLs/links in OS system browser via `open_browser_link` by default. Use integrated AI browser tools only if user explicitly requests in-app/AI browser (requires `read_skill` with `integrated_browser_skill.md`).'
+    ? '- **Links:** Open URLs in the OS browser via `open_browser_link` by default.'
+    : '- **Links:** Open URLs via `open_browser_link` by default; use integrated AI browser tools only on explicit in-app request (requires `read_skill` with `integrated_browser_skill.md`).'
 
   return `# Identity & Context
 Role: ${name}, Desktop AI Assistant.
@@ -2036,21 +2072,13 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | 
 # Rules & Protocols
 - Match user language. Be direct, factual, and concise.${disciplineRule}
 ${browserRule}
-- **Formatting:**
-  1. Simple Markdown for standard text/code.
-  2. Inline HTML/CSS inside Markdown for rich visual cards/designs (render directly, do not block-wrap in \`\`\`html).
-  3. Call \`create_mini_app\` tool for interactive widgets/games.
-- **Execution & Tools:**
-  - Absolute paths required for file operations.
-  - Commands run in \`${shellName}\` (${shellSyntax}).
-  - Parallel native tool calls allowed.
-- **Search Protocol:**
-  - Standard search: Use \`web_search\` for standard quick queries and set \`resultCount\` to control how many Sources are returned (minimum 1, recommended 2–4, 5–8 only for specific cases, maximum 10).
-  - Deep Research: Always use \`web_fetch\` when the user asks for deep research, deep search, an in-depth/thorough investigation, or whenever the topic requires exhaustive, comprehensive web investigation across up to 50 source pages synthesized by a dedicated subagent. You must provide: 1) \`title\`: a descriptive research title formulated strictly in the user's conversational language that defines the main topic; 2) \`queries\`: exactly 5 distinct Google-style search queries exploring different aspects and variants of that topic, formulated in whichever language yields the best global results (e.g. English for tech/global topics). Each query retrieves 10 pages (5 x 10 = up to 50 total Sources), with up to 15,000 characters from each Source sent to the subagent.
-- **Prism Docs:** Use internal_docs_list, internal_docs_read, internal_docs_search for Prism system queries.
-- **YouTube Assistant Protocol:** When searching for YouTube videos, search via \`web_search\` with query \`site:youtube.com <SEARCH_QUERY>\`. Output the final result enclosed in a styled card container block (\`<div style="border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 18px 20px; background: rgba(255, 255, 255, 0.03); margin: 12px 0;">...</div>\`) containing 🎬 title, customized description, up to 3 clickable HTML <a> button links (primary bold red #ff0000, alternatives dark charcoal #272727), and the suggestion chip below the card: \`<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>\`.
+- **Formatting:** Markdown for text/code; inline HTML/CSS (render directly, unwrapped) for rich visual cards/designs; \`create_mini_app\` for interactive widgets/games.
+- **Execution:** Absolute paths required for file operations. Commands run in \`${shellName}\` (${shellSyntax}). Parallel native tool calls allowed.
+- **Search:** \`web_search\` for standard queries with \`resultCount\` 1–10 (2–4 typical; 5–8 only for specific cases). Use \`web_fetch\` for deep research / deep search / in-depth thorough investigation or any topic requiring exhaustive, comprehensive web investigation across up to 50 source pages synthesized by a dedicated subagent: provide 1) \`title\` — descriptive, formulated strictly in the user's conversational language; 2) \`queries\` — exactly 5 distinct Google-style queries exploring variants of the topic, in whichever language yields the best global results (e.g. English for tech/global topics); each query retrieves 10 pages (5 x 10 = up to 50 total Sources), with up to 15,000 characters per Source sent to the subagent.
+- **Prism Docs:** internal_docs_list / internal_docs_read / internal_docs_search for Prism system questions.
+- **YouTube Assistant:** For YouTube video searches, search via \`web_search\` with query \`site:youtube.com <SEARCH_QUERY>\`. Enclose the result in a styled HTML card (\`<div style="border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:18px 20px;background:rgba(255,255,255,0.03);margin:12px 0;">\`) containing 🎬 title, customized description, up to 3 clickable HTML <a> buttons (primary bold red #ff0000, alternatives dark charcoal #272727), and the suggestion chip below the card: \`<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>\`.
 - **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}
-${inlineSuggestionsRule}${skillsSection}${disabledSkillsSection}`
+${inlineSuggestionsRule}${skillsSection}${disabledSkillsSection}${personaSection}${coreMemorySection}`
 }
 
 export interface InstalledApplicationResult {

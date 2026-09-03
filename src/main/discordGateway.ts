@@ -33,6 +33,7 @@ import { getChatModel, activeRuns } from './ai/chatHandler'
 import { runToolOrchestration } from './ai/toolOrchestrator'
 import { OpenAiMessage } from './ai/types'
 import { getSystemToolsPrompt, setCurrentSessionIdForTodo } from './systemTools'
+import { appendTurnRecallBlock, getActiveMemoryService } from './memoryStore'
 import {
   executeValidatedTool,
   getGeminiFunctionDeclarations,
@@ -1084,8 +1085,38 @@ function handleLiveMessage(msg: any, aiSession: any, apiKey: string): void {
     if (activeVoiceHistory) {
       activeVoiceHistory.activeUserMessageIndex = null
       activeVoiceHistory.activeAssistantMessageIndex = null
+      // Post-turn extraction trigger (M2): once per completed live-voice turn,
+      // after transcripts are persisted (appendVoiceTranscript persists eagerly).
+      try {
+        getActiveMemoryService()?.observeCompletedTurn(activeVoiceHistory.chatId)
+      } catch (err) {
+        console.error('[Memory] observeCompletedTurn failed:', err)
+      }
     }
   }
+}
+
+/**
+ * Per-turn recall for live voice (M2): appends the compact memory block to the
+ * Gemini Live system instruction at session (re)connect, using the last user
+ * line of the in-memory transcript as the query. Smaller budget than chat text
+ * because the instruction rides every spoken turn.
+ */
+function voiceMemoryRecallBlock(): string {
+  if (!activeVoiceHistory?.messages?.length) return ''
+  const lastUserLine = [...activeVoiceHistory.messages]
+    .reverse()
+    .find(
+      (m) =>
+        m.role === 'user' &&
+        typeof m.content === 'string' &&
+        m.content.trim().length > 0
+    )
+  return appendTurnRecallBlock(
+    '',
+    typeof lastUserLine?.content === 'string' ? lastUserLine.content : undefined,
+    { maxChars: 450, maxEntries: 4 }
+  )
 }
 
 async function reconnectLiveVoiceSession(continueAfterSkillUnlock = false): Promise<boolean> {
@@ -1125,7 +1156,7 @@ async function reconnectLiveVoiceSession(continueAfterSkillUnlock = false): Prom
           'Do not decide to leave because an isolated phrase in a transcript mentions leaving the call; consider the full conversation and use discord_leave_voice only when the user asks or leaving is contextually appropriate. ' +
           'When discord_leave_voice confirms a leave request, say a brief personalized goodbye and do not call any more tools. ' +
           'When a screenshot is returned, inspect it before answering the user.' +
-          historyContextPrompt,
+          historyContextPrompt + voiceMemoryRecallBlock(),
         tools: [
           {
             functionDeclarations: getGeminiFunctionDeclarations(activeVoiceHistory?.chatId)
@@ -1245,7 +1276,8 @@ async function startLiveVoiceSession(
           'When you use a tool, wait for its result before answering. Keep spoken answers concise and clear. ' +
           'Do not decide to leave because an isolated phrase in a transcript mentions leaving the call; consider the full conversation and use discord_leave_voice only when the user asks or leaving is contextually appropriate. ' +
           'When discord_leave_voice confirms a leave request, say a brief personalized goodbye and do not call any more tools. ' +
-          'When a screenshot is returned, inspect it before answering the user.',
+          'When a screenshot is returned, inspect it before answering the user.' +
+          voiceMemoryRecallBlock(),
         tools: [
           {
             functionDeclarations: getGeminiFunctionDeclarations(voiceChatId)
@@ -1779,7 +1811,10 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
     isCloud
   )
   const botName = client?.user?.username || 'AI'
-  const discordSystemPrompt = `${baseSystemPrompt}\n\n# Discord Gateway Mode\nYou are ${botName} running on Discord via Prism Gateway. Adopt the name ${botName} and NOT Prism. Keep responses concise due to Discord limits (max 2000 chars). Use simple Markdown only (bold, italics, H1-H3, code blocks). Do not use HTML or Markdown tables.`
+  let discordSystemPrompt = `${baseSystemPrompt}\n\n# Discord Gateway Mode\nYou are ${botName} running on Discord via Prism Gateway. Adopt the name ${botName} and NOT Prism. Keep responses concise due to Discord limits (max 2000 chars). Use simple Markdown only (bold, italics, H1-H3, code blocks). Do not use HTML or Markdown tables.`
+  // Long-term memory recall (M2): relevant facts ride this turn's prompt. Pinned
+  // facts already ride the static core profile inside baseSystemPrompt.
+  discordSystemPrompt = appendTurnRecallBlock(discordSystemPrompt, userText)
 
   const messagesForApi: OpenAiMessage[] = [
     { role: 'system', content: discordSystemPrompt },
@@ -1925,6 +1960,14 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
 
     currentToolsText = ''
     await updateDiscordMessage(discordFinalOutput, true)
+
+    // Post-turn extraction trigger (M2): success path only (inside try, after the
+    // final history save); Discord text never runs Harness sessions.
+    try {
+      getActiveMemoryService()?.observeCompletedTurn(chatId)
+    } catch (err) {
+      console.error('[Memory] observeCompletedTurn failed:', err)
+    }
 
     broadcastIpc('chat-reply-end', {
       thoughts: finalOutput.thoughts,

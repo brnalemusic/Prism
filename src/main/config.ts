@@ -9,6 +9,12 @@ import {
   HarnessProjectConfig,
   ImageGenerationCapabilities
 } from '../shared/types'
+import { DEFAULT_PERSONA, normalizePersona, type PersonaSettings } from '../shared/persona'
+import {
+  DEFAULT_MEMORY_CONFIG,
+  normalizeMemoryConfig,
+  type MemoryConfig
+} from '../shared/memoryCore'
 
 export interface SlashWorkflow {
   id: string
@@ -77,6 +83,8 @@ export interface AppConfig {
   discordGatewayVoiceModel?: string
   disabledSkills?: string[]
   harness: HarnessSettings
+  persona: PersonaSettings
+  memory: MemoryConfig
 }
 
 export const DEFAULT_HARNESS_TOOLS: HarnessToolName[] = [
@@ -127,6 +135,8 @@ const DEFAULT_CONFIG: AppConfig = {
   disabledSkills: [],
   hasResetV8Keys: false,
   suppressLicenseModal: false,
+  persona: { ...DEFAULT_PERSONA },
+  memory: { ...DEFAULT_MEMORY_CONFIG },
   launcherShortcut: 'CommandOrControl+Space',
   modelSelectionShortcut: 'CommandOrControl+M',
   screenshotShortcut: 'Ctrl+Alt+Space',
@@ -611,6 +621,8 @@ function normalizeConfig(config: AppConfig): AppConfig {
         ? config.disciplinePath
         : DEFAULT_CONFIG.disciplinePath,
     harness: normalizedHarness,
+    persona: normalizePersona(config.persona),
+    memory: normalizeMemoryConfig(config.memory),
     modelReasoningLevels: normalizeReasoningLevels(config.modelReasoningLevels)
   }
 }

@@ -62,6 +62,7 @@ import { asDataUrl } from './toolAttachments'
 
 import { initAppScanner, registerAppsUpdatedCallback, forceRescan, getAppsList } from './appScanner'
 import { loadConfig, saveConfig, AppConfig } from './config'
+import { createMemoryService, defaultPrismDataDir, type MemoryService } from './memoryStore'
 import {
   activateLicenseKey,
   deactivateLicense,
@@ -222,6 +223,7 @@ function saveWindowState(state: WindowState): void {
 let currentConfig: AppConfig
 let mainWindow: BrowserWindow | null = null
 let launcherWindow: BrowserWindow | null = null
+let memoryService: MemoryService | null = null
 let launcherShowWhenReady = false
 let launcherLoadListenerAttached = false
 export let voiceOverlayWindow: BrowserWindow | null = null
@@ -1376,6 +1378,61 @@ if (!gotTheLock) {
         updateNativeIcons()
         if (!IS_DEMO) reconcileDiscordGateway(currentConfig)
         // Notify windows with merged config
+        safeSend(mainWindow, 'config-changed', currentConfig)
+        safeSend(launcherWindow, 'config-changed', currentConfig)
+      }
+      return success
+    })
+
+    const getMemoryService = (): MemoryService => {
+      if (!memoryService) {
+        const dataRoot = defaultPrismDataDir()
+        memoryService = createMemoryService({
+          chatsDir: join(dataRoot, 'PrismDesktop', 'chats'),
+          memoryDir: join(dataRoot, 'PrismDesktop', 'memory'),
+          notify: (event) => {
+            const channel =
+              event.type === 'write'
+                ? 'memory-write'
+                : event.type === 'suggest'
+                  ? 'memory-suggest'
+                  : 'memory-archived'
+            safeSend(mainWindow, channel, event)
+            safeSend(launcherWindow, channel, event)
+          }
+        })
+        // Non-blocking startup catch-up over chats completed before launch.
+        setTimeout(() => {
+          try {
+            memoryService?.startupCatchUp()
+          } catch (error) {
+            console.error('[Memory] Startup catch-up failed:', error)
+          }
+        }, 3000)
+      }
+      return memoryService
+    }
+
+    ipcMain.handle('memory-list', (_event, options: any) => getMemoryService().list(options))
+    ipcMain.handle('memory-update', (_event, id: string, patch: any) =>
+      getMemoryService().update(id, patch)
+    )
+    ipcMain.handle('memory-archive', (_event, id: string) => getMemoryService().archive(id))
+    ipcMain.handle('memory-restore', (_event, id: string) => getMemoryService().restore(id))
+    ipcMain.handle('memory-delete', (_event, id: string) => getMemoryService().remove(id))
+    ipcMain.handle('memory-stats', () => getMemoryService().stats())
+    ipcMain.handle('memory-toggle-auto', (_event, enabled: boolean) => {
+      const success = saveConfig(
+        {
+          memory: {
+            ...(currentConfig.memory ?? loadConfig().memory),
+            autoExtract: enabled === true
+          }
+        },
+        currentConfig
+      )
+      if (success) {
+        currentConfig = loadConfig()
         safeSend(mainWindow, 'config-changed', currentConfig)
         safeSend(launcherWindow, 'config-changed', currentConfig)
       }
