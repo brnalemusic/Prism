@@ -12,7 +12,12 @@ import {
   HarnessPhase
 } from '../../shared/types'
 import type { ToolImageAttachment } from '../toolAttachments'
-import { getSystemToolsPrompt, setActiveCwd, setCurrentSessionIdForTodo } from '../systemTools'
+import {
+  getSystemToolsPrompt,
+  setActiveCwd,
+  setCurrentSessionIdForTodo,
+  YOUTUBE_SEARCH_PROTOCOL
+} from '../systemTools'
 import { loadConfig } from '../config'
 import {
   hydrateHistoryToolAttachments,
@@ -383,7 +388,7 @@ export async function prepareHarnessPlanHandoff(data: {
       {
         role: 'system',
         content:
-          'You are preparing a precise implementation handoff for another coding agent. Use the complete source conversation to close gaps, preserve decisions and constraints, summarize repository discoveries, identify likely files and risks, and state validation expectations. Do not repeat the implementation plan verbatim. Return only the complementary handoff context in concise Markdown.'
+          'Implementation handoff for another coding agent: use the source conversation to close gaps, preserve decisions/constraints, summarize repository discoveries, list likely files and risks, and state validation expectations. Do not repeat the plan verbatim; return only the complementary context.'
       },
       ...convertHistoryToOpenAi(history),
       {
@@ -793,35 +798,9 @@ export async function handleChatMessage(
       fullPrompt += `\n\n# Web Search Requirement\nThe user has explicitly enabled Web Search for this prompt. You MUST use the 'web_search' tool to search the internet for current up-to-date information before returning your response. Set resultCount from 1 to 10; use 2–4 in most cases and 5–8 only for specific needs.`
     }
     if (requestSessionMode !== 'harness' && isYoutubeMode) {
-      fullPrompt += `\n\n# YouTube Video Search Protocol (Active YouTube App Mode)
-You are acting as the specialized YouTube Assistant. The user wants to find YouTube videos.
-STRICT EXECUTION PROTOCOL:
-1. SEARCH VIA GOOGLE QUERY: You MUST search using the 'web_search' tool with the exact query format:
-   \`site:youtube.com <SEARCH_QUERY>\`
-   (e.g., web_search({ query: "site:youtube.com Thinking Space II verified", resultCount: 3 })).
-   This uses Google search to instantly and reliably locate the official YouTube video URLs (https://www.youtube.com/watch?v=...), channel names, video titles, and snippets.
-2. OUTPUT FORMAT (MANDATORY STYLED CARD BLOCK): You MUST format your final response by wrapping the title, description, and buttons in an HTML card container block, followed by the suggestion chip below it:
+      fullPrompt += `
 
-<div style="border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 18px 20px; background: rgba(255, 255, 255, 0.03); margin: 12px 0;">
-  <div style="font-size: 16px; font-weight: bold; color: #ffffff; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
-    🎬 <span>[Video Title / Clean Name]</span>
-  </div>
-  <div style="font-size: 14px; color: rgba(255, 255, 255, 0.75); line-height: 1.5; margin-bottom: 16px;">
-    [Customized description of what was found based on the user request].
-  </div>
-  <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-    <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-flex; align-items: center; justify-content: center; background-color: #ff0000; color: #ffffff; padding: 8px 18px; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 13.5px;">[Primary Action/Watch Label]</a>
-    <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-flex; align-items: center; justify-content: center; background-color: #272727; color: #ffffff; padding: 8px 18px; border-radius: 8px; font-weight: 600; text-decoration: none; font-size: 13.5px;">[Alternative Label]</a>
-  </div>
-</div>
-
-<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>
-
-STRICT BUTTON RULES:
-- Maximum 3 buttons total inside the flex container (1 primary in bold red #ff0000, up to 2 alternatives in dark charcoal #272727).
-- All buttons MUST be clickable <a> links with real href="https://www.youtube.com/watch?v=..." and target="_blank".
-- The <prism-suggestion> chip MUST be outside/below the card container.
-3. OPENING THE FOUND VIDEO: If the user sends "Open the YouTube video that you've found for me." or asks to open/play the video, immediately call 'open_browser_link' with the target video URL to open it in their browser.`
+${YOUTUBE_SEARCH_PROTOCOL}`
     }
 
     // Long-term memory recall (M2): relevant facts ride this turn's prompt.

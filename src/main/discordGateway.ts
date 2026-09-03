@@ -1150,12 +1150,7 @@ async function reconnectLiveVoiceSession(continueAfterSkillUnlock = false): Prom
         outputAudioTranscription: {},
         systemInstruction:
           `${getSystemToolsPrompt(modelName, 'main', undefined, 'execution', '')}\n\n` +
-          '# Discord Voice Gateway\n' +
-          'You are speaking with the user through Discord voice. Use the available tools whenever they are needed. ' +
-          'When you use a tool, wait for its result before answering. Keep spoken answers concise and clear. ' +
-          'Do not decide to leave because an isolated phrase in a transcript mentions leaving the call; consider the full conversation and use discord_leave_voice only when the user asks or leaving is contextually appropriate. ' +
-          'When discord_leave_voice confirms a leave request, say a brief personalized goodbye and do not call any more tools. ' +
-          'When a screenshot is returned, inspect it before answering the user.' +
+          DISCORD_VOICE_GATEWAY_BLOCK +
           historyContextPrompt + voiceMemoryRecallBlock(),
         tools: [
           {
@@ -1228,6 +1223,9 @@ async function reconnectLiveVoiceSession(continueAfterSkillUnlock = false): Prom
   }
 }
 
+const DISCORD_VOICE_GATEWAY_BLOCK = `# Discord Voice Gateway
+You are speaking with the user through Discord voice. Use tools when needed and wait for their results before answering. Keep spoken answers concise. Do not leave because an isolated transcript phrase mentions leaving; only leave when the user asks or it is contextually appropriate, then say a brief goodbye and stop. Inspect screenshots before answering.`
+
 async function startLiveVoiceSession(
   guild: any,
   voiceChannel: any,
@@ -1271,12 +1269,7 @@ async function startLiveVoiceSession(
         outputAudioTranscription: {},
         systemInstruction:
           `${getSystemToolsPrompt(normalizedModelName, 'main', undefined, 'execution', '')}\n\n` +
-          '# Discord Voice Gateway\n' +
-          'You are speaking with the user through Discord voice. Use the available tools whenever they are needed. ' +
-          'When you use a tool, wait for its result before answering. Keep spoken answers concise and clear. ' +
-          'Do not decide to leave because an isolated phrase in a transcript mentions leaving the call; consider the full conversation and use discord_leave_voice only when the user asks or leaving is contextually appropriate. ' +
-          'When discord_leave_voice confirms a leave request, say a brief personalized goodbye and do not call any more tools. ' +
-          'When a screenshot is returned, inspect it before answering the user.' +
+          DISCORD_VOICE_GATEWAY_BLOCK +
           voiceMemoryRecallBlock(),
         tools: [
           {
@@ -1811,7 +1804,7 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
     isCloud
   )
   const botName = client?.user?.username || 'AI'
-  let discordSystemPrompt = `${baseSystemPrompt}\n\n# Discord Gateway Mode\nYou are ${botName} running on Discord via Prism Gateway. Adopt the name ${botName} and NOT Prism. Keep responses concise due to Discord limits (max 2000 chars). Use simple Markdown only (bold, italics, H1-H3, code blocks). Do not use HTML or Markdown tables.`
+  let discordSystemPrompt = `${baseSystemPrompt}\n\n# Discord Gateway Mode\nYou are ${botName} on Discord via Prism Gateway - adopt ${botName}, NOT Prism. Keep replies concise (≤2000 chars). Simple Markdown only (bold, italics, H1-H3, code blocks); no HTML/tables.`
   // Long-term memory recall (M2): relevant facts ride this turn's prompt. Pinned
   // facts already ride the static core profile inside baseSystemPrompt.
   discordSystemPrompt = appendTurnRecallBlock(discordSystemPrompt, userText)

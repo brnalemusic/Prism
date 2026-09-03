@@ -1906,6 +1906,26 @@ export function filterDisabledDocContent(
   return filtered
 }
 
+export const YOUTUBE_SEARCH_PROTOCOL = `# YouTube Video Search Protocol (Active YouTube App Mode)
+You are the specialized YouTube Assistant. The user wants to find YouTube videos.
+
+1. SEARCH: Use 'web_search' with the exact query \`site:youtube.com <SEARCH_QUERY>\` (e.g. web_search({ query: "site:youtube.com Thinking Space II verified", resultCount: 3 })) to locate official video URLs and channel/title/snippet metadata.
+
+2. OUTPUT: Wrap the title, description and buttons in this HTML card, with the suggestion chip below it:
+
+<div style="border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 18px 20px; background: rgba(255, 255, 255, 0.03); margin: 12px 0;">
+<div style="font-size: 16px; font-weight: bold; color: #ffffff; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">🎬 <span>[Video Title / Clean Name]</span></div>
+<div style="font-size: 14px; color: rgba(255, 255, 255, 0.75); line-height: 1.5; margin-bottom: 16px;">[Customized description based on the user request].</div>
+<div style="display: flex; gap: 10px; flex-wrap: wrap;"><a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-flex; align-items: center; justify-content: center; background-color: #ff0000; color: #ffffff; padding: 8px 18px; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 13.5px;">[Primary Action/Watch Label]</a> <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-flex; align-items: center; justify-content: center; background-color: #272727; color: #ffffff; padding: 8px 18px; border-radius: 8px; font-weight: 600; text-decoration: none; font-size: 13.5px;">[Alternative Label]</a></div>
+</div>
+
+<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>
+
+BUTTON RULES: max 3 buttons (1 primary red #ff0000, up to 2 charcoal #272727); all real <a> links with href="https://www.youtube.com/watch?v=..." and target="_blank"; the chip stays below the card.
+
+3. OPENING: If the user sends "Open the YouTube video that you've found for me." or asks to open/play the video, call 'open_browser_link' with the video URL.
+`
+
 export function getSystemToolsPrompt(
   modelKey: string,
   target: 'main' | 'subagent' | 'both' | 'launcher' = 'main',
@@ -2041,10 +2061,9 @@ Model: ${modelIdentity}
 Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
 # Rules
-- Use simple Markdown. Absolute paths for file tools; commands run in \`${shellName}\` (${shellSyntax}); shared single browser session.
+- Simple Markdown; absolute paths for file tools; commands run in \`${shellName}\` (\`${shellSyntax}\`); one shared browser session.
 - **Auto-Open:** App/link/path sent alone → open via open_browser_link or open_application.
-- **Transitions:** Complex/long tasks → open_main_app.
-- Natively invoke tools in parallel when applicable.${personaSection}${coreMemorySection}${memoryGuidanceSection}`
+- **Transitions:** Complex/long tasks → open_main_app. Parallel tool calls allowed.${personaSection}${coreMemorySection}${memoryGuidanceSection}`
   }
 
   if (sessionMode === 'conversation' && target === 'main') {
@@ -2054,8 +2073,7 @@ Model: ${modelIdentity}
 Context: ${date} | ${platform} | Home: ${homeDir} | CWD: ${cwd}
 
 # Rules
-- No tool access. Reply with text/Markdown.
-- Match user language. Be direct, factual, concise.
+- Text/Markdown replies only, in the user’s language. Be direct, factual, concise.
 ${inlineSuggestionsRule}${personaSection}${coreMemorySection}${memoryGuidanceSection}`
   }
 
@@ -2084,15 +2102,14 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | 
 # Rules & Protocols
 - Match user language. Be direct, factual, and concise.${disciplineRule}
 ${browserRule}
-- **Formatting:** Markdown for text/code; inline HTML/CSS (render directly, unwrapped) for rich visual cards/designs; \`create_mini_app\` for interactive widgets/games.
-- **Execution:** Absolute paths required for file operations. Commands run in \`${shellName}\` (${shellSyntax}). Parallel native tool calls allowed.
-- **Search:** \`web_search\` for standard queries with \`resultCount\` 1–10 (2–4 typical; 5–8 only for specific cases). Use \`web_fetch\` for deep research / deep search / in-depth thorough investigation or any topic requiring exhaustive, comprehensive web investigation across up to 50 source pages synthesized by a dedicated subagent: provide 1) \`title\` — descriptive, formulated strictly in the user's conversational language; 2) \`queries\` — exactly 5 distinct Google-style queries exploring variants of the topic, in whichever language yields the best global results (e.g. English for tech/global topics); each query retrieves 10 pages (5 x 10 = up to 50 total Sources), with up to 15,000 characters per Source sent to the subagent.
+- **Formatting:** Markdown for text/code; inline HTML/CSS (rendered unwrapped) for rich visual cards; \`create_mini_app\` for interactive widgets.
+- **Execution:** Absolute paths required; commands run in \`${shellName}\` (\`${shellSyntax}\`); parallel native tool calls allowed.
+- **Search:** \`web_search\` for standard queries (\`resultCount\` 1–10; 2–4 typical). \`web_fetch\` for deep research / deep search / in-depth multi-source investigation (up to 50 sources synthesized by a subagent): pass 1) \`title\` — in the user’s language; 2) \`queries\` — exactly 5 Google-style queries (10 pages each, ~15,000 chars per source).
 - **Prism Docs:** internal_docs_list / internal_docs_read / internal_docs_search for Prism system questions.
-- **YouTube Assistant:** For YouTube video searches, search via \`web_search\` with query \`site:youtube.com <SEARCH_QUERY>\`. Enclose the result in a styled HTML card (\`<div style="border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:18px 20px;background:rgba(255,255,255,0.03);margin:12px 0;">\`) containing 🎬 title, customized description, up to 3 clickable HTML <a> buttons (primary bold red #ff0000, alternatives dark charcoal #272727), and the suggestion chip below the card: \`<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>\`.
-- **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|multiple-select|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"Short title","description":"Helpful explanation","recommended":true}],"max_selections":2}]}. Omit max_selections to allow any number. Use recommended when one option is clearly best. Prism always adds a write-in option to choice questions.
+- **YouTube Assistant:** Search YouTube via \`web_search\` with \`site:youtube.com <SEARCH_QUERY>\`; present results as an HTML card (dark rounded container, 🎬 title, short description, up to 3 <a> buttons: primary bold red #ff0000, alternatives dark charcoal #272727) with this chip below: \`<prism-suggestion send="Open the YouTube video that you’ve found for me.">Open the video</prism-suggestion>\`.
+- **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|multiple-select|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"Short title","description":"Helpful explanation","recommended":true}],"max_selections":2}]}. Omit max_selections for unlimited; set recommended when one option is best; Prism always adds a write-in option.
 ${inlineSuggestionsRule}${skillsSection}${disabledSkillsSection}${personaSection}${coreMemorySection}${memoryGuidanceSection}`
 }
-
 export interface InstalledApplicationResult {
   name: string
   path: string

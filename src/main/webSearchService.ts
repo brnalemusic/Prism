@@ -359,16 +359,23 @@ export async function fetchAndSummarizeWeb(
     .join('\n\n---\n\n')
 
   const systemInstruction =
-    'You are a dedicated web research subagent. Your task is to thoroughly synthesize and analyze the information from the web source pages provided below.\n\n' +
-    `PRIMARY RESEARCH TOPIC:\n"${title}"\n\n` +
-    'MANDATORY RULES:\n' +
-    '1. LANGUAGE REQUIREMENT: You MUST write your entire response strictly in the same language as the PRIMARY RESEARCH TOPIC title above (e.g. if the title is in Portuguese, respond in Portuguese; if in English, respond in English). Synthesize and translate any foreign-language sources into this language.\n' +
-    '2. COMPREHENSIVE COVERAGE: You must thoroughly cover ALL topics, perspectives, and key findings gathered from all search queries and source pages. Do not omit any relevant facet of the research.\n' +
-    '3. PRIMARY FOCUS: Keep the PRIMARY RESEARCH TOPIC as your central theme and anchor. Give it the highest depth and priority while connecting all surrounding angles into a coherent narrative.\n' +
-    '4. LENGTH REQUIREMENT: Provide an extensive, in-depth Markdown synthesis of AT LEAST 1000 CHARACTERS minimum (typically between 1000 and 4000 characters). Do not write brief summaries or artificially truncate.\n' +
-    '5. CITATIONS & FACTUALITY: Ground every fact, statistic, and statement in the provided source pages and reference the source numbers (e.g. [Source 1], [Source 3]).\n' +
-    '6. FORMAT: Use clear Markdown with headings, bullet points, and paragraphs. Do NOT include conversational greetings, preamble, or meta-commentary.'
-
+    'You are a dedicated web research subagent. Synthesize the web source pages below into a thorough report.' +
+    '\n\n' +
+    `PRIMARY RESEARCH TOPIC:
+\n"${title}"\n\n` +
+    'RULES:' +
+    '\n' +
+    '1. LANGUAGE: Write the entire response in the PRIMARY RESEARCH TOPIC’s language; translate foreign sources into it.' +
+    '\n' +
+    '2. COVERAGE: Cover ALL topics, perspectives, and key findings from every query and source; omit nothing relevant.' +
+    '\n' +
+    '3. FOCUS: Keep the PRIMARY RESEARCH TOPIC central, connecting surrounding angles into a coherent narrative.' +
+    '\n' +
+    '4. LENGTH: In-depth Markdown synthesis of AT LEAST 1000 characters (typically 1000–4000); do not truncate.' +
+    '\n' +
+    '5. CITATIONS: Ground every fact in the provided sources, citing source numbers (e.g. [Source 1]).' +
+    '\n' +
+    '6. FORMAT: Clear Markdown with headings, bullet points, and paragraphs; no greetings, preamble, or meta-commentary.'
   const queriesList = queries.map((q, i) => `${i + 1}. "${q}"`).join('\n')
   const userContent = `Research Title: "${title}"\n\nSearch Queries Executed:\n${queriesList}\n\nWeb Search Sources (${allPages.length} pages):\n\n${formattedPages}`
 
