@@ -234,6 +234,8 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
         setModels(
           res.models.map((model) => ({
             ...model,
+            // Preserve the user's selection, including trusted models they disabled.
+            enabled: existingById.get(model.id)?.enabled ?? model.enabled,
             imageGeneration: existingById.get(model.id)?.imageGeneration || model.imageGeneration
           }))
         )

@@ -1,19 +1,13 @@
-import React, { useState } from 'react'
+import React, { useId, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
-import {
-  ArrowRight,
-  CheckCircle,
-  CircleNotch,
-  PaperPlaneRight,
-  X
-} from '@phosphor-icons/react'
+import { ArrowRight, CheckCircle, CircleNotch, PaperPlaneRight, X } from '@phosphor-icons/react'
 import type { HarnessPhase } from '../../../shared/types'
 import { StaticMarkdownComponents } from './AnimatedStreamingText'
 
 interface ImplementationPlanCardProps {
-  markdown: string
+  markdown?: string
   phase: HarnessPhase
   isPreparing?: boolean
   busyLabel?: string
@@ -25,7 +19,7 @@ interface ImplementationPlanCardProps {
 }
 
 export function ImplementationPlanCard({
-  markdown,
+  markdown = '',
   phase,
   isPreparing = false,
   busyLabel = 'Updating implementation plan…',
@@ -36,110 +30,183 @@ export function ImplementationPlanCard({
   onCancel
 }: ImplementationPlanCardProps): React.JSX.Element {
   const [feedback, setFeedback] = useState('')
+  const [isApprovedPlanExpanded, setIsApprovedPlanExpanded] = useState(false)
   const isPlan = phase === 'plan'
+  const hasPlan = Boolean(markdown.trim())
+  const isLoading = isPreparing && !hasPlan
+  const feedbackId = useId()
+
+  const submitFeedback = (): void => {
+    const value = feedback.trim()
+    if (!value || isPreparing) return
+    onFeedback(value)
+    setFeedback('')
+  }
+
+  if (!isPlan) {
+    return (
+      <section
+        className="implementation-plan-surface implementation-plan-surface--approved"
+        aria-label="Approved Implementation Plan"
+      >
+        <header className="implementation-plan-surface__approved-header">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="implementation-plan-surface__status-icon">
+              <CheckCircle size={15} weight="fill" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-xs font-semibold text-text-primary">
+                Implementation Plan approved
+              </h3>
+              <p className="mt-0.5 text-[10.5px] text-text-muted">
+                This session is ready to continue in Build.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-expanded={isApprovedPlanExpanded}
+            onClick={() => setIsApprovedPlanExpanded((expanded) => !expanded)}
+            className="implementation-plan-surface__text-action"
+          >
+            {isApprovedPlanExpanded ? 'Hide plan' : 'View plan'}
+          </button>
+        </header>
+
+        {isApprovedPlanExpanded && (
+          <div className="implementation-plan-surface__body implementation-plan-surface__body--approved custom-scrollbar select-text">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm, remarkBreaks]}
+              components={StaticMarkdownComponents}
+            >
+              {markdown}
+            </ReactMarkdown>
+          </div>
+        )}
+      </section>
+    )
+  }
 
   return (
     <section
-      className="liquid-glass-docked relative max-h-[58vh] overflow-hidden rounded-t-2xl border border-white/[0.1] bg-black/70 shadow-[0_-18px_60px_rgba(0,0,0,0.42)]"
-      aria-label="Implementation Plan"
+      className="implementation-plan-surface"
+      aria-label="Implementation Plan review"
+      aria-busy={isPreparing}
     >
-      <header className="flex items-center justify-between border-b border-white/[0.07] px-5 py-3.5">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-primary/15 text-accent-primary">
+      <header className="implementation-plan-surface__header">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="implementation-plan-surface__status-icon">
             {isPreparing ? (
-              <CircleNotch size={15} className="animate-spin" />
+              <CircleNotch size={16} className="motion-safe:animate-spin" />
             ) : (
-              <CheckCircle size={15} weight="fill" />
+              <CheckCircle size={16} weight="fill" />
             )}
           </div>
-          <div>
-            <h3 className="text-xs font-semibold text-text-primary">Implementation Plan</h3>
-            <p className="mt-0.5 text-[10px] text-text-muted">
-              {isPreparing
-                ? busyLabel
-                : isPlan
-                  ? 'Review the plan before implementation begins.'
-                  : 'Approved for implementation in this session.'}
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold tracking-tight text-text-primary">
+              Implementation Plan
+            </h3>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
+              {isPreparing ? busyLabel : 'Review the proposed work before implementation begins.'}
             </p>
           </div>
         </div>
-        <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-text-muted">
-          {isPlan ? 'Plan' : 'Approved'}
+        <span className="implementation-plan-surface__badge">
+          {isPreparing ? 'Preparing' : 'Review'}
         </span>
       </header>
 
-      <div className="max-h-[32vh] overflow-y-auto px-5 py-4 text-[12.5px] leading-relaxed text-text-secondary select-text">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkBreaks]}
-          components={StaticMarkdownComponents}
-        >
-          {markdown}
-        </ReactMarkdown>
+      <div className="implementation-plan-surface__body custom-scrollbar select-text">
+        {isLoading ? (
+          <div className="implementation-plan-surface__skeleton" aria-label={busyLabel}>
+            <span className="implementation-plan-surface__skeleton-line w-[42%]" />
+            <span className="implementation-plan-surface__skeleton-line w-full" />
+            <span className="implementation-plan-surface__skeleton-line w-[88%]" />
+            <span className="implementation-plan-surface__skeleton-line w-[68%]" />
+            <span className="implementation-plan-surface__skeleton-block" />
+            <span className="implementation-plan-surface__skeleton-line w-[76%]" />
+          </div>
+        ) : (
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, remarkBreaks]}
+            components={StaticMarkdownComponents}
+          >
+            {markdown}
+          </ReactMarkdown>
+        )}
       </div>
 
-      {error && (
-        <p className="mx-5 mb-3 rounded-lg border border-status-error/20 bg-status-error/[0.06] px-3 py-2 text-[11px] text-status-error">
-          {error}
-        </p>
-      )}
+      <footer className="implementation-plan-surface__footer">
+        {error && (
+          <p className="implementation-plan-surface__error" role="alert">
+            {error}
+          </p>
+        )}
 
-      {isPlan && (
-        <footer className="border-t border-white/[0.07] bg-black/25 px-4 py-3">
-          <div className="mb-2 flex gap-2">
+        <div className="implementation-plan-surface__feedback">
+          <label htmlFor={feedbackId}>Request a revision</label>
+          <div className="implementation-plan-surface__feedback-control">
             <textarea
+              id={feedbackId}
               rows={2}
               value={feedback}
               onChange={(event) => setFeedback(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                  event.preventDefault()
+                  submitFeedback()
+                }
+              }}
               disabled={isPreparing}
               placeholder="Describe what should change in this plan…"
-              className="min-h-16 flex-1 resize-none rounded-xl border border-white/[0.08] bg-black/30 px-3 py-2 text-xs text-text-primary outline-none placeholder:text-text-muted focus:border-accent-primary/60 focus:ring-1 focus:ring-accent-primary/30 disabled:opacity-50"
+              className="implementation-plan-surface__textarea"
             />
             <button
               type="button"
               disabled={isPreparing || !feedback.trim()}
-              onClick={() => {
-                const value = feedback.trim()
-                if (!value) return
-                onFeedback(value)
-                setFeedback('')
-              }}
-              className="flex w-10 items-center justify-center rounded-xl border border-accent-primary/25 bg-accent-primary/10 text-accent-primary transition-colors hover:bg-accent-primary/20 disabled:pointer-events-none disabled:opacity-35"
-              title="Send feedback"
-              aria-label="Send feedback"
+              onClick={submitFeedback}
+              className="implementation-plan-surface__feedback-submit"
+              title="Request changes"
+              aria-label="Request changes to the Implementation Plan"
             >
               <PaperPlaneRight size={15} weight="fill" />
+              <span>Request changes</span>
             </button>
           </div>
+          <p className="implementation-plan-surface__feedback-hint">
+            Press Ctrl or Cmd + Enter to send.
+          </p>
+        </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="implementation-plan-surface__actions">
+          <button type="button" onClick={onCancel} className="implementation-plan-surface__cancel">
+            <X size={13} weight="bold" />
+            Cancel
+          </button>
+          <div className="implementation-plan-surface__accept-actions">
             <button
               type="button"
-              onClick={onCancel}
-              className="mr-auto flex items-center gap-1.5 rounded-xl px-3 py-2 text-[11px] font-semibold text-text-muted transition-colors hover:bg-white/[0.05] hover:text-text-primary"
-            >
-              <X size={12} weight="bold" />
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={isPreparing}
-              onClick={onAcceptHere}
-              className="rounded-xl border border-white/[0.11] bg-white/[0.045] px-3.5 py-2 text-[11px] font-semibold text-text-primary transition-colors hover:bg-white/[0.09] disabled:opacity-40"
-            >
-              Accept &amp; Continue Here
-            </button>
-            <button
-              type="button"
-              disabled={isPreparing}
+              disabled={isPreparing || !hasPlan}
               onClick={onAcceptNewChat}
-              className="flex items-center gap-1.5 rounded-xl border border-accent-primary/30 bg-accent-primary/15 px-3.5 py-2 text-[11px] font-semibold text-accent-primary transition-colors hover:bg-accent-primary/25 disabled:opacity-40"
+              className="implementation-plan-surface__secondary-action"
+              aria-label="Accept plan and continue in a new Build chat"
             >
-              Accept &amp; Continue in New Chat
-              <ArrowRight size={12} weight="bold" />
+              New Build Chat
+              <ArrowRight size={13} weight="bold" />
+            </button>
+            <button
+              type="button"
+              disabled={isPreparing || !hasPlan}
+              onClick={onAcceptHere}
+              className="implementation-plan-surface__primary-action"
+              aria-label="Accept plan and continue in this chat"
+            >
+              <CheckCircle size={14} weight="fill" />
+              Accept &amp; Continue
             </button>
           </div>
-        </footer>
-      )}
+        </div>
+      </footer>
     </section>
   )
 }

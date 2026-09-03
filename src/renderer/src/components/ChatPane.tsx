@@ -471,10 +471,23 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
       return null
     }, [tab.messages])
 
-    const renderImplementationPlan = (): React.JSX.Element | null => {
+    const hasVisibleImplementationPlan =
+      Boolean(implementationPlan) && implementationPlan !== tab.dismissedPlanMarkdown
+    const hasPlanActions =
+      Boolean(onAcceptPlanHere) &&
+      Boolean(onAcceptPlanNewChat) &&
+      Boolean(onSendPlanFeedback) &&
+      Boolean(onCancelPlan)
+    const isPlanReviewActive =
+      isHarness &&
+      tab.harnessPhase === 'plan' &&
+      tab.dismissedPlanMarkdown === undefined &&
+      (hasVisibleImplementationPlan || tab.isProcessing)
+
+    const renderPlanReviewSurface = (): React.JSX.Element | null => {
       if (
-        !implementationPlan ||
-        implementationPlan === tab.dismissedPlanMarkdown ||
+        !isPlanReviewActive ||
+        !hasPlanActions ||
         !onAcceptPlanHere ||
         !onAcceptPlanNewChat ||
         !onSendPlanFeedback ||
@@ -484,13 +497,38 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
       }
       return (
         <ImplementationPlanCard
-          markdown={implementationPlan}
-          phase={tab.harnessPhase || 'build'}
+          markdown={hasVisibleImplementationPlan ? implementationPlan || undefined : undefined}
+          phase="plan"
           isPreparing={isPlanPreparing}
           busyLabel={planBusyLabel}
           error={planError}
-          onAcceptHere={() => onAcceptPlanHere(implementationPlan)}
-          onAcceptNewChat={() => onAcceptPlanNewChat(implementationPlan)}
+          onAcceptHere={() => onAcceptPlanHere(implementationPlan || '')}
+          onAcceptNewChat={() => onAcceptPlanNewChat(implementationPlan || '')}
+          onFeedback={onSendPlanFeedback}
+          onCancel={onCancelPlan}
+        />
+      )
+    }
+
+    const renderApprovedPlanSummary = (): React.JSX.Element | null => {
+      if (
+        !hasVisibleImplementationPlan ||
+        tab.harnessPhase === 'plan' ||
+        !hasPlanActions ||
+        !onAcceptPlanHere ||
+        !onAcceptPlanNewChat ||
+        !onSendPlanFeedback ||
+        !onCancelPlan
+      ) {
+        return null
+      }
+      return (
+        <ImplementationPlanCard
+          markdown={implementationPlan || undefined}
+          phase="build"
+          error={planError}
+          onAcceptHere={() => onAcceptPlanHere(implementationPlan || '')}
+          onAcceptNewChat={() => onAcceptPlanNewChat(implementationPlan || '')}
           onFeedback={onSendPlanFeedback}
           onCancel={onCancelPlan}
         />
@@ -562,12 +600,12 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     ])
 
     useEffect(() => {
-      if (!isFocused) return
+      if (!isFocused || isPlanReviewActive) return
       const timer = setTimeout(() => {
         inputBarRef.current?.focus()
       }, 50)
       return () => clearTimeout(timer)
-    }, [isFocused, tab.id])
+    }, [isFocused, isPlanReviewActive, tab.id])
 
     const [localInputText, setLocalInputText] = useState(tab.inputText)
     const lastTabIdRef = useRef(tab.id)
@@ -796,58 +834,64 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                         chatId={activeQuestionnaire.chatId}
                       />
                     )}
-                    {renderImplementationPlan()}
+                    {renderApprovedPlanSummary()}
                     {renderMissingFolderBanner()}
-                    <InputBar
-                      ref={inputBarRef}
-                      onSend={handleSendInputBar}
-                      onCancel={onCancel}
-                      isProcessing={tab.isProcessing}
-                      isKeyMissing={isKeyMissing}
-                      disabled={tab.isProcessing || isKeyMissing || !isOnline}
-                      selectedModel={tab.selectedModel}
-                      onModelChange={onModelChange}
-                      reasoningLevel={
-                        config?.modelReasoningLevels?.[tab.selectedModel] ||
-                        config?.modelReasoningLevels?.[
-                          tab.selectedModel.replace('prism_provider:', '')
-                        ] ||
-                        getDefaultThinkingLevelForModel(tab.selectedModel)
-                      }
-                      onReasoningLevelChange={(level) =>
-                        onReasoningLevelChange(tab.selectedModel, level)
-                      }
-                      text={localInputText}
-                      setText={handleSetTextInputBar}
-                      quotedText={tab.quotedText}
-                      onClearQuote={() => onUpdateTabQuote?.(tab.id, null)}
-                      isSearchEnabled={tab.isSearchEnabled}
-                      setIsSearchEnabled={(val) => onToggleSearch?.(val)}
-                      isFullscreen={false}
-                      onFullscreenToggle={() => {}}
-                      attachedFile={tab.attachedFile}
-                      onRemoveFile={() => onUpdateTabFile(tab.id, null)}
-                      onAttachFile={(f) => onUpdateTabFile(tab.id, f)}
-                      onOpenScreenshotModal={onOpenScreenshotModal}
-                      onOpenYoutubeModal={onOpenYoutubeModal}
-                      activeWorkflow={activeWorkflow}
-                      setActiveWorkflow={setActiveWorkflow}
-                      sessionMode={tab.sessionMode}
-                      disciplinePath={tab.disciplinePath}
-                      onModeChange={onModeChange}
-                      onSelectFolder={onSelectFolder}
-                      disabledSkills={tab.disabledSkills}
-                      onDisabledSkillsChange={(skills) =>
-                        onUpdateTabDisabledSkills?.(tab.id, skills)
-                      }
-                      harnessPermissionMode={harnessPermissionMode}
-                      onHarnessPermissionModeChange={onHarnessPermissionModeChange}
-                      onOpenUpgradePlans={onOpenUpgradePlans}
-                      isEnterprise={isEnterprise}
-                      harnessExplorerContext={isHarness ? tab.harnessExplorerContext || [] : undefined}
-                      onAddHarnessExplorerContext={onAddHarnessExplorerContext}
-                      onRemoveHarnessExplorerContext={onRemoveHarnessExplorerContext}
-                    />
+                    {isPlanReviewActive ? (
+                      renderPlanReviewSurface()
+                    ) : (
+                      <InputBar
+                        ref={inputBarRef}
+                        onSend={handleSendInputBar}
+                        onCancel={onCancel}
+                        isProcessing={tab.isProcessing}
+                        isKeyMissing={isKeyMissing}
+                        disabled={tab.isProcessing || isKeyMissing || !isOnline}
+                        selectedModel={tab.selectedModel}
+                        onModelChange={onModelChange}
+                        reasoningLevel={
+                          config?.modelReasoningLevels?.[tab.selectedModel] ||
+                          config?.modelReasoningLevels?.[
+                            tab.selectedModel.replace('prism_provider:', '')
+                          ] ||
+                          getDefaultThinkingLevelForModel(tab.selectedModel)
+                        }
+                        onReasoningLevelChange={(level) =>
+                          onReasoningLevelChange(tab.selectedModel, level)
+                        }
+                        text={localInputText}
+                        setText={handleSetTextInputBar}
+                        quotedText={tab.quotedText}
+                        onClearQuote={() => onUpdateTabQuote?.(tab.id, null)}
+                        isSearchEnabled={tab.isSearchEnabled}
+                        setIsSearchEnabled={(val) => onToggleSearch?.(val)}
+                        isFullscreen={false}
+                        onFullscreenToggle={() => {}}
+                        attachedFile={tab.attachedFile}
+                        onRemoveFile={() => onUpdateTabFile(tab.id, null)}
+                        onAttachFile={(f) => onUpdateTabFile(tab.id, f)}
+                        onOpenScreenshotModal={onOpenScreenshotModal}
+                        onOpenYoutubeModal={onOpenYoutubeModal}
+                        activeWorkflow={activeWorkflow}
+                        setActiveWorkflow={setActiveWorkflow}
+                        sessionMode={tab.sessionMode}
+                        disciplinePath={tab.disciplinePath}
+                        onModeChange={onModeChange}
+                        onSelectFolder={onSelectFolder}
+                        disabledSkills={tab.disabledSkills}
+                        onDisabledSkillsChange={(skills) =>
+                          onUpdateTabDisabledSkills?.(tab.id, skills)
+                        }
+                        harnessPermissionMode={harnessPermissionMode}
+                        onHarnessPermissionModeChange={onHarnessPermissionModeChange}
+                        onOpenUpgradePlans={onOpenUpgradePlans}
+                        isEnterprise={isEnterprise}
+                        harnessExplorerContext={
+                          isHarness ? tab.harnessExplorerContext || [] : undefined
+                        }
+                        onAddHarnessExplorerContext={onAddHarnessExplorerContext}
+                        onRemoveHarnessExplorerContext={onRemoveHarnessExplorerContext}
+                      />
+                    )}
                     {renderProjectDropdown('bottom')}
                   </div>
                 </div>
@@ -858,7 +902,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
             {tab.messages.length > 0 && (
               <div
                 className={clsx(
-                  'w-full flex-grow flex flex-col pb-[27.5vh]',
+                  'w-full flex-grow flex flex-col',
+                  isPlanReviewActive ? 'pb-[min(72vh,720px)]' : 'pb-[27.5vh]',
                   isHarness ? 'pt-16' : 'pt-4'
                 )}
               >
@@ -903,57 +948,63 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                     chatId={activeQuestionnaire.chatId}
                   />
                 )}
-                {renderImplementationPlan()}
-                <InputBar
-                  ref={inputBarRef}
-                  onSend={handleSendInputBar}
-                  onCancel={onCancel}
-                  isProcessing={tab.isProcessing}
-                  isKeyMissing={isKeyMissing}
-                  disabled={tab.isProcessing || isKeyMissing || !isOnline}
-                  selectedModel={tab.selectedModel}
-                  onModelChange={onModelChange}
-                  reasoningLevel={
-                    config?.modelReasoningLevels?.[tab.selectedModel] ||
-                    config?.modelReasoningLevels?.[
-                      tab.selectedModel.replace('prism_provider:', '')
-                    ] ||
-                    getDefaultThinkingLevelForModel(tab.selectedModel)
-                  }
-                  onReasoningLevelChange={(level) =>
-                    onReasoningLevelChange(tab.selectedModel, level)
-                  }
-                  text={localInputText}
-                  setText={handleSetTextInputBar}
-                  quotedText={tab.quotedText}
-                  onClearQuote={() => onUpdateTabQuote?.(tab.id, null)}
-                  isSearchEnabled={tab.isSearchEnabled}
-                  setIsSearchEnabled={(val) => onToggleSearch?.(val)}
-                  isFullscreen={false}
-                  onFullscreenToggle={() => {}}
-                  attachedFile={tab.attachedFile}
-                  onRemoveFile={() => onUpdateTabFile(tab.id, null)}
-                  onAttachFile={(f) => onUpdateTabFile(tab.id, f)}
-                  onOpenScreenshotModal={onOpenScreenshotModal}
-                  onOpenYoutubeModal={onOpenYoutubeModal}
-                  activeWorkflow={activeWorkflow}
-                  setActiveWorkflow={setActiveWorkflow}
-                  sessionMode={tab.sessionMode}
-                  disciplinePath={tab.disciplinePath}
-                  onModeChange={onModeChange}
-                  onSelectFolder={onSelectFolder}
-                  disabledSkills={tab.disabledSkills}
-                  onDisabledSkillsChange={(skills) => onUpdateTabDisabledSkills?.(tab.id, skills)}
-                  harnessPermissionMode={harnessPermissionMode}
-                  onHarnessPermissionModeChange={onHarnessPermissionModeChange}
-                  harnessPhase={tab.harnessPhase}
-                  onHarnessPhaseChange={onHarnessPhaseChange}
-                  onOpenUpgradePlans={onOpenUpgradePlans}
-                  isEnterprise={isEnterprise}
-                  harnessExplorerContext={isHarness ? tab.harnessExplorerContext || [] : undefined}
-                  onAddHarnessExplorerContext={onAddHarnessExplorerContext}
-                  onRemoveHarnessExplorerContext={onRemoveHarnessExplorerContext}
-                />
+                {renderApprovedPlanSummary()}
+                {isPlanReviewActive ? (
+                  renderPlanReviewSurface()
+                ) : (
+                  <InputBar
+                    ref={inputBarRef}
+                    onSend={handleSendInputBar}
+                    onCancel={onCancel}
+                    isProcessing={tab.isProcessing}
+                    isKeyMissing={isKeyMissing}
+                    disabled={tab.isProcessing || isKeyMissing || !isOnline}
+                    selectedModel={tab.selectedModel}
+                    onModelChange={onModelChange}
+                    reasoningLevel={
+                      config?.modelReasoningLevels?.[tab.selectedModel] ||
+                      config?.modelReasoningLevels?.[
+                        tab.selectedModel.replace('prism_provider:', '')
+                      ] ||
+                      getDefaultThinkingLevelForModel(tab.selectedModel)
+                    }
+                    onReasoningLevelChange={(level) =>
+                      onReasoningLevelChange(tab.selectedModel, level)
+                    }
+                    text={localInputText}
+                    setText={handleSetTextInputBar}
+                    quotedText={tab.quotedText}
+                    onClearQuote={() => onUpdateTabQuote?.(tab.id, null)}
+                    isSearchEnabled={tab.isSearchEnabled}
+                    setIsSearchEnabled={(val) => onToggleSearch?.(val)}
+                    isFullscreen={false}
+                    onFullscreenToggle={() => {}}
+                    attachedFile={tab.attachedFile}
+                    onRemoveFile={() => onUpdateTabFile(tab.id, null)}
+                    onAttachFile={(f) => onUpdateTabFile(tab.id, f)}
+                    onOpenScreenshotModal={onOpenScreenshotModal}
+                    onOpenYoutubeModal={onOpenYoutubeModal}
+                    activeWorkflow={activeWorkflow}
+                    setActiveWorkflow={setActiveWorkflow}
+                    sessionMode={tab.sessionMode}
+                    disciplinePath={tab.disciplinePath}
+                    onModeChange={onModeChange}
+                    onSelectFolder={onSelectFolder}
+                    disabledSkills={tab.disabledSkills}
+                    onDisabledSkillsChange={(skills) => onUpdateTabDisabledSkills?.(tab.id, skills)}
+                    harnessPermissionMode={harnessPermissionMode}
+                    onHarnessPermissionModeChange={onHarnessPermissionModeChange}
+                    harnessPhase={tab.harnessPhase}
+                    onHarnessPhaseChange={onHarnessPhaseChange}
+                    onOpenUpgradePlans={onOpenUpgradePlans}
+                    isEnterprise={isEnterprise}
+                    harnessExplorerContext={
+                      isHarness ? tab.harnessExplorerContext || [] : undefined
+                    }
+                    onAddHarnessExplorerContext={onAddHarnessExplorerContext}
+                    onRemoveHarnessExplorerContext={onRemoveHarnessExplorerContext}
+                  />
+                )}
                 {renderProjectDropdown('top')}
               </div>
             </div>

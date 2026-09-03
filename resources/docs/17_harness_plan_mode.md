@@ -10,14 +10,14 @@ Plan is enforced as read-only by the main process, independently of the project'
 
 ## Native Implementation Plan
 
-The Harness model publishes a completed plan through the native `plan` tool. Prism renders its Markdown in a dedicated review panel with four actions:
+The Harness model publishes a completed plan through the native `plan` tool. Prism renders its Markdown in a dedicated review surface that temporarily replaces the Harness InputBar while review is pending. The conversation remains visible, the plan body scrolls independently, and the action area remains available at the bottom.
 
-- **Accept & Continue Here** approves the plan and changes the current session to Build.
-- **Accept & Continue in New Chat** prepares complementary context from the entire source conversation, creates a clean Build session in the exact same project, and automatically sends the approved plan plus that context for implementation.
-- **Send Feedback** sends a revision request while keeping the session in Plan.
+- **Accept & Continue** approves the plan and changes the current session to Build.
+- **New Build Chat** prepares complementary context from the entire source conversation, creates a clean Build session in the exact same project, and automatically sends the approved plan plus that context for implementation.
+- **Request changes** sends a revision request while keeping the session in Plan. The request can also be sent with `Ctrl+Enter` or `Cmd+Enter`.
 - **Cancel** sends no new model request, stops active preparation when necessary, and dismisses the pending plan while leaving the session in Plan.
 
-If handoff preparation fails, the source session and plan remain available for retry.
+While a plan is being prepared or revised, Prism shows a matching loading state and keeps cancellation available. If handoff preparation fails, the source session and plan remain available for retry. After approval, the InputBar returns and the approved plan remains available as a compact expandable summary.
 
 ## Harness Questions
 
