@@ -13,6 +13,9 @@ import { applyToolCallStart, applyToolCallEnd } from '../../src/renderer/src/too
 import type { Message } from '../../src/renderer/src/types/tab'
 import '../../src/renderer/src/assets/main.css'
 
+const SAMPLE_IMAGE =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+
 function snapshot(step: number): Message {
   const msg: Message = {
     role: 'ai',
@@ -72,8 +75,64 @@ function snapshot(step: number): Message {
   })
   msg.content += '\n\n' + middle
   if (step === 3) return msg
-  msg.chatRounds = upsertChatRound(msg.chatRounds, 3, 'Final answer: the verification is complete.')
-  msg.content += '\n\nFinal answer: the verification is complete.'
+  if (step === 4) {
+    msg.chatRounds = upsertChatRound(
+      msg.chatRounds,
+      3,
+      'Final answer: the verification is complete.'
+    )
+    msg.content += '\n\nFinal answer: the verification is complete.'
+    msg.isStreaming = false
+    return msg
+  }
+  msg.chatRounds = upsertChatRound(msg.chatRounds, 3, 'I will create the final visual now.')
+  msg.content += '\n\nI will create the final visual now.'
+  msg.toolCalls = applyToolCallStart(msg.toolCalls, {
+    callId: 'image-result',
+    name: 'generate_image',
+    args: {
+      progressTitle: 'Shaping the midnight landscape',
+      completedTitle: 'Created the midnight landscape',
+      prompt: 'A quiet midnight landscape',
+      size: '1024x1024'
+    }
+  })
+  bindChatTool(msg, 'image-result', 'generate_image', 3)
+  if (step === 5) return msg
+  msg.toolCalls = applyToolCallStart(msg.toolCalls, {
+    callId: 'image-error',
+    name: 'generate_image',
+    args: {
+      progressTitle: 'Trying an alternate treatment',
+      completedTitle: 'Created an alternate treatment',
+      prompt: 'An alternate treatment',
+      size: '1024x1024'
+    }
+  })
+  bindChatTool(msg, 'image-error', 'generate_image', 3)
+  msg.toolCalls = applyToolCallEnd(msg.toolCalls, {
+    callId: 'image-error',
+    name: 'generate_image',
+    result:
+      '{"ok":false,"error":{"code":"IMAGE_RATE_LIMIT","message":"Please try again.","retryable":true}}'
+  })
+  msg.toolCalls = applyToolCallEnd(msg.toolCalls, {
+    callId: 'image-result',
+    name: 'generate_image',
+    result: '{"ok":true}',
+    attachments: [
+      {
+        kind: 'image',
+        mimeType: 'image/png',
+        data: SAMPLE_IMAGE,
+        width: 1,
+        height: 1,
+        name: 'timeline-validation.png'
+      }
+    ]
+  })
+  msg.chatRounds = upsertChatRound(msg.chatRounds, 4, 'Here is the finished image.')
+  msg.content += '\n\nHere is the finished image.'
   msg.isStreaming = false
   return msg
 }
@@ -118,7 +177,9 @@ function Fixture() {
           'Partial title',
           'Completed action',
           'Intermediate history',
-          'Finished turn'
+          'Finished turn',
+          'Generating image',
+          'Image result'
         ].map((label, index) => (
           <button key={label} onClick={() => setStep(index)}>
             {label}
