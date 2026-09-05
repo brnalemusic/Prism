@@ -1,5 +1,14 @@
-import React, { useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
+import { AnimatePresence, MotionConfig, motion } from 'motion/react'
+import {
+  dockRise,
+  staggerChild,
+  staggerParent,
+  tabContent,
+  terminalSuccessPop,
+  TERMINAL_ERROR_SHAKE
+} from '../motion/presets'
 import {
   ListChecks,
   Circle,
@@ -23,14 +32,74 @@ interface TodoPanelProps {
 
 type PanelTab = 'todo' | 'artifacts' | 'terminal'
 
+// Finished terminal rows linger briefly with a success/error treatment,
+// then animate out instead of staying forever. Running rows and rows
+// waiting for input are never auto-dismissed.
+const TERMINAL_DISMISS_MS = 2000
+
+function isTerminallyFinished(status: string): boolean {
+  return status === 'completed' || status === 'failed' || status === 'killed'
+}
+
 function TodoPanel({
   todo,
   artifacts = [],
   terminalProcesses = []
 }: TodoPanelProps): React.ReactElement | null {
+  const [dismissedRunIds, setDismissedRunIds] = useState<ReadonlySet<string>>(new Set())
+  const [resolvingRunIds, setResolvingRunIds] = useState<ReadonlySet<string>>(new Set())
+  const dismissTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+
+  const visibleTerminalProcesses = useMemo(
+    () => terminalProcesses.filter((process) => !dismissedRunIds.has(process.runId)),
+    [terminalProcesses, dismissedRunIds]
+  )
+
+  // Schedule the 2s resolve-then-dismiss cycle for newly finished rows.
+  useEffect(() => {
+    for (const process of terminalProcesses) {
+      if (dismissedRunIds.has(process.runId) || resolvingRunIds.has(process.runId)) continue
+      if (process.awaitingInput || process.status === 'running') continue
+      if (!isTerminallyFinished(process.status)) continue
+      setResolvingRunIds((prev) => {
+        if (prev.has(process.runId)) return prev
+        const next = new Set(prev)
+        next.add(process.runId)
+        return next
+      })
+      const timer = setTimeout(() => {
+        dismissTimers.current.delete(process.runId)
+        setDismissedRunIds((prev) => {
+          if (prev.has(process.runId)) return prev
+          const next = new Set(prev)
+          next.add(process.runId)
+          return next
+        })
+      }, TERMINAL_DISMISS_MS)
+      dismissTimers.current.set(process.runId, timer)
+    }
+    return () => {
+      for (const [runId, timer] of dismissTimers.current) {
+        const stillPresent = terminalProcesses.some((p) => p.runId === runId)
+        if (!stillPresent) {
+          clearTimeout(timer)
+          dismissTimers.current.delete(runId)
+        }
+      }
+    }
+  }, [terminalProcesses, dismissedRunIds, resolvingRunIds])
+
+  useEffect(() => {
+    const timers = dismissTimers.current
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer)
+      timers.clear()
+    }
+  }, [])
+
   const hasTodo = !!(todo && todo.tasks.length > 0)
   const hasArtifacts = artifacts.length > 0
-  const hasTerminal = terminalProcesses.length > 0
+  const hasTerminal = visibleTerminalProcesses.length > 0
 
   const [activeTab, setActiveTab] = useState<PanelTab>(() => {
     if (!hasTodo && hasArtifacts) return 'artifacts'
@@ -38,9 +107,9 @@ function TodoPanel({
     return 'todo'
   })
   const [isExpanded, setIsExpanded] = useState(false)
-  const latestTerminal = terminalProcesses[terminalProcesses.length - 1]
+  const latestTerminal = visibleTerminalProcesses[visibleTerminalProcesses.length - 1]
 
-  if (!hasTodo && !hasArtifacts && !hasTerminal) return null
+  const hasPanel = hasTodo || hasArtifacts || hasTerminal
 
   const displayedTab: PanelTab =
     (activeTab === 'todo' && hasTodo) ||
@@ -69,10 +138,12 @@ function TodoPanel({
       : 'AI has started a to-do list'
 
   const latestArtifact = artifacts.length > 0 ? artifacts[artifacts.length - 1] : null
-  const activeTerminalCount = terminalProcesses.filter(
+  const activeTerminalCount = visibleTerminalProcesses.filter(
     (process) => process.status === 'running'
   ).length
-  const waitingTerminalCount = terminalProcesses.filter((process) => process.awaitingInput).length
+  const waitingTerminalCount = visibleTerminalProcesses.filter(
+    (process) => process.awaitingInput
+  ).length
 
   const terminalStatusLabel = (process: TerminalProcessSnapshot): string => {
     if (process.awaitingInput) return 'Waiting for input'
@@ -92,7 +163,7 @@ function TodoPanel({
           ? `${waitingTerminalCount} waiting`
           : activeTerminalCount > 0
             ? `${activeTerminalCount} active`
-            : terminalProcesses.length.toString()
+            : visibleTerminalProcesses.length.toString()
   const panelCompactText =
     displayedTab === 'todo'
       ? compactText
@@ -142,9 +213,19 @@ function TodoPanel({
   }
 
   return (
-    <div className="w-[70%] mx-auto relative select-none animate-fade-in z-20 transition-all duration-300">
-      {/* Attached Card Docked Above InputBar */}
-      <div className="liquid-glass-docked relative overflow-hidden rounded-t-2xl rounded-b-none">
+    <MotionConfig reducedMotion="user">
+      <AnimatePresence initial={false}>
+        {hasPanel && (
+          <motion.div
+            key="todo-panel"
+            variants={dockRise}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            className="w-[70%] mx-auto relative select-none z-20 gpu-composed"
+          >
+            {/* Attached Card Docked Above InputBar */}
+            <div className="liquid-glass-docked relative overflow-hidden rounded-t-2xl rounded-b-none">
         {/* Subtle internal theme center glow */}
         <div className="absolute inset-0 rounded-t-2xl overflow-hidden pointer-events-none">
           <div
@@ -219,14 +300,21 @@ function TodoPanel({
                     setActiveTab('todo')
                   }}
                   className={clsx(
-                    'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-all cursor-pointer',
+                    'relative flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer',
                     displayedTab === 'todo'
-                      ? 'bg-accent-primary/20 text-accent-primary border border-accent-primary/30 shadow-sm'
+                      ? 'text-accent-primary'
                       : 'text-text-muted hover:text-text-primary'
                   )}
                 >
-                  <ListChecks size={13} weight="bold" />
-                  <span>To-Do List</span>
+                  {displayedTab === 'todo' && (
+                    <motion.span
+                      layoutId="todo-panel-tab-pill"
+                      transition={{ type: 'spring', stiffness: 550, damping: 40 }}
+                      className="absolute inset-0 rounded-md bg-accent-primary/20 border border-accent-primary/30 shadow-sm"
+                    />
+                  )}
+                  <ListChecks size={13} weight="bold" className="relative" />
+                  <span className="relative">To-Do List</span>
                 </button>
               )}
 
@@ -238,14 +326,21 @@ function TodoPanel({
                     setActiveTab('artifacts')
                   }}
                   className={clsx(
-                    'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-all cursor-pointer',
+                    'relative flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer',
                     displayedTab === 'artifacts'
-                      ? 'bg-accent-primary/20 text-accent-primary border border-accent-primary/30 shadow-sm'
+                      ? 'text-accent-primary'
                       : 'text-text-muted hover:text-text-primary'
                   )}
                 >
-                  <FilePdf size={13} weight="bold" />
-                  <span>Artifacts</span>
+                  {displayedTab === 'artifacts' && (
+                    <motion.span
+                      layoutId="todo-panel-tab-pill"
+                      transition={{ type: 'spring', stiffness: 550, damping: 40 }}
+                      className="absolute inset-0 rounded-md bg-accent-primary/20 border border-accent-primary/30 shadow-sm"
+                    />
+                  )}
+                  <FilePdf size={13} weight="bold" className="relative" />
+                  <span className="relative">Artifacts</span>
                 </button>
               )}
 
@@ -257,16 +352,23 @@ function TodoPanel({
                     setActiveTab('terminal')
                   }}
                   className={clsx(
-                    'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-all cursor-pointer',
+                    'relative flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer',
                     displayedTab === 'terminal'
-                      ? 'bg-accent-primary/20 text-accent-primary border border-accent-primary/30 shadow-sm'
+                      ? 'text-accent-primary'
                       : waitingTerminalCount > 0
                         ? 'text-status-warning hover:text-text-primary'
                         : 'text-text-muted hover:text-text-primary'
                   )}
                 >
-                  <Terminal size={13} weight="bold" />
-                  <span>Terminal</span>
+                  {displayedTab === 'terminal' && (
+                    <motion.span
+                      layoutId="todo-panel-tab-pill"
+                      transition={{ type: 'spring', stiffness: 550, damping: 40 }}
+                      className="absolute inset-0 rounded-md bg-accent-primary/20 border border-accent-primary/30 shadow-sm"
+                    />
+                  )}
+                  <Terminal size={13} weight="bold" className="relative" />
+                  <span className="relative">Terminal</span>
                 </button>
               )}
             </div>
@@ -286,16 +388,34 @@ function TodoPanel({
         </div>
 
         {/* Expanded View */}
-        {isExpanded && (
-          <div className="relative z-10 flex flex-col border-t border-white/[0.06] animate-fade-in">
+        <AnimatePresence initial={false}>
+          {isExpanded && (
+            <motion.div
+              key="todo-panel-expanded"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+              className="relative z-10 flex flex-col border-t border-white/[0.06] overflow-hidden"
+            >
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={displayedTab}
+                  variants={tabContent}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                >
             {/* TO-DO TAB CONTENT */}
             {displayedTab === 'todo' && hasTodo && (
               <div className="flex flex-col">
                 {/* Full progress bar */}
                 <div className="w-full h-1 bg-white/[0.06] overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-accent-primary to-accent-secondary transition-all duration-500 ease-out"
-                    style={{ width: `${progress}%` }}
+                  <motion.div
+                    className="h-full bg-gradient-to-r from-accent-primary to-accent-secondary"
+                    initial={false}
+                    animate={{ width: `${progress}%` }}
+                    transition={{ type: 'spring', stiffness: 120, damping: 22 }}
                   />
                 </div>
 
@@ -400,24 +520,40 @@ function TodoPanel({
             {/* TERMINAL TAB CONTENT */}
             {displayedTab === 'terminal' && hasTerminal && (
               <div className="flex flex-col p-4">
-                <div className="flex flex-col gap-2 max-h-[35vh] overflow-y-auto no-scrollbar">
-                  {[...terminalProcesses].reverse().map((process) => {
-                    const statusLabel = terminalStatusLabel(process)
-                    const isFailed = process.status === 'failed' || process.status === 'killed'
-                    return (
-                      <div
-                        key={process.runId}
-                        className={clsx(
-                          'flex items-start gap-3 rounded-xl border px-3.5 py-3 transition-all',
-                          process.awaitingInput
-                            ? 'border-status-warning/30 bg-status-warning/[0.08]'
-                            : isFailed
-                              ? 'border-status-error/25 bg-status-error/[0.08]'
-                              : process.status === 'completed'
-                                ? 'border-status-success/20 bg-status-success/[0.06]'
-                                : 'border-accent-primary/30 bg-accent-primary/[0.08]'
-                        )}
-                      >
+                <motion.div
+                  variants={staggerParent}
+                  initial="hidden"
+                  animate="visible"
+                  className="flex flex-col gap-2 max-h-[35vh] overflow-y-auto no-scrollbar"
+                >
+                  <AnimatePresence initial={false} mode="popLayout">
+                    {[...visibleTerminalProcesses].reverse().map((process) => {
+                      const statusLabel = terminalStatusLabel(process)
+                      const isFailed = process.status === 'failed' || process.status === 'killed'
+                      const isResolving = resolvingRunIds.has(process.runId)
+                      const showSuccess = isResolving && process.status === 'completed'
+                      const showError = isResolving && isFailed
+                      return (
+                        <motion.div
+                          key={process.runId}
+                          variants={staggerChild}
+                          exit={{ opacity: 0, scale: 0.96, y: 8, transition: { duration: 0.22 } }}
+                          animate={
+                            showError
+                              ? { opacity: 1, scale: 1, y: 0, ...TERMINAL_ERROR_SHAKE }
+                              : undefined
+                          }
+                          className={clsx(
+                            'flex items-start gap-3 rounded-xl border px-3.5 py-3',
+                            process.awaitingInput
+                              ? 'border-status-warning/30 bg-status-warning/[0.08]'
+                              : isFailed
+                                ? 'border-status-error/25 bg-status-error/[0.08]'
+                                : process.status === 'completed'
+                                  ? 'border-status-success/20 bg-status-success/[0.06]'
+                                  : 'border-accent-primary/30 bg-accent-primary/[0.08]'
+                          )}
+                        >
                         <div
                           className={clsx(
                             'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg',
@@ -435,7 +571,18 @@ function TodoPanel({
                           ) : process.status === 'running' ? (
                             <CircleNotch size={14} className="animate-spin" weight="bold" />
                           ) : process.status === 'completed' ? (
-                            <CheckCircle size={14} weight="fill" />
+                            showSuccess ? (
+                              <motion.span
+                                variants={terminalSuccessPop}
+                                initial="hidden"
+                                animate="visible"
+                                className="flex"
+                              >
+                                <CheckCircle size={14} weight="fill" />
+                              </motion.span>
+                            ) : (
+                              <CheckCircle size={14} weight="fill" />
+                            )
                           ) : (
                             <XCircle size={14} weight="fill" />
                           )}
@@ -480,17 +627,41 @@ function TodoPanel({
                               Prompt: {process.detectedPrompt}
                             </p>
                           )}
+
+                          {isResolving && !process.awaitingInput && (
+                            <motion.p
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              className={clsx(
+                                'text-[10px] font-semibold',
+                                process.status === 'completed'
+                                  ? 'text-status-success'
+                                  : 'text-status-error'
+                              )}
+                            >
+                              {process.status === 'completed'
+                                ? 'Confirmed — closing'
+                                : 'Failed — closing'}
+                            </motion.p>
+                          )}
                         </div>
-                      </div>
-                    )
-                  })}
-                </div>
+                        </motion.div>
+                      )
+                    })}
+                  </AnimatePresence>
+                </motion.div>
               </div>
             )}
+                </motion.div>
+              </AnimatePresence>
+            </motion.div>
+          )}
+          </AnimatePresence>
           </div>
+          </motion.div>
         )}
-      </div>
-    </div>
+      </AnimatePresence>
+    </MotionConfig>
   )
 }
 

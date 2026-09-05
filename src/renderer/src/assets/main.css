@@ -525,13 +525,11 @@
   }
 
   .questionnaire-surface {
-    background: var(--surface-lowest);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-
-  .questionnaire-surface > .absolute.inset-0 {
-    display: none;
+    isolation: isolate;
+    background: var(--surface-lowest) !important;
+    background-image: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
 
   .implementation-plan-surface {
@@ -1204,6 +1202,28 @@
 
   .animate-message {
     animation: slide-up 0.3s cubic-bezier(0.2, 0.82, 0.2, 1) forwards;
+  }
+
+  /* GPU-only swap feedback for split panes (opacity + transform, no blur). */
+  @keyframes pane-swap {
+    0% {
+      opacity: 0.35;
+      transform: scale(0.985);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .animate-pane-swap {
+    animation: pane-swap 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-pane-swap {
+      animation: none;
+    }
   }
 
   .animate-soft-pop {

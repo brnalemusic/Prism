@@ -17,6 +17,7 @@ O **Prism** é um assistente de IA para desktop de código aberto, multiplatafor
 | Automação de Navegador | Playwright (Chromium CDPSession) |
 | Formatação & Matemática | `react-markdown`, `rehype-raw`, `rehype-katex`, `katex`, `prismjs` |
 | Motor de Estilização | Tailwind CSS v4 + LightningCSS |
+| Motor de Animação | `motion` (presets em `src/renderer/src/motion/`) |
 | Geração de Apresentações | `PptxGenJS` + Offscreen Captures em Chromium |
 | Segurança de Credenciais | Electron `safeStorage` (Windows DPAPI / Mac Keychain) |
 | Empacotador de Distribuição | `electron-builder` (Instaladores NSIS / Portables) |
@@ -55,3 +56,11 @@ O Prism provê um conjunto amplo de ferramentas nativas para a IA interagir com 
 - **Automação Playwright**: Inspeção, navegação e interação com páginas web ativas.
 - **Geração de Artefatos**: Compilação de PDFs profissionais e apresentações PPTX widescreen 16:9.
 - **Base de Conhecimento Interna**: Navegação e busca nativa (`internal_docs_list`, `internal_docs_read`, `internal_docs_search`) sobre a documentação do aplicativo.
+
+---
+
+## 6. Animações de Interface e Terminal em Background
+
+- As transições (troca Harness/Chat, fases plan/build do InputBar, questionário, plano de implementação, abas e painéis divididos) usam a biblioteca `motion`, com animação de entrada **e** saída via `AnimatePresence` e respeito a `prefers-reduced-motion`. Por performance, os presets animam apenas `transform`/`opacity` (nada de `blur` animado, nada de `layout` em subárvores grandes).
+- Linhas de terminal finalizadas (`completed`/`failed`/`killed`) exibem o tratamento de sucesso/erro por 2 segundos ("Confirmed — closing" / "Failed — closing") e depois saem com animação. Linhas em execução ou aguardando input nunca são dispensadas automaticamente.
+- Os painéis divididos (split view) são renderizados na ordem de `visibleTabIds`, de modo que arrastar uma janela sobre outra troca as posições de verdade, com um pulso visual breve e barato (só `opacity`/`scale`, via `animate-pane-swap`).

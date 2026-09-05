@@ -31,6 +31,8 @@ export interface ToolCallItem {
   result?: string
   attachments?: ToolAttachment[]
   status: 'writing' | 'running' | 'cooldown' | 'done' | 'error' | 'cancelled'
+  progressTitle?: string
+  completedTitle?: string
   addedLines?: number
   removedLines?: number
   readLines?: { start: number; end: number }[]
@@ -39,6 +41,7 @@ export interface ToolCallItem {
   runId?: string
   startedAt?: number
   finishedAt?: number
+  /** Orchestration round that executed this tool (chat timeline order). */
   round?: number
 }
 
@@ -48,6 +51,12 @@ export interface HarnessRoundItem {
   thoughts?: string
   toolCalls?: ToolCallItem[]
   streamingToolCalls?: StreamingToolCall[]
+}
+
+/** One text segment of a Chat-mode turn, in execution order. */
+export interface ChatRoundItem {
+  round: number
+  content: string
 }
 
 export interface Message {
@@ -73,6 +82,7 @@ export interface Message {
   contextSnapshot?: HarnessContextSnapshot
   harnessRound?: number
   harnessRounds?: HarnessRoundItem[]
+  chatRounds?: ChatRoundItem[]
 }
 
 export interface TabSession {

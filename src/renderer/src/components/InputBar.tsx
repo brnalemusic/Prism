@@ -27,6 +27,7 @@ import {
   X
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
+import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 import { ReasoningSelector } from './ReasoningSelector'
 import { ModelSelector } from './ModelSelector'
@@ -677,8 +678,16 @@ export const InputBar = React.memo(
                 <Plus size={15} weight="bold" />
               </button>
 
-              {showAttachMenu && (
-                <div className="glass-dropdown-panel absolute bottom-full left-0 mb-3 z-[60] w-52 p-1.5 animate-soft-pop text-left">
+              <AnimatePresence initial={false}>
+                {showAttachMenu && (
+                  <motion.div
+                    key="attach-menu"
+                    initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                    transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                    className="glass-dropdown-panel absolute bottom-full left-0 mb-3 z-[60] w-52 p-1.5 text-left"
+                  >
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-all text-left"
@@ -898,8 +907,9 @@ export const InputBar = React.memo(
                       </div>
                     </>
                   )}
-                </div>
-              )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             <button
@@ -987,29 +997,38 @@ export const InputBar = React.memo(
 
           <div className="flex shrink-0 items-center gap-2 relative">
             {sessionMode === 'harness' && onHarnessPhaseChange && (
-              <div
-                className="flex items-center rounded-xl border border-white/[0.09] bg-white/[0.025] p-0.5"
-                aria-label="Harness workflow"
-              >
-                {(['plan', 'build'] as const).map((phase) => (
-                  <button
-                    key={phase}
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => onHarnessPhaseChange(phase)}
-                    aria-pressed={harnessPhase === phase}
-                    className={clsx(
-                      'rounded-[9px] px-2.5 py-1 text-[11px] font-semibold capitalize transition-all duration-150',
-                      harnessPhase === phase
-                        ? 'bg-white/[0.11] text-text-primary shadow-[var(--glass-specular-top)]'
-                        : 'text-text-muted hover:text-text-secondary',
-                      disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
-                    )}
-                  >
-                    {phase}
-                  </button>
-                ))}
-              </div>
+              <MotionConfig reducedMotion="user">
+                <div
+                  className="flex items-center rounded-xl border border-white/[0.09] bg-white/[0.025] p-0.5"
+                  aria-label="Harness workflow"
+                >
+                  {(['plan', 'build'] as const).map((phase) => (
+                    <button
+                      key={phase}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => onHarnessPhaseChange(phase)}
+                      aria-pressed={harnessPhase === phase}
+                      className={clsx(
+                        'relative rounded-[9px] px-2.5 py-1 text-[11px] font-semibold capitalize transition-colors duration-150',
+                        harnessPhase === phase
+                          ? 'text-text-primary'
+                          : 'text-text-muted hover:text-text-secondary',
+                        disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                      )}
+                    >
+                      {harnessPhase === phase && (
+                        <motion.span
+                          layoutId="harness-phase-pill"
+                          transition={{ type: 'spring', stiffness: 550, damping: 40 }}
+                          className="absolute inset-0 rounded-[9px] bg-white/[0.11] shadow-[var(--glass-specular-top)]"
+                        />
+                      )}
+                      <span className="relative">{phase}</span>
+                    </button>
+                  ))}
+                </div>
+              </MotionConfig>
             )}
 
             {sessionMode === 'harness' && onModelChange && (
@@ -1060,12 +1079,18 @@ export const InputBar = React.memo(
                   <CaretDown size={10} className="opacity-65" />
                 </button>
 
-                {showHarnessPermissionMenu && (
-                  <div
-                    className="glass-dropdown-panel absolute bottom-full right-0 z-[70] mb-3 w-72 p-1.5 text-left animate-soft-pop"
-                    role="menu"
-                    aria-label="Harness permission profile"
-                  >
+                <AnimatePresence initial={false}>
+                  {showHarnessPermissionMenu && (
+                    <motion.div
+                      key="harness-permission-menu"
+                      initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                      className="glass-dropdown-panel absolute bottom-full right-0 z-[70] mb-3 w-72 p-1.5 text-left"
+                      role="menu"
+                      aria-label="Harness permission profile"
+                    >
                     <div className="border-b border-white/[0.06] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-secondary/65">
                       Current project permission
                     </div>
@@ -1124,8 +1149,9 @@ export const InputBar = React.memo(
                         </button>
                       )
                     })}
-                  </div>
-                )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             )}
 
@@ -1171,8 +1197,16 @@ export const InputBar = React.memo(
                   <CaretDown size={10} className="text-text-muted/70 opacity-60 ml-0.5" />
                 </button>
 
-                {showModeMenu && (
-                  <div className="session-mode-dropdown-panel glass-dropdown-panel absolute bottom-full right-0 mb-3 z-50 w-72 p-2 animate-soft-pop text-left">
+                <AnimatePresence initial={false}>
+                  {showModeMenu && (
+                    <motion.div
+                      key="session-mode-menu"
+                      initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                      className="session-mode-dropdown-panel glass-dropdown-panel absolute bottom-full right-0 mb-3 z-50 w-72 p-2 text-left"
+                    >
                     <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.06] mb-1">
                       Select Session Mode
                     </div>
@@ -1316,8 +1350,9 @@ export const InputBar = React.memo(
                         </div>
                       </div>
                     )}
-                  </div>
-                )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             )}
 

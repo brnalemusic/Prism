@@ -1,5 +1,7 @@
 import React, { useId, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
+import { AnimatePresence, MotionConfig, motion } from 'motion/react'
+import { dockRise } from '../motion/presets'
 import { ArrowRight, CheckCircle, CircleNotch, PaperPlaneRight, X } from '@phosphor-icons/react'
 import type { HarnessPhase } from '../../../shared/types'
 import { STATIC_COMPLETED_REHYPE_PLUGINS, STATIC_REMARK_PLUGINS } from '../markdownRenderer'
@@ -45,10 +47,15 @@ export function ImplementationPlanCard({
 
   if (!isPlan) {
     return (
-      <section
-        className="implementation-plan-surface implementation-plan-surface--approved"
-        aria-label="Approved Implementation Plan"
-      >
+      <MotionConfig reducedMotion="user">
+        <motion.section
+          variants={dockRise}
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+          className="implementation-plan-surface implementation-plan-surface--approved"
+          aria-label="Approved Implementation Plan"
+        >
         <header className="implementation-plan-surface__approved-header">
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="implementation-plan-surface__status-icon">
@@ -73,27 +80,44 @@ export function ImplementationPlanCard({
           </button>
         </header>
 
-        {isApprovedPlanExpanded && (
-          <div className="implementation-plan-surface__body implementation-plan-surface__body--approved custom-scrollbar select-text">
-            <ReactMarkdown
-              remarkPlugins={STATIC_REMARK_PLUGINS}
-              rehypePlugins={STATIC_COMPLETED_REHYPE_PLUGINS}
-              components={markdownComponents}
+        <AnimatePresence initial={false}>
+          {isApprovedPlanExpanded && (
+            <motion.div
+              key="approved-plan-body"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+              className="overflow-hidden"
             >
-              {markdown}
-            </ReactMarkdown>
-          </div>
-        )}
-      </section>
+            <div className="implementation-plan-surface__body implementation-plan-surface__body--approved custom-scrollbar select-text">
+              <ReactMarkdown
+                remarkPlugins={STATIC_REMARK_PLUGINS}
+                rehypePlugins={STATIC_COMPLETED_REHYPE_PLUGINS}
+                components={markdownComponents}
+              >
+                {markdown}
+              </ReactMarkdown>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        </motion.section>
+      </MotionConfig>
     )
   }
 
   return (
-    <section
-      className="implementation-plan-surface"
-      aria-label="Implementation Plan review"
-      aria-busy={isPreparing}
-    >
+    <MotionConfig reducedMotion="user">
+      <motion.section
+        variants={dockRise}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+        className="implementation-plan-surface"
+        aria-label="Implementation Plan review"
+        aria-busy={isPreparing}
+      >
       <header className="implementation-plan-surface__header">
         <div className="flex min-w-0 items-center gap-3">
           <div className="implementation-plan-surface__status-icon">
@@ -118,24 +142,41 @@ export function ImplementationPlanCard({
       </header>
 
       <div className="implementation-plan-surface__body custom-scrollbar select-text">
-        {isLoading ? (
-          <div className="implementation-plan-surface__skeleton" aria-label={busyLabel}>
+        <AnimatePresence mode="wait" initial={false}>
+          {isLoading ? (
+            <motion.div
+              key="plan-skeleton"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0, transition: { duration: 0.16 } }}
+              className="implementation-plan-surface__skeleton"
+              aria-label={busyLabel}
+            >
             <span className="implementation-plan-surface__skeleton-line w-[42%]" />
             <span className="implementation-plan-surface__skeleton-line w-full" />
             <span className="implementation-plan-surface__skeleton-line w-[88%]" />
             <span className="implementation-plan-surface__skeleton-line w-[68%]" />
             <span className="implementation-plan-surface__skeleton-block" />
             <span className="implementation-plan-surface__skeleton-line w-[76%]" />
-          </div>
-        ) : (
-          <ReactMarkdown
-            remarkPlugins={STATIC_REMARK_PLUGINS}
-            rehypePlugins={STATIC_COMPLETED_REHYPE_PLUGINS}
-            components={markdownComponents}
-          >
-            {markdown}
-          </ReactMarkdown>
-        )}
+            </motion.div>
+          ) : (
+            <motion.div
+              key="plan-content"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, transition: { duration: 0.16 } }}
+              transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <ReactMarkdown
+                remarkPlugins={STATIC_REMARK_PLUGINS}
+                rehypePlugins={STATIC_COMPLETED_REHYPE_PLUGINS}
+                components={markdownComponents}
+              >
+                {markdown}
+              </ReactMarkdown>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       <footer className="implementation-plan-surface__footer">
@@ -211,6 +252,7 @@ export function ImplementationPlanCard({
           </div>
         </div>
       </footer>
-    </section>
+      </motion.section>
+    </MotionConfig>
   )
 }

@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useLayoutEffect, useState, useMemo, useCallback } from 'react'
 import type { Components } from 'react-markdown'
 import clsx from 'clsx'
+import { AnimatePresence, MotionConfig, motion } from 'motion/react'
+import { dockRise, modeSwap } from '../motion/presets'
 import {
   CaretDown,
   CaretRight,
@@ -80,6 +82,7 @@ interface ChatPaneProps {
   setActiveWorkflow: (wf: SlashWorkflow | null) => void
   renderedMessages: React.ReactNode
   onSwapSplitTabs?: (sourceTabId: string, targetTabId: string) => void
+  swapPulse?: boolean
 }
 
 export const ChatPane: React.FC<ChatPaneProps> = React.memo(
@@ -127,7 +130,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     activeWorkflow,
     setActiveWorkflow,
     renderedMessages,
-    onSwapSplitTabs
+    onSwapSplitTabs,
+    swapPulse = false
   }) => {
     const inputBarRef = useRef<InputBarHandle>(null)
     const [isDraggingSplit, setIsDraggingSplit] = useState(false)
@@ -709,6 +713,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
         }}
         className={clsx(
           'relative flex h-full w-full flex-col overflow-hidden bg-black transition-all duration-200 border',
+          swapPulse && 'animate-pane-swap',
           isSplitView ? 'rounded-xl' : 'rounded-none',
           isDraggingSplit && 'opacity-40 scale-[0.99] border-dashed border-accent-primary/50',
           isDragTargetSplit
@@ -782,16 +787,25 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
         )}
 
         {/* Swap drop target overlay */}
-        {isDragTargetSplit && (
-          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-accent-primary/60 bg-black/90 animate-drop-target pointer-events-none transition-all duration-200">
+        <AnimatePresence initial={false}>
+          {isDragTargetSplit && (
+            <motion.div
+              key="split-swap-overlay"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.18 }}
+              className="absolute inset-0 z-50 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-accent-primary/60 bg-black/90 animate-drop-target pointer-events-none"
+            >
             <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl border border-accent-primary/25 bg-[var(--surface)] text-accent-primary animate-bounce">
               <ArrowsLeftRight size={24} />
             </div>
             <span className="rounded-lg border border-[var(--border-default)] bg-[var(--surface-raised)] px-3 py-1.5 text-xs font-semibold tracking-wide text-text-primary">
               Swap window
             </span>
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Main Content Area */}
         <div className="relative flex flex-1 w-full overflow-hidden">
@@ -804,7 +818,20 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
             {tab.messages.length === 0 && (
               <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-full bg-transparent select-none">
                 <div className="w-full max-w-[720px] flex flex-col items-center gap-6 z-10 my-auto">
-                  <div className="flex flex-col items-center text-center space-y-2">
+                  <MotionConfig reducedMotion="user">
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.div
+                        key={
+                          isHarness
+                            ? `harness-${tab.disciplinePath ? tab.harnessPhase : 'no-project'}`
+                            : `chat-${tab.sessionMode}`
+                        }
+                        variants={modeSwap}
+                        initial="hidden"
+                        animate="visible"
+                        exit="exit"
+                        className="flex flex-col items-center text-center space-y-2"
+                      >
                     <h1 className="text-3xl sm:text-4xl tracking-wide hero-shimmer-text">
                       {isHarness
                         ? tab.disciplinePath
@@ -823,7 +850,9 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                           : 'Harness is isolated to one project. Use + to choose the folder where it may work.'
                         : 'Prism session is ready. Type your request or choose a mode.'}
                     </p>
-                  </div>
+                      </motion.div>
+                    </AnimatePresence>
+                  </MotionConfig>
 
                   <div className="w-full flex flex-col gap-0">
                     {/* AI Todo & Artifacts panel docked above InputBar (landing state) */}
@@ -833,18 +862,52 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       terminalProcesses={terminalProcesses}
                     />
                     {/* Questionnaire wizard card docked above InputBar (landing state) */}
-                    {activeQuestionnaire && (
-                      <QuestionnaireWizard
-                        toolCall={activeQuestionnaire.toolCall}
-                        chatId={activeQuestionnaire.chatId}
-                      />
-                    )}
-                    {renderApprovedPlanSummary()}
+                    <AnimatePresence initial={false} mode="popLayout">
+                      {activeQuestionnaire && (
+                        <QuestionnaireWizard
+                          key={`questionnaire-${activeQuestionnaire.chatId}`}
+                          toolCall={activeQuestionnaire.toolCall}
+                          chatId={activeQuestionnaire.chatId}
+                        />
+                      )}
+                    </AnimatePresence>
+                    <AnimatePresence initial={false} mode="popLayout">
+                      {hasVisibleImplementationPlan &&
+                        tab.harnessPhase !== 'plan' &&
+                        hasPlanActions && (
+                          <motion.div
+                            key="approved-plan"
+                            variants={dockRise}
+                            initial="hidden"
+                            animate="visible"
+                            exit="exit"
+                          >
+                            {renderApprovedPlanSummary()}
+                          </motion.div>
+                        )}
+                    </AnimatePresence>
                     {renderMissingFolderBanner()}
-                    {isPlanReviewActive ? (
-                      renderPlanReviewSurface()
-                    ) : (
-                      <InputBar
+                    <MotionConfig reducedMotion="user">
+                      <AnimatePresence mode="wait" initial={false}>
+                        {isPlanReviewActive ? (
+                          <motion.div
+                            key="plan-review"
+                            variants={modeSwap}
+                            initial="hidden"
+                            animate="visible"
+                            exit="exit"
+                          >
+                            {renderPlanReviewSurface()}
+                          </motion.div>
+                        ) : (
+                          <motion.div
+                            key={`inputbar-${tab.sessionMode}-${tab.harnessPhase}`}
+                            variants={modeSwap}
+                            initial="hidden"
+                            animate="visible"
+                            exit="exit"
+                          >
+                            <InputBar
                         ref={inputBarRef}
                         onSend={handleSendInputBar}
                         onCancel={onCancel}
@@ -897,8 +960,11 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                         }
                         onAddHarnessExplorerContext={onAddHarnessExplorerContext}
                         onRemoveHarnessExplorerContext={onRemoveHarnessExplorerContext}
-                      />
-                    )}
+                            />
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </MotionConfig>
                     {renderProjectDropdown('bottom')}
                   </div>
                 </div>
@@ -923,8 +989,16 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
           {/* Input Bar Overlay when tab has messages */}
           {tab.messages.length > 0 && (
             <div className="absolute bottom-0 left-0 right-0 pb-6 pt-12 z-20 pointer-events-none bg-[linear-gradient(to_top,rgba(0,0,0,0.45)_0%,rgba(0,0,0,0.15)_50%,transparent_100%)] px-4">
-              {showScrollButton && (
-                <div className="absolute left-0 right-0 -top-10 flex justify-center pointer-events-none z-20 animate-soft-pop">
+              <AnimatePresence initial={false}>
+                {showScrollButton && (
+                  <motion.div
+                    key="scroll-bottom"
+                    initial={{ opacity: 0, y: 8, scale: 0.9 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 8, scale: 0.9 }}
+                    transition={{ duration: 0.18 }}
+                    className="absolute left-0 right-0 -top-10 flex justify-center pointer-events-none z-20"
+                  >
                   <button
                     type="button"
                     onClick={(e) => {
@@ -938,8 +1012,9 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                   >
                     <CaretDown size={14} />
                   </button>
-                </div>
-              )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               <div className="pointer-events-auto max-w-[800px] mx-auto flex flex-col gap-0">
                 {/* AI Todo & Artifacts panel docked above InputBar */}
@@ -949,17 +1024,51 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                   terminalProcesses={terminalProcesses}
                 />
                 {/* Questionnaire wizard card docked above InputBar */}
-                {activeQuestionnaire && (
-                  <QuestionnaireWizard
-                    toolCall={activeQuestionnaire.toolCall}
-                    chatId={activeQuestionnaire.chatId}
-                  />
-                )}
-                {renderApprovedPlanSummary()}
-                {isPlanReviewActive ? (
-                  renderPlanReviewSurface()
-                ) : (
-                  <InputBar
+                <AnimatePresence initial={false} mode="popLayout">
+                  {activeQuestionnaire && (
+                    <QuestionnaireWizard
+                      key={`questionnaire-${activeQuestionnaire.chatId}`}
+                      toolCall={activeQuestionnaire.toolCall}
+                      chatId={activeQuestionnaire.chatId}
+                    />
+                  )}
+                </AnimatePresence>
+                <AnimatePresence initial={false} mode="popLayout">
+                  {hasVisibleImplementationPlan &&
+                    tab.harnessPhase !== 'plan' &&
+                    hasPlanActions && (
+                      <motion.div
+                        key="approved-plan"
+                        variants={dockRise}
+                        initial="hidden"
+                        animate="visible"
+                        exit="exit"
+                      >
+                        {renderApprovedPlanSummary()}
+                      </motion.div>
+                    )}
+                </AnimatePresence>
+                <MotionConfig reducedMotion="user">
+                  <AnimatePresence mode="wait" initial={false}>
+                    {isPlanReviewActive ? (
+                      <motion.div
+                        key="plan-review"
+                        variants={modeSwap}
+                        initial="hidden"
+                        animate="visible"
+                        exit="exit"
+                      >
+                        {renderPlanReviewSurface()}
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key={`inputbar-${tab.sessionMode}-${tab.harnessPhase}`}
+                        variants={modeSwap}
+                        initial="hidden"
+                        animate="visible"
+                        exit="exit"
+                      >
+                        <InputBar
                     ref={inputBarRef}
                     onSend={handleSendInputBar}
                     onCancel={onCancel}
@@ -1010,8 +1119,11 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                     }
                     onAddHarnessExplorerContext={onAddHarnessExplorerContext}
                     onRemoveHarnessExplorerContext={onRemoveHarnessExplorerContext}
-                  />
-                )}
+                        />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </MotionConfig>
                 {renderProjectDropdown('top')}
               </div>
             </div>

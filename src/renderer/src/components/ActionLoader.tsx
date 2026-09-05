@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { clsx } from 'clsx'
+import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import {
   MagnifyingGlass,
   Terminal,
@@ -56,23 +57,140 @@ export function getToolLabel(name: string): string {
   return TOOL_LABELS[name] || 'Working'
 }
 
-interface ToolCallIndicatorProps {
-  tools?: Array<{ name: string; status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown' }>
-  overrideLabel?: string
-  isItalic?: boolean
+export const TOOL_TITLE_MAX_WORDS = 10
+
+export function truncateToWords(text: string, maxWords: number = TOOL_TITLE_MAX_WORDS): string {
+  const words = text.trim().split(/\s+/)
+  if (words.length <= maxWords) return text.trim()
+  return words.slice(0, maxWords).join(' ')
 }
 
-export function ToolCallIndicator({ tools, overrideLabel, isItalic }: ToolCallIndicatorProps): React.JSX.Element | null {
+function resolveCustomTitles(toolCall: {
+  progressTitle?: unknown
+  completedTitle?: unknown
+  args: Record<string, unknown>
+}): { progressTitle?: string; completedTitle?: string } {
+  const out: { progressTitle?: string; completedTitle?: string } = {}
+  const topProgress = toolCall.progressTitle
+  const topCompleted = toolCall.completedTitle
+  const argProgress = toolCall.args.progressTitle
+  const argCompleted = toolCall.args.completedTitle
+  const progress = typeof topProgress === 'string' && topProgress.trim() ? topProgress : argProgress
+  const completed =
+    typeof topCompleted === 'string' && topCompleted.trim() ? topCompleted : argCompleted
+  if (typeof progress === 'string' && progress.trim()) {
+    out.progressTitle = truncateToWords(progress)
+  }
+  if (typeof completed === 'string' && completed.trim()) {
+    out.completedTitle = truncateToWords(completed)
+  }
+  return out
+}
+
+export function getCustomToolLabel(
+  name: string,
+  status: string,
+  progressTitle?: string,
+  completedTitle?: string
+): string {
+  const isActive = isActiveToolStatus(status)
+  if (isActive && progressTitle && progressTitle.trim()) {
+    return truncateToWords(progressTitle)
+  }
+  if (!isActive && completedTitle && completedTitle.trim()) {
+    return truncateToWords(completedTitle)
+  }
+  if (!isActive && progressTitle && progressTitle.trim()) {
+    return truncateToWords(progressTitle)
+  }
+  return getToolLabel(name)
+}
+
+export function isActiveToolStatus(status: string): boolean {
+  return status === 'writing' || status === 'running' || status === 'cooldown'
+}
+
+export function hasCustomProgressTitle(toolCall: {
+  progressTitle?: unknown
+  args?: Record<string, unknown>
+}): boolean {
+  const top = toolCall.progressTitle
+  if (typeof top === 'string' && top.trim()) return true
+  const arg = toolCall.args?.progressTitle
+  return typeof arg === 'string' && arg.trim() !== ''
+}
+
+export function hasCustomTitles(toolCall: {
+  progressTitle?: unknown
+  completedTitle?: unknown
+  args?: Record<string, unknown>
+}): boolean {
+  if (hasCustomProgressTitle(toolCall)) return true
+  const top = toolCall.completedTitle
+  if (typeof top === 'string' && top.trim()) return true
+  const arg = toolCall.args?.completedTitle
+  return typeof arg === 'string' && arg.trim() !== ''
+}
+
+// While streaming, an active tool row appears only after the model has
+// generated its progress title, so users never see a generic label swapped
+// out for the custom one. Finished rows and finalized turns always show.
+export function isToolRowVisible(
+  status: string,
+  toolCall: {
+    progressTitle?: unknown
+    completedTitle?: unknown
+    args?: Record<string, unknown>
+  },
+  isStreaming: boolean
+): boolean {
+  if (!isStreaming) return true
+  if (!isActiveToolStatus(status)) return true
+  return hasCustomProgressTitle(toolCall)
+}
+
+interface ToolCallIndicatorProps {
+  tools?: Array<{
+    name: string
+    status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown'
+    progressTitle?: string
+    completedTitle?: string
+    args?: Record<string, unknown>
+  }>
+  overrideLabel?: string
+  isItalic?: boolean
+  active?: boolean
+}
+
+export function ToolCallIndicator({
+  tools,
+  overrideLabel,
+  isItalic,
+  active
+}: ToolCallIndicatorProps): React.JSX.Element | null {
   if ((!tools || tools.length === 0) && !overrideLabel) return null
 
   // Show only the LAST tool (even if done/error/etc to keep text visible)
   const lastTool = tools && tools.length > 0 ? tools[tools.length - 1] : null
-  const displayText = overrideLabel || (lastTool ? getToolLabel(lastTool.name) : 'Working')
+  const customLabel = lastTool
+    ? getCustomToolLabel(
+        lastTool.name,
+        lastTool.status,
+        lastTool.progressTitle ??
+          (lastTool.args?.progressTitle as string | undefined),
+        lastTool.completedTitle ??
+          (lastTool.args?.completedTitle as string | undefined)
+      )
+    : 'Working'
+  const displayText = overrideLabel ? truncateToWords(overrideLabel) : customLabel
+  const isShimmer =
+    active ?? (lastTool ? isActiveToolStatus(lastTool.status) : Boolean(overrideLabel))
 
   return (
     <span
       className={clsx(
-        'tool-shimmer-text text-[13px] font-medium leading-normal inline-block pb-[1.5px]',
+        'text-[13px] font-medium leading-normal inline-block pb-[1.5px]',
+        isShimmer ? 'tool-shimmer-text' : 'text-text-secondary',
         isItalic && 'italic'
       )}
     >
@@ -87,6 +205,8 @@ export interface ToolCall {
   args: Record<string, unknown>
   result?: string
   status: 'writing' | 'running' | 'cooldown' | 'done' | 'error' | 'cancelled'
+  progressTitle?: string
+  completedTitle?: string
   agentUpdates?: Record<
     string | number,
     {
@@ -508,6 +628,14 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
   } else if (toolCall.name === 'create_mini_app') {
     displayTitle = isDone ? 'Created Mini App' : 'Creating Mini App'
     displayDetail = getStringArg(toolCall.args, 'title') || (writingArgs?.title as string) || 'Mini App'
+  }
+
+  // Custom user-facing titles take precedence over derived labels.
+  const customTitles = resolveCustomTitles(toolCall)
+  if (isRunning && customTitles.progressTitle) {
+    displayTitle = customTitles.progressTitle
+  } else if (isDone && (customTitles.completedTitle || customTitles.progressTitle)) {
+    displayTitle = (customTitles.completedTitle || customTitles.progressTitle) as string
   }
 
   if (toolCall.status === 'done') tone = 'success'
@@ -935,8 +1063,18 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
         )}
 
       {/* ── Expanded View (Success/Fail Status Only) ── */}
-      {isExpanded && (
-        <div className="pl-5 text-xs text-text-secondary/80 animate-fade-in py-0.5 select-text">
+      <MotionConfig reducedMotion="user">
+        <AnimatePresence initial={false}>
+          {isExpanded && (
+            <motion.div
+              key="tool-expanded"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              className="overflow-hidden"
+            >
+              <div className="pl-5 text-xs text-text-secondary/80 py-0.5 select-text">
           {isTerminal ? (
             <div className="flex flex-col max-w-full my-2">
               <div className="font-mono text-[12px] bg-[#012456] text-[#eeedf0] border border-white/10 rounded-xl p-4 flex flex-col gap-1 shadow-inner max-h-[320px] overflow-y-auto whitespace-pre-wrap select-text leading-relaxed">
@@ -966,8 +1104,11 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
               Execution cancelled.
             </span>
           ) : null}
-        </div>
-      )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </MotionConfig>
     </div>
   )
 }
@@ -1169,8 +1310,18 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
         )}
 
       {/* ── Expanded View (Success/Fail Status Only) ── */}
-      {isExpanded && (
-        <div className="pl-5 text-xs text-text-secondary/80 animate-fade-in py-0.5 select-text">
+      <MotionConfig reducedMotion="user">
+        <AnimatePresence initial={false}>
+          {isExpanded && (
+            <motion.div
+              key="tool-expanded"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              className="overflow-hidden"
+            >
+              <div className="pl-5 text-xs text-text-secondary/80 py-0.5 select-text">
           {isTerminal ? (
             <div className="flex flex-col max-w-full my-2">
               <div className="font-mono text-[12px] bg-[#012456] text-[#eeedf0] border border-white/10 rounded-xl p-4 flex flex-col gap-1 shadow-inner max-h-[320px] overflow-y-auto whitespace-pre-wrap select-text leading-relaxed">
@@ -1200,8 +1351,11 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
               Execution cancelled.
             </span>
           ) : null}
-        </div>
-      )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </MotionConfig>
 
       {/* Subagent graph (Full) */}
       {toolCall.name === 'run_subagents' &&

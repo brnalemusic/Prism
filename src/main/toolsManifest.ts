@@ -57,11 +57,37 @@ const tool = (
 const pathArg = stringSchema('Absolute filesystem path.')
 const contentArg = stringSchema('Complete UTF-8 text content. Preserve whitespace exactly.')
 
+// Custom user-facing tool titles shown in Chat mode. Every tool accepts both
+// fields; they are display-only and never affect execution. Values must be
+// written in the user's conversational language, max 10 words.
+const progressTitleArg = stringSchema(
+  'User-facing progress label shown while this tool runs. Max 10 words, gerund form, specific (include the query, entity, or file). Example: "Searching the web for GLM-5.3 equivalents".'
+)
+const completedTitleArg = stringSchema(
+  'User-facing completion label shown after this tool finishes. Max 10 words, past tense, specific. Example: "Searched the web for GLM-5.3 equivalents".'
+)
+
+function withDisplayTitles(definition: ToolDefinition): ToolDefinition {
+  const properties = definition.inputSchema.properties || {}
+  if ('progressTitle' in properties || 'completedTitle' in properties) return definition
+  return {
+    ...definition,
+    inputSchema: {
+      ...definition.inputSchema,
+      properties: {
+        ...properties,
+        progressTitle: progressTitleArg,
+        completedTitle: completedTitleArg
+      }
+    }
+  }
+}
+
 export const COMPUTER_READ_FILE_DEFAULT_LIMIT = 500
 export const COMPUTER_READ_FILE_MAX_LINES = 800
 export const COMPUTER_READ_FILE_MAX_CHARACTERS = 80_000
 
-export const toolsManifest: ToolDefinition[] = [
+const baseToolsManifest: ToolDefinition[] = [
   tool(
     'generate_image',
     'Generate a new image or edit a specific image already available in this conversation. You decide when a visual is appropriate and must supply a complete, polished final prompt. For edits, set operation to "edit" and copy the exact prism-image://asset/<uuid> reference announced with the intended image into source_image_ref. Never invent references or use filesystem paths. Generated outputs become part of this assistant response and receive references that can be edited later.',
@@ -590,6 +616,8 @@ export const toolsManifest: ToolDefinition[] = [
     ['action', 'target']
   )
 ]
+
+export const toolsManifest: ToolDefinition[] = baseToolsManifest.map(withDisplayTitles)
 
 export const toolNames = new Set(toolsManifest.map((definition) => definition.name))
 

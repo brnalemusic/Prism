@@ -1,5 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import { clsx } from 'clsx'
+import { AnimatePresence, MotionConfig, motion } from 'motion/react'
+import { dockRise, stepSlide } from '../motion/presets'
 import {
   Check,
   ClipboardText,
@@ -79,6 +81,7 @@ export function QuestionnaireCard({
   answers,
   customValues,
   currentStep,
+  direction = 1,
   validationError,
   isSubmitting,
   onSelectOption,
@@ -93,6 +96,7 @@ export function QuestionnaireCard({
   answers: Record<string, QuestionAnswer>
   customValues: Record<string, string>
   currentStep: number
+  direction?: number
   validationError: string | null
   isSubmitting: boolean
   onSelectOption: (question: Question, value: string) => void
@@ -107,19 +111,16 @@ export function QuestionnaireCard({
   const isReviewStep = currentStep === totalSteps
 
   return (
-    <div className="w-[70%] mx-auto relative select-none animate-fade-in z-20 transition-all duration-300">
+    <MotionConfig reducedMotion="user">
+      <motion.div
+        variants={dockRise}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+        className="w-[70%] mx-auto relative select-none z-20 gpu-composed"
+      >
       {/* Card */}
       <div className="questionnaire-surface liquid-glass-docked relative overflow-hidden rounded-t-2xl rounded-b-none px-5 py-4">
-        {/* Subtle internal theme center glow */}
-        <div className="absolute inset-0 rounded-t-2xl overflow-hidden pointer-events-none">
-          <div
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3/4 h-3/4 rounded-full blur-[36px] opacity-18 transition-all duration-300 pointer-events-none"
-            style={{
-              background: 'radial-gradient(ellipse at center, var(--accent-primary) 0%, transparent 70%)'
-            }}
-          />
-        </div>
-
         {/* Header row */}
         <div className="flex items-center justify-between mb-3 select-none">
           <div className="flex items-center gap-2.5">
@@ -141,15 +142,26 @@ export function QuestionnaireCard({
 
         {/* Progress bar */}
         <div className="w-full h-0.5 bg-white/[0.06] rounded-full mb-4 overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-accent-primary to-accent-secondary rounded-full transition-all duration-500 ease-out"
-            style={{
+          <motion.div
+            className="h-full bg-gradient-to-r from-accent-primary to-accent-secondary rounded-full"
+            initial={false}
+            animate={{
               width: isReviewStep ? '100%' : `${((currentStep + 1) / totalSteps) * 100}%`
             }}
+            transition={{ type: 'spring', stiffness: 160, damping: 24 }}
           />
         </div>
 
-        {/* ---- REVIEW STEP ---- */}
+        {/* ---- REVIEW / QUESTION STEPS ---- */}
+        <AnimatePresence mode="wait" initial={false} custom={direction}>
+          <motion.div
+            key={isReviewStep ? 'review' : `step-${currentStep}`}
+            variants={stepSlide}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            custom={direction}
+          >
         {isReviewStep ? (
           <div className="flex flex-col gap-3 mb-4 max-h-[40vh] overflow-y-auto no-scrollbar pr-0.5">
             {questions.map((q, idx) => {
@@ -208,7 +220,7 @@ export function QuestionnaireCard({
                 : []
             const selectedVal = typeof rawAnswer === 'string' ? rawAnswer : ''
             return (
-              <div className="flex flex-col gap-3 mb-4 animate-fade-in">
+              <div className="flex flex-col gap-3 mb-4">
                 {/* Category label */}
                 {q.title && (
                   <span className="text-[10px] font-mono font-semibold uppercase tracking-widest text-text-muted select-none">
@@ -220,9 +232,15 @@ export function QuestionnaireCard({
 
                 {/* Validation error */}
                 {validationError && (
-                  <p className="text-[10px] font-medium text-status-error animate-pulse">
+                  <motion.p
+                    key={validationError}
+                    initial={{ opacity: 0, x: 0 }}
+                    animate={{ opacity: 1, x: [0, -5, 5, -3, 3, 0] }}
+                    transition={{ duration: 0.35 }}
+                    className="text-[10px] font-medium text-status-error"
+                  >
                     {validationError}
-                  </p>
+                  </motion.p>
                 )}
 
                 {/* Multiple-choice options */}
@@ -279,7 +297,7 @@ export function QuestionnaireCard({
 
                           {/* Write-in field for custom option */}
                           {opt.allow_custom_input && isSelected && (
-                            <div className="pl-3 animate-fade-in">
+                            <div className="pl-3">
                               <input
                                 type="text"
                                 placeholder={q.placeholder || 'Specify your answer...'}
@@ -310,6 +328,8 @@ export function QuestionnaireCard({
             )
           })()
         )}
+          </motion.div>
+        </AnimatePresence>
 
         {/* Footer buttons */}
         <div className="flex items-center justify-between gap-2 select-none">
@@ -360,8 +380,9 @@ export function QuestionnaireCard({
             </button>
           )}
         </div>
-      </div>
-    </div>
+        </div>
+      </motion.div>
+    </MotionConfig>
   )
 }
 
@@ -393,6 +414,7 @@ export function QuestionnaireWizard({
   const [answers, setAnswers] = useState<Record<string, QuestionAnswer>>({})
   const [customValues, setCustomValues] = useState<Record<string, string>>({})
   const [currentStep, setCurrentStep] = useState(0)
+  const [direction, setDirection] = useState(1)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -400,6 +422,7 @@ export function QuestionnaireWizard({
     setAnswers({})
     setCustomValues({})
     setCurrentStep(0)
+    setDirection(1)
     setValidationError(null)
     setIsSubmitting(false)
   }, [sessionId])
@@ -469,15 +492,18 @@ export function QuestionnaireWizard({
 
   const handleNext = () => {
     if (!validateCurrentStep()) return
+    setDirection(1)
     setCurrentStep((s) => s + 1)
   }
 
   const handleBack = () => {
     setValidationError(null)
+    setDirection(-1)
     setCurrentStep((s) => Math.max(0, s - 1))
   }
 
   const handleEditStep = (step: number) => {
+    setDirection(step >= currentStep ? 1 : -1)
     setCurrentStep(step)
   }
 
@@ -502,6 +528,7 @@ export function QuestionnaireWizard({
       answers={answers}
       customValues={customValues}
       currentStep={currentStep}
+      direction={direction}
       validationError={validationError}
       isSubmitting={isSubmitting}
       onSelectOption={handleSelectOption}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
+import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import {
   Plus,
   X,
@@ -132,29 +133,36 @@ export const TabBar: React.FC<TabBarProps> = ({
   return (
     <div className="flex h-12 w-full items-center justify-between border-b border-white/[0.08] bg-black/20 backdrop-blur-2xl px-4 select-none z-30 relative shadow-[inset_0_-1px_0_rgba(255,255,255,0.03)]">
       {/* Tabs Container */}
-      <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-3 py-1 overflow-hidden">
-        {tabs.map((tab) => {
-          const isActive = tab.id === activeTabId
-          const isVisible = visibleTabIds.includes(tab.id)
-          const isDragging = tab.id === draggedTabId
-          const isDragOver = tab.id === dragOverTabId
+      <MotionConfig reducedMotion="user">
+        <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-3 py-1 overflow-hidden">
+          <AnimatePresence initial={false} mode="popLayout">
+            {tabs.map((tab) => {
+              const isActive = tab.id === activeTabId
+              const isVisible = visibleTabIds.includes(tab.id)
+              const isDragging = tab.id === draggedTabId
+              const isDragOver = tab.id === dragOverTabId
 
-          return (
-            <div
-              key={tab.id}
-              draggable
+              return (
+                <motion.div
+                  key={tab.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0.85, y: -4 }}
+                  animate={{ opacity: isDragging ? 0.3 : 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.16 } }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 38 }}
+                  draggable
               onClick={() => onSelectTab(tab.id)}
               onContextMenu={(e) => handleContextMenu(e, tab.id)}
-              onDragStart={(e) => {
+              onDragStartCapture={(e) => {
                 e.dataTransfer.setData('text/prism-tab-id', tab.id)
                 e.dataTransfer.effectAllowed = 'move'
                 setDraggedTabId(tab.id)
               }}
-              onDragEnd={() => {
+              onDragEndCapture={() => {
                 setDraggedTabId(null)
                 setDragOverTabId(null)
               }}
-              onDragOver={(e) => {
+              onDragOver={(e: React.DragEvent<HTMLDivElement>) => {
                 if (e.dataTransfer.types.includes('text/prism-tab-id')) {
                   e.preventDefault()
                   e.dataTransfer.dropEffect = 'move'
@@ -163,11 +171,11 @@ export const TabBar: React.FC<TabBarProps> = ({
                   }
                 }
               }}
-              onDragLeave={(e) => {
+              onDragLeave={(e: React.DragEvent<HTMLDivElement>) => {
                 if (e.currentTarget.contains(e.relatedTarget as Node)) return
                 if (dragOverTabId === tab.id) setDragOverTabId(null)
               }}
-              onDrop={(e) => {
+              onDrop={(e: React.DragEvent<HTMLDivElement>) => {
                 e.preventDefault()
                 setDragOverTabId(null)
                 const sourceId = e.dataTransfer.getData('text/prism-tab-id')
@@ -177,7 +185,7 @@ export const TabBar: React.FC<TabBarProps> = ({
                 setDraggedTabId(null)
               }}
               className={clsx(
-                'group relative flex h-8 items-center gap-2 rounded-xl px-2.5 text-xs font-medium transition-all duration-150 cursor-pointer shrink flex-1 min-w-[80px] max-w-[180px] border animate-tab-appear',
+                'group relative flex h-8 items-center gap-2 rounded-xl px-2.5 text-xs font-medium cursor-pointer shrink flex-1 min-w-[80px] max-w-[180px] border',
                 isDragging
                   ? 'opacity-30 scale-95 border-dashed border-accent-primary/40 bg-white/[0.02]'
                   : isDragOver
@@ -236,9 +244,18 @@ export const TabBar: React.FC<TabBarProps> = ({
               >
                 <X size={11} />
               </button>
-            </div>
+              {/* Drop position indicator shared across tabs */}
+              {isDragOver && !isDragging && (
+                <motion.span
+                  layoutId="tab-drop-indicator"
+                  transition={{ type: 'spring', stiffness: 550, damping: 40 }}
+                  className="pointer-events-none absolute inset-y-1 left-0 w-[3px] rounded-full bg-accent-primary shadow-[0_0_12px_var(--accent-glow)]"
+                />
+              )}
+            </motion.div>
           )
         })}
+          </AnimatePresence>
 
         {/* Attached Plus (+) & Dropdown Button Group */}
         <div ref={plusBtnGroupRef} className="shrink-0 flex items-center">
@@ -279,7 +296,8 @@ export const TabBar: React.FC<TabBarProps> = ({
             </button>
           </div>
         </div>
-      </div>
+        </div>
+      </MotionConfig>
 
       {/* Model Selector Dropdown */}
       <div className="shrink-0 flex items-center">

@@ -4,7 +4,7 @@ import { PrismBackground } from './components/PrismBackground'
 import { LoadingScreen } from './components/LoadingScreen'
 import { OfflineBanner } from './components/OfflineBanner'
 import { Sidebar } from './components/Sidebar'
-import { ToolCallIndicator } from './components/ActionLoader'
+import { ToolCallIndicator, isActiveToolStatus, isToolRowVisible } from './components/ActionLoader'
 import { HarnessActivityBoundary, HarnessSteps } from './components/HarnessSteps'
 import { SourcePills, extractMessageSources } from './components/SourcePills'
 import { HarnessContextInjection } from './components/HarnessContextInjection'
@@ -59,6 +59,8 @@ import clsx from 'clsx'
 import {
   Quotes,
   Brain,
+  CaretDown,
+  CaretRight,
   FilePdf,
   FilePpt,
   CheckCircle,
@@ -90,6 +92,7 @@ import { getDefaultThinkingLevelForModel, isPrismCloudGeminiModel } from './cons
 import {
   applyToolCallEnd,
   applyToolCallStart,
+  extractDisplayTitles,
   isToolCancelledResult,
   isToolErrorResult
 } from './toolCallState'
@@ -206,10 +209,18 @@ function consolidateToolCalls(
             )
             const queryMatch = stc.arguments.match(/"query"\s*:\s*"([^"]*)/i)
             const titleMatch = stc.arguments.match(/"title"\s*:\s*"([^"]*)/i)
+            const progressTitleMatch = stc.arguments.match(
+              /"progressTitle"\s*:\s*"((?:[^"\\]|\\.)*)/i
+            )
+            const completedTitleMatch = stc.arguments.match(
+              /"completedTitle"\s*:\s*"((?:[^"\\]|\\.)*)/i
+            )
             if (filePathMatch) parsedArgs.filePath = filePathMatch[1]
             if (commandMatch) parsedArgs.command = commandMatch[1]
             if (queryMatch) parsedArgs.query = queryMatch[1]
             if (titleMatch) parsedArgs.title = titleMatch[1]
+            if (progressTitleMatch) parsedArgs.progressTitle = progressTitleMatch[1]
+            if (completedTitleMatch) parsedArgs.completedTitle = completedTitleMatch[1]
           } catch {
             /* ignore */
           }
@@ -289,6 +300,7 @@ function consolidateToolCalls(
           name: stc.name || 'task',
           args: parsedArgs,
           status: 'writing' as const,
+          ...extractDisplayTitles(parsedArgs),
           addedLines: streamingAddedLines > 0 ? streamingAddedLines : undefined,
           removedLines: streamingRemovedLines > 0 ? streamingRemovedLines : undefined
         })
@@ -312,6 +324,7 @@ interface AiMessageProps {
   activeToolLabel?: string | null
   isHarness?: boolean
   showActions?: boolean
+  collapseProgress?: boolean
 }
 
 const BROWSER_TOOL_NAMES = new Set([
@@ -347,7 +360,8 @@ const AiMessage = React.memo(function AiMessage({
   inactivityLabel,
   activeToolLabel,
   isHarness = false,
-  showActions = true
+  showActions = true,
+  collapseProgress = false
 }: AiMessageProps) {
   const visibleContent = useMemo(
     () => hideInternalImageReferences(msg.content || ''),
@@ -400,24 +414,296 @@ const AiMessage = React.memo(function AiMessage({
     [hasThoughtBlock]
   )
 
+  const parts = useMemo(() => {
+    return visibleContent.split(
+      /(\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
+    )
+  }, [visibleContent])
+
+  // Tool calls already rendered at their exact temporal position from content
+  // tags. Native duplicates are skipped so each execution appears exactly once.
+  const INLINE_SPECIAL_TOOL_NAMES = useMemo(
+    () =>
+      new Set([
+        'generate_image',
+        'to_ask',
+        'render_chat_history',
+        'malformed_tool_call',
+        'write_pdf',
+        'edit_pdf',
+        'write_pptx',
+        'edit_pptx'
+      ]),
+    []
+  )
+
+  const inlineToolCallRefs = useMemo(() => {
+    const refs = new Set<ToolCallItem>()
+    let tagIndex = 0
+    for (const part of parts) {
+      if (
+        part.startsWith('[PRISM_EXECUTE_TOOL]') &&
+        part.includes('[/PRISM_EXECUTE_TOOL]')
+      ) {
+        const tc = msg.toolCalls?.[tagIndex]
+        tagIndex++
+        if (tc) refs.add(tc)
+      }
+    }
+    return refs
+  }, [parts, msg.toolCalls])
+
+  // Generic tag-based tools rendered inline (excludes artifact/questionnaire
+  // cards). Used to suppress the redundant bottom shimmer line while streaming.
+  const hasInlineGenericToolRows = useMemo(() => {
+    if (collapseProgress) return false
+    let tagIndex = 0
+    for (const part of parts) {
+      if (!part.startsWith('[PRISM_EXECUTE_TOOL]')) continue
+      if (!part.includes('[/PRISM_EXECUTE_TOOL]')) {
+        if (!shouldHideActiveBelow) return true
+        continue
+      }
+      const tc = msg.toolCalls?.[tagIndex]
+      tagIndex++
+      if (!tc || INLINE_SPECIAL_TOOL_NAMES.has(tc.name)) continue
+      const isActive = tc.status === 'writing' || tc.status === 'running'
+      if (shouldHideActiveBelow && isActive) continue
+      return true
+    }
+    return false
+  }, [parts, msg.toolCalls, collapseProgress, shouldHideActiveBelow, INLINE_SPECIAL_TOOL_NAMES])
+
+  const lastTextPartIndex = useMemo(() => {
+    let last = -1
+    parts.forEach((part, index) => {
+      if (
+        !part.startsWith('[PRISM_EXECUTE_TOOL]') &&
+        !part.startsWith('<mini_app>') &&
+        part.trim() !== ''
+      ) {
+        last = index
+      }
+    })
+    return last
+  }, [parts])
+
+  // Tag-based tool markup present: use the legacy positional rendering.
+  const hasContentTags = useMemo(
+    () => /\[PRISM_EXECUTE_TOOL\]|<mini_app>/i.test(visibleContent),
+    [visibleContent]
+  )
+
+  interface ChatTimelineRound {
+    key: string
+    content: string
+    textOffset: number
+    tools: ToolCallItem[]
+  }
+
+  // Chat-mode temporal timeline: one text segment per orchestration round with
+  // that round's tools interleaved right after it, so executions stick to the
+  // exact position where they ran instead of piling up below the message.
+  const chatTimeline = useMemo((): ChatTimelineRound[] | null => {
+    if (isHarness || hasContentTags) return null
+    const rounds = msg.chatRounds
+    if (!rounds || rounds.length === 0) return null
+    if (nativeToolCalls.length === 0) return null
+    const flat = msg.toolCalls || []
+    const lastRound = rounds[rounds.length - 1].round
+    let offset = 0
+    const timeline: ChatTimelineRound[] = rounds.map((round) => {
+      const textOffset = offset
+      offset += (round.content?.length ?? 0) + 2
+      const tools = flat.filter((tc) => (tc.round ?? lastRound) === round.round)
+      const roundTools =
+        round.round === lastRound
+          ? [...tools, ...nativeToolCalls.filter((tc) => tc.status === 'writing')]
+          : tools
+      return {
+        key: `chat-round-${round.round}`,
+        content: round.content || '',
+        textOffset,
+        tools: roundTools
+      }
+    })
+    // Safety net: tools whose round missed the content tracking join the end.
+    const assigned = new Set<ToolCallItem>()
+    for (const entry of timeline) {
+      for (const tc of entry.tools) assigned.add(tc)
+    }
+    const orphans = flat.filter((tc) => !assigned.has(tc))
+    if (orphans.length > 0) {
+      timeline[timeline.length - 1].tools.push(...orphans)
+    }
+    return timeline
+  }, [isHarness, hasContentTags, msg.chatRounds, msg.toolCalls, nativeToolCalls])
+
+  const timelineHasToolRows = chatTimeline?.some((entry) => entry.tools.length > 0) ?? false
+
+  // Special native tool renderers (artifacts, questionnaires, images) shared
+  // by the flat list and the temporal timeline. Returns null for generic tools.
+  const renderNativeToolCard = useCallback(
+    (tc: ToolCallItem, key: string, idSeed: string | number): React.JSX.Element | null => {
+      if (tc.name === 'generate_image') {
+        return <GeneratedImageCard key={key} toolCall={tc} chatId={currentChatId || ''} />
+      }
+      if (tc.name === 'to_ask') {
+        // Render done-state summary inline; active wizard is handled by ChatPane.
+        return (
+          <QuestionnaireRenderer
+            key={key}
+            toolCall={{
+              name: tc.name,
+              status: tc.status,
+              args: tc.args || {}
+            }}
+            chatId={currentChatId || ''}
+          />
+        )
+      }
+      if (tc.name === 'render_chat_history') {
+        return (
+          <RenderChatHistory
+            key={key}
+            chatId={String(tc.args?.query || '')}
+            onOpenChat={handleLoadChat || (() => {})}
+          />
+        )
+      }
+      if (tc.name === 'malformed_tool_call') {
+        return (
+          <MalformedToolCallWarning
+            key={key}
+            toolCall={{
+              name: tc.name,
+              status: tc.status,
+              args: tc.args || {}
+            }}
+          />
+        )
+      }
+      if (tc.name === 'create_mini_app') {
+        const title = (tc.args.title || 'Mini App') as string
+        const html = (tc.args.html || tc.args.code || '') as string
+        const css = (tc.args.css || '') as string
+        const js = (tc.args.js || tc.args.javascript || '') as string
+        const status = tc.status
+
+        const miniAppId = `mini-app-native-${idSeed}-${title.replace(/\s+/g, '-').toLowerCase()}`
+
+        if (status === 'writing' || status === 'running') {
+          if (shouldHideIndicator(status)) return null
+          if (shouldHideActiveBelow) return null
+          if (!isToolRowVisible(status, tc, !!msg.isStreaming)) return null
+          return (
+            <div key={miniAppId} className="flex items-center gap-1.5 mt-1">
+              <ToolCallIndicator tools={[{ name: 'create_mini_app', status }]} />
+            </div>
+          )
+        }
+
+        return (
+          <div
+            key={miniAppId}
+            className="w-full flex flex-col gap-2 my-2 select-none animate-fade-in"
+          >
+            <div className="flex items-center gap-2 text-[13px] text-text-secondary font-medium">
+              {status === 'error' || status === 'cancelled' ? (
+                <>
+                  <XCircle size={14} className="text-status-error shrink-0" />
+                  <span>
+                    Failed to create mini app:{' '}
+                    <span className="font-semibold text-text-primary">{title}</span>
+                  </span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle size={14} className="text-status-success shrink-0" />
+                  <span>
+                    Created mini app:{' '}
+                    <span className="font-semibold text-text-primary">{title}</span>
+                  </span>
+                </>
+              )}
+            </div>
+            {status === 'done' && (
+              <div className="w-full px-0">
+                <MiniAppRenderer
+                  id={miniAppId}
+                  title={title}
+                  html={html}
+                  css={css}
+                  js={js}
+                />
+              </div>
+            )}
+          </div>
+        )
+      }
+      return null
+    },
+    [currentChatId, handleLoadChat, shouldHideIndicator, shouldHideActiveBelow, msg.isStreaming]
+  )
+
+  // One tool inside the temporal timeline: special cards stay as deliverables,
+  // generic executions render as persistent labels at their exact position.
+  const renderTimelineTool = (
+    tc: ToolCallItem,
+    key: string,
+    idSeed: string | number
+  ): React.JSX.Element | null => {
+    const card = renderNativeToolCard(tc, key, idSeed)
+    if (card) return card
+    if (collapseProgress) return null
+    if (shouldHideActiveBelow && isActiveToolStatus(tc.status)) return null
+    if (!isToolRowVisible(tc.status, tc, !!msg.isStreaming)) return null
+    return (
+      <div key={key} className="flex items-center gap-1.5">
+        <ToolCallIndicator
+          tools={[
+            {
+              name: tc.name,
+              status: tc.status,
+              progressTitle: tc.progressTitle,
+              completedTitle: tc.completedTitle,
+              args: tc.args
+            }
+          ]}
+        />
+      </div>
+    )
+  }
+
   const visibleNativeTools = useMemo(() => {
-    if (activeToolLabel) return []
     const list = nativeToolCalls.filter(
       (tc) =>
+        !inlineToolCallRefs.has(tc) &&
         tc.name !== 'to_ask' &&
         tc.name !== 'render_chat_history' &&
         tc.name !== 'malformed_tool_call' &&
         tc.name !== 'create_mini_app' &&
         tc.name !== 'generate_image'
     )
-    return list.filter((tc) => !shouldHideIndicator(tc.status))
-  }, [nativeToolCalls, shouldHideIndicator, activeToolLabel])
+    if (collapseProgress || hasThoughtBlock) return []
+    return list.filter((tc) => isToolRowVisible(tc.status, tc, !!msg.isStreaming))
+  }, [nativeToolCalls, inlineToolCallRefs, collapseProgress, hasThoughtBlock, msg.isStreaming])
 
-  const parts = useMemo(() => {
-    return visibleContent.split(
-      /(\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
-    )
-  }, [visibleContent])
+  // Any generic tool rows (visible or still awaiting the model's titles) take
+  // precedence over the single bottom shimmer line while streaming.
+  const hasNativeToolRows = useMemo(
+    () =>
+      nativeToolCalls.some(
+        (tc) =>
+          !inlineToolCallRefs.has(tc) &&
+          tc.name !== 'to_ask' &&
+          tc.name !== 'render_chat_history' &&
+          tc.name !== 'malformed_tool_call' &&
+          tc.name !== 'create_mini_app' &&
+          tc.name !== 'generate_image'
+      ),
+    [nativeToolCalls, inlineToolCallRefs]
+  )
 
   const shouldShowInlineTool = useCallback(
     (status: ToolCallItem['status'], partIndex: number) => {
@@ -605,7 +891,8 @@ const AiMessage = React.memo(function AiMessage({
     <StreamContext.Provider value={streamStats}>
       <SuggestionRuntimeContext.Provider value={suggestionRuntime}>
         <div className="flex flex-col w-full gap-1.5">
-          {groupedItems.map((gItem, gIdx) => {
+          {!chatTimeline &&
+            groupedItems.map((gItem, gIdx) => {
             if ('items' in gItem) {
               if (isHarness) return null
               const group = gItem as { type: 'grouped_web_searches'; items: PartItem[] }
@@ -625,7 +912,7 @@ const AiMessage = React.memo(function AiMessage({
               }
 
               const firstItem = group.items[0]
-              if (!shouldShowInlineTool(mergedStatus, firstItem.partIndex)) {
+              if (collapseProgress) {
                 return null
               }
               if (
@@ -634,12 +921,49 @@ const AiMessage = React.memo(function AiMessage({
               ) {
                 return null
               }
+              const groupVisible = toolCallItems.some((it) => {
+                if (it.isClosed && it.toolCall) {
+                  return isToolRowVisible(it.toolCall.status, it.toolCall, !!msg.isStreaming)
+                }
+                if (!it.isClosed) {
+                  return isToolRowVisible(
+                    'writing',
+                    {
+                      progressTitle: it.writingToolArgs?.progressTitle,
+                      args: it.writingToolArgs
+                    },
+                    !!msg.isStreaming
+                  )
+                }
+                return false
+              })
+              if (!groupVisible) {
+                return null
+              }
               return (
                 <div
                   key={`tc-group-${firstItem.partIndex}-${gIdx}`}
                   className="flex items-center gap-1.5"
                 >
-                  <ToolCallIndicator tools={[{ name: 'web_search', status: mergedStatus }]} />
+                  {(() => {
+                    const lastClosed = toolCallItems
+                      .filter((it) => it.isClosed && it.toolCall)
+                      .pop()
+                    const groupTc = lastClosed?.toolCall
+                    return (
+                      <ToolCallIndicator
+                        tools={[
+                          {
+                            name: 'web_search',
+                            status: mergedStatus,
+                            progressTitle: groupTc?.progressTitle,
+                            completedTitle: groupTc?.completedTitle,
+                            args: groupTc?.args
+                          }
+                        ]}
+                      />
+                    )
+                  })()}
                 </div>
               )
             }
@@ -755,7 +1079,7 @@ const AiMessage = React.memo(function AiMessage({
                       />
                     )
                   }
-                  if (!shouldShowInlineTool(tc.status, item.partIndex)) {
+                  if (collapseProgress) {
                     return null
                   }
                   if (
@@ -764,15 +1088,39 @@ const AiMessage = React.memo(function AiMessage({
                   ) {
                     return null
                   }
+                  if (!isToolRowVisible(tc.status, tc, !!msg.isStreaming)) {
+                    return null
+                  }
                   return (
                     <div key={`tc-${item.partIndex}`} className="flex items-center gap-1.5">
-                      <ToolCallIndicator tools={[{ name: tc.name, status: tc.status }]} />
+                      <ToolCallIndicator
+                        tools={[
+                          {
+                            name: tc.name,
+                            status: tc.status,
+                            progressTitle: tc.progressTitle,
+                            completedTitle: tc.completedTitle,
+                            args: tc.args
+                          }
+                        ]}
+                      />
                     </div>
                   )
                 }
               } else {
-                if (!shouldShowInlineTool('writing', item.partIndex)) return null
+                if (collapseProgress) return null
                 if (shouldHideActiveBelow) return null
+                if (
+                  !isToolRowVisible(
+                    'writing',
+                    {
+                      progressTitle: item.writingToolArgs?.progressTitle,
+                      args: item.writingToolArgs
+                    },
+                    !!msg.isStreaming
+                  )
+                )
+                  return null
                 const isSearch =
                   item.writingToolName === 'web_search' ||
                   item.writingToolName === 'search_chat_history' ||
@@ -781,7 +1129,13 @@ const AiMessage = React.memo(function AiMessage({
                 return (
                   <div key={`writing-tc-${item.partIndex}`} className="flex items-center gap-1.5">
                     <ToolCallIndicator
-                      tools={[{ name: item.writingToolName || toolType, status: 'writing' }]}
+                      tools={[
+                        {
+                          name: item.writingToolName || toolType,
+                          status: 'writing',
+                          args: item.writingToolArgs
+                        }
+                      ]}
                     />
                   </div>
                 )
@@ -820,6 +1174,7 @@ const AiMessage = React.memo(function AiMessage({
             }
 
             if (!part || part.trim() === '') return null
+            if (collapseProgress && item.partIndex !== lastTextPartIndex) return null
 
             return (
               <div
@@ -844,128 +1199,78 @@ const AiMessage = React.memo(function AiMessage({
             )
           })}
 
-          {!isHarness &&
-            nativeToolCalls.map((tc, idx) => {
-              if (tc.name === 'generate_image') {
-                return (
-                  <GeneratedImageCard
-                    key={`native-tc-${tc.id || idx}`}
-                    toolCall={tc}
-                    chatId={currentChatId || ''}
-                  />
-                )
-              }
-              if (tc.name === 'to_ask') {
-                // Render done-state summary inline; active wizard is handled by ChatPane.
-                return (
-                  <QuestionnaireRenderer
-                    key={`native-tc-${idx}`}
-                    toolCall={{
-                      name: tc.name,
-                      status: tc.status,
-                      args: tc.args || {}
-                    }}
-                    chatId={currentChatId || ''}
-                  />
-                )
-              }
-              if (tc.name === 'render_chat_history') {
-                return (
-                  <RenderChatHistory
-                    key={`native-tc-${idx}`}
-                    chatId={String(tc.args?.query || '')}
-                    onOpenChat={handleLoadChat || (() => {})}
-                  />
-                )
-              }
-              if (tc.name === 'malformed_tool_call') {
-                return (
-                  <MalformedToolCallWarning
-                    key={`native-tc-${idx}`}
-                    toolCall={{
-                      name: tc.name,
-                      status: tc.status,
-                      args: tc.args || {}
-                    }}
-                  />
-                )
-              }
-              if (tc.name === 'create_mini_app') {
-                const title = (tc.args.title || 'Mini App') as string
-                const html = (tc.args.html || tc.args.code || '') as string
-                const css = (tc.args.css || '') as string
-                const js = (tc.args.js || tc.args.javascript || '') as string
-                const status = tc.status
-
-                const miniAppId = `mini-app-native-${idx}-${title.replace(/\s+/g, '-').toLowerCase()}`
-
-                if (status === 'writing' || status === 'running') {
-                  if (shouldHideIndicator(status)) return null
-                  if (shouldHideActiveBelow) return null
-                  return (
-                    <div key={miniAppId} className="flex items-center gap-1.5 mt-1">
-                      <ToolCallIndicator tools={[{ name: 'create_mini_app', status }]} />
+          {/* Temporal timeline: each round's text with its tools right after it */}
+          {chatTimeline &&
+            chatTimeline.map((round, rIdx) => {
+              const isLastRound = rIdx === chatTimeline.length - 1
+              return (
+                <React.Fragment key={round.key}>
+                  {round.content.trim() !== '' && (!collapseProgress || isLastRound) && (
+                    <div
+                      key={`${round.key}-text`}
+                      className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
+                    >
+                      <ReactMarkdown
+                        remarkPlugins={STATIC_REMARK_PLUGINS}
+                        rehypePlugins={
+                          msg.isStreaming
+                            ? [
+                                ...STATIC_COMPLETED_REHYPE_PLUGINS,
+                                createStreamingFadeRehypePlugin(streamStats, round.textOffset)
+                              ]
+                            : STATIC_COMPLETED_REHYPE_PLUGINS
+                        }
+                        components={markdownComponents}
+                      >
+                        {round.content}
+                      </ReactMarkdown>
                     </div>
-                  )
-                }
-
-                return (
-                  <div
-                    key={miniAppId}
-                    className="w-full flex flex-col gap-2 my-2 select-none animate-fade-in"
-                  >
-                    <div className="flex items-center gap-2 text-[13px] text-text-secondary font-medium">
-                      {status === 'error' || status === 'cancelled' ? (
-                        <>
-                          <XCircle size={14} className="text-status-error shrink-0" />
-                          <span>
-                            Failed to create mini app:{' '}
-                            <span className="font-semibold text-text-primary">{title}</span>
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle size={14} className="text-status-success shrink-0" />
-                          <span>
-                            Created mini app:{' '}
-                            <span className="font-semibold text-text-primary">{title}</span>
-                          </span>
-                        </>
-                      )}
-                    </div>
-                    {status === 'done' && (
-                      <div className="w-full px-0">
-                        <MiniAppRenderer
-                          id={miniAppId}
-                          title={title}
-                          html={html}
-                          css={css}
-                          js={js}
-                        />
-                      </div>
-                    )}
-                  </div>
-                )
-              }
-              return null
+                  )}
+                  {round.tools.map((tc, ti) =>
+                    renderTimelineTool(tc, `${round.key}-tool-${tc.id || ti}`, ti)
+                  )}
+                </React.Fragment>
+              )
             })}
 
-          {!isHarness && visibleNativeTools.length > 0 && (
-            <div className="flex items-center gap-1.5 mt-1">
-              <ToolCallIndicator
-                tools={visibleNativeTools.map((tc) => ({
-                  name: tc.name,
-                  status: tc.status
-                }))}
-              />
+          {!chatTimeline &&
+            !isHarness &&
+            nativeToolCalls.map((tc, idx) =>
+              renderNativeToolCard(tc, `native-tc-${tc.id || idx}`, idx)
+            )}
+
+          {!isHarness && visibleNativeTools.length > 0 && !chatTimeline && (
+            <div className="flex flex-col items-start gap-1.5 mt-1">
+              {visibleNativeTools.map((tc, idx) => (
+                <div key={`native-tool-${tc.id || idx}`} className="flex items-center gap-1.5">
+                  <ToolCallIndicator
+                    tools={[
+                      {
+                        name: tc.name,
+                        status: tc.status,
+                        progressTitle: tc.progressTitle,
+                        completedTitle: tc.completedTitle,
+                        args: tc.args
+                      }
+                    ]}
+                  />
+                </div>
+              ))}
             </div>
           )}
 
-          {!isHarness && msg.isStreaming && activeToolLabel && !hasActiveImageGeneration && (
-            <div className="flex items-center gap-1.5 mt-1 select-none">
-              <ToolCallIndicator overrideLabel={activeToolLabel} />
-            </div>
-          )}
+          {!isHarness &&
+            msg.isStreaming &&
+            activeToolLabel &&
+            !hasActiveImageGeneration &&
+            !hasInlineGenericToolRows &&
+            !hasNativeToolRows &&
+            !timelineHasToolRows &&
+            visibleNativeTools.length === 0 && (
+              <div className="flex items-center gap-1.5 mt-1 select-none">
+                <ToolCallIndicator overrideLabel={activeToolLabel} />
+              </div>
+            )}
 
           {!isHarness &&
             msg.isStreaming &&
@@ -1308,6 +1613,10 @@ const AiMessageRow = React.memo(function AiMessageRow({
     hasThinking
   )
 
+  // Chat progress timeline: expanded while streaming, collapsed once done.
+  const [progressManuallyExpanded, setProgressManuallyExpanded] = useState<boolean | null>(null)
+  const isProgressExpanded = msg.isStreaming ? true : (progressManuallyExpanded ?? false)
+
   const harnessBlocks = useMemo(() => {
     if (!isHarness) return []
     return getHarnessMessageBlocks(msg.harnessRounds, msg.toolCalls, msg.streamingToolCalls)
@@ -1411,14 +1720,29 @@ const AiMessageRow = React.memo(function AiMessageRow({
         </div>
       )}
 
-      {/* 2. Finished State Indicator (Static Gray Text) */}
+      {/* 2. Finished State Indicator: expandable work summary (collapsed by default) */}
       {!isActive && (
         <>
           {
             hasTools ? (
-              <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
-                Worked for {workedSec > 0 ? workedSec : 1} {workedSec === 1 ? 'second' : 'seconds'}
-              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setProgressManuallyExpanded((prev) => !(prev ?? false))
+                }
+                aria-expanded={isProgressExpanded}
+                title={isProgressExpanded ? 'Hide work progress' : 'Show work progress'}
+                className="w-full mb-1.5 select-none flex items-center gap-1 text-xs text-text-secondary/60 font-medium hover:text-text-secondary transition-colors cursor-pointer text-left"
+              >
+                {isProgressExpanded ? (
+                  <CaretDown size={12} className="shrink-0" />
+                ) : (
+                  <CaretRight size={12} className="shrink-0" />
+                )}
+                <span>
+                  Worked for {workedSec > 0 ? workedSec : 1} {workedSec === 1 ? 'second' : 'seconds'}
+                </span>
+              </button>
             ) : hasThinking ? (
               <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
                 Thought for {thinkingSec} {thinkingSec === 1 ? 'second' : 'seconds'}
@@ -1451,6 +1775,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
             isSuggestionSendDisabled={isSuggestionSendDisabled}
             inactivityLabel={inactivityLabel}
             activeToolLabel={activeToolLabel}
+            collapseProgress={hasTools && !isProgressExpanded}
           />
         )}
       </div>
@@ -1920,6 +2245,8 @@ function RealApp(): React.JSX.Element {
   const [tabs, setTabs] = useState<TabSession[]>([initialTab])
   const [activeTabId, setActiveTabId] = useState<string>('tab-1')
   const [visibleTabIds, setVisibleTabIds] = useState<string[]>(['tab-1'])
+  const [swapPulseIds, setSwapPulseIds] = useState<readonly [string, string] | null>(null)
+  const swapPulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [harnessTabs, setHarnessTabs] = useState<TabSession[]>([])
   const [activeHarnessTabId, setActiveHarnessTabId] = useState<string>('')
   const [planHandoffState, setPlanHandoffState] = useState<
@@ -2642,6 +2969,17 @@ function RealApp(): React.JSX.Element {
       updated[targetIdx] = temp
       return updated
     })
+    // Brief GPU-only pulse on the two swapped panes (no layout measurement,
+    // no blur) so the swap reads as a transition without per-frame cost.
+    if (swapPulseTimer.current) clearTimeout(swapPulseTimer.current)
+    setSwapPulseIds([sourceId, targetId])
+    swapPulseTimer.current = setTimeout(() => setSwapPulseIds(null), 350)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (swapPulseTimer.current) clearTimeout(swapPulseTimer.current)
+    }
   }, [])
 
   const handleSelectTab = useCallback((tabId: string) => {
@@ -3903,6 +4241,20 @@ function RealApp(): React.JSX.Element {
                 }
               }
 
+              // Chat-mode timeline: one text segment per orchestration round so
+              // tool executions render interleaved at their exact position.
+              let chatRounds = lastMsg.chatRounds ? [...lastMsg.chatRounds] : []
+              if (!isHarness) {
+                const currentRound = data.harnessRound || 1
+                const roundContent = data.harnessRoundContent ?? finalResponse
+                const roundIdx = chatRounds.findIndex((r) => r.round === currentRound)
+                if (roundIdx !== -1) {
+                  chatRounds[roundIdx] = { ...chatRounds[roundIdx], content: roundContent }
+                } else {
+                  chatRounds.push({ round: currentRound, content: roundContent })
+                }
+              }
+
               newMessages[lastMsgIndex] = {
                 ...lastMsg,
                 thoughts,
@@ -3919,7 +4271,8 @@ function RealApp(): React.JSX.Element {
                   : (streamingToolCalls || lastMsg.streamingToolCalls),
                 isConnecting: false,
                 toolCalls: updatedToolCalls,
-                harnessRounds: isHarness && harnessRounds.length > 0 ? harnessRounds : lastMsg.harnessRounds
+                harnessRounds: isHarness && harnessRounds.length > 0 ? harnessRounds : lastMsg.harnessRounds,
+                chatRounds: !isHarness && chatRounds.length > 0 ? chatRounds : lastMsg.chatRounds
               }
             }
             return {
@@ -4296,6 +4649,11 @@ function RealApp(): React.JSX.Element {
             if (targetMsgIndex !== -1) {
               const lastMsg = { ...newMessages[targetMsgIndex], isConnecting: false }
               lastMsg.toolCalls = applyToolCallStart(lastMsg.toolCalls || [], data)
+              if (typeof data.round === 'number') {
+                lastMsg.toolCalls = lastMsg.toolCalls.map((tc) =>
+                  tc.id === data.callId ? { ...tc, round: data.round } : tc
+                )
+              }
               if (lastMsg.streamingToolCalls?.length) {
                 const remainingStreamingCalls = lastMsg.streamingToolCalls.filter((call) =>
                   call.id ? call.id !== data.callId : call.name !== data.name
@@ -4395,6 +4753,11 @@ function RealApp(): React.JSX.Element {
             if (lastMsgIndex !== -1) {
               const lastMsg = { ...newMessages[lastMsgIndex] }
               lastMsg.toolCalls = applyToolCallEnd(lastMsg.toolCalls || [], data)
+              if (typeof data.round === 'number') {
+                lastMsg.toolCalls = lastMsg.toolCalls.map((tc) =>
+                  tc.id === data.callId ? { ...tc, round: data.round } : tc
+                )
+              }
               if (lastMsg.harnessRounds && lastMsg.harnessRounds.length > 0) {
                 const targetRound = data.round || lastMsg.harnessRounds[lastMsg.harnessRounds.length - 1].round
                 let rIdx = lastMsg.harnessRounds.findIndex((r) => r.round === targetRound)
@@ -4865,23 +5228,16 @@ function RealApp(): React.JSX.Element {
                 gridLayoutClass
               )}
             >
-              {tabs.map((tab) => {
-                const visibleIndex = visibleTabs.findIndex((vt) => vt.id === tab.id)
-                const isVisible = visibleIndex !== -1
+              {visibleTabs.map((tab, visibleIndex) => {
                 const harnessUi = getHarnessUiConfig(config, tab.disciplinePath)
-
-                if (!isVisible && tab.tabType !== 'browser') {
-                  return null
-                }
 
                 return (
                   <div
                     key={tab.id}
                     className={clsx(
                       'h-full w-full overflow-hidden',
-                      isVisible ? getPaneSpanClass(visibleIndex, visibleTabs.length) : 'hidden'
+                      getPaneSpanClass(visibleIndex, visibleTabs.length)
                     )}
-                    aria-hidden={!isVisible}
                   >
                     {tab.tabType === 'browser' ? (
                       <BrowserPane
@@ -4908,6 +5264,7 @@ function RealApp(): React.JSX.Element {
                         onCloseTab={handleCloseTab}
                         onToggleSplitTab={handleToggleSplitTab}
                         onSwapSplitTabs={handleSwapSplitTabs}
+                        swapPulse={swapPulseIds?.includes(tab.id) ?? false}
                         onSend={(text, file, overrideModel, overrideMode, forceYoutube) => {
                           handleSend(text, file, overrideModel, overrideMode, forceYoutube)
                         }}
@@ -4985,9 +5342,29 @@ function RealApp(): React.JSX.Element {
                         }
                       />
                     )}
-                  </div>
+                    </div>
                 )
               })}
+              {/* Keep background browser webviews mounted while hidden */}
+              {tabs
+                .filter(
+                  (tab) =>
+                    tab.tabType === 'browser' &&
+                    !visibleTabs.some((visible) => visible.id === tab.id)
+                )
+                .map((tab) => (
+                  <div key={tab.id} className="hidden" aria-hidden="true">
+                    <BrowserPane
+                      isAiActive={
+                        tab.browserSourceTabId
+                          ? !!tabs.find((t) => t.id === tab.browserSourceTabId)?.isProcessing
+                          : Object.values(runningChats).some(Boolean)
+                      }
+                      isSplitView={false}
+                      onCloseSplit={() => handleToggleSplitTab(tab.id)}
+                    />
+                  </div>
+                ))}
             </div>
           )
         ) : (

@@ -7,6 +7,8 @@ export interface ToolCallState {
   result?: string
   attachments?: ToolAttachment[]
   status: string
+  progressTitle?: string
+  completedTitle?: string
   startedAt?: number
   finishedAt?: number
 }
@@ -23,6 +25,18 @@ export interface ToolCallEndEvent {
   name: string
   result: string
   attachments?: ToolAttachment[]
+}
+
+export function extractDisplayTitles(args: Record<string, unknown>): {
+  progressTitle?: string
+  completedTitle?: string
+} {
+  const out: { progressTitle?: string; completedTitle?: string } = {}
+  const progress = args.progressTitle
+  const completed = args.completedTitle
+  if (typeof progress === 'string' && progress.trim()) out.progressTitle = progress.trim()
+  if (typeof completed === 'string' && completed.trim()) out.completedTitle = completed.trim()
+  return out
 }
 
 export function isToolErrorResult(result?: string): boolean {
@@ -59,6 +73,7 @@ export function applyToolCallStart<T extends ToolCallState>(
       : call
   )
   const index = updated.findIndex((call) => call.id === event.callId)
+  const titles = extractDisplayTitles(event.args || {})
   if (index === -1) {
     return [
       ...updated,
@@ -66,6 +81,7 @@ export function applyToolCallStart<T extends ToolCallState>(
         id: event.callId,
         name: event.name,
         args: event.args || {},
+        ...titles,
         status: 'running',
         startedAt: event.timestamp || Date.now()
       } as T
@@ -78,6 +94,7 @@ export function applyToolCallStart<T extends ToolCallState>(
       id: event.callId,
       name: event.name,
       args: event.args || {},
+      ...titles,
       startedAt: existing.startedAt || event.timestamp || Date.now()
     }
     return updated
@@ -87,6 +104,7 @@ export function applyToolCallStart<T extends ToolCallState>(
     id: event.callId,
     name: event.name,
     args: event.args || {},
+    ...titles,
     status: 'running',
     result: undefined,
     attachments: undefined,
