@@ -1,4 +1,4 @@
-# Memory & Personality Center (M1 + M2) — Implementation Plan
+# Memory & Personality Center (M1 + M2)
 
 Status: **COMPLETE** — M1 personality center and the full M2 memory center are shipped:
 engine (`memoryCore.ts`), store + recall/trigger wiring (`memoryStore.ts`, `chatHandler.ts`,
@@ -6,7 +6,7 @@ engine (`memoryCore.ts`), store + recall/trigger wiring (`memoryStore.ts`, `chat
 (SettingsView). Recall blocks ride every Chat/Discord text turn and voice session (re)connect
 with budgeted top-K; pinned facts ride the always-on `# Core Profile`; `observeCompletedTurn`
 fires after each completed turn (never Harness, never error paths). Verification: `npm run
-test:memory` (31/31) + `test:persona` (9/9), typecheck node+web clean, real-data catch-up over
+test:memory` (37/37) + `test:persona` (9/9), typecheck node+web clean, real-data catch-up over
 18 chats (0 errors), headless E2E chain (extraction → store → recall + pinned core blocks),
 dev boot without renderer errors. Shipped after that: the AI `memory` tool
 (add/replace/remove over the USER.md/MEMORY.md analogs via the store service, credential gate,
@@ -14,12 +14,14 @@ budgets 1375/2200, never writes `possible`) plus token-cheap active-save guidanc
 surfaces. Detector robustness rework (shipped): high-precision first-person facts now auto-commit
 (slot/preference weights 0.85, the old conservative floor removed), the review queue keeps only
 hypotheticals, narrow temporals and soft conflicts, multi-intent turns split per factKey, and a
-65-case adversarial PT/EN corpus (26/54 to 65/65) is a permanent suite test. Remaining: live GUI
-click-through and a real-provider end-to-end proof; local commits per the user's decisions.
+65-case adversarial PT/EN corpus is a permanent suite test. The current implementation also
+includes a periodic model-based curator with independent review checkpoints, explicit `user` and
+`memory` stores, sanitized multi-role deltas, multi-decision writes, configurable routing and a
+global review status. Remaining: live GUI click-through and a real-provider end-to-end proof.
 
 Constraint reminders that apply to every step:
 
-- Zero-token rule: memory extraction, ranking and decay are **heuristics + statistics only**. No LLM calls, no embeddings.
+- Immediate extraction, ranking and decay remain **heuristics + statistics only**. The separate periodic reviewer uses a configured model and counts against normal model quota.
 - Prism UI text and code comments stay in English. Conversation language matching is preserved in prompts.
 - Never run `npm run build` / `build:win`. Run `npm run typecheck` and the focused test scripts. No git commits.
 
@@ -30,7 +32,7 @@ Constraint reminders that apply to every step:
 A **Memory & Personality center** that gives Prism a consistent voice and cross-chat memory:
 
 - **Personality (M1, done):** preset tone arsenal + tuning dials (proximity, formality, emoji level, humor, verbosity, slang), deterministic prompt compilation, local preview. Applies to Chat, Quick Launcher and Discord (text and live voice). **Never Harness.**
-- **Memory (M2, planned):** a local structured memory store, automatic zero-token extraction from conversations, contradiction invalidation, natural decay, per-turn recall injection, and a review UI in Settings.
+- **Memory (M2, done):** a local structured memory store, automatic heuristic extraction, periodic AI curation, contradiction invalidation, natural decay, per-turn recall injection, and a review UI in Settings.
 
 ---
 
@@ -69,7 +71,7 @@ Dimension values at their defaults are omitted (lean output). Empty string when 
 
 ---
 
-## 3. M2 — Memory (planned)
+## 3. M2 — Memory (implemented)
 
 ### 3.1 Files
 
@@ -92,6 +94,7 @@ type MemoryKind = 'about_user' | 'preference' | 'fact' | 'event' | 'project' | '
 
 interface MemoryEntry {
   id: string
+  store: 'user' | 'memory'     // explicit destination; migrated from kind for legacy entries
   kind: MemoryKind
   content: string              // canonical sentence in the user's language
   factKey?: string             // normalized identity: "user.name=ana", "pref.coffee=negative"
@@ -116,6 +119,9 @@ interface MemoryEntry {
 
 interface MemoryConfig {
   autoExtract: boolean          // default true
+  reviewEnabled: boolean        // default true
+  reviewIntervalMinutes: 5 | 15 | 30 | 60 // default 15
+  reviewModel?: string          // provider:model key; empty uses routing fallback
   commitThreshold: number       // default 0.80
   suggestThreshold: number      // default 0.55
   halfLifeDays: number          // default 120
@@ -125,7 +131,9 @@ interface MemoryConfig {
 ```
 
 Store location: `%LOCALAPPDATA%\PrismDesktop\memory\memories.json` (same root as chats).
-Watermarks (per chat, last processed message index) live in `memory/meta.json`.
+The heuristic and periodic-review watermarks are independent, per chat, and live in
+`memory/meta.json`. Legacy entries without `store` migrate deterministically:
+`about_user`/`preference` to `user`; all other kinds to `memory`.
 
 ### 3.3 Extraction pipeline (pure function)
 
@@ -204,12 +212,39 @@ for the turn instead of being injected.
 Debounce 3–5 s in main; catch-up scan on startup honors the per-chat watermark so only new
 messages are processed. Extraction never runs per streaming chunk.
 
-### 3.8 Guardrails
+### 3.8 Periodic AI curator
+
+The global scheduler wakes every 5, 15, 30 or 60 minutes (15 by default) and reads at most one
+bounded, unreviewed delta from every eligible chat. It includes user and assistant text plus compact
+tool request/result representations. Before model routing, credentials, tokens, private keys, large
+base64 payloads, raw attachments and control characters are redacted or omitted. Harness chats,
+hidden messages and system messages are excluded.
+
+The curator returns a validated JSON `decisions` array. Every item independently chooses `add`,
+`replace` or `remove`, a `user` or `memory` target, and a compatible memory kind. It is deliberately
+more proactive about durable tastes, habits, corrections, communication patterns, project lessons
+and reusable solutions, while retaining the existing secret, size, capacity, deduplication,
+contradiction and archival gates. A malformed response or provider failure does not advance that
+chat's review watermark, so the same delta is retried on a later cycle. Concurrent cycles are
+coalesced, and review never enters or cancels a chat's `activeRuns`.
+
+Routing priority is: an explicitly selected review model; authenticated Prism account default
+`Arcadia-1.0 Mini`; then the main chat model. Stale or unusable dedicated routes fall back to the
+main model and expose that state in Settings diagnostics. When no route is available, the delta is
+left untouched for retry. Calls use normal quota accounting.
+
+The renderer receives dedicated `started`, `progress`, `completed` and `failed` events. A global,
+theme-token status surface shows `Updating memory…`, chat progress and `Memory updated`; its custom
+shimmer becomes static under reduced-motion preferences. Settings exposes enablement, interval,
+dedicated model, route state, last completion time, saved count and a manual **Review now** action.
+
+### 3.9 Guardrails
 
 - Blocklist credentials/secrets; whitelist-only sensitive slots; `excludeChatIds`; master toggle.
 - Per-entry provenance (chat + timestamp) and full lineage; every auto-write shows a clickable toast that opens the entry in Settings > Memory.
 - `possible` entries are never injected into any prompt until confirmed or promoted by repetition.
-- Everything stays local (same folder as chats); no telemetry.
+- Structured memory and checkpoints stay local (same folder as chats); only the sanitized periodic
+  review prompt is sent to the resolved model provider.
 
 ---
 
@@ -224,10 +259,9 @@ messages are processed. Extraction never runs per streaming chunk.
 | 5 ✅ | Recall injection — chat (chatHandler fullPrompt), Discord text (~L1772) + live voice system instructions (~L1121/L1242, voice budget 450 chars, session/reconnect granularity), pinned core (systemTools) — with post-turn triggers on all three | manual prompt inspection on a dev run |
 | 6 ✅ | Settings > Memory UI (list, queue, pin/edit/archive, toggles) | dev boot + manual click-through |
 | 7 ✅ | Docs sync + README feature bullet | — |
+| 8 ✅ | Periodic curator, explicit stores, model routing, IPC/status UI, sanitization and retry-safe checkpoints | `test:memory`, typecheck, `git diff --check` |
 
-Out of scope for M2 v1: cross-device sync, embedding search, optional idle-time consolidation
-with a cheap model (that one would cost tokens — only if the user explicitly opts in later),
-behavioral style-statistics suggestions (can feed M1 later).
+Out of scope for M2: cross-device sync and embedding search.
 
 ---
 

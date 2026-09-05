@@ -198,12 +198,13 @@ Prism features an extensible internal skills library (`resources/docs/skills/`).
 
 ### 9. Memory & Personality Center
 
-Prism keeps a consistent voice and remembers you across conversations — fully on-device, with **zero AI calls** (`src/shared/memoryCore.ts`, `src/main/memoryStore.ts`).
+Prism keeps a consistent voice and remembers you across conversations through local structured memory, immediate heuristic capture and an asynchronous periodic AI curator (`src/shared/memoryCore.ts`, `src/main/memoryStore.ts`, `src/main/memoryReviewer.ts`).
 
 - **Personality & Tone panel:** A predefined arsenal of tone presets (friendly, cynical, philosophical, warm, quirky, and more) built from style tokens — not free-form instructions — plus tuning dials for closeness, formality, humor, verbosity, emojis and slang, with an instant local preview. The compiled Communication Style block rides Chat, the Quick Launcher and Discord (text and live voice) — never Harness sessions.
 - **Zero-token memory engine:** After each completed Chat, Discord text and voice turn, Prism scans for stable facts and preferences (explicit triggers, structured slots, repetition, contradiction invalidation, natural decay) and commits only high-confidence captures to a local `memories.json`; anything uncertain lands in a review queue that never reaches a prompt until you accept it.
 - **Per-turn recall + pinned core:** Each turn injects a compact Long-term Memory block (top matches, budgeted), while pinned facts ride an always-on Core Profile block — so Prism remembers you across chats without re-reading history.
 - **AI-managed memory (the `memory` tool):** The model can add, replace or remove committed memories itself (targeting the pinned Core Profile or general long-term memory), with budgets, duplicate rejection and a credential gate — and is prompted to save proactively, correct stale facts and update instead of duplicating.
+- **Periodic memory review:** By default, every 15 minutes Prism reviews only unprocessed, sanitized deltas from eligible chats, can save multiple profile or general memories, and retries without losing a delta when routing or validation fails. The interval, dedicated model and review status are available in Settings → Memory; model calls count toward normal quota.
 - **Memory center in Settings:** Review and curate everything Prism remembers — search committed facts, pin core-profile entries, edit, archive or delete, and accept or reject suggestions, all updating live from the engine.
 
 ---

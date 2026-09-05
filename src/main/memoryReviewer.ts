@@ -7,7 +7,11 @@ import {
   resolveProviderAndModel
 } from './ai/providerManager'
 import { streamOpenAiCompletion } from './ai/openaiClient'
-import { buildMemoryReviewPrompt, parseMemoryReviewDecisions } from '../shared/memoryReview'
+import {
+  buildMemoryReviewPrompt,
+  parseMemoryReviewDecisions,
+  selectMemoryReviewRoute
+} from '../shared/memoryReview'
 import type { MemoryReviewInfo, MemoryReviewStatus } from '../shared/memoryCore'
 import type { ProviderConfig, ProviderModel } from '../shared/types'
 
@@ -52,42 +56,43 @@ export function resolveMemoryReviewRoute(config: AppConfig): ResolvedMemoryRevie
   const accountDefault = activeModelByKey(ACCOUNT_MEMORY_MODEL_KEY)
   const main = activeModelByKey(config.lastSelectedChatModel)
 
-  const candidates = requested
-    ? [configured, main]
-    : [accountDefault, main]
-  const selected = candidates.find((candidate) => {
-    if (!candidate) return false
+  const candidates = [configured, accountDefault, main].filter(
+    (candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate)
+  )
+  const usableKeys = candidates.filter((candidate) => {
     const resolved = resolveProviderAndModel(candidate.fullKey)
     return Boolean(
       resolved.provider &&
       resolved.model &&
       providerHasCompletionCredential(resolved.provider)
     )
+  }).map((candidate) => candidate.fullKey)
+  const selection = selectMemoryReviewRoute({
+    requested: Boolean(requested),
+    configuredKey: configured?.fullKey,
+    accountDefaultKey: accountDefault?.fullKey,
+    mainKey: main?.fullKey,
+    usableKeys
   })
+  const selected = activeModelByKey(selection.key)
   if (!selected) {
     return {
       provider: null,
       model: null,
-      usingFallback: Boolean(requested || accountDefault),
+      usingFallback: selection.usingFallback,
       status: 'unavailable'
     }
   }
 
   const resolved = resolveProviderAndModel(selected.fullKey)
-  const usedConfigured = Boolean(requested && configured?.fullKey === selected.fullKey)
-  const usedAccountDefault = Boolean(!requested && accountDefault?.fullKey === selected.fullKey)
 
   return {
     provider: resolved.provider!,
     model: resolved.model!,
     key: selected.fullKey,
     name: resolved.model!.name || resolved.model!.id,
-    usingFallback: !usedConfigured && !usedAccountDefault,
-    status: usedConfigured
-      ? 'configured'
-      : usedAccountDefault
-        ? 'account-default'
-        : 'main-fallback'
+    usingFallback: selection.usingFallback,
+    status: selection.status
   }
 }
 
@@ -182,6 +187,9 @@ export function createMemoryReviewScheduler(
           memoriesSaved += applied.saved
           userMemories += applied.user
           generalMemories += applied.memory
+          if (applied.rejected > 0) {
+            throw new Error(`${applied.rejected} memory review decision(s) could not be persisted.`)
+          }
           chatsProcessed += 1
           emit({
             state: 'progress',

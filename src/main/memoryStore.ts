@@ -255,12 +255,14 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
     }
   }
 
-  const writeMeta = (meta: MemoryMetaData): void => {
+  const writeMeta = (meta: MemoryMetaData): boolean => {
     ensureDirs()
     try {
       fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2))
+      return true
     } catch (error) {
       console.error('[Memory] Failed to persist meta.json:', error)
+      return false
     }
   }
 
@@ -726,20 +728,6 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
     initializeReviewCheckpoints(): void {
       const meta = readMeta()
       if (meta.reviewInitializedAt) return
-      for (const filePath of listChatFiles()) {
-        try {
-          const data = safeJsonParse<{ id?: string; messages?: unknown[] }>(
-            fs.readFileSync(filePath, 'utf-8'),
-            {}
-          )
-          const chatId = typeof data.id === 'string' && data.id.trim()
-            ? data.id
-            : path.basename(filePath, '.json').replace(/^chat_/, '')
-          meta.reviewWatermarks[chatId] = Array.isArray(data.messages) ? data.messages.length : 0
-        } catch {
-          /* Leave unreadable chats for a later cycle. */
-        }
-      }
       meta.reviewInitializedAt = now()
       writeMeta(meta)
     },
@@ -855,7 +843,7 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
           keywords: keywordize(content)
         }
         store.memories.push(entry)
-        writeStore(store)
+        if (!writeStore(store)) return refuse('Error: failed to persist the memory entry.')
         emit('write', [entry], chatId)
         return { ok: true, message: 'Added to long-term memory.', usage: usageText(), entry }
       }
@@ -906,14 +894,14 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
         entry.confidence = 0.95
         entry.confirmedAt = now()
         entry.lastSeenAt = now()
-        writeStore(store)
+        if (!writeStore(store)) return refuse('Error: failed to persist the memory update.')
         emit('write', [entry], chatId)
         return { ok: true, message: 'Memory updated.', usage: usageText(), entry }
       }
 
       // remove: soft archive (restorable), never a destructive delete.
       entry.archived = true
-      writeStore(store)
+      if (!writeStore(store)) return refuse('Error: failed to persist the memory removal.')
       emit('archived', [entry], chatId)
       return { ok: true, message: 'Memory removed (archived; restorable).', usage: usageText(), entry }
     },
@@ -933,12 +921,13 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
         result.saved += 1
         result[decision.target] += 1
       }
+      if (result.rejected > 0) return result
       const meta = readMeta()
       meta.reviewWatermarks[batch.chatId] = Math.max(
         meta.reviewWatermarks[batch.chatId] ?? 0,
         batch.toMessageIndex
       )
-      writeMeta(meta)
+      if (!writeMeta(meta)) throw new Error('Failed to persist the memory review checkpoint.')
       return result
     },
 

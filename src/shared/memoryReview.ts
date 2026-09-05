@@ -6,7 +6,7 @@ import {
   type MemoryReviewDecision,
   type MemoryToolAction,
   type MemoryToolTarget
-} from './memoryCore'
+} from './memoryCore.ts'
 
 export interface MemoryReviewBatch {
   chatId: string
@@ -23,6 +23,35 @@ export interface MemoryReviewApplyResult {
   rejected: number
 }
 
+export interface MemoryReviewRouteSelection {
+  key?: string
+  status: 'configured' | 'account-default' | 'main-fallback' | 'unavailable'
+  usingFallback: boolean
+}
+
+/** Pure routing policy shared by runtime code and the headless acceptance suite. */
+export function selectMemoryReviewRoute(input: {
+  requested: boolean
+  configuredKey?: string
+  accountDefaultKey?: string
+  mainKey?: string
+  usableKeys: readonly string[]
+}): MemoryReviewRouteSelection {
+  const usable = new Set(input.usableKeys)
+  const preferred = input.requested ? input.configuredKey : input.accountDefaultKey
+  if (preferred && usable.has(preferred)) {
+    return {
+      key: preferred,
+      status: input.requested ? 'configured' : 'account-default',
+      usingFallback: false
+    }
+  }
+  if (input.mainKey && usable.has(input.mainKey)) {
+    return { key: input.mainKey, status: 'main-fallback', usingFallback: true }
+  }
+  return { status: 'unavailable', usingFallback: Boolean(preferred || input.requested) }
+}
+
 const REVIEW_ACTIONS = new Set<MemoryToolAction>(['add', 'replace', 'remove'])
 const REVIEW_TARGETS = new Set<MemoryToolTarget>(['user', 'memory'])
 const REVIEW_KINDS = new Set<MemoryKind>([
@@ -37,9 +66,12 @@ const REVIEW_KINDS = new Set<MemoryKind>([
 const SENSITIVE_PATTERNS: RegExp[] = [
   /\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|passwd|secret|client[_-]?secret)\s*[:=]\s*[^\s,;]+/gi,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi,
+  /\b(?:password|passwd|secret|token|api[_-]?key)\s+(?:is|was)\s+[^\s,;]+/gi,
   /\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{8,}\b/g,
   /-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+PRIVATE KEY-----/g,
   /\b(?:sk|pk|rk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{12,}\b/gi,
+  /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g,
+  /\bAIza[A-Za-z0-9_-]{30,}\b/g,
   /\b[a-f0-9]{48,}\b/gi
 ]
 
@@ -82,7 +114,11 @@ function extractJsonPayload(raw: string): unknown {
 /** Parses and validates the reviewer's bounded JSON response. */
 export function parseMemoryReviewDecisions(raw: string): MemoryReviewDecision[] {
   const parsed = extractJsonPayload(raw)
+  if (parsed === null) throw new Error('Memory reviewer returned invalid JSON.')
   const record = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+  if (!Array.isArray(parsed) && !Array.isArray(record?.decisions) && !Array.isArray(record?.memories)) {
+    throw new Error('Memory reviewer response is missing a decisions array.')
+  }
   const source = Array.isArray(parsed)
     ? parsed
     : Array.isArray(record?.decisions)

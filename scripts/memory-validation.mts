@@ -18,7 +18,8 @@ import {
 import type { ExtractionResult, MemoryEntry, MemoryConfig } from '../src/shared/memoryCore.ts'
 import {
   parseMemoryReviewDecisions,
-  sanitizeMemoryReviewText
+  sanitizeMemoryReviewText,
+  selectMemoryReviewRoute
 } from '../src/shared/memoryReview.ts'
 import { createMemoryService, executeMemoryTool } from '../src/main/memoryStore.ts'
 
@@ -88,6 +89,34 @@ test('periodic review sanitizer redacts secrets, encoded payloads and attachment
   assert.ok(sanitized.includes('[binary attachment omitted]'))
   assert.ok(!sanitized.includes('super-secret-value'))
   assert.ok(!sanitized.includes('A'.repeat(100)))
+})
+
+test('periodic review routing prefers configured and account models, then falls back to main', () => {
+  assert.deepEqual(selectMemoryReviewRoute({
+    requested: true,
+    configuredKey: 'dedicated',
+    accountDefaultKey: 'arcadia',
+    mainKey: 'main',
+    usableKeys: ['dedicated', 'arcadia', 'main']
+  }), { key: 'dedicated', status: 'configured', usingFallback: false })
+  assert.deepEqual(selectMemoryReviewRoute({
+    requested: false,
+    accountDefaultKey: 'arcadia',
+    mainKey: 'main',
+    usableKeys: ['arcadia', 'main']
+  }), { key: 'arcadia', status: 'account-default', usingFallback: false })
+  assert.deepEqual(selectMemoryReviewRoute({
+    requested: true,
+    configuredKey: 'stale',
+    accountDefaultKey: 'arcadia',
+    mainKey: 'main',
+    usableKeys: ['arcadia', 'main']
+  }), { key: 'main', status: 'main-fallback', usingFallback: true })
+  assert.deepEqual(selectMemoryReviewRoute({
+    requested: false,
+    mainKey: 'main',
+    usableKeys: []
+  }), { status: 'unavailable', usingFallback: false })
 })
 
 // ---------------------------------------------------------------------------
@@ -506,6 +535,120 @@ const writeChatFile = (root: string, id: string, userMessages: string[]): string
 }
 
 const tempRoot = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'prism-memory-test-'))
+
+test('legacy entries migrate deterministically to explicit user and memory stores', () => {
+  const root = tempRoot()
+  try {
+    const memoryDir = path.join(root, 'memory')
+    fs.mkdirSync(memoryDir, { recursive: true })
+    const legacyBase = {
+      factKey: 'legacy',
+      polarity: 'neutral',
+      confidence: 0.9,
+      tier: 'committed',
+      sourceChatId: 'legacy',
+      createdAt: NOW,
+      confirmedAt: NOW,
+      lastSeenAt: NOW,
+      lastAccessedAt: NOW,
+      accessCount: 0,
+      pinned: false,
+      archived: false,
+      keywords: []
+    }
+    fs.writeFileSync(path.join(memoryDir, 'memories.json'), JSON.stringify({
+      memories: [
+        { ...legacyBase, id: 'u', kind: 'preference', content: 'Prefere concisão.' },
+        { ...legacyBase, id: 'm', kind: 'project', content: 'O projeto usa TypeScript.' }
+      ]
+    }))
+    const service = createMemoryService({
+      chatsDir: path.join(root, 'chats'),
+      memoryDir
+    })
+    const migrated = service.list({ includeArchived: true })
+    assert.equal(migrated.find((entry) => entry.id === 'u')?.store, 'user')
+    assert.equal(migrated.find((entry) => entry.id === 'm')?.store, 'memory')
+    const persisted = JSON.parse(fs.readFileSync(path.join(memoryDir, 'memories.json'), 'utf8'))
+    assert.deepEqual(persisted.memories.map((entry: MemoryEntry) => entry.store), ['user', 'memory'])
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('periodic review checkpoints are independent, retry-safe and apply multiple decisions', () => {
+  const root = tempRoot()
+  try {
+    const filePath = writeChatFile(root, 'review-chat', ['Contexto antigo.'])
+    const service = createMemoryService({
+      chatsDir: path.join(root, 'chats'),
+      memoryDir: path.join(root, 'memory')
+    })
+    service.initializeReviewCheckpoints()
+    const initial = service.getReviewBatches()
+    assert.equal(initial.length, 1)
+    service.applyReviewDecisions(initial[0], [])
+    assert.equal(service.getReviewBatches().length, 0)
+
+    const chat = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+    chat.messages.push(
+      { role: 'user', content: 'Prefiro respostas curtas. api_key=secret-value-123456789' },
+      { role: 'assistant', content: 'Vou manter respostas concisas.' },
+      { role: 'tool', name: 'read_file', content: `data:text/plain;base64,${'Q'.repeat(900)}` }
+    )
+    fs.writeFileSync(filePath, JSON.stringify(chat, null, 2))
+
+    const first = service.getReviewBatches()
+    assert.equal(first.length, 1)
+    assert.ok(first[0].transcript.includes('User:'))
+    assert.ok(first[0].transcript.includes('Assistant:'))
+    assert.ok(first[0].transcript.includes('Tool (read_file):'))
+    assert.ok(!first[0].transcript.includes('secret-value'))
+    assert.ok(!first[0].transcript.includes('Q'.repeat(100)))
+
+    // A failed model call does not invoke applyReviewDecisions, so the same delta remains pending.
+    const retry = service.getReviewBatches()
+    assert.equal(retry[0].fromMessageIndex, first[0].fromMessageIndex)
+
+    const applied = service.applyReviewDecisions(first[0], [
+      { action: 'add', target: 'user', kind: 'preference', content: 'Prefere respostas curtas.' },
+      { action: 'add', target: 'memory', kind: 'behavioral', content: 'Concisão melhora esta colaboração.' }
+    ])
+    assert.deepEqual(applied, { saved: 2, user: 1, memory: 1, rejected: 0 })
+    assert.equal(service.list().filter((entry) => entry.store === 'user').length, 1)
+    assert.equal(service.list().filter((entry) => entry.store === 'memory').length, 1)
+    assert.equal(service.getReviewBatches().length, 0)
+
+    const afterSuccess = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+    afterSuccess.messages.push({ role: 'user', content: 'Outro delta.' })
+    fs.writeFileSync(filePath, JSON.stringify(afterSuccess, null, 2))
+    const rejectedBatch = service.getReviewBatches()[0]
+    const rejected = service.applyReviewDecisions(rejectedBatch, [
+      { action: 'add', target: 'memory', content: 'api_key=secret-value-123456789' }
+    ])
+    assert.equal(rejected.rejected, 1)
+    assert.equal(service.getReviewBatches()[0].fromMessageIndex, rejectedBatch.fromMessageIndex)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('periodic review excludes Harness chats', () => {
+  const root = tempRoot()
+  try {
+    const filePath = writeChatFile(root, 'harness-review', ['Novo contexto.'])
+    const chat = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+    chat.workspace = 'harness'
+    fs.writeFileSync(filePath, JSON.stringify(chat, null, 2))
+    const service = createMemoryService({
+      chatsDir: path.join(root, 'chats'),
+      memoryDir: path.join(root, 'memory')
+    })
+    assert.equal(service.getReviewBatches().length, 0)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
 
 test('store catch-up extracts real chat files, persists, and is idempotent', () => {
   const root = tempRoot()

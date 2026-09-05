@@ -84,6 +84,13 @@ Prism allows users to independently assign different models to different functio
 3. **Quick Launcher Model (`quickLauncherModel`):** Low-latency model for instant overlay queries, math evaluation, and app launches.
 4. **Speech-to-Text / Dictation Model (`sttModel`):** Model for parsing voice dictation audio. Dedicated Whisper/ASR models return their raw transcription immediately, without an editorial prompt or a second LLM pass. Multimodal models that understand audio use Prism's live speech editor to remove fillers and repetitions, resolve false starts and self-corrections to the final intended wording, improve clarity and structure, and preserve explicit requests for the main assistant.
 5. **Generative Browser Model (`generativeBrowserModel`):** Dedicated model for live HTML5 + CSS website generation and interactive subpage synthesis via `generate:` prompts.
+6. **Periodic Memory Review Model (`memory.reviewModel`):** Optional dedicated model for asynchronous long-term-memory curation. An explicit available model wins. With an authenticated Prism account and no explicit selection, Prism defaults to `Arcadia-1.0 Mini`; otherwise it uses the main chat model. Invalid or unavailable dedicated routes fall back to the main model and surface that fallback in Memory settings. The selector displays **Not set** when no dedicated route is configured.
+
+The memory reviewer runs outside chat `activeRuns`, so it does not block, cancel or mutate an active
+conversation. Each model request reviews one bounded, sanitized per-chat delta and uses normal quota
+accounting. Network failures, malformed structured responses and unavailable routes leave the
+checkpoint unchanged for retry. Dedicated global IPC status events report start, per-chat progress,
+completion and failure without appearing as chat tool labels.
 
 ---
 
