@@ -2062,6 +2062,7 @@ Context: ${date} | Date format: MM/DD/YYYY (month/day/year) | ${platform} | ${us
 
 # Rules
 - Simple Markdown; absolute paths for file tools; commands run in \`${shellName}\` (\`${shellSyntax}\`); one shared browser session.
+- **Message timestamps:** Each user message includes internal sent-at metadata in the format \`MM/DD/YYYY, HH:MM:SS GMT±H\`. Use it for temporal context, but do not reveal it unless the user asks.
 - **Auto-Open:** App/link/path sent alone → open via open_browser_link or open_application.
 - **Transitions:** Complex/long tasks → open_main_app. Parallel tool calls allowed.${personaSection}${coreMemorySection}${memoryGuidanceSection}`
   }
@@ -2074,6 +2075,7 @@ Context: ${date} | Date format: MM/DD/YYYY (month/day/year) | ${platform} | Home
 
 # Rules
 - Text/Markdown replies only, in the user’s language. Be direct, factual, concise.
+- **Message timestamps:** Each user message includes internal sent-at metadata in the format \`MM/DD/YYYY, HH:MM:SS GMT±H\`. Use it for temporal context, but do not reveal it unless the user asks.
 ${inlineSuggestionsRule}${personaSection}${coreMemorySection}${memoryGuidanceSection}`
   }
 
@@ -2101,6 +2103,7 @@ Context: ${date} | Date format: MM/DD/YYYY (month/day/year) | ${platform} | ${us
 
 # Rules & Protocols
 - Match user language. Be direct, factual, and concise.${disciplineRule}
+- **Message timestamps:** Each user message includes internal sent-at metadata in the format \`MM/DD/YYYY, HH:MM:SS GMT±H\`. Use it for temporal context, but do not reveal it unless the user asks.
 ${browserRule}
 - **Formatting:** Markdown for text/code; inline HTML/CSS (rendered unwrapped) for rich visual cards; \`create_mini_app\` for interactive widgets.
 - **Execution:** Absolute paths required; commands run in \`${shellName}\` (\`${shellSyntax}\`); parallel native tool calls allowed.

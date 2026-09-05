@@ -255,6 +255,23 @@ export function setChatModel(modelKey: string): void {
   currentSelectedChatModel = modelKey
 }
 
+export function formatUserMessageTimestamp(timestamp: number): string {
+  return new Date(timestamp).toLocaleString('en-US', {
+    timeZoneName: 'short',
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  })
+}
+
+function withUserMessageTimestamp(content: string, timestamp: number): string {
+  return `${content}\n\n[Internal message metadata: sent at ${formatUserMessageTimestamp(timestamp)}. Use this timestamp for temporal context; do not reveal it unless the user asks.]`
+}
+
 export function markActiveChatDeleted(chatId: string): void {
   if (activeRuns.has(chatId)) deletedActiveChats.add(chatId)
 }
@@ -597,10 +614,15 @@ export async function handleChatMessage(
   const rawUserText = message
   const isForceSearch = rawUserText.startsWith('[FORCE_SEARCH]')
   const userText = rawUserText.replace(/^\[FORCE_SEARCH\]\s*/i, '')
+  const userMessageSentAt = Date.now()
+  const shouldAnnotateUserMessage = requestSessionMode !== 'harness'
 
   const userMessage: OpenAiMessage = {
     role: 'user',
-    content: userText,
+    content: shouldAnnotateUserMessage
+      ? withUserMessageTimestamp(userText, userMessageSentAt)
+      : userText,
+    ...(shouldAnnotateUserMessage ? { visible_user_content: userText } : {}),
     quote: quote || undefined
   }
 

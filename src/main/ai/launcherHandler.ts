@@ -2,7 +2,7 @@ import { BrowserWindow } from 'electron'
 import { loadConfig } from '../config'
 import { resolveProviderAndModel, PRISM_PROVIDER_ID } from './providerManager'
 import { OpenAiMessage } from './types'
-import { getNativeToolsForOpenAi } from './chatHandler'
+import { formatUserMessageTimestamp, getNativeToolsForOpenAi } from './chatHandler'
 import { getSystemToolsPrompt, YOUTUBE_SEARCH_PROTOCOL } from '../systemTools'
 import { safeSend } from '../safeSend'
 import { runToolOrchestration } from './toolOrchestrator'
@@ -47,7 +47,10 @@ export async function handleLauncherChatMessage(
 
   markConnectionActive()
 
-  launcherHistory.push({ role: 'user', content: message })
+  launcherHistory.push({
+    role: 'user',
+    content: `${message}\n\n[Internal message metadata: sent at ${formatUserMessageTimestamp(turnStartTime)}. Use this timestamp for temporal context; do not reveal it unless the user asks.]`
+  })
   safeSend(window, 'launcher-reply-start')
 
   try {
