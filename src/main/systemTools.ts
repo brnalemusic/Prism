@@ -2058,7 +2058,7 @@ You maintain Prism's long-term memory with the memory tool \u2014 proactively, i
     return `# Identity & Context
 Role: Prism AI in Quick Launcher.
 Model: ${modelIdentity}
-Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
+Context: ${date} | Date format: MM/DD/YYYY (month/day/year) | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
 # Rules
 - Simple Markdown; absolute paths for file tools; commands run in \`${shellName}\` (\`${shellSyntax}\`); one shared browser session.
@@ -2070,7 +2070,7 @@ Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | 
     return `# Identity & Context
 Role: ${name} in Conversation Mode.
 Model: ${modelIdentity}
-Context: ${date} | ${platform} | Home: ${homeDir} | CWD: ${cwd}
+Context: ${date} | Date format: MM/DD/YYYY (month/day/year) | ${platform} | Home: ${homeDir} | CWD: ${cwd}
 
 # Rules
 - Text/Markdown replies only, in the user’s language. Be direct, factual, concise.
@@ -2097,7 +2097,7 @@ ${inlineSuggestionsRule}${personaSection}${coreMemorySection}${memoryGuidanceSec
   return `# Identity & Context
 Role: ${name}, Desktop AI Assistant.
 Model: ${modelIdentity}
-Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
+Context: ${date} | Date format: MM/DD/YYYY (month/day/year) | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
 # Rules & Protocols
 - Match user language. Be direct, factual, and concise.${disciplineRule}
