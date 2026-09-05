@@ -26,7 +26,11 @@ import {
   loadChatSession,
   updateChatSessionTitle
 } from '../history'
-import { resolveProviderAndModel, PRISM_PROVIDER_ID } from './providerManager'
+import {
+  providerHasCompletionCredential,
+  resolveProviderAndModel,
+  PRISM_PROVIDER_ID
+} from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
 import { ActiveRun, OpenAiMessage, OpenAiToolDefinition } from './types'
 import { appendTurnRecallBlock, getActiveMemoryService } from '../memoryStore'
@@ -375,7 +379,7 @@ export async function prepareHarnessPlanHandoff(data: {
     throw new Error('The selected implementation plan is not part of the source session.')
   }
   const { provider, model } = resolveProviderAndModel(data.modelKey || session.model)
-  if (!provider || !model || !provider.apiKey) {
+  if (!provider || !model || !providerHasCompletionCredential(provider)) {
     throw new Error('The source Harness model is unavailable.')
   }
 
@@ -482,7 +486,7 @@ export async function handleChatMessage(
 
   const { provider, model } = resolveProviderAndModel(requestModelKey)
 
-  if (!requestModelKey || !provider || !provider.apiKey || !model) {
+  if (!requestModelKey || !provider || !providerHasCompletionCredential(provider) || !model) {
     safeSend(event.sender, 'chat-reply-error', {
       error: 'API_KEY_ERROR:401:API Key or Active Model Missing',
       chatId,
@@ -1220,7 +1224,7 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
     currentSelectedChatModel
   )
   const { provider, model } = resolveProviderAndModel(selectedModel)
-  if (!selectedModel || !provider || !provider.apiKey || !model) {
+  if (!selectedModel || !provider || !providerHasCompletionCredential(provider) || !model) {
     broadcastIpc('chat-reply-error', {
       error: 'API_KEY_ERROR:401:API Key or Active Model Missing',
       chatId,

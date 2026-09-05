@@ -24,6 +24,14 @@ export interface FetchModelsResult {
   error?: string
 }
 
+export function providerHasCompletionCredential(
+  provider: Pick<ProviderConfig, 'completionType' | 'apiKey' | 'puterAuthToken'>
+): boolean {
+  return provider.completionType === 'puter_native'
+    ? Boolean(provider.puterAuthToken?.trim())
+    : Boolean(provider.apiKey?.trim())
+}
+
 function getModelId(value: unknown): string | undefined {
   if (typeof value === 'string') return value
   if (!value || typeof value !== 'object') return undefined

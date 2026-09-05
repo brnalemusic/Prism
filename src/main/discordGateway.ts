@@ -28,7 +28,11 @@ import {
   updateChatSessionTitle,
   listChatSessions
 } from './history'
-import { resolveProviderAndModel, PRISM_PROVIDER_ID } from './ai/providerManager'
+import {
+  providerHasCompletionCredential,
+  resolveProviderAndModel,
+  PRISM_PROVIDER_ID
+} from './ai/providerManager'
 import { getChatModel, activeRuns } from './ai/chatHandler'
 import { runToolOrchestration } from './ai/toolOrchestrator'
 import { OpenAiMessage } from './ai/types'
@@ -1752,7 +1756,7 @@ async function processAiMessage(channel: any, _author: any, userText: string, ch
 
   const { provider, model } = resolveProviderAndModel(modelKey)
 
-  if (!provider || !provider.apiKey || !model) {
+  if (!provider || !providerHasCompletionCredential(provider) || !model) {
     await channel.send('Gateway Error: No AI provider or API key configured in Prism Settings.')
     return
   }

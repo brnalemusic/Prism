@@ -628,7 +628,10 @@ export async function streamPuterCompletion(
   callbacks: StreamCallbacks,
   reasoningLevel?: string
 ): Promise<StreamResult> {
-  const authToken = provider.puterAuthToken?.trim() || provider.apiKey?.trim() || ''
+  const authToken = provider.puterAuthToken?.trim() || ''
+  if (!authToken) {
+    throw new Error('Puter account session is missing. Please reconnect your Puter account.')
+  }
   const endpoint = 'https://api.puter.com/drivers/call'
 
   const formattedMessages = sanitizePuterMessages(messages)

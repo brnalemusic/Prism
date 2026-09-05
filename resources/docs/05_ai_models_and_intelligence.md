@@ -70,6 +70,7 @@ For Puter.js, Prism provides a native integration powered by `@heyputer/puter.js
 - **Default Browser Authentication:** Users can connect their existing Puter account directly via their default OS browser (`shell.openExternal`) rather than manually copying API keys. Prism listens on an ephemeral local HTTP server (`127.0.0.1:<port>`), captures the OAuth callback token, serves a Prism confirmation page, and initializes the native Puter session.
 - **Native Model Discovery:** Discovers the 800+ models available on Puter directly via `puter.ai.listModels()` on the official SDK.
 - **Native Driver & Tool Calling (`streamPuterCompletion`):** Supports live NDJSON streaming completions and native tool calling (function calling) directly via `https://api.puter.com/drivers/call` (`puter-chat-completion`), handling tool chunk extraction and multi-turn tool loops with sanitization.
+- **User-Pays Credential Isolation:** The `puter_native` route requires the connected `puterAuthToken`; it never falls back to `apiKey`. Manual API keys remain a separate `chat_completions` mode.
 - **Hybrid Support:** Users retain the ability to either connect an account or input a manual API token in the provider wizard.
 
 ---
