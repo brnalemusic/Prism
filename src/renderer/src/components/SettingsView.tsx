@@ -4144,7 +4144,7 @@ export function SettingsView({
                 <div className="mt-1 text-[11px] text-text-muted">New deltas wait for the next global review cycle.</div>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {([5, 15, 30, 60] as const).map((minutes) => (
+                {([1, 5, 15, 30, 60] as const).map((minutes) => (
                   <button
                     key={minutes}
                     type="button"
@@ -4156,7 +4156,17 @@ export function SettingsView({
                         : 'border-[var(--border-default)] bg-[var(--surface-lowest)] text-text-muted hover:text-text-primary'
                     )}
                   >
-                    {minutes === 60 ? '1 hour' : `${minutes} min`}
+                    {minutes === 60 ? (
+                      '1 hour'
+                    ) : minutes === 1 ? (
+                      <span title="Not recommended for normal use.">
+                        <span>1 min</span>
+                        {' '}
+                        <span className="text-[9px] uppercase tracking-wide text-status-warning">(beta)</span>
+                      </span>
+                    ) : (
+                      `${minutes} min`
+                    )}
                   </button>
                 ))}
               </div>

@@ -16,7 +16,7 @@ export type MemoryTier = 'committed' | 'possible'
 
 export type MemoryStoreTarget = 'user' | 'memory'
 
-export type MemoryReviewIntervalMinutes = 5 | 15 | 30 | 60
+export type MemoryReviewIntervalMinutes = 1 | 5 | 15 | 30 | 60
 
 export interface MemoryEntry {
   id: string
@@ -239,7 +239,7 @@ export function normalizeMemoryConfig(value: unknown): MemoryConfig {
     raw.reviewIntervalMinutes,
     DEFAULT_MEMORY_CONFIG.reviewIntervalMinutes
   )
-  const reviewIntervalMinutes = ([5, 15, 30, 60] as const).includes(
+  const reviewIntervalMinutes = ([1, 5, 15, 30, 60] as const).includes(
     reviewInterval as MemoryReviewIntervalMinutes
   )
     ? (reviewInterval as MemoryReviewIntervalMinutes)

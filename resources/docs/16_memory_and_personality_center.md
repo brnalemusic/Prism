@@ -6,7 +6,7 @@ engine (`memoryCore.ts`), store + recall/trigger wiring (`memoryStore.ts`, `chat
 (SettingsView). Recall blocks ride every Chat/Discord text turn and voice session (re)connect
 with budgeted top-K; pinned facts ride the always-on `# Core Profile`; `observeCompletedTurn`
 fires after each completed turn (never Harness, never error paths). Verification: `npm run
-test:memory` (37/37) + `test:persona` (9/9), typecheck node+web clean, real-data catch-up over
+test:memory` (38/38) + `test:persona` (9/9), typecheck node+web clean, real-data catch-up over
 18 chats (0 errors), headless E2E chain (extraction → store → recall + pinned core blocks),
 dev boot without renderer errors. Shipped after that: the AI `memory` tool
 (add/replace/remove over the USER.md/MEMORY.md analogs via the store service, credential gate,
@@ -120,7 +120,7 @@ interface MemoryEntry {
 interface MemoryConfig {
   autoExtract: boolean          // default true
   reviewEnabled: boolean        // default true
-  reviewIntervalMinutes: 5 | 15 | 30 | 60 // default 15
+  reviewIntervalMinutes: 1 | 5 | 15 | 30 | 60 // default 15; 1 is beta and not recommended for normal use
   reviewModel?: string          // provider:model key; empty uses routing fallback
   commitThreshold: number       // default 0.80
   suggestThreshold: number      // default 0.55
@@ -214,13 +214,15 @@ messages are processed. Extraction never runs per streaming chunk.
 
 ### 3.8 Periodic AI curator
 
-The global scheduler wakes every 5, 15, 30 or 60 minutes (15 by default) and reads at most one
-bounded, unreviewed delta from every eligible chat. It includes user and assistant text plus compact
-tool request/result representations. Before model routing, credentials, tokens, private keys, large
-base64 payloads, raw attachments and control characters are redacted or omitted. Harness chats,
-hidden messages and system messages are excluded.
+The global scheduler wakes every 1, 5, 15, 30 or 60 minutes (15 by default) and reads at most one
+bounded, unreviewed delta from every eligible chat. On first enablement (and this bootstrap
+migration), existing chat history is baselined locally without a model call; only messages saved
+after that point are eligible. This works equally for a pre-existing chat and a newly created chat.
+It includes user and assistant text plus compact tool request/result representations. Before model
+routing, credentials, tokens, private keys, large base64 payloads, raw attachments and control
+characters are redacted or omitted. Harness chats, hidden messages and system messages are excluded.
 
-The curator returns a validated JSON `decisions` array. Every item independently chooses `add`,
+The curator returns a validated JSON `decisions` array with up to 40 items. Every item independently chooses `add`,
 `replace` or `remove`, a `user` or `memory` target, and a compatible memory kind. It is deliberately
 more proactive about durable tastes, habits, corrections, communication patterns, project lessons
 and reusable solutions, while retaining the existing secret, size, capacity, deduplication,

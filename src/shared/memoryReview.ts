@@ -128,7 +128,7 @@ export function parseMemoryReviewDecisions(raw: string): MemoryReviewDecision[] 
         : []
 
   const decisions: MemoryReviewDecision[] = []
-  for (const item of source.slice(0, 24)) {
+  for (const item of source.slice(0, 40)) {
     if (!item || typeof item !== 'object') continue
     const row = item as Record<string, unknown>
     const action = String(row.action ?? 'add') as MemoryToolAction

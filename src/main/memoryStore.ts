@@ -79,6 +79,8 @@ interface MemoryMetaData {
   watermarks: Record<string, number>
   reviewWatermarks: Record<string, number>
   reviewInitializedAt?: number
+  /** Bumps when the review bootstrap policy changes for existing history. */
+  reviewBaselineVersion?: number
   lastReviewedAt?: number
   lastReviewSavedCount?: number
   lastMaintenance?: number
@@ -727,8 +729,26 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
 
     initializeReviewCheckpoints(): void {
       const meta = readMeta()
-      if (meta.reviewInitializedAt) return
+      if (meta.reviewBaselineVersion === 1) return
+      for (const filePath of listChatFiles()) {
+        try {
+          const data = safeJsonParse<{
+            id?: string
+            workspace?: string
+            sessionMode?: string
+            messages?: unknown[]
+          }>(fs.readFileSync(filePath, 'utf-8'), {})
+          if (data.workspace === 'harness' || data.sessionMode === 'harness') continue
+          const chatId = typeof data.id === 'string' && data.id.trim()
+            ? data.id
+            : path.basename(filePath, '.json').replace(/^chat_/, '')
+          meta.reviewWatermarks[chatId] = Array.isArray(data.messages) ? data.messages.length : 0
+        } catch {
+          /* Leave unreadable chats for a later review cycle. */
+        }
+      }
       meta.reviewInitializedAt = now()
+      meta.reviewBaselineVersion = 1
       writeMeta(meta)
     },
 

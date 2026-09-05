@@ -56,6 +56,7 @@ test('normalizeMemoryConfig clamps thresholds, swaps inverted pairs and backfill
   assert.equal(config.autoExtract, false)
   assert.equal(config.reviewEnabled, true)
   assert.equal(config.reviewIntervalMinutes, 15)
+  assert.equal(normalizeMemoryConfig({ reviewIntervalMinutes: 1 }).reviewIntervalMinutes, 1)
   assert.equal(normalizeMemoryConfig({ reviewIntervalMinutes: 30 }).reviewIntervalMinutes, 30)
   assert.equal(normalizeMemoryConfig({ reviewIntervalMinutes: 12 }).reviewIntervalMinutes, 15)
   assert.deepEqual(normalizeMemoryConfig(null), DEFAULT_MEMORY_CONFIG)
@@ -77,6 +78,18 @@ test('periodic review parser accepts multiple independent stores and rejects inv
   assert.equal(decisions[1].target, 'memory')
   assert.equal(decisions[1].kind, 'project')
   assert.equal(decisions[3].kind, undefined)
+})
+
+test('periodic review accepts at most 40 decisions per response', () => {
+  const decisions = parseMemoryReviewDecisions(JSON.stringify({
+    decisions: Array.from({ length: 45 }, (_, index) => ({
+      action: 'add',
+      target: 'memory',
+      kind: 'fact',
+      content: `Durable fact ${index}.`
+    }))
+  }))
+  assert.equal(decisions.length, 40)
 })
 
 test('periodic review sanitizer redacts secrets, encoded payloads and attachments', () => {
@@ -585,9 +598,7 @@ test('periodic review checkpoints are independent, retry-safe and apply multiple
       memoryDir: path.join(root, 'memory')
     })
     service.initializeReviewCheckpoints()
-    const initial = service.getReviewBatches()
-    assert.equal(initial.length, 1)
-    service.applyReviewDecisions(initial[0], [])
+    // Existing history is baselined at first enablement and does not incur an AI call.
     assert.equal(service.getReviewBatches().length, 0)
 
     const chat = JSON.parse(fs.readFileSync(filePath, 'utf8'))
