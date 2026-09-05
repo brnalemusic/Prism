@@ -2297,7 +2297,7 @@
       transparent 38%
     ),
     color-mix(in srgb, var(--theme-base-bg) 92%, var(--accent-primary));
-  touch-action: none;
+  touch-action: pan-y;
 }
 
 .image-generation-filter-bank {

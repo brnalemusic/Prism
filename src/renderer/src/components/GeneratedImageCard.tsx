@@ -17,7 +17,7 @@ import { GeneratedImageViewer } from './GeneratedImageViewer'
 
 interface GeneratedImageCardProps {
   toolCall: ToolCallItem
-  chatId: string
+  chatId?: string
   activityTitle?: string
 }
 
@@ -178,7 +178,7 @@ export function GeneratedImageCard({
   }, [])
 
   const handleRetry = async (): Promise<void> => {
-    if (!toolCall.id) return
+    if (!toolCall.id || !chatId) return
     try {
       setActionError('')
       const result = await window.api.retryImageGeneration({
@@ -256,7 +256,7 @@ export function GeneratedImageCard({
                       ? 'The generated image could not be decoded.'
                       : parsedError?.message || 'The provider could not complete the request.'}
                   </span>
-                  {retryable && toolCall.id && (
+                  {retryable && toolCall.id && chatId && (
                     <button
                       type="button"
                       onClick={handleRetry}

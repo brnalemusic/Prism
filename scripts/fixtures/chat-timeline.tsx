@@ -200,6 +200,7 @@ function Fixture() {
                   <AiMessageRow
                     msg={msg}
                     i={0}
+                    currentChatId="fixture-chat"
                     sessionMode="execution"
                     markdownComponents={StaticMarkdownComponents}
                     suggestionMessageKey="fixture"

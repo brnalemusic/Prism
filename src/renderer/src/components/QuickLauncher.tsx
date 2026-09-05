@@ -1,6 +1,6 @@
 import { WorkTimeline } from './WorkTimeline'
 import { anchorStreamingCalls, bindChatTool, buildChatTimeline, upsertChatRound, finishChatTools } from '../chatTimeline'
-import type { Message } from '../types/tab'
+import type { Message, ToolCallItem } from '../types/tab'
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   Command,
@@ -33,7 +33,8 @@ import { applyToolCallEnd, applyToolCallStart } from '../toolCallState'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
-import { ActionLoader, ToolCallIndicator, isToolRowVisible } from './ActionLoader'
+import { ActionLoader, ToolCallIndicator, getCustomToolLabel, isToolRowVisible } from './ActionLoader'
+import { GeneratedImageCard } from './GeneratedImageCard'
 import { useInactivityLabel } from '../hooks/useInactivityLabel'
 import {
   StreamContext,
@@ -65,6 +66,15 @@ function screenshotDataUrl(screenshot: string): string {
   return screenshot.startsWith('data:') ? screenshot : `data:image/png;base64,${screenshot}`
 }
 
+function launcherImageActivityTitle(toolCall: ToolCallItem): string {
+  return getCustomToolLabel(
+    toolCall.name,
+    toolCall.status,
+    toolCall.progressTitle ?? (toolCall.args.progressTitle as string | undefined),
+    toolCall.completedTitle ?? (toolCall.args.completedTitle as string | undefined)
+  )
+}
+
 interface LauncherAiMessageProps {
   msg: Message
   markdownComponents: import('react-markdown').Components
@@ -88,9 +98,11 @@ const LauncherAiMessage = React.memo(function LauncherAiMessage({
         <WorkTimeline entries={entries} active={active} seconds={msg.workedDuration ?? msg.thinkingDuration ?? 1}
           renderEntry={(entry) => entry.kind === 'tool'
             ? isToolRowVisible(entry.tool.status, entry.tool, !!msg.isStreaming)
-              ? (['writing', 'running', 'cooldown'].includes(entry.tool.status) || ['open_browser', 'browser_close', 'close_browser'].includes(entry.tool.name))
-                ? <ToolCallIndicator tools={[entry.tool]} />
-                : <ActionLoader toolCall={entry.tool} /> : null
+              ? entry.tool.name === 'generate_image'
+                ? <GeneratedImageCard toolCall={entry.tool} activityTitle={launcherImageActivityTitle(entry.tool)} />
+                : (['writing', 'running', 'cooldown'].includes(entry.tool.status) || ['open_browser', 'browser_close', 'close_browser'].includes(entry.tool.name))
+                  ? <ToolCallIndicator tools={[entry.tool]} />
+                  : <ActionLoader toolCall={entry.tool} /> : null
             : <div className="prose prose-invert max-w-none">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}
                   rehypePlugins={[createStreamingFadeRehypePlugin(streamStats, entry.textOffset)]}
