@@ -164,6 +164,8 @@ export interface MemoryReviewDecision {
   kind?: MemoryKind
   content?: string
   old_text?: string
+  /** Zero-based chat message indexes used as authoritative user evidence. */
+  sourceUserMessageIndexes: number[]
 }
 // ---------------------------------------------------------------------------
 // AI memory tool (Hermes-style add/replace/remove over USER.md/MEMORY.md analogs)

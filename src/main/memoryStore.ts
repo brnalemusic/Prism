@@ -394,6 +394,10 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
       ? data.id
       : path.basename(filePath, '.json').replace(/^chat_/, '')
     const lines: string[] = []
+    const userLines: string[] = []
+    const assistantLines: string[] = []
+    const toolLines: string[] = []
+    const userMessageIndexes: number[] = []
     let characters = 0
     let toMessageIndex = fromMessageIndex
     const maximumIndex = Math.min(messages.length, fromMessageIndex + 60)
@@ -408,13 +412,23 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
         ? 'User'
         : message.role === 'tool'
           ? `Tool${typeof message.name === 'string' ? ` (${message.name})` : ''}`
-          : 'Assistant'
-      const line = `${role}: ${text}`
+          : message.role === 'model' || message.role === 'assistant' || message.role === 'ai'
+            ? 'Assistant'
+            : 'Untrusted'
+      const line = `[message ${index}] ${text}`
       if (characters > 0 && characters + line.length + 2 > 24_000) {
         toMessageIndex = index
         break
       }
       lines.push(line)
+      if (role === 'User') {
+        userLines.push(line)
+        userMessageIndexes.push(index)
+      } else if (role === 'Assistant') {
+        assistantLines.push(line)
+      } else {
+        toolLines.push(`${role}: ${line}`)
+      }
       characters += line.length + 2
     }
 
@@ -424,7 +438,11 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
       title: typeof data.title === 'string' && data.title.trim() ? data.title.trim() : 'Untitled chat',
       fromMessageIndex,
       toMessageIndex,
-      transcript: lines.join('\n\n') || '[No reviewable text in this delta]'
+      transcript: lines.join('\n\n') || '[No reviewable text in this delta]',
+      userTranscript: userLines.join('\n\n'),
+      assistantTranscript: assistantLines.join('\n\n'),
+      toolTranscript: toolLines.join('\n\n'),
+      userMessageIndexes
     }
   }
 
@@ -932,6 +950,13 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
     ): MemoryReviewApplyResult {
       const result: MemoryReviewApplyResult = { saved: 0, user: 0, memory: 0, rejected: 0 }
       for (const decision of decisions) {
+        const hasUserEvidence = decision.sourceUserMessageIndexes.some((index) =>
+          batch.userMessageIndexes.includes(index)
+        )
+        if (!hasUserEvidence) {
+          result.rejected += 1
+          continue
+        }
         const applied = service.memoryTool(decision, batch.chatId)
         if (!applied.ok) {
           result.rejected += 1

@@ -65,11 +65,11 @@ test('normalizeMemoryConfig clamps thresholds, swaps inverted pairs and backfill
 test('periodic review parser accepts multiple independent stores and rejects invalid rows', () => {
   const decisions = parseMemoryReviewDecisions(JSON.stringify({
     decisions: [
-      { action: 'add', target: 'user', kind: 'preference', content: 'Prefere respostas curtas.' },
-      { action: 'add', target: 'memory', kind: 'project', content: 'O projeto usa React.' },
-      { action: 'remove', target: 'memory', old_text: 'convenção antiga' },
-      { action: 'add', target: 'user', kind: 'project', content: 'Classificação incompatível.' },
-      { action: 'replace', target: 'memory', content: 'Sem seletor antigo.' }
+      { action: 'add', target: 'user', kind: 'preference', content: 'Prefere respostas curtas.', source_user_message_indexes: [0] },
+      { action: 'add', target: 'memory', kind: 'project', content: 'O projeto usa React.', source_user_message_indexes: [1] },
+      { action: 'remove', target: 'memory', old_text: 'convenção antiga', source_user_message_indexes: [2] },
+      { action: 'add', target: 'user', kind: 'project', content: 'Classificação incompatível.', source_user_message_indexes: [3] },
+      { action: 'replace', target: 'memory', content: 'Sem seletor antigo.', source_user_message_indexes: [4] }
     ]
   }))
   assert.equal(decisions.length, 4)
@@ -86,7 +86,8 @@ test('periodic review accepts at most 40 decisions per response', () => {
       action: 'add',
       target: 'memory',
       kind: 'fact',
-      content: `Durable fact ${index}.`
+      content: `Durable fact ${index}.`,
+      source_user_message_indexes: [index]
     }))
   }))
   assert.equal(decisions.length, 40)
@@ -611,9 +612,9 @@ test('periodic review checkpoints are independent, retry-safe and apply multiple
 
     const first = service.getReviewBatches()
     assert.equal(first.length, 1)
-    assert.ok(first[0].transcript.includes('User:'))
-    assert.ok(first[0].transcript.includes('Assistant:'))
-    assert.ok(first[0].transcript.includes('Tool (read_file):'))
+    assert.ok(first[0].userTranscript.includes('[message 2]'))
+    assert.ok(first[0].assistantTranscript.includes('[message 3]'))
+    assert.ok(first[0].toolTranscript.includes('Tool (read_file):'))
     assert.ok(!first[0].transcript.includes('secret-value'))
     assert.ok(!first[0].transcript.includes('Q'.repeat(100)))
 
@@ -622,8 +623,8 @@ test('periodic review checkpoints are independent, retry-safe and apply multiple
     assert.equal(retry[0].fromMessageIndex, first[0].fromMessageIndex)
 
     const applied = service.applyReviewDecisions(first[0], [
-      { action: 'add', target: 'user', kind: 'preference', content: 'Prefere respostas curtas.' },
-      { action: 'add', target: 'memory', kind: 'behavioral', content: 'Concisão melhora esta colaboração.' }
+      { action: 'add', target: 'user', kind: 'preference', content: 'Prefere respostas curtas.', sourceUserMessageIndexes: [2] },
+      { action: 'add', target: 'memory', kind: 'behavioral', content: 'Concisão melhora esta colaboração.', sourceUserMessageIndexes: [2] }
     ])
     assert.deepEqual(applied, { saved: 2, user: 1, memory: 1, rejected: 0 })
     assert.equal(service.list().filter((entry) => entry.store === 'user').length, 1)
@@ -634,8 +635,13 @@ test('periodic review checkpoints are independent, retry-safe and apply multiple
     afterSuccess.messages.push({ role: 'user', content: 'Outro delta.' })
     fs.writeFileSync(filePath, JSON.stringify(afterSuccess, null, 2))
     const rejectedBatch = service.getReviewBatches()[0]
+    const assistantOnly = service.applyReviewDecisions(rejectedBatch, [
+      { action: 'add', target: 'user', kind: 'about_user', content: 'A IA acha que o usuário é organizado.', sourceUserMessageIndexes: [3] }
+    ])
+    assert.equal(assistantOnly.rejected, 1)
+    assert.equal(service.getReviewBatches()[0].fromMessageIndex, rejectedBatch.fromMessageIndex)
     const rejected = service.applyReviewDecisions(rejectedBatch, [
-      { action: 'add', target: 'memory', content: 'api_key=secret-value-123456789' }
+      { action: 'add', target: 'memory', content: 'api_key=secret-value-123456789', sourceUserMessageIndexes: [5] }
     ])
     assert.equal(rejected.rejected, 1)
     assert.equal(service.getReviewBatches()[0].fromMessageIndex, rejectedBatch.fromMessageIndex)

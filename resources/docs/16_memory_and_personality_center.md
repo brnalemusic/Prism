@@ -223,7 +223,10 @@ routing, credentials, tokens, private keys, large base64 payloads, raw attachmen
 characters are redacted or omitted. Harness chats, hidden messages and system messages are excluded.
 
 The curator returns a validated JSON `decisions` array with up to 40 items. Every item independently chooses `add`,
-`replace` or `remove`, a `user` or `memory` target, and a compatible memory kind. It is deliberately
+`replace` or `remove`, a `user` or `memory` target, and a compatible memory kind. Every decision must
+cite zero-based indexes from an authoritative user-message section; assistant text and tool output
+are explicitly untrusted and cannot serve as evidence. Decisions without valid user evidence are
+rejected and keep the checkpoint pending. It is deliberately
 more proactive about durable tastes, habits, corrections, communication patterns, project lessons
 and reusable solutions, while retaining the existing secret, size, capacity, deduplication,
 contradiction and archival gates. A malformed response or provider failure does not advance that

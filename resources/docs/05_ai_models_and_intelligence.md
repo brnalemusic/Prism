@@ -88,7 +88,9 @@ Prism allows users to independently assign different models to different functio
 
 The memory reviewer runs outside chat `activeRuns`, so it does not block, cancel or mutate an active
 conversation. Each model request reviews one bounded, sanitized per-chat delta and uses normal quota
-accounting. Network failures, malformed structured responses and unavailable routes leave the
+accounting. User/assistant/tool roles are separated in the review prompt, and every saved decision
+must cite a real user-message index; assistant-generated claims cannot become user memories by
+themselves. Network failures, malformed structured responses and unavailable routes leave the
 checkpoint unchanged for retry. Dedicated global IPC status events report start, per-chat progress,
 completion and failure without appearing as chat tool labels.
 
