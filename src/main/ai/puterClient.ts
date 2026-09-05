@@ -33,6 +33,13 @@ export interface PuterImageRequest {
   inputImageMimeType?: string
 }
 
+function isPuterChatImageModel(request: PuterImageRequest): boolean {
+  return (
+    request.provider?.trim().toLowerCase() === 'openrouter' &&
+    /(?:^|[/:\s])gpt-\d+(?:\.\d+)?-image(?:[-\s]|$)/i.test(request.model)
+  )
+}
+
 let activeAuthServer: http.Server | null = null
 let activeAuthReject: ((reason?: Error) => void) | null = null
 
@@ -230,6 +237,27 @@ export async function generatePuterImage(request: PuterImageRequest): Promise<st
 
   puter.setAuthToken(authToken)
   const provider = request.provider?.trim()
+
+  // Puter's OpenRouter GPT image models are chat models that return images in
+  // message.images; they are not handled by the txt2img driver.
+  if (isPuterChatImageModel(request)) {
+    const options = {
+      model: request.model,
+      ...(provider ? { provider } : {})
+    }
+    const response = request.inputImage
+      ? await puter.ai.chat(request.prompt, request.inputImage, options)
+      : await puter.ai.chat(request.prompt, options)
+    const source = response.message?.images?.find(
+      (image) => typeof image?.image_url?.url === 'string' && image.image_url.url.trim()
+    )?.image_url?.url
+    if (source) return source.trim()
+
+    const content =
+      typeof response.message?.content === 'string' ? ` ${response.message.content.slice(0, 300)}` : ''
+    throw new Error(`Puter chat returned no generated image.${content}`)
+  }
+
   const image = await puter.ai.txt2img({
     prompt: request.prompt,
     model: request.model,
