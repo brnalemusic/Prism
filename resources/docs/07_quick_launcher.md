@@ -47,3 +47,8 @@ Pressing the global screenshot shortcut captures the screen, plays a visual glow
 | `Ctrl+S` | Toggle Web Search mode |
 | `Ctrl+Y` | Toggle YouTube mode |
 | `Ctrl+D` | Toggle Voice Dictation |
+
+
+## Mini-Chat Work History
+
+The mini-chat shares the main Chat's chronological work timeline: text, action, intermediate text, next action, final response. Actions first appear when the model starts writing their `progressTitle`, then remain in place after completion. **Worked for N seconds** collapses all intermediate text and actions when the turn finishes; expanding restores them directly below the summary without jumping to the bottom. The final response stays outside the collapsed history. Cancellation and errors preserve the work already shown.

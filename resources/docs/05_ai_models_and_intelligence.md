@@ -106,3 +106,14 @@ Even with massive context windows (1M–2M tokens), context efficiency is critic
 - **Multimodal Payloads:** Images and screenshots are packaged directly into message content payloads.
 - **Output Truncation:** Large command outputs are truncated at 50,000 characters by `localCommandSandbox.ts`.
 - **Local History Persistence:** Chat sessions are persisted as JSON files on disk for fast search and zero cloud storage dependency.
+
+
+## Chat Work Timeline
+
+Chat renders assistant text and tool actions in execution order. Each native tool reserves a position when its first argument delta arrives, using its orchestration round and call index until its call ID is available. A visible action starts with the first characters of the model's `progressTitle`; it never starts with a generic tool name. Completion updates the same action with `completedTitle`, falling back to its progress title.
+
+During streaming, intermediate text, actions, and artifacts remain expanded. After the turn finishes, **Worked for N seconds** collapses that entire history and leaves only the final response visible. Expanding reveals the history directly below the summary and preserves the summary's screen position. A turn without a final response keeps its work accessible without treating its pre-tool text as a final answer. Errors and cancellation retain completed and partially generated actions.
+
+Chat history reconstructs rounds from saved assistant messages and joins results by tool-call ID. Repeated calls to the same tool remain distinct. The Quick Launcher uses the same timeline and disclosure; Harness retains its separate presentation.
+
+Validation: `node --experimental-strip-types --test scripts/chat-timeline-validation.mts`. For visual regression checks, run `node --experimental-strip-types scripts/chat-timeline-browser.mts` and open the printed localhost URL. This fixture mounts the real Chat and Launcher message components with controlled events; it does not contact providers or load user history.
