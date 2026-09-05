@@ -22,7 +22,7 @@ When no valid route exists, the tool is omitted from the model's available tools
 
 ## Provider request
 
-The main process resolves the configured provider and model, then selects a protocol candidate. Direct OpenAI requests use JSON generation and multipart editing. Responses requests supply the image tool and optional source image. Gemini requests use `generateContent`, image response modalities, and inline source data. Stability requests use its native multipart routes and accept binary or JSON image results. Puter maps `size` to an aspect ratio, sends edits as a data-URI `input_image`, and invokes `puter.ai.txt2img()` once per requested output.
+The main process resolves the configured provider and model, then selects a protocol candidate. Direct OpenAI requests use JSON generation and multipart editing. Responses requests supply the image tool and optional source image. Gemini requests use `generateContent`, image response modalities, and inline source data. Stability requests use its native multipart routes and accept binary or JSON image results. Puter maps `size` to an aspect ratio, sends edits as a data-URI `input_image`, forwards the catalog provider as both the SDK `driver` and request `provider` (the installed SDK uses `driver` to select the image driver), and invokes `puter.ai.txt2img()` once per requested output.
 
 Responses are normalized from OpenAI `data[].b64_json`/`data[].url`, Responses image tool output, Gemini `inlineData`, Stability binary/JSON payloads, and Puter URLs/data URIs before entering the shared validation pipeline.
 

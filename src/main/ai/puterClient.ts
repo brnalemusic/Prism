@@ -229,10 +229,13 @@ export async function generatePuterImage(request: PuterImageRequest): Promise<st
   if (!authToken) throw new Error('Puter account session is missing. Please reconnect your account.')
 
   puter.setAuthToken(authToken)
+  const provider = request.provider?.trim()
   const image = await puter.ai.txt2img({
     prompt: request.prompt,
     model: request.model,
-    ...(request.provider ? { provider: request.provider } : {}),
+    // Puter.js uses `driver` to select the native image driver. The model
+    // catalog calls this value `provider`, so forward both fields.
+    ...(provider ? { driver: provider, provider } : {}),
     ...(request.quality ? { quality: request.quality } : {}),
     ...(request.ratio ? { ratio: request.ratio } : {}),
     ...(request.inputImage ? { input_image: request.inputImage } : {}),
