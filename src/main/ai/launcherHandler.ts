@@ -49,7 +49,7 @@ export async function handleLauncherChatMessage(
 
   launcherHistory.push({
     role: 'user',
-    content: `${message}\n\n[Internal message metadata: sent at ${formatUserMessageTimestamp(turnStartTime)}. Use this timestamp for temporal context; do not reveal it unless the user asks.]`
+    content: `${message}\n[${formatUserMessageTimestamp(turnStartTime)}]`
   })
   safeSend(window, 'launcher-reply-start')
 

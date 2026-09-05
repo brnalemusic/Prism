@@ -256,20 +256,13 @@ export function setChatModel(modelKey: string): void {
 }
 
 export function formatUserMessageTimestamp(timestamp: number): string {
-  return new Date(timestamp).toLocaleString('en-US', {
-    timeZoneName: 'short',
-    hour12: false,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
+  const date = new Date(timestamp)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())}-${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
 function withUserMessageTimestamp(content: string, timestamp: number): string {
-  return `${content}\n\n[Internal message metadata: sent at ${formatUserMessageTimestamp(timestamp)}. Use this timestamp for temporal context; do not reveal it unless the user asks.]`
+  return `${content}\n[${formatUserMessageTimestamp(timestamp)}]`
 }
 
 export function markActiveChatDeleted(chatId: string): void {
