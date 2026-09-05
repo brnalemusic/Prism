@@ -875,6 +875,7 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
     const thinkingTimes = new Map<number, { startedAt?: number; endedAt?: number }>()
     let totalThinkingDuration = 0
 
+    let lastChatRound = 1
     const orchestration = await runToolOrchestration({
       provider,
       modelId: model.id,
@@ -906,7 +907,7 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
         thinkingTimes.set(state.round, timing)
 
         if (streamEvent.type === 'tool') {
-          broadcastIpc('chat-tool-call-delta', { chatId, workspace, ...streamEvent.delta })
+          broadcastIpc('chat-tool-call-delta', { chatId, workspace, ...streamEvent.delta, round: state.round, roundContent: parseThoughtAndContent(state.currentText, '').content })
           return
         }
         const roundParsed = parseThoughtAndContent(
@@ -936,6 +937,18 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
         })
       },
       decorateAssistantMessage: (assistantMessage, _result, state) => {
+        lastChatRound = state.round
+        if (!harnessSettings) {
+          const parsed = parseThoughtAndContent(
+            state.accumulatedText ? `${state.accumulatedText}\n\n${state.currentText}` : state.currentText,
+            state.accumulatedReasoning ? `${state.accumulatedReasoning}\n\n${state.currentReasoning}` : state.currentReasoning
+          )
+          broadcastIpc('chat-reply-chunk', {
+            chatId, workspace, thoughts: parsed.thoughts, finalResponse: parsed.content,
+            isThinking: false, harnessRound: state.round,
+            harnessRoundContent: parseThoughtAndContent(state.currentText, '').content
+          })
+        }
         const timing = thinkingTimes.get(state.round)
         if (timing?.startedAt) {
           const duration = Math.max(
@@ -1014,6 +1027,7 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
       workedDuration: totalWorkedDuration || undefined,
       chatId,
       workspace,
+      harnessRound: lastChatRound,
       harnessRoundContent: finalRoundOutput.content,
       harnessRoundThoughts: finalRoundOutput.thoughts,
       ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})
@@ -1381,7 +1395,7 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
         thinkingTimes.set(state.round, timing)
 
         if (streamEvent.type === 'tool') {
-          broadcastIpc('chat-tool-call-delta', { chatId, workspace, ...streamEvent.delta })
+          broadcastIpc('chat-tool-call-delta', { chatId, workspace, ...streamEvent.delta, round: state.round, roundContent: parseThoughtAndContent(state.currentText, '').content })
           return
         }
         const roundParsed = parseThoughtAndContent(

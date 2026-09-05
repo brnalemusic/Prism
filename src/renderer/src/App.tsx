@@ -1,10 +1,12 @@
+import { buildChatTimeline, anchorStreamingCalls, bindChatTool, upsertChatRound, finishChatTools } from './chatTimeline'
+import { WorkTimeline } from './components/WorkTimeline'
 import React, { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import ReactMarkdown, { Components } from 'react-markdown'
 import { PrismBackground } from './components/PrismBackground'
 import { LoadingScreen } from './components/LoadingScreen'
 import { OfflineBanner } from './components/OfflineBanner'
 import { Sidebar } from './components/Sidebar'
-import { ToolCallIndicator, isActiveToolStatus, isToolRowVisible } from './components/ActionLoader'
+import { ToolCallIndicator, isToolRowVisible, getCustomToolLabel } from './components/ActionLoader'
 import { HarnessActivityBoundary, HarnessSteps } from './components/HarnessSteps'
 import { SourcePills, extractMessageSources } from './components/SourcePills'
 import { HarnessContextInjection } from './components/HarnessContextInjection'
@@ -59,8 +61,6 @@ import clsx from 'clsx'
 import {
   Quotes,
   Brain,
-  CaretDown,
-  CaretRight,
   FilePdf,
   FilePpt,
   CheckCircle,
@@ -488,65 +488,20 @@ const AiMessage = React.memo(function AiMessage({
     return last
   }, [parts])
 
-  // Tag-based tool markup present: use the legacy positional rendering.
-  const hasContentTags = useMemo(
-    () => /\[PRISM_EXECUTE_TOOL\]|<mini_app>/i.test(visibleContent),
-    [visibleContent]
+  const chatTimeline = useMemo(
+    () => isHarness ? null : buildChatTimeline(msg),
+    [isHarness, msg]
   )
 
-  interface ChatTimelineRound {
-    key: string
-    content: string
-    textOffset: number
-    tools: ToolCallItem[]
-  }
-
-  // Chat-mode temporal timeline: one text segment per orchestration round with
-  // that round's tools interleaved right after it, so executions stick to the
-  // exact position where they ran instead of piling up below the message.
-  const chatTimeline = useMemo((): ChatTimelineRound[] | null => {
-    if (isHarness || hasContentTags) return null
-    const rounds = msg.chatRounds
-    if (!rounds || rounds.length === 0) return null
-    if (nativeToolCalls.length === 0) return null
-    const flat = msg.toolCalls || []
-    const lastRound = rounds[rounds.length - 1].round
-    let offset = 0
-    const timeline: ChatTimelineRound[] = rounds.map((round) => {
-      const textOffset = offset
-      offset += (round.content?.length ?? 0) + 2
-      const tools = flat.filter((tc) => (tc.round ?? lastRound) === round.round)
-      const roundTools =
-        round.round === lastRound
-          ? [...tools, ...nativeToolCalls.filter((tc) => tc.status === 'writing')]
-          : tools
-      return {
-        key: `chat-round-${round.round}`,
-        content: round.content || '',
-        textOffset,
-        tools: roundTools
-      }
-    })
-    // Safety net: tools whose round missed the content tracking join the end.
-    const assigned = new Set<ToolCallItem>()
-    for (const entry of timeline) {
-      for (const tc of entry.tools) assigned.add(tc)
-    }
-    const orphans = flat.filter((tc) => !assigned.has(tc))
-    if (orphans.length > 0) {
-      timeline[timeline.length - 1].tools.push(...orphans)
-    }
-    return timeline
-  }, [isHarness, hasContentTags, msg.chatRounds, msg.toolCalls, nativeToolCalls])
-
-  const timelineHasToolRows = chatTimeline?.some((entry) => entry.tools.length > 0) ?? false
+  const timelineHasToolRows = chatTimeline?.some((entry) => entry.kind === 'tool') ?? false
 
   // Special native tool renderers (artifacts, questionnaires, images) shared
   // by the flat list and the temporal timeline. Returns null for generic tools.
   const renderNativeToolCard = useCallback(
     (tc: ToolCallItem, key: string, idSeed: string | number): React.JSX.Element | null => {
       if (tc.name === 'generate_image') {
-        return <GeneratedImageCard key={key} toolCall={tc} chatId={currentChatId || ''} />
+        return <GeneratedImageCard key={key} toolCall={tc} chatId={currentChatId || ''}
+          activityTitle={!isHarness ? getCustomToolLabel(tc.name, tc.status, tc.progressTitle ?? tc.args.progressTitle as string | undefined, tc.completedTitle ?? tc.args.completedTitle as string | undefined) : undefined} />
       }
       if (tc.name === 'to_ask') {
         // Render done-state summary inline; active wizard is handled by ChatPane.
@@ -593,12 +548,11 @@ const AiMessage = React.memo(function AiMessage({
         const miniAppId = `mini-app-native-${idSeed}-${title.replace(/\s+/g, '-').toLowerCase()}`
 
         if (status === 'writing' || status === 'running') {
-          if (shouldHideIndicator(status)) return null
-          if (shouldHideActiveBelow) return null
+          if (isHarness && (shouldHideIndicator(status) || shouldHideActiveBelow)) return null
           if (!isToolRowVisible(status, tc, !!msg.isStreaming)) return null
           return (
             <div key={miniAppId} className="flex items-center gap-1.5 mt-1">
-              <ToolCallIndicator tools={[{ name: 'create_mini_app', status }]} />
+              <ToolCallIndicator tools={[tc]} />
             </div>
           )
         }
@@ -643,7 +597,7 @@ const AiMessage = React.memo(function AiMessage({
       }
       return null
     },
-    [currentChatId, handleLoadChat, shouldHideIndicator, shouldHideActiveBelow, msg.isStreaming]
+    [currentChatId, handleLoadChat, shouldHideIndicator, shouldHideActiveBelow, msg.isStreaming, isHarness]
   )
 
   // One tool inside the temporal timeline: special cards stay as deliverables,
@@ -653,11 +607,12 @@ const AiMessage = React.memo(function AiMessage({
     key: string,
     idSeed: string | number
   ): React.JSX.Element | null => {
+    if (!isToolRowVisible(tc.status, tc, !!msg.isStreaming)) return null
+    if (['writing', 'running', 'cooldown'].includes(tc.status) && !['generate_image', 'to_ask'].includes(tc.name)) {
+      return <div key={key} className="flex items-center gap-1.5"><ToolCallIndicator tools={[tc]} /></div>
+    }
     const card = renderNativeToolCard(tc, key, idSeed)
     if (card) return card
-    if (collapseProgress) return null
-    if (shouldHideActiveBelow && isActiveToolStatus(tc.status)) return null
-    if (!isToolRowVisible(tc.status, tc, !!msg.isStreaming)) return null
     return (
       <div key={key} className="flex items-center gap-1.5">
         <ToolCallIndicator
@@ -1199,39 +1154,24 @@ const AiMessage = React.memo(function AiMessage({
             )
           })}
 
-          {/* Temporal timeline: each round's text with its tools right after it */}
-          {chatTimeline &&
-            chatTimeline.map((round, rIdx) => {
-              const isLastRound = rIdx === chatTimeline.length - 1
-              return (
-                <React.Fragment key={round.key}>
-                  {round.content.trim() !== '' && (!collapseProgress || isLastRound) && (
-                    <div
-                      key={`${round.key}-text`}
-                      className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
-                    >
-                      <ReactMarkdown
-                        remarkPlugins={STATIC_REMARK_PLUGINS}
-                        rehypePlugins={
-                          msg.isStreaming
-                            ? [
-                                ...STATIC_COMPLETED_REHYPE_PLUGINS,
-                                createStreamingFadeRehypePlugin(streamStats, round.textOffset)
-                              ]
-                            : STATIC_COMPLETED_REHYPE_PLUGINS
-                        }
-                        components={markdownComponents}
-                      >
-                        {round.content}
-                      </ReactMarkdown>
-                    </div>
-                  )}
-                  {round.tools.map((tc, ti) =>
-                    renderTimelineTool(tc, `${round.key}-tool-${tc.id || ti}`, ti)
-                  )}
-                </React.Fragment>
-              )
-            })}
+          {chatTimeline && (
+            <WorkTimeline entries={chatTimeline}
+              active={Boolean(msg.isStreaming || msg.isThinking || msg.isConnecting)}
+              seconds={msg.workedDuration ?? msg.thinkingDuration ?? 1}
+              renderEntry={(entry) => entry.kind === 'tool'
+                ? renderTimelineTool(entry.tool, entry.key, entry.key)
+                : (
+                  <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base">
+                    <ReactMarkdown remarkPlugins={STATIC_REMARK_PLUGINS}
+                      rehypePlugins={msg.isStreaming
+                        ? [...STATIC_COMPLETED_REHYPE_PLUGINS, createStreamingFadeRehypePlugin(streamStats, entry.textOffset)]
+                        : STATIC_COMPLETED_REHYPE_PLUGINS}
+                      components={markdownComponents}>
+                      {hideInternalImageReferences(entry.content)}
+                    </ReactMarkdown>
+                  </div>
+                )} />
+          )}
 
           {!chatTimeline &&
             !isHarness &&
@@ -1262,6 +1202,7 @@ const AiMessage = React.memo(function AiMessage({
           {!isHarness &&
             msg.isStreaming &&
             activeToolLabel &&
+            !chatTimeline &&
             !hasActiveImageGeneration &&
             !hasInlineGenericToolRows &&
             !hasNativeToolRows &&
@@ -1605,17 +1546,12 @@ const AiMessageRow = React.memo(function AiMessageRow({
   const hasTools = !!(msg.toolCalls && msg.toolCalls.length > 0)
   const thinkingSec = msg.thinkingDuration !== undefined ? msg.thinkingDuration : 0
   const hasThinking = thinkingSec > 0
-  const workedSec = msg.workedDuration !== undefined ? msg.workedDuration : thinkingSec
 
   const hasThoughtInTurn = !!(
     msg.isThinking ||
     (msg.thoughts && msg.thoughts.trim() !== '') ||
     hasThinking
   )
-
-  // Chat progress timeline: expanded while streaming, collapsed once done.
-  const [progressManuallyExpanded, setProgressManuallyExpanded] = useState<boolean | null>(null)
-  const isProgressExpanded = msg.isStreaming ? true : (progressManuallyExpanded ?? false)
 
   const harnessBlocks = useMemo(() => {
     if (!isHarness) return []
@@ -1705,7 +1641,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
     )
   }
 
-  // Non-Harness (Chat Mode): 100% exact match of commit f34043601d1dc5b5166c5cfb13bacc3446cddd78
+  // Chat mode keeps the work disclosure with the chronological message body.
   return (
     <div
       key={i}
@@ -1720,40 +1656,14 @@ const AiMessageRow = React.memo(function AiMessageRow({
         </div>
       )}
 
-      {/* 2. Finished State Indicator: expandable work summary (collapsed by default) */}
-      {!isActive && (
-        <>
-          {
-            hasTools ? (
-              <button
-                type="button"
-                onClick={() =>
-                  setProgressManuallyExpanded((prev) => !(prev ?? false))
-                }
-                aria-expanded={isProgressExpanded}
-                title={isProgressExpanded ? 'Hide work progress' : 'Show work progress'}
-                className="w-full mb-1.5 select-none flex items-center gap-1 text-xs text-text-secondary/60 font-medium hover:text-text-secondary transition-colors cursor-pointer text-left"
-              >
-                {isProgressExpanded ? (
-                  <CaretDown size={12} className="shrink-0" />
-                ) : (
-                  <CaretRight size={12} className="shrink-0" />
-                )}
-                <span>
-                  Worked for {workedSec > 0 ? workedSec : 1} {workedSec === 1 ? 'second' : 'seconds'}
-                </span>
-              </button>
-            ) : hasThinking ? (
-              <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
-                Thought for {thinkingSec} {thinkingSec === 1 ? 'second' : 'seconds'}
-              </div>
-            ) : null /* Instant message: no header */
-          }
-        </>
+      {!isActive && !hasTools && hasThinking && (
+        <div className="w-full mb-1.5 select-none text-xs text-text-secondary/60 font-medium">
+          Thought for {thinkingSec} {thinkingSec === 1 ? 'second' : 'seconds'}
+        </div>
       )}
 
       <div className="w-full text-text-primary" data-prism-ai-message="true">
-        {!hasContent && isActive ? (
+        {!hasContent && isActive && !msg.toolCalls?.length && !msg.streamingToolCalls?.length && !/\[PRISM_EXECUTE_TOOL\]|<mini_app>/i.test(msg.content) ? (
           <div className="flex items-center gap-1.5 h-6 select-none">
             {activeToolLabel ? (
               <ToolCallIndicator overrideLabel={activeToolLabel} />
@@ -1775,7 +1685,6 @@ const AiMessageRow = React.memo(function AiMessageRow({
             isSuggestionSendDisabled={isSuggestionSendDisabled}
             inactivityLabel={inactivityLabel}
             activeToolLabel={activeToolLabel}
-            collapseProgress={hasTools && !isProgressExpanded}
           />
         )}
       </div>
@@ -3366,7 +3275,19 @@ function RealApp(): React.JSX.Element {
           }
 
           const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null
+          const chatRound = lastMsg?.role === 'ai' ? (lastMsg.chatRounds?.length ?? 1) + 1 : 1
+          if (workspace !== 'harness') {
+            toolCalls.forEach((call, index) => {
+              call.round = chatRound
+              call.callIndex = index
+              call.timelineKey = `round-${chatRound}-call-${index}`
+              call.textOffset = rawText.length
+            })
+          }
           if (lastMsg && lastMsg.role === 'ai') {
+            if (workspace !== 'harness') {
+              lastMsg.chatRounds = upsertChatRound(lastMsg.chatRounds ?? [{ round: 1, content: lastMsg.content }], chatRound, rawText)
+            }
             // Merge into existing AI message for this prompt turn
             if (workspace === 'harness') {
               if (!lastMsg.harnessRounds) {
@@ -3399,7 +3320,7 @@ function RealApp(): React.JSX.Element {
                   const exists = lastMsg.toolCalls.some(
                     (existingTc) =>
                       (tc.id && existingTc.id === tc.id) ||
-                      (existingTc.name === tc.name &&
+                      (!tc.id && !existingTc.id && existingTc.round === tc.round && existingTc.name === tc.name &&
                         JSON.stringify(existingTc.args) === JSON.stringify(tc.args))
                   )
                   if (!exists) {
@@ -3419,6 +3340,7 @@ function RealApp(): React.JSX.Element {
               toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
               isStreaming: false,
               isThinking: false,
+              chatRounds: workspace !== 'harness' ? [{ round: 1, content: rawText }] : undefined,
               harnessRounds:
                 workspace === 'harness'
                   ? [
@@ -4433,9 +4355,12 @@ function RealApp(): React.JSX.Element {
                 workedDuration: finalWorkedDuration,
                 isWritingToolCall: false,
                 isConnecting: false,
-                toolCalls: promotedToolCalls,
+                toolCalls: isHarness ? promotedToolCalls : finishChatTools(lastMsg, 'cancelled'),
                 streamingToolCalls: undefined,
-                harnessRounds: isHarness && harnessRounds.length > 0 ? harnessRounds : lastMsg.harnessRounds
+                harnessRounds: isHarness && harnessRounds.length > 0 ? harnessRounds : lastMsg.harnessRounds,
+                chatRounds: !isHarness && data.harnessRoundContent !== undefined
+                  ? upsertChatRound(lastMsg.chatRounds, data.harnessRound ?? lastMsg.chatRounds?.at(-1)?.round ?? 1, data.harnessRoundContent)
+                  : lastMsg.chatRounds
               }
             }
             return {
@@ -4484,7 +4409,9 @@ function RealApp(): React.JSX.Element {
                     lastMsg.thinkingDuration || 0,
                     thinkingDurationSeconds(finalPhase.thinkingDurationMs)
                   ) || undefined,
-                toolCalls: updatedToolCalls
+                toolCalls: workspace === 'harness' ? updatedToolCalls : finishChatTools(lastMsg, isCancel ? 'cancelled' : 'error'),
+                streamingToolCalls: workspace === 'harness' ? lastMsg.streamingToolCalls : undefined,
+                isWritingToolCall: false
               }
             }
 
@@ -4584,7 +4511,7 @@ function RealApp(): React.JSX.Element {
               const streamingToolCalls = lastMsg.streamingToolCalls
                 ? [...lastMsg.streamingToolCalls]
                 : []
-              const existingIdx = streamingToolCalls.findIndex((stc) => stc.index === index)
+              const existingIdx = streamingToolCalls.findIndex((stc) => stc.index === index && (data.round === undefined || stc.round === data.round))
               if (existingIdx !== -1) {
                 streamingToolCalls[existingIdx] = {
                   ...streamingToolCalls[existingIdx],
@@ -4620,7 +4547,14 @@ function RealApp(): React.JSX.Element {
                 isConnecting: false,
                 isWritingToolCall: true,
                 toolCalls,
-                streamingToolCalls
+                streamingToolCalls: tab.sessionMode === 'harness' ? streamingToolCalls : anchorStreamingCalls(
+                  lastMsg.streamingToolCalls, streamingToolCalls,
+                  data.round ?? lastMsg.chatRounds?.at(-1)?.round ?? 1,
+                  data.roundContent ?? lastMsg.chatRounds?.at(-1)?.content ?? lastMsg.content
+                ),
+                chatRounds: tab.sessionMode === 'harness' ? lastMsg.chatRounds : upsertChatRound(
+                  lastMsg.chatRounds, data.round ?? lastMsg.chatRounds?.at(-1)?.round ?? 1, data.roundContent
+                )
               }
             }
             return { ...tab, messages: newMessages }
@@ -4654,7 +4588,10 @@ function RealApp(): React.JSX.Element {
                   tc.id === data.callId ? { ...tc, round: data.round } : tc
                 )
               }
-              if (lastMsg.streamingToolCalls?.length) {
+              if (tab.sessionMode !== 'harness') {
+                bindChatTool(lastMsg, data.callId, data.name, data.round)
+              }
+              if (tab.sessionMode === 'harness' && lastMsg.streamingToolCalls?.length) {
                 const remainingStreamingCalls = lastMsg.streamingToolCalls.filter((call) =>
                   call.id ? call.id !== data.callId : call.name !== data.name
                 )
@@ -4737,6 +4674,7 @@ function RealApp(): React.JSX.Element {
 
     const removeToolEndListener = window.api.onToolEnd((data) => {
       const { chatId } = data
+      flushPendingChunk(chatId)
       const setTargetTabs = setTabsForChat(chatId, data.workspace)
       setTargetTabs((prev) =>
         prev.map((tab) => {
@@ -4757,6 +4695,9 @@ function RealApp(): React.JSX.Element {
                 lastMsg.toolCalls = lastMsg.toolCalls.map((tc) =>
                   tc.id === data.callId ? { ...tc, round: data.round } : tc
                 )
+              }
+              if (tab.sessionMode !== 'harness') {
+                bindChatTool(lastMsg, data.callId, data.name, data.round)
               }
               if (lastMsg.harnessRounds && lastMsg.harnessRounds.length > 0) {
                 const targetRound = data.round || lastMsg.harnessRounds[lastMsg.harnessRounds.length - 1].round

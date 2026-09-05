@@ -1,3 +1,6 @@
+import { WorkTimeline } from './WorkTimeline'
+import { anchorStreamingCalls, bindChatTool, buildChatTimeline, upsertChatRound, finishChatTools } from '../chatTimeline'
+import type { Message } from '../types/tab'
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   Command,
@@ -30,9 +33,8 @@ import { applyToolCallEnd, applyToolCallStart } from '../toolCallState'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
-import { ActionLoader, ToolCall, ToolCallIndicator } from './ActionLoader'
+import { ActionLoader, ToolCallIndicator, isToolRowVisible } from './ActionLoader'
 import { useInactivityLabel } from '../hooks/useInactivityLabel'
-import { useActiveToolLabel } from '../hooks/useActiveToolLabel'
 import {
   StreamContext,
   StaticMarkdownComponents,
@@ -59,218 +61,8 @@ function evaluateMathExpression(expr: string): string | null {
   return null
 }
 
-interface StreamingToolCall {
-  index: number
-  id?: string
-  name: string
-  arguments: string
-  isComplete: boolean
-  thoughtSignature?: string
-  thought_signature?: string
-}
-
-interface Message {
-  role: 'user' | 'ai'
-  content: string
-  thoughts?: string
-  thinkingDuration?: number
-  workedDuration?: number
-  isError?: boolean
-  isStreaming?: boolean
-  isThinking?: boolean
-  isConnecting?: boolean
-  isWritingToolCall?: boolean
-  toolType?: 'task' | 'search' | 'mini-app'
-  toolCalls?: ToolCall[]
-  streamingToolCalls?: StreamingToolCall[]
-  screenshot?: string
-}
-
 function screenshotDataUrl(screenshot: string): string {
   return screenshot.startsWith('data:') ? screenshot : `data:image/png;base64,${screenshot}`
-}
-
-function consolidateToolCalls(
-  toolCalls?: ToolCall[],
-  streamingToolCalls?: StreamingToolCall[]
-): ToolCall[] {
-  const allCalls: ToolCall[] = []
-
-  if (toolCalls) {
-    allCalls.push(...toolCalls)
-  }
-
-  if (streamingToolCalls) {
-    for (const stc of streamingToolCalls) {
-      const isAlreadyExecuted = toolCalls?.some(
-        (tc) => tc.status !== 'writing' && tc.name === stc.name
-      )
-      if (!isAlreadyExecuted) {
-        let parsedArgs: Record<string, unknown> = {}
-        try {
-          parsedArgs = JSON.parse(stc.arguments)
-        } catch {
-          try {
-            const filePathMatch = stc.arguments.match(
-              /"(?:filePath|path|TargetFile|absolutePath|AbsolutePath|sourcePath)"\s*:\s*"([^"]*)/i
-            )
-            const commandMatch = stc.arguments.match(/"(?:command|CommandLine)"\s*:\s*"([^"]*)/i)
-            const queryMatch = stc.arguments.match(/"query"\s*:\s*"([^"]*)/i)
-            if (filePathMatch) parsedArgs.filePath = filePathMatch[1]
-            if (commandMatch) parsedArgs.command = commandMatch[1]
-            if (queryMatch) parsedArgs.query = queryMatch[1]
-          } catch {
-            /* ignore */
-          }
-        }
-        allCalls.push({
-          name: stc.name || 'task',
-          args: parsedArgs,
-          status: 'writing'
-        })
-      }
-    }
-  }
-
-  const consolidatedList: ToolCall[] = []
-  const fileGroups = new Map<string, ToolCall[]>()
-  const groupFirstIndices = new Map<string, number>()
-
-  allCalls.forEach((call) => {
-    const name = call.name
-    const args = call.args
-    const filePath = (args?.filePath ||
-      args?.path ||
-      args?.TargetFile ||
-      args?.absolutePath ||
-      args?.AbsolutePath ||
-      args?.sourcePath) as string | undefined
-
-    const isWrite =
-      name === 'computer_use_create_file' ||
-      name === 'computer_use_save_file' ||
-      name === 'write_to_file' ||
-      name === 'computer_use_append_file'
-    const isEdit =
-      name === 'computer_use_edit_file' ||
-      name === 'replace_file_content' ||
-      name === 'multi_replace_file_content'
-    const isRead = name === 'computer_use_read_file' || name === 'view_file'
-
-    if (filePath && (isWrite || isEdit || isRead)) {
-      const normPath = filePath.replace(/\\/g, '/').toLowerCase()
-      const opType = isWrite ? 'write' : isEdit ? 'edit' : 'read'
-      const key = `${opType}:${normPath}`
-
-      if (!fileGroups.has(key)) {
-        fileGroups.set(key, [])
-        groupFirstIndices.set(key, consolidatedList.length)
-        consolidatedList.push({
-          name: name,
-          args: args,
-          status: 'done',
-          isConsolidated: true,
-          consolidatedType: opType,
-          filePath,
-          fileName: filePath.split('/').pop()?.split('\\').pop() || filePath,
-          addedLines: 0,
-          removedLines: 0,
-          readLines: [],
-          originalCalls: []
-        })
-      }
-
-      fileGroups.get(key)!.push(call)
-    } else {
-      consolidatedList.push(call)
-    }
-  })
-
-  fileGroups.forEach((groupCalls, key) => {
-    const placeholderIdx = groupFirstIndices.get(key)!
-    const placeholder = consolidatedList[placeholderIdx]
-
-    placeholder.originalCalls = groupCalls
-
-    if (groupCalls.some((c) => c.status === 'writing')) {
-      placeholder.status = 'writing'
-    } else if (groupCalls.some((c) => c.status === 'running')) {
-      placeholder.status = 'running'
-    } else if (groupCalls.some((c) => c.status === 'error')) {
-      placeholder.status = 'error'
-    } else if (groupCalls.some((c) => c.status === 'cancelled')) {
-      placeholder.status = 'cancelled'
-    } else if (groupCalls.some((c) => c.status === 'cooldown')) {
-      placeholder.status = 'cooldown'
-    } else {
-      placeholder.status = 'done'
-    }
-
-    groupCalls.forEach((call) => {
-      const cName = call.name
-      const cArgs = call.args
-
-      const countLines = (str: unknown): number => {
-        if (typeof str !== 'string') return 0
-        if (!str) return 0
-        return str.split('\n').length
-      }
-
-      if (cName === 'computer_use_create_file' || cName === 'computer_use_save_file') {
-        placeholder.addedLines = (placeholder.addedLines || 0) + countLines(cArgs.content)
-      } else if (cName === 'write_to_file') {
-        placeholder.addedLines = (placeholder.addedLines || 0) + countLines(cArgs.CodeContent)
-      } else if (cName === 'computer_use_append_file') {
-        placeholder.addedLines = (placeholder.addedLines || 0) + countLines(cArgs.content)
-      } else if (cName === 'computer_use_edit_file') {
-        const start = parseInt(cArgs.startLine as string, 10)
-        const end = parseInt(cArgs.endLine as string, 10)
-        if (!isNaN(start) && !isNaN(end)) {
-          placeholder.removedLines = (placeholder.removedLines || 0) + (end - start + 1)
-        }
-        placeholder.addedLines = (placeholder.addedLines || 0) + countLines(cArgs.newContent)
-      } else if (cName === 'replace_file_content') {
-        placeholder.removedLines = (placeholder.removedLines || 0) + countLines(cArgs.TargetContent)
-        placeholder.addedLines =
-          (placeholder.addedLines || 0) + countLines(cArgs.ReplacementContent)
-      } else if (cName === 'multi_replace_file_content') {
-        let chunks: any[] = []
-        if (Array.isArray(cArgs.ReplacementChunks)) {
-          chunks = cArgs.ReplacementChunks
-        } else if (typeof cArgs.ReplacementChunks === 'string') {
-          try {
-            chunks = JSON.parse(cArgs.ReplacementChunks)
-          } catch {
-            /* ignore */
-          }
-        }
-        chunks.forEach((chunk) => {
-          placeholder.removedLines =
-            (placeholder.removedLines || 0) + countLines(chunk.TargetContent)
-          placeholder.addedLines =
-            (placeholder.addedLines || 0) + countLines(chunk.ReplacementContent)
-        })
-      } else if (cName === 'computer_use_read_file') {
-        const start = parseInt(cArgs.startLine as string, 10) || 1
-        const limit = parseInt(cArgs.limit as string, 10)
-        if (!isNaN(limit)) {
-          placeholder.readLines!.push({ start, end: start + limit - 1 })
-        } else {
-          placeholder.readLines!.push({ start, end: start })
-        }
-      } else if (cName === 'view_file') {
-        const start = parseInt(cArgs.StartLine as string, 10) || 1
-        const end = parseInt(cArgs.EndLine as string, 10)
-        if (!isNaN(end)) {
-          placeholder.readLines!.push({ start, end })
-        } else {
-          placeholder.readLines!.push({ start, end: start + 800 })
-        }
-      }
-    })
-  })
-
-  return consolidatedList
 }
 
 interface LauncherAiMessageProps {
@@ -278,426 +70,37 @@ interface LauncherAiMessageProps {
   markdownComponents: import('react-markdown').Components
 }
 
-function isTransientLauncherToolCall(toolCall?: ToolCall): boolean {
-  return (
-    toolCall?.status === 'writing' ||
-    toolCall?.status === 'running' ||
-    toolCall?.status === 'cooldown'
-  )
-}
-
 const LauncherAiMessage = React.memo(function LauncherAiMessage({
-  msg,
-  markdownComponents
+  msg, markdownComponents
 }: LauncherAiMessageProps) {
   const inactivityLabel = useInactivityLabel(msg)
-  const { activeToolLabel } = useActiveToolLabel(msg)
-  const contentText = msg.content || ''
-  const streamStats = useStreamStats(contentText, !!msg.isStreaming)
-  const nativeToolCalls = useMemo(
-    () => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls),
-    [msg.toolCalls, msg.streamingToolCalls]
-  )
-
-  const cleanContentText = contentText
-    .replace(/\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)/g, '')
-    .replace(/<mini_app>[\s\S]*?(?:<\/mini_app>|$)/g, '')
-    .trim()
-  const hasContent = cleanContentText !== ''
-  const isRunningTool = !!(
-    activeToolLabel ||
-    msg.isWritingToolCall ||
-    (msg.streamingToolCalls && msg.streamingToolCalls.some((t) => !t.isComplete)) ||
-    (msg.toolCalls && msg.toolCalls.some((t) => t.status === 'running' || t.status === 'writing'))
-  )
-  const isActive = msg.isStreaming || msg.isThinking || msg.isConnecting || isRunningTool
-
-  const hasTools = !!(msg.toolCalls && msg.toolCalls.length > 0)
-  const thinkingSec =
-    msg.thinkingDuration !== undefined
-      ? msg.thinkingDuration
-      : msg.thoughts && msg.thoughts.trim() !== ''
-        ? Math.max(1, Math.round(msg.thoughts.length / 120))
-        : 0
-  const hasThinking = thinkingSec > 0
-  const workedSec = msg.workedDuration !== undefined ? msg.workedDuration : thinkingSec
-  const hasThoughtInTurn = !!(
-    msg.isThinking ||
-    (msg.thoughts && msg.thoughts.trim() !== '') ||
-    hasThinking
-  )
-
+  const streamStats = useStreamStats(msg.content, !!msg.isStreaming)
+  const entries = useMemo(() => buildChatTimeline(msg), [msg])
+  const hasTools = entries.some((entry) => entry.kind === 'tool')
+  const active = Boolean(msg.isStreaming || msg.isThinking || msg.isConnecting)
   return (
     <StreamContext.Provider value={streamStats}>
-      <div
-        className={clsx(
-          'flex flex-col w-full max-w-none transition-opacity duration-300 text-sm leading-relaxed font-normal text-text-primary prose prose-invert py-1',
-          msg.isStreaming && 'opacity-90'
+      <div className="flex flex-col w-full gap-1.5 text-sm leading-relaxed text-text-primary py-1">
+        {active && msg.isThinking && <span className="thinking-shimmer-text text-[12.5px] font-medium">Thinking</span>}
+        {!active && !hasTools && !!msg.thinkingDuration && (
+          <span className="text-xs text-text-secondary/60">Thought for {msg.thinkingDuration} {msg.thinkingDuration === 1 ? 'second' : 'seconds'}</span>
         )}
-      >
-        {/* 1. Active State Header: "Thinking" shimming remains sticky until turn completes */}
-        {isActive && hasThoughtInTurn && (
-          <div className="w-full mb-2 select-none flex flex-col items-start gap-1">
-            <span className="thinking-shimmer-text text-[12.5px] font-medium leading-normal inline-block pb-[1.5px]">
-              Thinking
-            </span>
-          </div>
+        <WorkTimeline entries={entries} active={active} seconds={msg.workedDuration ?? msg.thinkingDuration ?? 1}
+          renderEntry={(entry) => entry.kind === 'tool'
+            ? isToolRowVisible(entry.tool.status, entry.tool, !!msg.isStreaming)
+              ? (['writing', 'running', 'cooldown'].includes(entry.tool.status) || ['open_browser', 'browser_close', 'close_browser'].includes(entry.tool.name))
+                ? <ToolCallIndicator tools={[entry.tool]} />
+                : <ActionLoader toolCall={entry.tool} /> : null
+            : <div className="prose prose-invert max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[createStreamingFadeRehypePlugin(streamStats, entry.textOffset)]}
+                  components={markdownComponents}>{entry.content}</ReactMarkdown>
+              </div>} />
+        {msg.isError && <p role="status" className="text-status-error">{msg.content}</p>}
+        {active && !hasTools && !msg.content && !inactivityLabel && (
+          <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe" />
         )}
-
-        {/* Immediate Breathing Dot / Active Tool when content not ready yet */}
-        {!hasContent && isActive && (
-          <div className="flex items-center gap-1.5 h-6 select-none py-1 mb-1">
-            {activeToolLabel ? (
-              <ToolCallIndicator overrideLabel={activeToolLabel} />
-            ) : inactivityLabel ? (
-              <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
-            ) : (
-              <div className="h-2.5 w-2.5 rounded-full bg-accent-primary animate-breathe shrink-0" />
-            )}
-          </div>
-        )}
-
-        {/* 2. Finished State Indicator (Static Gray Text) */}
-        {!isActive && (
-          <>
-            {
-              hasTools ? (
-                <div className="w-full mb-2 select-none text-[12px] text-text-secondary/60 font-medium">
-                  Worked for {workedSec > 0 ? workedSec : 1}{' '}
-                  {workedSec === 1 ? 'second' : 'seconds'}
-                </div>
-              ) : hasThinking ? (
-                <div className="w-full mb-2 select-none text-[12px] text-text-secondary/60 font-medium">
-                  Thought for {thinkingSec} {thinkingSec === 1 ? 'second' : 'seconds'}
-                </div>
-              ) : null /* Instant message: no header */
-            }
-          </>
-        )}
-
-        {/* Content rendering: split by tool call and mini-app tags to render inline */}
-        {(() => {
-          const parts = contentText.split(
-            /(\[PRISM_EXECUTE_TOOL\][\s\S]*?(?:\[\/PRISM_EXECUTE_TOOL\]|$)|<mini_app>[\s\S]*?(?:<\/mini_app>|$))/gi
-          )
-
-          interface PartItem {
-            partIndex: number
-            part: string
-            type: 'text' | 'mini_app' | 'tool_call'
-            isClosed: boolean
-            toolCall?: ToolCall
-            writingToolName?: string
-            writingToolArgs?: Record<string, unknown>
-            startOffset: number
-          }
-
-          let tempToolCallIndex = 0
-          let partStartOffset = 0
-
-          const items: PartItem[] = parts.map((part, index) => {
-            const currentPartStartOffset = partStartOffset
-            partStartOffset += part.length
-
-            if (part.startsWith('[PRISM_EXECUTE_TOOL]')) {
-              if (part.includes('[/PRISM_EXECUTE_TOOL]')) {
-                const tc = msg.toolCalls?.[tempToolCallIndex]
-                tempToolCallIndex++
-                return {
-                  partIndex: index,
-                  part,
-                  type: 'tool_call',
-                  isClosed: true,
-                  toolCall: tc,
-                  startOffset: currentPartStartOffset
-                }
-              } else {
-                const nameMatch = part.match(/<name>([\s\S]*?)(?:<\/name>|$)/i)
-                let toolName = nameMatch ? nameMatch[1].trim() : ''
-                if (!toolName) {
-                  const typeMatch = part.match(/"type"\s*:\s*"([^"]*)/i)
-                  if (typeMatch) {
-                    toolName = typeMatch[1]
-                  }
-                }
-                // Extract partial args from writing tool call
-                let writingToolArgs: Record<string, unknown> | undefined
-                try {
-                  const jsonMatch = part.match(/\[PRISM_EXECUTE_TOOL\]([\s\S]*?)$/i)
-                  if (jsonMatch) {
-                    const partialJson = jsonMatch[1]
-                    try {
-                      const parsed = JSON.parse(partialJson)
-                      if (parsed && typeof parsed === 'object') {
-                        writingToolArgs = parsed as Record<string, unknown>
-                        const pathVal =
-                          parsed.filePath ||
-                          parsed.path ||
-                          parsed.TargetFile ||
-                          parsed.absolutePath ||
-                          parsed.AbsolutePath ||
-                          parsed.sourcePath
-                        if (pathVal) writingToolArgs.filePath = pathVal
-                        const cmdVal = parsed.command || parsed.CommandLine
-                        if (cmdVal) writingToolArgs.command = cmdVal
-                        const queryVal = parsed.query
-                        if (queryVal) writingToolArgs.query = queryVal
-                      }
-                    } catch {
-                      const filePathMatch = partialJson.match(
-                        /"(?:filePath|path|TargetFile|absolutePath|AbsolutePath|sourcePath)"\s*:\s*"([^"]*)/i
-                      )
-                      const commandMatch = partialJson.match(
-                        /"(?:command|CommandLine)"\s*:\s*"([^"]*)/i
-                      )
-                      const queryMatch = partialJson.match(/"query"\s*:\s*"([^"]*)/i)
-                      writingToolArgs = {}
-                      if (filePathMatch) writingToolArgs.filePath = filePathMatch[1]
-                      if (commandMatch) writingToolArgs.command = commandMatch[1]
-                      if (queryMatch) writingToolArgs.query = queryMatch[1]
-                    }
-                  }
-                } catch {
-                  /* ignore */
-                }
-                return {
-                  partIndex: index,
-                  part,
-                  type: 'tool_call',
-                  isClosed: false,
-                  writingToolName: toolName,
-                  writingToolArgs,
-                  startOffset: currentPartStartOffset
-                }
-              }
-            } else if (part.startsWith('<mini_app>')) {
-              return {
-                partIndex: index,
-                part,
-                type: 'mini_app',
-                isClosed: part.includes('</mini_app>'),
-                startOffset: currentPartStartOffset
-              }
-            } else {
-              return {
-                partIndex: index,
-                part,
-                type: 'text',
-                isClosed: true,
-                startOffset: currentPartStartOffset
-              }
-            }
-          })
-
-          // Group consecutive web_search items
-          const groupedItems: Array<
-            PartItem | { type: 'grouped_web_searches'; items: PartItem[] }
-          > = []
-          let currentGroup: PartItem[] = []
-
-          const isWebSearch = (item: PartItem): boolean => {
-            if (item.type !== 'tool_call') return false
-            if (item.isClosed) {
-              return item.toolCall?.name === 'web_search'
-            } else {
-              return item.writingToolName === 'web_search' || item.writingToolName === 'search'
-            }
-          }
-
-          const isWhitespace = (item: PartItem): boolean => {
-            return item.type === 'text' && item.part.trim() === ''
-          }
-
-          for (let i = 0; i < items.length; i++) {
-            const item = items[i]
-            if (isWebSearch(item)) {
-              currentGroup.push(item)
-            } else if (isWhitespace(item)) {
-              if (currentGroup.length > 0) {
-                let foundNextWebSearch = false
-                for (let j = i + 1; j < items.length; j++) {
-                  const nextItem = items[j]
-                  if (isWhitespace(nextItem)) {
-                    continue
-                  }
-                  if (isWebSearch(nextItem)) {
-                    foundNextWebSearch = true
-                  }
-                  break
-                }
-                if (foundNextWebSearch) {
-                  currentGroup.push(item)
-                } else {
-                  if (currentGroup.length > 1) {
-                    groupedItems.push({ type: 'grouped_web_searches', items: currentGroup })
-                  } else if (currentGroup.length === 1) {
-                    groupedItems.push(currentGroup[0])
-                  }
-                  currentGroup = []
-                  groupedItems.push(item)
-                }
-              } else {
-                groupedItems.push(item)
-              }
-            } else {
-              if (currentGroup.length > 1) {
-                groupedItems.push({ type: 'grouped_web_searches', items: currentGroup })
-              } else if (currentGroup.length === 1) {
-                groupedItems.push(currentGroup[0])
-              }
-              currentGroup = []
-              groupedItems.push(item)
-            }
-          }
-          if (currentGroup.length > 1) {
-            groupedItems.push({ type: 'grouped_web_searches', items: currentGroup })
-          } else if (currentGroup.length === 1) {
-            groupedItems.push(currentGroup[0])
-          }
-
-          return groupedItems.map((gItem) => {
-            if ('items' in gItem) {
-              const group = gItem as { type: 'grouped_web_searches'; items: PartItem[] }
-              const toolCallItems = group.items.filter((item) => item.type === 'tool_call')
-
-              // 1. Determine merged status
-              let mergedStatus: ToolCall['status'] = 'done'
-              if (
-                toolCallItems.some((item) => !item.isClosed || item.toolCall?.status === 'writing')
-              ) {
-                mergedStatus = 'writing'
-              } else if (toolCallItems.some((item) => item.toolCall?.status === 'running')) {
-                mergedStatus = 'running'
-              } else if (toolCallItems.some((item) => item.toolCall?.status === 'error')) {
-                mergedStatus = 'error'
-              } else if (toolCallItems.some((item) => item.toolCall?.status === 'cancelled')) {
-                mergedStatus = 'cancelled'
-              }
-
-              // 2. Consolidate search updates and detect if it's youtube
-              const consolidatedUpdates: string[] = []
-              let isYoutube = false
-
-              toolCallItems.forEach((tcItem) => {
-                const tc = tcItem.toolCall
-                if (tc) {
-                  const url = typeof tc.args?.url === 'string' ? tc.args.url : ''
-                  const query = typeof tc.args?.query === 'string' ? tc.args.query : ''
-                  if (/youtube\.com|youtu\.be|^\/youtube|\byoutube\b/i.test(`${url} ${query}`)) {
-                    isYoutube = true
-                  }
-
-                  if (tc.searchUpdates && tc.searchUpdates.length > 0) {
-                    consolidatedUpdates.push(...tc.searchUpdates)
-                  } else if (typeof tc.args?.query === 'string' && tc.args.query) {
-                    consolidatedUpdates.push(tc.args.query)
-                  }
-                } else {
-                  // Unclosed (writing) tool call
-                  const partText = tcItem.part
-                  const queryMatch = partText.match(/"query"\s*:\s*"([^"]*)/i)
-                  if (queryMatch) {
-                    consolidatedUpdates.push(queryMatch[1])
-                  } else {
-                    consolidatedUpdates.push('Composing search')
-                  }
-                }
-              })
-
-              const mergedToolCall: ToolCall = {
-                name: 'web_search',
-                args: {
-                  query: isYoutube ? 'youtube' : 'search'
-                },
-                status: mergedStatus,
-                searchUpdates: consolidatedUpdates
-              }
-
-              const firstItem = group.items[0]
-              return isTransientLauncherToolCall(mergedToolCall) ? (
-                <ActionLoader key={`tc-group-${firstItem.partIndex}`} toolCall={mergedToolCall} />
-              ) : null
-            }
-
-            const item = gItem as PartItem
-            const { part, startOffset } = item
-
-            if (item.type === 'tool_call') {
-              if (item.isClosed) {
-                const tc = item.toolCall
-                if (tc && isTransientLauncherToolCall(tc)) {
-                  return <ActionLoader key={`tc-${item.partIndex}`} toolCall={tc} />
-                }
-              } else {
-                const isSearch =
-                  item.writingToolName === 'web_search' ||
-                  item.writingToolName === 'web_fetch' ||
-                  item.writingToolName === 'search_chat_history' ||
-                  item.writingToolName === 'search'
-                const toolType = isSearch ? 'search' : 'task'
-                return (
-                  <ActionLoader
-                    key={`writing-tc-${item.partIndex}`}
-                    toolCall={{
-                      name: item.writingToolName || toolType,
-                      status: 'writing',
-                      args: {}
-                    }}
-                    writingArgs={item.writingToolArgs}
-                  />
-                )
-              }
-              return null
-            } else if (part.trim() !== '') {
-              return (
-                <div key={`text-${item.partIndex}`} className="prose prose-invert max-w-none">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    rehypePlugins={[createStreamingFadeRehypePlugin(streamStats, startOffset)]}
-                    components={markdownComponents}
-                  >
-                    {part}
-                  </ReactMarkdown>
-                </div>
-              )
-            }
-            return null
-          })
-        })()}
-
-        {!msg.content.includes('[PRISM_EXECUTE_TOOL]') && nativeToolCalls.length > 0 && (
-          <div className="flex flex-col gap-2 mt-1 w-full">
-            {nativeToolCalls.filter(isTransientLauncherToolCall).map((tc, idx) => (
-              <ActionLoader key={`native-tc-${idx}`} toolCall={tc} />
-            ))}
-          </div>
-        )}
-
-        {msg.isWritingToolCall &&
-          !msg.content.includes('[PRISM_EXECUTE_TOOL]') &&
-          !msg.content.includes('<mini_app>') &&
-          nativeToolCalls.length === 0 && (
-            <ActionLoader
-              key="writing-tc"
-              toolCall={{
-                name: msg.toolType || 'task',
-                status: 'writing',
-                args: {}
-              }}
-            />
-          )}
-
-        {msg.isStreaming && activeToolLabel && (
-          <div className="flex items-center gap-1.5 mt-1 select-none">
-            <ToolCallIndicator overrideLabel={activeToolLabel} />
-          </div>
-        )}
-
-        {msg.isStreaming && !activeToolLabel && inactivityLabel && (
-          <div className="flex items-center gap-1.5 mt-1.5 select-none">
-            <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
-          </div>
-        )}
+        {active && !hasTools && inactivityLabel && <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />}
       </div>
     </StreamContext.Provider>
   )
@@ -1038,9 +441,14 @@ export function QuickLauncher(): React.JSX.Element {
       shouldFollowLauncherRef.current = distanceToBottom <= 24
     }
 
+    const handleWorkToggle = (): void => { shouldFollowLauncherRef.current = false }
+    el.addEventListener('prism-work-toggle', handleWorkToggle)
     el.addEventListener('scroll', handleScroll, { passive: true })
     handleScroll()
-    return () => el.removeEventListener('scroll', handleScroll)
+    return () => {
+      el.removeEventListener('scroll', handleScroll)
+      el.removeEventListener('prism-work-toggle', handleWorkToggle)
+    }
   }, [isMiniChatOpen])
 
   useEffect(() => {
@@ -1063,7 +471,8 @@ export function QuickLauncher(): React.JSX.Element {
           isStreaming: true,
           isThinking: false,
           isConnecting: true,
-          toolCalls: []
+          toolCalls: [],
+          workStartTime: Date.now()
         }
       ])
     })
@@ -1080,7 +489,12 @@ export function QuickLauncher(): React.JSX.Element {
           lastMsg.isConnecting = false
           lastMsg.isWritingToolCall = data.isWritingToolCall
           lastMsg.toolType = data.toolType
-          lastMsg.streamingToolCalls = data.streamingToolCalls
+          const round = data.round ?? lastMsg.chatRounds?.at(-1)?.round ?? 1
+          const roundContent = data.roundContent ?? data.finalResponse ?? ''
+          lastMsg.chatRounds = upsertChatRound(lastMsg.chatRounds, round, roundContent)
+          lastMsg.streamingToolCalls = anchorStreamingCalls(lastMsg.streamingToolCalls,
+            data.streamingToolCalls ?? [], round, roundContent).filter((call) =>
+              !call.id || !lastMsg.toolCalls?.some((tool) => tool.id === call.id))
         }
         newMsgs[newMsgs.length - 1] = lastMsg
         return newMsgs
@@ -1094,11 +508,15 @@ export function QuickLauncher(): React.JSX.Element {
         const lastMsg = { ...newMsgs[newMsgs.length - 1] }
         if (lastMsg.role === 'ai') {
           lastMsg.content = data.finalResponse || lastMsg.content || ''
+          lastMsg.chatRounds = upsertChatRound(lastMsg.chatRounds,
+            data.round ?? lastMsg.chatRounds?.at(-1)?.round ?? 1, data.roundContent)
+          lastMsg.workedDuration = data.workedDuration ?? Math.max(1, Math.round((Date.now() - (lastMsg.workStartTime ?? Date.now())) / 1000))
           lastMsg.thoughts = data.thoughts || lastMsg.thoughts || ''
           lastMsg.isStreaming = false
           lastMsg.isThinking = false
           lastMsg.isConnecting = false
           lastMsg.isWritingToolCall = false
+          lastMsg.toolCalls = finishChatTools(lastMsg, 'cancelled')
           lastMsg.streamingToolCalls = undefined
         }
         newMsgs[newMsgs.length - 1] = lastMsg
@@ -1116,8 +534,14 @@ export function QuickLauncher(): React.JSX.Element {
         const newMsgs = [...prev]
         const lastMsg = { ...newMsgs[newMsgs.length - 1] }
         if (lastMsg.role === 'ai') {
+          lastMsg.chatRounds ??= [{ round: 1, content: lastMsg.content }]
           lastMsg.content = data.error
           lastMsg.isError = true
+          lastMsg.isConnecting = false
+          lastMsg.toolCalls = finishChatTools(lastMsg, isCancel ? 'cancelled' : 'error')
+          lastMsg.streamingToolCalls = undefined
+          lastMsg.isWritingToolCall = false
+          lastMsg.workedDuration = Math.max(1, Math.round((Date.now() - (lastMsg.workStartTime ?? Date.now())) / 1000))
           lastMsg.isStreaming = false
           lastMsg.isThinking = false
           lastMsg.isWritingToolCall = false
@@ -1134,6 +558,7 @@ export function QuickLauncher(): React.JSX.Element {
         const lastMsg = { ...newMsgs[newMsgs.length - 1] }
         if (lastMsg.role === 'ai') {
           lastMsg.toolCalls = applyToolCallStart(lastMsg.toolCalls || [], data)
+          bindChatTool(lastMsg, data.callId, data.name, data.round)
         }
         newMsgs[newMsgs.length - 1] = lastMsg
         return newMsgs
@@ -1145,8 +570,9 @@ export function QuickLauncher(): React.JSX.Element {
         if (prev.length === 0) return prev
         const newMsgs = [...prev]
         const lastMsg = { ...newMsgs[newMsgs.length - 1] }
-        if (lastMsg.role === 'ai' && lastMsg.toolCalls) {
-          lastMsg.toolCalls = applyToolCallEnd(lastMsg.toolCalls, data)
+        if (lastMsg.role === 'ai') {
+          lastMsg.toolCalls = applyToolCallEnd(lastMsg.toolCalls ?? [], data)
+          bindChatTool(lastMsg, data.callId, data.name, data.round)
         }
         newMsgs[newMsgs.length - 1] = lastMsg
         return newMsgs
@@ -1791,7 +1217,7 @@ export function QuickLauncher(): React.JSX.Element {
               </button>
             </div>
             {/* Chat Messages Log */}
-            <div ref={launcherScrollRef} className="flex-1 overflow-y-auto p-6 space-y-4">
+            <div ref={launcherScrollRef} data-prism-chat-scroll="true" className="flex-1 overflow-y-auto p-6 space-y-4">
               {launcherMessages.map((msg, i) => (
                 <div key={i} className="flex flex-col gap-2 relative">
                   {msg.role === 'user' ? (

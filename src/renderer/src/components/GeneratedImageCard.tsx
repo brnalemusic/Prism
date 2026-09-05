@@ -17,6 +17,7 @@ import { GeneratedImageViewer } from './GeneratedImageViewer'
 interface GeneratedImageCardProps {
   toolCall: ToolCallItem
   chatId: string
+  activityTitle?: string
 }
 
 interface ParsedToolError {
@@ -70,11 +71,12 @@ function imageDataUrl(attachment: ToolImageAttachment): string {
 
 export function GeneratedImageCard({
   toolCall,
-  chatId
+  chatId,
+  activityTitle
 }: GeneratedImageCardProps): React.JSX.Element {
   const prompt = typeof toolCall.args.prompt === 'string' ? toolCall.args.prompt.trim() : ''
   const isEdit = toolCall.args.operation === 'edit'
-  const activityLabel = isEdit ? 'Editing Image' : 'Generating Image'
+  const activityLabel = activityTitle || (isEdit ? 'Editing Image' : 'Generating Image')
   const expectedCount = requestedCount(toolCall.args.n)
   const aspectRatio = requestedAspectRatio(toolCall.args.size)
   const maximumInlineWidth =

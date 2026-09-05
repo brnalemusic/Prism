@@ -15,6 +15,9 @@ export interface AttachedFile {
 }
 
 export interface StreamingToolCall {
+  round?: number
+  timelineKey?: string
+  textOffset?: number
   index: number
   id?: string
   name: string
@@ -25,6 +28,9 @@ export interface StreamingToolCall {
 }
 
 export interface ToolCallItem {
+  timelineKey?: string
+  textOffset?: number
+  callIndex?: number
   id?: string
   name: string
   args: Record<string, unknown>

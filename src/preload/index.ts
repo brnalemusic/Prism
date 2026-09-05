@@ -236,6 +236,7 @@ const api = {
       data: StructuredChatResponse & {
         chatId: string
         workspace: WorkspaceKind
+        harnessRound?: number
         harnessRoundContent?: string
         harnessRoundThoughts?: string
       }
@@ -246,6 +247,7 @@ const api = {
       data: StructuredChatResponse & {
         chatId: string
         workspace: WorkspaceKind
+        harnessRound?: number
         harnessRoundContent?: string
         harnessRoundThoughts?: string
       }
@@ -684,6 +686,8 @@ const api = {
       isWritingToolCall?: boolean
       toolType?: 'task' | 'search' | 'mini-app'
       streamingToolCalls?: StreamingToolCall[]
+      round?: number
+      roundContent?: string
     }) => void
   ): (() => void) => {
     const listener = (
@@ -695,17 +699,19 @@ const api = {
         isWritingToolCall?: boolean
         toolType?: 'task' | 'search' | 'mini-app'
         streamingToolCalls?: StreamingToolCall[]
+      round?: number
+      roundContent?: string
       }
     ): void => callback(data)
     ipcRenderer.on('launcher-reply-chunk', listener)
     return () => ipcRenderer.removeListener('launcher-reply-chunk', listener)
   },
   onLauncherReplyEnd: (
-    callback: (data: { thoughts: string; finalResponse: string }) => void
+    callback: (data: { thoughts: string; finalResponse: string; round?: number; roundContent?: string; workedDuration?: number }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { thoughts: string; finalResponse: string }
+      data: { thoughts: string; finalResponse: string; round?: number; roundContent?: string; workedDuration?: number }
     ): void => callback(data)
     ipcRenderer.on('launcher-reply-end', listener)
     return () => ipcRenderer.removeListener('launcher-reply-end', listener)
@@ -716,21 +722,21 @@ const api = {
     return () => ipcRenderer.removeListener('launcher-reply-error', listener)
   },
   onLauncherToolStart: (
-    callback: (data: { callId: string; name: string; args: Record<string, unknown> }) => void
+    callback: (data: { callId: string; name: string; round?: number; args: Record<string, unknown> }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { callId: string; name: string; args: Record<string, unknown> }
+      data: { callId: string; name: string; round?: number; args: Record<string, unknown> }
     ): void => callback(data)
     ipcRenderer.on('launcher-tool-start', listener)
     return () => ipcRenderer.removeListener('launcher-tool-start', listener)
   },
   onLauncherToolEnd: (
-    callback: (data: { callId: string; name: string; result: string }) => void
+    callback: (data: { callId: string; name: string; round?: number; result: string }) => void
   ): (() => void) => {
     const listener = (
       _event: IpcRendererEvent,
-      data: { callId: string; name: string; result: string }
+      data: { callId: string; name: string; round?: number; result: string }
     ): void => callback(data)
     ipcRenderer.on('launcher-tool-end', listener)
     return () => ipcRenderer.removeListener('launcher-tool-end', listener)
@@ -924,6 +930,8 @@ const api = {
   onToolCallDelta: (
     callback: (
       delta: import('../shared/types').StreamToolCallDelta & {
+        round?: number
+        roundContent?: string
         chatId: string
         workspace: WorkspaceKind
       }
@@ -932,6 +940,8 @@ const api = {
     const listener = (
       _event: IpcRendererEvent,
       delta: import('../shared/types').StreamToolCallDelta & {
+        round?: number
+        roundContent?: string
         chatId: string
         workspace: WorkspaceKind
       }

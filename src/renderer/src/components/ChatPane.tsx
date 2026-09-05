@@ -569,6 +569,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
         setShowScrollButton(!atBottom)
       }
 
+      const handleWorkToggle = (): void => { isAtBottomRef.current = false }
+      el.addEventListener('prism-work-toggle', handleWorkToggle)
       el.addEventListener('scroll', handleScroll, { passive: true })
       handleScroll()
 
@@ -588,6 +590,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
 
       return () => {
         el.removeEventListener('scroll', handleScroll)
+        el.removeEventListener('prism-work-toggle', handleWorkToggle)
         resizeObserver.disconnect()
       }
     }, [])
@@ -812,6 +815,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
           {/* Chat scroll area */}
           <div
             ref={scrollContainerRef}
+            data-prism-chat-scroll="true"
             className="relative flex-1 h-full overflow-y-auto no-scrollbar flex flex-col"
           >
             {/* Landing State when tab has no messages */}

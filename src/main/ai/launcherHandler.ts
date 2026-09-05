@@ -29,6 +29,7 @@ export async function handleLauncherChatMessage(
   if (launcherAbortController) {
     launcherAbortController.abort()
   }
+  const turnStartTime = Date.now()
   const abortController = new AbortController()
   launcherAbortController = abortController
 
@@ -97,6 +98,7 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
       return { thoughts, content }
     }
 
+    let lastChatRound = 1
     const orchestration = await runToolOrchestration({
       provider,
       modelId: model.id,
@@ -112,6 +114,8 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
           : state.currentReasoning
         const parsed = parseThoughtAndContent(combinedText, combinedReasoning)
         safeSend(window, 'launcher-reply-chunk', {
+          round: state.round,
+          roundContent: parseThoughtAndContent(state.currentText, '').content,
           thoughts: parsed.thoughts,
           finalResponse: parsed.content,
           isThinking: streamEvent.type === 'reasoning',
@@ -122,13 +126,27 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
               : undefined
         })
       },
-      createToolContext: ({ callId, name }) => ({
+      decorateAssistantMessage: (assistantMessage, _result, state) => {
+        lastChatRound = state.round
+        const parsed = parseThoughtAndContent(
+          state.accumulatedText ? `${state.accumulatedText}\n\n${state.currentText}` : state.currentText,
+          state.accumulatedReasoning ? `${state.accumulatedReasoning}\n\n${state.currentReasoning}` : state.currentReasoning
+        )
+        safeSend(window, 'launcher-reply-chunk', {
+          thoughts: parsed.thoughts, finalResponse: parsed.content, isThinking: false,
+          round: state.round, roundContent: parseThoughtAndContent(state.currentText, '').content,
+          streamingToolCalls: state.streamingToolCalls.map((call) => ({ ...call, isComplete: false }))
+        })
+        return assistantMessage
+      },
+      createToolContext: ({ callId, name, round }) => ({
         event: { sender: window.webContents },
         signal: abortController.signal,
-        onStart: (args) => safeSend(window, 'launcher-tool-start', { callId, name, args })
+        onStart: (args) => safeSend(window, 'launcher-tool-start', { callId, name, args, round })
       }),
       onToolResult: (call) =>
         safeSend(window, 'launcher-tool-end', {
+          round: call.round,
           callId: call.callId,
           name: call.name,
           result: call.modelContent
@@ -144,6 +162,9 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
       orchestration.accumulatedReasoning
     )
     safeSend(window, 'launcher-reply-end', {
+      round: lastChatRound,
+      roundContent: parseThoughtAndContent(orchestration.lastRoundText, '').content,
+      workedDuration: Math.max(1, Math.round((Date.now() - turnStartTime) / 1000)),
       thoughts: finalOutput.thoughts,
       finalResponse: finalOutput.content,
       ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})

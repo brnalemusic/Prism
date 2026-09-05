@@ -129,6 +129,7 @@ export interface PrismAPI {
       data: StructuredChatResponse & {
         chatId: string
         workspace: WorkspaceKind
+        harnessRound?: number
         harnessRoundContent?: string
         harnessRoundThoughts?: string
       }
@@ -313,17 +314,19 @@ export interface PrismAPI {
       isWritingToolCall?: boolean
       toolType?: 'task' | 'search' | 'mini-app'
       streamingToolCalls?: StreamingToolCall[]
+      round?: number
+      roundContent?: string
     }) => void
   ) => () => void
   onLauncherReplyEnd: (
-    callback: (data: { thoughts: string; finalResponse: string }) => void
+    callback: (data: { thoughts: string; finalResponse: string; round?: number; roundContent?: string; workedDuration?: number }) => void
   ) => () => void
   onLauncherReplyError: (callback: (data: { error: string }) => void) => () => void
   onLauncherToolStart: (
-    callback: (data: { callId: string; name: string; args: Record<string, unknown> }) => void
+    callback: (data: { callId: string; name: string; round?: number; args: Record<string, unknown> }) => void
   ) => () => void
   onLauncherToolEnd: (
-    callback: (data: { callId: string; name: string; result: string }) => void
+    callback: (data: { callId: string; name: string; round?: number; result: string }) => void
   ) => () => void
   onOpenMainAppWithInstructions: (
     callback: (data: { instructions: string; model: string; searchEnabled?: boolean }) => void
@@ -418,6 +421,8 @@ export interface PrismAPI {
   onToolCallDelta: (
     callback: (
       delta: import('../shared/types').StreamToolCallDelta & {
+        round?: number
+        roundContent?: string
         chatId: string
         workspace: WorkspaceKind
       }
