@@ -14,8 +14,14 @@ export type MemoryPolarity = 'positive' | 'negative' | 'neutral'
 
 export type MemoryTier = 'committed' | 'possible'
 
+export type MemoryStoreTarget = 'user' | 'memory'
+
+export type MemoryReviewIntervalMinutes = 5 | 15 | 30 | 60
+
 export interface MemoryEntry {
   id: string
+  /** Explicit Hermes-style store. Older entries are backfilled from `kind`. */
+  store: MemoryStoreTarget
   kind: MemoryKind
   /** Canonical sentence in the user's language (raw utterance of origin). */
   content: string
@@ -42,6 +48,10 @@ export interface MemoryEntry {
 
 export interface MemoryConfig {
   autoExtract: boolean
+  reviewEnabled: boolean
+  reviewIntervalMinutes: MemoryReviewIntervalMinutes
+  /** Exact providerId:modelId key. Empty uses the account/main-model fallback. */
+  reviewModel?: string
   commitThreshold: number
   suggestThreshold: number
   halfLifeDays: number
@@ -92,6 +102,7 @@ export interface ExtractionResult {
 
 export interface MemoryPatch {
   content?: string
+  store?: MemoryStoreTarget
   kind?: MemoryKind
   pinned?: boolean
   tier?: MemoryTier
@@ -120,6 +131,40 @@ export interface MemoryStoreEvent {
   entries: MemoryEntry[]
   chatId?: string
 }
+
+export type MemoryReviewStatusState = 'started' | 'progress' | 'completed' | 'failed'
+
+export interface MemoryReviewStatus {
+  state: MemoryReviewStatusState
+  runId: string
+  startedAt: number
+  finishedAt?: number
+  chatsTotal: number
+  chatsProcessed: number
+  memoriesSaved: number
+  userMemories: number
+  generalMemories: number
+  modelName?: string
+  usingFallback?: boolean
+  error?: string
+}
+
+export interface MemoryReviewInfo {
+  lastReviewedAt?: number
+  lastSavedCount: number
+  resolvedModelKey?: string
+  resolvedModelName?: string
+  usingFallback: boolean
+  routeStatus: 'configured' | 'account-default' | 'main-fallback' | 'unavailable'
+}
+
+export interface MemoryReviewDecision {
+  action: MemoryToolAction
+  target: MemoryToolTarget
+  kind?: MemoryKind
+  content?: string
+  old_text?: string
+}
 // ---------------------------------------------------------------------------
 // AI memory tool (Hermes-style add/replace/remove over USER.md/MEMORY.md analogs)
 // ---------------------------------------------------------------------------
@@ -127,9 +172,15 @@ export interface MemoryStoreEvent {
 export type MemoryToolTarget = 'user' | 'memory'
 export type MemoryToolAction = 'add' | 'replace' | 'remove'
 
+export function memoryStoreForKind(kind: MemoryKind): MemoryStoreTarget {
+  return kind === 'about_user' || kind === 'preference' ? 'user' : 'memory'
+}
+
 export interface MemoryToolCall {
   action: MemoryToolAction
   target: MemoryToolTarget
+  /** Optional reviewer classification; incompatible kinds are ignored safely. */
+  kind?: MemoryKind
   /** Full fact for `add`, or the new full fact for `replace`. */
   content?: string
   /** Short unique substring of the existing entry for `replace`/`remove`. */
@@ -158,6 +209,9 @@ export const MEMORY_TOOL_ENTRY_CAP = 280
 
 export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
   autoExtract: true,
+  reviewEnabled: true,
+  reviewIntervalMinutes: 15,
+  reviewModel: '',
   commitThreshold: 0.8,
   suggestThreshold: 0.55,
   halfLifeDays: 120,
@@ -181,8 +235,20 @@ export function normalizeMemoryConfig(value: unknown): MemoryConfig {
     suggestThreshold = swap
   }
   const halfLifeDays = num(raw.halfLifeDays, DEFAULT_MEMORY_CONFIG.halfLifeDays)
+  const reviewInterval = num(
+    raw.reviewIntervalMinutes,
+    DEFAULT_MEMORY_CONFIG.reviewIntervalMinutes
+  )
+  const reviewIntervalMinutes = ([5, 15, 30, 60] as const).includes(
+    reviewInterval as MemoryReviewIntervalMinutes
+  )
+    ? (reviewInterval as MemoryReviewIntervalMinutes)
+    : DEFAULT_MEMORY_CONFIG.reviewIntervalMinutes
   return {
     autoExtract: raw.autoExtract === true,
+    reviewEnabled: raw.reviewEnabled !== false,
+    reviewIntervalMinutes,
+    reviewModel: typeof raw.reviewModel === 'string' ? raw.reviewModel.trim() : '',
     commitThreshold,
     suggestThreshold,
     halfLifeDays:

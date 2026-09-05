@@ -28,7 +28,7 @@ O **Prism** é um assistente de IA para desktop de código aberto, multiplatafor
 
  O Prism quebra a dependência de um fornecedor único de API. O usuário pode registrar múltiplos perfis de API e alternar dinamica e independentemente entre os modelos para cada funcionalidade:
 
-1. **Google AI Studio**: Suporte nativo para a família Gemini (ex: `gemini-3.6-flash`, `gemini-3.6-pro`).
+1. **Google AI Studio**: Suporte nativo para a família Gemini (ex: `gemini-3.6-flash`, `gemini-3.1-pro`).
 2. **OpenAI**: Endpoints GPT (ex: `gpt-5.6-sol`, `gpt-4o`).
 3. **Anthropic Claude**: Endpoint de mensagens nativo Anthropic (ex: `claude-sonnet-5`).
 4. **Provedores de Nuvem Acelerados**: OpenRouter, NVIDIA NIM, GroqCloud, Cerebras AI, Puter.js.

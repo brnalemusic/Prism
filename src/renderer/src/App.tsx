@@ -21,6 +21,7 @@ import { MiniAppRenderer } from './components/MiniAppRenderer'
 import { Spinner } from './components/Spinner'
 import { ErrorPopup } from './components/ErrorPopup'
 import { DownloadProgressOverlay } from './components/DownloadProgressOverlay'
+import { MemoryReviewActivity } from './components/MemoryReviewActivity'
 import { QuestionnaireRenderer } from './components/QuestionnaireRenderer'
 import { MalformedToolCallWarning } from './components/MalformedToolCallWarning'
 import { RenderChatHistory } from './components/RenderChatHistory'
@@ -88,6 +89,7 @@ import type {
   HarnessPermissionMode,
   WorkspaceKind
 } from '../../shared/types'
+import type { MemoryReviewStatus } from '../../shared/memoryCore'
 import { getDefaultThinkingLevelForModel, isPrismCloudGeminiModel } from './constants'
 import {
   applyToolCallEnd,
@@ -1922,6 +1924,7 @@ function RealApp(): React.JSX.Element {
   const [bootComplete, setBootComplete] = useState(false)
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine)
   const [downloads, setDownloads] = useState<Record<string, DownloadProgress>>({})
+  const [memoryReviewStatus, setMemoryReviewStatus] = useState<MemoryReviewStatus | null>(null)
 
   // Dedicated Mini-app Window Logic
   const [miniAppData, setMiniAppData] = useState<{
@@ -2445,6 +2448,19 @@ function RealApp(): React.JSX.Element {
     return () => {
       removeDownloadProgressListener()
     }
+  }, [])
+
+  useEffect(() => {
+    return window.api.onMemoryReviewStatus((status) => {
+      setMemoryReviewStatus(status)
+      if (status.state === 'completed' || status.state === 'failed') {
+        window.setTimeout(() => {
+          setMemoryReviewStatus((current) =>
+            current?.runId === status.runId && current.state === status.state ? null : current
+          )
+        }, status.state === 'completed' ? 4500 : 7000)
+      }
+    })
   }, [])
 
   useEffect(() => {
@@ -5469,6 +5485,10 @@ function RealApp(): React.JSX.Element {
         <DownloadProgressOverlay
           downloads={visibleDownloads}
           className="absolute right-5 top-12 z-30 w-[min(360px,calc(100vw-2rem))]"
+        />
+        <MemoryReviewActivity
+          status={memoryReviewStatus}
+          className="absolute bottom-5 right-5 z-40"
         />
       </main>
 

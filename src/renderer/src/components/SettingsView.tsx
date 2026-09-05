@@ -77,7 +77,12 @@ import {
   type PersonaSettings
 } from '../../../shared/persona'
 import { DEFAULT_MEMORY_CONFIG } from '../../../shared/memoryCore'
-import type { MemoryEntry, MemoryStats } from '../../../shared/memoryCore'
+import type {
+  MemoryConfig,
+  MemoryEntry,
+  MemoryReviewInfo,
+  MemoryStats
+} from '../../../shared/memoryCore'
 import { ApiManagerSettings } from './ApiManagerSettings'
 import { ModelSelector } from './ModelSelector'
 import { QuantumPhysicsGame } from './QuantumPhysicsGame'
@@ -405,6 +410,8 @@ export function SettingsView({
   // Memory center state (plan step 4 UI)
   const [memoryEntries, setMemoryEntries] = useState<MemoryEntry[]>([])
   const [memoryStats, setMemoryStats] = useState<MemoryStats | null>(null)
+  const [memoryReviewInfo, setMemoryReviewInfo] = useState<MemoryReviewInfo | null>(null)
+  const [memoryReviewRunning, setMemoryReviewRunning] = useState(false)
   const [memorySearch, setMemorySearch] = useState('')
   const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null)
   const [editingMemoryText, setEditingMemoryText] = useState('')
@@ -412,12 +419,14 @@ export function SettingsView({
 
   const loadMemory = useCallback(async (): Promise<void> => {
     try {
-      const [entries, stats] = await Promise.all([
+      const [entries, stats, reviewInfo] = await Promise.all([
         window.api.memoryList(),
-        window.api.memoryStats()
+        window.api.memoryStats(),
+        window.api.memoryReviewInfo()
       ])
       setMemoryEntries(entries)
       setMemoryStats(stats)
+      setMemoryReviewInfo(reviewInfo ?? null)
     } catch (err) {
       console.error('Failed to load memory center:', err)
     }
@@ -442,8 +451,21 @@ export function SettingsView({
     const unsubscribe = window.api.onMemoryEvent(() => {
       void loadMemory()
     })
-    return unsubscribe
+    const unsubscribeReview = window.api.onMemoryReviewStatus((status) => {
+      setMemoryReviewRunning(status.state === 'started' || status.state === 'progress')
+      if (status.state === 'completed' || status.state === 'failed') void loadMemory()
+    })
+    return () => {
+      unsubscribe()
+      unsubscribeReview()
+    }
   }, [activeSection, loadMemory])
+
+  const updateMemoryReviewConfig = (patch: Partial<MemoryConfig>): void => {
+    const memory = { ...(config.memory ?? DEFAULT_MEMORY_CONFIG), ...patch }
+    setConfig((current) => ({ ...current, memory }))
+    void window.api.saveConfig({ memory })
+  }
 
   const updateSelectedHarnessProject = (updates: Partial<HarnessProjectConfig>): void => {
     if (!selectedHarnessProjectEntry) return
@@ -3882,6 +3904,10 @@ export function SettingsView({
 
   const renderMemory = (): React.JSX.Element => {
     const autoExtract = config.memory?.autoExtract ?? DEFAULT_MEMORY_CONFIG.autoExtract
+    const reviewEnabled = config.memory?.reviewEnabled ?? DEFAULT_MEMORY_CONFIG.reviewEnabled
+    const reviewIntervalMinutes =
+      config.memory?.reviewIntervalMinutes ?? DEFAULT_MEMORY_CONFIG.reviewIntervalMinutes
+    const reviewModel = config.memory?.reviewModel ?? ''
     const stats = memoryStats
     const query = memorySearch.trim().toLowerCase()
     const matchesQuery = (entry: MemoryEntry): boolean => {
@@ -3914,6 +3940,12 @@ export function SettingsView({
     const kindBadge = (kind: string): React.JSX.Element => (
       <span className="shrink-0 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-lowest)] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-text-muted">
         {MEMORY_KIND_LABELS[kind] ?? kind}
+      </span>
+    )
+
+    const storeBadge = (entry: MemoryEntry): React.JSX.Element => (
+      <span className="shrink-0 rounded-md border border-accent-primary/20 bg-accent-primary/[0.07] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-accent-primary">
+        {entry.store === 'user' ? 'User profile' : 'Memory'}
       </span>
     )
 
@@ -4001,6 +4033,7 @@ export function SettingsView({
             {!isEditing && (
               <div className="mt-1 flex items-center gap-2">
                 {kindBadge(entry.kind)}
+                {storeBadge(entry)}
                 <span className="text-[10px] font-mono text-text-muted">{entryMeta(entry)}</span>
               </div>
             )}
@@ -4047,6 +4080,7 @@ export function SettingsView({
           </span>
           <div className="mt-1 flex items-center gap-2">
             {kindBadge(entry.kind)}
+            {storeBadge(entry)}
             <span className="text-[10px] font-mono text-text-muted">{entryMeta(entry)}</span>
           </div>
         </div>
@@ -4071,7 +4105,7 @@ export function SettingsView({
       <div className="space-y-8 animate-soft-pop">
         <SectionHeader
           title="Memory"
-          subtitle="Prism learns from your conversations entirely on-device and with zero AI calls: stable facts are committed automatically, everything uncertain lands below for your review, and accepted memories are injected into prompts (top matches per turn, plus pinned core facts) so Prism remembers you across chats."
+          subtitle="Prism combines immediate local capture with a periodic AI curator that reviews new conversation deltas, chooses between your user profile and general memory, and keeps durable context useful across chats."
         />
 
         <ToggleRow
@@ -4090,6 +4124,94 @@ export function SettingsView({
             void window.api.memoryToggleAuto(next)
           }}
         />
+
+        <div className="space-y-4">
+          <SettingsGroupLabel
+            title="Periodic AI Review"
+            description="Runs independently in the background, reviews only new sanitized conversation content, and counts toward the selected model's normal usage quota."
+          />
+          <ToggleRow
+            title="Review new conversations periodically"
+            description="Capture durable preferences, habits, corrections, project knowledge and reusable solutions across eligible chats. Harness chats and sensitive payloads are excluded."
+            checked={reviewEnabled}
+            onChange={() => updateMemoryReviewConfig({ reviewEnabled: !reviewEnabled })}
+          />
+
+          <div className="settings-card flex flex-col gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-xs font-semibold text-text-primary">Review interval</div>
+                <div className="mt-1 text-[11px] text-text-muted">New deltas wait for the next global review cycle.</div>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {([5, 15, 30, 60] as const).map((minutes) => (
+                  <button
+                    key={minutes}
+                    type="button"
+                    onClick={() => updateMemoryReviewConfig({ reviewIntervalMinutes: minutes })}
+                    className={clsx(
+                      'rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition-colors cursor-pointer',
+                      reviewIntervalMinutes === minutes
+                        ? 'border-accent-primary/40 bg-accent-primary/15 text-accent-primary'
+                        : 'border-[var(--border-default)] bg-[var(--surface-lowest)] text-text-muted hover:text-text-primary'
+                    )}
+                  >
+                    {minutes === 60 ? '1 hour' : `${minutes} min`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 border-t border-[var(--border-subtle)] pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-text-primary">Dedicated review model</div>
+                <div className="mt-1 text-[11px] text-text-muted">
+                  {memoryReviewInfo?.routeStatus === 'account-default'
+                    ? `Defaulting to ${memoryReviewInfo.resolvedModelName}.`
+                    : memoryReviewInfo?.routeStatus === 'main-fallback'
+                      ? `Using the main chat model${memoryReviewInfo.resolvedModelName ? ` (${memoryReviewInfo.resolvedModelName})` : ''}.`
+                      : memoryReviewInfo?.routeStatus === 'unavailable'
+                        ? 'No usable route is currently available; the next cycle will retry.'
+                        : memoryReviewInfo?.resolvedModelName
+                          ? `Using ${memoryReviewInfo.resolvedModelName}.`
+                          : 'Not set uses Arcadia-1.0 Mini with a Prism account, otherwise the main chat model.'}
+                </div>
+              </div>
+              <ModelSelector
+                selectedModel={reviewModel}
+                onModelChange={(model) => updateMemoryReviewConfig({ reviewModel: model })}
+                allowClear
+                emptyLabel="Not set"
+                clearLabel="Not set"
+                align="right"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] pt-4">
+              <div className="text-[11px] text-text-muted">
+                {memoryReviewInfo?.lastReviewedAt
+                  ? `Last review ${new Date(memoryReviewInfo.lastReviewedAt).toLocaleString()} · ${memoryReviewInfo.lastSavedCount} saved`
+                  : 'No periodic review has completed yet.'}
+                {memoryReviewInfo?.usingFallback ? ' · Fallback route active' : ''}
+              </div>
+              <button
+                type="button"
+                disabled={!reviewEnabled || memoryReviewRunning}
+                onClick={() => {
+                  setMemoryReviewRunning(true)
+                  void window.api.memoryReviewRunNow().finally(() => {
+                    setMemoryReviewRunning(false)
+                    void loadMemory()
+                  })
+                }}
+                className="flex items-center gap-1.5 rounded-lg border border-[var(--border-default)] bg-[var(--surface-lowest)] px-2.5 py-1.5 text-[11px] font-semibold text-text-secondary transition-colors enabled:cursor-pointer enabled:hover:border-[var(--border-strong)] enabled:hover:text-text-primary disabled:opacity-45"
+              >
+                <ArrowClockwise size={12} className={memoryReviewRunning ? 'animate-spin' : ''} />
+                {memoryReviewRunning ? 'Reviewing…' : 'Review now'}
+              </button>
+            </div>
+          </div>
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="settings-card flex flex-col gap-1 items-start">

@@ -606,6 +606,9 @@ const baseToolsManifest: ToolDefinition[] = [
         enum: ['add', 'replace', 'remove']
       }),
       target: stringSchema('Which store to operate on.', { enum: ['user', 'memory'] }),
+      kind: stringSchema('Optional classification for the saved entry.', {
+        enum: ['about_user', 'preference', 'fact', 'event', 'project', 'behavioral']
+      }),
       content: stringSchema(
         "The full fact to save (add/replace). Compact, information-dense, written in the user's language."
       ),

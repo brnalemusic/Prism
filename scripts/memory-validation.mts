@@ -16,6 +16,10 @@ import {
   shouldArchiveEntry
 } from '../src/shared/memoryCore.ts'
 import type { ExtractionResult, MemoryEntry, MemoryConfig } from '../src/shared/memoryCore.ts'
+import {
+  parseMemoryReviewDecisions,
+  sanitizeMemoryReviewText
+} from '../src/shared/memoryReview.ts'
 import { createMemoryService, executeMemoryTool } from '../src/main/memoryStore.ts'
 
 const NOW = 1_700_000_000_000
@@ -49,7 +53,41 @@ test('normalizeMemoryConfig clamps thresholds, swaps inverted pairs and backfill
   assert.equal(config.halfLifeDays, DEFAULT_MEMORY_CONFIG.halfLifeDays)
   assert.deepEqual(config.excludeChatIds, ['x'])
   assert.equal(config.autoExtract, false)
+  assert.equal(config.reviewEnabled, true)
+  assert.equal(config.reviewIntervalMinutes, 15)
+  assert.equal(normalizeMemoryConfig({ reviewIntervalMinutes: 30 }).reviewIntervalMinutes, 30)
+  assert.equal(normalizeMemoryConfig({ reviewIntervalMinutes: 12 }).reviewIntervalMinutes, 15)
   assert.deepEqual(normalizeMemoryConfig(null), DEFAULT_MEMORY_CONFIG)
+})
+
+test('periodic review parser accepts multiple independent stores and rejects invalid rows', () => {
+  const decisions = parseMemoryReviewDecisions(JSON.stringify({
+    decisions: [
+      { action: 'add', target: 'user', kind: 'preference', content: 'Prefere respostas curtas.' },
+      { action: 'add', target: 'memory', kind: 'project', content: 'O projeto usa React.' },
+      { action: 'remove', target: 'memory', old_text: 'convenção antiga' },
+      { action: 'add', target: 'user', kind: 'project', content: 'Classificação incompatível.' },
+      { action: 'replace', target: 'memory', content: 'Sem seletor antigo.' }
+    ]
+  }))
+  assert.equal(decisions.length, 4)
+  assert.equal(decisions[0].target, 'user')
+  assert.equal(decisions[0].kind, 'preference')
+  assert.equal(decisions[1].target, 'memory')
+  assert.equal(decisions[1].kind, 'project')
+  assert.equal(decisions[3].kind, undefined)
+})
+
+test('periodic review sanitizer redacts secrets, encoded payloads and attachments', () => {
+  const sanitized = sanitizeMemoryReviewText(
+    `Normal preference\napi_key=sk-super-secret-value-123456\nBearer abcdefghijklmnopqrstuvwxyz\ndata:image/png;base64,${'A'.repeat(900)}`,
+    2_000
+  )
+  assert.ok(sanitized.includes('Normal preference'))
+  assert.ok(sanitized.includes('[sensitive value redacted]'))
+  assert.ok(sanitized.includes('[binary attachment omitted]'))
+  assert.ok(!sanitized.includes('super-secret-value'))
+  assert.ok(!sanitized.includes('A'.repeat(100)))
 })
 
 // ---------------------------------------------------------------------------
@@ -137,6 +175,7 @@ test('hypothetical statements demote below extraction', () => {
 test('an independent re-mention promotes a seeded possible memory to committed', () => {
   const entry: MemoryEntry = {
     id: 'm1',
+    store: 'user',
     kind: 'about_user',
     content: 'Meu nome é Ana.',
     factKey: 'user.name=ana',
@@ -163,6 +202,7 @@ test('an independent re-mention promotes a seeded possible memory to committed',
 test('polarity flip with correction signal supersedes the old memory', () => {
   const entry: MemoryEntry = {
     id: 'old',
+    store: 'user',
     kind: 'preference',
     content: 'Eu gosto de café.',
     factKey: 'pref.cafe',
@@ -188,6 +228,7 @@ test('polarity flip with correction signal supersedes the old memory', () => {
 test('polarity flip without a correction signal becomes a conflict suggestion', () => {
   const entry: MemoryEntry = {
     id: 'old',
+    store: 'user',
     kind: 'preference',
     content: 'Eu gosto de café.',
     factKey: 'pref.cafe',
@@ -213,6 +254,7 @@ test('polarity flip without a correction signal becomes a conflict suggestion', 
 test('re-mention in the same chat refreshes without promoting', () => {
   const entry: MemoryEntry = {
     id: 'm2',
+    store: 'user',
     kind: 'about_user',
     content: 'Trabalho com design.',
     factKey: 'user.occupation=design',
@@ -293,6 +335,7 @@ test('computeMemoryValue decays with half-life and recovers with access count', 
 test('shouldArchiveEntry only archives cold, unpinned, non-expired entries', () => {
   const baseEntry: MemoryEntry = {
     id: 'a1',
+    store: 'memory',
     kind: 'fact',
     content: 'X',
     factKey: 'user.x',
@@ -319,6 +362,7 @@ test('shouldArchiveEntry only archives cold, unpinned, non-expired entries', () 
 test('recallCandidates ranks pinned and query-overlapping memories first', () => {
   const mk = (id: string, content: string, keywords: string[], pinned = false): MemoryEntry => ({
     id,
+    store: 'user',
     kind: 'about_user',
     content,
     factKey: `user.${id}`,
@@ -347,6 +391,7 @@ test('recallCandidates ranks pinned and query-overlapping memories first', () =>
 test('buildMemoryContextBlock honors guard header, budgets, and never injects possible/archived', () => {
   const mk = (id: string, content: string, overrides: Partial<MemoryEntry> = {}): MemoryEntry => ({
     id,
+    store: 'user',
     kind: 'about_user',
     content,
     factKey: `user.${id}`,
@@ -411,6 +456,7 @@ test('buildMemoryContextBlock honors guard header, budgets, and never injects po
 test('buildTurnRecallBlock ranks by overlap, drops pinned (already in core), stays in budget', () => {
   const mk = (id: string, content: string, keywords: string[], pinned = false): MemoryEntry => ({
     id,
+    store: 'user',
     kind: 'about_user',
     content,
     factKey: `user.${id}`,

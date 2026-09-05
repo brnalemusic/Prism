@@ -1560,6 +1560,48 @@
   animation: shimmer 2.6s ease-in-out infinite;
 }
 
+@keyframes memory-review-shimmer {
+  0% {
+    background-position: 180% center;
+  }
+  100% {
+    background-position: -80% center;
+  }
+}
+
+.memory-review-shimmer-text {
+  background: linear-gradient(
+    105deg,
+    var(--color-text-secondary) 12%,
+    var(--accent-primary) 42%,
+    var(--color-text-primary) 52%,
+    var(--accent-secondary) 62%,
+    var(--color-text-secondary) 88%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: memory-review-shimmer 2.8s ease-in-out infinite;
+}
+
+.memory-review-brain {
+  animation: breathe-pulse 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .memory-review-shimmer-text {
+    animation: none;
+    background: none;
+    color: var(--color-text-primary);
+    -webkit-text-fill-color: currentColor;
+  }
+
+  .memory-review-brain {
+    animation: none;
+  }
+}
+
 @keyframes hero-shimmer {
   0% {
     background-position: 200% center;

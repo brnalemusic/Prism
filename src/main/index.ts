@@ -66,6 +66,10 @@ import { initAppScanner, registerAppsUpdatedCallback, forceRescan, getAppsList }
 import { loadConfig, saveConfig, AppConfig } from './config'
 import { createMemoryService, defaultPrismDataDir, type MemoryService } from './memoryStore'
 import {
+  createMemoryReviewScheduler,
+  type MemoryReviewScheduler
+} from './memoryReviewer'
+import {
   activateLicenseKey,
   deactivateLicense,
   getLicenseInfo,
@@ -100,7 +104,7 @@ import {
 import type { ApplicationInfo } from '../shared/types'
 import type { HarnessExplorerSelection } from '../shared/types'
 import { IS_DEMO } from '../shared/demo'
-import { safeSend } from './safeSend'
+import { broadcastIpc, safeSend } from './safeSend'
 import { getTerminalProcessesForChat } from './terminalProcessManager'
 import {
   checkAllHarnessProjects,
@@ -227,6 +231,7 @@ let currentConfig: AppConfig
 let mainWindow: BrowserWindow | null = null
 let launcherWindow: BrowserWindow | null = null
 let memoryService: MemoryService | null = null
+let memoryReviewScheduler: MemoryReviewScheduler | null = null
 let launcherShowWhenReady = false
 let launcherLoadListenerAttached = false
 export let voiceOverlayWindow: BrowserWindow | null = null
@@ -1387,6 +1392,7 @@ if (!gotTheLock) {
       const success = saveConfig(config, currentConfig)
       if (success) {
         currentConfig = loadConfig()
+        memoryReviewScheduler?.reconfigure()
         if (!IS_DEMO) registerGlobalShortcuts()
         updateNativeIcons()
         if (!IS_DEMO) reconcileDiscordGateway(currentConfig)
@@ -1403,6 +1409,7 @@ if (!gotTheLock) {
         memoryService = createMemoryService({
           chatsDir: join(dataRoot, 'PrismDesktop', 'chats'),
           memoryDir: join(dataRoot, 'PrismDesktop', 'memory'),
+          config: currentConfig.memory,
           notify: (event) => {
             const channel =
               event.type === 'write'
@@ -1426,6 +1433,15 @@ if (!gotTheLock) {
       return memoryService
     }
 
+    if (!IS_DEMO) {
+      memoryReviewScheduler = createMemoryReviewScheduler({
+        getConfig: () => currentConfig,
+        getMemoryService,
+        notify: (status) => broadcastIpc('memory-review-status', status)
+      })
+      memoryReviewScheduler.start()
+    }
+
     ipcMain.handle('memory-list', (_event, options: any) => getMemoryService().list(options))
     ipcMain.handle('memory-update', (_event, id: string, patch: any) =>
       getMemoryService().update(id, patch)
@@ -1434,6 +1450,11 @@ if (!gotTheLock) {
     ipcMain.handle('memory-restore', (_event, id: string) => getMemoryService().restore(id))
     ipcMain.handle('memory-delete', (_event, id: string) => getMemoryService().remove(id))
     ipcMain.handle('memory-stats', () => getMemoryService().stats())
+    ipcMain.handle('memory-review-info', () => memoryReviewScheduler?.getInfo())
+    ipcMain.handle('memory-review-run-now', async () => {
+      await memoryReviewScheduler?.runNow()
+      return memoryReviewScheduler?.getInfo()
+    })
     ipcMain.handle('memory-toggle-auto', (_event, enabled: boolean) => {
       const success = saveConfig(
         {
@@ -1446,6 +1467,7 @@ if (!gotTheLock) {
       )
       if (success) {
         currentConfig = loadConfig()
+        memoryReviewScheduler?.reconfigure()
         safeSend(mainWindow, 'config-changed', currentConfig)
         safeSend(launcherWindow, 'config-changed', currentConfig)
       }
@@ -1994,6 +2016,8 @@ if (!gotTheLock) {
 
   app.on('will-quit', () => {
     globalShortcut.unregisterAll()
+    memoryReviewScheduler?.stop()
+    memoryReviewScheduler = null
     stopLicenseMonitor?.()
     stopLicenseMonitor = null
     stopKeepAlive()

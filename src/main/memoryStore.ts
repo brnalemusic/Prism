@@ -16,6 +16,7 @@ import {
   foldAccents,
   isCredentialLike,
   keywordize,
+  memoryStoreForKind,
   normalizeMemoryConfig,
   runExtraction,
   shouldArchiveEntry,
@@ -31,6 +32,7 @@ import type {
   MemoryKind,
   MemoryListOptions,
   MemoryPatch,
+  MemoryReviewDecision,
   MemoryStats,
   MemoryStoreEvent,
   MemoryTier,
@@ -38,6 +40,11 @@ import type {
   MemoryToolResult,
   MemoryWrite
 } from '../shared/memoryCore.ts'
+import { sanitizeMemoryReviewText } from '../shared/memoryReview.ts'
+import type {
+  MemoryReviewApplyResult,
+  MemoryReviewBatch
+} from '../shared/memoryReview.ts'
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -70,6 +77,10 @@ interface MemoryStoreData {
 
 interface MemoryMetaData {
   watermarks: Record<string, number>
+  reviewWatermarks: Record<string, number>
+  reviewInitializedAt?: number
+  lastReviewedAt?: number
+  lastReviewSavedCount?: number
   lastMaintenance?: number
 }
 
@@ -103,10 +114,16 @@ export interface MemoryService {
   restore(id: string): boolean
   remove(id: string): boolean
   stats(): MemoryStats
+  updateConfig(config: MemoryConfig): void
   observeCompletedTurn(chatId: string): void
   startupCatchUp(): CatchUpReport
   runMaintenance(): number
   memoryTool(call: MemoryToolCall, chatId?: string): MemoryToolResult
+  initializeReviewCheckpoints(): void
+  getReviewBatches(): MemoryReviewBatch[]
+  applyReviewDecisions(batch: MemoryReviewBatch, decisions: MemoryReviewDecision[]): MemoryReviewApplyResult
+  recordReviewSummary(saved: number): void
+  getReviewSummary(): { lastReviewedAt?: number; lastSavedCount: number }
 }
 
 let activeMemoryService: MemoryService | null = null
@@ -157,6 +174,7 @@ export function executeMemoryTool(args: Record<string, unknown>, chatId?: string
     {
       action: action as MemoryToolCall['action'],
       target: target as MemoryToolCall['target'],
+      kind: typeof args.kind === 'string' ? args.kind as MemoryKind : undefined,
       content: typeof args.content === 'string' ? args.content : undefined,
       old_text: typeof args.old_text === 'string' ? args.old_text : undefined
     },
@@ -169,7 +187,7 @@ export function executeMemoryTool(args: Record<string, unknown>, chatId?: string
 export function createMemoryService(options: MemoryServiceOptions): MemoryService {
   const chatsDir = options.chatsDir
   const memoryDir = options.memoryDir
-  const config = normalizeMemoryConfig(options.config ?? DEFAULT_MEMORY_CONFIG)
+  let config = normalizeMemoryConfig(options.config ?? DEFAULT_MEMORY_CONFIG)
   const now = options.now ?? (() => Date.now())
   const notify = options.notify ?? (() => {})
 
@@ -181,26 +199,7 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
     fs.mkdirSync(memoryDir, { recursive: true })
   }
 
-  const readStore = (): MemoryStoreData => {
-    ensureDirs()
-    if (!fs.existsSync(memoriesPath)) return { memories: [] }
-    try {
-      const data = safeJsonParse<MemoryStoreData>(fs.readFileSync(memoriesPath, 'utf-8'), {
-        memories: []
-      })
-      return { memories: Array.isArray(data.memories) ? data.memories : [] }
-    } catch {
-      // Corrupted store: back it up (mirrors config.ts behavior) and start fresh.
-      try {
-        fs.copyFileSync(memoriesPath, `${memoriesPath}.corrupted.${Date.now()}.bak`)
-      } catch {
-        /* best effort */
-      }
-      return { memories: [] }
-    }
-  }
-
-  const writeStore = (data: MemoryStoreData): boolean => {
+  const persistStorePayload = (data: MemoryStoreData): boolean => {
     ensureDirs()
     try {
       const payload = JSON.stringify(data, null, 2)
@@ -214,10 +213,46 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
     }
   }
 
+  const readStore = (): MemoryStoreData => {
+    ensureDirs()
+    if (!fs.existsSync(memoriesPath)) return { memories: [] }
+    try {
+      const data = safeJsonParse<MemoryStoreData>(fs.readFileSync(memoriesPath, 'utf-8'), {
+        memories: []
+      })
+      const source = Array.isArray(data.memories) ? data.memories : []
+      let migrated = false
+      const memories = source.map((entry) => {
+        if (entry.store === 'user' || entry.store === 'memory') return entry
+        migrated = true
+        return { ...entry, store: memoryStoreForKind(entry.kind) }
+      })
+      if (migrated) persistStorePayload({ memories })
+      return { memories }
+    } catch {
+      // Corrupted store: back it up (mirrors config.ts behavior) and start fresh.
+      try {
+        fs.copyFileSync(memoriesPath, `${memoriesPath}.corrupted.${Date.now()}.bak`)
+      } catch {
+        /* best effort */
+      }
+      return { memories: [] }
+    }
+  }
+
+  const writeStore = (data: MemoryStoreData): boolean => {
+    return persistStorePayload(data)
+  }
+
   const readMeta = (): MemoryMetaData => {
     ensureDirs()
-    if (!fs.existsSync(metaPath)) return { watermarks: {} }
-    return safeJsonParse<MemoryMetaData>(fs.readFileSync(metaPath, 'utf-8'), { watermarks: {} })
+    if (!fs.existsSync(metaPath)) return { watermarks: {}, reviewWatermarks: {} }
+    const parsed = safeJsonParse<Partial<MemoryMetaData>>(fs.readFileSync(metaPath, 'utf-8'), {})
+    return {
+      ...parsed,
+      watermarks: parsed.watermarks ?? {},
+      reviewWatermarks: parsed.reviewWatermarks ?? {}
+    }
   }
 
   const writeMeta = (meta: MemoryMetaData): void => {
@@ -285,6 +320,110 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
     return { chatId, texts }
   }
 
+  const reviewContentText = (message: Record<string, unknown>): string => {
+    const fragments: string[] = []
+    const content = message.content
+    if (typeof content === 'string') fragments.push(content)
+    else if (Array.isArray(content)) {
+      for (const part of content) {
+        if (part && typeof part === 'object' && 'text' in part) {
+          fragments.push(String((part as { text?: unknown }).text ?? ''))
+        }
+      }
+    }
+
+    if (Array.isArray(message.parts)) {
+      for (const part of message.parts) {
+        if (!part || typeof part !== 'object') continue
+        const record = part as Record<string, unknown>
+        if (typeof record.text === 'string') fragments.push(record.text)
+        const functionCall = record.functionCall as { name?: unknown } | undefined
+        if (functionCall?.name) fragments.push(`[Tool requested: ${String(functionCall.name)}]`)
+        const functionResponse = record.functionResponse as { name?: unknown; response?: unknown } | undefined
+        if (functionResponse?.name) {
+          const response = functionResponse.response
+          const summary = response == null
+            ? ''
+            : typeof response === 'string'
+              ? response
+              : JSON.stringify(response)
+          fragments.push(`[Tool result: ${String(functionResponse.name)}] ${summary}`)
+        }
+      }
+    }
+
+    if (Array.isArray(message.tool_calls)) {
+      for (const call of message.tool_calls) {
+        const name = call && typeof call === 'object'
+          ? (call as { function?: { name?: unknown } }).function?.name
+          : undefined
+        if (name) fragments.push(`[Tool requested: ${String(name)}]`)
+      }
+    }
+
+    const metadata = message.tool_metadata as { result?: unknown } | undefined
+    if (metadata?.result) {
+      const result = typeof metadata.result === 'string'
+        ? metadata.result
+        : JSON.stringify(metadata.result)
+      fragments.push(`[Tool metadata] ${result}`)
+    }
+    return sanitizeMemoryReviewText(fragments.filter(Boolean).join('\n'))
+  }
+
+  const readChatReviewBatch = (
+    filePath: string,
+    fromMessageIndex: number
+  ): MemoryReviewBatch | null => {
+    const data = safeJsonParse<{
+      id?: string
+      title?: string
+      workspace?: string
+      sessionMode?: string
+      messages?: Array<Record<string, unknown>>
+    }>(fs.readFileSync(filePath, 'utf-8'), {})
+    if (data.workspace === 'harness' || data.sessionMode === 'harness') return null
+    const messages = Array.isArray(data.messages) ? data.messages : []
+    if (fromMessageIndex >= messages.length) return null
+
+    const chatId = typeof data.id === 'string' && data.id.trim()
+      ? data.id
+      : path.basename(filePath, '.json').replace(/^chat_/, '')
+    const lines: string[] = []
+    let characters = 0
+    let toMessageIndex = fromMessageIndex
+    const maximumIndex = Math.min(messages.length, fromMessageIndex + 60)
+
+    for (let index = fromMessageIndex; index < maximumIndex; index += 1) {
+      const message = messages[index]
+      toMessageIndex = index + 1
+      if (message.hidden === true || message.role === 'system') continue
+      const text = reviewContentText(message)
+      if (!text) continue
+      const role = message.role === 'user'
+        ? 'User'
+        : message.role === 'tool'
+          ? `Tool${typeof message.name === 'string' ? ` (${message.name})` : ''}`
+          : 'Assistant'
+      const line = `${role}: ${text}`
+      if (characters > 0 && characters + line.length + 2 > 24_000) {
+        toMessageIndex = index
+        break
+      }
+      lines.push(line)
+      characters += line.length + 2
+    }
+
+    if (toMessageIndex <= fromMessageIndex) return null
+    return {
+      chatId,
+      title: typeof data.title === 'string' && data.title.trim() ? data.title.trim() : 'Untitled chat',
+      fromMessageIndex,
+      toMessageIndex,
+      transcript: lines.join('\n\n') || '[No reviewable text in this delta]'
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Write application
   // -------------------------------------------------------------------------
@@ -300,6 +439,7 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
       const created = nowMs
       return {
         id: randomUUID(),
+        store: memoryStoreForKind(write.kind),
         kind: write.kind,
         content: write.content,
         factKey: write.factKey,
@@ -527,6 +667,13 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
       }
       if (patch.kind && ['about_user', 'preference', 'fact', 'event', 'project', 'behavioral'].includes(patch.kind)) {
         memory.kind = patch.kind as MemoryKind
+        memory.store = memoryStoreForKind(memory.kind)
+      }
+      if (patch.store === 'user' || patch.store === 'memory') {
+        memory.store = patch.store
+        if (memoryStoreForKind(memory.kind) !== patch.store) {
+          memory.kind = patch.store === 'user' ? 'about_user' : 'fact'
+        }
       }
       if (patch.tier && (patch.tier === 'committed' || patch.tier === 'possible')) {
         memory.tier = patch.tier
@@ -568,6 +715,54 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
       return summarizeMemories(readStore().memories)
     },
 
+    updateConfig(nextConfig: MemoryConfig): void {
+      config = normalizeMemoryConfig(nextConfig)
+      if (!config.autoExtract) {
+        for (const timer of debounceTimers.values()) clearTimeout(timer)
+        debounceTimers.clear()
+      }
+    },
+
+    initializeReviewCheckpoints(): void {
+      const meta = readMeta()
+      if (meta.reviewInitializedAt) return
+      for (const filePath of listChatFiles()) {
+        try {
+          const data = safeJsonParse<{ id?: string; messages?: unknown[] }>(
+            fs.readFileSync(filePath, 'utf-8'),
+            {}
+          )
+          const chatId = typeof data.id === 'string' && data.id.trim()
+            ? data.id
+            : path.basename(filePath, '.json').replace(/^chat_/, '')
+          meta.reviewWatermarks[chatId] = Array.isArray(data.messages) ? data.messages.length : 0
+        } catch {
+          /* Leave unreadable chats for a later cycle. */
+        }
+      }
+      meta.reviewInitializedAt = now()
+      writeMeta(meta)
+    },
+
+    getReviewBatches(): MemoryReviewBatch[] {
+      const meta = readMeta()
+      const batches: MemoryReviewBatch[] = []
+      for (const filePath of listChatFiles()) {
+        if (config.excludeChatIds.some((id) => id && filePath.includes(id))) continue
+        try {
+          const data = safeJsonParse<{ id?: string }>(fs.readFileSync(filePath, 'utf-8'), {})
+          const chatId = typeof data.id === 'string' && data.id.trim()
+            ? data.id
+            : path.basename(filePath, '.json').replace(/^chat_/, '')
+          const batch = readChatReviewBatch(filePath, meta.reviewWatermarks[chatId] ?? 0)
+          if (batch) batches.push(batch)
+        } catch (error) {
+          console.error(`[Memory] Failed to prepare review batch for ${filePath}:`, error)
+        }
+      }
+      return batches
+    },
+
     observeCompletedTurn(chatId: string): void {
       if (!config.autoExtract) return
       const existing = debounceTimers.get(chatId)
@@ -587,23 +782,25 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
     },
 
     memoryTool(call: MemoryToolCall, chatId = 'tool'): MemoryToolResult {
-      const USER_KINDS: MemoryKind[] = ['about_user', 'preference']
-      const GENERAL_KINDS: MemoryKind[] = ['fact', 'event', 'project', 'behavioral']
-      const targetKinds = call.target === 'user' ? USER_KINDS : GENERAL_KINDS
       const budget = call.target === 'user' ? MEMORY_PROFILE_BUDGET : MEMORY_GENERAL_BUDGET
       const usageText = (): string => {
-        const used = (kinds: MemoryKind[]): number =>
+        const used = (target: 'user' | 'memory'): number =>
           readStore()
-            .memories.filter((m) => !m.archived && m.tier === 'committed' && kinds.includes(m.kind))
+            .memories.filter((m) => !m.archived && m.tier === 'committed' && m.store === target)
             .reduce((sum, m) => sum + m.content.length, 0)
-        return 'user ' + used(USER_KINDS) + '/' + MEMORY_PROFILE_BUDGET + ' · memory ' + used(GENERAL_KINDS) + '/' + MEMORY_GENERAL_BUDGET
+        return 'user ' + used('user') + '/' + MEMORY_PROFILE_BUDGET + ' · memory ' + used('memory') + '/' + MEMORY_GENERAL_BUDGET
       }
       const store = readStore()
       const scope = store.memories.filter(
-        (m) => !m.archived && m.tier === 'committed' && targetKinds.includes(m.kind)
+        (m) => !m.archived && m.tier === 'committed' && m.store === call.target
       )
       const used = scope.reduce((sum, m) => sum + m.content.length, 0)
-      const refuse = (message: string): MemoryToolResult => ({ ok: false, message, usage: usageText() })
+      const refuse = (message: string, includeEntries = false): MemoryToolResult => ({
+        ok: false,
+        message,
+        ...(includeEntries ? { matches: scope.map((entry) => entry.content) } : {}),
+        usage: usageText()
+      })
 
       if (call.action === 'add') {
         const content = (call.content ?? '').trim()
@@ -619,14 +816,18 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
           return { ok: true, message: 'No duplicate added — this fact is already saved.', usage: usageText() }
         }
         if (used + content.length > budget) {
-          return refuse('Error: ' + call.target + ' store is full (' + used + '/' + budget + '). Consolidate existing entries (replace/remove) before adding.')
+          return refuse('Error: ' + call.target + ' store is full (' + used + '/' + budget + '). Consolidate existing entries (replace/remove) before adding.', true)
         }
-        const kind: MemoryKind =
+        const requestedKind = call.kind && memoryStoreForKind(call.kind) === call.target
+          ? call.kind
+          : undefined
+        const kind: MemoryKind = requestedKind ?? (
           call.target === 'user'
             ? /\b(gosto|prefiro|prefere|adoro|odeio|detesto|curto|favorit|like|prefer|love|hate)\b|n[ãa]o\s+gosto/i.test(content)
               ? 'preference'
               : 'about_user'
             : 'fact'
+        )
         const polarity =
           kind === 'preference'
             ? /\b(odeio|detesto|hate|can'?t\s+stand)\b|n[ãa]o\s+gosto|don'?t\s+like/i.test(content)
@@ -636,6 +837,7 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
         const created = now()
         const entry: MemoryEntry = {
           id: randomUUID(),
+          store: call.target,
           kind,
           content,
           factKey: 'tool.' + call.target + '.' + slugifyKey(content).slice(0, 60),
@@ -679,7 +881,27 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
         if (isCredentialLike(content)) {
           return refuse('Error: content looks like a secret or credential and was refused.')
         }
+        const usageAfterReplace = used - entry.content.length + content.length
+        if (usageAfterReplace > budget) {
+          return refuse('Error: ' + call.target + ' store would exceed its limit (' + usageAfterReplace + '/' + budget + '). Consolidate or remove an entry first.', true)
+        }
         entry.content = content
+        const requestedKind = call.kind && memoryStoreForKind(call.kind) === call.target
+          ? call.kind
+          : undefined
+        entry.store = call.target
+        entry.kind = requestedKind ?? (
+          call.target === 'user'
+            ? /\b(gosto|prefiro|prefere|adoro|odeio|detesto|curto|favorit|like|prefer|love|hate)\b|n[ãa]o\s+gosto/i.test(content)
+              ? 'preference'
+              : 'about_user'
+            : 'fact'
+        )
+        entry.polarity = entry.kind === 'preference'
+          ? /\b(odeio|detesto|hate|can'?t\s+stand)\b|n[ãa]o\s+gosto|don'?t\s+like/i.test(content)
+            ? 'negative'
+            : 'positive'
+          : 'neutral'
         entry.keywords = keywordize(content)
         entry.confidence = 0.95
         entry.confirmedAt = now()
@@ -694,6 +916,45 @@ export function createMemoryService(options: MemoryServiceOptions): MemoryServic
       writeStore(store)
       emit('archived', [entry], chatId)
       return { ok: true, message: 'Memory removed (archived; restorable).', usage: usageText(), entry }
+    },
+
+    applyReviewDecisions(
+      batch: MemoryReviewBatch,
+      decisions: MemoryReviewDecision[]
+    ): MemoryReviewApplyResult {
+      const result: MemoryReviewApplyResult = { saved: 0, user: 0, memory: 0, rejected: 0 }
+      for (const decision of decisions) {
+        const applied = service.memoryTool(decision, batch.chatId)
+        if (!applied.ok) {
+          result.rejected += 1
+          continue
+        }
+        if (!applied.entry) continue
+        result.saved += 1
+        result[decision.target] += 1
+      }
+      const meta = readMeta()
+      meta.reviewWatermarks[batch.chatId] = Math.max(
+        meta.reviewWatermarks[batch.chatId] ?? 0,
+        batch.toMessageIndex
+      )
+      writeMeta(meta)
+      return result
+    },
+
+    recordReviewSummary(saved: number): void {
+      const meta = readMeta()
+      meta.lastReviewedAt = now()
+      meta.lastReviewSavedCount = Math.max(0, Math.floor(saved))
+      writeMeta(meta)
+    },
+
+    getReviewSummary(): { lastReviewedAt?: number; lastSavedCount: number } {
+      const meta = readMeta()
+      return {
+        lastReviewedAt: meta.lastReviewedAt,
+        lastSavedCount: meta.lastReviewSavedCount ?? 0
+      }
     },
 
     startupCatchUp(): CatchUpReport {

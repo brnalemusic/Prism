@@ -32,6 +32,8 @@ import type {
   MemoryEntry,
   MemoryListOptions,
   MemoryPatch,
+  MemoryReviewInfo,
+  MemoryReviewStatus,
   MemoryStats,
   MemoryStoreEvent
 } from '../shared/memoryCore'
@@ -259,7 +261,10 @@ export interface PrismAPI {
   memoryRestore: (id: string) => Promise<boolean>
   memoryDelete: (id: string) => Promise<boolean>
   memoryStats: () => Promise<MemoryStats>
+  memoryReviewInfo: () => Promise<MemoryReviewInfo | undefined>
+  memoryReviewRunNow: () => Promise<MemoryReviewInfo | undefined>
   memoryToggleAuto: (enabled: boolean) => Promise<boolean>
+  onMemoryReviewStatus: (callback: (status: MemoryReviewStatus) => void) => () => void
   onMemoryEvent: (callback: (event: MemoryStoreEvent) => void) => () => void
   selectFolder: () => Promise<string | null>
   setSessionMode: (mode: SessionMode, disciplinePath?: string) => void

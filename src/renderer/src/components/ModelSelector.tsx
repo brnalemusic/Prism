@@ -41,6 +41,8 @@ interface ModelSelectorProps {
   menuPlacement?: 'top' | 'bottom'
   allowedCompletionTypes?: CompletionType[]
   allowClear?: boolean
+  emptyLabel?: string
+  clearLabel?: string
   imageGenerationStatus?: boolean
 }
 
@@ -60,6 +62,8 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
       menuPlacement = 'bottom',
       allowedCompletionTypes,
       allowClear = false,
+      emptyLabel = 'Select Model',
+      clearLabel = 'Not configured',
       imageGenerationStatus = false
     },
     ref
@@ -200,7 +204,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
     const rawDisplayName = selectedItem
       ? selectedItem.model.name || selectedItem.model.id
-      : selectedModel || 'Select Model'
+      : selectedModel || emptyLabel
 
     const getModelOnly = (val: string): string => {
       if (!val) return ''
@@ -297,7 +301,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
                       : 'text-text-secondary hover:bg-white/[0.05] hover:text-text-primary'
                   )}
                 >
-                  <span>Not configured</span>
+                  <span>{clearLabel}</span>
                   {!selectedModel && <Check size={14} weight="bold" />}
                 </button>
               )}

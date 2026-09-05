@@ -36,6 +36,8 @@ import type {
   MemoryEntry,
   MemoryListOptions,
   MemoryPatch,
+  MemoryReviewInfo,
+  MemoryReviewStatus,
   MemoryStats,
   MemoryStoreEvent
 } from '../shared/memoryCore'
@@ -552,8 +554,17 @@ const api = {
   memoryRestore: (id: string): Promise<boolean> => ipcRenderer.invoke('memory-restore', id),
   memoryDelete: (id: string): Promise<boolean> => ipcRenderer.invoke('memory-delete', id),
   memoryStats: (): Promise<MemoryStats> => ipcRenderer.invoke('memory-stats'),
+  memoryReviewInfo: (): Promise<MemoryReviewInfo | undefined> =>
+    ipcRenderer.invoke('memory-review-info'),
+  memoryReviewRunNow: (): Promise<MemoryReviewInfo | undefined> =>
+    ipcRenderer.invoke('memory-review-run-now'),
   memoryToggleAuto: (enabled: boolean): Promise<boolean> =>
     ipcRenderer.invoke('memory-toggle-auto', enabled),
+  onMemoryReviewStatus: (callback: (status: MemoryReviewStatus) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, status: MemoryReviewStatus): void => callback(status)
+    ipcRenderer.on('memory-review-status', listener)
+    return () => ipcRenderer.removeListener('memory-review-status', listener)
+  },
   onMemoryEvent: (callback: (event: MemoryStoreEvent) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, data: MemoryStoreEvent): void => callback(data)
     ipcRenderer.on('memory-write', listener)
