@@ -395,7 +395,7 @@ function sourceFilename(attachment: ToolImageAttachment): string {
 }
 
 function puterImageError(error: unknown): ImageGenerationError {
-  const message = error instanceof Error ? error.message : String(error || '')
+  const message = serializePuterError(error)
   const normalized = message.toLowerCase()
   if (/unauthori[sz]ed|auth|session|login|token/.test(normalized)) {
     return new ImageGenerationError({
@@ -435,6 +435,20 @@ function puterImageError(error: unknown): ImageGenerationError {
     retryable: true,
     providerMessage: message.slice(0, 500)
   })
+}
+
+function serializePuterError(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  if (error === null || error === undefined) return ''
+  if (typeof error !== 'object') return String(error)
+  try {
+    const serialized = JSON.stringify(error)
+    if (serialized && serialized !== '{}') return serialized
+  } catch {
+    // Fall through to a safe non-throwing representation.
+  }
+  return Object.prototype.toString.call(error)
 }
 
 async function awaitPuterImage(source: Promise<string>, signal?: AbortSignal): Promise<string> {
