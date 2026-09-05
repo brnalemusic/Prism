@@ -40,6 +40,10 @@ function isPuterChatImageModel(request: PuterImageRequest): boolean {
   )
 }
 
+function normalizePuterModelId(modelId: string): string {
+  return modelId.replace(/^openrouter:/i, '')
+}
+
 let activeAuthServer: http.Server | null = null
 let activeAuthReject: ((reason?: Error) => void) | null = null
 
@@ -242,7 +246,7 @@ export async function generatePuterImage(request: PuterImageRequest): Promise<st
   // message.images; they are not handled by the txt2img driver.
   if (isPuterChatImageModel(request)) {
     const options = {
-      model: request.model,
+      model: normalizePuterModelId(request.model),
       ...(provider ? { provider } : {})
     }
     const response = request.inputImage
@@ -260,7 +264,7 @@ export async function generatePuterImage(request: PuterImageRequest): Promise<st
 
   const image = await puter.ai.txt2img({
     prompt: request.prompt,
-    model: request.model,
+    model: normalizePuterModelId(request.model),
     // Puter.js uses `driver` to select the native image driver. The model
     // catalog calls this value `provider`, so forward both fields.
     ...(provider ? { driver: provider, provider } : {}),
@@ -631,7 +635,7 @@ export async function streamPuterCompletion(
 
   const driverArgs: Record<string, unknown> = {
     messages: formattedMessages,
-    model: modelId,
+    model: normalizePuterModelId(modelId),
     stream: true
   }
 
