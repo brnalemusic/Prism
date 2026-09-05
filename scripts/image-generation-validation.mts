@@ -35,6 +35,17 @@ import {
   parseImageAssetReference
 } from '../src/main/imageAssets.ts'
 
+test('keeps tool-free assistant text visible after streaming ends', () => {
+  const entries: ChatTimelineEntry[] = [
+    { kind: 'text', key: 'greeting', content: 'Hello, friend.', textOffset: 0 }
+  ]
+
+  const timeline = splitChatTimeline(entries)
+  assert.equal(timeline.hasTools, false)
+  assert.deepEqual(timeline.history, [])
+  assert.deepEqual(timeline.final, entries)
+})
+
 test('keeps only successful generated images outside collapsed work', () => {
   const imageAttachment = {
     kind: 'image' as const,

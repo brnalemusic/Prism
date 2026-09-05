@@ -4511,7 +4511,11 @@ function RealApp(): React.JSX.Element {
               const streamingToolCalls = lastMsg.streamingToolCalls
                 ? [...lastMsg.streamingToolCalls]
                 : []
-              const existingIdx = streamingToolCalls.findIndex((stc) => stc.index === index && (data.round === undefined || stc.round === data.round))
+              const existingIdx = streamingToolCalls.findIndex(
+                (stc) =>
+                  (id && stc.id === id) ||
+                  (stc.index === index && (data.round === undefined || stc.round === data.round))
+              )
               if (existingIdx !== -1) {
                 streamingToolCalls[existingIdx] = {
                   ...streamingToolCalls[existingIdx],
@@ -4521,6 +4525,7 @@ function RealApp(): React.JSX.Element {
                 }
               } else {
                 streamingToolCalls.push({
+                  round: data.round,
                   index,
                   id,
                   name: name || 'task',

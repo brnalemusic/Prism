@@ -17,6 +17,14 @@ const SAMPLE_IMAGE =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
 
 function snapshot(step: number): Message {
+  if (step === 7) {
+    return {
+      role: 'ai',
+      content: 'Hello, friend.',
+      isStreaming: false,
+      chatRounds: [{ round: 1, content: 'Hello, friend.' }]
+    }
+  }
   const msg: Message = {
     role: 'ai',
     content: 'Text A: I will inspect the files.',
@@ -179,7 +187,8 @@ function Fixture() {
           'Intermediate history',
           'Finished turn',
           'Generating image',
-          'Image result'
+          'Image result',
+          'Tool-free reply'
         ].map((label, index) => (
           <button key={label} onClick={() => setStep(index)}>
             {label}
