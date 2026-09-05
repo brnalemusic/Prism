@@ -9,6 +9,7 @@ import type { ToolImageAttachment } from '../../../shared/types'
 import type { ToolCallItem } from '../types/tab'
 import {
   deriveImageGenerationLifecycle,
+  formatImageActivityLabel,
   resolveGeneratedImageAspectRatio
 } from '../imageGenerationState'
 import { FluidGenerationPlaceholder } from './FluidGenerationPlaceholder'
@@ -76,7 +77,8 @@ export function GeneratedImageCard({
 }: GeneratedImageCardProps): React.JSX.Element {
   const prompt = typeof toolCall.args.prompt === 'string' ? toolCall.args.prompt.trim() : ''
   const isEdit = toolCall.args.operation === 'edit'
-  const activityLabel = activityTitle || (isEdit ? 'Editing Image' : 'Generating Image')
+  const defaultActivityLabel = isEdit ? 'Editing image' : 'Generating image'
+  const activityLabel = formatImageActivityLabel(activityTitle || '', defaultActivityLabel)
   const expectedCount = requestedCount(toolCall.args.n)
   const aspectRatio = requestedAspectRatio(toolCall.args.size)
   const maximumInlineWidth =

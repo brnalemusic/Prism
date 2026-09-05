@@ -30,7 +30,9 @@ Remote image URLs are treated as untrusted. Prism accepts only HTTP(S), limits r
 
 ## Conversation lifecycle
 
-The renderer derives one deterministic lifecycle from the tool call: `generating`, `loading-image`, `completed`, `error`, or `cancelled`. An accent-derived procedural SVG field of translucent silk ribbons appears as soon as the tool starts. After decoding, the surface transitions from the requested aspect ratio to the actual image ratio before a short crossfade reveals the image.
+The renderer derives one deterministic lifecycle from the tool call: `generating`, `loading-image`, `completed`, `error`, or `cancelled`. Generation uses a theme-derived liquid field whose layers merge, distort, and respond to pointer movement. The response is disabled for touch and reduced-motion preferences. Its model-generated activity label is normalized to a short, quiet line without replacing the streamed title with a generic tool name. After decoding, the surface transitions from the requested aspect ratio to the actual image ratio before a short crossfade reveals the image.
+
+A successful generated image is a live conversation artifact, so completing the turn leaves it visible in its original timeline position beside the final response. **Worked for N seconds** still collapses intermediate text and ordinary tool activity. Image errors, retry controls, cancellations, and attachment-free results are part of that collapsible work history; they are not promoted into the visible answer.
 
 User uploads and successful tool images are saved to the per-chat attachment sidecar and hydrated when history reloads. The JSON history stores compact metadata rather than raw base64. Subsequent model requests include unique valid user uploads and visual tool results such as screenshots, while duplicate bytes are sent only once. Generated image outputs remain available to the UI and edit flow but are represented to chat models by their opaque references instead of being sent back as vision input. URL responses are downloaded before persistence, so temporary or expiring provider URLs are never stored in conversation history.
 

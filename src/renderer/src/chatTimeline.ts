@@ -240,10 +240,16 @@ export function splitChatTimeline(entries: ChatTimelineEntry[]): {
   hasTools: boolean
 } {
   const hasTools = entries.some((entry) => entry.kind === 'tool')
-  const finalIndex = !hasTools
-    ? 0
-    : entries.at(-1)?.kind === 'text'
-      ? entries.length - 1
-      : entries.length
-  return { history: entries.slice(0, finalIndex), final: entries.slice(finalIndex), hasTools }
+  const finalTextIndex = hasTools && entries.at(-1)?.kind === 'text' ? entries.length - 1 : -1
+  const remainsVisible = (entry: ChatTimelineEntry, index: number): boolean =>
+    (entry.kind === 'tool' &&
+      entry.tool.name === 'generate_image' &&
+      entry.tool.status === 'done' &&
+      entry.tool.attachments?.some((attachment) => attachment.kind === 'image') === true) ||
+    index === finalTextIndex
+  return {
+    history: entries.filter((entry, index) => !remainsVisible(entry, index)),
+    final: entries.filter(remainsVisible),
+    hasTools
+  }
 }

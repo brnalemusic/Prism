@@ -20,17 +20,19 @@
   --sidebar-hover: #0c1c38;
   --border-subtle: rgba(255, 255, 255, 0.07);
   --border-default: rgba(255, 255, 255, 0.12);
-  --border-strong: rgba(255, 255, 255, 0.20);
+  --border-strong: rgba(255, 255, 255, 0.2);
 
   --border-glass-subtle: rgba(255, 255, 255, 0.06);
   --border-glass-default: rgba(255, 255, 255, 0.12);
   --border-glass-highlight: rgba(255, 255, 255, 0.22);
   --border-glass-accent: color-mix(in srgb, var(--accent-primary) 40%, rgba(255, 255, 255, 0.15));
 
-  --glass-specular-top: inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.30), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --glass-specular-top:
+    inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
   --glass-shadow-sm: 0 4px 16px rgba(0, 0, 0, 0.3);
   --glass-shadow-md: 0 12px 32px rgba(0, 0, 0, 0.5);
-  --glass-shadow-lg: 0 24px 64px -12px rgba(0, 0, 0, 0.75), inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.25);
+  --glass-shadow-lg:
+    0 24px 64px -12px rgba(0, 0, 0, 0.75), inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.25);
 
   --accent-primary: #38bdf8;
   --accent-secondary: #7dd3fc;
@@ -56,8 +58,7 @@
     'Geist Variable', 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --theme-font-mono:
     'JetBrains Mono Variable', 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
-  --theme-font-display:
-    'Rubik Spray Paint', var(--theme-font-sans);
+  --theme-font-display: 'Rubik Spray Paint', var(--theme-font-sans);
 
   --radius-control: 10px;
   --radius-card: 16px;
@@ -392,7 +393,7 @@
   }
 
   .glass-panel-floating {
-    background: rgba(10, 14, 24, 0.90);
+    background: rgba(10, 14, 24, 0.9);
     backdrop-filter: blur(36px) saturate(210%) contrast(108%);
     -webkit-backdrop-filter: blur(36px) saturate(210%) contrast(108%);
     border: 1px solid rgba(255, 255, 255, 0.16);
@@ -425,7 +426,9 @@
   .glass-card:hover {
     background: rgba(255, 255, 255, 0.065);
     border-color: var(--border-glass-highlight);
-    box-shadow: var(--glass-specular-top), 0 8px 24px rgba(0, 0, 0, 0.4);
+    box-shadow:
+      var(--glass-specular-top),
+      0 8px 24px rgba(0, 0, 0, 0.4);
     transform: translateY(-1px);
   }
 
@@ -442,7 +445,9 @@
   .glass-pill:hover {
     background: rgba(255, 255, 255, 0.08);
     border-color: var(--border-glass-highlight);
-    box-shadow: var(--glass-specular-top), 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow:
+      var(--glass-specular-top),
+      0 4px 12px rgba(0, 0, 0, 0.3);
   }
 
   .liquid-glass-input {
@@ -499,7 +504,7 @@
   }
 
   .glass-dropdown-panel {
-    background: rgba(10, 14, 24, 0.90);
+    background: rgba(10, 14, 24, 0.9);
     backdrop-filter: blur(36px) saturate(210%) contrast(108%);
     -webkit-backdrop-filter: blur(36px) saturate(210%) contrast(108%);
     border: 1px solid rgba(255, 255, 255, 0.16);
@@ -512,7 +517,7 @@
   }
 
   .liquid-glass-docked {
-    background: rgba(10, 14, 24, 0.90);
+    background: rgba(10, 14, 24, 0.9);
     backdrop-filter: blur(36px) saturate(210%) contrast(108%);
     -webkit-backdrop-filter: blur(36px) saturate(210%) contrast(108%);
     border: 1px solid rgba(255, 255, 255, 0.16);
@@ -990,7 +995,7 @@
   }
 
   .model-menu-panel {
-    background: rgba(10, 14, 24, 0.90);
+    background: rgba(10, 14, 24, 0.9);
     backdrop-filter: blur(36px) saturate(210%) contrast(108%);
     -webkit-backdrop-filter: blur(36px) saturate(210%) contrast(108%);
     border: 1px solid rgba(255, 255, 255, 0.16);
@@ -2284,179 +2289,237 @@
 .image-generation-fluid {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
   overflow: hidden;
-  background: linear-gradient(
-    152deg,
-    color-mix(in srgb, var(--theme-base-bg) 90%, var(--accent-primary)),
-    color-mix(in srgb, var(--theme-base-bg) 72%, var(--theme-aura-3)) 48%,
-    color-mix(in srgb, var(--theme-base-bg) 88%, var(--accent-primary))
-  );
-  animation: image-fluid-breathe 24s ease-in-out infinite;
+  background:
+    radial-gradient(
+      circle at 18% 12%,
+      color-mix(in srgb, var(--accent-secondary) 13%, transparent),
+      transparent 38%
+    ),
+    color-mix(in srgb, var(--theme-base-bg) 92%, var(--accent-primary));
+  touch-action: none;
 }
 
-.image-generation-fluid-field {
+.image-generation-filter-bank {
   position: absolute;
-  inset: -7%;
-  width: 114%;
-  height: 114%;
-  overflow: visible;
+  width: 0;
+  height: 0;
   pointer-events: none;
 }
 
-.image-generation-ribbon {
-  opacity: 0.72;
-  transform-box: fill-box;
+.image-generation-liquid-sheet {
+  position: absolute;
+  inset: -18%;
+  background:
+    radial-gradient(
+      circle at 26% 32%,
+      color-mix(in srgb, var(--accent-secondary) 42%, transparent),
+      transparent 29%
+    ),
+    radial-gradient(
+      circle at 72% 64%,
+      color-mix(in srgb, var(--accent-primary) 48%, transparent),
+      transparent 33%
+    ),
+    conic-gradient(
+      from 214deg at 48% 52%,
+      color-mix(in srgb, var(--theme-aura-1) 28%, transparent),
+      color-mix(in srgb, var(--accent-primary) 34%, transparent),
+      color-mix(in srgb, var(--theme-aura-3) 26%, transparent),
+      color-mix(in srgb, var(--accent-secondary) 30%, transparent),
+      color-mix(in srgb, var(--theme-aura-1) 28%, transparent)
+    );
+  opacity: 0.66;
+  transform: scale(1.08);
+  will-change: transform;
+  animation: image-liquid-sheet-drift 16s cubic-bezier(0.45, 0, 0.25, 1) infinite alternate;
+}
+
+.image-generation-liquid-body {
+  position: absolute;
+  inset: -24%;
+  overflow: visible;
+  opacity: 0.92;
+  pointer-events: none;
+}
+
+.image-generation-liquid-blob {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 34% 28%,
+    color-mix(in srgb, var(--accent-secondary) 86%, white 4%),
+    color-mix(in srgb, var(--accent-primary) 72%, var(--theme-aura-2)) 47%,
+    color-mix(in srgb, var(--theme-aura-3) 56%, transparent) 76%
+  );
+  box-shadow: inset -18px -24px 40px color-mix(in srgb, var(--theme-base-bg) 34%, transparent);
   transform-origin: center;
   will-change: transform, opacity;
 }
 
-.image-generation-ribbon-edge {
-  fill: none;
-  stroke: color-mix(in srgb, var(--accent-secondary) 54%, white 8%);
-  stroke-width: 0.38;
-  stroke-linecap: round;
-  opacity: 0.52;
+.image-generation-liquid-blob.blob-a {
+  top: 2%;
+  left: -4%;
+  width: 62%;
+  aspect-ratio: 1.12;
+  animation: image-liquid-blob-a 11s cubic-bezier(0.44, 0, 0.24, 1) -4s infinite alternate;
 }
 
-.image-generation-ribbon-a {
-  animation: image-ribbon-a 28s cubic-bezier(0.42, 0, 0.22, 1) -9s infinite alternate;
+.image-generation-liquid-blob.blob-b {
+  top: 9%;
+  right: -5%;
+  width: 58%;
+  aspect-ratio: 0.9;
+  opacity: 0.72;
+  animation: image-liquid-blob-b 13s cubic-bezier(0.38, 0, 0.18, 1) -7s infinite alternate;
 }
 
-.image-generation-ribbon-b {
-  opacity: 0.62;
-  animation: image-ribbon-b 35s cubic-bezier(0.37, 0, 0.2, 1) -21s infinite alternate;
+.image-generation-liquid-blob.blob-c {
+  bottom: -8%;
+  left: 16%;
+  width: 68%;
+  aspect-ratio: 1.3;
+  opacity: 0.78;
+  animation: image-liquid-blob-c 15s cubic-bezier(0.4, 0, 0.22, 1) -8s infinite alternate;
 }
 
-.image-generation-ribbon-c {
-  opacity: 0.68;
-  animation: image-ribbon-c 43s cubic-bezier(0.4, 0, 0.2, 1) -13s infinite alternate;
+.image-generation-liquid-blob.blob-d {
+  top: 35%;
+  left: 34%;
+  width: 44%;
+  aspect-ratio: 1;
+  opacity: 0.6;
+  animation: image-liquid-blob-d 9s cubic-bezier(0.36, 0, 0.2, 1) -3s infinite alternate;
 }
 
-.image-generation-ribbon-d {
-  opacity: 0.42;
-  animation: image-ribbon-d 51s cubic-bezier(0.43, 0, 0.18, 1) -31s infinite alternate;
-}
-
-.image-generation-fluid.is-cancelled,
-.image-generation-fluid.is-cancelled .image-generation-ribbon,
-.image-generation-fluid.is-cancelled .image-generation-label {
-  animation-play-state: paused;
+.image-generation-liquid-blob.pointer-blob {
+  top: 27%;
+  left: 28%;
+  width: 46%;
+  aspect-ratio: 1;
+  background: radial-gradient(
+    circle at 38% 34%,
+    color-mix(in srgb, var(--accent-secondary) 92%, white 8%),
+    color-mix(in srgb, var(--accent-primary) 78%, var(--theme-aura-1)) 52%,
+    color-mix(in srgb, var(--accent-primary) 22%, transparent) 78%
+  );
 }
 
 .image-generation-fluid-vignette {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 3;
   background:
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--theme-base-bg) 18%, transparent),
-      transparent 22%,
-      transparent 76%,
-      color-mix(in srgb, var(--theme-base-bg) 28%, transparent)
+      color-mix(in srgb, var(--theme-base-bg) 12%, transparent),
+      transparent 20%,
+      transparent 70%,
+      color-mix(in srgb, var(--theme-base-bg) 48%, transparent)
     ),
     radial-gradient(
-      ellipse at center,
-      transparent 38%,
-      color-mix(in srgb, var(--theme-base-bg) 35%, transparent)
+      ellipse at 50% 42%,
+      transparent 28%,
+      color-mix(in srgb, var(--theme-base-bg) 30%, transparent) 78%
     );
   pointer-events: none;
 }
 
+.image-generation-fluid-specular {
+  position: absolute;
+  z-index: 4;
+  inset: 1px;
+  border: 1px solid color-mix(in srgb, var(--accent-secondary) 16%, transparent);
+  border-radius: calc(var(--radius-card) - 1px);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 18%, transparent),
+    inset 14px 18px 42px -36px color-mix(in srgb, var(--accent-secondary) 72%, transparent),
+    inset -18px -22px 48px -38px color-mix(in srgb, var(--accent-primary) 66%, transparent);
+  pointer-events: none;
+}
+
 .image-generation-label {
-  position: relative;
-  z-index: 3;
-  color: color-mix(in srgb, var(--text-primary) 72%, var(--accent-secondary));
+  position: absolute;
+  z-index: 5;
+  left: 18px;
+  bottom: 16px;
+  max-width: calc(100% - 36px);
+  overflow: hidden;
+  color: color-mix(in srgb, var(--text-primary) 86%, var(--accent-secondary));
   font-family: var(--theme-font-sans);
-  font-size: clamp(12px, 2.1vw, 16px);
-  font-weight: 400;
-  letter-spacing: 0.24em;
+  font-size: 12px;
+  font-weight: 520;
+  line-height: 1.35;
+  letter-spacing: -0.012em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   text-shadow:
-    0 1px 10px var(--theme-base-bg),
-    0 1px 3px var(--theme-base-bg);
-  opacity: 0.7;
-  animation: image-label-breathe 13s ease-in-out infinite;
+    0 1px 14px var(--theme-base-bg),
+    0 1px 4px var(--theme-base-bg);
+  opacity: 0.82;
+  will-change: transform, opacity;
+  animation: image-label-breathe 4.8s ease-in-out infinite;
 }
 
-@keyframes image-ribbon-a {
+@keyframes image-liquid-sheet-drift {
   0% {
-    transform: translate3d(-3%, -2%, 0) rotate(-1.5deg) scale(1.03, 0.96);
-    opacity: 0.58;
+    transform: translate3d(-2%, -1%, 0) rotate(-3deg) scale(1.08);
   }
-  52% {
-    transform: translate3d(3%, 2%, 0) rotate(1deg) scale(0.98, 1.04);
-    opacity: 0.76;
-  }
-  100% {
-    transform: translate3d(-1%, 4%, 0) rotate(-0.5deg) scale(1.04, 0.98);
-    opacity: 0.64;
+  to {
+    transform: translate3d(2%, 1.5%, 0) rotate(4deg) scale(1.14);
   }
 }
 
-@keyframes image-ribbon-b {
+@keyframes image-liquid-blob-a {
   0% {
-    transform: translate3d(3%, 1%, 0) rotate(1.2deg) scale(1.02, 0.98);
-    opacity: 0.5;
+    transform: translate3d(-8%, -4%, 0) scale(0.88, 1.1) rotate(-8deg);
   }
-  47% {
-    transform: translate3d(-3%, -2%, 0) rotate(-1deg) scale(0.97, 1.04);
-    opacity: 0.68;
-  }
-  100% {
-    transform: translate3d(2%, 3%, 0) rotate(0.4deg) scale(1.03, 0.99);
-    opacity: 0.56;
+  to {
+    transform: translate3d(28%, 18%, 0) scale(1.18, 0.84) rotate(14deg);
   }
 }
 
-@keyframes image-ribbon-c {
+@keyframes image-liquid-blob-b {
   0% {
-    transform: translate3d(-2%, 3%, 0) rotate(0.8deg) scale(1.01, 1.03);
-    opacity: 0.56;
+    transform: translate3d(10%, -12%, 0) scale(1.06, 0.9) rotate(9deg);
   }
-  45% {
-    transform: translate3d(3%, -2%, 0) rotate(-1.2deg) scale(1.04, 0.97);
-    opacity: 0.72;
-  }
-  100% {
-    transform: translate3d(0, -3%, 0) rotate(0.5deg) scale(0.98, 1.04);
-    opacity: 0.62;
+  to {
+    transform: translate3d(-32%, 24%, 0) scale(0.82, 1.2) rotate(-18deg);
   }
 }
 
-@keyframes image-ribbon-d {
+@keyframes image-liquid-blob-c {
   0% {
-    transform: translate3d(-2%, -1%, 0) rotate(-1deg) scale(0.98);
-    opacity: 0.34;
+    transform: translate3d(-18%, 15%, 0) scale(1.12, 0.86) rotate(12deg);
   }
-  50% {
-    transform: translate3d(2%, 2%, 0) rotate(1.3deg) scale(1.04);
-    opacity: 0.48;
-  }
-  100% {
-    transform: translate3d(1%, -2%, 0) rotate(-0.4deg) scale(1);
-    opacity: 0.39;
+  to {
+    transform: translate3d(20%, -24%, 0) scale(0.86, 1.16) rotate(-11deg);
   }
 }
 
-@keyframes image-fluid-breathe {
-  0%,
-  100% {
-    filter: brightness(0.97) saturate(0.94);
+@keyframes image-liquid-blob-d {
+  0% {
+    transform: translate3d(-26%, 4%, 0) scale(0.76, 1.22) rotate(-16deg);
   }
-  48% {
-    filter: brightness(1.025) saturate(1.01);
+  to {
+    transform: translate3d(30%, -6%, 0) scale(1.2, 0.78) rotate(20deg);
   }
+}
+
+.image-generation-fluid.is-cancelled .image-generation-liquid-sheet,
+.image-generation-fluid.is-cancelled .image-generation-liquid-blob,
+.image-generation-fluid.is-cancelled .image-generation-label {
+  animation-play-state: paused;
 }
 
 @keyframes image-label-breathe {
   0%,
   100% {
-    opacity: 0.64;
+    opacity: 0.72;
   }
   50% {
-    opacity: 0.77;
+    opacity: 0.9;
   }
 }
 
@@ -2663,30 +2726,21 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .image-generation-fluid {
-    animation: image-fluid-breathe 28s ease-in-out infinite;
-  }
-
-  .image-generation-ribbon {
+  .image-generation-liquid-sheet,
+  .image-generation-liquid-blob,
+  .image-generation-label {
     animation: none !important;
     will-change: auto;
   }
 
-  .image-generation-ribbon-a {
-    transform: translate3d(1%, 1%, 0);
+  .image-generation-liquid-sheet {
+    transform: scale(1.08);
   }
-  .image-generation-ribbon-b {
-    transform: translate3d(-1%, 0, 0);
+
+  .image-generation-liquid-blob.pointer-blob {
+    opacity: 0;
   }
-  .image-generation-ribbon-c {
-    transform: translate3d(0, -1%, 0);
-  }
-  .image-generation-ribbon-d {
-    transform: scale(1.01);
-  }
-  .image-generation-label {
-    animation-duration: 22s;
-  }
+
   .generated-image-surface {
     transition-duration: 1ms;
   }
@@ -2696,5 +2750,16 @@
   }
   .hero-shimmer-text {
     animation: none !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .image-generation-liquid-sheet,
+  .image-generation-liquid-body {
+    filter: none !important;
+  }
+
+  .image-generation-liquid-body {
+    opacity: 0.48;
   }
 }

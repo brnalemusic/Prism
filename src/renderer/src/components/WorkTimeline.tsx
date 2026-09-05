@@ -17,7 +17,8 @@ export function WorkTimeline({
   const buttonRef = useRef<HTMLButtonElement>(null)
   const anchorRef = useRef<{ scroller: HTMLElement; top: number } | null>(null)
   const id = useId()
-  const { history, final, hasTools } = splitChatTimeline(entries)
+  const { final, hasTools } = splitChatTimeline(entries)
+  const visibleWhenCollapsed = new Set(final.map((entry) => entry.key))
   const open = active || expanded
   useLayoutEffect(() => {
     const anchor = anchorRef.current
@@ -51,16 +52,17 @@ export function WorkTimeline({
           </span>
         </button>
       )}
-      <div id={id} hidden={!open}>
-        <div className="flex flex-col gap-1.5">
-          {history.map((entry) => (
-            <React.Fragment key={entry.key}>{renderEntry(entry)}</React.Fragment>
-          ))}
-        </div>
+      <div id={id} className="flex flex-col gap-1.5">
+        {entries.map((entry) => (
+          <div
+            key={entry.key}
+            className="contents"
+            hidden={!open && !visibleWhenCollapsed.has(entry.key)}
+          >
+            {renderEntry(entry)}
+          </div>
+        ))}
       </div>
-      {final.map((entry) => (
-        <React.Fragment key={entry.key}>{renderEntry(entry)}</React.Fragment>
-      ))}
     </div>
   )
 }

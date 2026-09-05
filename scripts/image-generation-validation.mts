@@ -25,13 +25,96 @@ import {
 } from '../src/main/ai/imageGenerationCore.ts'
 import {
   deriveImageGenerationLifecycle,
+  formatImageActivityLabel,
   resolveGeneratedImageAspectRatio
 } from '../src/renderer/src/imageGenerationState.ts'
+import { splitChatTimeline, type ChatTimelineEntry } from '../src/renderer/src/chatTimeline.ts'
 import {
   dedupeImageAttachments,
   formatImageAssetReference,
   parseImageAssetReference
 } from '../src/main/imageAssets.ts'
+
+test('keeps only successful generated images outside collapsed work', () => {
+  const imageAttachment = {
+    kind: 'image' as const,
+    mimeType: 'image/png' as const,
+    data: 'YWJjZA=='
+  }
+  const entries: ChatTimelineEntry[] = [
+    { kind: 'text', key: 'before', content: 'I will make it.', textOffset: 0 },
+    {
+      kind: 'tool',
+      key: 'failed-image',
+      tool: {
+        id: 'failed-image',
+        name: 'generate_image',
+        args: {},
+        status: 'error',
+        result: '{"ok":false,"error":{"retryable":true}}'
+      }
+    },
+    {
+      kind: 'tool',
+      key: 'completed-image',
+      tool: {
+        id: 'completed-image',
+        name: 'generate_image',
+        args: {},
+        status: 'done',
+        attachments: [imageAttachment]
+      }
+    },
+    { kind: 'text', key: 'final', content: 'Here is the image.', textOffset: 16 }
+  ]
+
+  const timeline = splitChatTimeline(entries)
+  assert.deepEqual(
+    timeline.history.map((entry) => entry.key),
+    ['before', 'failed-image']
+  )
+  assert.deepEqual(
+    timeline.final.map((entry) => entry.key),
+    ['completed-image', 'final']
+  )
+})
+
+test('compacts cancelled and attachment-free image results', () => {
+  const entries: ChatTimelineEntry[] = [
+    {
+      kind: 'tool',
+      key: 'cancelled-image',
+      tool: { name: 'generate_image', args: {}, status: 'cancelled' }
+    },
+    {
+      kind: 'tool',
+      key: 'missing-image',
+      tool: { name: 'generate_image', args: {}, status: 'done' }
+    }
+  ]
+
+  const timeline = splitChatTimeline(entries)
+  assert.deepEqual(
+    timeline.history.map((entry) => entry.key),
+    ['cancelled-image', 'missing-image']
+  )
+  assert.deepEqual(timeline.final, [])
+})
+
+test('keeps image activity labels short and quiet', () => {
+  assert.equal(
+    formatImageActivityLabel('  Painting   a calm blue lake...  ', 'Generating image'),
+    'Painting a calm blue lake'
+  )
+  assert.equal(
+    formatImageActivityLabel(
+      'Creating an intricate cinematic image with far too many details',
+      'Generating image'
+    ),
+    'Creating an intricate cinematic image with'
+  )
+  assert.equal(formatImageActivityLabel('...', 'Generating image'), 'Generating image')
+})
 
 test('builds normalized OpenAI-compatible image endpoints', () => {
   assert.equal(
@@ -138,10 +221,9 @@ test('normalizes Responses, Gemini, and Stability image payloads', () => {
     ),
     [{ type: 'base64', value: 'YWJjZA==' }]
   )
-  assert.deepEqual(
-    parseAdapterImageResponse({ image: 'YWJjZA==' }, 'stability'),
-    [{ type: 'base64', value: 'YWJjZA==' }]
-  )
+  assert.deepEqual(parseAdapterImageResponse({ image: 'YWJjZA==' }, 'stability'), [
+    { type: 'base64', value: 'YWJjZA==' }
+  ])
 })
 
 test('maps provider failures to safe actionable image errors', () => {
@@ -165,9 +247,18 @@ test('maps provider failures to safe actionable image errors', () => {
     'The selected model cannot edit images.'
   )
   assert.equal(mapImageGenerationHttpError(503, 'unavailable').retryable, true)
-  assert.equal(mapImageGenerationHttpError(400, 'unsupported endpoint').code, 'IMAGE_ENDPOINT_UNSUPPORTED')
-  assert.equal(isImageGenerationProtocolIncompatibility(mapImageGenerationHttpError(404, 'route not found')), true)
-  assert.equal(isImageGenerationProtocolIncompatibility(mapImageGenerationHttpError(400, 'invalid size')), false)
+  assert.equal(
+    mapImageGenerationHttpError(400, 'unsupported endpoint').code,
+    'IMAGE_ENDPOINT_UNSUPPORTED'
+  )
+  assert.equal(
+    isImageGenerationProtocolIncompatibility(mapImageGenerationHttpError(404, 'route not found')),
+    true
+  )
+  assert.equal(
+    isImageGenerationProtocolIncompatibility(mapImageGenerationHttpError(400, 'invalid size')),
+    false
+  )
 })
 
 test('validates opaque image references and deduplicates identical visual payloads', () => {
@@ -230,8 +321,17 @@ test('defaults image capability state to automatic and preserves operation indep
   }
   const capabilities = defaultImageGenerationCapabilities(provider.completionType)
   assert.equal(getImageGenerationCapabilityState(capabilities, 'generate').status, 'unknown')
-  assert.equal(getImageGenerationCapabilityState({ ...capabilities!, edit: { status: 'unsupported' } }, 'generate').status, 'unknown')
-  assert.equal(resolveImageGenerationCandidates({ provider, model, operation: 'generate' })[0], 'openai_images')
+  assert.equal(
+    getImageGenerationCapabilityState(
+      { ...capabilities!, edit: { status: 'unsupported' } },
+      'generate'
+    ).status,
+    'unknown'
+  )
+  assert.equal(
+    resolveImageGenerationCandidates({ provider, model, operation: 'generate' })[0],
+    'openai_images'
+  )
 })
 
 test('orders known protocols deterministically and keeps unknown models eligible', () => {

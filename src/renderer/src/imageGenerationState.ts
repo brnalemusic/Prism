@@ -13,6 +13,15 @@ export interface ImageGenerationLifecycleInput {
   decodeFailed: boolean
 }
 
+export function formatImageActivityLabel(label: string, fallback: string): string {
+  const clean = label
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[.,:;!?\u2026-]+$/g, '')
+  if (!clean) return fallback
+  return clean.split(' ').slice(0, 6).join(' ')
+}
+
 export function resolveGeneratedImageAspectRatio(
   requestedAspectRatio: number,
   width: number | undefined,
