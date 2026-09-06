@@ -27,6 +27,7 @@ export const MiniAppRenderer: React.FC<MiniAppProps> = ({
   const [showCode, setShowCode] = useState(false)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [key, setKey] = useState(0)
+  const isInDedicatedWindow = window.location.hash === '#mini-app'
 
   useEffect(() => {
     const removeListener = window.api.onMiniAppWindowClosed((closedId: string) => {
@@ -110,7 +111,38 @@ export const MiniAppRenderer: React.FC<MiniAppProps> = ({
     )
   }
 
-  const isInDedicatedWindow = window.location.hash === '#mini-app'
+  if (!isInDedicatedWindow && !isExternal) {
+    return (
+      <div className="w-full my-4 rounded-[24px] border border-white/10 bg-black/40 px-6 py-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-5">
+          <div className="flex min-w-0 items-start gap-3.5">
+            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-accent-primary/20 bg-accent-primary/10 text-accent-primary">
+              <ExternalLink size={19} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary/60">
+                Interactive Mini App
+              </p>
+              <h3 className="mt-1 truncate text-[15px] font-semibold tracking-tight text-text-primary">
+                {title}
+              </h3>
+              <p className="mt-1 text-[12px] leading-relaxed text-text-secondary/65">
+                Ready to open in a dedicated window.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleOpenExternal}
+            className="flex shrink-0 items-center gap-2 rounded-xl bg-accent-primary px-3.5 py-2.5 text-[11px] font-bold text-white shadow-lg shadow-accent-primary/15 transition-all hover:brightness-110 active:scale-95"
+          >
+            <ExternalLink size={15} />
+            Open Mini App
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div

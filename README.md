@@ -190,7 +190,7 @@ Prism features an extensible internal skills library (`resources/docs/skills/`).
 
 ### 8. Interactive Mini-Apps & Questionnaires
 
-- **Sandboxed Mini-Apps (`create_mini_app`):** AI models can author fully functional, interactive web widgets (HTML, CSS, JavaScript) that render inside isolated sandboxed web views within the chat.
+- **Sandboxed Mini-Apps (`create_mini_app`):** AI models can author fully functional, interactive web widgets (HTML, CSS, JavaScript). The chat keeps a persistent launch card, and the app runs inside an isolated sandboxed web view in its dedicated window.
 - **Interactive Questionnaires (`to_ask`):** Generate multi-choice or essay questionnaires directly in the chat to clarify project requirements before executing long-running code refactors.
 - **Quantum Physics Simulator:** A built-in interactive physics simulation engine showcasing complex canvas-based micro-interactions.
 

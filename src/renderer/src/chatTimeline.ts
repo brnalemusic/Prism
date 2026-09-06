@@ -243,6 +243,7 @@ export function splitChatTimeline(entries: ChatTimelineEntry[]): {
   const finalTextIndex = hasTools && entries.at(-1)?.kind === 'text' ? entries.length - 1 : -1
   const remainsVisible = (entry: ChatTimelineEntry, index: number): boolean =>
     !hasTools ||
+    (entry.kind === 'tool' && entry.tool.name === 'create_mini_app') ||
     (entry.kind === 'tool' &&
       entry.tool.name === 'generate_image' &&
       entry.tool.status === 'done' &&
