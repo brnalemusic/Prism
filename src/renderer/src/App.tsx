@@ -2612,6 +2612,9 @@ function RealApp(): React.JSX.Element {
       const project = forceProjectPicker
         ? null
         : await window.api.resolveHarnessStartupProject().catch(() => null)
+      if (project) {
+        await window.api.activateHarnessProject(project.rootPath).catch(console.error)
+      }
       const newTab: TabSession = {
         id: newId,
         chatId: undefined,

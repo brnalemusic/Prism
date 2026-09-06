@@ -102,16 +102,17 @@ export function parseHarnessGitStatus(output: string): HarnessGitFile[] {
 function parseBranches(output: string, currentBranch?: string): HarnessGitBranch[] {
   const parts = output.split('\0').filter(Boolean)
   const branches: HarnessGitBranch[] = []
-  for (let index = 0; index + 3 < parts.length; index += 4) {
-    const name = parts[index]
-    const head = parts[index + 1]
-    const upstream = parts[index + 2]
-    const isRemote = name.startsWith('origin/') || name.includes('/') && name.startsWith('refs/remotes/')
-    if (name.endsWith('/HEAD')) continue
+  for (let index = 0; index + 4 < parts.length; index += 5) {
+    const refName = parts[index]
+    const shortName = parts[index + 1]
+    const head = parts[index + 2]
+    const upstream = parts[index + 3]
+    const isRemote = refName.startsWith('refs/remotes/')
+    if (shortName.endsWith('/HEAD')) continue
     branches.push({
-      name: isRemote ? name.replace(/^[^/]+\//, '') : name,
-      fullName: name,
-      isCurrent: head === '*' || name === currentBranch,
+      name: isRemote ? shortName.replace(/^[^/]+\//, '') : shortName,
+      fullName: shortName,
+      isCurrent: head === '*' || shortName === currentBranch,
       isRemote,
       upstream: upstream || undefined
     })
@@ -200,7 +201,7 @@ export async function getHarnessGitSnapshot(projectPath: string): Promise<Harnes
     git(repoRoot, ['branch', '--show-current']),
     git(repoRoot, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']),
     git(repoRoot, ['status', '--porcelain=v1', '-z']),
-    git(repoRoot, ['for-each-ref', '--format=%(refname:short)%00%(HEAD)%00%(upstream:short)%00%(objectname:short)%00', 'refs/heads', 'refs/remotes']),
+    git(repoRoot, ['for-each-ref', '--format=%(refname)%00%(refname:short)%00%(HEAD)%00%(upstream:short)%00%(objectname:short)%00', 'refs/heads', 'refs/remotes']),
     git(repoRoot, ['remote', '-v']),
     git(repoRoot, ['log', '-20', '--format=%H%x00%h%x00%s%x00%an%x00%aI%x00']),
     git(repoRoot, ['config', '--bool', 'commit.gpgsign']),
@@ -323,7 +324,7 @@ export async function runHarnessGitAction(
       case 'deleteBranch': {
         const branch = requireValue(action.name, 'Branch name')
         if (action.remote) output = (await runGitOrThrow(cwd, ['push', action.remote, '--delete', branch])).stdout
-        else output = (await runGitOrThrow(cwd, [action.force ? 'branch' : 'branch', action.force ? '-D' : '-d', branch])).stdout
+        else output = (await runGitOrThrow(cwd, ['branch', action.force ? '-D' : '-d', branch])).stdout
         break
       }
       case 'fetch':
@@ -362,7 +363,7 @@ export async function runHarnessGitAction(
       case 'sync': {
         const remote = currentRemote(before, action.remote)
         await runGitOrThrow(cwd, ['fetch', remote, '--prune'])
-        await runGitOrThrow(cwd, ['pull', '--rebase'])
+        if (before.upstream) await runGitOrThrow(cwd, ['pull', '--rebase'])
         output = (await runGitOrThrow(cwd, before.upstream ? ['push'] : ['push', '--set-upstream', remote, requireValue(before.branch || '', 'Branch name')])).stdout
         break
       }
