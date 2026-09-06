@@ -9,7 +9,7 @@
 
 ### The Open, Multi-Provider Desktop AI Copilot & Autonomous Execution Engine
 
-[![Version](https://img.shields.io/badge/version-9.0.0-beta.0.7-38bdf8?style=for-the-badge&logo=electron&logoColor=white)](https://github.com/brnalemusic/Prism)
+[![Version](https://img.shields.io/badge/version-9.0.0-beta.1-38bdf8?style=for-the-badge&logo=electron&logoColor=white)](https://github.com/brnalemusic/Prism)
 [![License](https://img.shields.io/badge/license-PRISM%20LICENSE%201.0-eab308?style=for-the-badge)](./LICENSE)
 
 <br />
