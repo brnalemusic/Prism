@@ -66,7 +66,7 @@ interface DialogValues {
 }
 
 const BRENO_CO_AUTHOR = {
-  name: 'brnalemusic',
+  name: 'Breno Alexandrē',
   email: 'brenoalexandre.music@gmail.com'
 }
 const REFRESH_INTERVAL_MS = 2_500
@@ -595,7 +595,6 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
                       <div className="flex items-center gap-3">
                         <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-primary/[0.1] text-accent-primary shadow-[inset_0_0_0_1px_rgba(168,85,247,0.18)]">
                           <Sparkle size={14} weight="fill" />
-                          <CircleNotch size={22} className={clsx('absolute text-accent-primary/65', !reduceMotion && 'animate-spin')} />
                         </div>
                         <div className="min-w-0 text-left">
                           <p className="text-[11px] font-semibold leading-4 text-text-primary">Generating commit message</p>

@@ -857,7 +857,7 @@ test('Git Control parses porcelain state and performs local checkpoint operation
         sign: false,
         signoff: true,
         coAuthor: {
-          name: 'brnalemusic',
+          name: 'Breno Alexandrē',
           email: 'brenoalexandre.music@gmail.com'
         }
       }
@@ -871,7 +871,7 @@ test('Git Control parses porcelain state and performs local checkpoint operation
     })
     assert.match(
       commitBody.stdout,
-      /Co-authored-by: brnalemusic <brenoalexandre\.music@gmail\.com>/
+          /Co-authored-by: Breno Alexandrē <brenoalexandre\.music@gmail\.com>/
     )
 
     const created = await runHarnessGitAction(root, { kind: 'createBranch', name: 'checkpoint-test' })
