@@ -2,7 +2,7 @@
 
 Harness Git Control is the compact Source Control surface beside the Harness project selector. It operates only inside the selected, registered Harness project and never stores GitHub credentials. GitHub pull requests use the authenticated local `gh` CLI session.
 
-The control renders through a viewport-aware portal so it is not clipped by the Harness input area. It opens above or below its trigger based on available space. Branches, commits, PR bases, confirmations, and destructive actions use Prism-owned controls rather than operating-system selects or prompts.
+The control renders through a viewport-aware portal so it is not clipped by the Harness input area. The Git Control panel opens beside the trigger, preferring its right side and falling back to the left when the viewport is constrained. Internal branch and commit pickers open downward as floating dropdowns, so they never resize the panel. Branches, commits, PR bases, confirmations, and destructive actions use Prism-owned controls rather than operating-system selects or prompts.
 
 ## Project synchronization
 

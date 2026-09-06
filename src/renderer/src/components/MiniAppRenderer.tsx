@@ -113,24 +113,22 @@ export const MiniAppRenderer: React.FC<MiniAppProps> = ({
 
   if (!isInDedicatedWindow && !isExternal) {
     return (
-      <div className="w-full my-4 rounded-[24px] border border-white/10 bg-black/40 px-6 py-5 shadow-2xl">
-        <div className="flex items-start justify-between gap-5">
-          <div className="flex min-w-0 items-start gap-3.5">
-            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-accent-primary/20 bg-accent-primary/10 text-accent-primary">
-              <ExternalLink size={19} />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary/60">
-                Interactive Mini App
-              </p>
-              <h3 className="mt-1 truncate text-[15px] font-semibold tracking-tight text-text-primary">
-                {title}
-              </h3>
-              <p className="mt-1 text-[12px] leading-relaxed text-text-secondary/65">
-                Ready to open in a dedicated window.
-              </p>
-            </div>
-          </div>
+      <div className="my-4 flex w-full flex-col items-center rounded-[24px] border border-white/10 bg-black/40 px-6 py-6 text-center shadow-2xl">
+        <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-accent-primary/20 bg-accent-primary/10 text-accent-primary">
+          <ExternalLink size={19} />
+        </div>
+        <div className="mt-3 min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary/60">
+            Interactive Mini App
+          </p>
+          <h3 className="mt-1 truncate text-[15px] font-semibold tracking-tight text-text-primary">
+            {title}
+          </h3>
+          <p className="mt-1 text-[12px] leading-relaxed text-text-secondary/65">
+            Ready to open in a dedicated window.
+          </p>
+        </div>
+        <div className="mt-4">
           <button
             type="button"
             onClick={handleOpenExternal}

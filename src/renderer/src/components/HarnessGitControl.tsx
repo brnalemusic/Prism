@@ -7,6 +7,7 @@ import {
   ArrowDown,
   ArrowUp,
   CaretDown,
+  CaretRight,
   Check,
   CheckCircle,
   CircleNotch,
@@ -91,6 +92,9 @@ function statusLabel(indexStatus: string, workTreeStatus: string): string {
 function CustomPicker({ value, placeholder, options, disabled, onSelect }: PickerProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [menuPosition, setMenuPosition] = useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null)
+  const pickerRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const selected = options.find((option) => option.value === value)
   const filtered = useMemo(() => {
@@ -100,18 +104,130 @@ function CustomPicker({ value, placeholder, options, disabled, onSelect }: Picke
       : options
   }, [options, query])
 
+  const updateMenuPosition = useCallback((): void => {
+    const picker = pickerRef.current
+    if (!picker) return
+    const rect = picker.getBoundingClientRect()
+    const top = rect.bottom + 6
+    setMenuPosition({
+      left: Math.min(Math.max(PANEL_MARGIN, rect.left), window.innerWidth - rect.width - PANEL_MARGIN),
+      top,
+      width: rect.width,
+      maxHeight: Math.max(96, Math.min(224, window.innerHeight - top - PANEL_MARGIN))
+    })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!isOpen) return
+    updateMenuPosition()
+    const observer = new ResizeObserver(updateMenuPosition)
+    if (pickerRef.current) observer.observe(pickerRef.current)
+    window.addEventListener('resize', updateMenuPosition)
+    window.addEventListener('scroll', updateMenuPosition, true)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', updateMenuPosition)
+      window.removeEventListener('scroll', updateMenuPosition, true)
+    }
+  }, [isOpen, updateMenuPosition])
+
   useEffect(() => {
-    if (isOpen) requestAnimationFrame(() => searchRef.current?.focus())
+    if (!isOpen) return
+    requestAnimationFrame(() => searchRef.current?.focus())
+    const close = (): void => {
+      setIsOpen(false)
+      setQuery('')
+    }
+    const onPointerDown = (event: MouseEvent): void => {
+      const target = event.target as Node
+      if (!pickerRef.current?.contains(target) && !menuRef.current?.contains(target)) close()
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.stopImmediatePropagation()
+      close()
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown, true)
+    }
   }, [isOpen])
 
+  const menu = createPortal(
+    <AnimatePresence initial={false}>
+      {isOpen && menuPosition && (
+        <motion.div
+          ref={menuRef}
+          data-harness-git-layer
+          initial={{ opacity: 0, y: -4, scale: 0.99 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -3, scale: 0.99 }}
+          transition={PANEL_TRANSITION}
+          style={menuPosition}
+          className="fixed z-[150] flex flex-col overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--surface-raised)] shadow-[0_14px_38px_rgba(0,0,0,0.46),inset_0_1px_0_rgba(255,255,255,0.035)]"
+        >
+          <label className="flex h-8 shrink-0 items-center gap-2 border-b border-[var(--border-default)] px-2.5 text-text-muted">
+            <MagnifyingGlass size={12} />
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && filtered[0]) {
+                  onSelect(filtered[0].value)
+                  setIsOpen(false)
+                  setQuery('')
+                }
+              }}
+              placeholder="Filter branches"
+              className="min-w-0 flex-1 bg-transparent text-[10.5px] text-text-primary outline-none placeholder:text-text-muted/65"
+            />
+          </label>
+          <div className="min-h-0 flex-1 overflow-y-auto p-1 custom-scrollbar">
+            {filtered.length === 0 ? (
+              <div className="px-2 py-4 text-center text-[10px] text-text-muted">No matching branches</div>
+            ) : (
+              filtered.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    onSelect(option.value)
+                    setIsOpen(false)
+                    setQuery('')
+                  }}
+                  className={clsx(
+                    'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors focus:outline-none focus-visible:bg-white/[0.08]',
+                    option.value === value
+                      ? 'bg-accent-primary/[0.1] text-text-primary'
+                      : 'text-text-secondary hover:bg-white/[0.055] hover:text-text-primary'
+                  )}
+                >
+                  {option.remote ? <Globe size={12} className="shrink-0 text-text-muted" /> : <GitBranch size={12} className="shrink-0 text-text-muted" />}
+                  <span className="min-w-0 flex-1 truncate font-mono text-[10px]">{option.label}</span>
+                  {option.detail && <span className="max-w-28 truncate text-[9px] text-text-muted">{option.detail}</span>}
+                  {option.value === value && <Check size={11} weight="bold" className="shrink-0 text-accent-primary" />}
+                </button>
+              ))
+            )}
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body
+  )
+
   return (
-    <div className="relative">
+    <div ref={pickerRef} className="relative">
       <button
         type="button"
         disabled={disabled}
         onClick={() => {
           setIsOpen((current) => !current)
           if (isOpen) setQuery('')
+          else requestAnimationFrame(updateMenuPosition)
         }}
         aria-expanded={isOpen}
         className={clsx(
@@ -129,67 +245,7 @@ function CustomPicker({ value, placeholder, options, disabled, onSelect }: Picke
         {selected?.detail && <span className="max-w-24 truncate text-[9px] text-text-muted">{selected.detail}</span>}
         <CaretDown size={10} weight="bold" className={clsx('shrink-0 text-text-muted transition-transform', isOpen && 'rotate-180')} />
       </button>
-
-      <AnimatePresence initial={false}>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -4, scale: 0.99 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -3, scale: 0.99 }}
-            transition={PANEL_TRANSITION}
-            className="relative z-20 mt-1.5 overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--surface-raised)] shadow-[0_14px_38px_rgba(0,0,0,0.46)]"
-          >
-            <label className="flex h-8 items-center gap-2 border-b border-[var(--border-default)] px-2.5 text-text-muted">
-              <MagnifyingGlass size={12} />
-              <input
-                ref={searchRef}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') {
-                    event.stopPropagation()
-                    setIsOpen(false)
-                  }
-                  if (event.key === 'Enter' && filtered[0]) {
-                    onSelect(filtered[0].value)
-                    setIsOpen(false)
-                  }
-                }}
-                placeholder="Filter branches"
-                className="min-w-0 flex-1 bg-transparent text-[10.5px] text-text-primary outline-none placeholder:text-text-muted/65"
-              />
-            </label>
-            <div className="max-h-48 overflow-y-auto p-1 custom-scrollbar">
-              {filtered.length === 0 ? (
-                <div className="px-2 py-4 text-center text-[10px] text-text-muted">No matching branches</div>
-              ) : (
-                filtered.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      onSelect(option.value)
-                      setIsOpen(false)
-                      setQuery('')
-                    }}
-                    className={clsx(
-                      'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors focus:outline-none focus-visible:bg-white/[0.08]',
-                      option.value === value
-                        ? 'bg-accent-primary/[0.1] text-text-primary'
-                        : 'text-text-secondary hover:bg-white/[0.055] hover:text-text-primary'
-                    )}
-                  >
-                    {option.remote ? <Globe size={12} className="shrink-0 text-text-muted" /> : <GitBranch size={12} className="shrink-0 text-text-muted" />}
-                    <span className="min-w-0 flex-1 truncate font-mono text-[10px]">{option.label}</span>
-                    {option.detail && <span className="max-w-28 truncate text-[9px] text-text-muted">{option.detail}</span>}
-                    {option.value === value && <Check size={11} weight="bold" className="shrink-0 text-accent-primary" />}
-                  </button>
-                ))
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {menu}
     </div>
   )
 }
@@ -216,7 +272,7 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
   const [dialog, setDialog] = useState<DialogKind | null>(null)
   const [dialogValues, setDialogValues] = useState<DialogValues>({ name: '', branch: '', confirmation: '', resetMode: 'soft', forceDelete: false, title: '', body: '', base: '' })
-  const [panelPosition, setPanelPosition] = useState<{ left: number; top?: number; bottom?: number; width: number; maxHeight: number } | null>(null)
+  const [panelPosition, setPanelPosition] = useState<{ left: number; top: number; width: number; maxHeight: number; side: 'left' | 'right' } | null>(null)
   const anchorRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLElement>(null)
   const messageRef = useRef<HTMLTextAreaElement>(null)
@@ -243,25 +299,24 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
     if (!anchor) return
     const rect = anchor.getBoundingClientRect()
     const width = Math.min(PANEL_MAX_WIDTH, window.innerWidth - PANEL_MARGIN * 2)
-    const left = Math.min(Math.max(PANEL_MARGIN, rect.right - width), window.innerWidth - width - PANEL_MARGIN)
-    const above = rect.top - PANEL_MARGIN - PANEL_GAP
-    const below = window.innerHeight - rect.bottom - PANEL_MARGIN - PANEL_GAP
-    const openAbove = above > below
-    const available = openAbove ? above : below
-    if (available < 260) {
-      setPanelPosition({
-        left,
-        top: PANEL_MARGIN,
-        width,
-        maxHeight: Math.max(160, window.innerHeight - PANEL_MARGIN * 2)
-      })
-      return
-    }
+    const spaceRight = window.innerWidth - rect.right - PANEL_MARGIN - PANEL_GAP
+    const spaceLeft = rect.left - PANEL_MARGIN - PANEL_GAP
+    const side = spaceRight >= width || spaceRight >= spaceLeft ? 'right' : 'left'
+    const left = side === 'right'
+      ? Math.min(rect.right + PANEL_GAP, window.innerWidth - width - PANEL_MARGIN)
+      : Math.max(PANEL_MARGIN, rect.left - width - PANEL_GAP)
+    const maxHeight = Math.min(PANEL_MAX_HEIGHT, Math.max(160, window.innerHeight - PANEL_MARGIN * 2))
+    const anchorCenter = rect.top + rect.height / 2
+    const top = Math.min(
+      Math.max(PANEL_MARGIN, anchorCenter - maxHeight / 2),
+      window.innerHeight - maxHeight - PANEL_MARGIN
+    )
     setPanelPosition({
       left,
+      top,
       width,
-      maxHeight: Math.min(PANEL_MAX_HEIGHT, Math.max(160, available)),
-      ...(openAbove ? { bottom: window.innerHeight - rect.top + PANEL_GAP } : { top: rect.bottom + PANEL_GAP })
+      maxHeight,
+      side
     })
   }, [])
 
@@ -322,7 +377,8 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
     if (!isOpen) return
     const onPointerDown = (event: MouseEvent): void => {
       const target = event.target as Node
-      if (!anchorRef.current?.contains(target) && !panelRef.current?.contains(target)) setIsOpen(false)
+      const element = target instanceof Element ? target : null
+      if (!anchorRef.current?.contains(target) && !element?.closest('[data-harness-git-layer]')) setIsOpen(false)
     }
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
@@ -486,11 +542,12 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
         <AnimatePresence initial={false}>
           <motion.section
             ref={panelRef}
-            initial={reduceMotion ? false : { opacity: 0, y: panelPosition.bottom ? 6 : -6, scale: 0.985 }}
+            data-harness-git-layer
+            initial={reduceMotion ? false : { opacity: 0, x: panelPosition.side === 'right' ? -6 : 6, scale: 0.985 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: panelPosition.bottom ? 5 : -5, scale: 0.99 }}
+            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: panelPosition.side === 'right' ? -5 : 5, scale: 0.99 }}
             transition={PANEL_TRANSITION}
-            style={panelPosition}
+            style={{ left: panelPosition.left, top: panelPosition.top, width: panelPosition.width, maxHeight: panelPosition.maxHeight }}
             role="dialog"
             aria-label="Git Control"
             className="fixed z-[130] flex overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--surface-lowest)] text-text-primary shadow-[0_24px_64px_rgba(0,0,0,0.58),inset_0_1px_0_rgba(255,255,255,0.035)]"
@@ -598,7 +655,7 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
         }}
         aria-expanded={isOpen}
         className={clsx(
-          'group flex h-7 max-w-[220px] items-center gap-1.5 rounded-lg border px-2.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/70 active:scale-[0.98]',
+          'group flex h-7 max-w-[300px] items-center gap-1.5 rounded-lg border px-2.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/70 active:scale-[0.98]',
           isOpen
             ? 'border-accent-primary/40 bg-accent-primary/[0.1] text-text-primary'
             : 'border-[var(--border-default)] bg-[var(--surface-lowest)] text-text-secondary hover:border-white/[0.16] hover:bg-[var(--surface-raised)] hover:text-text-primary',
@@ -607,9 +664,8 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
         title="Open Git Control"
       >
         {isInitialLoading && !snapshot ? <CircleNotch size={12} className="shrink-0 animate-spin text-accent-primary" /> : <GitBranch size={13} weight="bold" className="shrink-0 text-accent-primary" />}
-        <span className="min-w-0 max-w-[112px] truncate font-mono text-[10px] font-medium">{branchLabel}</span>
-        {snapshot && <span className="flex shrink-0 items-center gap-1 font-mono text-[8.5px] text-text-muted">{snapshot.files.length > 0 && <span>{snapshot.files.length}</span>}{snapshot.ahead > 0 && <span>↑{snapshot.ahead}</span>}{snapshot.behind > 0 && <span>↓{snapshot.behind}</span>}</span>}
-        <CaretDown size={9} weight="bold" className={clsx('ml-auto shrink-0 text-text-muted transition-transform', isOpen && 'rotate-180')} />
+        <span className="min-w-0 max-w-[240px] truncate font-mono text-[10px] font-medium" title={branchLabel}>{branchLabel}</span>
+        <CaretRight size={9} weight="bold" className={clsx('ml-auto shrink-0 text-text-muted transition-transform', isOpen && 'rotate-90')} />
       </button>
       {panel}
     </div>
