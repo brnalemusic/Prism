@@ -74,6 +74,8 @@ const PANEL_GAP = 8
 const PANEL_MARGIN = 12
 const PANEL_MAX_WIDTH = 420
 const PANEL_MAX_HEIGHT = 660
+const PANEL_BOTTOM_OVERHANG = 48
+const UNAVAILABLE_SNAPSHOT_THRESHOLD = 3
 const PANEL_TRANSITION = { duration: 0.18, ease: [0.16, 1, 0.3, 1] as const }
 
 function shortName(projectPath: string): string {
@@ -267,12 +269,12 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
   const [isInitialLoading, setIsInitialLoading] = useState(false)
   const [pending, setPending] = useState<string | null>(null)
   const [message, setMessage] = useState('')
-  const [includeCoAuthor, setIncludeCoAuthor] = useState(false)
+  const [includeCoAuthor, setIncludeCoAuthor] = useState(true)
   const [signoff, setSignoff] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
   const [dialog, setDialog] = useState<DialogKind | null>(null)
   const [dialogValues, setDialogValues] = useState<DialogValues>({ name: '', branch: '', confirmation: '', resetMode: 'soft', forceDelete: false, title: '', body: '', base: '' })
-  const [panelPosition, setPanelPosition] = useState<{ left: number; top: number; width: number; maxHeight: number; side: 'left' | 'right' } | null>(null)
+  const [panelPosition, setPanelPosition] = useState<{ left: number; bottom: number; width: number; maxHeight: number; side: 'left' | 'right' } | null>(null)
   const anchorRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLElement>(null)
   const messageRef = useRef<HTMLTextAreaElement>(null)
@@ -280,6 +282,7 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
   const pendingRef = useRef(false)
   const snapshotRef = useRef<HarnessGitSnapshot | null>(null)
   const snapshotSignatureRef = useRef('')
+  const unavailableSnapshotCountRef = useRef(0)
   const reduceMotion = useReducedMotion()
 
   useEffect(() => {
@@ -287,6 +290,14 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
   }, [pending])
 
   const applySnapshot = useCallback((next: HarnessGitSnapshot): void => {
+    const previous = snapshotRef.current
+    const sameProject = previous?.projectPath.toLowerCase() === next.projectPath.toLowerCase()
+    if (sameProject && previous?.isGit && !next.isGit) {
+      unavailableSnapshotCountRef.current += 1
+      if (unavailableSnapshotCountRef.current < UNAVAILABLE_SNAPSHOT_THRESHOLD) return
+    } else {
+      unavailableSnapshotCountRef.current = 0
+    }
     const signature = JSON.stringify(next)
     if (signature === snapshotSignatureRef.current) return
     snapshotSignatureRef.current = signature
@@ -305,15 +316,14 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
     const left = side === 'right'
       ? Math.min(rect.right + PANEL_GAP, window.innerWidth - width - PANEL_MARGIN)
       : Math.max(PANEL_MARGIN, rect.left - width - PANEL_GAP)
-    const maxHeight = Math.min(PANEL_MAX_HEIGHT, Math.max(160, window.innerHeight - PANEL_MARGIN * 2))
-    const anchorCenter = rect.top + rect.height / 2
-    const top = Math.min(
-      Math.max(PANEL_MARGIN, anchorCenter - maxHeight / 2),
-      window.innerHeight - maxHeight - PANEL_MARGIN
+    const bottom = Math.max(PANEL_MARGIN, window.innerHeight - rect.bottom - PANEL_BOTTOM_OVERHANG)
+    const maxHeight = Math.min(
+      PANEL_MAX_HEIGHT,
+      Math.max(160, window.innerHeight - bottom - PANEL_MARGIN)
     )
     setPanelPosition({
       left,
-      top,
+      bottom,
       width,
       maxHeight,
       side
@@ -327,7 +337,9 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
     try {
       applySnapshot(await window.api.getHarnessGitStatus(projectPath))
     } catch (error) {
-      setNotice({ tone: 'error', text: errorMessage(error, 'Could not read Git status.') })
+      if (showLoading && !snapshotRef.current) {
+        setNotice({ tone: 'error', text: errorMessage(error, 'Could not read Git status.') })
+      }
     } finally {
       refreshInFlightRef.current = false
       setIsInitialLoading(false)
@@ -337,6 +349,7 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
   useEffect(() => {
     snapshotRef.current = null
     snapshotSignatureRef.current = ''
+    unavailableSnapshotCountRef.current = 0
     const frame = requestAnimationFrame(() => {
       setMessage('')
       setNotice(null)
@@ -393,12 +406,14 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
     }
   }, [dialog, isOpen])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = messageRef.current
     if (!element) return
     element.style.height = '0px'
-    element.style.height = `${Math.min(Math.max(element.scrollHeight, 34), 300)}px`
-  }, [message])
+    const contentHeight = Math.max(element.scrollHeight, 34)
+    element.style.height = `${Math.min(contentHeight, 300)}px`
+    element.style.overflowY = contentHeight > 300 ? 'auto' : 'hidden'
+  }, [dialog, isOpen, message])
 
   const runAction = useCallback(async (action: HarnessGitAction, label: string): Promise<boolean> => {
     if (!projectPath || pendingRef.current) return false
@@ -428,10 +443,13 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
     if (!projectPath || pendingRef.current) return
     pendingRef.current = true
     let nextMessage = message.trim()
-    setPending('Commit')
+    setPending(nextMessage ? 'Commit' : 'Generate message')
     setNotice(null)
     try {
-      if (!nextMessage) nextMessage = await window.api.generateHarnessGitCommitMessage(projectPath, modelKey)
+      if (!nextMessage) {
+        nextMessage = await window.api.generateHarnessGitCommitMessage(projectPath, modelKey)
+        setPending('Commit')
+      }
       const result = await window.api.runHarnessGitAction(projectPath, {
         kind: 'commit',
         options: {
@@ -523,6 +541,7 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
 
   if (!projectPath) return null
   const isBusy = pending !== null
+  const isGeneratingMessage = pending === 'Generate message'
   const hasConflict = Boolean(snapshot?.operation || snapshot?.conflicts.length)
   const branchLabel = snapshot?.branch || (snapshot?.detached ? 'Detached HEAD' : 'Git')
   const expectedConfirmation = dialog === 'merge' || dialog === 'delete' || dialog === 'deleteRemote'
@@ -544,21 +563,57 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
             ref={panelRef}
             data-harness-git-layer
             initial={reduceMotion ? false : { opacity: 0, x: panelPosition.side === 'right' ? -6 : 6, scale: 0.985 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: panelPosition.side === 'right' ? -5 : 5, scale: 0.99 }}
             transition={PANEL_TRANSITION}
-            style={{ left: panelPosition.left, top: panelPosition.top, width: panelPosition.width, maxHeight: panelPosition.maxHeight }}
+            style={{ left: panelPosition.left, bottom: panelPosition.bottom, width: panelPosition.width, maxHeight: panelPosition.maxHeight }}
             role="dialog"
             aria-label="Git Control"
+            aria-busy={isGeneratingMessage}
             className="fixed z-[130] flex overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--surface-lowest)] text-text-primary shadow-[0_24px_64px_rgba(0,0,0,0.58),inset_0_1px_0_rgba(255,255,255,0.035)]"
           >
             <div className="flex min-h-0 w-full flex-col">
               <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-default)] px-3">
                 <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-primary/[0.1] text-accent-primary"><GitBranch size={13} weight="bold" /></div>
                 <div className="min-w-0 flex-1"><div className="truncate font-mono text-[10.5px] font-semibold">{branchLabel}</div><div className="truncate text-[9px] text-text-muted">{shortName(projectPath)}{snapshot?.upstream ? `  /  ${snapshot.upstream}` : ''}</div></div>
-                <button type="button" onClick={() => void refresh(false)} className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-white/[0.06] hover:text-text-primary active:scale-95" aria-label="Refresh Git status"><ArrowClockwise size={13} /></button>
+                <button type="button" disabled={isGeneratingMessage} onClick={() => void refresh(false)} className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-white/[0.06] hover:text-text-primary active:scale-95 disabled:pointer-events-none disabled:opacity-35" aria-label="Refresh Git status"><ArrowClockwise size={13} /></button>
                 <button type="button" onClick={() => setIsOpen(false)} className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-white/[0.06] hover:text-text-primary active:scale-95" aria-label="Close Git Control"><X size={13} /></button>
               </header>
+
+              <AnimatePresence initial={false}>
+                {isGeneratingMessage && (
+                  <motion.div
+                    initial={reduceMotion ? false : { opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: reduceMotion ? 0 : 0.16 }}
+                    role="status"
+                    aria-live="polite"
+                    className="absolute inset-x-0 top-11 bottom-0 z-30 grid place-items-center bg-[var(--surface-lowest)] px-8"
+                  >
+                    <div className="w-full max-w-[17rem]">
+                      <div className="flex items-center gap-3">
+                        <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-primary/[0.1] text-accent-primary shadow-[inset_0_0_0_1px_rgba(168,85,247,0.18)]">
+                          <Sparkle size={14} weight="fill" />
+                          <CircleNotch size={22} className={clsx('absolute text-accent-primary/65', !reduceMotion && 'animate-spin')} />
+                        </div>
+                        <div className="min-w-0 text-left">
+                          <p className="text-[11px] font-semibold leading-4 text-text-primary">Generating commit message</p>
+                          <p className="mt-0.5 text-[9.5px] leading-4 text-text-muted">Git operations are paused until the draft is ready.</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 h-px overflow-hidden bg-white/[0.065]">
+                        <motion.div
+                          className="h-full w-1/3 bg-accent-primary"
+                          initial={reduceMotion ? { x: '100%' } : { x: '-110%' }}
+                          animate={{ x: reduceMotion ? '100%' : '310%' }}
+                          transition={reduceMotion ? { duration: 0 } : { duration: 1.15, ease: 'easeInOut', repeat: Infinity }}
+                        />
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               <div className="min-h-0 flex-1 overflow-y-auto p-2.5 custom-scrollbar">
                 {isInitialLoading && !snapshot && <div className="space-y-2 py-1"><div className="h-8 animate-pulse rounded-lg bg-white/[0.05]" /><div className="h-16 animate-pulse rounded-lg bg-white/[0.035]" /><div className="h-28 animate-pulse rounded-lg bg-white/[0.03]" /></div>}
@@ -602,7 +657,6 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
                         <section className="mt-2 rounded-lg border border-[var(--border-default)] bg-[var(--surface)] p-2">
                           <div className="flex items-start gap-1"><textarea ref={messageRef} value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void commit() } }} rows={1} placeholder="Commit message" aria-label="Commit message" className="min-h-[34px] flex-1 resize-none bg-transparent px-1 py-1.5 text-[10.5px] leading-4 text-text-primary outline-none placeholder:text-text-muted/60" /><button type="button" disabled={isBusy || snapshot.files.length === 0} onClick={() => void generateMessage()} className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-white/[0.055] hover:text-accent-primary disabled:opacity-40 active:scale-95" title="Generate an editable commit message"><Sparkle size={13} /></button></div>
                           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[var(--border-default)] pt-1.5"><Toggle checked={signoff} label="Sign-off" onChange={setSignoff} /><Toggle checked={includeCoAuthor} label="Breno as co-author" onChange={setIncludeCoAuthor} /><button type="button" disabled={isBusy || snapshot.files.length === 0} onClick={() => void commit()} className="ml-auto flex h-6 items-center gap-1 rounded-md bg-white/[0.085] px-2 text-[9.5px] font-semibold text-text-primary transition-colors hover:bg-white/[0.13] disabled:opacity-40 active:scale-95">{pending === 'Commit' ? <CircleNotch size={11} className="animate-spin" /> : <GitCommit size={11} />}Commit</button></div>
-                          {includeCoAuthor && <div className="mt-1.5 rounded-md bg-accent-primary/[0.07] px-2 py-1 font-mono text-[8.5px] text-accent-primary/85">brnalemusic &lt;brenoalexandre.music@gmail.com&gt;</div>}
                         </section>
 
                         <section className="mt-2 grid grid-cols-4 gap-1">
@@ -661,9 +715,9 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
             : 'border-[var(--border-default)] bg-[var(--surface-lowest)] text-text-secondary hover:border-white/[0.16] hover:bg-[var(--surface-raised)] hover:text-text-primary',
           hasConflict && 'border-amber-500/30 bg-amber-500/[0.08] text-amber-200'
         )}
-        title="Open Git Control"
+        title={isGeneratingMessage ? 'Generating commit message' : 'Open Git Control'}
       >
-        {isInitialLoading && !snapshot ? <CircleNotch size={12} className="shrink-0 animate-spin text-accent-primary" /> : <GitBranch size={13} weight="bold" className="shrink-0 text-accent-primary" />}
+        {isGeneratingMessage || (isInitialLoading && !snapshot) ? <CircleNotch size={12} className={clsx('shrink-0 text-accent-primary', !reduceMotion && 'animate-spin')} /> : <GitBranch size={13} weight="bold" className="shrink-0 text-accent-primary" />}
         <span className="min-w-0 max-w-[240px] truncate font-mono text-[10px] font-medium" title={branchLabel}>{branchLabel}</span>
         <CaretRight size={9} weight="bold" className={clsx('ml-auto shrink-0 text-text-muted transition-transform', isOpen && 'rotate-90')} />
       </button>

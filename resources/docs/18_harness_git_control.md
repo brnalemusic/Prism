@@ -2,7 +2,7 @@
 
 Harness Git Control is the compact Source Control surface beside the Harness project selector. It operates only inside the selected, registered Harness project and never stores GitHub credentials. GitHub pull requests use the authenticated local `gh` CLI session.
 
-The control renders through a viewport-aware portal so it is not clipped by the Harness input area. The Git Control panel opens beside the trigger, preferring its right side and falling back to the left when the viewport is constrained. Internal branch and commit pickers open downward as floating dropdowns, so they never resize the panel. Branches, commits, PR bases, confirmations, and destructive actions use Prism-owned controls rather than operating-system selects or prompts.
+The control renders through a viewport-aware portal so it is not clipped by the Harness input area. The Git Control panel opens beside the trigger, preferring its right side and falling back to the left when the viewport is constrained. Its lower edge stays anchored just below the trigger, so dynamic commit-message height grows upward and then scrolls internally instead of making the panel drift. Internal branch and commit pickers open downward as floating dropdowns, so they never resize the panel. Branches, commits, PR bases, confirmations, and destructive actions use Prism-owned controls rather than operating-system selects or prompts.
 
 ## Project synchronization
 
@@ -15,8 +15,8 @@ A tab carrying a Harness context snapshot cannot change to a different project. 
 The main process executes Git with `execFile` and explicit argument arrays; it never builds shell command strings. The status snapshot includes the checked-out branch, upstream and ahead/behind counts, changed and conflicted files, local and remote branches, remotes, recent commits, signing configuration, and in-progress merge, rebase, or cherry-pick state.
 
 - **Sync** performs fetch with prune, pull with rebase, then push. Pull and Push stay available as individual actions.
-- **Commit** stages with `git add .`. An empty message generates an AI message from the active Harness model and commits immediately. The sparkle button instead generates an editable draft.
-- Signing follows local `commit.gpgsign`; Sign-off is opt-in. **Breno as co-author** adds `Co-authored-by: brnalemusic <brenoalexandre.music@gmail.com>` only to commits created by Git Control. Existing commits are never rewritten and force push is not exposed.
+- **Commit** stages with `git add .`. An empty message generates an AI message from the active Harness model and commits immediately. The sparkle button instead generates an editable draft. While either AI generation flow is running, a centered opaque status layer blocks Git operations until the text is ready; the panel itself can still be closed and reopened without interrupting generation. The commit message field grows with its content up to 300 pixels and then scrolls internally.
+- Signing follows local `commit.gpgsign`; Sign-off is opt-in. **Breno as co-author** is enabled by default and adds `Co-authored-by: brnalemusic <brenoalexandre.music@gmail.com>` only to commits created by Git Control. The control does not reveal that identity in its compact UI. Existing commits are never rewritten and force push is not exposed.
 - Local and remote branches can be selected, created, renamed, checked out, fetched, and removed. Merge is available through the typed action API.
 - Reset supports soft and hard modes. Branch deletion and reset require typing the target value in the confirmation prompt.
 - Pull requests use `gh pr create`; the base defaults to the remote default branch and can be edited by the CLI prompt. On `main` or `master`, Git Control requires a new working branch before a PR can be opened.
@@ -29,4 +29,4 @@ Any detected conflict or in-progress Git operation blocks further mutating actio
 
 Git Control does not persist credentials, create force pushes, rewrite existing commits, or automatically resolve conflicts. It reports missing Git repositories, unavailable GitHub CLI authentication, and command failures in the panel without exposing tokens or local credential data.
 
-The active project's Git status refreshes on mount, after every Git action, when Prism regains focus, when the document becomes visible, and on a lightweight interval. Overlapping reads are prevented and unchanged snapshots are deduplicated before renderer updates.
+The active project's Git status refreshes on mount, after every Git action, when Prism regains focus, when the document becomes visible, and on a lightweight interval. Overlapping reads are prevented and unchanged snapshots are deduplicated before renderer updates. Background refresh failures keep the last valid snapshot visible, and Prism requires consecutive unavailable reads before replacing an active repository with an unavailable state.
