@@ -119,7 +119,7 @@ import {
   resolveHarnessStartupProject,
   updateHarnessProject
 } from './harnessProject'
-import { generateHarnessGitCommitMessage, getHarnessGitSnapshot, runHarnessGitAction } from './harnessGit'
+import { generateHarnessGitCommitMessage, getHarnessGitSnapshot, getHarnessGitStatusDelta, runHarnessGitAction } from './harnessGit'
 import type { HarnessGitAction } from '../shared/types'
 import { resolveHarnessApproval } from './harnessApproval'
 import { getHarnessInstructionStatus } from './harnessPrompt'
@@ -1623,6 +1623,13 @@ if (!gotTheLock) {
         throw new Error('The Harness project is not registered.')
       }
       return getHarnessGitSnapshot(projectPath)
+    })
+
+    ipcMain.handle('harness-git-status-delta', async (_event, projectPath: string) => {
+      if (!getEffectiveHarnessSettings(projectPath)) {
+        throw new Error('The Harness project is not registered.')
+      }
+      return getHarnessGitStatusDelta(projectPath)
     })
 
     ipcMain.handle('harness-git-action', async (_event, projectPath: string, action: HarnessGitAction) => {

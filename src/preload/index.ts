@@ -32,7 +32,8 @@ import type {
   HarnessExplorerActionResult,
   HarnessGitAction,
   HarnessGitActionResult,
-  HarnessGitSnapshot
+  HarnessGitSnapshot,
+  HarnessGitStatusDelta
 } from '../shared/types'
 import type { ChatSession } from '../main/history'
 import type {
@@ -425,6 +426,8 @@ const api = {
     ipcRenderer.invoke('harness-resolve-startup-project'),
   getHarnessGitStatus: (projectPath: string): Promise<HarnessGitSnapshot> =>
     ipcRenderer.invoke('harness-git-status', projectPath),
+  getHarnessGitStatusDelta: (projectPath: string): Promise<HarnessGitStatusDelta> =>
+    ipcRenderer.invoke('harness-git-status-delta', projectPath),
   runHarnessGitAction: (
     projectPath: string,
     action: HarnessGitAction

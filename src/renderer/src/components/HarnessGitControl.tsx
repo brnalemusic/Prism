@@ -28,7 +28,7 @@ import {
   X
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
-import type { HarnessGitAction, HarnessGitSnapshot } from '../../../shared/types'
+import type { HarnessGitAction, HarnessGitSnapshot, HarnessGitStatusDelta } from '../../../shared/types'
 
 interface HarnessGitControlProps {
   projectPath?: string
@@ -89,6 +89,30 @@ function errorMessage(error: unknown, fallback: string): string {
 function statusLabel(indexStatus: string, workTreeStatus: string): string {
   if (`${indexStatus}${workTreeStatus}` === '??') return 'U'
   return workTreeStatus.trim() || indexStatus.trim() || 'M'
+}
+function sameHarnessGitFile(left: HarnessGitSnapshot['files'][number], right: HarnessGitSnapshot['files'][number]): boolean {
+  return left.path === right.path &&
+    left.indexStatus === right.indexStatus &&
+    left.workTreeStatus === right.workTreeStatus &&
+    left.isUntracked === right.isUntracked &&
+    left.isConflicted === right.isConflicted
+}
+
+function reconcileHarnessGitFiles(previous: HarnessGitSnapshot['files'], next: HarnessGitStatusDelta['files']): HarnessGitSnapshot['files'] {
+  if (previous.length === next.length && previous.every((file, index) => sameHarnessGitFile(file, next[index]))) return previous
+  const previousByPath = new Map(previous.map((file) => [file.path, file]))
+  return next.map((file) => {
+    const previousFile = previousByPath.get(file.path)
+    return previousFile && sameHarnessGitFile(previousFile, file) ? previousFile : file
+  })
+}
+
+function sameStringArray(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function sameHarnessGitOperation(left: HarnessGitSnapshot['operation'], right: HarnessGitStatusDelta['operation']): boolean {
+  return left?.kind === right?.kind && left?.target === right?.target
 }
 
 function CustomPicker({ value, placeholder, options, disabled, onSelect }: PickerProps): JSX.Element {
@@ -305,6 +329,54 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
     setSnapshot(next)
   }, [])
 
+
+  const applyStatusDelta = useCallback((next: HarnessGitStatusDelta): boolean => {
+    const previous = snapshotRef.current
+    if (!previous || !previous.isGit || !next.isGit) return false
+    if (previous.projectPath.toLowerCase() !== next.projectPath.toLowerCase()) return false
+    if (previous.repoRoot?.toLowerCase() !== next.repoRoot?.toLowerCase()) return false
+    if (previous.metadataFingerprint !== next.metadataFingerprint) return false
+
+    const files = reconcileHarnessGitFiles(previous.files, next.files)
+    const conflicts = sameStringArray(previous.conflicts, next.conflicts) ? previous.conflicts : next.conflicts
+    const operation = sameHarnessGitOperation(previous.operation, next.operation) ? previous.operation : next.operation
+    const changed =
+      previous.ok !== next.ok ||
+      previous.branch !== next.branch ||
+      previous.detached !== next.detached ||
+      previous.upstream !== next.upstream ||
+      previous.ahead !== next.ahead ||
+      previous.behind !== next.behind ||
+      files !== previous.files ||
+      conflicts !== previous.conflicts ||
+      operation !== previous.operation ||
+      previous.error !== next.error
+    if (!changed) return true
+
+    const merged: HarnessGitSnapshot = {
+      ...previous,
+      ok: next.ok,
+      projectPath: next.projectPath,
+      repoRoot: next.repoRoot,
+      isGit: next.isGit,
+      headHash: next.headHash,
+      metadataFingerprint: next.metadataFingerprint,
+      branch: next.branch,
+      detached: next.detached,
+      upstream: next.upstream,
+      ahead: next.ahead,
+      behind: next.behind,
+      files,
+      conflicts,
+      operation,
+      error: next.error
+    }
+    snapshotRef.current = merged
+    snapshotSignatureRef.current = JSON.stringify(merged)
+    setSnapshot(merged)
+    return true
+  }, [])
+
   const updatePanelPosition = useCallback((): void => {
     const anchor = anchorRef.current
     if (!anchor) return
@@ -335,7 +407,20 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
     refreshInFlightRef.current = true
     if (showLoading && !snapshotRef.current) setIsInitialLoading(true)
     try {
-      applySnapshot(await window.api.getHarnessGitStatus(projectPath))
+      const previous = snapshotRef.current
+      if (showLoading || !previous) {
+        applySnapshot(await window.api.getHarnessGitStatus(projectPath))
+      } else {
+        const delta = await window.api.getHarnessGitStatusDelta(projectPath)
+        const metadataChanged =
+          !delta.isGit ||
+          !previous.isGit ||
+          previous.projectPath.toLowerCase() !== delta.projectPath.toLowerCase() ||
+          previous.repoRoot?.toLowerCase() !== delta.repoRoot?.toLowerCase() ||
+          previous.metadataFingerprint !== delta.metadataFingerprint
+        if (metadataChanged) applySnapshot(await window.api.getHarnessGitStatus(projectPath))
+        else applyStatusDelta(delta)
+      }
     } catch (error) {
       if (showLoading && !snapshotRef.current) {
         setNotice({ tone: 'error', text: errorMessage(error, 'Could not read Git status.') })
@@ -344,7 +429,7 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
       refreshInFlightRef.current = false
       setIsInitialLoading(false)
     }
-  }, [applySnapshot, projectPath])
+  }, [applySnapshot, applyStatusDelta, projectPath])
 
   useEffect(() => {
     snapshotRef.current = null
@@ -675,7 +760,17 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
                     <div className="mb-3 flex items-center gap-2"><button type="button" onClick={() => setDialog(null)} className="rounded-md p-1 text-text-muted hover:bg-white/[0.055] hover:text-text-primary"><ArrowCounterClockwise size={12} /></button><h3 className="text-[11px] font-semibold text-text-primary">{{ create: 'Create branch', rename: 'Rename current branch', merge: 'Merge branch', delete: 'Delete local branch', deleteRemote: 'Delete remote branch', reset: 'Reset to commit', pr: 'Create pull request' }[dialog]}</h3></div>
                     <div className="space-y-2.5">
                       {(dialog === 'create' || dialog === 'rename') && <label className="block"><span className="mb-1 block text-[9.5px] text-text-muted">Branch name</span><input autoFocus value={dialogValues.name} onChange={(event) => setDialogValues((current) => ({ ...current, name: event.target.value }))} onKeyDown={(event) => { if (event.key === 'Enter' && dialogCanSubmit) void executeDialog() }} className="h-8 w-full rounded-lg border border-[var(--border-default)] bg-[var(--surface)] px-2.5 font-mono text-[10.5px] text-text-primary outline-none focus:border-accent-primary/50" /></label>}
-                      {dialog === 'merge' && <CustomPicker value={dialogValues.branch} placeholder="Branch to merge" options={localOptions.filter((option) => option.value !== snapshot.branch)} onSelect={(branch) => setDialogValues((current) => ({ ...current, branch, confirmation: '' }))} />}
+                      {dialog === 'merge' && <>
+                        <div className="rounded-lg border border-accent-primary/15 bg-accent-primary/[0.05] px-2.5 py-2 text-[9.5px] leading-relaxed">
+                          <p className="font-semibold text-text-primary">Merge into the current branch</p>
+                          <p className="mt-1 text-text-muted">The selected branch is merged into the branch that is currently checked out. Prism does not switch branches.</p>
+                          <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 font-mono text-[9px]">
+                            <span className="text-text-muted">Destination</span><span className="truncate text-text-secondary">{snapshot.branch || 'Detached HEAD'}</span>
+                            <span className="text-text-muted">Source</span><span className="truncate text-text-secondary">{dialogValues.branch || 'Choose a branch below'}</span>
+                          </div>
+                        </div>
+                        <CustomPicker value={dialogValues.branch} placeholder="Branch to merge" options={localOptions.filter((option) => option.value !== snapshot.branch)} onSelect={(branch) => setDialogValues((current) => ({ ...current, branch, confirmation: '' }))} />
+                      </>}
                       {dialog === 'delete' && <><CustomPicker value={dialogValues.branch} placeholder="Local branch" options={localOptions.filter((option) => option.value !== snapshot.branch)} onSelect={(branch) => setDialogValues((current) => ({ ...current, branch, confirmation: '' }))} /><Toggle checked={dialogValues.forceDelete} label="Force delete unmerged branch" onChange={(forceDelete) => setDialogValues((current) => ({ ...current, forceDelete }))} /></>}
                       {dialog === 'deleteRemote' && <CustomPicker value={dialogValues.branch} placeholder="Remote branch" options={remoteOptions} onSelect={(branch) => setDialogValues((current) => ({ ...current, branch, confirmation: '' }))} />}
                       {dialog === 'reset' && <><CustomPicker value={dialogValues.branch} placeholder="Commit checkpoint" options={commitOptions} onSelect={(branch) => setDialogValues((current) => ({ ...current, branch, confirmation: '' }))} /><div className="grid grid-cols-2 gap-1 rounded-lg bg-[var(--surface)] p-1"><button type="button" onClick={() => setDialogValues((current) => ({ ...current, resetMode: 'soft' }))} className={clsx('h-7 rounded-md text-[9.5px] transition-colors', dialogValues.resetMode === 'soft' ? 'bg-white/[0.09] text-text-primary' : 'text-text-muted hover:text-text-secondary')}>Soft reset</button><button type="button" onClick={() => setDialogValues((current) => ({ ...current, resetMode: 'hard' }))} className={clsx('h-7 rounded-md text-[9.5px] transition-colors', dialogValues.resetMode === 'hard' ? 'bg-red-500/[0.12] text-red-200' : 'text-text-muted hover:text-text-secondary')}>Hard reset</button></div></>}

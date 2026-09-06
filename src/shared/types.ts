@@ -254,6 +254,8 @@ export interface HarnessGitSnapshot {
   projectPath: string
   repoRoot?: string
   isGit: boolean
+  headHash?: string
+  metadataFingerprint?: string
   branch?: string
   detached: boolean
   upstream?: string
@@ -268,6 +270,24 @@ export interface HarnessGitSnapshot {
   signing: { enabled: boolean; format?: string; key?: string }
   github: { available: boolean; authenticated: boolean; username?: string }
   defaultBranch?: string
+  error?: string
+}
+
+export interface HarnessGitStatusDelta {
+  ok: boolean
+  projectPath: string
+  repoRoot?: string
+  isGit: boolean
+  headHash?: string
+  metadataFingerprint?: string
+  branch?: string
+  detached: boolean
+  upstream?: string
+  ahead: number
+  behind: number
+  files: HarnessGitFile[]
+  conflicts: string[]
+  operation?: HarnessGitOperation
   error?: string
 }
 

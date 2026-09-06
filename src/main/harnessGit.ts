@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { execFile } from 'child_process'
 import { promises as fs } from 'fs'
 import * as path from 'path'
@@ -10,7 +11,8 @@ import type {
   HarnessGitFile,
   HarnessGitOperation,
   HarnessGitRemote,
-  HarnessGitSnapshot
+  HarnessGitSnapshot,
+  HarnessGitStatusDelta
 } from '../shared/types'
 import type { OpenAiMessage } from './ai/types'
 
@@ -77,6 +79,24 @@ function baseSnapshot(projectPath: string, error?: string): HarnessGitSnapshot {
     github: { available: false, authenticated: false },
     error
   }
+}
+
+function baseStatusDelta(projectPath: string, error?: string): HarnessGitStatusDelta {
+  return {
+    ok: false,
+    projectPath,
+    isGit: false,
+    detached: false,
+    ahead: 0,
+    behind: 0,
+    files: [],
+    conflicts: [],
+    error
+  }
+}
+
+function createGitMetadataFingerprint(values: unknown[]): string {
+  return createHash('sha256').update(JSON.stringify(values)).digest('hex')
 }
 
 export function parseHarnessGitStatus(output: string): HarnessGitFile[] {
@@ -204,12 +224,88 @@ async function resolveRepository(projectPath: string): Promise<{ repoRoot?: stri
   return { repoRoot: result.stdout.trim() }
 }
 
+async function getAheadBehind(repoRoot: string, upstream?: string): Promise<{ ahead: number; behind: number }> {
+  if (!upstream) return { ahead: 0, behind: 0 }
+  const counts = await git(repoRoot, ['rev-list', '--left-right', '--count', `${upstream}...HEAD`])
+  if (counts.exitCode !== 0) return { ahead: 0, behind: 0 }
+  const [behindValue, aheadValue] = counts.stdout.trim().split(/\s+/).map(Number)
+  return {
+    behind: Number.isFinite(behindValue) ? behindValue : 0,
+    ahead: Number.isFinite(aheadValue) ? aheadValue : 0
+  }
+}
+
+export async function getHarnessGitStatusDelta(projectPath: string): Promise<HarnessGitStatusDelta> {
+  const resolvedProjectPath = path.resolve(projectPath)
+  const repository = await resolveRepository(resolvedProjectPath)
+  if (!repository.repoRoot) return baseStatusDelta(resolvedProjectPath, repository.error)
+  const repoRoot = repository.repoRoot
+  const [
+    branchResult,
+    upstreamResult,
+    statusResult,
+    headResult,
+    operation,
+    refsResult,
+    remotesResult,
+    signResult,
+    formatResult,
+    keyResult,
+    defaultResult,
+    github
+  ] = await Promise.all([
+    git(repoRoot, ['branch', '--show-current']),
+    git(repoRoot, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']),
+    git(repoRoot, ['status', '--porcelain=v1', '-z']),
+    git(repoRoot, ['rev-parse', 'HEAD']),
+    operationFor(repoRoot),
+    git(repoRoot, ['for-each-ref', '--format=%(refname)%09%(refname:short)%09%(HEAD)%09%(upstream:short)', 'refs/heads', 'refs/remotes']),
+    git(repoRoot, ['remote', '-v']),
+    git(repoRoot, ['config', '--bool', 'commit.gpgsign']),
+    git(repoRoot, ['config', '--get', 'gpg.format']),
+    git(repoRoot, ['config', '--get', 'user.signingkey']),
+    git(repoRoot, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']),
+    githubStatus(repoRoot)
+  ])
+  const branch = branchResult.stdout.trim() || undefined
+  const upstream = upstreamResult.exitCode === 0 ? upstreamResult.stdout.trim() : undefined
+  const { ahead, behind } = await getAheadBehind(repoRoot, upstream)
+  const files = parseHarnessGitStatus(statusResult.stdout)
+  return {
+    ok: true,
+    projectPath: resolvedProjectPath,
+    repoRoot,
+    isGit: true,
+    headHash: headResult.exitCode === 0 ? headResult.stdout.trim() || undefined : undefined,
+    metadataFingerprint: createGitMetadataFingerprint([
+      branchResult,
+      upstreamResult,
+      headResult,
+      refsResult,
+      remotesResult,
+      signResult,
+      formatResult,
+      keyResult,
+      defaultResult,
+      github
+    ]),
+    branch,
+    detached: !branch,
+    upstream,
+    ahead,
+    behind,
+    files,
+    conflicts: files.filter((file) => file.isConflicted).map((file) => file.path),
+    operation
+  }
+}
+
 export async function getHarnessGitSnapshot(projectPath: string): Promise<HarnessGitSnapshot> {
   const resolvedProjectPath = path.resolve(projectPath)
   const repository = await resolveRepository(resolvedProjectPath)
   if (!repository.repoRoot) return baseSnapshot(resolvedProjectPath, repository.error)
   const repoRoot = repository.repoRoot
-  const [branchResult, upstreamResult, statusResult, branchesResult, remotesResult, commitsResult, signResult, formatResult, keyResult, defaultResult, github] = await Promise.all([
+  const [branchResult, upstreamResult, statusResult, branchesResult, remotesResult, commitsResult, signResult, formatResult, keyResult, defaultResult, github, headResult] = await Promise.all([
     git(repoRoot, ['branch', '--show-current']),
     git(repoRoot, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']),
     git(repoRoot, ['status', '--porcelain=v1', '-z']),
@@ -220,30 +316,36 @@ export async function getHarnessGitSnapshot(projectPath: string): Promise<Harnes
     git(repoRoot, ['config', '--get', 'gpg.format']),
     git(repoRoot, ['config', '--get', 'user.signingkey']),
     git(repoRoot, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']),
-    githubStatus(repoRoot)
+    githubStatus(repoRoot),
+    git(repoRoot, ['rev-parse', 'HEAD'])
   ])
   const branch = branchResult.stdout.trim() || undefined
   const upstream = upstreamResult.exitCode === 0 ? upstreamResult.stdout.trim() : undefined
-  let ahead = 0
-  let behind = 0
-  if (upstream) {
-    const counts = await git(repoRoot, ['rev-list', '--left-right', '--count', `${upstream}...HEAD`])
-    if (counts.exitCode === 0) {
-      const [behindValue, aheadValue] = counts.stdout.trim().split(/\s+/).map(Number)
-      behind = Number.isFinite(behindValue) ? behindValue : 0
-      ahead = Number.isFinite(aheadValue) ? aheadValue : 0
-    }
-  }
+  const { ahead, behind } = await getAheadBehind(repoRoot, upstream)
   const files = parseHarnessGitStatus(statusResult.stdout)
   const fallbackDefault = branch === 'main' || branch === 'master' ? branch : 'main'
   const defaultBranch = defaultResult.exitCode === 0
     ? defaultResult.stdout.trim().replace(/^origin\//, '')
     : fallbackDefault
+  const metadataFingerprint = createGitMetadataFingerprint([
+    branchResult,
+    upstreamResult,
+    headResult,
+    branchesResult,
+    remotesResult,
+    signResult,
+    formatResult,
+    keyResult,
+    defaultResult,
+    github
+  ])
   return {
     ok: true,
     projectPath: resolvedProjectPath,
     repoRoot,
     isGit: true,
+    headHash: headResult.exitCode === 0 ? headResult.stdout.trim() || undefined : undefined,
+    metadataFingerprint,
     branch,
     detached: !branch,
     upstream,

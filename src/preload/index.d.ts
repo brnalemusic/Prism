@@ -29,7 +29,8 @@ import type {
   HarnessExplorerActionResult,
   HarnessGitAction,
   HarnessGitActionResult,
-  HarnessGitSnapshot
+  HarnessGitSnapshot,
+  HarnessGitStatusDelta
 } from '../shared/types'
 import type {
   MemoryEntry,
@@ -201,6 +202,7 @@ export interface PrismAPI {
   recreateHarnessProjectFolder: (rootPath: string) => Promise<{ project: HarnessProjectConfig }>
   resolveHarnessStartupProject: () => Promise<HarnessProjectConfig | null>
   getHarnessGitStatus: (projectPath: string) => Promise<HarnessGitSnapshot>
+  getHarnessGitStatusDelta: (projectPath: string) => Promise<HarnessGitStatusDelta>
   runHarnessGitAction: (
     projectPath: string,
     action: HarnessGitAction
