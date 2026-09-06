@@ -112,7 +112,7 @@ Google Gemini 2.5 / 3.x thinking models require a `thought_signature` when execu
 ## 6. Context Window and Token Optimization
 
 Even with massive context windows (1M–2M tokens), context efficiency is critical:
-- **System Prompt Composition:** Injects OS version, CWD, username, local date/time (with dates explicitly identified as `MM/DD/YYYY`), active workflow system instructions, and tool constraints. Non-Harness Chat and Quick Launcher user messages also carry compact `[MM-DD-YYYY HH:MM:SS]` metadata for temporal context; the UI keeps it hidden.
+- **System Prompt Composition:** Injects OS version, CWD, username, current weekday and local date/time (with dates explicitly identified as `MM/DD/YYYY`), active workflow system instructions, and tool constraints. Non-Harness Chat and Quick Launcher user messages also carry compact `[MM-DD-YYYY HH:MM:SS]` metadata for temporal context; the UI keeps it hidden.
 - **Multimodal Payloads:** Images and screenshots are packaged directly into message content payloads.
 - **Output Truncation:** Large command outputs are truncated at 50,000 characters by `localCommandSandbox.ts`.
 - **Local History Persistence:** Chat sessions are persisted as JSON files on disk for fast search and zero cloud storage dependency.
