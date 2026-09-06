@@ -210,6 +210,98 @@ export interface EffectiveHarnessSettings extends Omit<
   project: HarnessProjectConfig
 }
 
+export type HarnessGitOperationKind = 'merge' | 'rebase' | 'cherry-pick'
+
+export interface HarnessGitFile {
+  path: string
+  indexStatus: string
+  workTreeStatus: string
+  isUntracked: boolean
+  isConflicted: boolean
+}
+
+export interface HarnessGitBranch {
+  name: string
+  fullName: string
+  isCurrent: boolean
+  isRemote: boolean
+  upstream?: string
+  ahead?: number
+  behind?: number
+}
+
+export interface HarnessGitRemote {
+  name: string
+  fetchUrl?: string
+  pushUrl?: string
+}
+
+export interface HarnessGitCommit {
+  hash: string
+  shortHash: string
+  subject: string
+  author: string
+  authoredAt: string
+}
+
+export interface HarnessGitOperation {
+  kind: HarnessGitOperationKind
+  target?: string
+}
+
+export interface HarnessGitSnapshot {
+  ok: boolean
+  projectPath: string
+  repoRoot?: string
+  isGit: boolean
+  branch?: string
+  detached: boolean
+  upstream?: string
+  ahead: number
+  behind: number
+  files: HarnessGitFile[]
+  conflicts: string[]
+  branches: HarnessGitBranch[]
+  remotes: HarnessGitRemote[]
+  commits: HarnessGitCommit[]
+  operation?: HarnessGitOperation
+  signing: { enabled: boolean; format?: string; key?: string }
+  github: { available: boolean; authenticated: boolean; username?: string }
+  defaultBranch?: string
+  error?: string
+}
+
+export interface HarnessGitCommitOptions {
+  message?: string
+  sign?: boolean
+  signoff?: boolean
+  coAuthor?: { name: string; email: string }
+}
+
+export type HarnessGitAction =
+  | { kind: 'switchBranch'; name: string }
+  | { kind: 'createBranch'; name: string; startPoint?: string }
+  | { kind: 'renameBranch'; from: string; to: string }
+  | { kind: 'deleteBranch'; name: string; remote?: string; force?: boolean }
+  | { kind: 'fetch'; remote?: string }
+  | { kind: 'merge'; branch: string }
+  | { kind: 'commit'; options: HarnessGitCommitOptions }
+  | { kind: 'push'; remote?: string }
+  | { kind: 'pull'; remote?: string }
+  | { kind: 'sync'; remote?: string }
+  | { kind: 'reset'; hash: string; mode: 'hard' | 'soft' }
+  | { kind: 'abortOperation' }
+  | { kind: 'createPr'; title: string; body: string; base: string; head?: string }
+
+export interface HarnessGitActionResult {
+  ok: boolean
+  snapshot: HarnessGitSnapshot
+  output?: string
+  error?: string
+  conflict?: boolean
+  prUrl?: string
+}
+
 export interface HarnessSource {
   title: string
   url: string

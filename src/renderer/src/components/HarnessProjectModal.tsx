@@ -74,14 +74,13 @@ export function HarnessProjectModal({
         )
       })
       .sort((a, b) => {
-        // Default project or last opened project first, then by updatedAt
-        const aIsDefault = config.harness.defaultProjectPath === a.rootPath
-        const bIsDefault = config.harness.defaultProjectPath === b.rootPath
-        if (aIsDefault && !bIsDefault) return -1
-        if (!aIsDefault && bIsDefault) return 1
+        const aIsActive = config.harness.lastProjectPath === a.rootPath
+        const bIsActive = config.harness.lastProjectPath === b.rootPath
+        if (aIsActive && !bIsActive) return -1
+        if (!aIsActive && bIsActive) return 1
         return (b.updatedAt || 0) - (a.updatedAt || 0)
       })
-  }, [config?.harness?.projects, config?.harness?.defaultProjectPath, search])
+  }, [config?.harness?.projects, config?.harness?.lastProjectPath, search])
 
   if (!isOpen) return null
 

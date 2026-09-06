@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { promisify } from 'node:util'
 import { installBrokenPipeGuard } from '../src/main/brokenPipeGuard.ts'
 import {
   changesDiff,
@@ -47,12 +49,19 @@ import {
   stringifyHarnessValue
 } from '../src/renderer/src/harnessToolPresentation.ts'
 import { applyToolCallEnd, applyToolCallStart } from '../src/renderer/src/toolCallState.ts'
+import {
+  getHarnessGitSnapshot,
+  parseHarnessGitStatus,
+  runHarnessGitAction
+} from '../src/main/harnessGit.ts'
 import type {
   EffectiveHarnessSettings,
   HarnessSettings,
   HarnessStartupProjectMode,
   HarnessProjectConfig
 } from '../src/shared/types.ts'
+
+const execFileAsync = promisify(execFile)
 
 test('edit and delete snippets require one exact match', () => {
   assert.equal(
@@ -811,4 +820,60 @@ test('check folder existence safely reports missing without throwing', async () 
   assert.equal(after.isDirectory, true)
 
   await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {})
+})
+
+test('Git Control parses porcelain state and performs local checkpoint operations safely', async () => {
+  assert.deepEqual(parseHarnessGitStatus(' M src/app.ts\0?? notes.md\0UU conflict.ts\0'), [
+    { path: 'src/app.ts', indexStatus: ' ', workTreeStatus: 'M', isUntracked: false, isConflicted: false },
+    { path: 'notes.md', indexStatus: '?', workTreeStatus: '?', isUntracked: true, isConflicted: false },
+    { path: 'conflict.ts', indexStatus: 'U', workTreeStatus: 'U', isUntracked: false, isConflicted: true }
+  ])
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-harness-git-'))
+  const runGit = async (...args: string[]): Promise<void> => {
+    await execFileAsync('git', args, { cwd: root, windowsHide: true })
+  }
+  try {
+    await runGit('init')
+    await runGit('config', 'user.name', 'Harness Test')
+    await runGit('config', 'user.email', 'harness-test@example.invalid')
+    await fs.writeFile(path.join(root, 'README.md'), '# Harness\n')
+    await runGit('add', '.')
+    await runGit('commit', '-m', 'Initial commit')
+
+    await fs.writeFile(path.join(root, 'README.md'), '# Harness\n\nGit Control\n')
+    const initial = await getHarnessGitSnapshot(root)
+    assert.equal(initial.isGit, true)
+    assert.equal(initial.files.length, 1)
+    assert.ok(initial.branch)
+
+    const committed = await runHarnessGitAction(root, {
+      kind: 'commit',
+      options: { message: 'Add Git Control coverage', sign: false, signoff: true }
+    })
+    assert.equal(committed.ok, true)
+    assert.equal(committed.snapshot.files.length, 0)
+    assert.equal(committed.snapshot.commits[0]?.subject, 'Add Git Control coverage')
+
+    const created = await runHarnessGitAction(root, { kind: 'createBranch', name: 'checkpoint-test' })
+    assert.equal(created.ok, true)
+    assert.equal(created.snapshot.branch, 'checkpoint-test')
+    const renamed = await runHarnessGitAction(root, {
+      kind: 'renameBranch',
+      from: 'checkpoint-test',
+      to: 'checkpoint-renamed'
+    })
+    assert.equal(renamed.ok, true)
+    assert.equal(renamed.snapshot.branch, 'checkpoint-renamed')
+
+    const reset = await runHarnessGitAction(root, {
+      kind: 'reset',
+      hash: 'HEAD~1',
+      mode: 'soft'
+    })
+    assert.equal(reset.ok, true)
+    assert.ok(reset.snapshot.files.length > 0)
+  } finally {
+    await fs.rm(root, { recursive: true, force: true })
+  }
 })

@@ -26,7 +26,10 @@ import type {
   WorkspaceKind,
   HarnessExplorerSelection,
   HarnessExplorerDirectoryResult,
-  HarnessExplorerActionResult
+  HarnessExplorerActionResult,
+  HarnessGitAction,
+  HarnessGitActionResult,
+  HarnessGitSnapshot
 } from '../shared/types'
 import type {
   MemoryEntry,
@@ -182,6 +185,7 @@ export interface PrismAPI {
   createHarnessProject: (name: string) => Promise<{ project: HarnessProjectConfig }>
   openHarnessProject: (projectPath?: string) => Promise<{ project: HarnessProjectConfig } | null>
   getHarnessProject: (projectPath?: string) => Promise<HarnessProjectConfig | null>
+  activateHarnessProject: (projectPath: string) => Promise<{ project: HarnessProjectConfig }>
   getHarnessInstructionStatus: (projectPath?: string) => Promise<HarnessInstructionStatus | null>
   updateHarnessProject: (
     projectPath: string,
@@ -196,6 +200,12 @@ export interface PrismAPI {
   >
   recreateHarnessProjectFolder: (rootPath: string) => Promise<{ project: HarnessProjectConfig }>
   resolveHarnessStartupProject: () => Promise<HarnessProjectConfig | null>
+  getHarnessGitStatus: (projectPath: string) => Promise<HarnessGitSnapshot>
+  runHarnessGitAction: (
+    projectPath: string,
+    action: HarnessGitAction
+  ) => Promise<HarnessGitActionResult>
+  generateHarnessGitCommitMessage: (projectPath: string, modelKey: string) => Promise<string>
   listHarnessDirectory: (
     projectPath: string,
     relativePath?: string

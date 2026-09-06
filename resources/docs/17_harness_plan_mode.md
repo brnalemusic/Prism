@@ -21,6 +21,12 @@ The review surface uses the same Markdown pipeline as completed chat messages, i
 
 While a plan is being prepared or revised, Prism shows a matching loading state and keeps cancellation available. If handoff preparation fails, the source session and plan remain available for retry. After approval, the InputBar returns and the approved plan remains available as a compact expandable summary.
 
+## Git conflict plans
+
+When Git Control detects a conflicted merge, rebase, pull, Sync, or cherry-pick, it pauses the operation and lists the affected files. **Resolve with AI** opens a new Harness conversation in the same project directly in Plan. The initial Markdown request contains the branch, upstream, ahead/behind counts, pending operation, and conflicted files.
+
+The conflict session follows the same read-only Plan rules described above. It can inspect the repository and ask questions, but it cannot modify files until the user approves the generated plan with **Accept & Continue** or starts a **New Build Chat**.
+
 ## Harness Questions
 
 The `to_ask` tool supports `essay`, `multiple-choice`, and `multiple-select`. Choice options have a short title, a separate explanatory description, and an optional **Recommended** marker selected by the model when one option is clearly best. A multiple-select question may provide `max_selections`; omitting it allows any number of selections. Prism always appends **Write your own answer** to both choice modes. The custom answer must be non-empty when selected and counts toward a multiple-select limit.

@@ -18,6 +18,7 @@ import {
   Warning
 } from '@phosphor-icons/react'
 import { InputBar, InputBarHandle } from './InputBar'
+import { HarnessGitControl } from './HarnessGitControl'
 import TodoPanel from './TodoPanel'
 import { QuestionnaireWizard } from './QuestionnaireRenderer'
 import { ImplementationPlanCard } from './ImplementationPlanCard'
@@ -56,6 +57,8 @@ interface ChatPaneProps {
   onModeChange: (mode: TabSession['sessionMode']) => void
   onSelectFolder: () => void
   onSwitchProject?: (projectPath: string) => void
+  onResolveGitConflict?: (snapshot: import('../../../shared/types').HarnessGitSnapshot) => void
+  onOpenProjectInExplorer?: (projectPath: string) => void
   onUpdateTabInput: (id: string, text: string) => void
   onUpdateTabFile: (id: string, file: TabSession['attachedFile']) => void
   onUpdateTabQuote?: (id: string, quote: string | null) => void
@@ -105,6 +108,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     onModeChange,
     onSelectFolder,
     onSwitchProject,
+    onResolveGitConflict,
+    onOpenProjectInExplorer,
     onUpdateTabInput,
     onUpdateTabFile,
     onUpdateTabQuote,
@@ -169,28 +174,32 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
         const seen = new Set<string>()
         const list: { path: string; name: string }[] = []
 
-        const addPath = (p?: string): void => {
+        const addPath = (p?: string, name?: string): void => {
           if (!p) return
           const norm = p.trim().toLowerCase()
           if (!norm || seen.has(norm)) return
           seen.add(norm)
           const pieces = p.split(/[\\/]/).filter(Boolean)
-          const name = pieces[pieces.length - 1] || p
-          list.push({ path: p, name })
+          list.push({ path: p, name: name || pieces[pieces.length - 1] || p })
         }
 
-        // Current project path
+        const configProjects = Object.values(config?.harness.projects || {})
+        const activeProjectPath = config?.harness.lastProjectPath
+        const activeProject = configProjects.find(
+          (project) => project.rootPath.toLowerCase() === activeProjectPath?.toLowerCase()
+        )
+        addPath(activeProject?.rootPath, activeProject?.displayName)
+
+        for (const project of [...configProjects].sort((left, right) => right.updatedAt - left.updatedAt)) {
+          addPath(project.rootPath, project.displayName)
+        }
+
+        // The tab and session history remain available, after persisted recents.
         addPath(tab.disciplinePath)
 
         // History sessions
         for (const session of sessions) {
           addPath(session.disciplinePath)
-        }
-
-        // Config projects
-        const configProjects = Object.values(config?.harness.projects || {})
-        for (const proj of configProjects) {
-          addPath(proj.rootPath)
         }
 
         const topRecent = list.slice(0, 7)
@@ -212,7 +221,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
       } catch (err) {
         console.error('Failed to get recent projects:', err)
       }
-    }, [isHarness, tab.disciplinePath, config?.harness.projects])
+    }, [isHarness, tab.disciplinePath, config?.harness.lastProjectPath, config?.harness.projects])
 
     useEffect(() => {
       void refreshRecentProjects()
@@ -352,6 +361,13 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                 )}
               />
             </button>
+
+            <HarnessGitControl
+              projectPath={tab.disciplinePath}
+              modelKey={tab.selectedModel}
+              onResolveConflict={(snapshot) => onResolveGitConflict?.(snapshot)}
+              onOpenProject={(projectPath) => onOpenProjectInExplorer?.(projectPath)}
+            />
 
             {isProjectDropdownOpen && (
               <div

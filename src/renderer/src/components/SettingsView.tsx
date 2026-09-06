@@ -315,10 +315,12 @@ function useLicenseCountdown(expiresAt?: string): string {
 export function SettingsView({
   onClose,
   onOpenAuthModal,
+  onActivateHarnessProject,
   initialSection = 'appearance'
 }: {
   onClose?: () => void
   onOpenAuthModal?: () => void
+  onActivateHarnessProject?: (projectPath: string) => void
   initialSection?: SectionId
 }): React.JSX.Element {
   const [config, setConfig] = useState<Config>({
@@ -2578,7 +2580,10 @@ export function SettingsView({
             <div className="settings-card space-y-5">
               <CustomSelect
                 value={effectiveHarnessProjectPath}
-                onChange={setSelectedHarnessProjectPath}
+                onChange={(projectPath) => {
+                  setSelectedHarnessProjectPath(projectPath)
+                  onActivateHarnessProject?.(projectPath)
+                }}
                 options={harnessProjectEntries.map(([key, project]) => {
                   const health = harnessProjectsHealth[key]
                   const isMissing = health && (!health.exists || !health.isDirectory)

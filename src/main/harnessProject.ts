@@ -91,6 +91,31 @@ export async function openHarnessProject(rootPath: string): Promise<HarnessProje
   return registerProject(rootPath, path.basename(path.resolve(rootPath)))
 }
 
+/**
+ * The sole persisted activation path for registered Harness projects.
+ * It keeps every renderer surface anchored to the same recent project.
+ */
+export function activateHarnessProject(rootPath: string): HarnessProjectResult {
+  const config = loadConfig()
+  const resolvedRoot = path.resolve(rootPath)
+  const key = projectKey(resolvedRoot)
+  const previous = config.harness.projects[key]
+  if (!previous) throw new Error('Harness project is not registered.')
+
+  const project: HarnessProjectConfig = {
+    ...previous,
+    rootPath: resolvedRoot,
+    updatedAt: Date.now()
+  }
+  const harness: HarnessSettings = {
+    ...config.harness,
+    lastProjectPath: resolvedRoot,
+    projects: { ...config.harness.projects, [key]: project }
+  }
+  if (!saveConfig({ harness }, config)) throw new Error('Could not activate the Harness project.')
+  return { project, settings: harness }
+}
+
 export function updateHarnessProject(
   rootPath: string,
   overrides: HarnessProjectOverrides

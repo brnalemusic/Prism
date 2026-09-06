@@ -29,7 +29,10 @@ import type {
   WorkspaceKind,
   HarnessExplorerSelection,
   HarnessExplorerDirectoryResult,
-  HarnessExplorerActionResult
+  HarnessExplorerActionResult,
+  HarnessGitAction,
+  HarnessGitActionResult,
+  HarnessGitSnapshot
 } from '../shared/types'
 import type { ChatSession } from '../main/history'
 import type {
@@ -398,6 +401,8 @@ const api = {
     ipcRenderer.invoke('harness-open-project', projectPath),
   getHarnessProject: (projectPath?: string): Promise<HarnessProjectConfig | null> =>
     ipcRenderer.invoke('harness-get-project', projectPath),
+  activateHarnessProject: (projectPath: string): Promise<{ project: HarnessProjectConfig }> =>
+    ipcRenderer.invoke('harness-activate-project', projectPath),
   getHarnessInstructionStatus: (projectPath?: string): Promise<HarnessInstructionStatus | null> =>
     ipcRenderer.invoke('harness-get-instruction-status', projectPath),
   updateHarnessProject: (
@@ -418,6 +423,14 @@ const api = {
     ipcRenderer.invoke('harness-recreate-project-folder', rootPath),
   resolveHarnessStartupProject: (): Promise<HarnessProjectConfig | null> =>
     ipcRenderer.invoke('harness-resolve-startup-project'),
+  getHarnessGitStatus: (projectPath: string): Promise<HarnessGitSnapshot> =>
+    ipcRenderer.invoke('harness-git-status', projectPath),
+  runHarnessGitAction: (
+    projectPath: string,
+    action: HarnessGitAction
+  ): Promise<HarnessGitActionResult> => ipcRenderer.invoke('harness-git-action', projectPath, action),
+  generateHarnessGitCommitMessage: (projectPath: string, modelKey: string): Promise<string> =>
+    ipcRenderer.invoke('harness-git-generate-commit-message', projectPath, modelKey),
   listHarnessDirectory: (
     projectPath: string,
     relativePath = '.'

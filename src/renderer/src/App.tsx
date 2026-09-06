@@ -87,6 +87,7 @@ import type {
   HarnessProjectConfig,
   HarnessContextSnapshot,
   HarnessPermissionMode,
+  HarnessGitSnapshot,
   WorkspaceKind
 } from '../../shared/types'
 import type { MemoryReviewStatus } from '../../shared/memoryCore'
@@ -2262,7 +2263,7 @@ function RealApp(): React.JSX.Element {
   }, [])
 
   const selectHarnessProjectForTab = useCallback(
-    (tabId: string, project: HarnessProjectConfig): void => {
+    async (tabId: string, project: HarnessProjectConfig): Promise<void> => {
       const existingTab = harnessTabsRef.current.find((tab) => tab.id === tabId)
       if (
         existingTab?.harnessContextSnapshot &&
@@ -2274,6 +2275,14 @@ function RealApp(): React.JSX.Element {
         ])
         setHarnessProjectTargetTabId(null)
         setIsHarnessProjectModalOpen(false)
+        return
+      }
+      try {
+        await window.api.activateHarnessProject(project.rootPath)
+      } catch (error) {
+        setHarnessPromptWarnings([
+          error instanceof Error ? error.message : 'Could not activate the selected Harness project.'
+        ])
         return
       }
       setHarnessTabs((previous) =>
@@ -2645,6 +2654,10 @@ function RealApp(): React.JSX.Element {
   const handleSelectHarnessTab = useCallback((tabId: string): void => {
     setActiveView('harness')
     setActiveHarnessTabId(tabId)
+    const tab = harnessTabsRef.current.find((entry) => entry.id === tabId)
+    if (tab?.disciplinePath) {
+      void window.api.activateHarnessProject(tab.disciplinePath).catch(console.error)
+    }
   }, [])
 
   const handleCloseHarnessTab = useCallback((tabId: string): void => {
@@ -3660,6 +3673,46 @@ function RealApp(): React.JSX.Element {
       return true
     },
     []
+  )
+
+  const handleResolveHarnessGitConflict = useCallback(
+    (snapshot: HarnessGitSnapshot): void => {
+      if (harnessTabsRef.current.length >= 5) {
+        setHarnessPromptWarnings(['Close a Harness tab before opening a Git conflict plan.'])
+        return
+      }
+      const newId = `harness-git-conflict-${Date.now()}`
+      const sourceTab = harnessTabsRef.current.find(
+        (tab) => tab.id === activeHarnessTabIdRef.current
+      )
+      const newTab: TabSession = {
+        id: newId,
+        chatId: undefined,
+        title: 'Git conflict plan',
+        messages: [],
+        inputText: '',
+        attachedFile: null,
+        workspace: 'harness',
+        sessionMode: 'harness',
+        harnessPhase: 'plan',
+        disciplinePath: snapshot.projectPath,
+        isProcessing: false,
+        isTodoOpen: false,
+        selectedModel: sourceTab?.selectedModel || selectedModelRef.current,
+        isSearchEnabled: false,
+        disabledSkills: [],
+        harnessExplorerContext: []
+      }
+      const conflictFiles = snapshot.conflicts.length
+        ? snapshot.conflicts.map((file) => `- \`${file}\``).join('\n')
+        : '- Git reports a pending operation; inspect the working tree.'
+      const request = `# Git conflict resolution plan\n\nThe Git Control paused a ${snapshot.operation?.kind || 'Git'} operation in **${snapshot.projectPath}**.\n\n- Current branch: \`${snapshot.branch || 'detached HEAD'}\`\n- Upstream: \`${snapshot.upstream || 'none'}\`\n- Ahead/behind: ${snapshot.ahead}/${snapshot.behind}\n- Pending operation: ${snapshot.operation?.kind || 'conflicted working tree'}\n\n## Conflicted files\n${conflictFiles}\n\nPlease inspect the repository and produce the native Implementation Plan for resolving this safely. Ask questions if intent is ambiguous. Do not change files in Plan mode; execution must wait for Accept & Continue or New Build Chat.`
+      setHarnessTabs((previous) => [...previous, newTab])
+      setActiveHarnessTabId(newId)
+      setActiveView('harness')
+      sendHarnessMessageToTab(newId, request, { phaseOverride: 'plan', tabOverride: newTab })
+    },
+    [sendHarnessMessageToTab]
   )
 
   const handleHarnessSend = useCallback(
@@ -5119,7 +5172,7 @@ function RealApp(): React.JSX.Element {
         }}
         onSelected={(project) => {
           const targetTabId = harnessProjectTargetTabId || activeHarnessTabIdRef.current
-          if (targetTabId) selectHarnessProjectForTab(targetTabId, project)
+          if (targetTabId) void selectHarnessProjectForTab(targetTabId, project)
         }}
       />
       {isSettingsModalOpen && (
@@ -5133,6 +5186,17 @@ function RealApp(): React.JSX.Element {
               initialSection={settingsInitialSection}
               onClose={() => setIsSettingsModalOpen(false)}
               onOpenAuthModal={() => setIsAuthModalOpen(true)}
+              onActivateHarnessProject={(projectPath) => {
+                void window.api.getHarnessProject(projectPath).then((project) => {
+                  if (!project) return
+                  const activeTabId = activeHarnessTabIdRef.current
+                  if (activeTabId) {
+                    void selectHarnessProjectForTab(activeTabId, project)
+                  } else {
+                    void window.api.activateHarnessProject(project.rootPath).catch(console.error)
+                  }
+                }).catch(console.error)
+              }}
             />
           </div>
         </div>
@@ -5428,17 +5492,13 @@ function RealApp(): React.JSX.Element {
                     setIsHarnessProjectModalOpen(true)
                   }}
                   onSwitchProject={(projectPath) => {
-                    setHarnessTabs((previous) =>
-                      previous.map((entry) =>
-                        entry.id === tab.id
-                          ? {
-                              ...entry,
-                              disciplinePath: projectPath
-                            }
-                          : entry
-                      )
-                    )
-                    void window.api.getHarnessProject(projectPath).catch(console.error)
+                    void window.api.getHarnessProject(projectPath).then((project) => {
+                      if (project) void selectHarnessProjectForTab(tab.id, project)
+                    }).catch(console.error)
+                  }}
+                  onResolveGitConflict={handleResolveHarnessGitConflict}
+                  onOpenProjectInExplorer={(projectPath) => {
+                    void window.api.openFolderInExplorer(projectPath)
                   }}
                   onUpdateTabInput={(id, text) => {
                     setHarnessTabs((previous) =>

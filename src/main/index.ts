@@ -109,6 +109,7 @@ import { getTerminalProcessesForChat } from './terminalProcessManager'
 import {
   checkAllHarnessProjects,
   checkHarnessProjectFolder,
+  activateHarnessProject,
   createHarnessProject,
   deleteHarnessProject,
   getEffectiveHarnessSettings,
@@ -118,6 +119,8 @@ import {
   resolveHarnessStartupProject,
   updateHarnessProject
 } from './harnessProject'
+import { generateHarnessGitCommitMessage, getHarnessGitSnapshot, runHarnessGitAction } from './harnessGit'
+import type { HarnessGitAction } from '../shared/types'
 import { resolveHarnessApproval } from './harnessApproval'
 import { getHarnessInstructionStatus } from './harnessPrompt'
 import { installProcessOutputGuards } from './brokenPipeGuard'
@@ -1566,6 +1569,14 @@ if (!gotTheLock) {
       return getHarnessProject(projectPath)
     })
 
+    ipcMain.handle('harness-activate-project', (_event, projectPath: string) => {
+      const activated = activateHarnessProject(projectPath)
+      currentConfig = loadConfig()
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
+      return activated
+    })
+
     ipcMain.handle('harness-get-instruction-status', async (_event, projectPath?: string) => {
       const settings = getEffectiveHarnessSettings(projectPath)
       return settings ? getHarnessInstructionStatus(settings) : null
@@ -1606,6 +1617,30 @@ if (!gotTheLock) {
     ipcMain.handle('harness-resolve-startup-project', () => {
       return resolveHarnessStartupProject()
     })
+
+    ipcMain.handle('harness-git-status', async (_event, projectPath: string) => {
+      if (!getEffectiveHarnessSettings(projectPath)) {
+        throw new Error('The Harness project is not registered.')
+      }
+      return getHarnessGitSnapshot(projectPath)
+    })
+
+    ipcMain.handle('harness-git-action', async (_event, projectPath: string, action: HarnessGitAction) => {
+      if (!getEffectiveHarnessSettings(projectPath)) {
+        throw new Error('The Harness project is not registered.')
+      }
+      return runHarnessGitAction(projectPath, action)
+    })
+
+    ipcMain.handle(
+      'harness-git-generate-commit-message',
+      async (_event, projectPath: string, modelKey: string) => {
+        if (!getEffectiveHarnessSettings(projectPath)) {
+          throw new Error('The Harness project is not registered.')
+        }
+        return generateHarnessGitCommitMessage(projectPath, modelKey)
+      }
+    )
 
     ipcMain.handle(
       'harness-list-directory',
