@@ -88,19 +88,91 @@ export async function fetchModelsFromProvider(
   }
 
   const googleBaseUrl = normUrl.replace(/\/openai$/, '')
+
+  if (isGoogle) {
+    const baseModelsUrl = googleBaseUrl.replace(/\/+$/, '').replace(/\/models\/?$/i, '') + '/models'
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+    if (apiKey?.trim()) {
+      headers['x-goog-api-key'] = apiKey.trim()
+    }
+
+    try {
+      const allModelIds: string[] = []
+      let pageToken: string | undefined = undefined
+      const maxPages = 10
+
+      for (let page = 0; page < maxPages; page++) {
+        const url = new URL(baseModelsUrl)
+        url.searchParams.set('pageSize', '1000')
+        if (pageToken) {
+          url.searchParams.set('pageToken', pageToken)
+        }
+
+        const response = await fetch(url.toString(), {
+          method: 'GET',
+          headers
+        })
+
+        if (!response.ok) {
+          const errText = await response.text().catch(() => '')
+          return {
+            success: false,
+            models: [],
+            error: `HTTP ${response.status}: ${errText || response.statusText}`
+          }
+        }
+
+        const data: unknown = await response.json()
+        const pageModels = getModelList(data)
+        allModelIds.push(...pageModels)
+
+        const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : null
+        if (record && typeof record.nextPageToken === 'string' && record.nextPageToken.trim()) {
+          pageToken = record.nextPageToken.trim()
+        } else {
+          break
+        }
+      }
+
+      const uniqueModelIds = Array.from(
+        new Set(
+          allModelIds
+            .map((id) => (id.startsWith('models/') ? id.slice(7) : id).trim())
+            .filter((id) => id.length > 0)
+        )
+      )
+
+      const models: ProviderModel[] = uniqueModelIds.map((id) => {
+        const trusted = isModelTrusted(id)
+        return {
+          id,
+          name: id,
+          isTrusted: trusted,
+          enabled: trusted
+        }
+      })
+
+      return { success: true, models }
+    } catch (error: unknown) {
+      return {
+        success: false,
+        models: [],
+        error: error instanceof Error ? error.message : 'Failed to connect to endpoint'
+      }
+    }
+  }
+
   const endpoint = isPuter
     ? 'https://api.puter.com/puterai/chat/models/details'
-    : isGoogle
-      ? `${googleBaseUrl}/models`
-      : `${normUrl}/models`
+    : `${normUrl}/models`
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   }
 
-  if (isGoogle) {
-    headers['x-goog-api-key'] = apiKey
-  } else if (completionType === 'anthropic_messages' || isAnthropicHost(normUrl)) {
+  if (completionType === 'anthropic_messages' || isAnthropicHost(normUrl)) {
     headers['x-api-key'] = apiKey
     headers['anthropic-version'] = '2023-06-01'
   } else if (apiKey) {

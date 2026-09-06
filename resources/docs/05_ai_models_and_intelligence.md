@@ -60,9 +60,9 @@ Prism comes pre-configured with a trusted registry of popular AI cloud providers
 
 ### 3.2. Dynamic Model Fetching (`providerManager.ts`)
 
-When adding or refreshing a provider, Prism queries `${baseUrl}/models` (or `${baseUrl}/openai/models` for Google endpoints, and native Puter.js `puter.ai.listModels()` for Puter.js).
+When adding or refreshing a provider, Prism queries `${baseUrl}/models` (or Google AI Studio `/models?pageSize=1000` with `nextPageToken` pagination, and native Puter.js `puter.ai.listModels()` for Puter.js).
 - Models returned by the endpoint are cross-referenced with `TRUSTED_MODELS_LIST`.
-- Known trusted models are enabled by default; non-trusted or experimental custom models can be enabled manually in Settings.
+- Known trusted models are enabled by default (such as `gemini-3.1-flash-live-preview`, `gemini-3.8-flash`, etc.); non-trusted or experimental custom models can be enabled manually in Settings.
 
 ### 3.3. Puter.js Native Account Integration (`puterClient.ts`)
 

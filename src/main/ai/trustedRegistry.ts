@@ -84,6 +84,8 @@ export const TRUSTED_MODELS_LIST: string[] = [
   'gemini-3-flash-preview',
   'gemini-3-flash',
   'gemini-3.1-flash-lite',
+  'gemini-3.1-flash-live-preview',
+  'gemini-3-1-flash-live-preview',
   'gemini-3.5-flash-lite',
   'gemini-3.1-pro',
   'gemini-3.8-flash',
