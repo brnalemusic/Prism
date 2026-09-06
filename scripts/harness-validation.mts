@@ -56,7 +56,6 @@ import {
 } from '../src/main/harnessGit.ts'
 import type {
   EffectiveHarnessSettings,
-  HarnessSettings,
   HarnessStartupProjectMode,
   HarnessProjectConfig
 } from '../src/shared/types.ts'
@@ -494,11 +493,13 @@ test('stream frame APIs retain a native-compatible global receiver', () => {
   let cancelReceiver: unknown
   const buffer = new PerChatStreamBuffer<{ chatId: string; text: string }>(
     function schedule(this: unknown, callback) {
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
       scheduleReceiver = this
       callbacks.set(1, callback)
       return 1
     },
     function cancel(this: unknown, handle) {
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
       cancelReceiver = this
       callbacks.delete(handle)
     },
@@ -769,7 +770,7 @@ test('deleteHarnessProject logic cleans up project dictionary and referenced pat
     defaultProjectPath: 'C:\\Projects\\A'
   }
 
-  const deleteProject = (pathToDelete: string) => {
+  const deleteProject = (pathToDelete: string): void => {
     const key = pathToDelete.toLowerCase()
     const updatedProjects = { ...currentSettings.projects }
     delete updatedProjects[key as keyof typeof updatedProjects]
@@ -801,7 +802,9 @@ test('check folder existence safely reports missing without throwing', async () 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-harness-proj-test-'))
   const missingDir = path.join(tempDir, 'does-not-exist')
 
-  const checkFolder = async (folderPath: string) => {
+  const checkFolder = async (
+    folderPath: string
+  ): Promise<{ exists: boolean; isDirectory: boolean }> => {
     try {
       const stat = await fs.stat(folderPath)
       return { exists: true, isDirectory: stat.isDirectory() }
@@ -849,11 +852,27 @@ test('Git Control parses porcelain state and performs local checkpoint operation
 
     const committed = await runHarnessGitAction(root, {
       kind: 'commit',
-      options: { message: 'Add Git Control coverage', sign: false, signoff: true }
+      options: {
+        message: 'Add Git Control coverage',
+        sign: false,
+        signoff: true,
+        coAuthor: {
+          name: 'brnalemusic',
+          email: 'brenoalexandre.music@gmail.com'
+        }
+      }
     })
     assert.equal(committed.ok, true)
     assert.equal(committed.snapshot.files.length, 0)
     assert.equal(committed.snapshot.commits[0]?.subject, 'Add Git Control coverage')
+    const commitBody = await execFileAsync('git', ['log', '-1', '--format=%B'], {
+      cwd: root,
+      windowsHide: true
+    })
+    assert.match(
+      commitBody.stdout,
+      /Co-authored-by: brnalemusic <brenoalexandre\.music@gmail\.com>/
+    )
 
     const created = await runHarnessGitAction(root, { kind: 'createBranch', name: 'checkpoint-test' })
     assert.equal(created.ok, true)
@@ -865,6 +884,25 @@ test('Git Control parses porcelain state and performs local checkpoint operation
     })
     assert.equal(renamed.ok, true)
     assert.equal(renamed.snapshot.branch, 'checkpoint-renamed')
+
+    const initialBranch = initial.branch!
+    const switched = await runHarnessGitAction(root, {
+      kind: 'switchBranch',
+      name: initialBranch
+    })
+    assert.equal(switched.ok, true)
+    assert.equal(switched.snapshot.branch, initialBranch)
+    assert.equal(
+      switched.snapshot.branches.find((branch) => branch.name === initialBranch)?.isCurrent,
+      true
+    )
+
+    const switchedBack = await runHarnessGitAction(root, {
+      kind: 'switchBranch',
+      name: 'checkpoint-renamed'
+    })
+    assert.equal(switchedBack.ok, true)
+    assert.equal(switchedBack.snapshot.branch, 'checkpoint-renamed')
 
     const reset = await runHarnessGitAction(root, {
       kind: 'reset',

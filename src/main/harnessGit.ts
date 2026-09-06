@@ -16,6 +16,11 @@ import type { OpenAiMessage } from './ai/types'
 
 const execFileAsync = promisify(execFile)
 const MAX_BUFFER = 5 * 1024 * 1024
+const GITHUB_STATUS_TTL_MS = 60_000
+const githubStatusCache = new Map<
+  string,
+  { expiresAt: number; value: HarnessGitSnapshot['github'] }
+>()
 
 interface CommandResult {
   stdout: string
@@ -82,7 +87,7 @@ export function parseHarnessGitStatus(output: string): HarnessGitFile[] {
     if (entry.length < 4) continue
     const indexStatus = entry.slice(0, 1)
     const workTreeStatus = entry.slice(1, 2)
-    let filePath = entry.slice(3)
+    const filePath = entry.slice(3)
     // Porcelain v1 places the previous path after a rename/copy entry.
     if (indexStatus === 'R' || indexStatus === 'C') index += 1
     const isConflicted = ['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU'].includes(
@@ -100,13 +105,11 @@ export function parseHarnessGitStatus(output: string): HarnessGitFile[] {
 }
 
 function parseBranches(output: string, currentBranch?: string): HarnessGitBranch[] {
-  const parts = output.split('\0').filter(Boolean)
   const branches: HarnessGitBranch[] = []
-  for (let index = 0; index + 4 < parts.length; index += 5) {
-    const refName = parts[index]
-    const shortName = parts[index + 1]
-    const head = parts[index + 2]
-    const upstream = parts[index + 3]
+  for (const line of output.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    const [refName = '', shortName = '', head = '', upstream = ''] = line.split('\t')
+    if (!refName || !shortName) continue
     const isRemote = refName.startsWith('refs/remotes/')
     if (shortName.endsWith('/HEAD')) continue
     branches.push({
@@ -169,10 +172,19 @@ async function operationFor(repoRoot: string): Promise<HarnessGitOperation | und
 }
 
 async function githubStatus(cwd: string): Promise<HarnessGitSnapshot['github']> {
+  const cached = githubStatusCache.get(cwd)
+  if (cached && cached.expiresAt > Date.now()) return cached.value
   const result = await run('gh', ['auth', 'status', '--hostname', 'github.com'], cwd)
-  if (result.exitCode !== 0) return { available: !/not recognized|ENOENT/i.test(result.stderr), authenticated: false }
-  const account = /account\s+([\w-]+)/i.exec(result.stderr + result.stdout)
-  return { available: true, authenticated: true, username: account?.[1] }
+  const value: HarnessGitSnapshot['github'] =
+    result.exitCode !== 0
+      ? { available: !/not recognized|ENOENT/i.test(result.stderr), authenticated: false }
+      : {
+          available: true,
+          authenticated: true,
+          username: /account\s+([\w-]+)/i.exec(result.stderr + result.stdout)?.[1]
+        }
+  githubStatusCache.set(cwd, { expiresAt: Date.now() + GITHUB_STATUS_TTL_MS, value })
+  return value
 }
 
 function trimOutput(value: string): string {
@@ -201,7 +213,7 @@ export async function getHarnessGitSnapshot(projectPath: string): Promise<Harnes
     git(repoRoot, ['branch', '--show-current']),
     git(repoRoot, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']),
     git(repoRoot, ['status', '--porcelain=v1', '-z']),
-    git(repoRoot, ['for-each-ref', '--format=%(refname)%00%(refname:short)%00%(HEAD)%00%(upstream:short)%00%(objectname:short)%00', 'refs/heads', 'refs/remotes']),
+    git(repoRoot, ['for-each-ref', '--format=%(refname)%09%(refname:short)%09%(HEAD)%09%(upstream:short)', 'refs/heads', 'refs/remotes']),
     git(repoRoot, ['remote', '-v']),
     git(repoRoot, ['log', '-20', '--format=%H%x00%h%x00%s%x00%an%x00%aI%x00']),
     git(repoRoot, ['config', '--bool', 'commit.gpgsign']),
