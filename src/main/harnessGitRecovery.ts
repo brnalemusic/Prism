@@ -399,3 +399,4 @@ export async function finishGitBuild(chatId: string, runId: string | undefined, 
     await reconcile(r, await getHarnessGitSnapshot(r.projectPath))
   }, true)
 }
+
