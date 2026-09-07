@@ -300,7 +300,7 @@ export function Sidebar({
   return (
     <aside
       className={clsx(
-        'relative h-full flex flex-row bg-black/25 backdrop-blur-2xl overflow-hidden z-20 select-none transition-[width,opacity] duration-[460ms] ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
+        'compositor-contained relative h-full flex flex-row bg-black/25 backdrop-blur-2xl overflow-hidden z-20 select-none transition-[width,opacity] duration-[460ms] ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
         isOpen
           ? viewMoreGroupId
             ? 'w-[min(584px,calc(100vw-360px))] opacity-100'

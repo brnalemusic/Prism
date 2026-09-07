@@ -2,6 +2,8 @@
 // theme-colored auras for depth, and a barely-visible grain veil so large
 // dark areas do not feel digitally flat. Everything is fixed, non-scrolling
 // and pointer-transparent; auras animate only opacity/transform (GPU-safe).
+// PERFORMANCE: orbs are GPU-promoted and isolated so the fullscreen blur
+// behind glass surfaces does not repaint the whole frame on every pulse.
 export function PrismBackground(): React.JSX.Element {
   return (
     <div
@@ -13,7 +15,7 @@ export function PrismBackground(): React.JSX.Element {
     >
       {/* Primary dynamic theme aura orb (Top-right/center) */}
       <div
-        className="absolute -top-[15%] right-[10%] w-[55vw] h-[55vh] rounded-full blur-[130px] opacity-25 mix-blend-screen transition-all duration-700 pointer-events-none animate-[pulse_12s_ease-in-out_infinite]"
+        className="gpu-layer absolute -top-[15%] right-[10%] w-[55vw] h-[55vh] rounded-full blur-[130px] opacity-25 mix-blend-screen transition-colors duration-700 pointer-events-none animate-[pulse_12s_ease-in-out_infinite]"
         style={{
           background: 'radial-gradient(circle, var(--theme-aura-1) 0%, transparent 70%)'
         }}
@@ -21,7 +23,7 @@ export function PrismBackground(): React.JSX.Element {
 
       {/* Secondary glowing ember/aurora orb (Bottom-left under InputBar & Chat) */}
       <div
-        className="absolute -bottom-[20%] left-[15%] w-[60vw] h-[60vh] rounded-full blur-[150px] opacity-22 mix-blend-screen transition-all duration-700 pointer-events-none animate-[pulse_16s_ease-in-out_infinite]"
+        className="gpu-layer absolute -bottom-[20%] left-[15%] w-[60vw] h-[60vh] rounded-full blur-[150px] opacity-22 mix-blend-screen transition-colors duration-700 pointer-events-none animate-[pulse_16s_ease-in-out_infinite]"
         style={{
           background: 'radial-gradient(circle, var(--theme-aura-2) 0%, transparent 65%)'
         }}
@@ -29,7 +31,7 @@ export function PrismBackground(): React.JSX.Element {
 
       {/* Tertiary atmospheric depth node (Behind Sidebar) */}
       <div
-        className="absolute top-[20%] -left-[10%] w-[35vw] h-[50vh] rounded-full blur-[110px] opacity-18 mix-blend-screen transition-all duration-700 pointer-events-none"
+        className="gpu-layer absolute top-[20%] -left-[10%] w-[35vw] h-[50vh] rounded-full blur-[110px] opacity-18 mix-blend-screen transition-colors duration-700 pointer-events-none"
         style={{
           background: 'radial-gradient(circle, var(--theme-aura-1) 0%, transparent 60%)'
         }}

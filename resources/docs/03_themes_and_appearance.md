@@ -42,3 +42,13 @@ Chat bubbles render live token streams using `react-markdown` + `rehype-raw` + `
 
 ### 4.3. ActionLoader Component
 Tool calls render as animated `ActionLoader` widgets with status indicators (`writing`, `running`, `done`, `error`), showing real-time terminal output or browser steps.
+
+### 4.4. Rendering Performance
+Glass surfaces keep full quality when idle. Blurred panels use compositor
+containment (`isolation: isolate`, `contain: layout paint style`) so streaming
+text and scrolling do not invalidate fullscreen blur layers. Chat rows use
+`content-visibility: auto` virtualization, syntax highlighting reuses a bounded
+Prism token cache, and the streaming timeline keeps a capped live window with
+identical final output. `Settings > Appearance > Rendering Performance`
+offers `Auto` (default, temporary imperceptible step-down under load) and
+`Max` (stronger containment, same idle look).

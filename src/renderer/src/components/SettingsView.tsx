@@ -86,6 +86,7 @@ import type {
 import { ApiManagerSettings } from './ApiManagerSettings'
 import { ModelSelector } from './ModelSelector'
 import { QuantumPhysicsGame } from './QuantumPhysicsGame'
+import { usePerformanceMode } from '../hooks/usePerformanceMode'
 
 type Config = AppConfig
 
@@ -348,6 +349,7 @@ export function SettingsView({
     harness: DEFAULT_HARNESS_SETTINGS
   })
 
+  const { mode: performanceMode, setMode: setPerformanceMode } = usePerformanceMode()
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState({ text: '', type: '' })
   const [availableTerminals, setAvailableTerminals] = useState<
@@ -1467,6 +1469,51 @@ export function SettingsView({
               <RotateCcw size={12} />
               Reset (100%)
             </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="h-px bg-[var(--border-subtle)]" />
+
+      {/* Rendering performance */}
+      <div className="space-y-4">
+        <SettingsGroupLabel
+          title="Rendering Performance"
+          description="Keeps the current look by default and only tightens compositing under heavy load for stable 60fps."
+        />
+        <div className="settings-card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold text-text-primary">
+              {performanceMode === 'max' ? 'Max smoothness on' : 'Auto smoothness on'}
+            </span>
+            <span className="text-[11px] text-text-muted">
+              Auto uses full visuals when idle with an imperceptible step-down while streaming.
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {(
+              [
+                { id: 'auto', label: 'Auto' },
+                { id: 'max', label: 'Max' }
+              ] as Array<{ id: 'auto' | 'max'; label: string }>
+            ).map((option) => {
+              const isActive = performanceMode === option.id
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setPerformanceMode(option.id)}
+                  className={clsx(
+                    'rounded-lg px-3 py-1.5 text-xs font-semibold font-mono border transition-all active:scale-95 cursor-pointer',
+                    isActive
+                      ? 'border-accent-primary bg-accent-primary/15 text-accent-primary shadow-[0_0_10px_var(--accent-glow)]'
+                      : 'border-[var(--border-default)] bg-[var(--surface-lowest)] text-text-secondary hover:bg-[var(--surface-raised)] hover:text-text-primary hover:border-[var(--border-strong)]'
+                  )}
+                >
+                  {option.label}
+                </button>
+              )
+            })}
           </div>
         </div>
       </div>

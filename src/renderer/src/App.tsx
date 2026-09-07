@@ -113,6 +113,7 @@ import {
   HARNESS_PLAN_APPROVED_MARKER,
   parseHarnessPlanCommand
 } from '../../shared/harnessPlanCommand'
+import { usePerformanceLoad, usePerformanceMode } from './hooks/usePerformanceMode'
 
 const DiscordVoiceGlowOverlay = lazy(() =>
   import('./components/DiscordVoiceGlowOverlay').then(({ DiscordVoiceGlowOverlay }) => ({
@@ -1576,7 +1577,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
     return (
       <div
         key={i}
-        className="w-full flex flex-col items-start px-4 py-3.5 transition-all duration-700 animate-message"
+        className="chat-message-viewport w-full flex flex-col items-start px-4 py-3.5 transition-colors duration-300 animate-message"
       >
         {harnessBlocks.length > 0 ? (
           <div className="w-full flex flex-col gap-2.5">
@@ -1653,7 +1654,7 @@ const AiMessageRow = React.memo(function AiMessageRow({
   return (
     <div
       key={i}
-      className="w-full flex flex-col items-start px-4 py-3.5 transition-all duration-700 animate-message"
+      className="chat-message-viewport w-full flex flex-col items-start px-4 py-3.5 transition-colors duration-300 animate-message"
     >
       {/* 1. Active State Header: "Thinking" shimming remains sticky until turn completes */}
       {isActive && hasThoughtInTurn && (
@@ -1742,7 +1743,7 @@ const UserMessageRow = React.memo(function UserMessageRow({
   // thread renders it as a compact native note instead of a full user bubble.
   if (msg.content.startsWith(HARNESS_PLAN_APPROVED_MARKER)) {
     return (
-      <div key={i} className="w-full flex flex-col items-end px-4 py-2.5 animate-message">
+      <div key={i} className="chat-message-viewport w-full flex flex-col items-end px-4 py-2.5 animate-message">
         <div className="flex max-w-[75%] items-center gap-2.5 rounded-2xl bg-accent-primary/[0.07] px-4 py-2.5 shadow-[var(--glass-specular-top)]">
           <CheckCircle size={16} weight="fill" className="shrink-0 text-accent-primary" />
           <div className="min-w-0">
@@ -1757,7 +1758,7 @@ const UserMessageRow = React.memo(function UserMessageRow({
   return (
     <div
       key={i}
-      className="w-full flex flex-col items-end px-4 py-2.5 transition-all duration-700 animate-message"
+      className="chat-message-viewport w-full flex flex-col items-end px-4 py-2.5 transition-colors duration-300 animate-message"
     >
       <div className="rounded-[22px] bg-white/[0.045] shadow-[var(--glass-specular-top),0_10px_28px_-10px_rgba(0,0,0,0.4)] px-5 py-3.5 text-[14.5px] leading-relaxed text-text-primary max-w-[75%] select-text">
         {msg.quote && (
@@ -2212,6 +2213,19 @@ function RealApp(): React.JSX.Element {
   const [planHandoffState, setPlanHandoffState] = useState<
     Record<string, { preparing: boolean; error?: string }>
   >({})
+
+  // PERFORMANCE: restores the persisted mode on boot and applies a
+  // temporary imperceptible step-down while any tab streams/processes.
+  const { mode: performanceMode } = usePerformanceMode()
+  void performanceMode
+  const isHeavyLoad = useMemo(
+    () =>
+      tabs.some(
+        (tab) => tab.isProcessing || tab.messages.some((msg) => msg.isStreaming || msg.isThinking)
+      ) || harnessTabs.some((tab) => tab.isProcessing),
+    [tabs, harnessTabs]
+  )
+  usePerformanceLoad(isHeavyLoad)
 
   const tabsRef = useRef(tabs)
   useEffect(() => {

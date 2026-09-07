@@ -2766,3 +2766,104 @@
     animation-iteration-count: infinite !important;
   }
 }
+
+/* ── Performance compositor layer (no visual change when idle) ──
+   Contain backdrop-filter sampling areas so streaming text and scroll
+   do not invalidate fullscreen blur layers every frame. All rules below
+   preserve the exact idle look; they only limit repaint scope and
+   promote animated layers to the GPU. */
+.true-glass,
+.glass-dropdown-panel,
+.liquid-glass-docked,
+.premium-panel,
+.premium-panel-soft,
+.premium-control,
+.model-menu-panel {
+  isolation: isolate;
+  contain: layout paint style;
+}
+
+.prism-background-field {
+  contain: strict;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.prism-background-field > div {
+  will-change: opacity, transform;
+  backface-visibility: hidden;
+}
+
+/* Chat virtualization helper: offscreen messages skip layout/paint
+   but keep their exact size so scroll position never jumps. */
+.chat-message-viewport {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 420px;
+  contain: layout paint style;
+}
+
+/* Streaming spans: opacity is GPU-composited, color forces repaint.
+   Keep the dual animation by default, but drop the permanent
+   will-change layer that kept hundreds of spans alive. */
+.streaming-character-fade,
+.streaming-element-fade {
+  will-change: auto;
+  contain: paint;
+  backface-visibility: hidden;
+}
+
+/* Opacity-only fast path used under heavy load. Same fade timing,
+   skips the color repaint while keeping order and rhythm. */
+.streaming-opacity-only {
+  animation: streaming-character-opacity 260ms ease-out var(--streaming-character-delay, 0ms) both !important;
+}
+
+/* Generic GPU promotion for elements that animate transform/opacity. */
+.gpu-layer {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Limit fixed blurred chrome (sidebar/title/tab bars) to its own box. */
+.compositor-contained {
+  contain: layout paint style;
+  isolation: isolate;
+}
+
+/* Pauses infinite decorative animations when offscreen.
+   Applied via IntersectionObserver; visual state is preserved. */
+.anim-paused,
+.anim-paused * {
+  animation-play-state: paused !important;
+}
+
+/* Temporary under-load state: blur radius steps down just enough to
+   recover the frame budget during heavy streaming, then restores.
+   Idle appearance stays pixel-identical. */
+.perf-under-load .true-glass,
+.perf-under-load .glass-dropdown-panel,
+.perf-under-load .liquid-glass-docked {
+  --glass-surface-blur: 28px;
+}
+
+.perf-under-load .streaming-character-fade {
+  animation:
+    streaming-character-opacity 260ms ease-out var(--streaming-character-delay, 0ms) both;
+}
+
+/* Manual Max smoothness mode: same look when idle, stronger
+   containment plus opacity-only streaming fades. */
+.perf-max .true-glass,
+.perf-max .glass-dropdown-panel,
+.perf-max .liquid-glass-docked {
+  --glass-surface-blur: 28px;
+}
+
+.perf-max .streaming-character-fade,
+.perf-max .streaming-element-fade {
+  animation: streaming-character-opacity 260ms ease-out var(--streaming-character-delay, 0ms) both !important;
+}
+
+.perf-max .chat-message-viewport {
+  contain-intrinsic-size: auto 320px;
+}

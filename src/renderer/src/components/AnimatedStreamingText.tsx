@@ -1,4 +1,4 @@
-import React, { useContext, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import React, { useContext, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { Components } from 'react-markdown'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-javascript'
@@ -63,6 +63,12 @@ const MIN_PREDICTED_CHUNK_INTERVAL = 40
 const MAX_PREDICTED_CHUNK_INTERVAL = 4000
 /** Target window used to drain a burst without changing the grapheme order. */
 export const STREAMING_BACKLOG_WINDOW_MS = 320
+/**
+ * PERFORMANCE: cap of live animation timings. Only the newest window
+ * animates; older spans resolve to static text with identical final look.
+ * Bounds DOM spans and Map growth during long streams.
+ */
+const MAX_LIVE_TIMINGS = 400
 
 const idleAnimationClock: StreamingAnimationClock = {
   renderTime: 0,
@@ -205,6 +211,13 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
       const existing = timeline.timings.get(token)
       if (existing) return existing.endAt > renderTime ? existing : undefined
       if (!isNew || !isVisuallyStreaming) return undefined
+
+      // Bound live spans: evict the oldest timing when over budget so
+      // long streams keep a constant animation window with identical output.
+      if (timeline.timings.size >= MAX_LIVE_TIMINGS) {
+        const oldest = timeline.timings.keys().next()
+        if (!oldest.done) timeline.timings.delete(oldest.value)
+      }
 
       const startAt = Math.max(renderTime, timeline.nextStartAt)
       const timing = {
@@ -878,6 +891,36 @@ const getGrammar = (lang: string) => {
   return Prism.languages[target]
 }
 
+// PERFORMANCE: cache syntax tokens so streaming re-renders reuse the last
+// tokenization instead of retokenizing the whole block every frame.
+// Bounded Map keeps memory flat with identical highlighted output.
+const PRISM_TOKEN_CACHE = new Map<string, Array<string | Prism.Token>>()
+const MAX_PRISM_TOKEN_CACHE = 40
+
+function getCachedTokens(lang: string, code: string): Array<string | Prism.Token> | null {
+  const grammar = getGrammar(lang)
+  if (!grammar) return null
+  const key = `${lang}:${code.length}:${hashCode(code)}`
+  const cached = PRISM_TOKEN_CACHE.get(key)
+  if (cached) return cached
+  const tokens = Prism.tokenize(code, grammar)
+  PRISM_TOKEN_CACHE.set(key, tokens)
+  if (PRISM_TOKEN_CACHE.size > MAX_PRISM_TOKEN_CACHE) {
+    const oldest = PRISM_TOKEN_CACHE.keys().next()
+    if (!oldest.done) PRISM_TOKEN_CACHE.delete(oldest.value)
+  }
+  return tokens
+}
+
+function hashCode(value: string): number {
+  let hash = 0
+  const step = Math.max(1, Math.floor(value.length / 512))
+  for (let i = 0; i < value.length; i += step) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0
+  }
+  return hash
+}
+
 interface StreamingCodeProps extends React.ComponentPropsWithoutRef<'code'> {
   node?: unknown
   dataStreamToken?: string
@@ -902,6 +945,7 @@ export const CodeBlock = ({
   const match = /language-(\w+)/.exec(className || '')
   const isInline = !match
   const codeContent = String(children).replace(/\n$/, '')
+  const lang = match ? match[1] : 'text'
   const streamToken = dataStreamTokenAttribute ?? dataStreamToken
   const streamDelay = dataStreamDelayAttribute ?? dataStreamDelay
   const streamingElementClass = className
@@ -916,6 +960,13 @@ export const CodeBlock = ({
         name !== STREAMING_ELEMENT_FADE_CLASS
     )
     .join(' ')
+
+  const renderedCode: React.ReactNode = useMemo(() => {
+    if (isInline) return null
+    const tokens = getCachedTokens(lang, codeContent)
+    if (!tokens) return codeContent
+    return tokens.map((token, i) => renderToken(token, i))
+  }, [isInline, lang, codeContent])
 
   if (isInline) {
     return (
@@ -932,17 +983,6 @@ export const CodeBlock = ({
         {children}
       </code>
     )
-  }
-
-  const lang = match ? match[1] : 'text'
-  const grammar = getGrammar(lang)
-
-  let renderedCode: React.ReactNode
-  if (grammar) {
-    const tokens = Prism.tokenize(codeContent, grammar)
-    renderedCode = tokens.map((token, i) => renderToken(token, i))
-  } else {
-    renderedCode = codeContent
   }
 
   const handleCopy = () => {

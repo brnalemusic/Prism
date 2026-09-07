@@ -105,10 +105,20 @@ export const tabContent: Variants = {
 }
 
 // Stagger container for lists (terminal rows, artifacts, plan blocks).
+// PERFORMANCE: tightened stagger keeps the same feel at 60-144Hz while
+// halving overlapping spring cost on long lists. Use
+// getStaggerParent(count) for large lists to disable stagger entirely.
 export const staggerParent: Variants = {
   hidden: {},
-  visible: { transition: { staggerChildren: 0.05, delayChildren: 0.04 } },
+  visible: { transition: { staggerChildren: 0.03, delayChildren: 0.02 } },
   exit: {}
+}
+
+// Adaptive stagger: preserves motion for short lists, skips it for long
+// ones where springs would overlap and drop frames. Same final look.
+export function getStaggerParent(count: number): Variants {
+  if (count > 20) return { hidden: {}, visible: {}, exit: {} }
+  return staggerParent
 }
 
 export const staggerChild: Variants = {

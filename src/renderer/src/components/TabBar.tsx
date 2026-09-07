@@ -131,7 +131,7 @@ export const TabBar: React.FC<TabBarProps> = ({
   const isContextTabVisible = contextMenu ? visibleTabIds.includes(contextMenu.tabId) : false
 
   return (
-    <div className="relative flex h-12 w-full items-center justify-between bg-black/20 backdrop-blur-2xl px-4 select-none z-30">
+    <div className="compositor-contained relative flex h-12 w-full items-center justify-between bg-black/20 backdrop-blur-2xl px-4 select-none z-30">
       {/* Hairline separation that fades at both ends */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
       {/* Tabs Container */}
@@ -147,7 +147,7 @@ export const TabBar: React.FC<TabBarProps> = ({
               return (
                 <motion.div
                   key={tab.id}
-                  layout
+                  layout={tabs.length <= 8}
                   initial={{ opacity: 0, scale: 0.85, y: -4 }}
                   animate={{ opacity: isDragging ? 0.3 : 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.16 } }}
