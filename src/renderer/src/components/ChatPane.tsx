@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useLayoutEffect, useState, useMemo, useCallba
 import type { Components } from 'react-markdown'
 import clsx from 'clsx'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
-import { dockRise, modeSwap } from '../motion/presets'
+import { modeSwap } from '../motion/presets'
 import {
   CaretDown,
   CaretRight,
@@ -521,35 +521,8 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
       return (
         <ImplementationPlanCard
           markdown={hasVisibleImplementationPlan ? implementationPlan || undefined : undefined}
-          phase="plan"
           isPreparing={isPlanPreparing}
           busyLabel={planBusyLabel}
-          error={planError}
-          markdownComponents={markdownComponents}
-          onAcceptHere={() => onAcceptPlanHere(implementationPlan || '')}
-          onAcceptNewChat={() => onAcceptPlanNewChat(implementationPlan || '')}
-          onFeedback={onSendPlanFeedback}
-          onCancel={onCancelPlan}
-        />
-      )
-    }
-
-    const renderApprovedPlanSummary = (): React.JSX.Element | null => {
-      if (
-        !hasVisibleImplementationPlan ||
-        tab.harnessPhase === 'plan' ||
-        !hasPlanActions ||
-        !onAcceptPlanHere ||
-        !onAcceptPlanNewChat ||
-        !onSendPlanFeedback ||
-        !onCancelPlan
-      ) {
-        return null
-      }
-      return (
-        <ImplementationPlanCard
-          markdown={implementationPlan || undefined}
-          phase="build"
           error={planError}
           markdownComponents={markdownComponents}
           onAcceptHere={() => onAcceptPlanHere(implementationPlan || '')}
@@ -891,21 +864,6 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                         />
                       )}
                     </AnimatePresence>
-                    <AnimatePresence initial={false} mode="popLayout">
-                      {hasVisibleImplementationPlan &&
-                        tab.harnessPhase !== 'plan' &&
-                        hasPlanActions && (
-                          <motion.div
-                            key="approved-plan"
-                            variants={dockRise}
-                            initial="hidden"
-                            animate="visible"
-                            exit="exit"
-                          >
-                            {renderApprovedPlanSummary()}
-                          </motion.div>
-                        )}
-                    </AnimatePresence>
                     {renderMissingFolderBanner()}
                     <MotionConfig reducedMotion="user">
                       <AnimatePresence mode="wait" initial={false}>
@@ -1052,21 +1010,6 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       chatId={activeQuestionnaire.chatId}
                     />
                   )}
-                </AnimatePresence>
-                <AnimatePresence initial={false} mode="popLayout">
-                  {hasVisibleImplementationPlan &&
-                    tab.harnessPhase !== 'plan' &&
-                    hasPlanActions && (
-                      <motion.div
-                        key="approved-plan"
-                        variants={dockRise}
-                        initial="hidden"
-                        animate="visible"
-                        exit="exit"
-                      >
-                        {renderApprovedPlanSummary()}
-                      </motion.div>
-                    )}
                 </AnimatePresence>
                 <MotionConfig reducedMotion="user">
                   <AnimatePresence mode="wait" initial={false}>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
-import { ArrowClockwise, CheckCircle, GitMerge, Warning } from '@phosphor-icons/react'
+import { ArrowClockwise, CheckCircle, CircleNotch, GitMerge, Warning } from '@phosphor-icons/react'
 import type { HarnessGitRecovery, HarnessGitSnapshot } from '../../../shared/types'
 
 interface Props {
@@ -24,6 +24,7 @@ export function HarnessGitRecoveryCard({ recovery: r, onResolve, onUpdated, redu
   const confirm = confirmState?.generation === r.generation ? confirmState.value : null
   const setConfirm = (value: 'abort' | 'pull' | null): void => setConfirmState(value === null ? null : { generation: r.generation, value })
   const [error, setError] = useState<string>()
+  const [resolving, setResolving] = useState(false)
   const ended = r.state === 'completed' || r.state === 'aborted'
   useEffect(() => {
     const observer = new IntersectionObserver(([entry]) => { visible.current = entry.isIntersecting })
@@ -44,6 +45,14 @@ export function HarnessGitRecoveryCard({ recovery: r, onResolve, onUpdated, redu
       if (!result.ok) setError(result.error || 'Git needs further resolution.')
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { working.current = false; setBusy(false) }
+  }
+  const resolve = (): void => {
+    if (resolving || busy) return
+    setResolving(true); setError(undefined)
+    window.api.getHarnessGitStatus(r.projectPath)
+      .then((snapshot) => onResolve?.(snapshot))
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setResolving(false))
   }
   const button = 'rounded-xl px-4 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary disabled:opacity-40 disabled:cursor-not-allowed'
   return (
@@ -67,9 +76,19 @@ export function HarnessGitRecoveryCard({ recovery: r, onResolve, onUpdated, redu
         <div className="min-w-0 flex-1">
           <p className="text-[10px] uppercase tracking-[0.16em] text-text-muted">Git recovery · {r.action} · {r.branch || 'Detached HEAD'}</p>
           <p className="mt-1 text-sm font-medium">{ended ? (r.state === 'completed' ? 'Operation finished' : 'Operation aborted') : r.canRetry ? 'Ready when you are' : r.state === 'implementing' ? 'Resolving with your approved plan' : 'Your Git operation needs attention'}</p>
-          <p className="mt-1 text-xs leading-relaxed text-text-secondary" role="status">{busy ? 'Working on the pending Git operation…' : r.reason || (r.canRetry ? `Resolution ready. Retry to ${r.step === 'push' ? 'confirm the Push' : 'continue the ' + (r.operation?.kind || r.step)}.` : 'Waiting for the resolution and its checks.')}</p>
+          <p className="mt-1 text-xs leading-relaxed text-text-secondary" role="status">{busy ? 'Working on the pending Git operation…' : resolving ? 'Preparing the resolution session…' : r.reason || (r.canRetry ? `Resolution ready. Retry to ${r.step === 'push' ? 'confirm the Push' : 'continue the ' + (r.operation?.kind || r.step)}.` : 'Conflicts resolved. Retry unlocks once the resolution checks pass.')}</p>
         </div>
       </div>
+      {resolving && (
+        <div className="mt-3 h-px overflow-hidden bg-white/[0.065]" aria-hidden="true">
+          <motion.div
+            className="h-full w-1/3 bg-accent-primary"
+            initial={reduced ? { x: '100%' } : { x: '-110%' }}
+            animate={{ x: reduced ? '100%' : '310%' }}
+            transition={reduced ? { duration: 0 } : { duration: 1.15, ease: 'easeInOut', repeat: Infinity }}
+          />
+        </div>
+      )}
       {error && <p role="alert" className="mt-3 flex gap-2 text-xs text-red-300"><Warning size={14} className="shrink-0" />{error}</p>}
       {!ended && (confirm ? (
         <div className="mt-4" role="alertdialog" aria-label={confirm === 'abort' ? 'Confirm abort' : 'Confirm integration'}>
@@ -78,7 +97,7 @@ export function HarnessGitRecoveryCard({ recovery: r, onResolve, onUpdated, redu
         </div>
       ) : (
         <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
-          {r.canResolve && onResolve && <button className={`${button} text-text-secondary`} disabled={busy} onClick={() => { void window.api.getHarnessGitStatus(r.projectPath).then(onResolve).catch((e) => setError(String(e))) }}>Resolve with AI</button>}
+          {r.canResolve && onResolve && <button className={`${button} flex items-center gap-2 text-text-secondary`} disabled={busy || resolving} onClick={resolve}><CircleNotch size={14} className={resolving && !reduced ? 'animate-spin' : 'hidden'} />{resolving ? 'Preparing…' : 'Resolve with AI'}</button>}
           {r.needsPull && <button className={`${button} text-accent-primary`} disabled={busy} onClick={() => setConfirm('pull')}>Pull with rebase</button>}
           <button className={`${button} text-text-secondary hover:bg-white/5`} disabled={busy || !r.canAbort} onClick={() => setConfirm('abort')}>Abort</button>
           <button className={`${button} flex items-center gap-2 bg-accent-primary/15 text-accent-primary hover:bg-accent-primary/25`} title={!r.canRetry ? r.reason : undefined} disabled={busy || !r.canRetry} onClick={() => void perform('retryOperation')}><ArrowClockwise size={14} className={busy && !reduced ? 'animate-spin' : ''} />{busy ? 'Working…' : 'Retry'}</button>

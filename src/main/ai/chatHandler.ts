@@ -151,6 +151,10 @@ function createHarnessBeforeToolBatch(
   }
 }
 
+// Tools that change the repository or its working tree. A failure inside one of
+// these can leave the linked Git Build incomplete; read-only tools cannot.
+const MUTATING_HARNESS_TOOLS = new Set(['write', 'edit', 'apply_patch', 'exec_command', 'write_stdin'])
+
 function createHarnessToolExecutor(
   projectPath: string,
   settings: EffectiveHarnessSettings,
@@ -700,7 +704,6 @@ export async function handleChatMessage(
   let recoveryRunId: string | undefined
   let recoverySucceeded = false
   let recoveryToolFailed = false
-  const recoveryTerminalBaseline = new Set(getTerminalProcessesForChat(chatId).map((p) => p.runId))
   try {
     if (workspace === 'harness' && requestHarnessPhase === 'build') recoveryRunId = await beginGitBuild(chatId)
     // Workflow matching: check if the user's message starts with a slash command
@@ -924,13 +927,11 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
       executeTool: harnessSettings
         ? async (...args) => {
             const result = await createHarnessToolExecutor(requestDisciplinePath, harnessSettings, requestHarnessPhase)(...args)
-            if (!result.envelope.ok) recoveryToolFailed = true
-            if (result.envelope.ok) {
-              try {
-                const output = JSON.parse(result.envelope.output) as { exitCode?: number }
-                if (typeof output.exitCode === 'number' && output.exitCode !== 0) recoveryToolFailed = true
-              } catch { /* Textual tools do not carry a process exit status. */ }
-            }
+            // Only a broken mutating tool fails the linked Git Build. Read-only
+            // probes and non-zero verification exits (for example `git diff --check`
+            // or a failing test run) are diagnostics; the recovery independently
+            // validates the staged resolution before enabling Retry.
+            if (!result.envelope.ok && MUTATING_HARNESS_TOOLS.has(args[0])) recoveryToolFailed = true
             return result
           }
         : undefined,
@@ -1089,7 +1090,10 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
       broadcastIpc('chat-reply-error', { error: caughtError.message, chatId, workspace })
     }
   } finally {
-    const pendingOrFailed = getTerminalProcessesForChat(chatId).some((p) => p.status === 'running' || p.awaitingInput || (!recoveryTerminalBaseline.has(p.runId) && (p.status !== 'completed' || p.exitCode !== 0)))
+    // Only unfinished or input-blocked terminal tasks hold the Build back; a
+    // finished command with a non-zero exit is a diagnostic, not a Build
+    // failure. The recovery independently validates the staged resolution.
+    const pendingOrFailed = getTerminalProcessesForChat(chatId).some((p) => p.status === 'running' || p.awaitingInput)
     await finishGitBuild(chatId, recoveryRunId, recoverySucceeded && !pendingOrFailed, historyMessages.filter((m) => m.role === 'user' && !m.hidden && !m.isSystemNotification).length).catch((error) => {
       console.error('[Git recovery] Could not verify Build completion:', error)
     })

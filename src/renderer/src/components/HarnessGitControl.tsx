@@ -302,6 +302,7 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict }: 
   const [dialog, setDialog] = useState<DialogKind | null>(null)
   const [dialogValues, setDialogValues] = useState<DialogValues>({ name: '', branch: '', confirmation: '', resetMode: 'soft', forceDelete: false, title: '', body: '', base: '' })
   const [panelPosition, setPanelPosition] = useState<{ left: number; bottom: number; width: number; maxHeight: number; side: 'left' | 'right' } | null>(null)
+  const [preparingSession, setPreparingSession] = useState(false)
   const anchorRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLElement>(null)
   const messageRef = useRef<HTMLTextAreaElement>(null)
@@ -310,11 +311,25 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict }: 
   const snapshotRef = useRef<HarnessGitSnapshot | null>(null)
   const snapshotSignatureRef = useRef('')
   const unavailableSnapshotCountRef = useRef(0)
+  const preparingSessionTimerRef = useRef<number | null>(null)
   const reduceMotion = useReducedMotion()
 
   useEffect(() => {
     pendingRef.current = pending !== null
   }, [pending])
+
+  // Opening the resolution session hands the user over to the new Plan chat;
+  // the overlay only bridges the instant between the click and the switch.
+  const handleResolveFromPanel = useCallback((snapshot: HarnessGitSnapshot): void => {
+    setPreparingSession(true)
+    if (preparingSessionTimerRef.current !== null) window.clearTimeout(preparingSessionTimerRef.current)
+    preparingSessionTimerRef.current = window.setTimeout(() => setPreparingSession(false), 1600)
+    onResolveConflict(snapshot)
+  }, [onResolveConflict])
+
+  useEffect(() => () => {
+    if (preparingSessionTimerRef.current !== null) window.clearTimeout(preparingSessionTimerRef.current)
+  }, [])
 
   const applySnapshot = useCallback((next: HarnessGitSnapshot): void => {
     const previous = snapshotRef.current
@@ -712,6 +727,40 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict }: 
                 )}
               </AnimatePresence>
 
+              <AnimatePresence initial={false}>
+                {preparingSession && (
+                  <motion.div
+                    initial={reduceMotion ? false : { opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: reduceMotion ? 0 : 0.16 }}
+                    role="status"
+                    aria-live="polite"
+                    className="absolute inset-x-0 top-11 bottom-0 z-30 grid place-items-center bg-[var(--surface-lowest)] px-8"
+                  >
+                    <div className="w-full max-w-[17rem]">
+                      <div className="flex items-center gap-3">
+                        <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-primary/[0.1] text-accent-primary shadow-[inset_0_0_0_1px_rgba(168,85,247,0.18)]">
+                          <GitMerge size={14} weight="fill" />
+                        </div>
+                        <div className="min-w-0 text-left">
+                          <p className="text-[11px] font-semibold leading-4 text-text-primary">Preparing resolution session</p>
+                          <p className="mt-0.5 text-[9.5px] leading-4 text-text-muted">Opening the Git conflict plan chat.</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 h-px overflow-hidden bg-white/[0.065]">
+                        <motion.div
+                          className="h-full w-1/3 bg-accent-primary"
+                          initial={reduceMotion ? { x: '100%' } : { x: '-110%' }}
+                          animate={{ x: reduceMotion ? '100%' : '310%' }}
+                          transition={reduceMotion ? { duration: 0 } : { duration: 1.15, ease: 'easeInOut', repeat: Infinity }}
+                        />
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               <div className="min-h-0 flex-1 overflow-y-auto p-2.5 custom-scrollbar">
                 {isInitialLoading && !snapshot && <div className="space-y-2 py-1"><div className="h-8 animate-pulse rounded-lg bg-white/[0.05]" /><div className="h-16 animate-pulse rounded-lg bg-white/[0.035]" /><div className="h-28 animate-pulse rounded-lg bg-white/[0.03]" /></div>}
                 {!isInitialLoading && !snapshot && <div className="py-10 text-center text-[10.5px] text-text-muted">Git status is unavailable.</div>}
@@ -740,7 +789,7 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict }: 
                     </div>
 
                     {hasConflict ? (
-                      snapshot.recovery ? <HarnessGitRecoveryCard recovery={snapshot.recovery} onResolve={onResolveConflict} onUpdated={applySnapshot} reduceMotion={Boolean(reduceMotion)} /> : <p className="mt-3 text-xs text-amber-300">Git needs inspection. Refresh status before continuing.</p>
+                      snapshot.recovery ? <HarnessGitRecoveryCard recovery={snapshot.recovery} onResolve={handleResolveFromPanel} onUpdated={applySnapshot} reduceMotion={Boolean(reduceMotion)} /> : <p className="mt-3 text-xs text-amber-300">Git needs inspection. Refresh status before continuing.</p>
                     ) : (
                       <>
                         <section className="mt-2">

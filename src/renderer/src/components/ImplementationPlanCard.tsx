@@ -3,12 +3,10 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import { dockRise } from '../motion/presets'
 import { ArrowRight, CheckCircle, CircleNotch, PaperPlaneRight, X } from '@phosphor-icons/react'
-import type { HarnessPhase } from '../../../shared/types'
 import { STATIC_COMPLETED_REHYPE_PLUGINS, STATIC_REMARK_PLUGINS } from '../markdownRenderer'
 
 interface ImplementationPlanCardProps {
   markdown?: string
-  phase: HarnessPhase
   isPreparing?: boolean
   busyLabel?: string
   error?: string | null
@@ -21,7 +19,6 @@ interface ImplementationPlanCardProps {
 
 export function ImplementationPlanCard({
   markdown = '',
-  phase,
   isPreparing = false,
   busyLabel = 'Updating implementation plan…',
   error,
@@ -32,8 +29,6 @@ export function ImplementationPlanCard({
   onCancel
 }: ImplementationPlanCardProps): React.JSX.Element {
   const [feedback, setFeedback] = useState('')
-  const [isApprovedPlanExpanded, setIsApprovedPlanExpanded] = useState(false)
-  const isPlan = phase === 'plan'
   const hasPlan = Boolean(markdown.trim())
   const isLoading = isPreparing && !hasPlan
   const feedbackId = useId()
@@ -43,68 +38,6 @@ export function ImplementationPlanCard({
     if (!value || isPreparing) return
     onFeedback(value)
     setFeedback('')
-  }
-
-  if (!isPlan) {
-    return (
-      <MotionConfig reducedMotion="user">
-        <motion.section
-          variants={dockRise}
-          initial="hidden"
-          animate="visible"
-          exit="exit"
-          className="implementation-plan-surface implementation-plan-surface--approved"
-          aria-label="Approved Implementation Plan"
-        >
-        <header className="implementation-plan-surface__approved-header">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <div className="implementation-plan-surface__status-icon">
-              <CheckCircle size={15} weight="fill" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-xs font-semibold text-text-primary">
-                Implementation Plan approved
-              </h3>
-              <p className="mt-0.5 text-[10.5px] text-text-muted">
-                This session is ready to continue in Build.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            aria-expanded={isApprovedPlanExpanded}
-            onClick={() => setIsApprovedPlanExpanded((expanded) => !expanded)}
-            className="implementation-plan-surface__text-action"
-          >
-            {isApprovedPlanExpanded ? 'Hide plan' : 'View plan'}
-          </button>
-        </header>
-
-        <AnimatePresence initial={false}>
-          {isApprovedPlanExpanded && (
-            <motion.div
-              key="approved-plan-body"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-              className="overflow-hidden"
-            >
-            <div className="implementation-plan-surface__body implementation-plan-surface__body--approved custom-scrollbar select-text">
-              <ReactMarkdown
-                remarkPlugins={STATIC_REMARK_PLUGINS}
-                rehypePlugins={STATIC_COMPLETED_REHYPE_PLUGINS}
-                components={markdownComponents}
-              >
-                {markdown}
-              </ReactMarkdown>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-        </motion.section>
-      </MotionConfig>
-    )
   }
 
   return (

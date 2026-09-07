@@ -559,8 +559,7 @@
     -webkit-backdrop-filter: blur(28px) saturate(145%);
   }
 
-  .implementation-plan-surface__header,
-  .implementation-plan-surface__approved-header {
+  .implementation-plan-surface__header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -892,41 +891,6 @@
   .implementation-plan-surface__skeleton-block {
     height: 3.6rem;
     border-radius: var(--radius-control);
-  }
-
-  .implementation-plan-surface--approved {
-    display: block;
-    max-height: min(42vh, 380px);
-    border-color: var(--border-subtle);
-    border-radius: var(--radius-card);
-    background: color-mix(in srgb, var(--surface-lowest) 82%, transparent);
-    box-shadow: inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
-  }
-
-  .implementation-plan-surface__approved-header {
-    border-bottom: 0;
-    padding: 0.7rem 0.9rem;
-  }
-
-  .implementation-plan-surface__body--approved {
-    min-height: 0;
-    max-height: min(32vh, 288px);
-    border-top: 1px solid var(--border-subtle);
-    padding: 0.9rem 1rem 1rem;
-    font-size: 0.75rem;
-  }
-
-  .implementation-plan-surface__text-action {
-    flex: 0 0 auto;
-    border: 1px solid transparent;
-    background: transparent;
-    padding: 0.45rem;
-    color: var(--accent-secondary);
-  }
-
-  .implementation-plan-surface__text-action:hover {
-    background: color-mix(in srgb, var(--accent-primary) 9%, transparent);
-    color: var(--text-primary);
   }
 
   @keyframes implementation-plan-skeleton {

@@ -108,6 +108,8 @@ import {
 import type { StreamPhaseSnapshot } from './chatStreamBuffer'
 import {
   buildHarnessImplementationHandoff,
+  buildHarnessPlanApprovalMessage,
+  HARNESS_PLAN_APPROVED_MARKER,
   parseHarnessPlanCommand
 } from '../../shared/harnessPlanCommand'
 
@@ -1734,6 +1736,22 @@ const UserMessageRow = React.memo(function UserMessageRow({
     }),
     [suggestionMessageKey, isSuggestionSendDisabled, onSendSuggestion]
   )
+
+  // The same-chat plan approval is a short confirmation for the model; the
+  // thread renders it as a compact native note instead of a full user bubble.
+  if (msg.content.startsWith(HARNESS_PLAN_APPROVED_MARKER)) {
+    return (
+      <div key={i} className="w-full flex flex-col items-end px-4 py-2.5 animate-message">
+        <div className="flex max-w-[75%] items-center gap-2.5 rounded-2xl border border-accent-primary/20 bg-accent-primary/[0.06] px-4 py-2.5 shadow-[0_8px_24px_rgba(0,0,0,0.25)]">
+          <CheckCircle size={16} weight="fill" className="shrink-0 text-accent-primary" />
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-text-primary">Implementation plan approved</p>
+            <p className="mt-0.5 text-[10.5px] text-text-muted">Continuing in Build mode.</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -3884,7 +3902,7 @@ function RealApp(): React.JSX.Element {
       await window.api.bindHarnessGitPlan({ projectPath: tab.disciplinePath, chatId: tab.chatId!, plan, phase: 'build' })
       const buildTab = { ...tab, harnessPhase: 'build' as const, dismissedPlanMarkdown: undefined }
       setHarnessTabs((previous) => previous.map((entry) => entry.id === tabId ? buildTab : entry))
-      const sent = sendHarnessMessageToTab(tabId, buildHarnessImplementationHandoff(plan, 'Implement the approved plan and report its verification results. For a linked Git recovery, explicitly stage only resolved conflicts and leave Git continuation to the user through Retry.'), { phaseOverride: 'build', tabOverride: buildTab })
+      const sent = sendHarnessMessageToTab(tabId, buildHarnessPlanApprovalMessage(), { phaseOverride: 'build', tabOverride: buildTab })
       if (!sent) throw new Error('Build could not start. The approved plan remains available for retry.')
     })().catch((error) => setHarnessPromptWarnings([error instanceof Error ? error.message : String(error)]))
       .finally(() => acceptingPlansRef.current.delete(tabId))

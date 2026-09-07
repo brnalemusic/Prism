@@ -14,12 +14,12 @@ The Harness model publishes a completed plan through the native `plan` tool. Pri
 
 The review surface uses the same Markdown pipeline as completed chat messages, including GFM, raw HTML handling, and KaTeX for inline (`$...$`) and display (`$$...$$`) LaTeX.
 
-- **Accept & Continue** approves the plan, transitions the current session to Build, and sends the single implementation request for the approved plan in the same chat. The transition is confirmed through a structured binding before Build starts, so the phase is consistent even if the session is reloaded mid-handoff; a failed start keeps the approved plan available for retry.
+- **Accept & Continue** approves the plan and transitions the current session to Build. Because the approved plan is already part of the session history, Prism sends only a short confirmation for the model to continue in Build — it does not resend the plan text. The confirmation is rendered in the thread as a compact native "Implementation plan approved" note instead of a full user message. The transition is confirmed through a structured binding before Build starts, so the phase is consistent even if the session is reloaded mid-handoff; a failed start keeps the approved plan available for retry.
 - **New Build Chat** prepares complementary context from the entire source conversation, creates a clean Build session in the exact same project, and automatically sends the approved plan plus that context for implementation. The source session remains in Plan, and any linked Git recovery travels with the plan to the new chat.
 - **Request changes** sends a revision request while keeping the session in Plan. The request can also be sent with `Ctrl+Enter` or `Cmd+Enter`.
 - **Cancel** sends no new model request, stops active preparation when necessary, and dismisses the pending plan while leaving the session in Plan.
 
-While a plan is being prepared or revised, Prism shows a matching loading state and keeps cancellation available. If handoff preparation fails, the source session and plan remain available for retry. After approval, the InputBar returns and the approved plan remains available as a compact expandable summary.
+While a plan is being prepared or revised, Prism shows a matching loading state and keeps cancellation available. If handoff preparation fails, the source session and plan remain available for retry. After approval, no plan surface is docked above the InputBar; the approved plan lives in the conversation history as the session's native plan record.
 
 ## Git conflict plans
 
