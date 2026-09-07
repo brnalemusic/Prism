@@ -307,6 +307,7 @@ export async function runTrackedGitAction(projectPath: string, action: HarnessGi
   await load()
   if (!action || !['switchBranch', 'createBranch', 'renameBranch', 'deleteBranch', 'fetch', 'merge', 'commit', 'push', 'pull', 'sync', 'reset', 'createPr', 'retryOperation', 'cancelRecovery', 'abortOperation'].includes(action.kind)) throw new Error('Unknown Git action.')
   const id = await identity(projectPath)
+  // User-initiated actions must queue behind an in-flight status snapshot or action instead of failing with 'Another Git action is running'.
   return exclusive(id.common, async () => {
     if ([...records.values()].some((entry) => entry.commonDir === id.common && entry.runId && liveRuns.has(entry.runId))) throw new Error('Wait for the linked Build to finish before running Git actions.')
     const s = await getHarnessGitSnapshot(projectPath)
@@ -353,7 +354,7 @@ export async function runTrackedGitAction(projectPath: string, action: HarnessGi
       if (action.kind === 'commit' && !action.options.message?.trim()) throw new Error('A commit message is required.')
     } catch (error) { r.state = 'aborted'; r.reason = String(error); await save(r); throw error }
     return perform(r, false)
-  })
+  }, true)
 }
 
 export async function bindGitPlan(binding: HarnessGitPlanBinding): Promise<void> {
@@ -371,7 +372,7 @@ export async function bindGitPlan(binding: HarnessGitPlanBinding): Promise<void>
     r.chatIds = [...new Set([...r.chatIds, binding.chatId])]
     r.canRetry = false
     await save(r)
-  })
+  }, true)
 }
 
 export async function beginGitBuild(chatId: string): Promise<string | undefined> {
@@ -383,7 +384,7 @@ export async function beginGitBuild(chatId: string): Promise<string | undefined>
     r.runId = randomUUID(); liveRuns.add(r.runId); r.state = 'implementing'; r.canRetry = false; r.canAbort = false
     await save(r)
     return r.runId
-  })
+  }, true)
 }
 
 export async function finishGitBuild(chatId: string, runId: string | undefined, success: boolean, afterMessage: number): Promise<void> {
