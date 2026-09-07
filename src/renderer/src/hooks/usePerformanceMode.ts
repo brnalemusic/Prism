@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 
-export type PerformanceMode = 'auto' | 'max'
+export type PerformanceMode = 'auto' | 'performance' | 'max'
 
 const STORAGE_KEY = 'prism-performance-mode'
 const UNDER_LOAD_CLASS = 'perf-under-load'
 const MAX_CLASS = 'perf-max'
+const PERFORMANCE_CLASS = 'perf-performance'
 
 function readStoredMode(): PerformanceMode {
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY)
-    return stored === 'max' ? 'max' : 'auto'
+    if (stored === 'max' || stored === 'performance') return stored
+    return 'auto'
   } catch {
     return 'auto'
   }
@@ -19,7 +21,10 @@ function readStoredMode(): PerformanceMode {
  * Performance mode with the current look as default.
  * - auto: full visuals when idle, temporary imperceptible step-down
  *   (blur 44px -> 28px, opacity-only streaming fade) during heavy load.
- * - max: keeps the same idle look with stronger containment applied.
+ * - performance (Beta): lightweight look, no backdrop blur or glassmorphism,
+ *   opacity-only streaming fade for maximum fluidity.
+ * - max: cinematic streaming (fade + tint + unblur) with stronger
+ *   containment applied.
  */
 export function usePerformanceMode(): {
   mode: PerformanceMode
@@ -29,6 +34,7 @@ export function usePerformanceMode(): {
 
   useEffect(() => {
     document.documentElement.classList.toggle(MAX_CLASS, mode === 'max')
+    document.documentElement.classList.toggle(PERFORMANCE_CLASS, mode === 'performance')
   }, [mode])
 
   const setMode = useCallback((next: PerformanceMode) => {
@@ -46,12 +52,13 @@ export function usePerformanceMode(): {
 /**
  * Toggles the temporary under-load state while streaming or scrolling fast.
  * Restores full quality shortly after activity stops so the idle look
- * stays pixel-identical.
+ * stays pixel-identical. Disabled in Performance mode, which is already
+ * fully lightweight.
  */
-export function usePerformanceLoad(active: boolean, restoreDelayMs = 800): void {
+export function usePerformanceLoad(active: boolean, restoreDelayMs = 800, enabled = true): void {
   useEffect(() => {
     let timer: number | undefined
-    if (active) {
+    if (active && enabled) {
       document.documentElement.classList.add(UNDER_LOAD_CLASS)
     } else {
       timer = window.setTimeout(() => {
@@ -61,5 +68,5 @@ export function usePerformanceLoad(active: boolean, restoreDelayMs = 800): void 
     return () => {
       if (timer !== undefined) window.clearTimeout(timer)
     }
-  }, [active, restoreDelayMs])
+  }, [active, restoreDelayMs, enabled])
 }

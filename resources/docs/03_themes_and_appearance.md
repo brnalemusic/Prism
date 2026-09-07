@@ -49,6 +49,11 @@ containment (`isolation: isolate`, `contain: layout paint style`) so streaming
 text and scrolling do not invalidate fullscreen blur layers. Chat rows use
 `content-visibility: auto` virtualization, syntax highlighting reuses a bounded
 Prism token cache, and the streaming timeline keeps a capped live window with
-identical final output. `Settings > Appearance > Rendering Performance`
-offers `Auto` (default, temporary imperceptible step-down under load) and
-`Max` (stronger containment, same idle look).
+identical final output. Streaming reveal is driven by the `motion` library
+(`AnimatedStreamingText` + `streamingMotion`): fade-in 0.8s plus a letter
+tint of 1.2s, with an additional 1.0s unblur in Max mode only (blur is never
+animated in other modes for frame-budget safety). `Settings > Appearance >
+Rendering Performance` offers `Auto` (default, full visuals with a temporary
+imperceptible step-down under load), `Performance (Beta)` (lightweight look:
+no backdrop blur or glassmorphism, fade-only streaming for maximum fluidity),
+and `Max` (cinematic streaming with fade, tint, and unblur).

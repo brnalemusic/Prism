@@ -87,6 +87,7 @@ import { ApiManagerSettings } from './ApiManagerSettings'
 import { ModelSelector } from './ModelSelector'
 import { QuantumPhysicsGame } from './QuantumPhysicsGame'
 import { usePerformanceMode } from '../hooks/usePerformanceMode'
+import type { PerformanceMode } from '../hooks/usePerformanceMode'
 
 type Config = AppConfig
 
@@ -1479,23 +1480,32 @@ export function SettingsView({
       <div className="space-y-4">
         <SettingsGroupLabel
           title="Rendering Performance"
-          description="Keeps the current look by default and only tightens compositing under heavy load for stable 60fps."
+          description="Auto keeps full visuals with cinematic streaming. Performance (Beta) removes blur and glass effects for maximum fluidity. Max adds an unblur reveal to streaming."
         />
         <div className="settings-card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col">
             <span className="text-xs font-semibold text-text-primary">
-              {performanceMode === 'max' ? 'Max smoothness on' : 'Auto smoothness on'}
+              {performanceMode === 'max'
+                ? 'Max cinematic on'
+                : performanceMode === 'performance'
+                  ? 'Performance on (Beta)'
+                  : 'Auto smoothness on'}
             </span>
             <span className="text-[11px] text-text-muted">
-              Auto uses full visuals when idle with an imperceptible step-down while streaming.
+              {performanceMode === 'performance'
+                ? 'Lightweight look with fade-only streaming, no blur or glassmorphism.'
+                : performanceMode === 'max'
+                  ? 'Full visuals with fade, tint, and unblur streaming reveal.'
+                  : 'Auto uses full visuals when idle with an imperceptible step-down while streaming.'}
             </span>
           </div>
           <div className="flex items-center gap-2">
             {(
               [
                 { id: 'auto', label: 'Auto' },
+                { id: 'performance', label: 'Performance', beta: true },
                 { id: 'max', label: 'Max' }
-              ] as Array<{ id: 'auto' | 'max'; label: string }>
+              ] as Array<{ id: PerformanceMode; label: string; beta?: boolean }>
             ).map((option) => {
               const isActive = performanceMode === option.id
               return (
@@ -1504,13 +1514,18 @@ export function SettingsView({
                   type="button"
                   onClick={() => setPerformanceMode(option.id)}
                   className={clsx(
-                    'rounded-lg px-3 py-1.5 text-xs font-semibold font-mono border transition-all active:scale-95 cursor-pointer',
+                    'rounded-lg px-3 py-1.5 text-xs font-semibold font-mono border transition-all active:scale-95 cursor-pointer flex items-center gap-1.5',
                     isActive
                       ? 'border-accent-primary bg-accent-primary/15 text-accent-primary shadow-[0_0_10px_var(--accent-glow)]'
                       : 'border-[var(--border-default)] bg-[var(--surface-lowest)] text-text-secondary hover:bg-[var(--surface-raised)] hover:text-text-primary hover:border-[var(--border-strong)]'
                   )}
                 >
                   {option.label}
+                  {option.beta && (
+                    <span className="rounded px-1 py-px text-[9px] font-bold uppercase tracking-wider border border-accent-primary/40 bg-accent-primary/10">
+                      Beta
+                    </span>
+                  )}
                 </button>
               )
             })}

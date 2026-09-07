@@ -2225,7 +2225,7 @@ function RealApp(): React.JSX.Element {
       ) || harnessTabs.some((tab) => tab.isProcessing),
     [tabs, harnessTabs]
   )
-  usePerformanceLoad(isHeavyLoad)
+  usePerformanceLoad(isHeavyLoad, 800, performanceMode !== 'performance')
 
   const tabsRef = useRef(tabs)
   useEffect(() => {

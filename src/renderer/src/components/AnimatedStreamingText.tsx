@@ -1,5 +1,15 @@
-import React, { useContext, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
+import React, {
+  memo,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState
+} from 'react'
 import { Components } from 'react-markdown'
+import { motion } from 'motion/react'
+import { getStreamingCharMotion } from './streamingMotion'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-javascript'
 import 'prismjs/components/prism-typescript'
@@ -55,8 +65,11 @@ interface StreamingTimeline {
 const DEFAULT_CHARACTER_CADENCE = 4
 const MIN_TIMELINE_INCREMENT = 0.001
 const MAX_CHARACTER_CADENCE = 500
-const OPACITY_DURATION = 260
-const COLOR_DURATION = 390
+// Motion reveal timings: fade-in 0.8s, letter tint 1.2s, unblur 1.0s (Max).
+// The timeline keeps the longest duration (tint) so spans stay alive until
+// the reveal completes in every mode.
+const OPACITY_DURATION = 800
+const COLOR_DURATION = 1200
 const CADENCE_SAMPLE_COUNT = 6
 const INITIAL_REVEAL_WINDOW = 320
 const MIN_PREDICTED_CHUNK_INTERVAL = 40
@@ -522,13 +535,14 @@ function createFadeSpan(
   textNode: HastNode,
   value: string,
   token: string,
-  delay: number
+  delay: number,
+  fadeClassName: string = STREAMING_CHARACTER_FADE_CLASS
 ): HastNode {
   return {
     type: 'element',
     tagName: 'span',
     properties: {
-      className: [STREAMING_CHARACTER_FADE_CLASS],
+      className: [fadeClassName],
       dataStreamToken: token,
       'data-stream-token': token,
       dataStreamDelay: String(delay),
@@ -550,7 +564,8 @@ function splitTextNodeForFade(
   fallbackStart: number,
   partStartOffset: number,
   animationClock: StreamingAnimationClock,
-  safeStaticOffset: number
+  safeStaticOffset: number,
+  fadeClassName: string = STREAMING_CHARACTER_FADE_CLASS
 ): HastNode[] {
   const value = node.value || ''
   if (!value) return [node]
@@ -613,7 +628,8 @@ function splitTextNodeForFade(
         node,
         currentCluster,
         currentClusterToken,
-        currentClusterDelay
+        currentClusterDelay,
+        fadeClassName
       )
     )
     currentCluster = ''
@@ -681,7 +697,7 @@ export function createStreamingFadeRehypePlugin(
       const localSafeStaticOffset = Math.max(0, safeStaticOffset - partStartOffset)
       let fallbackTextOffset = 0
 
-      const visit = (node: HastNode): void => {
+      const visit = (node: HastNode, insideLink = false): void => {
         if (!node.children || shouldSkipChildren(node)) return
 
         const nextChildren: HastNode[] = []
@@ -698,6 +714,8 @@ export function createStreamingFadeRehypePlugin(
               // Skip segmentation, Map lookups, and regex in O(1).
               nextChildren.push(child)
             } else {
+              // Link text keeps its link color: opacity-only fade so the
+              // letter tint never drifts links toward body text color.
               nextChildren.push(
                 ...splitTextNodeForFade(
                   child,
@@ -705,7 +723,8 @@ export function createStreamingFadeRehypePlugin(
                   nodeStart,
                   partStartOffset,
                   streamStats.animationClock,
-                  localSafeStaticOffset
+                  localSafeStaticOffset,
+                  insideLink ? STREAMING_ELEMENT_FADE_CLASS : STREAMING_CHARACTER_FADE_CLASS
                 )
               )
             }
@@ -745,7 +764,7 @@ export function createStreamingFadeRehypePlugin(
             continue
           }
 
-          visit(child)
+          visit(child, insideLink || child.tagName?.toLowerCase() === 'a')
           nextChildren.push(child)
         }
 
@@ -768,6 +787,19 @@ const wrapTextWithAnimation = (
   return children
 }
 
+function hasFadeClass(className: unknown, fadeClass: string): boolean {
+  if (Array.isArray(className)) return className.map(String).includes(fadeClass)
+  if (typeof className === 'string') return className.split(/\s+/).includes(fadeClass)
+  return false
+}
+
+function isAnimatedSpan(className: unknown): boolean {
+  return (
+    hasFadeClass(className, STREAMING_CHARACTER_FADE_CLASS) ||
+    hasFadeClass(className, STREAMING_ELEMENT_FADE_CLASS)
+  )
+}
+
 interface StreamingSpanProps extends React.ComponentPropsWithoutRef<'span'> {
   node?: unknown
   dataStreamToken?: string
@@ -776,7 +808,9 @@ interface StreamingSpanProps extends React.ComponentPropsWithoutRef<'span'> {
   'data-stream-delay'?: string
 }
 
-function StreamingSpan({
+// Motion-driven reveal. Non-animated spans (syntax tokens, KaTeX output,
+// static text) render as plain spans with zero Motion cost.
+const StreamingSpan = memo(function StreamingSpan({
   children,
   className,
   dataStreamToken,
@@ -784,20 +818,51 @@ function StreamingSpan({
   dataStreamDelay,
   'data-stream-delay': dataStreamDelayAttribute,
   node: _node,
-  style,
+  // Motion owns onAnimationStart/onDrag* (gesture callbacks), which collide
+  // with the DOM event handler types on spread. react-markdown never sets
+  // them on streaming spans.
+  onAnimationStart: _onAnimationStart,
+  onDrag: _onDragSpan,
+  onDragStart: _onDragStartSpan,
+  onDragEnd: _onDragEndSpan,
   ...props
 }: StreamingSpanProps): React.JSX.Element {
   void _node
+  void _onAnimationStart
+  void _onDragSpan
+  void _onDragStartSpan
+  void _onDragEndSpan
   const streamToken = dataStreamTokenAttribute ?? dataStreamToken
-  const streamDelay = dataStreamDelayAttribute ?? dataStreamDelay
-  const animationStyle = getStreamingAnimationStyle(style, streamDelay)
+  const animated = isAnimatedSpan(className)
+  const delayMs = Number(dataStreamDelayAttribute ?? dataStreamDelay) || 0
+  // Element-faded spans (link text) keep opacity-only so colors never drift.
+  const tint = !hasFadeClass(className, STREAMING_ELEMENT_FADE_CLASS)
+  const motionProps = useMemo(
+    () => (animated ? getStreamingCharMotion(delayMs, tint) : null),
+    [animated, delayMs, tint]
+  )
+
+  if (!motionProps || motionProps.initial === false) {
+    return (
+      <span className={className} data-stream-token={streamToken} {...props}>
+        {children}
+      </span>
+    )
+  }
 
   return (
-    <span className={className} data-stream-token={streamToken} style={animationStyle} {...props}>
+    <motion.span
+      className={className}
+      data-stream-token={streamToken}
+      initial={motionProps.initial}
+      animate={motionProps.animate}
+      transition={motionProps.transition}
+      {...props}
+    >
       {children}
-    </span>
+    </motion.span>
   )
-}
+})
 
 interface StreamingDivProps extends React.ComponentPropsWithoutRef<'div'> {
   node?: unknown
@@ -807,42 +872,56 @@ interface StreamingDivProps extends React.ComponentPropsWithoutRef<'div'> {
   'data-stream-delay'?: string
 }
 
-function StreamingDiv({
+// Opacity-only element reveal (code blocks, math). Plain divs stay plain.
+const StreamingDiv = memo(function StreamingDiv({
   children,
   dataStreamToken,
   'data-stream-token': dataStreamTokenAttribute,
   dataStreamDelay,
   'data-stream-delay': dataStreamDelayAttribute,
   node: _node,
-  style,
+  // Motion owns onAnimationStart/onDrag* (gesture callbacks), which collide
+  // with the DOM event handler types on spread. react-markdown never sets
+  // them on streaming elements.
+  onAnimationStart: _onAnimationStartDiv,
+  onDrag: _onDragDiv,
+  onDragStart: _onDragStartDiv,
+  onDragEnd: _onDragEndDiv,
   ...props
 }: StreamingDivProps): React.JSX.Element {
   void _node
+  void _onAnimationStartDiv
+  void _onDragDiv
+  void _onDragStartDiv
+  void _onDragEndDiv
+  const streamToken = dataStreamTokenAttribute ?? dataStreamToken
+  const streamDelay = dataStreamDelayAttribute ?? dataStreamDelay
+  const delayMs = Number(streamDelay) || 0
+  const motionProps = useMemo(
+    () => (streamDelay === undefined ? null : getStreamingCharMotion(delayMs, false)),
+    [streamDelay, delayMs]
+  )
+
+  if (!motionProps || motionProps.initial === false) {
+    return (
+      <div data-stream-token={streamToken} {...props}>
+        {children}
+      </div>
+    )
+  }
+
   return (
-    <div
-      data-stream-token={dataStreamTokenAttribute ?? dataStreamToken}
-      style={getStreamingAnimationStyle(style, dataStreamDelayAttribute ?? dataStreamDelay)}
+    <motion.div
+      data-stream-token={streamToken}
+      initial={motionProps.initial}
+      animate={motionProps.animate}
+      transition={motionProps.transition}
       {...props}
     >
       {children}
-    </div>
+    </motion.div>
   )
-}
-
-type StreamingStyle = React.CSSProperties & {
-  '--streaming-character-delay'?: string
-}
-
-function getStreamingAnimationStyle(
-  style: React.CSSProperties | undefined,
-  delay: string | undefined
-): StreamingStyle | undefined {
-  if (delay === undefined) return style
-  return {
-    ...style,
-    '--streaming-character-delay': `${Number(delay) || 0}ms`
-  }
-}
+})
 
 function renderToken(token: string | Prism.Token, key: string | number): React.ReactNode {
   if (typeof token === 'string') {
@@ -938,9 +1017,20 @@ export const CodeBlock = ({
   'data-stream-delay': dataStreamDelayAttribute,
   node: _node,
   style,
+  // Motion owns onAnimationStart/onDrag* (gesture callbacks), which collide
+  // with the DOM event handler types on spread. react-markdown never sets
+  // them on code elements.
+  onAnimationStart: _onAnimationStartCode,
+  onDrag: _onDragCode,
+  onDragStart: _onDragStartCode,
+  onDragEnd: _onDragEndCode,
   ...props
 }: StreamingCodeProps) => {
   void _node
+  void _onAnimationStartCode
+  void _onDragCode
+  void _onDragStartCode
+  void _onDragEndCode
   const [copied, setCopied] = useState(false)
   const match = /language-(\w+)/.exec(className || '')
   const isInline = !match
@@ -951,7 +1041,15 @@ export const CodeBlock = ({
   const streamingElementClass = className
     ?.split(/\s+/)
     .find((name) => name === STREAMING_ELEMENT_FADE_CLASS)
-  const animationStyle = getStreamingAnimationStyle(style, streamDelay)
+  // Opacity-only element reveal via Motion. Non-animated blocks skip Motion.
+  const elementMotion = useMemo(
+    () =>
+      streamingElementClass && streamDelay !== undefined
+        ? getStreamingCharMotion(Number(streamDelay) || 0, false)
+        : null,
+    [streamingElementClass, streamDelay]
+  )
+  const motionInitial = elementMotion?.initial ?? false
   const codeClassName = className
     ?.split(/\s+/)
     .filter(
@@ -969,19 +1067,35 @@ export const CodeBlock = ({
   }, [isInline, lang, codeContent])
 
   if (isInline) {
+    const inlineStyle = {
+      ...style,
+      fontFamily:
+        "'Cascadia Code', 'Fira Code', 'Ubuntu Mono', 'JetBrains Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'Consolas', monospace"
+    }
+    if (!elementMotion || motionInitial === false) {
+      return (
+        <code
+          className={`${className || ''} text-accent-secondary font-mono text-[13px] font-medium tracking-tight bg-transparent border-none p-0 mx-0.5 inline select-text`}
+          data-stream-token={streamToken}
+          style={inlineStyle}
+          {...props}
+        >
+          {children}
+        </code>
+      )
+    }
     return (
-      <code
+      <motion.code
         className={`${className || ''} text-accent-secondary font-mono text-[13px] font-medium tracking-tight bg-transparent border-none p-0 mx-0.5 inline select-text`}
         data-stream-token={streamToken}
-        style={{
-          ...animationStyle,
-          fontFamily:
-            "'Cascadia Code', 'Fira Code', 'Ubuntu Mono', 'JetBrains Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'Consolas', monospace"
-        }}
+        style={inlineStyle}
+        initial={elementMotion.initial}
+        animate={elementMotion.animate}
+        transition={elementMotion.transition}
         {...props}
       >
         {children}
-      </code>
+      </motion.code>
     )
   }
 
@@ -991,12 +1105,13 @@ export const CodeBlock = ({
     setTimeout(() => setCopied(false), 2000)
   }
 
-  return (
-    <div
-      className={`not-prose my-4 overflow-hidden rounded-xl bg-[#060709] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04),0_10px_30px_-12px_rgba(0,0,0,0.5)] font-mono text-xs w-full text-text-primary ${streamingElementClass || ''}`}
-      data-stream-token={streamToken}
-      style={animationStyle}
-    >
+  if (!elementMotion || motionInitial === false) {
+    return (
+      <div
+        className={`not-prose my-4 overflow-hidden rounded-xl bg-[#060709] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04),0_10px_30px_-12px_rgba(0,0,0,0.5)] font-mono text-xs w-full text-text-primary ${streamingElementClass || ''}`}
+        data-stream-token={streamToken}
+        style={style}
+      >
       <div className="flex items-center justify-between bg-white/[0.02] px-4 py-2 select-none">
         <span className="text-[11px] font-semibold text-text-secondary/80 uppercase tracking-[0.14em]">
           {lang}
@@ -1015,6 +1130,36 @@ export const CodeBlock = ({
         </code>
       </div>
     </div>
+    )
+  }
+
+  return (
+    <motion.div
+      className={`not-prose my-4 overflow-hidden rounded-xl bg-[#060709] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04),0_10px_30px_-12px_rgba(0,0,0,0.5)] font-mono text-xs w-full text-text-primary ${streamingElementClass || ''}`}
+      data-stream-token={streamToken}
+      style={style}
+      initial={elementMotion.initial}
+      animate={elementMotion.animate}
+      transition={elementMotion.transition}
+    >
+      <div className="flex items-center justify-between bg-white/[0.02] px-4 py-2 select-none">
+        <span className="text-[11px] font-semibold text-text-secondary/80 uppercase tracking-[0.14em]">
+          {lang}
+        </span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="flex items-center gap-1.5 rounded-lg bg-white/[0.05] px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-white/[0.09] hover:text-text-primary transition-colors duration-200 active:scale-95 cursor-pointer min-w-[75px] justify-center"
+        >
+          <span>{copied ? 'Copied!' : 'Copy Code'}</span>
+        </button>
+      </div>
+      <div className="p-4 overflow-x-auto">
+        <code className={`${codeClassName || ''} block whitespace-pre`} {...props}>
+          {renderedCode}
+        </code>
+      </div>
+    </motion.div>
   )
 }
 
