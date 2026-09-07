@@ -1659,7 +1659,8 @@ if (!gotTheLock) {
     })
 
     ipcMain.handle('harness-git-action', async (_event, projectPath: string, action: HarnessGitAction) => {
-      if (!getEffectiveHarnessSettings(projectPath)) {
+      return await runTrackedGitAction(projectPath, action)
+    })      if (!getEffectiveHarnessSettings(projectPath)) {
         throw new Error('The Harness project is not registered.')
       }
       return runTrackedGitAction(projectPath, action)
