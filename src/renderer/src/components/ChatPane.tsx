@@ -373,7 +373,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
               <div
                 ref={projectDropdownRef}
                 className={clsx(
-                  'absolute left-1.5 z-50 w-64 rounded-xl border border-white/[0.12] bg-[#0c0e14]/95 p-1.5 text-xs shadow-[0_16px_40px_rgba(0,0,0,0.6),var(--glass-specular-top)] backdrop-blur-2xl animate-soft-pop select-none',
+                  'glass-dropdown-panel absolute left-1.5 z-50 w-64 border border-white/[0.12] p-1.5 text-xs animate-soft-pop select-none',
                   placement === 'top' ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
                 )}
               >

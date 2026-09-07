@@ -93,6 +93,69 @@
   box-shadow: var(--glass-surface-shadow-active), var(--glass-focus-ring);
 }
 
+/* Menu-host variant of true-glass (e.g. the input bar): identical frost, but
+   carried by ::before instead of the element itself. Chromium drops the
+   backdrop-filter of any element nested inside another backdrop-filtered
+   ancestor, which turned every dropdown inside the bar into a flat
+   translucent veil with readable text bleeding through. With the frost on
+   ::before, the host element itself is filter-free, so nested dropdowns
+   keep their own real blur. The host needs its own stacking context (it
+   gets one from the compositor layer below via isolation: isolate), which
+   keeps z-index: -1 local: the frost paints above the element background
+   and below all content, including static-flow children. */
+.true-glass.glass-menu-host {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Generic host foundation: any blurred chrome that contains dropdowns
+   (input bar, tab bar, …) becomes filter-free on the element itself and
+   carries its frost on ::before. Per-surface recipe via --host-* vars;
+   unset vars fall back to the true-glass recipe. */
+.glass-menu-host {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.glass-menu-host::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--host-tint, var(--glass-surface-tint));
+  backdrop-filter: var(--host-filter, blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06));
+  -webkit-backdrop-filter: var(--host-filter, blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06));
+  box-shadow: var(--host-shadow, var(--glass-surface-shadow));
+  z-index: -1;
+  pointer-events: none;
+  transition:
+    background-color 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.true-glass.glass-menu-host.is-active::before {
+  background: color-mix(in srgb, var(--glass-surface-tint) 86%, white 4%);
+  box-shadow: var(--glass-surface-shadow-active), var(--glass-focus-ring);
+}
+
+/* While processing, the element carries the darkened surface (see the
+   .input-bar-processing rule) and the frost layer goes transparent so the
+   bar keeps its exact processing look with blur intact. */
+.true-glass.glass-menu-host.input-bar-processing::before {
+  background: transparent;
+}
+
+/* Tab bar host recipe: preserves its exact chrome look (20% black veil,
+   40px blur, no shadow) while letting its model-selector dropdown keep a
+   working blur. */
+.tab-bar-host {
+  --host-tint: rgba(0, 0, 0, 0.2);
+  --host-filter: blur(40px);
+  --host-shadow: none;
+}
+
 /* Hoverable true-glass affordance (e.g. the scroll-to-bottom pill). */
 .true-glass-hover {
   transition:
@@ -115,6 +178,12 @@
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     box-shadow: var(--glass-shadow-md);
+  }
+  .true-glass.glass-menu-host::before {
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
   }
 }
 
@@ -473,8 +542,10 @@
   }
 
   /* Dropdown panels (model selector flyout, attach/session/permission/skills
-     menus): the exact true-glass recipe — same tint, blur and shadow as the
-     input bar. Only the default radius differs (usages rely on it). */
+     menus, tab menus, context menus): pixel-identical to the input bar —
+     same tint, blur, saturation lift and shadow. Only the default radius
+     differs (usages rely on it). Menus are exempt from the Max/under-load
+     blur step-down (see below) so the frost stays full in every mode. */
   .glass-dropdown-panel {
     background: var(--glass-surface-tint);
     backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
@@ -922,7 +993,7 @@
     box-shadow: var(--glass-specular-top), var(--glass-shadow-md);
   }
 
-  /* Model menu flyout: same true-glass recipe as the input bar. */
+  /* Model menu flyout: same glass as every other dropdown. */
   .model-menu-panel {
     background: var(--glass-surface-tint);
     backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
@@ -2867,18 +2938,19 @@
 
 /* Temporary under-load state: blur radius steps down just enough to
    recover the frame budget during heavy streaming, then restores.
-   Idle appearance stays pixel-identical. */
+   Idle appearance stays pixel-identical. Small floating menus are exempt:
+   they keep full frost for readability at negligible frame cost. */
 .perf-under-load .true-glass,
-.perf-under-load .glass-dropdown-panel,
 .perf-under-load .liquid-glass-docked {
   --glass-surface-blur: 28px;
 }
 
 /* Manual Max smoothness mode: same look when idle, stronger containment.
    The cinematic streaming reveal (fade + tint + unblur) is applied by the
-   Motion library when this class is present. */
+   Motion library when this class is present. Dropdown menus keep the full
+   44px frost: stepping them down lets bright text bleed through the panel
+   and hurts readability, while their tiny area costs ~zero frames. */
 .perf-max .true-glass,
-.perf-max .glass-dropdown-panel,
 .perf-max .liquid-glass-docked {
   --glass-surface-blur: 28px;
 }
@@ -2909,6 +2981,24 @@
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   box-shadow: var(--glass-shadow-md);
+}
+
+/* Generic hosts keep their veil but lose the blur in Performance mode,
+   matching their pre-host look (veil without frost). True-glass hosts go
+   fully solid via the stricter rule below. */
+.perf-performance .glass-menu-host::before {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+/* Menu hosts carry their frost on ::before: neutralize the layer too, or the
+   bar would keep a glass veil over its solid surface in Performance mode. */
+.perf-performance .true-glass.glass-menu-host::before {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
 }
 
 /* Hide the atmospheric orbs, vignette, and grain veil (all direct layers

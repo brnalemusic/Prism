@@ -501,7 +501,9 @@ function setStreamToken(node: HastNode, token: string): void {
   node.properties = {
     ...(node.properties || {}),
     dataStreamToken: token,
-    'data-stream-token': token
+    'data-stream-token': token,
+    dataStreamEngine: 'css',
+    'data-stream-engine': 'css'
   }
 }
 
@@ -545,6 +547,8 @@ function createFadeSpan(
       className: [fadeClassName],
       dataStreamToken: token,
       'data-stream-token': token,
+      dataStreamEngine: 'css',
+      'data-stream-engine': 'css',
       dataStreamDelay: String(delay),
       'data-stream-delay': String(delay)
     },
@@ -873,12 +877,13 @@ const StreamingSpan = memo(function StreamingSpan({
 
   return (
     <motion.span
+      {...props}
       className={stripStreamingFadeClasses(className)}
       data-stream-token={streamToken}
+      data-stream-engine="motion"
       initial={motionProps.initial}
       animate={motionProps.animate}
       transition={motionProps.transition}
-      {...props}
     >
       {children}
     </motion.span>
@@ -934,12 +939,13 @@ const StreamingDiv = memo(function StreamingDiv({
 
   return (
     <motion.div
+      {...props}
       className={stripStreamingFadeClasses(className)}
       data-stream-token={streamToken}
+      data-stream-engine="motion"
       initial={motionProps.initial}
       animate={motionProps.animate}
       transition={motionProps.transition}
-      {...props}
     >
       {children}
     </motion.div>
@@ -1109,13 +1115,14 @@ export const CodeBlock = ({
     }
     return (
       <motion.code
+        {...props}
         className={`${stripStreamingFadeClasses(className) || ''} text-accent-secondary font-mono text-[13px] font-medium tracking-tight bg-transparent border-none p-0 mx-0.5 inline select-text`}
         data-stream-token={streamToken}
+        data-stream-engine="motion"
         style={inlineStyle}
         initial={elementMotion.initial}
         animate={elementMotion.animate}
         transition={elementMotion.transition}
-        {...props}
       >
         {children}
       </motion.code>
@@ -1160,6 +1167,7 @@ export const CodeBlock = ({
     <motion.div
       className={`not-prose my-4 overflow-hidden rounded-xl bg-[#060709] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04),0_10px_30px_-12px_rgba(0,0,0,0.5)] font-mono text-xs w-full text-text-primary`}
       data-stream-token={streamToken}
+      data-stream-engine="motion"
       style={style}
       initial={elementMotion.initial}
       animate={elementMotion.animate}

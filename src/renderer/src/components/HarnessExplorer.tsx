@@ -166,7 +166,7 @@ function TreeNode({
       {menu && (
         <div
           onMouseDown={(event) => event.stopPropagation()}
-          className="fixed z-[120] w-44 rounded-xl border border-white/[0.13] bg-[#0b0d12]/98 p-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.65)] backdrop-blur-2xl"
+          className="glass-dropdown-panel fixed z-[120] w-44 border border-white/[0.13] p-1.5"
           style={{ left: menu.x, top: menu.y }}
         >
           <MenuButton

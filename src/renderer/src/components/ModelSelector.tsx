@@ -263,7 +263,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         {isOpen && (
           <div
             className={clsx(
-              'true-glass absolute w-72 sm:w-80 z-[200] rounded-2xl overflow-hidden flex flex-col max-h-96 animate-soft-pop',
+              'glass-dropdown-panel absolute w-72 sm:w-80 z-[200] overflow-hidden flex flex-col max-h-96 animate-soft-pop',
               menuPlacement === 'top'
                 ? 'bottom-full mb-2 origin-bottom'
                 : 'top-full mt-2 origin-top',

@@ -131,7 +131,7 @@ export const TabBar: React.FC<TabBarProps> = ({
   const isContextTabVisible = contextMenu ? visibleTabIds.includes(contextMenu.tabId) : false
 
   return (
-    <div className="compositor-contained relative flex h-12 w-full items-center justify-between bg-black/20 backdrop-blur-2xl px-4 select-none z-30">
+    <div className="compositor-contained relative flex h-12 w-full items-center justify-between bg-black/20 backdrop-blur-2xl px-4 select-none z-30 glass-menu-host tab-bar-host">
       {/* Hairline separation that fades at both ends */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
       {/* Tabs Container */}
@@ -318,7 +318,7 @@ export const TabBar: React.FC<TabBarProps> = ({
         createPortal(
           <div
             ref={plusMenuRef}
-            className="true-glass fixed z-[99999] w-44 rounded-xl p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
+            className="glass-dropdown-panel fixed z-[99999] w-44 p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
             style={{
               left: `${Math.min(plusMenuPos.x, window.innerWidth - 180)}px`,
               top: `${Math.min(plusMenuPos.y, window.innerHeight - 120)}px`
@@ -381,7 +381,7 @@ export const TabBar: React.FC<TabBarProps> = ({
         createPortal(
           <div
             ref={menuRef}
-            className="true-glass fixed z-[99999] w-48 rounded-xl p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
+            className="glass-dropdown-panel fixed z-[99999] w-48 p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
             style={{
               left: `${Math.min(contextMenu.x, window.innerWidth - 200)}px`,
               top: `${Math.min(contextMenu.y, window.innerHeight - 160)}px`

@@ -1456,7 +1456,7 @@ export const InputBar = React.memo(
               onDragLeave={() => setIsExplorerDropTarget(false)}
               onDrop={handleExplorerDrop}
               className={clsx(
-                'true-glass flex-1 flex flex-col rounded-3xl p-5 transition-[background-color,box-shadow] duration-300 relative input-border-glow overflow-visible',
+                'true-glass glass-menu-host flex-1 flex flex-col rounded-3xl p-5 transition-[background-color,box-shadow] duration-300 relative input-border-glow overflow-visible',
                 modeStyles,
                 isFocused && !disabled && 'is-active',
                 isProcessing && 'input-bar-processing',
@@ -1596,7 +1596,7 @@ export const InputBar = React.memo(
               onDragLeave={() => setIsExplorerDropTarget(false)}
               onDrop={handleExplorerDrop}
               className={clsx(
-                'true-glass relative rounded-[28px] transition-[background-color,box-shadow] duration-300 input-border-glow flex flex-col overflow-visible px-4.5 pt-4 pb-3',
+                'true-glass glass-menu-host relative rounded-[28px] transition-[background-color,box-shadow] duration-300 input-border-glow flex flex-col overflow-visible px-4.5 pt-4 pb-3',
                 modeStyles,
                 isFocused && !disabled && 'is-active',
                 isProcessing && 'input-bar-processing',
