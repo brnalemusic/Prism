@@ -2802,13 +2802,13 @@
   contain: layout paint style;
 }
 
-/* Streaming spans: opacity is GPU-composited, color forces repaint.
-   Keep the dual animation by default, but drop the permanent
-   will-change layer that kept hundreds of spans alive. */
+/* Streaming spans: keep the dual opacity + color animation untouched.
+   Only drop the permanent will-change layer that kept hundreds of
+   spans alive. No containment here: these are inline spans and paint
+   or layout containment would alter inline line-breaking. */
 .streaming-character-fade,
 .streaming-element-fade {
   will-change: auto;
-  contain: paint;
   backface-visibility: hidden;
 }
 
@@ -2846,22 +2846,12 @@
   --glass-surface-blur: 28px;
 }
 
-.perf-under-load .streaming-character-fade {
-  animation:
-    streaming-character-opacity 260ms ease-out var(--streaming-character-delay, 0ms) both;
-}
-
-/* Manual Max smoothness mode: same look when idle, stronger
-   containment plus opacity-only streaming fades. */
+/* Manual Max smoothness mode: same look when idle, stronger containment.
+   The streaming color fade is preserved in every mode. */
 .perf-max .true-glass,
 .perf-max .glass-dropdown-panel,
 .perf-max .liquid-glass-docked {
   --glass-surface-blur: 28px;
-}
-
-.perf-max .streaming-character-fade,
-.perf-max .streaming-element-fade {
-  animation: streaming-character-opacity 260ms ease-out var(--streaming-character-delay, 0ms) both !important;
 }
 
 .perf-max .chat-message-viewport {
