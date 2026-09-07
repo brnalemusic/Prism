@@ -241,10 +241,10 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
           disabled={disabled}
           onClick={() => setIsOpen(!isOpen)}
           className={clsx(
-            'flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs sm:text-[13px] font-semibold outline-none transition-all duration-150 border cursor-pointer shadow-[var(--glass-specular-top)] active:scale-95',
+            'flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs sm:text-[13px] font-semibold outline-none transition-all duration-150 cursor-pointer shadow-[0_1px_6px_rgba(0,0,0,0.25)] active:scale-95',
             isOpen
-              ? 'bg-white/[0.1] text-text-primary border-white/[0.2]'
-              : 'bg-white/[0.04] text-text-primary border-white/[0.08] hover:bg-white/[0.08] hover:border-white/[0.15]',
+              ? 'bg-white/[0.1] text-text-primary'
+              : 'bg-white/[0.04] text-text-primary hover:bg-white/[0.08]',
             disabled && 'cursor-not-allowed opacity-50'
           )}
         >
@@ -263,7 +263,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         {isOpen && (
           <div
             className={clsx(
-              'glass-panel-floating absolute w-72 sm:w-80 z-[200] rounded-2xl border border-white/[0.16] shadow-[0_24px_60px_rgba(0,0,0,0.8),var(--glass-specular-top)] overflow-hidden flex flex-col max-h-96 animate-soft-pop',
+              'true-glass absolute w-72 sm:w-80 z-[200] rounded-2xl overflow-hidden flex flex-col max-h-96 animate-soft-pop',
               menuPlacement === 'top'
                 ? 'bottom-full mb-2 origin-bottom'
                 : 'top-full mt-2 origin-top',

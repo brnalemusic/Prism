@@ -140,7 +140,7 @@ export function HarnessWorkspace({
           renderActiveTab(activeTab)
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border border-white/[0.11] bg-white/[0.035] text-text-secondary shadow-[var(--glass-specular-top)]">
+            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-white/[0.035] text-text-secondary shadow-[0_1px_8px_rgba(0,0,0,0.25)]">
               <Code size={19} weight="bold" />
             </div>
             <h2 className="text-base font-semibold tracking-tight text-text-primary">Start a Harness</h2>
@@ -150,7 +150,7 @@ export function HarnessWorkspace({
             <button
               type="button"
               onClick={onOpenProjectPicker}
-              className="mt-5 rounded-xl border border-white/[0.13] bg-white/[0.055] px-3.5 py-2 text-xs font-semibold text-text-primary transition-colors hover:bg-white/[0.1] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+              className="mt-5 rounded-xl bg-white/[0.06] px-3.5 py-2 text-xs font-semibold text-text-primary shadow-[0_1px_6px_rgba(0,0,0,0.22)] transition-colors hover:bg-white/[0.1] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
             >
               Choose project
             </button>
@@ -165,9 +165,9 @@ export function HarnessWorkspace({
       >
         <div
           className={clsx(
-            'relative flex h-9 items-center rounded-full border border-white/[0.12] bg-[#090b12]/80 px-1.5 shadow-[0_12px_36px_rgba(0,0,0,0.55),var(--glass-specular-top)] backdrop-blur-2xl overflow-hidden',
+            'relative flex h-9 items-center rounded-full bg-[#090b12]/80 px-1.5 shadow-[0_12px_36px_rgba(0,0,0,0.55)] backdrop-blur-2xl overflow-hidden',
             motionClass,
-            isDockOpen ? 'opacity-100 border-white/[0.18]' : 'opacity-90 hover:opacity-100 hover:border-white/[0.2]'
+            isDockOpen ? 'opacity-100' : 'opacity-90 hover:opacity-100'
           )}
           style={{ width: `${isDockOpen ? dockOpenWidth : 36}px` }}
         >
@@ -310,7 +310,7 @@ export function HarnessWorkspace({
 
       {isHistoryOpen && (
         <div className="absolute inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/68 p-4 pt-20 backdrop-blur-sm">
-          <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-white/[0.13] bg-[#0c0c0d]/95 shadow-[0_30px_90px_rgba(0,0,0,0.7),var(--glass-specular-top)] backdrop-blur-2xl">
+          <div className="true-glass w-full max-w-2xl overflow-hidden rounded-2xl">
             <div className="flex items-center justify-between border-b border-white/[0.08] px-5 py-4">
               <div>
                 <h2 className="text-sm font-semibold tracking-tight text-text-primary">Harness history</h2>

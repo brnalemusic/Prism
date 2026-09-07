@@ -193,7 +193,7 @@ export const TabBar: React.FC<TabBarProps> = ({
                   : isDragOver
                     ? 'bg-accent-primary/15 border border-accent-primary/60 text-text-primary scale-[1.03] z-10'
                     : isActive
-                      ? 'bg-white/[0.08] text-text-primary shadow-[var(--glass-specular-top)]'
+                      ? 'bg-white/[0.08] text-text-primary shadow-[0_1px_6px_rgba(0,0,0,0.25)]'
                       : isVisible
                         ? 'bg-white/[0.03] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary'
                         : 'bg-transparent text-text-muted hover:bg-white/[0.03] hover:text-text-secondary'
@@ -261,7 +261,7 @@ export const TabBar: React.FC<TabBarProps> = ({
 
         {/* Attached Plus (+) & Dropdown Button Group */}
         <div ref={plusBtnGroupRef} className="shrink-0 flex items-center">
-          <div className="flex items-center rounded-xl bg-white/[0.04] backdrop-blur-md shadow-[var(--glass-specular-top)] transition-colors duration-200 hover:bg-white/[0.06] overflow-hidden">
+          <div className="flex items-center rounded-xl bg-white/[0.04] backdrop-blur-md shadow-[0_1px_5px_rgba(0,0,0,0.22)] transition-colors duration-200 hover:bg-white/[0.06] overflow-hidden">
             {/* Left Button: Plus (+) */}
             <button
               type="button"
@@ -318,7 +318,7 @@ export const TabBar: React.FC<TabBarProps> = ({
         createPortal(
           <div
             ref={plusMenuRef}
-            className="fixed z-[99999] w-44 rounded-xl bg-[var(--surface-raised)] shadow-[0_20px_48px_-12px_rgba(0,0,0,0.6),var(--glass-specular-top)] p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
+            className="true-glass fixed z-[99999] w-44 rounded-xl p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
             style={{
               left: `${Math.min(plusMenuPos.x, window.innerWidth - 180)}px`,
               top: `${Math.min(plusMenuPos.y, window.innerHeight - 120)}px`
@@ -381,7 +381,7 @@ export const TabBar: React.FC<TabBarProps> = ({
         createPortal(
           <div
             ref={menuRef}
-            className="fixed z-[99999] w-48 rounded-xl bg-[var(--surface-raised)] shadow-[0_20px_48px_-12px_rgba(0,0,0,0.6),var(--glass-specular-top)] p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
+            className="true-glass fixed z-[99999] w-48 rounded-xl p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
             style={{
               left: `${Math.min(contextMenu.x, window.innerWidth - 200)}px`,
               top: `${Math.min(contextMenu.y, window.innerHeight - 160)}px`

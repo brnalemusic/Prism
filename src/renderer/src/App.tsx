@@ -5282,12 +5282,31 @@ function RealApp(): React.JSX.Element {
         <MotionConfig reducedMotion="user">
         <motion.div
           key={activeView}
-          className="flex min-h-0 flex-1 flex-col overflow-hidden"
-          initial={{ opacity: 0, y: 10, scale: 0.996, filter: 'blur(5px)' }}
-          animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
-          exit={{ opacity: 0, y: -6, scale: 0.996, filter: 'blur(5px)' }}
-          transition={{ duration: 0.32, ease: [0.32, 0.72, 0, 1] }}
+          className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+          initial={{ opacity: 0, y: 10, scale: 0.996 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{
+            opacity: 0,
+            y: -6,
+            scale: 0.996,
+            // Short exit keeps the swap snappy — the incoming view mounts
+            // almost immediately, so there is no blank gap.
+            transition: { duration: 0.16, ease: [0.32, 0.72, 0, 1] }
+          }}
+          transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
         >
+          {/* Frosted veil: the blur lives on a dedicated overlay that fades
+              away, so nothing lingers a filter on the wrapper at rest — a
+              persistent blur(0px) would silently create a containing block
+              and trap position:fixed descendants. */}
+          <motion.div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 z-50 backdrop-blur-md"
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 0 }}
+            exit={{ opacity: 1 }}
+            transition={{ duration: 0.24, ease: [0.32, 0.72, 0, 1] }}
+          />
         {/* Chat retains its own conventional tab surface. */}
         {activeView === 'chat' && <TabBar
             tabs={tabs}

@@ -300,10 +300,10 @@ export function Sidebar({
   return (
     <aside
       className={clsx(
-        'relative h-full flex flex-row bg-black/25 backdrop-blur-2xl overflow-hidden z-20 select-none transition-[width,opacity] duration-[460ms] ease-[cubic-bezier(0.32,0.72,0,1)]',
+        'relative h-full flex flex-row bg-black/25 backdrop-blur-2xl overflow-hidden z-20 select-none transition-[width,opacity] duration-[460ms] ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
         isOpen
           ? viewMoreGroupId
-            ? 'w-[min(860px,calc(100vw-320px))] opacity-100'
+            ? 'w-[min(584px,calc(100vw-360px))] opacity-100'
             : 'w-[264px] opacity-100'
           : 'w-0 opacity-0 pointer-events-none',
         className
@@ -453,7 +453,7 @@ export function Sidebar({
                         no layout thrash, perfectly smooth easing. */}
                     <div
                       className={clsx(
-                        'grid transition-[grid-template-rows,opacity] duration-[380ms] ease-[cubic-bezier(0.32,0.72,0,1)]',
+                        'grid transition-[grid-template-rows,opacity] duration-[380ms] ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
                         isCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'
                       )}
                     >

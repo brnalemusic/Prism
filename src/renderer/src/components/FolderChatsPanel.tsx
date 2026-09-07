@@ -59,7 +59,7 @@ export function FolderChatsPanel({
   }
 
   return (
-    <div className="w-[320px] h-full flex flex-col shrink-0 bg-black/40">
+    <div className="w-full h-full flex flex-col bg-black/40">
       {/* Header */}
       <div className="p-4 pb-3 shrink-0 flex items-center justify-between border-b border-white/[0.03] mt-8">
         <div className="flex items-center gap-2.5 min-w-0">

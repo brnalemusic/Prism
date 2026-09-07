@@ -816,7 +816,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       <motion.div
                         key={
                           isHarness
-                            ? `harness-${tab.disciplinePath ? tab.harnessPhase : 'no-project'}`
+                            ? `harness-${tab.disciplinePath ? 'project' : 'no-project'}`
                             : `chat-${tab.sessionMode}`
                         }
                         variants={modeSwap}
@@ -879,7 +879,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                           </motion.div>
                         ) : (
                           <motion.div
-                            key={`inputbar-${tab.sessionMode}-${tab.harnessPhase}`}
+                            key={`inputbar-${tab.sessionMode}`}
                             variants={modeSwap}
                             initial="hidden"
                             animate="visible"
@@ -1025,7 +1025,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       </motion.div>
                     ) : (
                       <motion.div
-                        key={`inputbar-${tab.sessionMode}-${tab.harnessPhase}`}
+                        key={`inputbar-${tab.sessionMode}`}
                         variants={modeSwap}
                         initial="hidden"
                         animate="visible"
