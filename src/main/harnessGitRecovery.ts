@@ -124,8 +124,12 @@ async function readiness(r: RecordEntry, snapshot: HarnessGitSnapshot): Promise<
   for (const file of new Set([...Object.keys(r.baseline || {}), ...Object.keys(current)])) {
     if (!r.conflictPaths.includes(file) && current[file] !== r.baseline?.[file]) return `An unrelated index entry changed: ${file}. Review it before continuing.`
   }
+  // `git diff --cached --check` also reports cosmetic findings such as
+  // trailing whitespace that may predate the merge; those must never block
+  // Retry. Leftover conflict markers staged as content, however, would be
+  // silently committed by the continuation, so they stay a hard blocker.
   const check = await git(r.repoRoot, ['diff', '--cached', '--check'])
-  if (check.exitCode !== 0) return check.stdout.trim() || check.stderr.trim() || 'The staged resolution failed Git checks.'
+  if (/leftover conflict marker/i.test(check.stdout)) return 'The staged resolution still contains conflict markers. Resolve them before Retry.'
   if (r.buildChatId && !r.buildSucceeded) return 'The approved Build has not completed successfully. Finish its checks before Retry.'
   return undefined
 }

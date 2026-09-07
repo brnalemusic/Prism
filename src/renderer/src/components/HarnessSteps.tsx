@@ -228,7 +228,9 @@ function describeTool(tool: ToolCallItem): string {
           ? 'Searching the web'
           : 'Searched the web'
     case 'to_ask':
-      return active ? 'Waiting for your answer' : 'Asked a question'
+      // The questionnaire is only "waiting" once it is on screen; while the
+      // call is still streaming its arguments the model is composing it.
+      return tool.status === 'writing' ? 'Preparing some questions' : active ? 'Waiting for your answer' : 'Asked a question'
     case 'plan':
       return active ? 'Preparing implementation plan' : 'Prepared implementation plan'
     default:

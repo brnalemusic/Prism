@@ -24,7 +24,7 @@ import { PptxArtifactCard } from './PptxArtifactCard'
 
 // Tool labels mapping for simplified display
 const TOOL_LABELS: Record<string, string> = {
-  to_ask: 'Preparing questions for you',
+  to_ask: 'Preparing some questions',
   web_search: 'Searching web',
   web_fetch: 'Deep researching the web',
   read_skill: 'Reading skill',
@@ -102,6 +102,13 @@ export function getCustomToolLabel(
   }
   if (!isActive && progressTitle && progressTitle.trim()) {
     return truncateToWords(progressTitle)
+  }
+  // to_ask spans two distinct phases: the model composing the questions
+  // (writing) and the questionnaire already shown to the user (running).
+  if (name === 'to_ask' && !(progressTitle || '').trim() && !(completedTitle || '').trim()) {
+    if (status === 'writing') return 'Preparing some questions'
+    if (isActive) return 'Waiting for your answer'
+    return 'Asked a question'
   }
   return getToolLabel(name)
 }

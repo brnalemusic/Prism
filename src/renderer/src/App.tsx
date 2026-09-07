@@ -1862,6 +1862,21 @@ const TabMessagesList = React.memo(function TabMessagesList({
   harnessContextSnapshot
 }: TabMessagesListProps) {
   const gitRecoveries = useGitRecoveries(projectPath, currentChatId)
+  const visibleRecoveryCardCount = useMemo(
+    () => gitRecoveries.reduce((count, record) => count + record.cards.filter((card) => card.chatId === currentChatId).length, 0),
+    [gitRecoveries, currentChatId]
+  )
+  const previousRecoveryCardCountRef = useRef(visibleRecoveryCardCount)
+  useEffect(() => {
+    const previous = previousRecoveryCardCountRef.current
+    previousRecoveryCardCountRef.current = visibleRecoveryCardCount
+    if (visibleRecoveryCardCount <= previous) return
+    // Bring the recovery panel into view as soon as it appears.
+    requestAnimationFrame(() => {
+      const container = document.querySelector('[data-prism-chat-scroll]')
+      container?.scrollTo({ top: container.scrollHeight, behavior: harnessUi?.reduceMotion ? 'auto' : 'smooth' })
+    })
+  }, [visibleRecoveryCardCount, harnessUi?.reduceMotion])
   const handleSendRowSuggestion = useCallback(
     (payload: string, suggestionKey: string) => {
       return onSendSuggestion(tabId, payload, suggestionKey)
@@ -3741,7 +3756,7 @@ function RealApp(): React.JSX.Element {
       const conflictFiles = snapshot.conflicts.length
         ? snapshot.conflicts.map((file) => `- \`${file}\``).join('\n')
         : '- Git reports a pending operation; inspect the working tree.'
-      const request = `# Git conflict resolution plan\n\nThe Git Control paused a ${snapshot.operation?.kind || 'Git'} operation in **${snapshot.projectPath}**.\n\n- Current branch: \`${snapshot.branch || 'detached HEAD'}\`\n- Upstream: \`${snapshot.upstream || 'none'}\`\n- Ahead/behind: ${snapshot.ahead}/${snapshot.behind}\n- Pending operation: ${snapshot.operation?.kind || 'conflicted working tree'}\n\n## Conflicted files\n${conflictFiles}\n\nPlease inspect the repository and produce the native Implementation Plan for resolving this safely. Ask questions if intent is ambiguous. Do not change files in Plan mode; execution must wait for Accept & Continue or New Build Chat.`
+      const request = `# Git conflict resolution plan\n\nThe Git Control paused a ${snapshot.operation?.kind || 'Git'} operation in **${snapshot.projectPath}**.\n\n- Current branch: \`${snapshot.branch || 'detached HEAD'}\`\n- Upstream: \`${snapshot.upstream || 'none'}\`\n- Ahead/behind: ${snapshot.ahead}/${snapshot.behind}\n- Pending operation: ${snapshot.operation?.kind || 'conflicted working tree'}\n\n## Conflicted files\n${conflictFiles}\n\nPlease inspect the repository and produce the native Implementation Plan for resolving this safely. Ask questions (always with \`to_ask\`) if intent is ambiguous. Do not change files in Plan mode; execution must wait for Accept & Continue or New Build Chat.`
       await window.api.bindHarnessGitPlan({ projectPath: snapshot.projectPath, chatId: newId, recoveryId: snapshot.recovery?.id, phase: 'plan' })
       setHarnessTabs((previous) => [...previous, newTab])
       setActiveHarnessTabId(newId)
