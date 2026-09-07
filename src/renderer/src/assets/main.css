@@ -472,16 +472,15 @@
     opacity: 0.45;
   }
 
-  /* Dropdown panels: same true-glass recipe, own default radius (usages rely
-     on it) and a slightly stronger contact shadow for floating menus. */
+  /* Dropdown panels (model selector flyout, attach/session/permission/skills
+     menus): the exact true-glass recipe — same tint, blur and shadow as the
+     input bar. Only the default radius differs (usages rely on it). */
   .glass-dropdown-panel {
     background: var(--glass-surface-tint);
     backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
     -webkit-backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
     border-radius: 18px;
-    box-shadow:
-      inset 0 1px 1px 0 rgba(255, 255, 255, 0.09),
-      0 24px 60px -12px rgba(0, 0, 0, 0.65);
+    box-shadow: var(--glass-surface-shadow);
   }
 
   /* Docked panels (TodoPanel, Questionnaire) sit flush to the bottom edge,
@@ -923,14 +922,13 @@
     box-shadow: var(--glass-specular-top), var(--glass-shadow-md);
   }
 
+  /* Model menu flyout: same true-glass recipe as the input bar. */
   .model-menu-panel {
-    background: color-mix(in srgb, var(--surface-lowest) 88%, transparent);
-    backdrop-filter: blur(40px) saturate(180%);
-    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    background: var(--glass-surface-tint);
+    backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
+    -webkit-backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
     border-radius: 18px;
-    box-shadow:
-      inset 0 1px 1px 0 rgba(255, 255, 255, 0.09),
-      0 24px 60px -12px rgba(0, 0, 0, 0.65);
+    box-shadow: var(--glass-surface-shadow);
   }
 
   .premium-panel-soft {
@@ -1189,24 +1187,78 @@
     display: inline;
   }
 
-  /* Streaming reveal is driven by the Motion library (streamingMotion.ts:
-     fade 0.8s + tint 1.2s in Auto, plus unblur 1.0s in Max, fade-only in
-     Performance). These classes are static fallbacks so the first paint and
-     reduced-motion output stay correct with no flash of hidden content. */
+  /* Streaming reveal, base layer (plain spans).
+     The Motion library (streamingMotion.ts) is the primary engine wherever
+     spans render through StreamingSpan/StreamingDiv/CodeBlock — those
+     components strip these classes so each span is driven EXACTLY once.
+     These keyframes are the universal safety net: any plain span carrying
+     the classes (other render paths, partially updated bundles) animates
+     identically, with the same timings and per-mode behavior.
+     Auto: fade 0.8s + tint 1.2s. Max (perf-max): adds unblur 1.0s.
+     Performance / under-load: fade-only. */
+  @keyframes streaming-character-opacity {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes streaming-character-color {
+    from {
+      color: var(--color-accent-primary, var(--accent-primary, #38bdf8));
+    }
+    to {
+      color: inherit;
+    }
+  }
+
+  @keyframes streaming-character-blur {
+    from {
+      filter: blur(6px);
+    }
+    to {
+      filter: blur(0);
+    }
+  }
+
   .streaming-character-fade {
-    opacity: 1;
+    animation:
+      streaming-character-opacity 800ms ease-out var(--streaming-character-delay, 0ms) both,
+      streaming-character-color 1200ms cubic-bezier(0.2, 0.82, 0.2, 1)
+        var(--streaming-character-delay, 0ms) both;
     display: inline;
     backface-visibility: hidden;
   }
 
   .streaming-element-fade {
-    opacity: 1;
+    animation: streaming-character-opacity 800ms ease-out var(--streaming-character-delay, 0ms) both;
     backface-visibility: hidden;
+  }
+
+  .perf-max .streaming-character-fade {
+    animation:
+      streaming-character-opacity 800ms ease-out var(--streaming-character-delay, 0ms) both,
+      streaming-character-color 1200ms cubic-bezier(0.2, 0.82, 0.2, 1)
+        var(--streaming-character-delay, 0ms) both,
+      streaming-character-blur 1000ms ease-out var(--streaming-character-delay, 0ms) both;
+  }
+
+  .perf-performance .streaming-character-fade,
+  .perf-performance .streaming-element-fade {
+    animation: streaming-character-opacity 200ms ease-out var(--streaming-character-delay, 0ms) both;
+  }
+
+  .perf-under-load .streaming-character-fade,
+  .perf-under-load .streaming-element-fade {
+    animation: streaming-character-opacity 260ms ease-out var(--streaming-character-delay, 0ms) both;
   }
 
   @media (prefers-reduced-motion: reduce) {
     .streaming-character-fade,
     .streaming-element-fade {
+      animation: none;
       opacity: 1;
       color: inherit;
       filter: none;
@@ -1371,16 +1423,7 @@
   box-shadow: var(--glass-surface-shadow-active), var(--glass-focus-ring);
 }
 
-/* Session Mode Dropdown Styles */
-.session-mode-dropdown-panel {
-  background: color-mix(in srgb, var(--color-surface) 92%, black) !important;
-  backdrop-filter: blur(36px) saturate(170%) !important;
-  -webkit-backdrop-filter: blur(36px) saturate(170%) !important;
-  border-radius: 16px !important;
-  box-shadow:
-    inset 0 1px 1px 0 rgba(255, 255, 255, 0.09),
-    0 16px 36px -8px rgba(0, 0, 0, 0.45) !important;
-}
+/* Session Mode dropdown shares the glass-dropdown-panel recipe verbatim. */
 
 @keyframes session-mode-slide-down {
   from {
@@ -2753,7 +2796,12 @@
    Contain backdrop-filter sampling areas so streaming text and scroll
    do not invalidate fullscreen blur layers every frame. All rules below
    preserve the exact idle look; they only limit repaint scope and
-   promote animated layers to the GPU. */
+   promote animated layers to the GPU.
+   NOTE: `paint` containment is deliberately excluded. It clips absolutely
+   positioned descendants to the element box, which hides flyout menus
+   (model selector, attach/session/permission menus, nested Skills flyout)
+   living inside glass surfaces and chrome bars. `layout style` keeps the
+   layout isolation win with zero clipping. */
 .true-glass,
 .glass-dropdown-panel,
 .liquid-glass-docked,
@@ -2762,7 +2810,7 @@
 .premium-control,
 .model-menu-panel {
   isolation: isolate;
-  contain: layout paint style;
+  contain: layout style;
 }
 
 .prism-background-field {
@@ -2784,11 +2832,12 @@
   contain: layout paint style;
 }
 
-/* Streaming spans are animated by the Motion library (opacity + color via
-   WAAPI, blur only in Max mode). Keep no permanent will-change layer so
-   hundreds of spans do not stay promoted. No containment here: these are
-   inline spans and paint or layout containment would alter inline
-   line-breaking. */
+/* Streaming spans are animated by the Motion library where rendered through
+   the streaming components, and by the keyframes above everywhere else.
+   Each span is driven exactly once (Motion components strip the fade
+   classes). Keep no permanent will-change layer so hundreds of spans do
+   not stay promoted. No containment here: these are inline spans and paint
+   or layout containment would alter inline line-breaking. */
 .streaming-character-fade,
 .streaming-element-fade {
   will-change: auto;
@@ -2801,9 +2850,11 @@
   backface-visibility: hidden;
 }
 
-/* Limit fixed blurred chrome (sidebar/title/tab bars) to its own box. */
+/* Limit fixed blurred chrome (sidebar/title/tab bars) to its own box for
+   layout purposes. No `paint` containment here: it would clip flyout menus
+   (e.g. the TabBar model selector) to the bar bounds. */
 .compositor-contained {
-  contain: layout paint style;
+  contain: layout style;
   isolation: isolate;
 }
 
@@ -2849,10 +2900,14 @@
 .perf-performance .true-glass,
 .perf-performance .glass-dropdown-panel,
 .perf-performance .liquid-glass-docked,
+.perf-performance .model-menu-panel,
 .perf-performance .implementation-plan-surface {
-  background: var(--surface-lowest);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  /* 100% solid surface: no translucency, no blur. !important wins over any
+     legacy panel background so every dropdown goes fully opaque here. */
+  background: var(--surface-lowest) !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   box-shadow: var(--glass-shadow-md);
 }
 
@@ -2866,9 +2921,11 @@
   transition: none;
 }
 
-.perf-performance *,
-.perf-performance *::before,
-.perf-performance *::after {
+.perf-performance *:not(.streaming-character-fade):not(.streaming-element-fade),
+.perf-performance
+  *:not(.streaming-character-fade):not(.streaming-element-fade)::before,
+.perf-performance
+  *:not(.streaming-character-fade):not(.streaming-element-fade)::after {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   animation-duration: 0.01ms !important;

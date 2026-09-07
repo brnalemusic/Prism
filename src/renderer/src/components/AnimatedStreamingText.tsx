@@ -800,6 +800,27 @@ function isAnimatedSpan(className: unknown): boolean {
   )
 }
 
+// Removes the streaming fade classes for Motion-managed elements. Motion
+// drives those spans via WAAPI; keeping the classes would ALSO trigger the
+// CSS keyframe safety net on the same properties (CSS animations win over
+// WAAPI and would destroy the stagger). Plain (non-Motion) spans keep the
+// classes so the CSS net animates them. Other classes (katex, prism tokens,
+// language-*) are preserved untouched.
+function stripStreamingFadeClasses(className: unknown): string | undefined {
+  const names = Array.isArray(className)
+    ? className.map(String)
+    : typeof className === 'string'
+      ? className.split(/\s+/)
+      : []
+  const kept = names.filter(
+    (name) =>
+      name &&
+      name !== STREAMING_CHARACTER_FADE_CLASS &&
+      name !== STREAMING_ELEMENT_FADE_CLASS
+  )
+  return kept.length > 0 ? kept.join(' ') : undefined
+}
+
 interface StreamingSpanProps extends React.ComponentPropsWithoutRef<'span'> {
   node?: unknown
   dataStreamToken?: string
@@ -852,7 +873,7 @@ const StreamingSpan = memo(function StreamingSpan({
 
   return (
     <motion.span
-      className={className}
+      className={stripStreamingFadeClasses(className)}
       data-stream-token={streamToken}
       initial={motionProps.initial}
       animate={motionProps.animate}
@@ -875,6 +896,7 @@ interface StreamingDivProps extends React.ComponentPropsWithoutRef<'div'> {
 // Opacity-only element reveal (code blocks, math). Plain divs stay plain.
 const StreamingDiv = memo(function StreamingDiv({
   children,
+  className,
   dataStreamToken,
   'data-stream-token': dataStreamTokenAttribute,
   dataStreamDelay,
@@ -904,7 +926,7 @@ const StreamingDiv = memo(function StreamingDiv({
 
   if (!motionProps || motionProps.initial === false) {
     return (
-      <div data-stream-token={streamToken} {...props}>
+      <div className={className} data-stream-token={streamToken} {...props}>
         {children}
       </div>
     )
@@ -912,6 +934,7 @@ const StreamingDiv = memo(function StreamingDiv({
 
   return (
     <motion.div
+      className={stripStreamingFadeClasses(className)}
       data-stream-token={streamToken}
       initial={motionProps.initial}
       animate={motionProps.animate}
@@ -1086,7 +1109,7 @@ export const CodeBlock = ({
     }
     return (
       <motion.code
-        className={`${className || ''} text-accent-secondary font-mono text-[13px] font-medium tracking-tight bg-transparent border-none p-0 mx-0.5 inline select-text`}
+        className={`${stripStreamingFadeClasses(className) || ''} text-accent-secondary font-mono text-[13px] font-medium tracking-tight bg-transparent border-none p-0 mx-0.5 inline select-text`}
         data-stream-token={streamToken}
         style={inlineStyle}
         initial={elementMotion.initial}
@@ -1135,7 +1158,7 @@ export const CodeBlock = ({
 
   return (
     <motion.div
-      className={`not-prose my-4 overflow-hidden rounded-xl bg-[#060709] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04),0_10px_30px_-12px_rgba(0,0,0,0.5)] font-mono text-xs w-full text-text-primary ${streamingElementClass || ''}`}
+      className={`not-prose my-4 overflow-hidden rounded-xl bg-[#060709] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04),0_10px_30px_-12px_rgba(0,0,0,0.5)] font-mono text-xs w-full text-text-primary`}
       data-stream-token={streamToken}
       style={style}
       initial={elementMotion.initial}

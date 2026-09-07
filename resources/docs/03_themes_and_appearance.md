@@ -45,9 +45,11 @@ Tool calls render as animated `ActionLoader` widgets with status indicators (`wr
 
 ### 4.4. Rendering Performance
 Glass surfaces keep full quality when idle. Blurred panels use compositor
-containment (`isolation: isolate`, `contain: layout paint style`) so streaming
-text and scrolling do not invalidate fullscreen blur layers. Chat rows use
-`content-visibility: auto` virtualization, syntax highlighting reuses a bounded
+containment (`isolation: isolate`, `contain: layout style`) so streaming
+text and scrolling do not invalidate fullscreen blur layers. `paint`
+containment is deliberately excluded on glass/chrome surfaces because it
+clips absolutely positioned flyout menus (model selector, attach/session
+menus). Chat rows use `content-visibility: auto` virtualization, syntax highlighting reuses a bounded
 Prism token cache, and the streaming timeline keeps a capped live window with
 identical final output. Streaming reveal is driven by the `motion` library
 (`AnimatedStreamingText` + `streamingMotion`): fade-in 0.8s plus a letter

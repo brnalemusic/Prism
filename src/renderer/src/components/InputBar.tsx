@@ -1215,7 +1215,7 @@ export const InputBar = React.memo(
                       animate="visible"
                       exit="exit"
                       variants={menuPopUp}
-                      className="session-mode-dropdown-panel glass-dropdown-panel absolute bottom-full right-0 mb-3 z-50 w-72 p-2 text-left"
+                      className="glass-dropdown-panel absolute bottom-full right-0 mb-3 z-50 w-72 p-2 text-left"
                     >
                     <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.06] mb-1">
                       Select Session Mode
