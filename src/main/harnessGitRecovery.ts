@@ -210,7 +210,7 @@ export async function getChatGitRecoveries(projectPath: string, chatId: string):
 
 function safeRef(value: string): string {
   // eslint-disable-next-line no-control-regex -- Git references must never carry control characters.
-  if (!value || value.startsWith('-') || /[\s\u0000-\u001f~^:?*[\\]/.test(value) || value.includes('..') || value.includes('@{')) throw new Error('Invalid Git reference or remote name.')
+  if (!value || value.startsWith('-') || /[\s*~^:?*[\\]/.test(value) || value.includes('..') || value.includes('@{') || /\u0000-\u001f/.test(value) || value.includes('\u0000')) throw new Error('Invalid Git reference or remote name.')
   return value
 }
 
