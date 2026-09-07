@@ -347,7 +347,7 @@ function renderToolDetails(toolCall: ToolCall): React.ReactNode {
 
   if (isTerminal && command) {
     return (
-      <div className="text-text-secondary/60 font-mono text-[11px] bg-white/[0.03] rounded px-2 py-1 mt-1 border border-white/[0.04]">
+      <div className="text-text-secondary/60 font-mono text-[11px] bg-white/[0.03] rounded px-2 py-1 mt-1">
         {command}
       </div>
     )
@@ -1084,7 +1084,7 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
               <div className="pl-5 text-xs text-text-secondary/80 py-0.5 select-text">
           {isTerminal ? (
             <div className="flex flex-col max-w-full my-2">
-              <div className="font-mono text-[12px] bg-[#012456] text-[#eeedf0] border border-white/10 rounded-xl p-4 flex flex-col gap-1 shadow-inner max-h-[320px] overflow-y-auto whitespace-pre-wrap select-text leading-relaxed">
+              <div className="font-mono text-[12px] bg-[#0b111e] text-[#eeedf0] rounded-xl p-4 flex flex-col gap-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_1px_8px_rgba(0,0,0,0.25)] max-h-[320px] overflow-y-auto whitespace-pre-wrap select-text leading-relaxed">
                 <div className="text-[#00ffff] font-semibold select-none mb-1">
                   PS C:\\Users\\Breno\\Documents\\Code\\Prism&gt; {(toolCall.args.command || toolCall.args.CommandLine || writingArgs?.command) as string}
                 </div>
@@ -1331,7 +1331,7 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
               <div className="pl-5 text-xs text-text-secondary/80 py-0.5 select-text">
           {isTerminal ? (
             <div className="flex flex-col max-w-full my-2">
-              <div className="font-mono text-[12px] bg-[#012456] text-[#eeedf0] border border-white/10 rounded-xl p-4 flex flex-col gap-1 shadow-inner max-h-[320px] overflow-y-auto whitespace-pre-wrap select-text leading-relaxed">
+              <div className="font-mono text-[12px] bg-[#0b111e] text-[#eeedf0] rounded-xl p-4 flex flex-col gap-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_1px_8px_rgba(0,0,0,0.25)] max-h-[320px] overflow-y-auto whitespace-pre-wrap select-text leading-relaxed">
                 <div className="text-[#00ffff] font-semibold select-none mb-1">
                   PS C:\\Users\\Breno\\Documents\\Code\\Prism&gt; {(toolCall.args.command || toolCall.args.CommandLine || writingArgs?.command) as string}
                 </div>
@@ -1369,10 +1369,10 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
         (toolCall.status === 'running' ||
           toolCall.status === 'done' ||
           toolCall.status === 'cancelled') && (
-          <div className="w-full mt-2 flex flex-col gap-4 p-4 rounded-xl border border-white/[0.04] bg-white/[0.015] backdrop-blur-md transition-all duration-300">
+          <div className="w-full mt-2 flex flex-col gap-4 p-4 rounded-xl bg-white/[0.018] transition-colors duration-300">
             {hasAgentUpdates ? (
               <>
-                <div className="w-full relative flex justify-center py-2 rounded-lg border border-white/[0.02] bg-black/10">
+                <div className="w-full relative flex justify-center py-2 rounded-lg bg-black/15">
                   <svg viewBox="0 0 400 160" className="w-full select-none">
                     {/* Glow Filters */}
                     <defs>
@@ -1604,7 +1604,7 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
                 </div>
 
                 {activeAgent && (
-                  <div className="flex flex-col gap-3 p-3.5 rounded-xl border border-white/[0.04] bg-white/[0.015] backdrop-blur-md transition-all duration-300">
+                  <div className="flex flex-col gap-3 p-3.5 rounded-xl bg-white/[0.02] transition-colors duration-300">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-medium text-text-secondary uppercase tracking-widest flex items-center gap-1.5">
                         {activeKey === 'master'
@@ -1642,7 +1642,7 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
                     </div>
 
                     {activeAgent.command && (
-                      <div className="font-mono text-[10.5px] bg-black/35 border border-white/[0.03] rounded-lg p-3 flex flex-col gap-1.5 select-text">
+                      <div className="font-mono text-[10.5px] bg-black/30 rounded-lg p-3 flex flex-col gap-1.5 select-text">
                         <div className="flex items-center gap-1.5 text-accent-secondary/90 font-semibold border-b border-white/[0.04] pb-1.5 mb-0.5">
                           <Terminal size={12} />
                           <span>ACTIVE PROCESS</span>
@@ -1657,7 +1657,7 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
                     )}
 
                     {activeAgent.output && (
-                      <div className="font-mono text-[10.5px] bg-black/35 border border-white/[0.03] rounded-lg p-3 flex flex-col gap-1.5 select-text">
+                      <div className="font-mono text-[10.5px] bg-black/30 rounded-lg p-3 flex flex-col gap-1.5 select-text">
                         <div className="flex items-center gap-1.5 text-text-muted opacity-80 font-semibold border-b border-white/[0.04] pb-1.5 mb-0.5">
                           <FileText size={12} />
                           <span>CONSOLE OUTPUT</span>
@@ -1698,7 +1698,7 @@ function BrowserSessionSeparator({
   return (
     <div className="w-full flex items-center gap-4 py-4 select-none animate-fade-in">
       <div className="flex-grow border-t border-dashed border-white/[0.08]" />
-      <div className="flex items-center gap-2 px-3 py-1 rounded-full border border-white/[0.04] bg-white/[0.01] shadow-sm">
+      <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.045] shadow-[0_1px_6px_rgba(0,0,0,0.18)]">
         <div className="flex gap-1.5 mr-1 select-none">
           <span
             className={clsx(

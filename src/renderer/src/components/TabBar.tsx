@@ -131,7 +131,9 @@ export const TabBar: React.FC<TabBarProps> = ({
   const isContextTabVisible = contextMenu ? visibleTabIds.includes(contextMenu.tabId) : false
 
   return (
-    <div className="flex h-12 w-full items-center justify-between border-b border-white/[0.08] bg-black/20 backdrop-blur-2xl px-4 select-none z-30 relative shadow-[inset_0_-1px_0_rgba(255,255,255,0.03)]">
+    <div className="relative flex h-12 w-full items-center justify-between bg-black/20 backdrop-blur-2xl px-4 select-none z-30">
+      {/* Hairline separation that fades at both ends */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
       {/* Tabs Container */}
       <MotionConfig reducedMotion="user">
         <div className="flex items-center gap-1.5 flex-1 min-w-0 mr-3 py-1 overflow-hidden">
@@ -185,16 +187,16 @@ export const TabBar: React.FC<TabBarProps> = ({
                 setDraggedTabId(null)
               }}
               className={clsx(
-                'group relative flex h-8 items-center gap-2 rounded-xl px-2.5 text-xs font-medium cursor-pointer shrink flex-1 min-w-[80px] max-w-[180px] border',
+                'group relative flex h-8 items-center gap-2 rounded-xl px-2.5 text-xs font-medium cursor-pointer shrink flex-1 min-w-[80px] max-w-[180px] transition-colors duration-150',
                 isDragging
-                  ? 'opacity-30 scale-95 border-dashed border-accent-primary/40 bg-white/[0.02]'
+                  ? 'opacity-30 scale-95 border border-dashed border-accent-primary/40 bg-white/[0.02]'
                   : isDragOver
-                    ? 'bg-accent-primary/15 border-accent-primary text-text-primary shadow-[0_0_16px_var(--accent-glow)] scale-[1.03] z-10'
+                    ? 'bg-accent-primary/15 border border-accent-primary/60 text-text-primary scale-[1.03] z-10'
                     : isActive
-                      ? 'bg-white/[0.08] text-text-primary border-white/[0.18] shadow-[var(--glass-specular-top),0_0_20px_var(--accent-glow)] backdrop-blur-md'
+                      ? 'bg-white/[0.08] text-text-primary shadow-[var(--glass-specular-top)]'
                       : isVisible
-                        ? 'bg-white/[0.03] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary border-white/[0.06]'
-                        : 'bg-transparent text-text-muted hover:bg-white/[0.03] hover:text-text-secondary border-transparent'
+                        ? 'bg-white/[0.03] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary'
+                        : 'bg-transparent text-text-muted hover:bg-white/[0.03] hover:text-text-secondary'
               )}
             >
               {/* Status icon / spinner */}
@@ -259,7 +261,7 @@ export const TabBar: React.FC<TabBarProps> = ({
 
         {/* Attached Plus (+) & Dropdown Button Group */}
         <div ref={plusBtnGroupRef} className="shrink-0 flex items-center">
-          <div className="flex items-center rounded-xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-md shadow-[var(--glass-specular-top)] transition-all duration-200 hover:border-white/[0.14] overflow-hidden">
+          <div className="flex items-center rounded-xl bg-white/[0.04] backdrop-blur-md shadow-[var(--glass-specular-top)] transition-colors duration-200 hover:bg-white/[0.06] overflow-hidden">
             {/* Left Button: Plus (+) */}
             <button
               type="button"
@@ -268,7 +270,7 @@ export const TabBar: React.FC<TabBarProps> = ({
               disabled={isMaxTabs}
               title={isMaxTabs ? 'Maximum 10 tabs reached' : 'New tab'}
               className={clsx(
-                'flex h-8 px-2.5 items-center justify-center transition-all duration-150 cursor-pointer text-text-secondary hover:bg-white/[0.07] hover:text-text-primary active:scale-95 border-r border-white/[0.06]',
+                'flex h-8 px-2.5 items-center justify-center transition-all duration-150 cursor-pointer text-text-secondary hover:bg-white/[0.07] hover:text-text-primary active:scale-95',
                 isMaxTabs && 'opacity-30 cursor-not-allowed hover:bg-transparent text-text-muted'
               )}
             >
@@ -316,7 +318,7 @@ export const TabBar: React.FC<TabBarProps> = ({
         createPortal(
           <div
             ref={plusMenuRef}
-            className="fixed z-[99999] w-44 rounded-xl border border-[var(--border-default)] bg-[var(--surface-raised)] shadow-[0_20px_48px_rgba(0,0,0,0.5)] p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
+            className="fixed z-[99999] w-44 rounded-xl bg-[var(--surface-raised)] shadow-[0_20px_48px_-12px_rgba(0,0,0,0.6),var(--glass-specular-top)] p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
             style={{
               left: `${Math.min(plusMenuPos.x, window.innerWidth - 180)}px`,
               top: `${Math.min(plusMenuPos.y, window.innerHeight - 120)}px`
@@ -379,7 +381,7 @@ export const TabBar: React.FC<TabBarProps> = ({
         createPortal(
           <div
             ref={menuRef}
-            className="fixed z-[99999] w-48 rounded-xl border border-[var(--border-default)] bg-[var(--surface-raised)] shadow-[0_20px_48px_rgba(0,0,0,0.5)] p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
+            className="fixed z-[99999] w-48 rounded-xl bg-[var(--surface-raised)] shadow-[0_20px_48px_-12px_rgba(0,0,0,0.6),var(--glass-specular-top)] p-1.5 flex flex-col gap-0.5 animate-soft-pop text-xs select-none pointer-events-auto"
             style={{
               left: `${Math.min(contextMenu.x, window.innerWidth - 200)}px`,
               top: `${Math.min(contextMenu.y, window.innerHeight - 160)}px`

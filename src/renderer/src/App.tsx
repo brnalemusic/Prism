@@ -3,6 +3,7 @@ import { useGitRecoveries } from './hooks/useGitRecoveries'
 import { buildChatTimeline, anchorStreamingCalls, bindChatTool, upsertChatRound, finishChatTools } from './chatTimeline'
 import { WorkTimeline } from './components/WorkTimeline'
 import React, { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import ReactMarkdown, { Components } from 'react-markdown'
 import { PrismBackground } from './components/PrismBackground'
 import { LoadingScreen } from './components/LoadingScreen'
@@ -1742,7 +1743,7 @@ const UserMessageRow = React.memo(function UserMessageRow({
   if (msg.content.startsWith(HARNESS_PLAN_APPROVED_MARKER)) {
     return (
       <div key={i} className="w-full flex flex-col items-end px-4 py-2.5 animate-message">
-        <div className="flex max-w-[75%] items-center gap-2.5 rounded-2xl border border-accent-primary/20 bg-accent-primary/[0.06] px-4 py-2.5 shadow-[0_8px_24px_rgba(0,0,0,0.25)]">
+        <div className="flex max-w-[75%] items-center gap-2.5 rounded-2xl bg-accent-primary/[0.07] px-4 py-2.5 shadow-[var(--glass-specular-top)]">
           <CheckCircle size={16} weight="fill" className="shrink-0 text-accent-primary" />
           <div className="min-w-0">
             <p className="text-xs font-semibold text-text-primary">Implementation plan approved</p>
@@ -1758,9 +1759,9 @@ const UserMessageRow = React.memo(function UserMessageRow({
       key={i}
       className="w-full flex flex-col items-end px-4 py-2.5 transition-all duration-700 animate-message"
     >
-      <div className="rounded-2xl bg-white/[0.05] backdrop-blur-2xl border border-white/[0.12] shadow-[var(--glass-specular-top),0_8px_24px_rgba(0,0,0,0.35)] px-5 py-3.5 text-[14.5px] leading-relaxed text-text-primary max-w-[75%] select-text">
+      <div className="rounded-[22px] bg-white/[0.045] shadow-[var(--glass-specular-top),0_10px_28px_-10px_rgba(0,0,0,0.4)] px-5 py-3.5 text-[14.5px] leading-relaxed text-text-primary max-w-[75%] select-text">
         {msg.quote && (
-          <div className="relative mb-2.5 flex flex-col gap-1 rounded-xl bg-white/[0.04] border border-white/[0.08] border-l-[3px] border-l-accent-secondary px-3.5 py-2 select-text">
+          <div className="relative mb-2.5 flex flex-col gap-1 rounded-xl bg-white/[0.04] shadow-[inset_2px_0_0_0_var(--accent-secondary)] px-3.5 py-2 select-text">
             <div className="flex items-center gap-1.5 text-accent-secondary text-[11.5px] font-semibold tracking-wide select-none">
               <Quotes size={13} weight="bold" />
               <span>Prism</span>
@@ -1771,7 +1772,7 @@ const UserMessageRow = React.memo(function UserMessageRow({
           </div>
         )}
         {msg.file && !msg.file.mimeType.startsWith('image/') && (
-          <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.05] mb-2 select-none">
+          <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/[0.03] mb-2 select-none">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/[0.03] text-text-secondary">
               {msg.file.mimeType === 'application/pdf' ? (
                 <FilePdf size={16} />
@@ -1790,7 +1791,7 @@ const UserMessageRow = React.memo(function UserMessageRow({
           <img
             src={msg.screenshot}
             alt="User Attachment"
-            className="max-w-full h-auto rounded-xl mb-2 border border-white/[0.08]"
+            className="max-w-full h-auto rounded-xl mb-2"
           />
         )}
         {msg.content && (
@@ -5187,7 +5188,7 @@ function RealApp(): React.JSX.Element {
       <SearchModal
         isOpen={isSearchModalOpen}
         onClose={() => setIsSearchModalOpen(false)}
-        onOpenChat={handleLoadChat}
+        onOpenChat={(id) => handleLoadChat(id, activeView === 'harness' ? 'harness' : 'chat')}
       />
       {harnessPromptWarnings.length > 0 && (
         <div className="fixed right-5 top-16 z-[125] w-[min(420px,calc(100vw-2.5rem))] rounded-xl border border-status-warning/25 bg-black/85 p-3.5 shadow-2xl backdrop-blur-xl animate-soft-pop">
@@ -5275,6 +5276,18 @@ function RealApp(): React.JSX.Element {
       <main className="flex-1 flex flex-col relative z-10 min-w-0 h-full transition-all duration-400 ease-[cubic-bezier(0.25,1,0.5,1)] overflow-hidden">
         {!isOnline && <OfflineBanner />}
 
+        {/* Cinematic crossfade between workspaces — transform/opacity only.
+            mode="wait" lets the outgoing view resolve before the next mounts. */}
+        <AnimatePresence mode="wait" initial={false}>
+        <MotionConfig reducedMotion="user">
+        <motion.div
+          key={activeView}
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          initial={{ opacity: 0, y: 10, scale: 0.996, filter: 'blur(5px)' }}
+          animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+          exit={{ opacity: 0, y: -6, scale: 0.996, filter: 'blur(5px)' }}
+          transition={{ duration: 0.32, ease: [0.32, 0.72, 0, 1] }}
+        >
         {/* Chat retains its own conventional tab surface. */}
         {activeView === 'chat' && <TabBar
             tabs={tabs}
@@ -5600,6 +5613,9 @@ function RealApp(): React.JSX.Element {
             }}
           />
         )}
+        </motion.div>
+        </MotionConfig>
+        </AnimatePresence>
 
         <DownloadProgressOverlay
           downloads={visibleDownloads}

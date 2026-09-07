@@ -953,18 +953,18 @@ export const CodeBlock = ({
 
   return (
     <div
-      className={`not-prose my-4 overflow-hidden rounded-xl border border-white/[0.08] bg-[#07080a] shadow-lg font-mono text-xs w-full text-text-primary ${streamingElementClass || ''}`}
+      className={`not-prose my-4 overflow-hidden rounded-xl bg-[#060709] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04),0_10px_30px_-12px_rgba(0,0,0,0.5)] font-mono text-xs w-full text-text-primary ${streamingElementClass || ''}`}
       data-stream-token={streamToken}
       style={animationStyle}
     >
-      <div className="flex items-center justify-between bg-white/[0.02] border-b border-white/[0.05] px-4 py-2 select-none">
-        <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
+      <div className="flex items-center justify-between bg-white/[0.02] px-4 py-2 select-none">
+        <span className="text-[11px] font-semibold text-text-secondary/80 uppercase tracking-[0.14em]">
           {lang}
         </span>
         <button
           type="button"
           onClick={handleCopy}
-          className="flex items-center gap-1.5 rounded-lg bg-white/[0.02] border border-white/[0.06] px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-white/[0.06] hover:text-text-primary transition-all duration-200 active:scale-95 cursor-pointer min-w-[75px] justify-center"
+          className="flex items-center gap-1.5 rounded-lg bg-white/[0.05] px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-white/[0.09] hover:text-text-primary transition-colors duration-200 active:scale-95 cursor-pointer min-w-[75px] justify-center"
         >
           <span>{copied ? 'Copied!' : 'Copy Code'}</span>
         </button>

@@ -120,3 +120,38 @@ export const staggerChild: Variants = {
   },
   exit: { opacity: 0, y: 6, transition: { duration: 0.16, ease: EASE_OUT_EXPO } }
 }
+
+// Anchored menu/dropdown pop. Slightly scaled-down origin with a quick
+// physical settle — replaces the old CSS soft-pop on interactive menus.
+export const menuPop: Variants = {
+  hidden: { opacity: 0, y: 8, scale: 0.96 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { type: 'spring', stiffness: 460, damping: 32, mass: 0.8 }
+  },
+  exit: {
+    opacity: 0,
+    y: 6,
+    scale: 0.97,
+    transition: { duration: 0.15, ease: EASE_OUT_EXPO }
+  }
+}
+
+// Upward-anchored variant for menus opening above their trigger.
+export const menuPopUp: Variants = {
+  hidden: { opacity: 0, y: -8, scale: 0.96 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { type: 'spring', stiffness: 460, damping: 32, mass: 0.8 }
+  },
+  exit: {
+    opacity: 0,
+    y: -6,
+    scale: 0.97,
+    transition: { duration: 0.15, ease: EASE_OUT_EXPO }
+  }
+}

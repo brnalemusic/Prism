@@ -28,6 +28,7 @@ import {
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
+import { menuPopUp } from '../motion/presets'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 import { ReasoningSelector } from './ReasoningSelector'
 import { ModelSelector } from './ModelSelector'
@@ -279,7 +280,13 @@ export const InputBar = React.memo(
       const renderSlashMenu = (): React.JSX.Element | null => {
         if (!showSlashMenu) return null
         return (
-          <div className="glass-dropdown-panel z-30 mb-3 w-full overflow-hidden animate-soft-pop">
+          <motion.div
+            variants={menuPopUp}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            className="glass-dropdown-panel z-30 mb-3 w-full overflow-hidden"
+          >
             <div className="border-b border-white/[0.08] px-4 py-3 text-xs font-semibold text-text-secondary/70">
               Workflows
             </div>
@@ -312,7 +319,7 @@ export const InputBar = React.memo(
                 </button>
               ))}
             </div>
-          </div>
+          </motion.div>
         )
       }
 
@@ -635,9 +642,9 @@ export const InputBar = React.memo(
       }
 
       const modeStyles = {
-        youtube: 'border-accent-primary/30 bg-accent-primary/[0.04] text-accent-primary',
-        search: 'border-accent-secondary/30 bg-accent-secondary/[0.04] text-accent-secondary',
-        default: 'border-white/[0.085] bg-white/[0.028] text-text-primary'
+        youtube: 'bg-accent-primary/[0.035] text-accent-primary',
+        search: 'bg-accent-secondary/[0.035] text-accent-secondary',
+        default: 'text-text-primary'
       }[activeMode]
 
       const renderBottomControls = (): React.JSX.Element => (
@@ -666,8 +673,8 @@ export const InputBar = React.memo(
                 onClick={() => setShowAttachMenu(!showAttachMenu)}
                 disabled={disabled}
                 className={clsx(
-                  'flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-150 border border-white/[0.08] bg-white/[0.04] text-text-secondary hover:bg-white/[0.08] hover:text-text-primary hover:border-white/[0.14] cursor-pointer shadow-[var(--glass-specular-top)] active:scale-95',
-                  showAttachMenu && 'bg-white/[0.09] text-text-primary border-white/20'
+                  'flex h-8 w-8 items-center justify-center rounded-xl transition-colors duration-150 bg-white/[0.04] text-text-secondary hover:bg-white/[0.08] hover:text-text-primary cursor-pointer active:scale-95',
+                  showAttachMenu && 'bg-white/[0.09] text-text-primary'
                 )}
                 title={
                   sessionMode === 'harness'
@@ -682,10 +689,10 @@ export const InputBar = React.memo(
                 {showAttachMenu && (
                   <motion.div
                     key="attach-menu"
-                    initial={{ opacity: 0, y: 8, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 6, scale: 0.97 }}
-                    transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                    initial="hidden"
+                    animate="visible"
+                    exit="exit"
+                    variants={menuPopUp}
                     className="glass-dropdown-panel absolute bottom-full left-0 mb-3 z-[60] w-52 p-1.5 text-left"
                   >
                   <button
@@ -922,12 +929,12 @@ export const InputBar = React.memo(
               }}
               disabled={disabled || isTranscribing}
               className={clsx(
-                'flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-150 border relative overflow-hidden group shadow-[var(--glass-specular-top)] active:scale-95',
+                'flex h-8 w-8 items-center justify-center rounded-xl transition-colors duration-150 relative overflow-hidden group active:scale-95',
                 isRecording
-                  ? 'bg-status-error/20 border-status-error/40 text-status-error animate-pulse'
+                  ? 'bg-status-error/20 text-status-error animate-pulse'
                   : isTranscribing
-                    ? 'bg-accent-primary/20 border-accent-primary/40 text-accent-primary cursor-wait'
-                    : 'bg-white/[0.04] border-white/[0.08] text-text-secondary hover:bg-white/[0.08] hover:text-text-primary hover:border-white/[0.14]'
+                    ? 'bg-accent-primary/20 text-accent-primary cursor-wait'
+                    : 'bg-white/[0.04] text-text-secondary hover:bg-white/[0.08] hover:text-text-primary'
               )}
               title={isRecording ? 'Stop and review' : 'Start Dictation'}
             >
@@ -951,7 +958,7 @@ export const InputBar = React.memo(
               <button
                 onClick={() => stopRecording('send')}
                 disabled={disabled || isTranscribing}
-                className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/20 bg-white text-black transition-all duration-150 hover:bg-neutral-100 active:scale-95 shadow-[0_4px_16px_rgba(255,255,255,0.2)] cursor-pointer"
+                className="flex h-8 w-8 items-center justify-center rounded-xl bg-white text-black transition-colors duration-150 hover:bg-neutral-100 active:scale-95 cursor-pointer"
                 title="Stop and send"
               >
                 <SendHorizontal size={14} weight="fill" />
@@ -998,35 +1005,38 @@ export const InputBar = React.memo(
           <div className="flex shrink-0 items-center gap-2 relative">
             {sessionMode === 'harness' && onHarnessPhaseChange && (
               <MotionConfig reducedMotion="user">
+                {/* Simple segmented control: the pill just swipes between
+                    Plan and Build — nothing else animates. */}
                 <div
-                  className="flex items-center rounded-xl border border-white/[0.09] bg-white/[0.025] p-0.5"
+                  className="relative flex items-center rounded-full bg-black/25 p-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.35)]"
                   aria-label="Harness workflow"
                 >
-                  {(['plan', 'build'] as const).map((phase) => (
-                    <button
-                      key={phase}
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => onHarnessPhaseChange(phase)}
-                      aria-pressed={harnessPhase === phase}
-                      className={clsx(
-                        'relative rounded-[9px] px-2.5 py-1 text-[11px] font-semibold capitalize transition-colors duration-150',
-                        harnessPhase === phase
-                          ? 'text-text-primary'
-                          : 'text-text-muted hover:text-text-secondary',
-                        disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
-                      )}
-                    >
-                      {harnessPhase === phase && (
-                        <motion.span
-                          layoutId="harness-phase-pill"
-                          transition={{ type: 'spring', stiffness: 550, damping: 40 }}
-                          className="absolute inset-0 rounded-[9px] bg-white/[0.11] shadow-[var(--glass-specular-top)]"
-                        />
-                      )}
-                      <span className="relative">{phase}</span>
-                    </button>
-                  ))}
+                  {(['plan', 'build'] as const).map((phase) => {
+                    const isActive = harnessPhase === phase
+                    return (
+                      <button
+                        key={phase}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => onHarnessPhaseChange(phase)}
+                        aria-pressed={isActive}
+                        className={clsx(
+                          'relative z-10 rounded-full px-3 py-1 text-[11px] font-semibold capitalize transition-colors duration-200 outline-none',
+                          isActive ? 'text-text-primary' : 'text-text-muted hover:text-text-secondary',
+                          disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                        )}
+                      >
+                        {isActive && (
+                          <motion.span
+                            layoutId="harness-phase-pill"
+                            transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
+                            className="absolute inset-0 rounded-full bg-white/[0.1] shadow-[inset_0_1px_0_rgba(255,255,255,0.09),0_1px_5px_rgba(0,0,0,0.28)]"
+                          />
+                        )}
+                        <span className="relative">{phase}</span>
+                      </button>
+                    )
+                  })}
                 </div>
               </MotionConfig>
             )}
@@ -1083,10 +1093,10 @@ export const InputBar = React.memo(
                   {showHarnessPermissionMenu && (
                     <motion.div
                       key="harness-permission-menu"
-                      initial={{ opacity: 0, y: 8, scale: 0.97 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 6, scale: 0.97 }}
-                      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                      initial="hidden"
+                      animate="visible"
+                      exit="exit"
+                      variants={menuPopUp}
                       className="glass-dropdown-panel absolute bottom-full right-0 z-[70] mb-3 w-72 p-1.5 text-left"
                       role="menu"
                       aria-label="Harness permission profile"
@@ -1201,10 +1211,10 @@ export const InputBar = React.memo(
                   {showModeMenu && (
                     <motion.div
                       key="session-mode-menu"
-                      initial={{ opacity: 0, y: 8, scale: 0.97 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 6, scale: 0.97 }}
-                      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                      initial="hidden"
+                      animate="visible"
+                      exit="exit"
+                      variants={menuPopUp}
                       className="session-mode-dropdown-panel glass-dropdown-panel absolute bottom-full right-0 mb-3 z-50 w-72 p-2 text-left"
                     >
                     <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.06] mb-1">
@@ -1381,10 +1391,10 @@ export const InputBar = React.memo(
                 onClick={() => handleSend()}
                 disabled={(!text.trim() && !attachedFile) || disabled}
                 className={clsx(
-                  'ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-150',
+                  'ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors duration-150',
                   text.trim() && !disabled
-                    ? 'bg-white text-black hover:bg-neutral-100 shadow-[0_4px_16px_rgba(255,255,255,0.2)] active:scale-95 cursor-pointer'
-                    : 'bg-white/[0.04] text-text-muted/60 border border-white/[0.05]'
+                    ? 'bg-white text-black hover:bg-neutral-100 active:scale-95 cursor-pointer'
+                    : 'bg-white/[0.04] text-text-muted/60'
                 )}
               >
                 <SendHorizontal size={14} />
@@ -1398,7 +1408,7 @@ export const InputBar = React.memo(
         if (!quotedText) return null
         return (
           <div className="w-full pb-2.5 flex items-center justify-between gap-3 relative animate-soft-pop select-none">
-            <div className="flex-1 flex items-start gap-2.5 px-3.5 py-2 rounded-2xl border border-white/[0.08] bg-white/[0.035] backdrop-blur-md relative shadow-sm min-w-0 border-l-[3px] border-l-accent-secondary">
+            <div className="flex-1 flex items-start gap-2.5 px-3.5 py-2 rounded-2xl bg-white/[0.04] relative min-w-0 shadow-[inset_2px_0_0_0_var(--accent-secondary)]">
               <Quotes size={15} weight="bold" className="text-accent-secondary shrink-0 mt-0.5" />
               <div className="flex flex-col min-w-0 flex-1">
                 <span className="text-[11px] font-semibold text-accent-secondary tracking-wide flex items-center gap-1">
@@ -1433,7 +1443,7 @@ export const InputBar = React.memo(
               </div>
               <button
                 onClick={onFullscreenToggle}
-                className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.028] px-3.5 py-2 text-xs font-semibold text-text-secondary hover:bg-white/[0.065] hover:text-text-primary transition-all duration-200 active:scale-95"
+                className="flex items-center gap-2 rounded-xl bg-white/[0.04] px-3.5 py-2 text-xs font-semibold text-text-secondary hover:bg-white/[0.07] hover:text-text-primary transition-colors duration-200 active:scale-95"
                 title="Exit fullscreen"
               >
                 <Minimize2 size={14} />
@@ -1446,20 +1456,20 @@ export const InputBar = React.memo(
               onDragLeave={() => setIsExplorerDropTarget(false)}
               onDrop={handleExplorerDrop}
               className={clsx(
-                'liquid-glass-input flex-1 flex flex-col rounded-3xl p-5 transition-all duration-300 relative input-border-glow overflow-visible',
+                'true-glass flex-1 flex flex-col rounded-3xl p-5 transition-[background-color,box-shadow] duration-300 relative input-border-glow overflow-visible',
                 modeStyles,
-                isFocused && !disabled && 'active',
+                isFocused && !disabled && 'is-active',
                 isProcessing && 'input-bar-processing',
                 disabled && !isProcessing && 'opacity-60',
                 isExplorerDropTarget && 'ring-2 ring-accent-primary/70 bg-accent-primary/5'
               )}
             >
-              {/* Subtle internal theme center glow (+30% brightness on focus) */}
+              {/* Focus light: a faint bloom from above lifts the pane when active */}
               <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none">
                 <div
                   className={clsx(
-                    'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3/4 h-3/4 rounded-full blur-[48px] transition-all duration-300',
-                    isFocused ? 'opacity-28 scale-105' : 'opacity-18 scale-100'
+                    'absolute inset-x-10 -top-16 h-24 rounded-full blur-[42px] transition-opacity duration-500',
+                    isFocused && !disabled ? 'opacity-100' : 'opacity-0'
                   )}
                   style={{
                     background:
@@ -1571,7 +1581,7 @@ export const InputBar = React.memo(
           {sessionMode !== 'harness' && showFullscreenBtn && (
             <button
               onClick={onFullscreenToggle}
-              className="absolute -top-10 left-4 sm:left-8 flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-background-secondary/90 px-3 py-1.5 text-xs font-semibold text-text-secondary hover:bg-white/[0.065] hover:text-text-primary transition-all duration-200 shadow-md backdrop-blur-md animate-soft-pop z-30"
+              className="absolute -top-10 left-4 sm:left-8 flex items-center gap-1.5 rounded-xl bg-white/[0.05] px-3 py-1.5 text-xs font-semibold text-text-secondary hover:bg-white/[0.08] hover:text-text-primary transition-colors duration-200 shadow-[var(--glass-specular-top)] backdrop-blur-md animate-soft-pop z-30"
             >
               <Maximize2 size={13} />
               Fullscreen
@@ -1586,20 +1596,20 @@ export const InputBar = React.memo(
               onDragLeave={() => setIsExplorerDropTarget(false)}
               onDrop={handleExplorerDrop}
               className={clsx(
-                'liquid-glass-input relative rounded-[26px] transition-all duration-300 input-border-glow flex flex-col overflow-visible px-4.5 pt-4 pb-3',
+                'true-glass relative rounded-[28px] transition-[background-color,box-shadow] duration-300 input-border-glow flex flex-col overflow-visible px-4.5 pt-4 pb-3',
                 modeStyles,
-                isFocused && !disabled && 'active',
+                isFocused && !disabled && 'is-active',
                 isProcessing && 'input-bar-processing',
                 disabled && !isProcessing && 'opacity-60',
                 isExplorerDropTarget && 'ring-2 ring-accent-primary/70 bg-accent-primary/5'
               )}
             >
-              {/* Subtle internal theme center glow (+30% brightness on focus) */}
-              <div className="absolute inset-0 rounded-[26px] overflow-hidden pointer-events-none">
+              {/* Focus light: a faint bloom from above lifts the pane when active */}
+              <div className="absolute inset-0 rounded-[28px] overflow-hidden pointer-events-none">
                 <div
                   className={clsx(
-                    'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3/4 h-3/4 rounded-full blur-[36px] transition-all duration-300',
-                    isFocused ? 'opacity-28 scale-105' : 'opacity-18 scale-100'
+                    'absolute inset-x-10 -top-16 h-24 rounded-full blur-[42px] transition-opacity duration-500',
+                    isFocused && !disabled ? 'opacity-100' : 'opacity-0'
                   )}
                   style={{
                     background:
