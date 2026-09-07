@@ -526,29 +526,76 @@ function normalizeGeneratedMessage(text: string): string {
   return normalized.split(/\r?\n/).slice(0, 3).join('\n').slice(0, 500)
 }
 
+function truncateText(value: string, max: number): string {
+  const trimmed = value.trim()
+  if (trimmed.length <= max) return trimmed
+  return `${trimmed.slice(0, max)}\n…(truncated)`
+}
+
+const MAX_COMMIT_DIFF_CHARS = 60000
+const MAX_UNTRACKED_PREVIEWS = 20
+const MAX_UNTRACKED_PREVIEW_CHARS = 8000
+const MAX_UNTRACKED_BYTES = 20000
+
+async function previewUntrackedFile(repoRoot: string, relativePath: string): Promise<string | undefined> {
+  // Read-only preview so new files without a Git diff still give the model real code context.
+  try {
+    const absolute = path.resolve(repoRoot, relativePath)
+    const relative = path.relative(repoRoot, absolute)
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return undefined
+    const stats = await fs.stat(absolute)
+    if (!stats.isFile() || stats.size > MAX_UNTRACKED_BYTES) return undefined
+    const content = await fs.readFile(absolute, 'utf8')
+    if (content.includes('\0')) return undefined
+    const preview = truncateText(content, MAX_UNTRACKED_PREVIEW_CHARS)
+    if (!preview) return undefined
+    return `--- New file: ${relativePath}\n${preview}`
+  } catch {
+    return undefined
+  }
+}
+
 export async function generateHarnessGitCommitMessage(
   projectPath: string,
   modelKey: string
 ): Promise<string> {
   const snapshot = await getHarnessGitSnapshot(projectPath)
   if (!snapshot.isGit || !snapshot.repoRoot) throw new Error(snapshot.error || 'Git repository unavailable.')
+  const repoRoot = snapshot.repoRoot
   const [staged, unstaged] = await Promise.all([
-    git(snapshot.repoRoot, ['diff', '--cached', '--stat', '--patch']),
-    git(snapshot.repoRoot, ['diff', '--stat', '--patch'])
+    git(repoRoot, ['diff', '--no-color', '--stat', '--patch', '--find-renames', '--cached']),
+    git(repoRoot, ['diff', '--no-color', '--stat', '--patch', '--find-renames'])
   ])
-  const diff = `${staged.stdout}\n${unstaged.stdout}`.trim().slice(0, 60000)
+  const untrackedPaths = snapshot.files.filter((file) => file.isUntracked).slice(0, MAX_UNTRACKED_PREVIEWS)
+  const untrackedPreviews = (
+    await Promise.all(untrackedPaths.map((file) => previewUntrackedFile(repoRoot, file.path)))
+  ).filter((preview): preview is string => Boolean(preview))
+  const stagedDiff = staged.stdout.trim()
+  const unstagedDiff = unstaged.stdout.trim()
+  const sections: string[] = []
+  if (stagedDiff) sections.push(`Staged diff:\n${stagedDiff}`)
+  if (unstagedDiff) sections.push(`Unstaged diff:\n${unstagedDiff}`)
+  if (untrackedPreviews.length > 0) sections.push(`New untracked files:\n${untrackedPreviews.join('\n\n')}`)
+  const diff = truncateText(sections.join('\n\n'), MAX_COMMIT_DIFF_CHARS)
   if (!diff && snapshot.files.length === 0) throw new Error('There are no changes to describe.')
   const { resolveProviderAndModel, streamOpenAiCompletion } = await import('./ai')
   const { provider, model } = resolveProviderAndModel(modelKey)
   if (!provider || !model) throw new Error('Choose an available Harness model before generating a commit message.')
+  const changedFiles = snapshot.files
+    .map((file) => `${`${file.indexStatus}${file.workTreeStatus}`.trim() || 'M'} ${file.path}`)
+    .join('\n')
+  const recentSubjects = snapshot.commits
+    .slice(0, 5)
+    .map((commit) => `- ${commit.subject}`)
+    .join('\n')
   const messages: OpenAiMessage[] = [
     {
       role: 'system',
-      content: 'You write concise, accurate Git commit messages. Return only the commit message in English, with an imperative subject and optional short body. Do not use Markdown fences.'
+      content: 'You write human GitHub commit messages in English. Describe what actually changed in the code, not just which files were touched. Use plain everyday words a teammate would understand and avoid highly technical jargon unless that exact term appears in the diff. Use Conventional Commits for the subject line: "<type>: <short summary>" where type is one of feat, fix, refactor, docs, style, test, or chore. Keep the subject imperative, under 72 characters, with no trailing period. Add a one-line body only when the reason or user-visible effect is not obvious from the subject. Return only the commit message text, without Markdown fences, quotes, or extra explanation.'
     },
     {
       role: 'user',
-      content: `Repository branch: ${snapshot.branch || 'detached'}\nChanged files: ${snapshot.files.map((file) => file.path).join(', ') || 'unknown'}\n\nDiff:\n${diff || 'No textual diff was available.'}`
+      content: `Repository branch: ${snapshot.branch || 'detached'}\n${recentSubjects ? `Recent commit style examples:\n${recentSubjects}\n` : ''}Changed files (status + path):\n${changedFiles || 'unknown'}\n\n${diff || 'No textual diff was available.'}\n\nWrite a commit message that explains the real code change in human words.`
     }
   ]
   let content = ''
