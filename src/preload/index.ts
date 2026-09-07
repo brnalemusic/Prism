@@ -1,4 +1,11 @@
-import type { HarnessGitRecovery, HarnessGitPlanBinding } from '../shared/types'
+import type {
+  HarnessGitRecovery,
+  HarnessGitPlanBinding,
+  ProviderConfig,
+  ProviderModel,
+  CompletionType,
+  TrustedProviderPreset
+} from '../shared/types'
 import { contextBridge, ipcRenderer, IpcRendererEvent, webFrame } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
@@ -941,19 +948,27 @@ const api = {
   showArtifactInFolder: (filePath: string): Promise<void> => {
     return ipcRenderer.invoke('show-artifact-in-folder', filePath)
   },
-  getProviders: (): Promise<any> => {
+  getProviders: (): Promise<ProviderConfig[]> => {
     return ipcRenderer.invoke('get-providers')
   },
-  saveProviders: (providers: any): Promise<boolean> => {
+  getTrustedProviderPresets: (): Promise<TrustedProviderPreset[]> => {
+    return ipcRenderer.invoke('get-trusted-provider-presets')
+  },
+  saveProviders: (providers: ProviderConfig[]): Promise<boolean> => {
     return ipcRenderer.invoke('save-providers', providers)
   },
   deleteProvider: (providerId: string): Promise<boolean> => {
     return ipcRenderer.invoke('delete-provider', providerId)
   },
-  fetchProviderModels: (params: any): Promise<any> => {
+  fetchProviderModels: (params: {
+    baseUrl: string
+    apiKey: string
+    puterAuthToken?: string
+    completionType: CompletionType
+  }): Promise<{ success: boolean; models: ProviderModel[]; error?: string }> => {
     return ipcRenderer.invoke('fetch-provider-models', params)
   },
-  loginWithPuter: (): Promise<any> => {
+  loginWithPuter: (): Promise<{ success: boolean; token?: string; username?: string; error?: string }> => {
     return ipcRenderer.invoke('puter-login')
   },
   cancelPuterLogin: (): Promise<boolean> => {

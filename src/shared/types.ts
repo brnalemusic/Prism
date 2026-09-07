@@ -488,6 +488,13 @@ export type CompletionType =
   | 'gemini_native'
   | 'puter_native'
 
+export interface TrustedProviderPreset {
+  id: string
+  name: string
+  baseUrl: string
+  completionType: CompletionType
+}
+
 export type ImageGenerationAdapter =
   | 'openai_images'
   | 'openai_responses'

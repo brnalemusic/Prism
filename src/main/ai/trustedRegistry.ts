@@ -1,48 +1,52 @@
-import { CompletionType } from '../../shared/types'
+import type { TrustedProviderPreset } from '../../shared/types'
 
-export interface TrustedProviderMeta {
-  baseUrl: string
-  name: string
-  completionType: CompletionType
-}
+export interface TrustedProviderMeta extends TrustedProviderPreset {}
 
 export const TRUSTED_PROVIDERS: TrustedProviderMeta[] = [
   {
+    id: 'google-ai-studio',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     name: 'Google AI Studio',
     completionType: 'gemini_native'
   },
   {
+    id: 'nvidia-nim',
     baseUrl: 'https://integrate.api.nvidia.com/v1',
     name: 'NVIDIA NIM',
     completionType: 'chat_completions'
   },
   {
+    id: 'openai',
     baseUrl: 'https://api.openai.com/v1',
     name: 'OpenAI GPT',
     completionType: 'chat_completions'
   },
   {
+    id: 'anthropic',
     baseUrl: 'https://api.anthropic.com/v1',
     name: 'Anthropic Claude',
     completionType: 'anthropic_messages'
   },
   {
+    id: 'openrouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     name: 'OpenRouter',
     completionType: 'chat_completions'
   },
   {
+    id: 'groqcloud',
     baseUrl: 'https://api.groq.com/openai/v1',
     name: 'GroqCloud',
     completionType: 'chat_completions'
   },
   {
+    id: 'cerebras-ai',
     baseUrl: 'https://api.cerebras.ai/v1',
     name: 'Cerebras AI',
     completionType: 'chat_completions'
   },
   {
+    id: 'puter-js',
     baseUrl: 'https://api.puter.com/puterai/openai/v1',
     name: 'Puter.js',
     completionType: 'puter_native'

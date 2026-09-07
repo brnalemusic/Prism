@@ -17,6 +17,7 @@
         "test:git-recovery-ui": "node --experimental-strip-types scripts/git-recovery-ui-validation.mts",
         "test:persona": "node --experimental-strip-types --test scripts/persona-validation.mts",
         "test:memory": "node --experimental-strip-types --test scripts/memory-validation.mts",
+        "test:providers": "node --experimental-strip-types --test scripts/provider-validation.mts",
         "start": "electron-vite preview",
         "dev": "electron-vite dev",
         "dev:demo": "cross-env DEMO_MODE=true electron-vite dev",

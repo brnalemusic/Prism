@@ -409,6 +409,7 @@ export interface PrismAPI {
   openArtifactFile: (filePath: string) => Promise<void>
   showArtifactInFolder: (filePath: string) => Promise<void>
   getProviders: () => Promise<import('../shared/types').ProviderConfig[]>
+  getTrustedProviderPresets: () => Promise<import('../shared/types').TrustedProviderPreset[]>
   saveProviders: (providers: import('../shared/types').ProviderConfig[]) => Promise<boolean>
   deleteProvider: (providerId: string) => Promise<boolean>
   fetchProviderModels: (params: {

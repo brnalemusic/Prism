@@ -46,7 +46,8 @@ import {
   handleGenerateBrowserSite,
   cancelBrowserGeneration,
   startPuterLoginFlow,
-  cancelPuterLoginFlow
+  cancelPuterLoginFlow,
+  TRUSTED_PROVIDERS
 } from './ai'
 import {
   searchWorkspaceFiles,
@@ -1486,6 +1487,15 @@ if (!gotTheLock) {
 
     ipcMain.handle('get-providers', () => {
       return getAllProviders()
+    })
+
+    ipcMain.handle('get-trusted-provider-presets', () => {
+      return TRUSTED_PROVIDERS.map(({ id, name, baseUrl, completionType }) => ({
+        id,
+        name,
+        baseUrl,
+        completionType
+      }))
     })
 
     ipcMain.handle('save-providers', (_event, providers: any) => {

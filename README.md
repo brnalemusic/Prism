@@ -96,7 +96,8 @@ Prism breaks free from proprietary vendor lock-in. Connect trusted cloud provide
 
 </div>
 
-- **Dynamic Model Discovery & Puter.js Native Account:** Automatically queries `/models` endpoints or native Puter.js SDK (`puter.ai.listModels()`), with seamless default browser login for Puter accounts.
+- **Preset-first Provider Setup:** Choose a verified provider preset to populate its canonical endpoint and protocol immediately, or use a custom HTTP(S) endpoint. Connection, models and custom identity/protocol settings are independently accessible; model discovery is optional and can be deferred.
+- **Dynamic Model Discovery & Puter.js Native Account:** Automatically queries `/models` endpoints or native Puter.js SDK (`puter.ai.listModels()`), with seamless default browser login for Puter accounts. Puter also supports a separate manual API-key mode.
 - **Granular Role Routing:** Independently assign dedicated models for:
   - 💬 **Main Chat Model** (Deep reasoning, coding, and workflow orchestration)
   - 🌐 **Generative Browser Model** (Real-time HTML+CSS website synthesis via `generate:`)

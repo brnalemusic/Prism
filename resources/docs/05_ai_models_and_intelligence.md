@@ -2,7 +2,7 @@
 
 ## 1. Introduction: Multi-Provider Intelligence Engine
 
-Prism 7.0.1 operates on an **Open Multi-Provider & Dynamic Model Architecture**. Instead of hardcoding vendor-locked or fine-tuned model keys, Prism features a modular cognitive dispatching core (`src/main/ai/`) that connects to any cloud LLM vendor or local model engine.
+Prism 9.0.0-beta.2 operates on an **Open Multi-Provider & Dynamic Model Architecture**. Instead of hardcoding vendor-locked or fine-tuned model keys, Prism features a modular cognitive dispatching core (`src/main/ai/`) that connects to any cloud LLM vendor or local model engine.
 
 Users can attach Google AI Studio, OpenAI, Anthropic Claude, OpenRouter, NVIDIA NIM, GroqCloud, Cerebras AI, Puter.js, or custom OpenAI-compatible / Anthropic-compatible / Responses API-compatible endpoints (such as local Ollama, LM Studio, or vLLM setups).
 
@@ -13,7 +13,12 @@ Users can attach Google AI Studio, OpenAI, Anthropic Claude, OpenRouter, NVIDIA 
 In `src/shared/types.ts`, providers and models are defined with clean TypeScript schemas:
 
 ```typescript
-export type CompletionType = 'chat_completions' | 'responses' | 'anthropic_messages'
+export type CompletionType =
+  | 'chat_completions'
+  | 'responses'
+  | 'anthropic_messages'
+  | 'gemini_native'
+  | 'puter_native'
 
 export interface ProviderModel {
   id: string
@@ -27,6 +32,7 @@ export interface ProviderConfig {
   name: string
   baseUrl: string
   apiKey: string
+  puterAuthToken?: string
   completionType: CompletionType
   isTrusted: boolean
   models: ProviderModel[]
@@ -41,6 +47,8 @@ export interface ProviderConfig {
    - Native `/messages` endpoint structure used by Anthropic Claude endpoints, requiring `x-api-key` and `anthropic-version: 2023-06-01` headers.
 3. **`responses` (OpenAI Responses API):**
    - Modern `/responses` payload architecture using structured `input` arrays and flat tool definitions.
+4. **`gemini_native` (Google GenerateContent):** Native Google AI Studio protocol.
+5. **`puter_native` (Puter.js Driver):** Native authenticated Puter account route. Manual Puter API keys use `chat_completions` instead.
 
 ---
 
@@ -57,6 +65,10 @@ Prism comes pre-configured with a trusted registry of popular AI cloud providers
 - **GroqCloud:** `https://api.groq.com/openai/v1`
 - **Cerebras AI:** `https://api.cerebras.ai/v1`
 - **Puter.js:** `https://api.puter.com/puterai/openai/v1`
+
+The Settings provider editor reads this canonical registry through a credential-free IPC catalog. Selecting a preset fills its verified endpoint and completion protocol immediately. A **Custom endpoint** remains available for local and third-party services; only exact canonical URLs selected as presets are marked trusted.
+
+The editor is non-linear: **Connection**, **Models**, and, for custom endpoints, **Identity & protocol** can be opened in any order. Saving requires a valid HTTP(S) URL, the required credential (or a completed native Puter account login), and a name for custom endpoints. Model discovery is optional, so a provider can be saved before any models are enabled.
 
 ### 3.2. Dynamic Model Fetching (`providerManager.ts`)
 

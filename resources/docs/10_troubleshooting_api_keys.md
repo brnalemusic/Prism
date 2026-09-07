@@ -17,6 +17,11 @@ This document details common failure modes, error codes, and step-by-step diagno
 
 Because Prism connects to multiple providers (Google AI Studio, OpenAI, Anthropic, OpenRouter, NVIDIA NIM, Groq, Cerebras, Puter.js, Ollama, LM Studio), HTTP response codes provide clear diagnostics:
 
+### 2.0. Provider Setup and Deferred Discovery
+- Select a verified provider preset to use Prism's canonical endpoint and protocol, or choose **Custom endpoint** for a local or third-party URL.
+- The editor lets you save after the connection is valid even if model discovery fails or is unavailable. Return to **Models** and select **Discover models** later.
+- Puter.js supports either a native browser account login or a separate manual API-key mode. Do not enter a manual key in the account-login flow.
+
 ### 2.1. HTTP Error Code Reference
 
 #### `HTTP 401 Unauthorized (Invalid API Key)`

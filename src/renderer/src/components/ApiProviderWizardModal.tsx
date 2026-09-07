@@ -1,99 +1,47 @@
-import React, { useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ProviderConfig, ProviderModel, CompletionType } from '../../../shared/types'
+import { ProviderConfig, ProviderModel, CompletionType, TrustedProviderPreset } from '../../../shared/types'
 import {
-  CheckCircle,
-  Warning,
-  MagnifyingGlass,
   Check,
-  X,
-  ArrowRight,
-  ArrowLeft,
-  SignIn,
-  User,
+  CheckCircle,
   Key,
+  MagnifyingGlass,
+  Plus,
+  SignIn,
   SpinnerGap,
-  ArrowSquareOut,
-  Sparkle
+  User,
+  Warning,
+  X
 } from '@phosphor-icons/react'
-
-const TRUSTED_PROVIDERS_META: Array<{
-  baseUrl: string
-  name: string
-  completionType: CompletionType
-}> = [
-  {
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    name: 'Google AI Studio',
-    completionType: 'gemini_native'
-  },
-  {
-    baseUrl: 'https://integrate.api.nvidia.com/v1',
-    name: 'NVIDIA NIM',
-    completionType: 'chat_completions'
-  },
-  { baseUrl: 'https://api.openai.com/v1', name: 'OpenAI GPT', completionType: 'chat_completions' },
-  {
-    baseUrl: 'https://api.anthropic.com/v1',
-    name: 'Anthropic Claude',
-    completionType: 'anthropic_messages'
-  },
-  {
-    baseUrl: 'https://openrouter.ai/api/v1',
-    name: 'OpenRouter',
-    completionType: 'chat_completions'
-  },
-  {
-    baseUrl: 'https://api.groq.com/openai/v1',
-    name: 'GroqCloud',
-    completionType: 'chat_completions'
-  },
-  {
-    baseUrl: 'https://api.cerebras.ai/v1',
-    name: 'Cerebras AI',
-    completionType: 'chat_completions'
-  },
-  {
-    baseUrl: 'https://api.puter.com/puterai/openai/v1',
-    name: 'Puter.js',
-    completionType: 'chat_completions'
-  }
-]
-
-function normalizeUrl(url: string): string {
-  let cleaned = (url || '').trim()
-  while (cleaned.endsWith('/')) {
-    cleaned = cleaned.slice(0, -1)
-  }
-  return cleaned
-}
-
-function getHostnameFromUrl(url: string): string | null {
-  try {
-    return new URL(url).hostname.toLowerCase()
-  } catch {
-    return null
-  }
-}
-
-function isPuterHostname(hostname: string): boolean {
-  return hostname === 'puter.com' || hostname.endsWith('.puter.com')
-}
-
-function isPuterBaseUrl(url: string): boolean {
-  const hostname = getHostnameFromUrl(url)
-  return hostname ? isPuterHostname(hostname) : false
-}
-
-function findTrusted(url: string): (typeof TRUSTED_PROVIDERS_META)[number] | undefined {
-  const norm = normalizeUrl(url)
-  return TRUSTED_PROVIDERS_META.find((p) => normalizeUrl(p.baseUrl) === norm)
-}
 
 interface ApiProviderWizardModalProps {
   initialProvider?: ProviderConfig | null
   onClose: () => void
-  onSave: (provider: ProviderConfig) => void
+  onSave: (provider: ProviderConfig) => Promise<boolean>
+}
+
+type EditorSection = 'connection' | 'models' | 'identity'
+
+function normalizeUrl(url: string): string {
+  return url.trim().replace(/\/+$/, '')
+}
+
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(normalizeUrl(value))
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function isPuterUrl(value: string): boolean {
+  try {
+    const host = new URL(value).hostname.toLowerCase()
+    return host === 'puter.com' || host.endsWith('.puter.com')
+  } catch {
+    return false
+  }
 }
 
 export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
@@ -101,676 +49,218 @@ export const ApiProviderWizardModal: React.FC<ApiProviderWizardModalProps> = ({
   onClose,
   onSave
 }) => {
-  const [step, setStep] = useState<number>(1)
-  const [baseUrl, setBaseUrl] = useState<string>(initialProvider?.baseUrl || '')
-  const [apiKey, setApiKey] = useState<string>(initialProvider?.apiKey || '')
-  const [puterAuthToken, setPuterAuthToken] = useState<string>(
-    initialProvider?.puterAuthToken || ''
-  )
-  const [name, setName] = useState<string>(initialProvider?.name || '')
+  const [presets, setPresets] = useState<TrustedProviderPreset[]>([])
+  const [selectedPreset, setSelectedPreset] = useState<TrustedProviderPreset | null>(null)
+  const [isCustom, setIsCustom] = useState(initialProvider ? !initialProvider.isTrusted : false)
+  const [section, setSection] = useState<EditorSection>('connection')
+  const [baseUrl, setBaseUrl] = useState(initialProvider?.baseUrl || '')
+  const [name, setName] = useState(initialProvider?.name || '')
+  const [apiKey, setApiKey] = useState(initialProvider?.apiKey || '')
+  const [puterAuthToken, setPuterAuthToken] = useState(initialProvider?.puterAuthToken || '')
   const [completionType, setCompletionType] = useState<CompletionType>(
     initialProvider?.completionType || 'chat_completions'
   )
   const [models, setModels] = useState<ProviderModel[]>(initialProvider?.models || [])
-  const [isFetchingModels, setIsFetchingModels] = useState<boolean>(false)
-  const [fetchError, setFetchError] = useState<string>('')
-  const [searchQuery, setSearchQuery] = useState<string>('')
-
-  const trustedMeta = findTrusted(baseUrl)
-  const isTrusted = !!trustedMeta
-  const isPuter = Boolean(trustedMeta?.name === 'Puter.js' || (baseUrl && isPuterBaseUrl(baseUrl)))
-
   const [authMode, setAuthMode] = useState<'account' | 'key'>(
-    initialProvider?.completionType === 'puter_native' || !initialProvider?.apiKey
-      ? 'account'
-      : 'key'
+    initialProvider?.completionType === 'puter_native' || !initialProvider?.apiKey ? 'account' : 'key'
   )
-  const [isLoggingInPuter, setIsLoggingInPuter] = useState<boolean>(false)
-  const [puterLoginError, setPuterLoginError] = useState<string>('')
-  const [puterUsername, setPuterUsername] = useState<string>('')
+  const [isFetchingModels, setIsFetchingModels] = useState(false)
+  const [isLoggingInPuter, setIsLoggingInPuter] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [error, setError] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
 
-  const handlePuterBrowserLogin = async (): Promise<void> => {
-    setIsLoggingInPuter(true)
-    setPuterLoginError('')
-    try {
-      const res = await window.api.loginWithPuter()
-      if (res && res.success && res.token) {
-        setPuterAuthToken(res.token)
-        setApiKey('')
-        setCompletionType('puter_native')
-        if (res.username) {
-          setPuterUsername(res.username)
-        }
-        setIsLoggingInPuter(false)
-        setStep(5)
-        // Automatically fetch models using native Puter.js
-        setIsFetchingModels(true)
-        setFetchError('')
-        try {
-          const fetchRes = await window.api.fetchProviderModels({
-            baseUrl,
-            apiKey: '',
-            puterAuthToken: res.token,
-            completionType: 'puter_native'
-          })
-          if (fetchRes && fetchRes.success && fetchRes.models) {
-            setModels(fetchRes.models)
-          } else {
-            setFetchError(fetchRes?.error || 'Failed to fetch models from Puter.js')
-          }
-        } catch (fetchErr: unknown) {
-          setFetchError(
-            fetchErr instanceof Error ? fetchErr.message : 'Error connecting to Puter.js'
-          )
-        } finally {
-          setIsFetchingModels(false)
-        }
-      } else {
-        setPuterLoginError(res?.error || 'Puter login was not completed')
-        setIsLoggingInPuter(false)
+  useEffect(() => {
+    let mounted = true
+    void window.api.getTrustedProviderPresets().then((items) => {
+      if (!mounted) return
+      setPresets(items)
+      if (initialProvider) {
+        setSelectedPreset(
+          items.find((item) => normalizeUrl(item.baseUrl) === normalizeUrl(initialProvider.baseUrl)) || null
+        )
       }
-    } catch (err: unknown) {
-      setPuterLoginError(err instanceof Error ? err.message : 'Failed to connect to Puter')
-      setIsLoggingInPuter(false)
+    })
+    return () => {
+      mounted = false
     }
+  }, [initialProvider])
+
+  const isPuter = isPuterUrl(baseUrl)
+  const isTrusted = Boolean(selectedPreset) && !isCustom
+  const hasCredential = isPuter && authMode === 'account' ? Boolean(puterAuthToken.trim()) : Boolean(apiKey.trim())
+  const filteredModels = useMemo(
+    () =>
+      models.filter((model) => {
+        const search = searchQuery.toLowerCase()
+        return model.id.toLowerCase().includes(search) || model.name?.toLowerCase().includes(search)
+      }),
+    [models, searchQuery]
+  )
+  const enabledCount = models.filter((model) => model.enabled).length
+
+  const selectPreset = (preset: TrustedProviderPreset): void => {
+    setSelectedPreset(preset)
+    setIsCustom(false)
+    setBaseUrl(preset.baseUrl)
+    setName(preset.name)
+    setCompletionType(preset.completionType)
+    setAuthMode(preset.completionType === 'puter_native' ? 'account' : 'key')
+    setError('')
   }
 
-  const handleCancelPuterLogin = async (): Promise<void> => {
-    try {
-      await window.api.cancelPuterLogin()
-    } catch {
-      // ignore
-    }
-    setIsLoggingInPuter(false)
+  const selectCustom = (): void => {
+    setSelectedPreset(null)
+    setIsCustom(true)
+    setBaseUrl('')
+    setName('')
+    setCompletionType('chat_completions')
+    setModels([])
+    setError('')
   }
 
-  const handleClose = (): void => {
-    if (isLoggingInPuter) {
-      window.api.cancelPuterLogin?.()
-    }
-    onClose()
-  }
-
-  const handleNextFromUrl = (): void => {
-    if (!baseUrl.trim()) return
-    if (trustedMeta) {
-      setName(trustedMeta.name)
-      if (!initialProvider) setCompletionType(trustedMeta.completionType)
-    }
-    setStep(2)
-  }
-
-  const handleNextFromKey = (): void => {
-    if (isPuter && authMode === 'account') {
-      if (!puterAuthToken.trim()) {
-        handlePuterBrowserLogin()
-        return
-      }
-      setStep(5)
+  const fetchModels = async (): Promise<void> => {
+    if (!hasCredential) {
+      setError('Enter a credential or complete Puter account login before discovering models.')
+      setSection('connection')
       return
     }
-
-    if (!apiKey.trim()) return
-    if (isTrusted) {
-      // Skip name step if provider is trusted and name is immutable
-      setStep(4)
-    } else {
-      setStep(3)
-    }
-  }
-
-  const handleFetchModels = async (): Promise<void> => {
     setIsFetchingModels(true)
-    setFetchError('')
+    setError('')
     try {
-      const res = await window.api.fetchProviderModels({
-        baseUrl,
-        apiKey,
-        ...(completionType === 'puter_native' ? { puterAuthToken } : {}),
+      const result = await window.api.fetchProviderModels({
+        baseUrl: normalizeUrl(baseUrl),
+        apiKey: isPuter && authMode === 'account' ? '' : apiKey.trim(),
+        puterAuthToken: isPuter && authMode === 'account' ? puterAuthToken.trim() : undefined,
         completionType
       })
-      if (res.success && res.models) {
-        const existingById = new Map(models.map((model) => [model.id, model]))
-        setModels(
-          res.models.map((model) => ({
-            ...model,
-            // Preserve the user's selection, including trusted models they disabled.
-            enabled: existingById.get(model.id)?.enabled ?? model.enabled,
-            imageGeneration: existingById.get(model.id)?.imageGeneration || model.imageGeneration
-          }))
-        )
-      } else {
-        setFetchError(res.error || 'Failed to fetch models from provider')
+      if (!result.success) {
+        setError(result.error || 'Could not discover models. You can retry later or save without discovery.')
+        return
       }
-    } catch (error: unknown) {
-      setFetchError(error instanceof Error ? error.message : 'Error connecting to provider')
+      const existing = new Map(models.map((model) => [model.id, model]))
+      setModels(
+        result.models.map((model) => ({
+          ...model,
+          enabled: existing.get(model.id)?.enabled ?? model.enabled,
+          imageGeneration: existing.get(model.id)?.imageGeneration || model.imageGeneration
+        }))
+      )
+    } catch (fetchError: unknown) {
+      setError(fetchError instanceof Error ? fetchError.message : 'Could not discover models.')
     } finally {
       setIsFetchingModels(false)
     }
   }
 
-  const handleToggleModel = (id: string): void => {
-    setModels((prev) => (prev || []).map((m) => (m.id === id ? { ...m, enabled: !m.enabled } : m)))
-  }
-
-  const handleEnableAll = (): void => {
-    if (searchQuery.trim()) {
-      const filteredIdSet = new Set(filteredModels.map((m) => m.id))
-      setModels((prev) => (prev || []).map((m) => (filteredIdSet.has(m.id) ? { ...m, enabled: true } : m)))
-    } else {
-      setModels((prev) => (prev || []).map((m) => ({ ...m, enabled: true })))
+  const loginWithPuter = async (): Promise<void> => {
+    setIsLoggingInPuter(true)
+    setError('')
+    try {
+      const result = await window.api.loginWithPuter()
+      if (!result.success || !result.token) {
+        setError(result.error || 'Puter login was not completed.')
+        return
+      }
+      setPuterAuthToken(result.token)
+      setApiKey('')
+      setCompletionType('puter_native')
+    } catch (loginError: unknown) {
+      setError(loginError instanceof Error ? loginError.message : 'Could not start Puter login.')
+    } finally {
+      setIsLoggingInPuter(false)
     }
   }
 
-  const handleDisableAll = (): void => {
-    if (searchQuery.trim()) {
-      const filteredIdSet = new Set(filteredModels.map((m) => m.id))
-      setModels((prev) => (prev || []).map((m) => (filteredIdSet.has(m.id) ? { ...m, enabled: false } : m)))
-    } else {
-      setModels((prev) => (prev || []).map((m) => ({ ...m, enabled: false })))
-    }
+  const close = (): void => {
+    if (isLoggingInPuter) void window.api.cancelPuterLogin()
+    onClose()
   }
 
-  const handleSave = (): void => {
+  const save = async (): Promise<void> => {
+    const normalizedBaseUrl = normalizeUrl(baseUrl)
+    if (!isValidHttpUrl(normalizedBaseUrl)) {
+      setError('Enter a valid HTTP(S) base URL.')
+      setSection('connection')
+      return
+    }
+    if (!hasCredential) {
+      setError('A credential is required, except after completing Puter account login.')
+      setSection('connection')
+      return
+    }
+    if (isCustom && !name.trim()) {
+      setError('A provider name is required for a custom endpoint.')
+      setSection('identity')
+      return
+    }
+
     const provider: ProviderConfig = {
       id: initialProvider?.id || `provider_${Date.now()}`,
-      name: isTrusted ? trustedMeta!.name : name.trim() || 'Custom Provider',
-      baseUrl: normalizeUrl(baseUrl),
+      name: isTrusted ? selectedPreset!.name : name.trim(),
+      baseUrl: normalizedBaseUrl,
       apiKey: isPuter && authMode === 'account' ? '' : apiKey.trim(),
       ...(isPuter && authMode === 'account' ? { puterAuthToken: puterAuthToken.trim() } : {}),
       completionType,
       isTrusted,
       models
     }
-    onSave(provider)
+    setIsSaving(true)
+    setError('')
+    try {
+      const saved = await onSave(provider)
+      if (!saved) setError('Could not save this provider. Please try again.')
+    } catch {
+      setError('Could not save this provider. Please try again.')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  const filteredModels = (models || []).filter(
-    (m) =>
-      m &&
-      m.id &&
-      (m.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (m.name && m.name.toLowerCase().includes(searchQuery.toLowerCase())))
-  )
+  const sections: Array<{ id: EditorSection; label: string; complete: boolean }> = [
+    { id: 'connection', label: 'Connection', complete: isValidHttpUrl(baseUrl) && hasCredential },
+    { id: 'models', label: 'Models', complete: models.length > 0 },
+    ...(isCustom ? [{ id: 'identity' as EditorSection, label: 'Identity & protocol', complete: Boolean(name.trim()) }] : [])
+  ]
 
-  const enabledCount = (models || []).filter((m) => m.enabled).length
-  const filteredEnabledCount = filteredModels.filter((m) => m.enabled).length
-
-  const stepList = isTrusted
-    ? [
-        { id: 1, label: 'Base URL' },
-        { id: 2, label: 'API Key' },
-        { id: 4, label: 'Type' },
-        { id: 5, label: 'Models' }
-      ]
-    : [
-        { id: 1, label: 'Base URL' },
-        { id: 2, label: 'API Key' },
-        { id: 3, label: 'Name' },
-        { id: 4, label: 'Type' },
-        { id: 5, label: 'Models' }
-      ]
+  if (!initialProvider && !selectedPreset && !isCustom) {
+    return createPortal(
+      <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex overflow-y-auto p-4 sm:p-6 animate-soft-pop">
+        <div className="prism-modal-panel m-auto w-full max-w-3xl overflow-hidden">
+          <div className="flex items-center justify-between border-b border-white/[0.08] px-6 py-4">
+            <div><h3 className="text-base font-bold text-text-primary">Choose a Provider</h3><p className="mt-1 text-xs text-text-secondary">Select a verified preset or configure your own endpoint.</p></div>
+            <button onClick={close} className="p-1.5 text-text-muted hover:text-text-primary" title="Close modal"><X size={18} weight="bold" /></button>
+          </div>
+          <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-2">
+            {presets.map((preset) => <button key={preset.id} onClick={() => selectPreset(preset)} className="rounded-2xl border border-white/[0.1] bg-white/[0.03] p-4 text-left transition-colors hover:border-status-success/50 hover:bg-status-success/10"><div className="flex items-center gap-2 text-sm font-bold text-text-primary"><CheckCircle size={17} weight="fill" className="text-status-success" />{preset.name}</div><div className="mt-2 truncate font-mono text-[10px] text-text-muted">{preset.baseUrl}</div><div className="mt-2 text-[11px] text-text-secondary">{preset.completionType.replace(/_/g, ' ')}</div></button>)}
+            <button onClick={selectCustom} className="rounded-2xl border border-dashed border-white/20 bg-white/[0.02] p-4 text-left transition-colors hover:border-accent-primary hover:bg-accent-primary/10"><div className="flex items-center gap-2 text-sm font-bold text-text-primary"><Plus size={17} />Custom endpoint</div><p className="mt-2 text-[11px] text-text-secondary">Configure any HTTP(S) provider, including local endpoints.</p></button>
+          </div>
+        </div>
+      </div>, document.body)
+  }
 
   return createPortal(
     <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex flex-col overflow-y-auto p-4 sm:p-6 animate-soft-pop">
-      <div className="prism-modal-panel m-auto flex max-h-[calc(100vh-32px)] w-full max-w-xl flex-col overflow-hidden">
-        {/* Header — ALWAYS FIXED AND VISIBLE WITH SHRINK-0 */}
-        <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-white/[0.08] bg-white/[0.02]">
-          <div className="flex flex-wrap items-center gap-2.5 min-w-0">
-            <h3 className="text-base font-bold text-text-primary truncate">
-              {initialProvider ? 'Edit API Provider' : 'Add API Provider'}
-            </h3>
-            {isTrusted ? (
-              <span
-                title="This provider is trusted by Prism."
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-status-success/15 text-status-success border border-status-success/30 cursor-help shrink-0"
-              >
-                <CheckCircle size={12} weight="fill" />
-                Trusted Provider
-              </span>
-            ) : baseUrl ? (
-              <span
-                title="This provider is not trusted by Prism."
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-status-warning/15 text-status-warning border border-status-warning/30 cursor-help shrink-0"
-              >
-                <Warning size={12} weight="fill" />
-                Untrusted Provider
-              </span>
-            ) : null}
-          </div>
-          <button
-            onClick={handleClose}
-            className="p-1.5 text-text-muted hover:text-text-primary rounded-xl hover:bg-white/[0.08] transition-colors shrink-0"
-            title="Close modal"
-          >
-            <X size={18} weight="bold" />
-          </button>
+      <div className="prism-modal-panel m-auto flex max-h-[calc(100vh-32px)] w-full max-w-2xl flex-col overflow-hidden">
+        <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] px-6 py-4"><div><h3 className="text-base font-bold text-text-primary">{initialProvider ? 'Edit API Provider' : 'Configure API Provider'}</h3><p className="mt-0.5 text-xs text-text-secondary">{isTrusted ? selectedPreset?.name : 'Custom endpoint'}</p></div><button onClick={close} className="p-1.5 text-text-muted hover:text-text-primary" title="Close modal"><X size={18} weight="bold" /></button></div>
+        <div className="flex shrink-0 gap-2 overflow-x-auto border-b border-white/[0.06] bg-black/20 px-4 py-3">
+          {sections.map((item) => <button key={item.id} onClick={() => setSection(item.id)} className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold ${section === item.id ? 'bg-text-primary text-black' : 'bg-white/[0.05] text-text-secondary hover:text-text-primary'}`}>{item.complete ? <CheckCircle size={14} weight="fill" className={section === item.id ? 'text-black' : 'text-status-success'} /> : <Warning size={14} className="text-status-warning" />}{item.label}</button>)}
         </div>
-
-        {/* Steps Indicator — ALWAYS FIXED AND VISIBLE WITH SHRINK-0 */}
-        <div className="shrink-0 flex items-center px-4 sm:px-6 py-3 bg-black/25 border-b border-white/[0.05] overflow-x-auto gap-1.5 scrollbar-none">
-          {stepList.map((s, idx) => {
-            const isActive = step === s.id
-            const isDone = step > s.id
-
-            return (
-              <React.Fragment key={s.id}>
-                {idx > 0 && <span className="text-text-muted/40 text-xs px-0.5">&rarr;</span>}
-                <span
-                  className={`px-2.5 py-1 rounded-lg text-xs transition-all whitespace-nowrap ${
-                    isActive
-                      ? 'bg-text-primary text-black font-bold shadow-sm'
-                      : isDone
-                        ? 'bg-white/[0.08] text-text-primary font-medium'
-                        : 'text-text-muted font-medium'
-                  }`}
-                >
-                  {s.label}
-                </span>
-              </React.Fragment>
-            )
-          })}
+        <div className="flex-1 space-y-4 overflow-y-auto p-5 sm:p-6">
+          {error && <div className="rounded-xl border border-status-error/20 bg-status-error/10 p-3 text-xs text-status-error">{error}</div>}
+          {section === 'connection' && <div className="space-y-4">
+            <div>{isTrusted ? <div className="rounded-xl border border-status-success/30 bg-status-success/10 p-3 text-xs text-status-success">Verified endpoint: <strong>{baseUrl}</strong></div> : <><label className="text-xs font-semibold text-text-primary">Base URL</label><input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.example.com/v1" className="mt-2 w-full rounded-xl border border-white/[0.1] bg-white/[0.04] px-4 py-3 font-mono text-xs text-text-primary outline-none focus:border-white/30" /></>}</div>
+            {isPuter ? <div className="space-y-3"><div className="flex rounded-xl border border-white/[0.08] bg-white/[0.03] p-1"><button onClick={() => { setAuthMode('account'); setCompletionType('puter_native') }} className={`flex-1 rounded-lg py-2 text-xs font-semibold ${authMode === 'account' ? 'bg-text-primary text-black' : 'text-text-secondary'}`}><User size={14} className="mr-1 inline" />Puter Account</button><button onClick={() => { setAuthMode('key'); setCompletionType('chat_completions') }} className={`flex-1 rounded-lg py-2 text-xs font-semibold ${authMode === 'key' ? 'bg-text-primary text-black' : 'text-text-secondary'}`}><Key size={14} className="mr-1 inline" />Manual API Key</button></div>{authMode === 'account' ? <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4"><p className="mb-3 text-xs text-text-secondary">Connect your Puter account in the browser. The native session is stored securely.</p><button onClick={() => void loginWithPuter()} disabled={isLoggingInPuter} className="rounded-xl bg-text-primary px-4 py-2 text-xs font-bold text-black disabled:opacity-60">{isLoggingInPuter ? <SpinnerGap size={14} className="mr-1 inline animate-spin" /> : <SignIn size={14} className="mr-1 inline" />}{puterAuthToken ? 'Reconnect Puter Account' : 'Sign In with Puter'}</button>{puterAuthToken && <span className="ml-3 text-xs text-status-success">Account connected</span>}</div> : <CredentialInput value={apiKey} onChange={setApiKey} />}</div> : <CredentialInput value={apiKey} onChange={setApiKey} />}
+            <button onClick={() => void fetchModels()} disabled={isFetchingModels || !hasCredential} className="rounded-xl border border-text-primary/20 bg-text-primary/10 px-4 py-2 text-xs font-bold text-text-primary disabled:opacity-50">{isFetchingModels ? 'Discovering models...' : 'Discover models'}</button>
+          </div>}
+          {section === 'identity' && <div className="space-y-4"><div><label className="text-xs font-semibold text-text-primary">Provider Name</label><input value={name} onChange={(event) => setName(event.target.value)} placeholder="My Provider" className="mt-2 w-full rounded-xl border border-white/[0.1] bg-white/[0.04] px-4 py-3 text-sm text-text-primary outline-none focus:border-white/30" /></div><ProtocolSelector completionType={completionType} onChange={setCompletionType} /></div>}
+          {section === 'models' && <div className="space-y-4"><div className="flex items-center justify-between"><div><h4 className="text-sm font-bold text-text-primary">Models</h4><p className="text-[11px] text-text-muted">{models.length ? `${enabledCount} of ${models.length} enabled` : 'Discovery is optional. You can save and add models later.'}</p></div><button onClick={() => void fetchModels()} disabled={isFetchingModels || !hasCredential} className="rounded-xl border border-white/[0.1] bg-white/[0.05] px-3 py-2 text-xs font-semibold text-text-primary disabled:opacity-50">{isFetchingModels ? 'Discovering...' : 'Discover models'}</button></div>{models.length > 0 && <><div className="relative"><MagnifyingGlass size={15} className="absolute left-3 top-2.5 text-text-muted" /><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Filter models" className="w-full rounded-xl border border-white/[0.1] bg-white/[0.04] py-2 pl-9 pr-3 text-xs text-text-primary outline-none" /></div><div className="flex gap-2"><button onClick={() => setModels((items) => items.map((item) => ({ ...item, enabled: true })))} className="text-xs text-text-secondary hover:text-text-primary">Enable all</button><button onClick={() => setModels((items) => items.map((item) => ({ ...item, enabled: false })))} className="text-xs text-text-secondary hover:text-text-primary">Disable all</button></div></>}<div className="space-y-2">{filteredModels.map((model) => <button key={model.id} onClick={() => setModels((items) => items.map((item) => item.id === model.id ? { ...item, enabled: !item.enabled } : item))} className={`flex w-full items-center justify-between rounded-xl border p-3 text-left ${model.enabled ? 'border-white/20 bg-white/[0.08]' : 'border-white/[0.06] bg-white/[0.03]'}`}><span className="truncate font-mono text-xs text-text-primary">{model.id}</span>{model.enabled && <Check size={16} weight="bold" className="text-status-success" />}</button>)}{models.length === 0 && <div className="rounded-xl border border-dashed border-white/[0.1] p-8 text-center text-xs text-text-muted">No models discovered yet.</div>}</div></div>}
         </div>
-
-        {/* Content Body */}
-        <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-5">
-          {step === 1 && (
-            <div className="space-y-3.5">
-              <label className="block text-xs font-semibold text-text-primary">
-                Provider Base URL
-              </label>
-              <input
-                type="text"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="https://api.openai.com/v1"
-                className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-text-primary placeholder-text-muted focus:outline-none focus:border-white/30 focus:ring-1 focus:ring-white/20 transition-all text-xs sm:text-sm font-mono"
-                autoFocus
-              />
-              {isTrusted && (
-                <div className="p-3 rounded-xl bg-status-success/15 border border-status-success/30 text-status-success text-xs flex items-center gap-2">
-                  <CheckCircle size={16} weight="fill" className="shrink-0" />
-                  <span>
-                    Recognized trusted endpoint for{' '}
-                    <strong className="font-bold text-text-primary">{trustedMeta?.name}</strong>.
-                    Provider name is locked.
-                  </span>
-                </div>
-              )}
-
-              {!initialProvider && !baseUrl.includes('puter') && (
-                <div className="pt-1 flex items-center">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBaseUrl('https://api.puter.com/puterai/openai/v1')
-                      setName('Puter.js')
-                      setCompletionType('puter_native')
-                      setAuthMode('account')
-                      setStep(2)
-                    }}
-                    className="text-[11px] text-text-muted hover:text-purple-300 transition-all inline-flex items-center gap-1.5 py-1.5 px-3 rounded-xl bg-white/[0.02] hover:bg-purple-500/10 border border-white/[0.06] hover:border-purple-500/25"
-                  >
-                    <span>Want to use Puter.js?</span>
-                    <span className="text-[10px] text-purple-400 font-semibold">&rarr; Connect Account</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="space-y-4">
-              {isPuter ? (
-                <>
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-semibold text-text-primary">
-                      Authentication Method for Puter.js
-                    </label>
-                  </div>
-
-                  {/* Tab switch between Account and Manual Key */}
-                  <div className="flex p-1 bg-white/[0.04] border border-white/[0.08] rounded-xl gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAuthMode('account')
-                        setCompletionType('puter_native')
-                      }}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-medium transition-all ${
-                        authMode === 'account'
-                          ? 'bg-text-primary text-black font-semibold shadow-sm'
-                          : 'text-text-secondary hover:text-text-primary'
-                      }`}
-                    >
-                      <User size={14} weight={authMode === 'account' ? 'fill' : 'regular'} />
-                      <span>Puter Account (Native)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAuthMode('key')
-                        setCompletionType('chat_completions')
-                      }}
-                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-medium transition-all ${
-                        authMode === 'key'
-                          ? 'bg-text-primary text-black font-semibold shadow-sm'
-                          : 'text-text-secondary hover:text-text-primary'
-                      }`}
-                    >
-                      <Key size={14} weight={authMode === 'key' ? 'fill' : 'regular'} />
-                      <span>Manual API Key</span>
-                    </button>
-                  </div>
-
-                  {authMode === 'account' ? (
-                    <div className="space-y-3.5 pt-1">
-                      <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-3">
-                        <div className="flex items-start gap-3">
-                          <div className="p-2 rounded-xl bg-text-primary/10 text-text-primary border border-text-primary/20 shrink-0">
-                            <Sparkle size={18} weight="fill" />
-                          </div>
-                          <div className="space-y-1 min-w-0">
-                            <h4 className="text-xs font-bold text-text-primary">
-                              Puter.js Native Account Login
-                            </h4>
-                            <p className="text-[11px] text-text-secondary/80 leading-relaxed">
-                              Connect your Puter account directly in your default browser. Prism will securely receive the authentication session and discover available models automatically.
-                            </p>
-                          </div>
-                        </div>
-
-                        {isLoggingInPuter ? (
-                          <div className="p-3.5 rounded-xl bg-text-primary/5 border border-text-primary/20 space-y-2.5">
-                            <div className="flex items-center gap-2 text-xs font-medium text-text-primary">
-                              <SpinnerGap size={16} className="animate-spin text-text-primary shrink-0" />
-                              <span>Browser opened. Waiting for login confirmation in your default browser...</span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={handleCancelPuterLogin}
-                              className="px-3 py-1.5 bg-white/[0.08] hover:bg-white/[0.15] text-text-secondary text-xs rounded-lg font-medium transition-all"
-                            >
-                              Cancel Login
-                            </button>
-                          </div>
-                        ) : puterAuthToken ? (
-                          <div className="p-3 rounded-xl bg-status-success/15 border border-status-success/30 text-status-success text-xs flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <CheckCircle size={16} weight="fill" className="shrink-0" />
-                              <span className="truncate">
-                                Account connected successfully! {puterUsername ? `(@${puterUsername})` : ''}
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={handlePuterBrowserLogin}
-                              className="px-2.5 py-1 bg-status-success/20 hover:bg-status-success/30 text-status-success rounded-lg text-[11px] font-semibold transition-all shrink-0"
-                            >
-                              Reconnect
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={handlePuterBrowserLogin}
-                            className="w-full py-3 px-4 bg-text-primary hover:bg-white text-black font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-[0.98]"
-                          >
-                            <SignIn size={16} weight="bold" />
-                            <span>Sign In with Puter Account (Browser)</span>
-                            <ArrowSquareOut size={14} weight="bold" className="opacity-70" />
-                          </button>
-                        )}
-
-                        {puterLoginError && (
-                          <div className="p-3 bg-status-error/10 border border-status-error/20 text-status-error text-xs rounded-xl">
-                            {puterLoginError}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3.5 pt-1">
-                      <label className="block text-xs font-semibold text-text-primary">
-                        Puter API Key / Token
-                      </label>
-                      <input
-                        type="password"
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        placeholder="Enter Puter token or API key..."
-                        className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-text-primary placeholder-text-muted focus:outline-none focus:border-white/30 focus:ring-1 focus:ring-white/20 transition-all text-xs sm:text-sm font-mono"
-                        autoFocus
-                      />
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <label className="block text-xs font-semibold text-text-primary">
-                    API Key for {isTrusted ? trustedMeta?.name : baseUrl}
-                  </label>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="sk-..."
-                    className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-text-primary placeholder-text-muted focus:outline-none focus:border-white/30 focus:ring-1 focus:ring-white/20 transition-all text-xs sm:text-sm font-mono"
-                    autoFocus
-                  />
-                </>
-              )}
-            </div>
-          )}
-
-          {step === 3 && (
-            <div className="space-y-3.5">
-              <label className="block text-xs font-semibold text-text-primary">Provider Name</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Custom Provider Name"
-                className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.1] rounded-xl text-text-primary placeholder-text-muted focus:outline-none focus:border-white/30 focus:ring-1 focus:ring-white/20 transition-all text-xs sm:text-sm"
-                autoFocus
-              />
-            </div>
-          )}
-
-          {step === 4 && (
-            <div className="space-y-3.5">
-              <label className="block text-xs font-semibold text-text-primary">
-                Completion Type
-              </label>
-              <div className="grid grid-cols-1 gap-2.5">
-                {[
-                  {
-                    type: 'chat_completions',
-                    label: 'Chat Completions (/chat/completions)',
-                    desc: 'Standard OpenAI format, supported by 95%+ of providers.'
-                  },
-                  {
-                    type: 'responses',
-                    label: 'Responses API (/responses)',
-                    desc: 'OpenAI Responses API format.'
-                  },
-                  {
-                    type: 'anthropic_messages',
-                    label: 'Anthropic Messages (/v1/messages)',
-                    desc: 'Anthropic Claude API format.'
-                  },
-                  {
-                    type: 'gemini_native',
-                    label: 'Gemini Native (GenerateContent)',
-                    desc: 'Native Google Gemini API format.'
-                  },
-                  {
-                    type: 'puter_native',
-                    label: 'Puter.js Native (User-Pays Driver)',
-                    desc: 'Official Puter driver protocol (/drivers/call) using connected user account credits.'
-                  }
-                ].map((item) => (
-                  <div
-                    key={item.type}
-                    onClick={() => setCompletionType(item.type as CompletionType)}
-                    className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
-                      completionType === item.type
-                        ? 'bg-white/[0.08] border-white/30 text-text-primary font-semibold'
-                        : 'bg-white/[0.03] border-white/[0.08] text-text-secondary hover:bg-white/[0.06]'
-                    }`}
-                  >
-                    <div className="text-xs font-bold text-text-primary">{item.label}</div>
-                    <div className="text-[11px] text-text-secondary/70 mt-0.5">{item.desc}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {step === 5 && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <h4 className="text-xs font-bold text-text-primary">Active Models</h4>
-                  <p className="text-[11px] text-text-muted">
-                    Discovered {models.length} models from endpoint.
-                  </p>
-                </div>
-                <button
-                  onClick={handleFetchModels}
-                  disabled={isFetchingModels}
-                  className="px-3.5 py-2 bg-text-primary/10 text-text-primary hover:bg-text-primary/20 border border-text-primary/20 rounded-xl text-xs font-semibold transition-all shrink-0 active:scale-[0.98]"
-                >
-                  {isFetchingModels ? 'Fetching...' : 'Fetch /models'}
-                </button>
-              </div>
-
-              {fetchError && (
-                <div className="p-3 bg-status-error/10 border border-status-error/20 text-status-error text-xs rounded-xl">
-                  {fetchError}
-                </div>
-              )}
-
-              {models.length > 0 && (
-                <div className="space-y-2.5">
-                  <div className="relative">
-                    <MagnifyingGlass
-                      size={16}
-                      className="absolute left-3.5 top-3 text-text-muted"
-                    />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search model name or ID..."
-                      className="w-full pl-10 pr-4 py-2 bg-white/[0.04] border border-white/[0.1] rounded-xl text-text-primary text-xs placeholder-text-muted focus:outline-none focus:border-white/30"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs px-1">
-                    <span className="text-[11px] text-text-muted">
-                      {searchQuery.trim()
-                        ? `${filteredModels.length} matching (${filteredEnabledCount} enabled)`
-                        : `${enabledCount} of ${models.length} enabled`}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={handleEnableAll}
-                        className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/[0.05] hover:bg-white/[0.1] text-text-secondary hover:text-text-primary border border-white/[0.06] transition-all active:scale-[0.98]"
-                      >
-                        Enable All
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleDisableAll}
-                        className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/[0.05] hover:bg-white/[0.1] text-text-secondary hover:text-text-primary border border-white/[0.06] transition-all active:scale-[0.98]"
-                      >
-                        Disable All
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="max-h-56 sm:max-h-64 overflow-y-auto space-y-2 pr-1">
-                {filteredModels.length === 0 ? (
-                  <div className="text-center py-8 text-text-muted text-xs border border-dashed border-white/[0.1] rounded-2xl">
-                    {models.length === 0
-                      ? 'Click "Fetch /models" to discover endpoint models.'
-                      : 'No models match your search.'}
-                  </div>
-                ) : (
-                  filteredModels.map((m) => (
-                    <div
-                      key={m.id}
-                      onClick={() => handleToggleModel(m.id)}
-                      className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
-                        m.enabled
-                          ? 'bg-white/[0.08] border-white/20 text-text-primary'
-                          : 'bg-white/[0.03] border-white/[0.05] text-text-muted hover:bg-white/[0.06]'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div
-                          className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${m.enabled ? 'bg-text-primary border-text-primary text-black' : 'border-white/20'}`}
-                        >
-                          {m.enabled && <Check size={12} weight="bold" />}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-xs font-mono font-semibold text-text-primary truncate">
-                            {m.id}
-                          </div>
-                          {m.isTrusted && (
-                            <span className="text-[10px] text-status-success font-medium">
-                              Trusted by Prism (Enabled by Default)
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer actions — ALWAYS FIXED AND VISIBLE WITH SHRINK-0 */}
-        <div className="shrink-0 flex items-center justify-between px-6 py-4 border-t border-white/[0.08] bg-white/[0.02]">
-          {step > 1 ? (
-            <button
-              onClick={() => setStep((prev) => (isTrusted && prev === 4 ? 2 : prev - 1))}
-              className="px-4 py-2 bg-white/[0.05] hover:bg-white/[0.1] text-text-secondary rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 active:scale-[0.98]"
-            >
-              <ArrowLeft size={14} weight="bold" /> Back
-            </button>
-          ) : (
-            <div />
-          )}
-
-          {step < 5 ? (
-            <button
-              onClick={() => {
-                if (step === 1) handleNextFromUrl()
-                else if (step === 2) handleNextFromKey()
-                else setStep((prev) => prev + 1)
-              }}
-              className="px-5 py-2 bg-text-primary hover:bg-white text-black font-semibold rounded-xl text-xs transition-all flex items-center gap-1.5 shadow-md active:scale-[0.98]"
-            >
-              Next <ArrowRight size={14} weight="bold" />
-            </button>
-          ) : (
-            <button
-              onClick={handleSave}
-              className="px-6 py-2.5 bg-status-success hover:opacity-90 text-black font-bold rounded-xl text-xs transition-all flex items-center gap-1.5 shadow-md active:scale-[0.98]"
-            >
-              <Check size={16} weight="bold" /> Save Provider
-            </button>
-          )}
-        </div>
+        <div className="flex shrink-0 items-center justify-between border-t border-white/[0.08] bg-white/[0.02] px-6 py-4"><span className="text-[11px] text-text-muted">{models.length === 0 ? 'No models are active. You can discover them later.' : `${enabledCount} models active`}</span><button onClick={() => void save()} disabled={isSaving} className="rounded-xl bg-status-success px-5 py-2.5 text-xs font-bold text-black disabled:opacity-60">{isSaving ? 'Saving...' : 'Save Provider'}</button></div>
       </div>
-    </div>,
-    document.body
-  )
+    </div>, document.body)
 }
+
+const CredentialInput: React.FC<{ value: string; onChange: (value: string) => void }> = ({ value, onChange }) => <div><label className="text-xs font-semibold text-text-primary">API Key</label><input type="password" value={value} onChange={(event) => onChange(event.target.value)} placeholder="Enter API key" className="mt-2 w-full rounded-xl border border-white/[0.1] bg-white/[0.04] px-4 py-3 font-mono text-xs text-text-primary outline-none focus:border-white/30" /></div>
+
+const ProtocolSelector: React.FC<{ completionType: CompletionType; onChange: (type: CompletionType) => void }> = ({ completionType, onChange }) => <div><label className="text-xs font-semibold text-text-primary">Completion Protocol</label><select value={completionType} onChange={(event) => onChange(event.target.value as CompletionType)} className="mt-2 w-full rounded-xl border border-white/[0.1] bg-[var(--surface)] px-3 py-3 text-xs text-text-primary outline-none"><option value="chat_completions">Chat Completions</option><option value="responses">Responses API</option><option value="anthropic_messages">Anthropic Messages</option><option value="gemini_native">Gemini Native</option><option value="puter_native">Puter.js Native</option></select></div>
