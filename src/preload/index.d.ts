@@ -1,3 +1,4 @@
+import type { HarnessGitRecovery, HarnessGitPlanBinding } from '../shared/types'
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type { StructuredChatResponse, StreamingToolCall } from '../main/gemini'
 import type { AppConfig } from '../main/config'
@@ -201,6 +202,9 @@ export interface PrismAPI {
   >
   recreateHarnessProjectFolder: (rootPath: string) => Promise<{ project: HarnessProjectConfig }>
   resolveHarnessStartupProject: () => Promise<HarnessProjectConfig | null>
+  bindHarnessGitPlan: (binding: HarnessGitPlanBinding) => Promise<boolean>
+  getHarnessGitRecoveries: (projectPath: string, chatId: string) => Promise<HarnessGitRecovery[]>
+  onHarnessGitRecoveryChanged: (callback: (record: HarnessGitRecovery) => void) => () => void
   getHarnessGitStatus: (projectPath: string) => Promise<HarnessGitSnapshot>
   getHarnessGitStatusDelta: (projectPath: string) => Promise<HarnessGitStatusDelta>
   runHarnessGitAction: (

@@ -119,7 +119,10 @@ import {
   resolveHarnessStartupProject,
   updateHarnessProject
 } from './harnessProject'
-import { generateHarnessGitCommitMessage, getHarnessGitSnapshot, getHarnessGitStatusDelta, runHarnessGitAction } from './harnessGit'
+import { generateHarnessGitCommitMessage } from './harnessGit'
+import { getTrackedGitSnapshot, runTrackedGitAction, getChatGitRecoveries, bindGitPlan, onGitRecoveryChanged } from './harnessGitRecovery'
+import type { HarnessGitPlanBinding } from '../shared/types'
+import { saveChatSession } from './history'
 import type { HarnessGitAction } from '../shared/types'
 import { resolveHarnessApproval } from './harnessApproval'
 import { getHarnessInstructionStatus } from './harnessPrompt'
@@ -1106,7 +1109,7 @@ if (!gotTheLock) {
       return updateChatSessionModel(chatId, modelKey, 'harness')
     })
     ipcMain.handle('set-harness-session-phase', (_event, chatId: string, phase: 'plan' | 'build') => {
-      if (phase !== 'plan' && phase !== 'build') return false
+      if ((phase !== 'plan' && phase !== 'build') || activeRuns.has(chatId)) return false
       return updateHarnessSessionPhase(chatId, phase)
     })
     ipcMain.on('set-think-mode', (_event, val) => {
@@ -1618,25 +1621,48 @@ if (!gotTheLock) {
       return resolveHarnessStartupProject()
     })
 
+    onGitRecoveryChanged((record) => broadcastIpc('harness-git-recovery-changed', record))
+    ipcMain.handle('harness-git-recoveries', async (_event, projectPath: string, chatId: string) => {
+      if (!getEffectiveHarnessSettings(projectPath)) throw new Error('The Harness project is not registered.')
+      return getChatGitRecoveries(projectPath, chatId)
+    })
+    ipcMain.handle('harness-git-bind-plan', async (_event, binding: HarnessGitPlanBinding) => {
+      if (!getEffectiveHarnessSettings(binding.projectPath)) throw new Error('The Harness project is not registered.')
+      if (!['plan', 'build'].includes(binding.phase) || !binding.chatId) throw new Error('Invalid Harness session binding.')
+      if (activeRuns.has(binding.chatId) || (binding.sourceChatId && activeRuns.has(binding.sourceChatId))) throw new Error('Wait for the active Harness execution to finish.')
+      const source = loadChatSession(binding.sourceChatId || binding.chatId, 'harness')
+      if (binding.phase === 'build') {
+        const plans = (source?.messages || []).flatMap((message) => (message.tool_calls || []).filter((call) => call.function.name === 'plan').map((call) => {
+          try { return (JSON.parse(call.function.arguments) as { markdown?: string }).markdown?.trim() } catch { return undefined }
+        }))
+        if (!source || source.disciplinePath !== binding.projectPath || !binding.plan?.trim() || !plans.includes(binding.plan.trim())) throw new Error('Approve a native plan from the source session before starting Build.')
+      }
+      const existing = loadChatSession(binding.chatId, 'harness')
+      if (existing && existing.disciplinePath !== binding.projectPath) throw new Error('The session belongs to a different project.')
+      if (!existing && !saveChatSession(binding.chatId, [], binding.phase === 'plan' ? 'Git conflict plan' : 'Implementation Handoff', 'harness', binding.projectPath, undefined, false, [], binding.phase)) throw new Error('Could not create the Harness session.')
+      await bindGitPlan(binding)
+      if (!updateHarnessSessionPhase(binding.chatId, binding.phase)) throw new Error('Could not save the Harness phase.')
+      return true
+    })
     ipcMain.handle('harness-git-status', async (_event, projectPath: string) => {
       if (!getEffectiveHarnessSettings(projectPath)) {
         throw new Error('The Harness project is not registered.')
       }
-      return getHarnessGitSnapshot(projectPath)
+      return getTrackedGitSnapshot(projectPath)
     })
 
     ipcMain.handle('harness-git-status-delta', async (_event, projectPath: string) => {
       if (!getEffectiveHarnessSettings(projectPath)) {
         throw new Error('The Harness project is not registered.')
       }
-      return getHarnessGitStatusDelta(projectPath)
+      return getTrackedGitSnapshot(projectPath)
     })
 
     ipcMain.handle('harness-git-action', async (_event, projectPath: string, action: HarnessGitAction) => {
       if (!getEffectiveHarnessSettings(projectPath)) {
         throw new Error('The Harness project is not registered.')
       }
-      return runHarnessGitAction(projectPath, action)
+      return runTrackedGitAction(projectPath, action)
     })
 
     ipcMain.handle(

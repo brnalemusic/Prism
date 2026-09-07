@@ -1,4 +1,6 @@
 import { IpcMainEvent } from 'electron'
+import { beginGitBuild, finishGitBuild } from '../harnessGitRecovery'
+import { getTerminalProcessesForChat } from '../terminalProcessManager'
 import * as os from 'os'
 import * as path from 'path'
 import {
@@ -695,7 +697,12 @@ export async function handleChatMessage(
     status: 'running'
   })
 
+  let recoveryRunId: string | undefined
+  let recoverySucceeded = false
+  let recoveryToolFailed = false
+  const recoveryTerminalBaseline = new Set(getTerminalProcessesForChat(chatId).map((p) => p.runId))
   try {
+    if (workspace === 'harness' && requestHarnessPhase === 'build') recoveryRunId = await beginGitBuild(chatId)
     // Workflow matching: check if the user's message starts with a slash command
     const cleanModelId = model.id.startsWith('prism_provider:')
       ? model.id.replace('prism_provider:', '')
@@ -915,7 +922,17 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
           )
         : undefined,
       executeTool: harnessSettings
-        ? createHarnessToolExecutor(requestDisciplinePath, harnessSettings, requestHarnessPhase)
+        ? async (...args) => {
+            const result = await createHarnessToolExecutor(requestDisciplinePath, harnessSettings, requestHarnessPhase)(...args)
+            if (!result.envelope.ok) recoveryToolFailed = true
+            if (result.envelope.ok) {
+              try {
+                const output = JSON.parse(result.envelope.output) as { exitCode?: number }
+                if (typeof output.exitCode === 'number' && output.exitCode !== 0) recoveryToolFailed = true
+              } catch { /* Textual tools do not carry a process exit status. */ }
+            }
+            return result
+          }
         : undefined,
       onStreamEvent: (streamEvent, state) => {
         const timing = thinkingTimes.get(state.round) || {}
@@ -1036,6 +1053,7 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
       orchestration.lastRoundText,
       harnessSettings?.showThinking === false ? '' : orchestration.lastRoundReasoning
     )
+    recoverySucceeded = !orchestration.loopLimitReached && !abortController.signal.aborted && !recoveryToolFailed
     const totalWorkedDuration = Math.max(1, Math.round((Date.now() - turnStartTime) / 1000))
     broadcastIpc('chat-reply-end', {
       thoughts: finalOutput.thoughts,
@@ -1071,6 +1089,10 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
       broadcastIpc('chat-reply-error', { error: caughtError.message, chatId, workspace })
     }
   } finally {
+    const pendingOrFailed = getTerminalProcessesForChat(chatId).some((p) => p.status === 'running' || p.awaitingInput || (!recoveryTerminalBaseline.has(p.runId) && (p.status !== 'completed' || p.exitCode !== 0)))
+    await finishGitBuild(chatId, recoveryRunId, recoverySucceeded && !pendingOrFailed, historyMessages.filter((m) => m.role === 'user' && !m.hidden && !m.isSystemNotification).length).catch((error) => {
+      console.error('[Git recovery] Could not verify Build completion:', error)
+    })
     activeRuns.delete(chatId)
     deletedActiveChats.delete(chatId)
     setImmediate(() => void wakeUpChatFromPendingTerminalNotifications(chatId))

@@ -127,6 +127,7 @@ export function listChatSessions(workspace: WorkspaceKind = 'chat'): Omit<ChatSe
           title: session.title,
           lastUpdated: session.lastUpdated,
           sessionMode: session.sessionMode,
+          harnessPhase: session.harnessPhase,
           workspace: sessionWorkspace,
           disciplinePath: effectiveDisciplinePath,
           model: session.model,

@@ -82,12 +82,10 @@ Prism is an Electron + React + TypeScript application with Tailwind CSS v4. You 
 ---
 
 ## 5. Documentation Rules
-
 - Update relevant documentation whenever application behavior, styling, or architecture changes.
 - Key targets: `README.md` (public), `resources/docs/` (internal knowledge base), and `.agents/rules/` (agent rules).
 
 ### 5.1 Your documentation
-
 Search for docs in `.agents/rules/`. If you find any documentation within this folder that specifically addresses a topic requested by the user (such as the `DESIGN.md` file for changes to the Prism design), read that file. It contains rules regarding specific Prism behavior.
 
 Note that these files are for READ-ONLY purposes. Never modify them unless a user explicitly requests a change to the Prism rules; otherwise, simply read and absorb the rules regarding that specific subject from the Prism repository.
@@ -97,8 +95,24 @@ Note that these files are for READ-ONLY purposes. Never modify them unless a use
 
 ---
 
-## 6. Final Review Checklist
+## 6. Specific agentic code editors or harnesses
 
+### 6.1 Rules for Codex (ignore if you're not running on Codex or ChatGPT Work)
+- **NEVER** use Computer Use or Control App-related skills to test and validate your changes.
+- Advise the user that testing should be performed manually if there are extensive front-end changes.
+- You can still use scripts and browser debugging to conduct specific tests, but the final product is always validated by the user.
+- **ANALYSIS:** If you are not running in planning mode and—as indicated in this rules file—you are in the planning phase, stop immediately and ask the user to switch to planning mode.
+- Only proceed if you exit build mode and are explicitly in planning and reading mode.
+
+### 6.2 Rules for Google Antigravity (ignore if you're not running on Antigravity)
+- **NEVER** proceed unless the user explicitly sends the message "Proceed with Implementation Plan," where the phrase "Implementation Plan" refers exactly to the Implementation Plan you provided.
+  - "Yes", "Ok", "Proceed now", "Proceed" or any other requests to proceed should not be valid.
+    - This happens because Google Antigravity features a specific, unique approval button. A user's typed comment alone does not count as native approval of the plan.
+- Do not use official Google Skills. They are of extremely low quality and do not pass our team's quality control for use as a knowledge base for operations in Prism.
+
+---
+
+## 7. Final Review Checklist
 Before finishing any task, confirm:
 1. Requested changes are fully implemented.
 2. Prism UI/UX and comments remain in English.

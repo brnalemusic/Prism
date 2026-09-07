@@ -38,17 +38,33 @@ function referencesOutsideProject(command: string): boolean {
   )
 }
 
-/** Conservative command gate used while a Harness session is planning. */
+/** Reject shell evaluation and validate inspection arguments before terminal execution. */
 export function isReadOnlyHarnessPlanCommand(command: string): boolean {
   const trimmed = command.trim()
-  if (!trimmed || referencesOutsideProject(trimmed)) return false
-  if (/(?:^|\s)(?:>|>>|tee|set-content|add-content|out-file)(?:\s|$)/i.test(trimmed)) return false
-  if (/[;&|]/.test(trimmed)) return false
-
-  return [
-    /^(?:pwd|dir|ls|type|cat|more|where|which|tree)(?:\s|$)/i,
-    /^(?:rg|grep|findstr)(?:\s|$)/i,
-    /^(?:get-location|get-childitem|get-child-item|get-content|select-string)(?:\s|$)/i,
-    /^git\s+(?:status|diff|log|show|branch|rev-parse|ls-files)(?:\s|$)/i
-  ].some((pattern) => pattern.test(trimmed))
+  if (!trimmed || referencesOutsideProject(trimmed) || /[;&|<>`$%(){}\r\n]/.test(trimmed)) return false
+  const tokens = trimmed.match(/"[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+/g) || []
+  if (tokens.join(' ') !== trimmed.replace(/\s+/g, ' ')) return false
+  const args = tokens.map((token) => token.replace(/^(?:"|')|(?:"|')$/g, ''))
+  const executable = args.shift()?.toLowerCase()
+  if (executable === 'git') {
+    const sub = args.shift()
+    const flags: Record<string, RegExp> = {
+      status: /^(?:--short|--branch|--porcelain(?:=v[12])?|-z|--untracked-files(?:=(?:no|normal|all))?)$/,
+      branch: /^(?:--list|-a|-r|-v|-vv|--show-current)$/,
+      diff: /^(?:--stat|--name-only|--name-status|--cached|--staged|--check|--quiet|--no-ext-diff|--no-textconv|--binary|--numstat|-z|--)$/,
+      log: /^(?:--oneline|--graph|--all|--decorate|--stat|--no-show-signature|--no-ext-diff|--no-textconv|-\d+|--max-count=\d+|--)$/,
+      show: /^(?:--stat|--name-only|--no-ext-diff|--no-textconv|--no-show-signature|--)$/,
+      'rev-parse': /^(?:--show-toplevel|--git-dir|--git-common-dir|--is-inside-work-tree|--verify|--abbrev-ref)$/,
+      'ls-files': /^(?:--stage|--unmerged|--cached|--modified|--deleted|-z|--eol|--others|--exclude-standard|--)$/
+    }
+    if (!sub || !flags[sub]) return false
+    if (sub === 'branch') return args.every((a) => flags.branch.test(a))
+    return args.every((a) => a.startsWith('-') ? flags[sub].test(a) : /^[\w./:@{}~^*\[\]-]+$/.test(a))
+  }
+  if (executable === 'rg') return args.every((a) => !a.startsWith('-') || /^(?:-n|-i|-l|-F|-S|--files|--hidden|--glob|-g|--count|--max-count=\d+|--)$/.test(a))
+  if (['pwd', 'get-location'].includes(executable || '')) return args.length === 0
+  if (['ls', 'dir', 'get-childitem', 'get-child-item', 'cat', 'type', 'get-content'].includes(executable || '')) {
+    return args.every((a) => /^[\w .\/\\*-]+$/.test(a) && (!a.startsWith('-') || /^(?:-la|-l|-a|-Force|-Recurse|-Name|-Raw)$/.test(a)))
+  }
+  return false
 }

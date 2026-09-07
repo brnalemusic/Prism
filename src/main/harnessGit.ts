@@ -40,11 +40,12 @@ function commandError(result: CommandResult): Error {
   return new Error(result.stderr.trim() || result.stdout.trim() || 'Git command failed.')
 }
 
-async function run(command: string, args: string[], cwd: string): Promise<CommandResult> {
+export async function run(command: string, args: string[], cwd: string): Promise<CommandResult> {
   try {
     const { stdout, stderr } = await execFileAsync(command, args, {
       cwd,
       windowsHide: true,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true', GIT_SEQUENCE_EDITOR: 'true', GIT_OPTIONAL_LOCKS: '0' },
       maxBuffer: MAX_BUFFER
     })
     return { stdout, stderr, exitCode: 0 }
@@ -58,7 +59,7 @@ async function run(command: string, args: string[], cwd: string): Promise<Comman
   }
 }
 
-async function git(cwd: string, args: string[]): Promise<CommandResult> {
+export async function git(cwd: string, args: string[]): Promise<CommandResult> {
   return run('git', args, cwd)
 }
 
@@ -109,7 +110,7 @@ export function parseHarnessGitStatus(output: string): HarnessGitFile[] {
     const workTreeStatus = entry.slice(1, 2)
     const filePath = entry.slice(3)
     // Porcelain v1 places the previous path after a rename/copy entry.
-    if (indexStatus === 'R' || indexStatus === 'C') index += 1
+    if (indexStatus === 'R' || indexStatus === 'C' || workTreeStatus === 'R' || workTreeStatus === 'C') index += 1
     const isConflicted = ['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU'].includes(
       `${indexStatus}${workTreeStatus}`
     )
@@ -185,9 +186,12 @@ async function operationFor(repoRoot: string): Promise<HarnessGitOperation | und
     fs.stat(path.join(resolvedGitDir, 'rebase-apply')).then(() => true).catch(() => false),
     fs.stat(path.join(resolvedGitDir, 'CHERRY_PICK_HEAD')).then(() => true).catch(() => false)
   ])
-  if (mergeHead) return { kind: 'merge' }
-  if (rebaseMerge || rebaseApply) return { kind: 'rebase' }
-  if (cherryPickHead) return { kind: 'cherry-pick' }
+  const kind = rebaseMerge || rebaseApply ? 'rebase' : mergeHead ? 'merge' : cherryPickHead ? 'cherry-pick' : undefined
+  if (kind) {
+    const names = kind === 'merge' ? ['MERGE_HEAD', 'ORIG_HEAD'] : kind === 'cherry-pick' ? ['CHERRY_PICK_HEAD', 'sequencer/head'] : rebaseMerge ? ['rebase-merge/orig-head', 'rebase-merge/onto', 'rebase-merge/head-name', 'rebase-merge/stopped-sha', 'rebase-merge/msgnum'] : ['rebase-apply/orig-head', 'rebase-apply/onto', 'rebase-apply/next']
+    const values = await Promise.all(names.map((name) => fs.readFile(path.join(resolvedGitDir, name), 'utf8').catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return ''; throw error })))
+    return { kind, target: values[0]?.trim(), fingerprint: createGitMetadataFingerprint([kind, ...values]) }
+  }
   return undefined
 }
 
@@ -221,7 +225,7 @@ async function resolveRepository(projectPath: string): Promise<{ repoRoot?: stri
   }
   const result = await git(resolvedProjectPath, ['rev-parse', '--show-toplevel'])
   if (result.exitCode !== 0) return { error: 'This project is not a Git repository.' }
-  return { repoRoot: result.stdout.trim() }
+  return { repoRoot: await fs.realpath(result.stdout.trim()) }
 }
 
 async function getAheadBehind(repoRoot: string, upstream?: string): Promise<{ ahead: number; behind: number }> {
@@ -271,6 +275,7 @@ export async function getHarnessGitStatusDelta(projectPath: string): Promise<Har
   const upstream = upstreamResult.exitCode === 0 ? upstreamResult.stdout.trim() : undefined
   const { ahead, behind } = await getAheadBehind(repoRoot, upstream)
   const files = parseHarnessGitStatus(statusResult.stdout)
+  if (statusResult.exitCode !== 0) return baseStatusDelta(resolvedProjectPath, commandError(statusResult).message)
   return {
     ok: true,
     projectPath: resolvedProjectPath,
@@ -324,6 +329,7 @@ export async function getHarnessGitSnapshot(projectPath: string): Promise<Harnes
   const { ahead, behind } = await getAheadBehind(repoRoot, upstream)
   const files = parseHarnessGitStatus(statusResult.stdout)
   const fallbackDefault = branch === 'main' || branch === 'master' ? branch : 'main'
+  if (statusResult.exitCode !== 0) return baseSnapshot(resolvedProjectPath, commandError(statusResult).message)
   const defaultBranch = defaultResult.exitCode === 0
     ? defaultResult.stdout.trim().replace(/^origin\//, '')
     : fallbackDefault

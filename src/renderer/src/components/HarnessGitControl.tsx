@@ -1,3 +1,4 @@
+import { HarnessGitRecoveryCard } from './HarnessGitRecoveryCard'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
@@ -287,7 +288,9 @@ function Toggle({ checked, label, onChange }: { checked: boolean; label: string;
   )
 }
 
-export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, onOpenProject }: HarnessGitControlProps): JSX.Element | null {
+export function HarnessGitControl({ projectPath, modelKey, onResolveConflict }: HarnessGitControlProps): JSX.Element | null {
+  const activeProjectRef = useRef(projectPath)
+  activeProjectRef.current = projectPath
   const [isOpen, setIsOpen] = useState(false)
   const [snapshot, setSnapshot] = useState<HarnessGitSnapshot | null>(null)
   const [isInitialLoading, setIsInitialLoading] = useState(false)
@@ -322,6 +325,8 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
     } else {
       unavailableSnapshotCountRef.current = 0
     }
+    if (next.projectPath !== activeProjectRef.current) return
+    if (next.recovery && !['completed', 'aborted'].includes(next.recovery.state)) setDialog(null)
     const signature = JSON.stringify(next)
     if (signature === snapshotSignatureRef.current) return
     snapshotSignatureRef.current = signature
@@ -331,6 +336,8 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
 
 
   const applyStatusDelta = useCallback((next: HarnessGitStatusDelta): boolean => {
+    if (next.projectPath !== activeProjectRef.current) return false
+    if (next.recovery && !['completed', 'aborted'].includes(next.recovery.state)) setDialog(null)
     const previous = snapshotRef.current
     if (!previous || !previous.isGit || !next.isGit) return false
     if (previous.projectPath.toLowerCase() !== next.projectPath.toLowerCase()) return false
@@ -350,7 +357,8 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
       files !== previous.files ||
       conflicts !== previous.conflicts ||
       operation !== previous.operation ||
-      previous.error !== next.error
+      previous.error !== next.error ||
+      JSON.stringify(previous.recovery) !== JSON.stringify(next.recovery)
     if (!changed) return true
 
     const merged: HarnessGitSnapshot = {
@@ -369,7 +377,8 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
       files,
       conflicts,
       operation,
-      error: next.error
+      error: next.error,
+      recovery: next.recovery
     }
     snapshotRef.current = merged
     snapshotSignatureRef.current = JSON.stringify(merged)
@@ -422,7 +431,7 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
         else applyStatusDelta(delta)
       }
     } catch (error) {
-      if (showLoading && !snapshotRef.current) {
+      if (activeProjectRef.current === projectPath && showLoading && !snapshotRef.current) {
         setNotice({ tone: 'error', text: errorMessage(error, 'Could not read Git status.') })
       }
     } finally {
@@ -507,6 +516,8 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
     setNotice(null)
     try {
       const result = await window.api.runHarnessGitAction(projectPath, action)
+      if (activeProjectRef.current !== projectPath) return false
+      if (result.conflict || result.snapshot.recovery) setDialog(null)
       applySnapshot(result.snapshot)
       if (!result.ok) {
         setNotice({ tone: 'error', text: result.error || 'Git operation failed.' })
@@ -621,13 +632,15 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
       action = { kind: 'createPr', title: dialogValues.title, body: dialogValues.body, base: dialogValues.base }
       label = 'Create pull request'
     }
+    if (action.kind === 'deleteBranch') action.confirmation = action.name
+    if (action.kind === 'reset') action.confirmation = dialogValues.confirmation
     if (await runAction(action, label)) setDialog(null)
   }
 
   if (!projectPath) return null
   const isBusy = pending !== null
   const isGeneratingMessage = pending === 'Generate message'
-  const hasConflict = Boolean(snapshot?.operation || snapshot?.conflicts.length)
+  const hasConflict = Boolean(snapshot?.operation || snapshot?.conflicts.length || (snapshot?.recovery && !['completed', 'aborted'].includes(snapshot.recovery.state)))
   const branchLabel = snapshot?.branch || (snapshot?.detached ? 'Detached HEAD' : 'Git')
   const expectedConfirmation = dialog === 'merge' || dialog === 'delete' || dialog === 'deleteRemote'
     ? dialogValues.branch
@@ -727,10 +740,7 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
                     </div>
 
                     {hasConflict ? (
-                      <div className="mt-2 rounded-lg border border-amber-500/25 bg-amber-500/[0.07] p-2.5">
-                        <div className="flex items-start gap-2"><Warning size={14} weight="fill" className="mt-0.5 shrink-0 text-amber-400" /><div><p className="text-[10.5px] font-semibold text-amber-200">{snapshot.operation ? `${snapshot.operation.kind} paused` : 'Conflicts need resolution'}</p><p className="mt-0.5 text-[9.5px] leading-relaxed text-amber-100/65">{snapshot.conflicts.slice(0, 4).join(', ') || 'Git has a pending operation.'}</p></div></div>
-                        <div className="mt-2 flex gap-1.5"><button type="button" disabled={isBusy} onClick={() => void runAction({ kind: 'abortOperation' }, 'Abort')} className="rounded-md border border-amber-400/25 px-2 py-1 text-[9.5px] text-amber-100 hover:bg-amber-400/10 disabled:opacity-45">Abort</button><button type="button" onClick={() => onOpenProject(projectPath)} className="rounded-md border border-white/[0.1] px-2 py-1 text-[9.5px] text-text-secondary hover:bg-white/[0.055]">Open project</button><button type="button" onClick={() => onResolveConflict(snapshot)} className="ml-auto rounded-md bg-accent-primary/[0.14] px-2 py-1 text-[9.5px] font-semibold text-accent-primary hover:bg-accent-primary/[0.22]">Resolve with AI</button></div>
-                      </div>
+                      snapshot.recovery ? <HarnessGitRecoveryCard recovery={snapshot.recovery} onResolve={onResolveConflict} onUpdated={applySnapshot} reduceMotion={Boolean(reduceMotion)} /> : <p className="mt-3 text-xs text-amber-300">Git needs inspection. Refresh status before continuing.</p>
                     ) : (
                       <>
                         <section className="mt-2">
@@ -739,7 +749,7 @@ export function HarnessGitControl({ projectPath, modelKey, onResolveConflict, on
                         </section>
 
                         <section className="mt-2 rounded-lg border border-[var(--border-default)] bg-[var(--surface)] p-2">
-                          <div className="flex items-start gap-1"><textarea ref={messageRef} value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void commit() } }} rows={1} placeholder="Commit message" aria-label="Commit message" className="min-h-[34px] flex-1 resize-none bg-transparent px-1 py-1.5 text-[10.5px] leading-4 text-text-primary outline-none placeholder:text-text-muted/60" /><button type="button" disabled={isBusy || snapshot.files.length === 0} onClick={() => void generateMessage()} className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-white/[0.055] hover:text-accent-primary disabled:opacity-40 active:scale-95" title="Generate an editable commit message"><Sparkle size={13} /></button></div>
+                          <div className="flex items-start gap-1"><textarea ref={messageRef} value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void commit() } }} rows={1} placeholder="Commit message (all changes)" aria-label="Commit message" className="min-h-[34px] flex-1 resize-none bg-transparent px-1 py-1.5 text-[10.5px] leading-4 text-text-primary outline-none placeholder:text-text-muted/60" /><button type="button" disabled={isBusy || snapshot.files.length === 0} onClick={() => void generateMessage()} className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-white/[0.055] hover:text-accent-primary disabled:opacity-40 active:scale-95" title="Generate an editable commit message"><Sparkle size={13} /></button></div>
                           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[var(--border-default)] pt-1.5"><Toggle checked={signoff} label="Sign-off" onChange={setSignoff} /><Toggle checked={includeCoAuthor} label="Breno as co-author" onChange={setIncludeCoAuthor} /><button type="button" disabled={isBusy || snapshot.files.length === 0} onClick={() => void commit()} className="ml-auto flex h-6 items-center gap-1 rounded-md bg-white/[0.085] px-2 text-[9.5px] font-semibold text-text-primary transition-colors hover:bg-white/[0.13] disabled:opacity-40 active:scale-95">{pending === 'Commit' ? <CircleNotch size={11} className="animate-spin" /> : <GitCommit size={11} />}Commit</button></div>
                         </section>
 

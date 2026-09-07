@@ -247,9 +247,48 @@ export interface HarnessGitCommit {
 export interface HarnessGitOperation {
   kind: HarnessGitOperationKind
   target?: string
+  fingerprint?: string
+}
+
+export type HarnessGitRecoveryState = 'running' | 'conflicts' | 'planning' | 'awaiting-approval' | 'implementing' | 'verifying' | 'ready' | 'blocked' | 'completed' | 'aborted' | 'uncertain'
+
+export interface HarnessGitRecovery {
+  id: string
+  revision: number
+  projectPath: string
+  repoRoot: string
+  action: string
+  step: string
+  state: HarnessGitRecoveryState
+  branch?: string
+  operation?: HarnessGitOperation
+  reason?: string
+  canRetry: boolean
+  canAbort: boolean
+  canResolve: boolean
+  needsPull?: boolean
+  chatIds: string[]
+  cards: { chatId: string; afterMessage: number; step: number }[]
+  generation: number
+}
+
+export interface HarnessGitRecoveryRequest {
+  id: string
+  revision: number
+  requestId: string
+}
+
+export interface HarnessGitPlanBinding {
+  projectPath: string
+  chatId: string
+  sourceChatId?: string
+  recoveryId?: string
+  plan?: string
+  phase: HarnessPhase
 }
 
 export interface HarnessGitSnapshot {
+  recovery?: HarnessGitRecovery
   ok: boolean
   projectPath: string
   repoRoot?: string
@@ -274,6 +313,7 @@ export interface HarnessGitSnapshot {
 }
 
 export interface HarnessGitStatusDelta {
+  recovery?: HarnessGitRecovery
   ok: boolean
   projectPath: string
   repoRoot?: string
@@ -298,7 +338,7 @@ export interface HarnessGitCommitOptions {
   coAuthor?: { name: string; email: string }
 }
 
-export type HarnessGitAction =
+export type HarnessGitAction = (
   | { kind: 'switchBranch'; name: string }
   | { kind: 'createBranch'; name: string; startPoint?: string }
   | { kind: 'renameBranch'; from: string; to: string }
@@ -312,6 +352,9 @@ export type HarnessGitAction =
   | { kind: 'reset'; hash: string; mode: 'hard' | 'soft' }
   | { kind: 'abortOperation' }
   | { kind: 'createPr'; title: string; body: string; base: string; head?: string }
+  | { kind: 'retryOperation'; recovery: HarnessGitRecoveryRequest; integrateRemote?: boolean }
+  | { kind: 'cancelRecovery'; recovery: HarnessGitRecoveryRequest }
+) & { confirmation?: string }
 
 export interface HarnessGitActionResult {
   ok: boolean

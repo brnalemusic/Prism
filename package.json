@@ -1,6 +1,6 @@
 {
     "name": "prism",
-    "version": "9.0.0-beta.1",
+    "version": "9.0.0-beta.2",
     "description": "An Electron application with React and TypeScript",
     "main": "./out/main/index.js",
     "author": "Breno",
@@ -13,6 +13,8 @@
         "typecheck": "npm run typecheck:node && npm run typecheck:web",
         "test:image-generation": "node --experimental-strip-types --test scripts/image-generation-validation.mts",
         "test:harness": "node --experimental-strip-types --test scripts/harness-validation.mts",
+        "test:git-recovery": "node --experimental-strip-types --test scripts/git-recovery-validation.mts",
+        "test:git-recovery-ui": "node --experimental-strip-types scripts/git-recovery-ui-validation.mts",
         "test:persona": "node --experimental-strip-types --test scripts/persona-validation.mts",
         "test:memory": "node --experimental-strip-types --test scripts/memory-validation.mts",
         "start": "electron-vite preview",

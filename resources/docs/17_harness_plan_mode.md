@@ -14,8 +14,8 @@ The Harness model publishes a completed plan through the native `plan` tool. Pri
 
 The review surface uses the same Markdown pipeline as completed chat messages, including GFM, raw HTML handling, and KaTeX for inline (`$...$`) and display (`$$...$$`) LaTeX.
 
-- **Accept & Continue** approves the plan and changes the current session to Build.
-- **New Build Chat** prepares complementary context from the entire source conversation, creates a clean Build session in the exact same project, and automatically sends the approved plan plus that context for implementation.
+- **Accept & Continue** approves the plan, transitions the current session to Build, and sends the single implementation request for the approved plan in the same chat. The transition is confirmed through a structured binding before Build starts, so the phase is consistent even if the session is reloaded mid-handoff; a failed start keeps the approved plan available for retry.
+- **New Build Chat** prepares complementary context from the entire source conversation, creates a clean Build session in the exact same project, and automatically sends the approved plan plus that context for implementation. The source session remains in Plan, and any linked Git recovery travels with the plan to the new chat.
 - **Request changes** sends a revision request while keeping the session in Plan. The request can also be sent with `Ctrl+Enter` or `Cmd+Enter`.
 - **Cancel** sends no new model request, stops active preparation when necessary, and dismisses the pending plan while leaving the session in Plan.
 
@@ -23,9 +23,13 @@ While a plan is being prepared or revised, Prism shows a matching loading state 
 
 ## Git conflict plans
 
-When Git Control detects a conflicted merge, rebase, pull, Sync, or cherry-pick, it pauses the operation and lists the affected files. **Resolve with AI** opens a new Harness conversation in the same project directly in Plan. The initial Markdown request contains the branch, upstream, ahead/behind counts, pending operation, and conflicted files.
+When Git Control detects a conflicted merge, rebase, pull, Sync, or cherry-pick, it pauses the operation and lists the affected files. **Resolve with AI** opens a new Harness conversation in the same project directly in Plan, bound to the Git recovery from its first message. The Plan session persists before the first request is dispatched, so the confirmed phase is reflected in the frontend immediately and after loading history. The initial Markdown request contains the branch, upstream, ahead/behind counts, pending operation, and conflicted files.
 
 The conflict session follows the same read-only Plan rules described above. It can inspect the repository and ask questions, but it cannot modify files until the user approves the generated plan with **Accept & Continue** or starts a **New Build Chat**.
+
+### Linked recovery lifecycle
+
+Approval binds the recovery, the approved plan, and the Build execution together: the binding is validated against the source session's published plans, the approved Build's completion (including still-running terminal tasks) is associated by run identifier, and a cancelled or incomplete Build can never enable Retry. After the linked Build response, a native recovery card appears in that conversation with **Retry** primary and **Abort** secondary, restoring its state from the backend. The recovery, plan, and execution association survives restarts, and duplicate events never duplicate the card. During Build, the resolution may stage only resolved conflict paths; continuation, commit, push, and abort stay with Git Control's user-triggered Retry.
 
 ## Harness Questions
 

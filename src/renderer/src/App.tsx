@@ -1,3 +1,5 @@
+import { HarnessGitRecoveryCard } from './components/HarnessGitRecoveryCard'
+import { useGitRecoveries } from './hooks/useGitRecoveries'
 import { buildChatTimeline, anchorStreamingCalls, bindChatTool, upsertChatRound, finishChatTools } from './chatTimeline'
 import { WorkTimeline } from './components/WorkTimeline'
 import React, { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react'
@@ -1792,6 +1794,8 @@ const UserMessageRow = React.memo(function UserMessageRow({
 }, areUserMessageRowPropsEqual)
 
 interface TabMessagesListProps {
+  projectPath?: string
+  onResolveGitConflict?: (snapshot: HarnessGitSnapshot) => void
   messages: Message[]
   tabId: string
   currentChatId?: string
@@ -1812,6 +1816,7 @@ const areTabMessagesListPropsEqual = (
   prevProps: TabMessagesListProps,
   nextProps: TabMessagesListProps
 ): boolean => {
+  if (prevProps.projectPath !== nextProps.projectPath || prevProps.onResolveGitConflict !== nextProps.onResolveGitConflict) return false
   if (prevProps.messages !== nextProps.messages) return false
   if (prevProps.tabId !== nextProps.tabId) return false
   if (prevProps.currentChatId !== nextProps.currentChatId) return false
@@ -1825,6 +1830,8 @@ const areTabMessagesListPropsEqual = (
 }
 
 const TabMessagesList = React.memo(function TabMessagesList({
+  projectPath,
+  onResolveGitConflict,
   messages,
   tabId,
   currentChatId,
@@ -1836,6 +1843,7 @@ const TabMessagesList = React.memo(function TabMessagesList({
   harnessUi,
   harnessContextSnapshot
 }: TabMessagesListProps) {
+  const gitRecoveries = useGitRecoveries(projectPath, currentChatId)
   const handleSendRowSuggestion = useCallback(
     (payload: string, suggestionKey: string) => {
       return onSendSuggestion(tabId, payload, suggestionKey)
@@ -1894,7 +1902,10 @@ const TabMessagesList = React.memo(function TabMessagesList({
           )
         }
 
+        const turn = messages.slice(0, i + 1).filter((m) => m.role === 'user').length
+        const endOfTurn = !messages.slice(i + 1, messages.findIndex((m, index) => index > i && m.role === 'user') < 0 ? undefined : messages.findIndex((m, index) => index > i && m.role === 'user')).some((m) => m.role === 'ai')
         return (
+          <React.Fragment key={i}>
           <AiMessageRow
             key={i}
             msg={msg}
@@ -1909,6 +1920,8 @@ const TabMessagesList = React.memo(function TabMessagesList({
             sessionMode={sessionMode}
             harnessUi={harnessUi}
           />
+          {endOfTurn && !msg.isStreaming && gitRecoveries.flatMap((record) => record.cards.filter((card) => card.chatId === currentChatId && card.afterMessage === turn).map((card) => <HarnessGitRecoveryCard key={`${record.id}:${card.step}`} recovery={card.step === Math.max(...record.cards.map((entry) => entry.step)) ? record : { ...record, state: 'completed', reason: 'This resolution stage has ended. See the latest recovery for the current operation.' }} onResolve={onResolveGitConflict} reduceMotion={harnessUi?.reduceMotion} />))}
+          </React.Fragment>
         )
       })}
     </div>
@@ -3680,17 +3693,18 @@ function RealApp(): React.JSX.Element {
 
   const handleResolveHarnessGitConflict = useCallback(
     (snapshot: HarnessGitSnapshot): void => {
+      void (async () => {
       if (harnessTabsRef.current.length >= 5) {
         setHarnessPromptWarnings(['Close a Harness tab before opening a Git conflict plan.'])
         return
       }
-      const newId = `harness-git-conflict-${Date.now()}`
+      const newId = `harness-git-conflict-${crypto.randomUUID()}`
       const sourceTab = harnessTabsRef.current.find(
         (tab) => tab.id === activeHarnessTabIdRef.current
       )
       const newTab: TabSession = {
         id: newId,
-        chatId: undefined,
+        chatId: newId,
         title: 'Git conflict plan',
         messages: [],
         inputText: '',
@@ -3710,10 +3724,12 @@ function RealApp(): React.JSX.Element {
         ? snapshot.conflicts.map((file) => `- \`${file}\``).join('\n')
         : '- Git reports a pending operation; inspect the working tree.'
       const request = `# Git conflict resolution plan\n\nThe Git Control paused a ${snapshot.operation?.kind || 'Git'} operation in **${snapshot.projectPath}**.\n\n- Current branch: \`${snapshot.branch || 'detached HEAD'}\`\n- Upstream: \`${snapshot.upstream || 'none'}\`\n- Ahead/behind: ${snapshot.ahead}/${snapshot.behind}\n- Pending operation: ${snapshot.operation?.kind || 'conflicted working tree'}\n\n## Conflicted files\n${conflictFiles}\n\nPlease inspect the repository and produce the native Implementation Plan for resolving this safely. Ask questions if intent is ambiguous. Do not change files in Plan mode; execution must wait for Accept & Continue or New Build Chat.`
+      await window.api.bindHarnessGitPlan({ projectPath: snapshot.projectPath, chatId: newId, recoveryId: snapshot.recovery?.id, phase: 'plan' })
       setHarnessTabs((previous) => [...previous, newTab])
       setActiveHarnessTabId(newId)
       setActiveView('harness')
-      sendHarnessMessageToTab(newId, request, { phaseOverride: 'plan', tabOverride: newTab })
+      sendHarnessMessageToTab(newId, request + '\n\nDuring Build, resolve and explicitly stage only the conflict paths. Run and report the checks in the approved plan. Do not continue, commit, abort, push, or reset the pending Git operation; Git Control owns the user-triggered Retry.', { phaseOverride: 'plan', tabOverride: newTab })
+      })().catch((error) => setHarnessPromptWarnings([error instanceof Error ? error.message : String(error)]))
     },
     [sendHarnessMessageToTab]
   )
@@ -3859,18 +3875,20 @@ function RealApp(): React.JSX.Element {
     []
   )
 
-  const handleAcceptPlanHere = useCallback((tabId: string): void => {
+  const acceptingPlansRef = useRef(new Set<string>())
+  const handleAcceptPlanHere = useCallback((tabId: string, plan: string): void => {
     const tab = harnessTabsRef.current.find((entry) => entry.id === tabId)
-    if (!tab) return
-    setHarnessTabs((previous) =>
-      previous.map((entry) =>
-        entry.id === tabId
-          ? { ...entry, harnessPhase: 'build', dismissedPlanMarkdown: undefined }
-          : entry
-      )
-    )
-    if (tab.chatId) void window.api.setHarnessSessionPhase(tab.chatId, 'build')
-  }, [])
+    if (!tab?.chatId || tab.isProcessing || acceptingPlansRef.current.has(tabId) || !plan.trim()) return
+    acceptingPlansRef.current.add(tabId)
+    void (async () => {
+      await window.api.bindHarnessGitPlan({ projectPath: tab.disciplinePath, chatId: tab.chatId!, plan, phase: 'build' })
+      const buildTab = { ...tab, harnessPhase: 'build' as const, dismissedPlanMarkdown: undefined }
+      setHarnessTabs((previous) => previous.map((entry) => entry.id === tabId ? buildTab : entry))
+      const sent = sendHarnessMessageToTab(tabId, buildHarnessImplementationHandoff(plan, 'Implement the approved plan and report its verification results. For a linked Git recovery, explicitly stage only resolved conflicts and leave Git continuation to the user through Retry.'), { phaseOverride: 'build', tabOverride: buildTab })
+      if (!sent) throw new Error('Build could not start. The approved plan remains available for retry.')
+    })().catch((error) => setHarnessPromptWarnings([error instanceof Error ? error.message : String(error)]))
+      .finally(() => acceptingPlansRef.current.delete(tabId))
+  }, [sendHarnessMessageToTab])
 
   const handleSendPlanFeedback = useCallback(
     (tabId: string, feedback: string): void => {
@@ -3890,6 +3908,7 @@ function RealApp(): React.JSX.Element {
 
   const handleCancelPlan = useCallback((tabId: string, markdown: string): void => {
     const tab = harnessTabsRef.current.find((entry) => entry.id === tabId)
+    acceptingPlansRef.current.delete(tabId)
     if (tab?.chatId) {
       window.api.cancelHarnessPlanHandoff(tab.chatId)
       if (tab.isProcessing) window.api.cancelChat(tab.chatId)
@@ -3910,7 +3929,7 @@ function RealApp(): React.JSX.Element {
   const handleAcceptPlanNewChat = useCallback(
     async (tabId: string, plan: string): Promise<void> => {
       const sourceTab = harnessTabsRef.current.find((entry) => entry.id === tabId)
-      if (!sourceTab?.chatId || !sourceTab.disciplinePath || !sourceTab.selectedModel) return
+      if (!sourceTab?.chatId || !sourceTab.disciplinePath || !sourceTab.selectedModel || sourceTab.isProcessing || acceptingPlansRef.current.has(tabId)) return
       if (harnessTabsRef.current.length >= 5) {
         setPlanHandoffState((previous) => ({
           ...previous,
@@ -3919,6 +3938,7 @@ function RealApp(): React.JSX.Element {
         return
       }
 
+      acceptingPlansRef.current.add(tabId)
       setPlanHandoffState((previous) => ({
         ...previous,
         [tabId]: { preparing: true }
@@ -3930,10 +3950,12 @@ function RealApp(): React.JSX.Element {
           modelKey: sourceTab.selectedModel,
           plan
         })
-        const newTabId = `harness-${Date.now()}`
+        if (!acceptingPlansRef.current.has(tabId)) return
+        const newTabId = `harness-${crypto.randomUUID()}`
+        await window.api.bindHarnessGitPlan({ projectPath: sourceTab.disciplinePath, chatId: newTabId, sourceChatId: sourceTab.chatId, plan, phase: 'build' })
         const newTab: TabSession = {
           id: newTabId,
-          chatId: undefined,
+          chatId: newTabId,
           title: 'Implementation Handoff',
           messages: [],
           inputText: '',
@@ -3950,23 +3972,22 @@ function RealApp(): React.JSX.Element {
           harnessExplorerContext: []
         }
         setHarnessTabs((previous) => [
-          ...previous.map((entry) =>
-            entry.id === tabId ? { ...entry, harnessPhase: 'build' as const } : entry
-          ),
+          ...previous,
           newTab
         ])
-        void window.api.setHarnessSessionPhase(sourceTab.chatId, 'build')
+        acceptingPlansRef.current.delete(tabId)
         setActiveHarnessTabId(newTabId)
         setPlanHandoffState((previous) => ({
           ...previous,
           [tabId]: { preparing: false }
         }))
-        const handoffMessage = buildHarnessImplementationHandoff(plan, context)
+        const handoffMessage = buildHarnessImplementationHandoff(plan, context + '\nFor a linked Git recovery, explicitly stage only resolved conflicts, run the approved checks, and leave continuation, commit, push, and abort to Git Control Retry.')
         sendHarnessMessageToTab(newTabId, handoffMessage, {
           phaseOverride: 'build',
           tabOverride: newTab
         })
       } catch (error) {
+        acceptingPlansRef.current.delete(tabId)
         const message = error instanceof Error ? error.message : String(error)
         if (/abort/i.test(message)) {
           setPlanHandoffState((previous) => ({
@@ -5471,7 +5492,7 @@ function RealApp(): React.JSX.Element {
                       : 'Revising implementation plan…'
                   }
                   planError={planHandoffState[tab.id]?.error}
-                  onAcceptPlanHere={() => handleAcceptPlanHere(tab.id)}
+                  onAcceptPlanHere={(plan) => handleAcceptPlanHere(tab.id, plan)}
                   onAcceptPlanNewChat={(markdown) =>
                     void handleAcceptPlanNewChat(tab.id, markdown)
                   }
@@ -5529,6 +5550,8 @@ function RealApp(): React.JSX.Element {
                   renderedMessages={
                     <TabMessagesList
                       messages={tab.messages}
+                      projectPath={tab.disciplinePath}
+                      onResolveGitConflict={handleResolveHarnessGitConflict}
                       tabId={tab.id}
                       currentChatId={tab.chatId}
                       handleLoadChat={handleLoadHarnessSession}

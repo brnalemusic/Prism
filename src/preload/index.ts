@@ -1,3 +1,4 @@
+import type { HarnessGitRecovery, HarnessGitPlanBinding } from '../shared/types'
 import { contextBridge, ipcRenderer, IpcRendererEvent, webFrame } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
@@ -424,6 +425,13 @@ const api = {
     ipcRenderer.invoke('harness-recreate-project-folder', rootPath),
   resolveHarnessStartupProject: (): Promise<HarnessProjectConfig | null> =>
     ipcRenderer.invoke('harness-resolve-startup-project'),
+  bindHarnessGitPlan: (binding: HarnessGitPlanBinding): Promise<boolean> => ipcRenderer.invoke('harness-git-bind-plan', binding),
+  getHarnessGitRecoveries: (projectPath: string, chatId: string): Promise<HarnessGitRecovery[]> => ipcRenderer.invoke('harness-git-recoveries', projectPath, chatId),
+  onHarnessGitRecoveryChanged: (callback: (record: HarnessGitRecovery) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, record: HarnessGitRecovery): void => callback(record)
+    ipcRenderer.on('harness-git-recovery-changed', listener)
+    return () => { ipcRenderer.removeListener('harness-git-recovery-changed', listener) }
+  },
   getHarnessGitStatus: (projectPath: string): Promise<HarnessGitSnapshot> =>
     ipcRenderer.invoke('harness-git-status', projectPath),
   getHarnessGitStatusDelta: (projectPath: string): Promise<HarnessGitStatusDelta> =>

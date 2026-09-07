@@ -21,13 +21,24 @@ The main process executes Git with `execFile` and explicit argument arrays; it n
 - Local and remote branches can be selected, created, renamed, checked out, fetched, and removed. Merge is available through the typed action API.
 - Reset supports soft and hard modes. Branch deletion and reset require typing the target value in the confirmation prompt.
 - Pull requests use `gh pr create`; the base defaults to the remote default branch and can be edited by the CLI prompt. On `main` or `master`, Git Control requires a new working branch before a PR can be opened.
+- Merge, Pull, and Sync require a clean index and working tree; Prism never stashes automatically. The Commit action stages all changes — that breadth is explicit and is separate from recovery, whose staging is restricted to the resolution.
+- Before mutating, Prism resolves and records the remote, branch, and ref each operation targets, so a later Retry cannot be redirected by a screen selection that changed in the meantime. Git exit codes and output are validated: a failed status read never counts as a clean repository.
 
-## Conflicts
+## Conflicts and recovery
 
-Any detected conflict or in-progress Git operation blocks further mutating actions. The panel offers Abort, Open project, and Resolve with AI. Abort selects the matching Git abort command for merge, rebase, or cherry-pick. Resolve with AI opens the native Plan workflow and leaves execution gated behind the standard approval actions.
+Any detected conflict or in-progress Git operation blocks further mutating actions and opens recovery immediately — the Merge form does not need to be closed first, and paused operations are distinguished from ordinary errors instead of everything being labeled a conflict.
+
+Recovery state is tracked by the main process and persisted in Prism's local storage (outside versioned files) with atomic writes. Git remains the authority over files, the index, and references; the Prism record explains intent and progress and never replaces real inspection. Repositories and worktrees are identified by canonical paths, and operations that share Git references are coordinated across worktrees.
+
+- **Resolve with AI** opens the native Plan workflow bound to the recovery. After approval, Build runs in the same or a new chat while the recovery keeps the association; Retry unlocks only after that Build finishes successfully and the staged resolution passes checks (resolved files staged, no unmerged entries, no unrelated index changes, plan checks recorded).
+- **Retry** continues the pending native operation (`merge --continue`, `rebase --continue`, `cherry-pick --continue`); it never replays the original operation. Each Retry executes one step: after a Sync recovers the local integration, Push requires a separate confirmation, and a rejected Push first offers Pull with rebase under explicit authorization. New conflicts return the recovery to resolution without starting another AI run.
+- **Abort** requires typed confirmation that the resolution may be discarded, uses the matching native abort for local operations, and for a rejected Push or pending upload only ends the tracked attempt while preserving local commits. Prism never creates automatic backups, removes external locks, force pushes, or discards files as automatic recovery; if abort fails, the state is preserved and the error shown.
+- External completion disables the recovery controls, a superseded operation invalidates the old recovery, and externally created pending operations can be recovered without an invented Pull or Sync intent. Restarting Prism reconciles state without automatically resuming mutations.
+
+The recovery card also appears in the linked Harness conversation after the connected Build response, with **Retry** primary and **Abort** secondary; the Git Control panel exposes the same controls, backed by the same capabilities and commands. During an action, progress is shown and concurrent Git commands are blocked; the card collapses into a compact result record afterwards.
 
 ## Operational boundaries
 
-Git Control does not persist credentials, create force pushes, rewrite existing commits, or automatically resolve conflicts. It reports missing Git repositories, unavailable GitHub CLI authentication, and command failures in the panel without exposing tokens or local credential data.
+Git Control does not persist credentials, create force pushes, rewrite existing commits, or automatically resolve conflicts. It reports missing Git repositories, unavailable GitHub CLI authentication, and command failures in the panel without exposing tokens or local credential data. Late results from another project never replace the current snapshot, and recovery coordination rejects concurrent continuations so double clicks, parallel chats, or multiple windows cannot run two continuations at once.
 
 The active project's Git status refreshes on mount, after every Git action, when Prism regains focus, when the document becomes visible, and on a lightweight interval. Background refreshes first compare a compact Git metadata fingerprint; working-tree changes are reconciled per file while branch, commit, remote, and configuration changes trigger a complete metadata refresh. Overlapping reads are prevented and unchanged snapshots are deduplicated before renderer updates. Background refresh failures keep the last valid snapshot visible, and Prism requires consecutive unavailable reads before replacing an active repository with an unavailable state.
