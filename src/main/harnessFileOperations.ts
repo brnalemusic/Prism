@@ -28,7 +28,7 @@ export function occurrenceCount(content: string, snippet: string): number {
 export function replaceUnique(content: string, oldText: string, newText: string): string {
   const count = occurrenceCount(content, oldText)
   if (count === 0)
-    throw new Error('The exact oldText snippet was not found. Read the file and retry.')
+    throw new Error('The exact oldText snippet was not found. Read the file, add more surrounding or context text and try again.')
   if (count > 1) {
     throw new Error(
       `The oldText snippet matched ${count} locations. Include more surrounding text.`
