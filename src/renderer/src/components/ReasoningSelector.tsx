@@ -80,7 +80,13 @@ export function ReasoningSelector({
           className="glass-dropdown-panel absolute bottom-full right-0 mb-2 z-50 p-2 animate-soft-pop text-left"
           style={{ width: '8.5rem' }}
         >
-          <LiquidGlassSurface refraction={7} blur={2} opacity={0.72} distortionRadius={14} />
+          <LiquidGlassSurface
+            refraction={30}
+            blur={2}
+            centerBlur={0}
+            centerAttenuation={0.18}
+            distortionRadius={16}
+          />
           <div className="px-2.5 py-1 text-[10px] font-bold text-text-secondary/50 border-b border-white/[0.04] mb-1 select-none">
             THINKING LEVEL
           </div>

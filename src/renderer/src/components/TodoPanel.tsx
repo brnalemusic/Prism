@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
+import { LiquidGlassSurface } from './LiquidGlassSurface'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import {
   dockRise,
@@ -226,6 +227,7 @@ function TodoPanel({
           >
             {/* Attached Card Docked Above InputBar */}
             <div className="liquid-glass-docked relative overflow-hidden rounded-t-2xl rounded-b-none">
+              <LiquidGlassSurface refraction={14} blur={2} opacity={0.4} distortionRadius={16} />
         {/* Subtle internal theme center glow */}
         <div className="absolute inset-0 rounded-t-2xl overflow-hidden pointer-events-none">
           <div

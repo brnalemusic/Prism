@@ -28,6 +28,7 @@ import { ErrorPopup } from './ErrorPopup'
 import { ApplicationInfo, FileSearchResult } from '../../../shared/types'
 import { AppConfig } from '../../../main/config'
 import clsx from 'clsx'
+import { LiquidGlassSurface } from './LiquidGlassSurface'
 import { applyToolCallEnd, applyToolCallStart } from '../toolCallState'
 
 import ReactMarkdown from 'react-markdown'
@@ -960,12 +961,18 @@ export function QuickLauncher(): React.JSX.Element {
         <div className="relative w-full">
           <div
             className={clsx(
-              'relative flex w-full flex-col gap-3 overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-lowest)] px-5 py-3 transition-all duration-300 input-border-glow quick-launcher-input-bar shadow-[0_18px_48px_rgba(0,0,0,0.5)]',
+              'true-glass glass-menu-host relative flex w-full flex-col gap-3 overflow-hidden rounded-2xl border border-[var(--border-strong)] px-5 py-3 transition-all duration-300 input-border-glow quick-launcher-input-bar shadow-[0_18px_48px_rgba(0,0,0,0.5)]',
               modeClasses,
               ((isModelSelectorOpen && quickLauncherMode === 'advanced') || isFocused) &&
                 'prism-glow active'
             )}
           >
+            <LiquidGlassSurface
+              refraction={30}
+              blur={2}
+              centerBlur={0}
+              centerAttenuation={0.18}
+            />
             {attachedScreenshot && (
               <div className="relative flex items-center justify-start self-start bg-white/[0.03] border border-white/[0.08] p-1.5 rounded-xl pr-8 animate-soft-pop group/thumb">
                 <img

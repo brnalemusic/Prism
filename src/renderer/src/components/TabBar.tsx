@@ -13,6 +13,7 @@ import {
   SquaresFour
 } from '@phosphor-icons/react'
 import { ModelSelector } from './ModelSelector'
+import { LiquidGlassSurface } from './LiquidGlassSurface'
 import type { TabSession } from '../types/tab'
 
 interface TabBarProps {
@@ -324,6 +325,7 @@ export const TabBar: React.FC<TabBarProps> = ({
               top: `${Math.min(plusMenuPos.y, window.innerHeight - 120)}px`
             }}
           >
+            <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
             {/* New tab */}
             <button
               type="button"
@@ -387,6 +389,7 @@ export const TabBar: React.FC<TabBarProps> = ({
               top: `${Math.min(contextMenu.y, window.innerHeight - 160)}px`
             }}
           >
+            <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
             {/* Split View Toggle */}
             <button
               type="button"

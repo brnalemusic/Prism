@@ -37,6 +37,9 @@ Users can scale the entire user interface dynamically to match high-DPI displays
 ### 4.1. Glassmorphism Panels
 Panels, modals, floating action bars, and the Quick Launcher utilize backdrop blur filters (`backdrop-blur-md`, `backdrop-blur-xl`) with semi-transparent background colors (`rgba(..., 0.75)`).
 
+### 4.1.1. Liquid Glass optics (Max mode)
+In Max performance mode, true-glass surfaces mount a real refraction layer (`LiquidGlassSurface`): an SVG `feDisplacementMap` fed by a generated normal field bends the live backdrop at the edges — compression, fold/inversion and a slight magnification dip, in the manner of iOS Liquid Glass — with chromatic aberration, saturation lift and rim lighting. Center blur intentionally equals the band blur so background text stays recognizable without competing with foreground text. The effect covers the InputBar, Quick Launcher, all dropdown menus (model selector, attach `+`, session/permission modes, TabBar and harness menus), docked panels and small pills (scroll-to-bottom, citation). Details and tuning constants: `resources/docs/liquid_glass.md`.
+
 ### 4.2. Streamed Markdown Rendering
 Chat bubbles render live token streams using `react-markdown` + `rehype-raw` + `rehype-katex` + `prismjs`. Math expressions (LaTeX `\(...\)` or `$$...$$`) compile smoothly via KaTeX without causing layout shifts.
 

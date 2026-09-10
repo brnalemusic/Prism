@@ -4,6 +4,7 @@ import { LiquidGlassSurface } from '../../src/renderer/src/components/LiquidGlas
 import { usePerformanceMode } from '../../src/renderer/src/hooks/usePerformanceMode'
 import '../../src/renderer/src/assets/main.css'
 import { InputBar } from '../../src/renderer/src/components/InputBar'
+import { AnswerPrismPill } from '../../src/renderer/src/components/AnswerPrismPill'
 
 // Isolated UI fixture: no provider requests, account access, or persisted user data.
 Object.assign(window, {
@@ -49,6 +50,24 @@ function Fixture() {
           </p>
         ))}
       </div>
+      {/* Playtest surface: selectable AI-message block for the Answer Prism pill. */}
+      {real && (
+        <div
+          id="ai-messages"
+          style={{ position: 'fixed', left: 24, top: 300, width: 400, fontSize: 15, color: '#fff' }}
+        >
+          <div data-prism-ai-message="true">
+            <p style={{ padding: 8 }}>
+              Playtest paragraph one for selection stability checks across multiple lines of text.
+            </p>
+            <p style={{ padding: 8 }}>
+              Playtest paragraph two sits below paragraph one so multi-paragraph drags stay inside
+              one message container, as in the real app.
+            </p>
+          </div>
+        </div>
+      )}
+      {real && <AnswerPrismPill onAnswer={() => {}} />}
       {real ? (
         <div id="real-input" style={{ position: 'fixed', left: 160, top: 360, width: 640 }}>
           <InputBar

@@ -288,6 +288,7 @@ export const InputBar = React.memo(
             exit="exit"
             className="glass-dropdown-panel z-30 mb-3 w-full overflow-hidden"
           >
+            <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
             <div className="border-b border-white/[0.08] px-4 py-3 text-xs font-semibold text-text-secondary/70">
               Workflows
             </div>
@@ -696,6 +697,7 @@ export const InputBar = React.memo(
                     variants={menuPopUp}
                     className="glass-dropdown-panel absolute bottom-full left-0 mb-3 z-[60] w-52 p-1.5 text-left"
                   >
+                  <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-all text-left"
@@ -813,6 +815,7 @@ export const InputBar = React.memo(
                         {showSkillsMenu && (
                           <div className="absolute left-full bottom-0 pl-1.5 z-[70] -ml-px">
                             <div className="glass-dropdown-panel w-52 p-2 animate-soft-pop text-left space-y-1">
+                              <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
                               <div className="px-2 py-1 text-[10px] font-bold text-text-secondary/40 uppercase tracking-wider">
                                 AI Skills
                               </div>
@@ -1102,6 +1105,7 @@ export const InputBar = React.memo(
                       role="menu"
                       aria-label="Harness permission profile"
                     >
+                    <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
                     <div className="border-b border-white/[0.06] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-secondary/65">
                       Current project permission
                     </div>
@@ -1218,6 +1222,7 @@ export const InputBar = React.memo(
                       variants={menuPopUp}
                       className="glass-dropdown-panel absolute bottom-full right-0 mb-3 z-50 w-72 p-2 text-left"
                     >
+                    <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
                     <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.06] mb-1">
                       Select Session Mode
                     </div>
@@ -1465,7 +1470,12 @@ export const InputBar = React.memo(
                 isExplorerDropTarget && 'ring-2 ring-accent-primary/70 bg-accent-primary/5'
               )}
             >
-              <LiquidGlassSurface blur={2} centerAttenuation={0.16} />
+              <LiquidGlassSurface
+                refraction={30}
+                blur={2}
+                centerBlur={0}
+                centerAttenuation={0.18}
+              />
               {/* Focus light: a faint bloom from above lifts the pane when active */}
               <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none">
                 <div
@@ -1606,7 +1616,12 @@ export const InputBar = React.memo(
                 isExplorerDropTarget && 'ring-2 ring-accent-primary/70 bg-accent-primary/5'
               )}
             >
-              <LiquidGlassSurface blur={2} centerAttenuation={0.16} />
+              <LiquidGlassSurface
+                refraction={30}
+                blur={2}
+                centerBlur={0}
+                centerAttenuation={0.18}
+              />
               {/* Focus light: a faint bloom from above lifts the pane when active */}
               <div className="absolute inset-0 rounded-[28px] overflow-hidden pointer-events-none">
                 <div

@@ -271,7 +271,13 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
               align === 'left' ? 'left-0' : 'right-0'
             )}
           >
-            <LiquidGlassSurface refraction={7} blur={2} opacity={0.72} distortionRadius={14} />
+            <LiquidGlassSurface
+              refraction={30}
+              blur={2}
+              centerBlur={0}
+              centerAttenuation={0.18}
+              distortionRadius={28}
+            />
             {/* Search Box */}
             <div className="border-b border-white/[0.08] bg-white/[0.02] p-2.5">
               <div className="relative">

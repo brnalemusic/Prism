@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
+import { LiquidGlassSurface } from './LiquidGlassSurface'
 import {
   CaretDown,
   CaretRight,
@@ -169,6 +170,7 @@ function TreeNode({
           className="glass-dropdown-panel fixed z-[120] w-44 border border-white/[0.13] p-1.5"
           style={{ left: menu.x, top: menu.y }}
         >
+          <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
           <MenuButton
             label={selected ? 'Remove from agent' : 'Send to agent'}
             accent

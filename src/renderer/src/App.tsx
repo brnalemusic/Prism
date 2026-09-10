@@ -1,4 +1,5 @@
 import { HarnessGitRecoveryCard } from './components/HarnessGitRecoveryCard'
+import { AnswerPrismPill } from './components/AnswerPrismPill'
 import { useGitRecoveries } from './hooks/useGitRecoveries'
 import { buildChatTimeline, anchorStreamingCalls, bindChatTool, upsertChatRound, finishChatTools } from './chatTimeline'
 import { WorkTimeline } from './components/WorkTimeline'
@@ -2371,70 +2372,8 @@ function RealApp(): React.JSX.Element {
     quotedTextRef.current = quotedText
   }, [quotedText])
 
-  const [floatingMenu, setFloatingMenu] = useState<{
-    x: number
-    y: number
-    text: string
-  } | null>(null)
-
-  // Text selection listener for Answer Prism (strictly for AI messages)
-  useEffect(() => {
-    const handleSelectionChange = (): void => {
-      const selection = window.getSelection()
-      if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
-        setFloatingMenu(null)
-        return
-      }
-
-      const text = selection.toString().trim()
-      if (text.length === 0) {
-        setFloatingMenu(null)
-        return
-      }
-
-      // Strictly ensure the selected range is entirely within an AI message container
-      const anchorNode = selection.anchorNode
-      const focusNode = selection.focusNode
-      if (!anchorNode || !focusNode) {
-        setFloatingMenu(null)
-        return
-      }
-
-      const anchorEl = anchorNode instanceof Element ? anchorNode : anchorNode.parentElement
-      const focusEl = focusNode instanceof Element ? focusNode : focusNode.parentElement
-
-      const aiAnchorContainer = anchorEl?.closest('[data-prism-ai-message="true"]')
-      const aiFocusContainer = focusEl?.closest('[data-prism-ai-message="true"]')
-
-      if (!aiAnchorContainer || !aiFocusContainer || aiAnchorContainer !== aiFocusContainer) {
-        setFloatingMenu(null)
-        return
-      }
-
-      try {
-        const range = selection.getRangeAt(0)
-        const rect = range.getBoundingClientRect()
-        if (rect.width === 0 && rect.height === 0) {
-          setFloatingMenu(null)
-          return
-        }
-
-        setFloatingMenu({
-          x: rect.left + rect.width / 2,
-          y: rect.top,
-          text
-        })
-      } catch (e) {
-        // ignore range error
-      }
-    }
-
-    document.addEventListener('selectionchange', handleSelectionChange)
-    return () => {
-      document.removeEventListener('selectionchange', handleSelectionChange)
-    }
-  }, [])
-
+  // Answer Prism selection pill now lives in <AnswerPrismPill />, an
+  // isolated component: selection updates never re-render the app.
   const handleAnswerPrism = useCallback((quoteText: string): void => {
       if (activeView === 'harness') {
         setHarnessTabs((previous) =>
@@ -2449,7 +2388,6 @@ function RealApp(): React.JSX.Element {
       }
       setQuotedText(quoteText)
       window.getSelection()?.removeAllRanges()
-      setFloatingMenu(null)
   }, [activeView])
 
   const isOnlineRef = useRef(isOnline)
@@ -5696,30 +5634,7 @@ function RealApp(): React.JSX.Element {
           handleSend(msg, undefined, undefined, undefined, true)
         }}
       />
-      {floatingMenu && (
-        <div
-          className="fixed z-50 flex items-center justify-center bg-background-secondary/95 border border-white/10 hover:border-accent-secondary/40 hover:bg-white/[0.08] px-3.5 py-1.5 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-md cursor-pointer select-none pointer-events-auto transition-all duration-150 active:scale-95 group animate-soft-pop"
-          style={{
-            left: `${floatingMenu.x}px`,
-            top: `${floatingMenu.y}px`,
-            transform: 'translate(-50%, -100%) translateY(-8px)'
-          }}
-          onMouseDown={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-          }}
-          onClick={() => handleAnswerPrism(floatingMenu.text)}
-        >
-          <Quotes
-            size={14}
-            weight="bold"
-            className="text-accent-secondary mr-1.5 group-hover:scale-110 transition-transform"
-          />
-          <span className="text-xs font-semibold text-text-primary group-hover:text-accent-secondary transition-colors duration-150">
-            Answer Prism
-          </span>
-        </div>
-      )}
+      <AnswerPrismPill onAnswer={handleAnswerPrism} />
 
       {/* Auth & Profile Modals */}
       <AuthModal

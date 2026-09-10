@@ -18,6 +18,7 @@ import {
   Warning
 } from '@phosphor-icons/react'
 import { InputBar, InputBarHandle } from './InputBar'
+import { LiquidGlassSurface } from './LiquidGlassSurface'
 import { HarnessGitControl } from './HarnessGitControl'
 import TodoPanel from './TodoPanel'
 import { QuestionnaireWizard } from './QuestionnaireRenderer'
@@ -377,6 +378,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                   placement === 'top' ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
                 )}
               >
+                <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
                 <div className="px-2.5 py-1 text-[9.5px] font-semibold uppercase tracking-wider text-text-muted flex items-center justify-between">
                   <span>Workspaces</span>
                   <span className="font-mono text-[9px] lowercase font-normal">{recentProjects.length} total</span>
@@ -985,9 +987,16 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       scrollToBottom('smooth')
                       setShowScrollButton(false)
                     }}
-                    className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.12] bg-black/60 text-text-primary shadow-[var(--glass-shadow-md)] backdrop-blur-xl transition-all duration-150 hover:bg-white/[0.1] active:scale-95 cursor-pointer"
+                    className="true-glass pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.12] text-text-primary shadow-[var(--glass-shadow-md)] transition-all duration-150 hover:bg-white/[0.1] active:scale-95 cursor-pointer"
                     title="Scroll to bottom"
                   >
+                    <LiquidGlassSurface
+                      refraction={10}
+                      blur={2}
+                      opacity={0.3}
+                      specular={0.12}
+                      distortionRadius={10}
+                    />
                     <CaretDown size={14} />
                   </button>
                   </motion.div>

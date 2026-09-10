@@ -11,18 +11,21 @@ export interface LiquidGlassSurfaceProps {
   distortionRadius?: number
   centerAttenuation?: number
   centerBlur?: number
+  /** Filter-chain saturation lift (1 = neutral). Compensates tint damping. */
+  saturation?: number
 }
 
 /** Decorative child of a positioned glass host; controls remain in the normal DOM. */
 export function LiquidGlassSurface({
   refraction = 30,
-  blur = 0.3,
-  chromaticAberration = 0.4,
-  specular = 0.07,
+  blur = 2,
+  chromaticAberration = 0.5,
+  specular = 0.09,
   opacity = 0.28,
   distortionRadius = 28,
   centerAttenuation = 0,
-  centerBlur = 0
+  centerBlur = 0,
+  saturation = 1.35
 }: LiquidGlassSurfaceProps): React.JSX.Element {
   const { mode } = usePerformanceMode()
   const id = `prism-glass-${useId().replace(/:/g, '')}`
@@ -106,13 +109,19 @@ export function LiquidGlassSurface({
     return () => host.removeAttribute('data-liquid-glass')
   }, [active, geometry])
 
+  // The folded lens profile peaks at |D| = 1 near the rim and inverts to
+  // -0.16 inside the band. Clamp the displacement scale so the largest
+  // sample offset stays inside the plate: outward sampling would fall
+  // outside the compositor input and cut transparent notches at corners.
+  const band = Math.max(1, distortionRadius)
+  const scale = Math.max(0, Math.min(refraction, band * 0.9))
   const style = {
     '--liquid-filter': `url("#${id}")`,
     '--liquid-specular': Math.max(0, Math.min(0.3, specular)),
     '--liquid-opacity': Math.max(0, Math.min(1, opacity)),
     '--liquid-center-attenuation': Math.max(0, Math.min(0.3, centerAttenuation)),
     '--liquid-center-blur': `${Math.max(0, centerBlur)}px`,
-    '--liquid-edge-band': `${distortionRadius}px`
+    '--liquid-edge-band': `${band}px`
   } as CSSProperties
   return (
     <span ref={anchor} className="liquid-glass-anchor" aria-hidden="true" style={style}>
@@ -146,7 +155,7 @@ export function LiquidGlassSurface({
                 <feDisplacementMap
                   in="backdrop"
                   in2="smoothNormals"
-                  scale={refraction}
+                  scale={scale}
                   xChannelSelector="R"
                   yChannelSelector="G"
                   result="green"
@@ -154,7 +163,7 @@ export function LiquidGlassSurface({
                 <feDisplacementMap
                   in="backdrop"
                   in2="smoothNormals"
-                  scale={refraction + chromaticAberration}
+                  scale={scale + chromaticAberration}
                   xChannelSelector="R"
                   yChannelSelector="G"
                   result="red"
@@ -162,7 +171,7 @@ export function LiquidGlassSurface({
                 <feDisplacementMap
                   in="backdrop"
                   in2="smoothNormals"
-                  scale={refraction - chromaticAberration}
+                  scale={Math.max(0, scale - chromaticAberration)}
                   xChannelSelector="R"
                   yChannelSelector="G"
                   result="blue"
@@ -187,7 +196,14 @@ export function LiquidGlassSurface({
                 />
                 <feBlend in="r" in2="g" mode="screen" result="rg" />
                 <feBlend in="rg" in2="b" mode="screen" result="rgb" />
-                <feColorMatrix in="rgb" type="saturate" values="1.12" />
+                {/* Lift saturation and brightness back to the vividness the
+                    tint veil damps, matching frosted iOS optics. */}
+                <feColorMatrix in="rgb" type="saturate" values={String(saturation)} />
+                <feComponentTransfer>
+                  <feFuncR type="linear" slope="1.04" intercept="0" />
+                  <feFuncG type="linear" slope="1.04" intercept="0" />
+                  <feFuncB type="linear" slope="1.04" intercept="0" />
+                </feComponentTransfer>
               </filter>
             </defs>
           </svg>
