@@ -42,6 +42,7 @@ import type {
 } from '../../../shared/types'
 import { triggerErrorPopup, isShortcutPressed } from '../utils'
 import { HARNESS_EXPLORER_MIME } from './HarnessExplorer'
+import { LiquidGlassSurface } from './LiquidGlassSurface'
 
 interface InputBarProps {
   onSend: (
@@ -1464,6 +1465,7 @@ export const InputBar = React.memo(
                 isExplorerDropTarget && 'ring-2 ring-accent-primary/70 bg-accent-primary/5'
               )}
             >
+              <LiquidGlassSurface blur={2} centerAttenuation={0.16} />
               {/* Focus light: a faint bloom from above lifts the pane when active */}
               <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none">
                 <div
@@ -1604,6 +1606,7 @@ export const InputBar = React.memo(
                 isExplorerDropTarget && 'ring-2 ring-accent-primary/70 bg-accent-primary/5'
               )}
             >
+              <LiquidGlassSurface blur={2} centerAttenuation={0.16} />
               {/* Focus light: a faint bloom from above lifts the pane when active */}
               <div className="absolute inset-0 rounded-[28px] overflow-hidden pointer-events-none">
                 <div

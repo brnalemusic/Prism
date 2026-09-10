@@ -218,6 +218,7 @@ Prism features a signature **Prism Marine** visual aesthetic built on **Tailwind
 - 🔤 **Modern Typography:** High-legibility variable typefaces — [Geist Variable](https://github.com/vercel/geist-font) for interface elements and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) for codeblocks, tool execution logs, and terminal outputs.
 - 🔍 **Dynamic UI Scaling:** Configurable zoom factors ranging from `0.5x` to `3.0x` for seamless adaptation to 4K and ultra-wide displays.
 - ✨ **Fluid Micro-Animations:** Real-time token streaming cursors, animated thinking state expanders, and transparent desktop HUD overlays.
+- **Liquid Glass (Max only):** The InputBar and model/reasoning menus refract the live Chromium backdrop through geometry-aware SVG filters. Auto retains standard glass; Performance retains opaque surfaces. Reduced motion/transparency disables refraction. See [Liquid Glass rendering](resources/docs/liquid_glass.md) for architecture and validation.
 
 ---
 

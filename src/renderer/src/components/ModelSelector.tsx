@@ -10,6 +10,7 @@ import {
 } from '@phosphor-icons/react'
 import { clsx } from 'clsx'
 import { isShortcutPressed } from '../utils'
+import { LiquidGlassSurface } from './LiquidGlassSurface'
 import type { CompletionType } from '../../../shared/types'
 import type {
   ImageGenerationCapabilities,
@@ -270,6 +271,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
               align === 'left' ? 'left-0' : 'right-0'
             )}
           >
+            <LiquidGlassSurface refraction={7} blur={2} opacity={0.72} distortionRadius={14} />
             {/* Search Box */}
             <div className="border-b border-white/[0.08] bg-white/[0.02] p-2.5">
               <div className="relative">

@@ -1480,7 +1480,7 @@ export function SettingsView({
       <div className="space-y-4">
         <SettingsGroupLabel
           title="Rendering Performance"
-          description="Auto keeps full visuals with cinematic streaming. Performance (Beta) removes blur and glass effects for maximum fluidity. Max adds an unblur reveal to streaming."
+          description="Auto keeps standard visuals. Performance (Beta) removes blur and glass effects. Max adds live Liquid Glass refraction and an unblur reveal to streaming."
         />
         <div className="settings-card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col">
@@ -1495,7 +1495,7 @@ export function SettingsView({
               {performanceMode === 'performance'
                 ? 'Lightweight look with fade-only streaming, no blur or glassmorphism.'
                 : performanceMode === 'max'
-                  ? 'Full visuals with fade, tint, and unblur streaming reveal.'
+                  ? 'Live Liquid Glass refraction with fade, tint, and unblur streaming reveal.'
                   : 'Auto uses full visuals when idle with an imperceptible step-down while streaming.'}
             </span>
           </div>

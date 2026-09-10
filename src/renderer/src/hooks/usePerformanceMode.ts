@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 
 export type PerformanceMode = 'auto' | 'performance' | 'max'
 
@@ -6,6 +6,35 @@ const STORAGE_KEY = 'prism-performance-mode'
 const UNDER_LOAD_CLASS = 'perf-under-load'
 const MAX_CLASS = 'perf-max'
 const PERFORMANCE_CLASS = 'perf-performance'
+const MODE_EVENT = 'prism-performance-mode-changed'
+
+function subscribeMode(listener: () => void): () => void {
+  window.addEventListener(MODE_EVENT, listener)
+  window.addEventListener('storage', listener)
+  return () => {
+    window.removeEventListener(MODE_EVENT, listener)
+    window.removeEventListener('storage', listener)
+  }
+}
+
+let sessionMode: PerformanceMode | undefined
+
+function getMode(): PerformanceMode {
+  return sessionMode ?? readStoredMode()
+}
+
+function setMode(next: PerformanceMode): void {
+  sessionMode = next
+  try {
+    window.localStorage.setItem(STORAGE_KEY, next)
+    sessionMode = undefined
+  } catch {
+    // Keep the session preference when storage is unavailable.
+  }
+  document.documentElement.classList.toggle(MAX_CLASS, next === 'max')
+  document.documentElement.classList.toggle(PERFORMANCE_CLASS, next === 'performance')
+  window.dispatchEvent(new Event(MODE_EVENT))
+}
 
 function readStoredMode(): PerformanceMode {
   try {
@@ -30,21 +59,12 @@ export function usePerformanceMode(): {
   mode: PerformanceMode
   setMode: (mode: PerformanceMode) => void
 } {
-  const [mode, setModeState] = useState<PerformanceMode>(() => readStoredMode())
+  const mode = useSyncExternalStore(subscribeMode, getMode, () => 'auto' as const)
 
   useEffect(() => {
     document.documentElement.classList.toggle(MAX_CLASS, mode === 'max')
     document.documentElement.classList.toggle(PERFORMANCE_CLASS, mode === 'performance')
   }, [mode])
-
-  const setMode = useCallback((next: PerformanceMode) => {
-    setModeState(next)
-    try {
-      window.localStorage.setItem(STORAGE_KEY, next)
-    } catch {
-      // Storage is best-effort; mode still applies for this session.
-    }
-  }, [])
 
   return { mode, setMode }
 }
