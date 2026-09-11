@@ -9,9 +9,9 @@
 // Per-mode behavior (mode is read from the documentElement classes applied
 // by usePerformanceMode, so spans pick it up at mount with zero subscription
 // cost):
-// - auto: fade-in 0.8s + letter tint 1.2s, no blur.
-// - max: fade-in 0.8s + letter tint 1.2s + unblur 1.0s (cinematic).
-// - performance (Beta): fade-in only, fast, no tint and no blur.
+// - auto (Medium): fade-in 0.8s + letter tint 1.2s, no blur.
+// - max (Maximum): fade-in 0.8s + letter tint 1.2s + unblur 1.0s (cinematic).
+// - performance: fade-in only, fast, no tint and no blur.
 // - auto under heavy load: fade-in only at the previous fast timing.
 //
 // The tint animates between two concrete colors because Motion cannot
@@ -101,7 +101,7 @@ export interface StreamingMotionProps {
 }
 
 // Builds the Motion props for one streaming span. `tint` selects the full
-// fade + tint (+ unblur in Max) path; `false` selects the opacity-only path
+// fade + tint (+ unblur in Maximum) path; `false` selects the opacity-only path
 // used for code blocks, math, and link text.
 export function getStreamingCharMotion(delayMs: number, tint: boolean): StreamingMotionProps {
   if (prefersReducedStreamingMotion()) {

@@ -54,8 +54,8 @@ Users can scale the entire user interface dynamically to match high-DPI displays
 ### 4.1. Glassmorphism Panels
 Panels, modals, floating action bars, and the Quick Launcher utilize backdrop blur filters (`backdrop-blur-md`, `backdrop-blur-xl`) with semi-transparent background colors (`rgba(..., 0.75)`).
 
-### 4.1.1. Liquid Glass optics (Max mode)
-In Max performance mode, true-glass surfaces mount a real refraction layer (`LiquidGlassSurface`): an SVG `feDisplacementMap` fed by a generated normal field bends the live backdrop at the edges — compression, fold/inversion and a slight magnification dip, in the manner of iOS Liquid Glass — with chromatic aberration, saturation lift and rim lighting. Center blur intentionally equals the band blur so background text stays recognizable without competing with foreground text. The effect covers the InputBar, Quick Launcher, all dropdown menus (model selector, attach `+`, session/permission modes, TabBar and harness menus), docked panels and small pills (scroll-to-bottom, citation). Details and tuning constants: `resources/docs/liquid_glass.md`.
+### 4.1.1. Liquid Glass optics (Maximum mode)
+In Maximum performance mode, true-glass surfaces mount a real refraction layer (`LiquidGlassSurface`): an SVG `feDisplacementMap` fed by a generated normal field bends the live backdrop at the edges — compression, fold/inversion and a slight magnification dip, in the manner of iOS Liquid Glass — with chromatic aberration, saturation lift and rim lighting. Center blur intentionally equals the band blur so background text stays recognizable without competing with foreground text. The effect covers the InputBar, Quick Launcher, all dropdown menus (model selector, attach `+`, session/permission modes, TabBar and harness menus), docked panels and small pills (scroll-to-bottom, citation). Details and tuning constants: `resources/docs/liquid_glass.md`.
 
 ### 4.2. Streamed Markdown Rendering
 Chat bubbles render live token streams using `react-markdown` + `rehype-raw` + `rehype-katex` + `prismjs`. Math expressions (LaTeX `\(...\)` or `$$...$$`) compile smoothly via KaTeX without causing layout shifts.
@@ -73,9 +73,9 @@ menus). Chat rows use `content-visibility: auto` virtualization, syntax highligh
 Prism token cache, and the streaming timeline keeps a capped live window with
 identical final output. Streaming reveal is driven by the `motion` library
 (`AnimatedStreamingText` + `streamingMotion`): fade-in 0.8s plus a letter
-tint of 1.2s, with an additional 1.0s unblur in Max mode only (blur is never
+tint of 1.2s, with an additional 1.0s unblur in Maximum mode only (blur is never
 animated in other modes for frame-budget safety). `Settings > Appearance >
-Rendering Performance` offers `Auto` (default, full visuals with a temporary
-imperceptible step-down under load), `Performance (Beta)` (lightweight look:
+Rendering Performance` offers `Medium` (default, full visuals with a temporary
+imperceptible step-down under load), `Performance` (lightweight look:
 no backdrop blur or glassmorphism, fade-only streaming for maximum fluidity),
-and `Max` (cinematic streaming with fade, tint, and unblur).
+and `Maximum` (cinematic streaming with fade, tint, and unblur).

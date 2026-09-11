@@ -48,11 +48,11 @@ function readStoredMode(): PerformanceMode {
 
 /**
  * Performance mode with the current look as default.
- * - auto: full visuals when idle, temporary imperceptible step-down
+ * - auto (Medium): full visuals when idle, temporary imperceptible step-down
  *   (blur 44px -> 28px, opacity-only streaming fade) during heavy load.
- * - performance (Beta): lightweight look, no backdrop blur or glassmorphism,
+ * - performance: lightweight look, no backdrop blur or glassmorphism,
  *   opacity-only streaming fade for maximum fluidity.
- * - max: cinematic streaming (fade + tint + unblur) with stronger
+ * - max (Maximum): cinematic streaming (fade + tint + unblur) with stronger
  *   containment applied.
  */
 export function usePerformanceMode(): {

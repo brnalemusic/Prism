@@ -1446,7 +1446,7 @@
      These keyframes are the universal safety net: any plain span carrying
      the classes (other render paths, partially updated bundles) animates
      identically, with the same timings and per-mode behavior.
-     Auto: fade 0.8s + tint 1.2s. Max (perf-max): adds unblur 1.0s.
+     Medium: fade 0.8s + tint 1.2s. Maximum (perf-max): adds unblur 1.0s.
      Performance / under-load: fade-only. */
   @keyframes streaming-character-opacity {
     from {
@@ -3140,7 +3140,7 @@
   contain-intrinsic-size: auto 320px;
 }
 
-/* Performance (Beta) mode: extremely lightweight look with no
+/* Performance mode: extremely lightweight look with no
    post-processing. Backdrop blur and glassmorphism are removed globally
    (blur is the biggest frame cost), background orbs and grain are hidden,
    and decorative CSS animations/transitions collapse to instant. The

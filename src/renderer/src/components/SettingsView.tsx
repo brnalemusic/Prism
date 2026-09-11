@@ -1644,32 +1644,32 @@ export function SettingsView({
       <div className="space-y-4">
         <SettingsGroupLabel
           title="Rendering Performance"
-          description="Auto keeps standard visuals. Performance (Beta) removes blur and glass effects. Max adds live Liquid Glass refraction and an unblur reveal to streaming."
+          description="Medium keeps standard visuals. Performance removes blur and glass effects. Maximum adds live Liquid Glass refraction and an unblur reveal to streaming."
         />
         <div className="settings-card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col">
             <span className="text-xs font-semibold text-text-primary">
               {performanceMode === 'max'
-                ? 'Max cinematic on'
+                ? 'Maximum cinematic on'
                 : performanceMode === 'performance'
-                  ? 'Performance on (Beta)'
-                  : 'Auto smoothness on'}
+                  ? 'Performance on'
+                  : 'Medium smoothness on'}
             </span>
             <span className="text-[11px] text-text-muted">
               {performanceMode === 'performance'
                 ? 'Lightweight look with fade-only streaming, no blur or glassmorphism.'
                 : performanceMode === 'max'
                   ? 'Live Liquid Glass refraction with fade, tint, and unblur streaming reveal.'
-                  : 'Auto uses full visuals when idle with an imperceptible step-down while streaming.'}
+                  : 'Medium uses full visuals when idle with an imperceptible step-down while streaming.'}
             </span>
           </div>
           <div className="flex items-center gap-2">
             {(
               [
-                { id: 'auto', label: 'Auto' },
-                { id: 'performance', label: 'Performance', beta: true },
-                { id: 'max', label: 'Max' }
-              ] as Array<{ id: PerformanceMode; label: string; beta?: boolean }>
+                { id: 'performance', label: 'Performance' },
+                { id: 'auto', label: 'Medium' },
+                { id: 'max', label: 'Maximum' }
+              ] as Array<{ id: PerformanceMode; label: string }>
             ).map((option) => {
               const isActive = performanceMode === option.id
               return (
@@ -1685,11 +1685,6 @@ export function SettingsView({
                   )}
                 >
                   {option.label}
-                  {option.beta && (
-                    <span className="rounded px-1 py-px text-[9px] font-bold uppercase tracking-wider border border-accent-primary/40 bg-accent-primary/10">
-                      Beta
-                    </span>
-                  )}
                 </button>
               )
             })}
