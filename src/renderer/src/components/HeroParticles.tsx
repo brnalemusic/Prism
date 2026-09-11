@@ -75,6 +75,13 @@ export function HeroParticles({
       const rect = canvas.getBoundingClientRect()
       const nextX = e.clientX - rect.left
       const nextY = e.clientY - rect.top
+      // Ignore the cursor outside the canvas box: the listener is
+      // window-level (the canvas is pointer-transparent), so without this
+      // the glyph would react even when the mouse is far away from it.
+      if (nextX < 0 || nextY < 0 || nextX > rect.width || nextY > rect.height) {
+        mouse.active = false
+        return
+      }
       if (mouse.active) {
         // Smoothed cursor velocity for the fluid drag term.
         mouse.svx = mouse.svx * 0.7 + (nextX - mouse.x) * 0.3

@@ -89,7 +89,12 @@ void main() {
   float coreMask = 1.0 - smoothstep(vCoreR * 0.45, vCoreR, r);
   vec3 coreCol = mix(rgb * 0.9 + 0.1, vec3(1.0), vSparkle);
   vec3 col = coreCol * vCoreA * coreMask + rgb * vHaloA * falloff * falloff;
-  gl_FragColor = vec4(col, 1.0);
+  // Alpha = peak channel of the already-premultiplied color, NOT 1.0: with
+  // premultiplied-alpha compositing, a=1 makes every covered pixel opaque, so
+  // dim sprite rims rendered as opaque black discs — sparse flung particles
+  // punched black patches over the glyph (the "black slice" artifact). Peak
+  // alpha keeps dense areas volumetric while sparse rims stay transparent.
+  gl_FragColor = vec4(col, clamp(max(col.r, max(col.g, col.b)), 0.0, 1.0));
 }
 `
 

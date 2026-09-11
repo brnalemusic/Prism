@@ -528,6 +528,8 @@ export function SettingsView({
   const [lastClickTimestamp, setLastClickTimestamp] = useState(0)
   const [isEasterEggOpen, setIsEasterEggOpen] = useState(false)
   const [unlockedThisSession, setUnlockedThisSession] = useState(false)
+  const [isConfirmingHeroReset, setIsConfirmingHeroReset] = useState(false)
+  const [isResettingHero, setIsResettingHero] = useState(false)
 
   // License State
   const [licenseInfo, setLicenseInfo] = useState<
@@ -793,6 +795,30 @@ export function SettingsView({
       window.api.saveConfig({ heroUnlocked: true })
       return { ...prev, heroUnlocked: true }
     })
+  }, [])
+
+  const arcadeOnResetProgress = useCallback(async (): Promise<void> => {
+    setIsResettingHero(true)
+    try {
+      // Scores and unlock vanish; the theme snaps back to the default. A
+      // failed revert is retried once after the main-process config round-trip.
+      window.api.saveConfig({ arcadeScores: {}, heroUnlocked: false, theme: 'marine' })
+      const saved = await window.api.getConfig()
+      const themeReverted = (saved?.theme ?? 'marine') === 'marine' && saved?.heroUnlocked !== true
+      if (!themeReverted) window.api.saveConfig({ theme: 'marine' })
+      setConfig((prev) =>
+        prev ? { ...prev, arcadeScores: {}, heroUnlocked: false, theme: 'marine' } : prev
+      )
+      document.documentElement.setAttribute('data-theme', 'marine')
+      setUnlockedThisSession(false)
+      setIsConfirmingHeroReset(false)
+      setMessage({
+        text: 'Arcade progress reset. The Hero theme is locked again — beat all nine games to re-earn it.',
+        type: 'success'
+      })
+    } finally {
+      setIsResettingHero(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -1308,7 +1334,7 @@ export function SettingsView({
           {(
             [
               {
-                id: '              marine',
+                id: 'marine',
                 label: 'Marine',
                 accent: '#38bdf8',
                 sidebar: '#030D15',
@@ -1419,6 +1445,75 @@ export function SettingsView({
           })}
         </div>
       </div>
+
+      {heroUnlocked && (
+        <>
+          <div className="h-px bg-[var(--border-subtle)]" />
+          <div className="space-y-3.5">
+            <SettingsGroupLabel
+              title="Hero Progress"
+              description="Arcade high scores and the Hero theme unlock."
+            />
+            <div className="settings-card">
+              {!isConfirmingHeroReset ? (
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
+                      <RotateCcw size={20} weight="duotone" />
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-xs font-semibold text-text-primary">
+                        Reset Arcade Progress
+                      </span>
+                      <span className="text-[11px] text-text-muted">
+                        Clears all nine high scores and re-locks the Hero theme.
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsConfirmingHeroReset(true)}
+                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-[11px] font-bold text-red-400 cursor-pointer hover:bg-red-500/20 active:scale-95 transition-all"
+                  >
+                    <RotateCcw size={12} weight="bold" /> Reset
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2.5">
+                    <Warning size={16} weight="fill" className="mt-0.5 shrink-0 text-red-400" />
+                    <p className="text-[11px] leading-relaxed text-text-secondary">
+                      This permanently clears all nine Arcade high scores, revokes the Hero theme
+                      and its custom interface benefits, and switches Prism back to the Marine
+                      theme. You can re-earn everything by beating all nine games again. This
+                      cannot be undone.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmingHeroReset(false)}
+                      disabled={isResettingHero}
+                      className="rounded-lg border border-[var(--border-default)] bg-[var(--surface-lowest)] px-3 py-1.5 text-[11px] font-semibold text-text-secondary cursor-pointer hover:text-text-primary hover:border-[var(--border-strong)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void arcadeOnResetProgress()}
+                      disabled={isResettingHero}
+                      className="flex items-center gap-1.5 rounded-lg border border-red-500/40 bg-red-500/15 px-3 py-1.5 text-[11px] font-bold text-red-300 cursor-pointer hover:bg-red-500/25 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all"
+                    >
+                      <Trash size={12} weight="bold" />
+                      {isResettingHero ? 'Resetting…' : 'Reset progress permanently'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="h-px bg-[var(--border-subtle)]" />
 

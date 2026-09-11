@@ -23,6 +23,27 @@ const DAMPING = 0.9
 /** Per-step amplitude of the idle shimmer (coherent brownian wobble). */
 const IDLE_WOBBLE = 0.05
 
+/**
+ * Containment: the canvas clips at its own box, so a particle flung past the
+ * edge would vanish mid-glyph and read as a hard black slice through the "9".
+ * A soft force wall engages EDGE_SLACK beyond the glyph's home bounds (only
+ * particles already outside it, so resting particles feel nothing); a hard
+ * clamp at the canvas edge with damped reflection is the absolute backstop.
+ * Stiffness matters: the stage glyph sits ~3% below the canvas top, so the
+ * wall must stop even a cursor parked on the edge (sustained push ≈ force /
+ * WALL_RETURN ≈ 7px of penetration) within that margin. At DAMPING = 0.9 the
+ * wall is critically damped — no overshoot, no jitter.
+ */
+const EDGE_SLACK = 3
+const WALL_RETURN = 0.2
+const EDGE_INSET = 2
+const EDGE_BOUNCE = 0.35
+/**
+ * Per-step speed cap (px per 60 Hz step). Bounds how far one violent cursor
+ * sweep can fling a particle before the walls and home spring take over.
+ */
+const MAX_SPEED = 20
+
 export type HeroMode = 'stage' | 'backdrop'
 
 export interface HeroModeConfig {
@@ -56,10 +77,10 @@ export const MODE_CONFIGS: Record<HeroMode, HeroModeConfig> = {
     sizeMul: 1.2,
     alphaMul: 1,
     hueSpeed: 16,
-    mouseRadius: 175,
-    mouseForce: 1.4,
-    mouseDrag: 0.085,
-    mouseSwirl: 0.5
+    mouseRadius: 85,
+    mouseForce: 0.5,
+    mouseDrag: 0.03,
+    mouseSwirl: 0.18
   },
   backdrop: {
     heightFill: 0.8,
@@ -71,10 +92,10 @@ export const MODE_CONFIGS: Record<HeroMode, HeroModeConfig> = {
     sizeMul: 0.9,
     alphaMul: 0.4,
     hueSpeed: 11,
-    mouseRadius: 190,
-    mouseForce: 0.62,
-    mouseDrag: 0.05,
-    mouseSwirl: 0.3
+    mouseRadius: 90,
+    mouseForce: 0.25,
+    mouseDrag: 0.02,
+    mouseSwirl: 0.12
   }
 }
 
@@ -104,6 +125,30 @@ export type MouseState = {
 
 export function createMouseState(): MouseState {
   return { x: -9999, y: -9999, svx: 0, svy: 0, active: false }
+}
+
+/** Axis-aligned bounds of the particles' home positions (glyph extents). */
+interface HomeBounds {
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+}
+
+function computeHomeBounds(particles: HeroParticle[]): HomeBounds {
+  let minX = Infinity
+  let maxX = -Infinity
+  let minY = Infinity
+  let maxY = -Infinity
+  for (let i = 0; i < particles.length; i++) {
+    const hx = particles[i].hx
+    const hy = particles[i].hy
+    if (hx < minX) minX = hx
+    if (hx > maxX) maxX = hx
+    if (hy < minY) minY = hy
+    if (hy > maxY) maxY = hy
+  }
+  return { minX, maxX, minY, maxY }
 }
 
 /**
@@ -225,12 +270,15 @@ export interface Simulation {
 
 export function createSimulation(
   mode: HeroMode,
-  width: number,
-  height: number
+  width0: number,
+  height0: number
 ): Simulation {
   const cfg = MODE_CONFIGS[mode]
   const mouse = createMouseState()
-  let particles = buildParticles(width, height, cfg)
+  let width = width0
+  let height = height0
+  let particles = buildParticles(width0, height0, cfg)
+  let home = computeHomeBounds(particles)
   let acc = 0
   let simTime = 0
   let hueShift = 0
@@ -248,7 +296,10 @@ export function createSimulation(
       return hueShift
     },
     resize(w: number, h: number): void {
+      width = w
+      height = h
       particles = buildParticles(w, h, cfg)
+      home = computeHomeBounds(particles)
     },
     advance(dt: number): void {
       acc += dt
@@ -256,7 +307,7 @@ export function createSimulation(
       while (acc >= STEP && steps < MAX_STEPS) {
         simTime += STEP
         hueShift = (hueShift + cfg.hueSpeed * STEP) % 360
-        stepAll(particles, cfg, mouse, simTime)
+        stepAll(particles, cfg, mouse, simTime, home, width, height)
         acc -= STEP
         steps++
       }
@@ -266,7 +317,7 @@ export function createSimulation(
       for (let i = 0; i < steps; i++) {
         simTime += STEP
         hueShift = (hueShift + cfg.hueSpeed * STEP) % 360
-        stepAll(particles, cfg, mouse, simTime)
+        stepAll(particles, cfg, mouse, simTime, home, width, height)
       }
     }
   }
@@ -277,7 +328,10 @@ function stepAll(
   particles: HeroParticle[],
   cfg: HeroModeConfig,
   mouse: MouseState,
-  simTime: number
+  simTime: number,
+  home: HomeBounds,
+  canvasW: number,
+  canvasH: number
 ): void {
   const pushR2 = cfg.mouseRadius * cfg.mouseRadius
   for (let i = 0; i < particles.length; i++) {
@@ -306,9 +360,46 @@ function stepAll(
         p.vy += (dx / dist) * swirl
       }
     }
+    // Containment: soft force wall just past the glyph's home bounds, so a
+    // flung particle decelerates and turns around before reaching the canvas
+    // edge (which would clip it — a hard black slice through the glyph).
+    const slackL = home.minX - EDGE_SLACK
+    const slackR = home.maxX + EDGE_SLACK
+    const slackT = home.minY - EDGE_SLACK
+    const slackB = home.maxY + EDGE_SLACK
+    if (p.x < slackL) p.vx += (slackL - p.x) * WALL_RETURN
+    else if (p.x > slackR) p.vx += (slackR - p.x) * WALL_RETURN
+    if (p.y < slackT) p.vy += (slackT - p.y) * WALL_RETURN
+    else if (p.y > slackB) p.vy += (slackB - p.y) * WALL_RETURN
     p.vx *= DAMPING
     p.vy *= DAMPING
+    // Speed cap: bounds the fling a violent sweep can impart.
+    const sp2 = p.vx * p.vx + p.vy * p.vy
+    if (sp2 > MAX_SPEED * MAX_SPEED) {
+      const s = MAX_SPEED / Math.sqrt(sp2)
+      p.vx *= s
+      p.vy *= s
+    }
     p.x += p.vx
     p.y += p.vy
+    // Hard clamp at the canvas edge: the absolute guarantee that no particle
+    // ever renders outside the canvas box (damped reflection keeps the pile
+    // from sticking).
+    const limR = canvasW - EDGE_INSET
+    const limB = canvasH - EDGE_INSET
+    if (p.x < EDGE_INSET) {
+      p.x = EDGE_INSET
+      if (p.vx < 0) p.vx = -p.vx * EDGE_BOUNCE
+    } else if (p.x > limR) {
+      p.x = limR
+      if (p.vx > 0) p.vx = -p.vx * EDGE_BOUNCE
+    }
+    if (p.y < EDGE_INSET) {
+      p.y = EDGE_INSET
+      if (p.vy < 0) p.vy = -p.vy * EDGE_BOUNCE
+    } else if (p.y > limB) {
+      p.y = limB
+      if (p.vy > 0) p.vy = -p.vy * EDGE_BOUNCE
+    }
   }
 }
