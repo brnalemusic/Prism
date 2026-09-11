@@ -85,12 +85,10 @@ function saveWindowState(state: WindowState): void {
 }
 
 function getIconPath(): string {
+  // Icon assets only exist for the eight classic themes; the Hero theme keeps
+  // the default marine icon.
   const configuredTheme = currentConfig.theme || 'marine'
-  const theme =
-    configuredTheme === 'rgb' &&
-    !(currentConfig.rgbThemeExpiry && Date.now() < currentConfig.rgbThemeExpiry)
-      ? 'marine'
-      : configuredTheme
+  const theme = configuredTheme === 'hero' ? 'marine' : configuredTheme
   const extension = process.platform === 'win32' ? 'ico' : 'png'
   return app.isPackaged
     ? join(process.resourcesPath, 'resources', 'icons', `prism-${theme}.${extension}`)

@@ -14,6 +14,7 @@ import {
   MagnifyingGlassPlus as ZoomIcon,
   TerminalWindow,
   Check,
+  Lock,
   Warning,
   Lightning,
   Plus,
@@ -85,7 +86,7 @@ import type {
 } from '../../../shared/memoryCore'
 import { ApiManagerSettings } from './ApiManagerSettings'
 import { ModelSelector } from './ModelSelector'
-import { QuantumPhysicsGame } from './QuantumPhysicsGame'
+import { ArcadeGame } from './ArcadeGame'
 import { usePerformanceMode } from '../hooks/usePerformanceMode'
 import type { PerformanceMode } from '../hooks/usePerformanceMode'
 
@@ -522,10 +523,11 @@ export function SettingsView({
   const [availableTools, setAvailableTools] =
     useState<Array<{ name: string; label: string; desc: string }>>(STATIC_TOOLS)
 
-  // Easter Egg State
+  // Easter Egg State — Prism Arcade (nine games unlock the Hero theme)
   const [easterEggClicks, setEasterEggClicks] = useState(0)
   const [lastClickTimestamp, setLastClickTimestamp] = useState(0)
   const [isEasterEggOpen, setIsEasterEggOpen] = useState(false)
+  const [unlockedThisSession, setUnlockedThisSession] = useState(false)
 
   // License State
   const [licenseInfo, setLicenseInfo] = useState<
@@ -769,6 +771,30 @@ export function SettingsView({
     setLastClickTimestamp(now)
   }
 
+  const heroUnlocked = config?.heroUnlocked === true
+
+  const arcadeGetHighScore = useCallback(
+    (gameId: string): number => config?.arcadeScores?.[gameId] ?? 0,
+    [config]
+  )
+
+  const arcadeSaveHighScore = useCallback((gameId: string, score: number): void => {
+    setConfig((prev) => {
+      const nextScores = { ...(prev?.arcadeScores || {}), [gameId]: score }
+      window.api.saveConfig({ arcadeScores: nextScores })
+      return prev ? { ...prev, arcadeScores: nextScores } : prev
+    })
+  }, [])
+
+  const arcadeOnHeroUnlocked = useCallback((): void => {
+    setUnlockedThisSession(true)
+    setConfig((prev) => {
+      if (!prev || prev.heroUnlocked) return prev
+      window.api.saveConfig({ heroUnlocked: true })
+      return { ...prev, heroUnlocked: true }
+    })
+  }, [])
+
   useEffect(() => {
     async function fetchTools(): Promise<void> {
       try {
@@ -827,7 +853,8 @@ export function SettingsView({
           zoomFactor: savedConfig.zoomFactor ?? 1.0,
           terminalShell: savedConfig.terminalShell || 'powershell.exe',
           workflows: savedConfig.workflows || [],
-          rgbThemeExpiry: savedConfig.rgbThemeExpiry,
+          heroUnlocked: savedConfig.heroUnlocked === true,
+          arcadeScores: savedConfig.arcadeScores || {},
           sessionMode: savedConfig.sessionMode || 'execution',
           disciplinePath: savedConfig.disciplinePath || ''
         })
@@ -857,7 +884,8 @@ export function SettingsView({
           zoomFactor: cfg.zoomFactor ?? prev.zoomFactor ?? 1.0,
           terminalShell: cfg.terminalShell ?? prev.terminalShell ?? 'powershell.exe',
           workflows: cfg.workflows || prev.workflows || [],
-          rgbThemeExpiry: cfg.rgbThemeExpiry ?? prev.rgbThemeExpiry,
+          heroUnlocked: cfg.heroUnlocked ?? prev.heroUnlocked ?? false,
+          arcadeScores: cfg.arcadeScores ?? prev.arcadeScores ?? {},
           sessionMode: cfg.sessionMode || prev.sessionMode || 'execution',
           disciplinePath: cfg.disciplinePath ?? prev.disciplinePath ?? ''
         }))
@@ -1280,7 +1308,7 @@ export function SettingsView({
           {(
             [
               {
-                id: 'marine',
+                id: '              marine',
                 label: 'Marine',
                 accent: '#38bdf8',
                 sidebar: '#030D15',
@@ -1292,9 +1320,25 @@ export function SettingsView({
               { id: 'forest', label: 'Forest', accent: '#22c55e', sidebar: '#04120A' },
               { id: 'indigo', label: 'Indigo', accent: '#6366f1', sidebar: '#070918' },
               { id: 'violet', label: 'Violet', accent: '#a855f7', sidebar: '#100718' },
-              { id: 'white', label: 'White', accent: '#ffffff', sidebar: '#080808' }
+              { id: 'white', label: 'White', accent: '#ffffff', sidebar: '#080808' },
+              {
+                id: 'hero' as const,
+                label: 'Hero',
+                accent: 'linear-gradient(135deg, #38bdf8, #f472b6, #facc15)',
+                sidebar: '#050505',
+                tag: heroUnlocked ? 'Unlocked' : 'Arcade 9/9'
+              }
             ] as Array<{
-              id: 'marine' | 'fire' | 'lava' | 'gold' | 'forest' | 'indigo' | 'violet' | 'white'
+              id:
+                | 'marine'
+                | 'fire'
+                | 'lava'
+                | 'gold'
+                | 'forest'
+                | 'indigo'
+                | 'violet'
+                | 'white'
+                | 'hero'
               label: string
               accent: string
               sidebar: string
@@ -1302,11 +1346,19 @@ export function SettingsView({
             }>
           ).map(({ id, label, accent, sidebar, tag }) => {
             const isActive = (config.theme || 'marine') === id
+            const isHeroLocked = id === 'hero' && !heroUnlocked
             return (
               <button
                 key={id}
                 type="button"
                 onClick={() => {
+                  if (isHeroLocked) {
+                    setMessage({
+                      text: 'Beat all nine Prism Arcade games to unlock the Hero theme.',
+                      type: 'info'
+                    })
+                    return
+                  }
                   setConfig({ ...config, theme: id })
                   document.documentElement.setAttribute('data-theme', id)
                   window.api.saveConfig({ theme: id })
@@ -1322,7 +1374,24 @@ export function SettingsView({
                   className="relative h-10 w-10 shrink-0 rounded-lg border border-white/10 flex items-center justify-center transition-transform group-hover:scale-105"
                   style={{ background: sidebar }}
                 >
-                  <span className="h-4 w-4 rounded-full shadow-md" style={{ background: accent }} />
+                  <span
+                    className="h-4 w-4 rounded-full shadow-md"
+                    style={id === 'hero' ? { background: accent } : undefined}
+                  >
+                    {id === 'hero' && (
+                      <span
+                        className="block h-4 w-4 rounded-full"
+                        style={{ background: 'linear-gradient(135deg, #38bdf8, #f472b6, #facc15)' }}
+                      />
+                    )}
+                  </span>
+                  {isHeroLocked && (
+                    <Lock
+                      size={11}
+                      weight="bold"
+                      className="absolute right-1 top-1 text-white/50"
+                    />
+                  )}
                   {isActive && (
                     <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-accent-primary text-black">
                       <Check size={10} weight="bold" />
@@ -4610,7 +4679,16 @@ export function SettingsView({
         </main>
       </div>
 
-      {isEasterEggOpen && <QuantumPhysicsGame onClose={() => setIsEasterEggOpen(false)} />}
+      {isEasterEggOpen && (
+        <ArcadeGame
+          onClose={() => setIsEasterEggOpen(false)}
+          heroUnlocked={config?.heroUnlocked === true}
+          unlockedThisSession={unlockedThisSession}
+          onHeroUnlocked={arcadeOnHeroUnlocked}
+          getHighScore={arcadeGetHighScore}
+          saveHighScore={arcadeSaveHighScore}
+        />
+      )}
     </div>
   )
 }

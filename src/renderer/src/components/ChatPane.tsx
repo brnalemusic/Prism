@@ -18,6 +18,7 @@ import {
   Warning
 } from '@phosphor-icons/react'
 import { InputBar, InputBarHandle } from './InputBar'
+import { HeroParticles } from './HeroParticles'
 import { LiquidGlassSurface } from './LiquidGlassSurface'
 import { HarnessGitControl } from './HarnessGitControl'
 import TodoPanel from './TodoPanel'
@@ -803,6 +804,12 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
 
         {/* Main Content Area */}
         <div className="relative flex flex-1 w-full overflow-hidden">
+          {/* Hero reward: full-pane ambient "9" behind active conversations. */}
+          {config?.heroUnlocked === true && tab.messages.length > 0 && (
+            <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+              <HeroParticles mode="backdrop" />
+            </div>
+          )}
           {/* Chat scroll area */}
           <div
             ref={scrollContainerRef}
@@ -813,6 +820,13 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
             {tab.messages.length === 0 && (
               <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-full bg-transparent select-none">
                 <div className="w-full max-w-[720px] flex flex-col items-center gap-6 z-10 my-auto">
+                  {/* Hero reward: the particle "9" owns the landing stage where
+                      the hero titles used to be. */}
+                  {config?.heroUnlocked === true ? (
+                    <div className="relative w-full h-[min(38vh,380px)] min-h-[200px]">
+                      <HeroParticles mode="stage" />
+                    </div>
+                  ) : (
                   <MotionConfig reducedMotion="user">
                     <AnimatePresence mode="wait" initial={false}>
                       <motion.div
@@ -827,27 +841,28 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                         exit="exit"
                         className="flex flex-col items-center text-center space-y-2"
                       >
-                    <h1 className="text-3xl sm:text-4xl tracking-wide hero-shimmer-text">
-                      {isHarness
-                        ? tab.disciplinePath
-                          ? tab.harnessPhase === 'plan'
-                            ? 'Plan & Research'
-                            : 'Build & Edit'
-                          : 'Choose a project to build'
-                        : 'Search & Create'}
-                    </h1>
-                    <p className="text-sm text-text-secondary/80">
-                      {isHarness
-                        ? tab.disciplinePath
-                          ? tab.harnessPhase === 'plan'
-                            ? 'Describe the outcome. Harness will research the project and prepare an Implementation Plan.'
-                            : 'Describe the outcome. Harness will inspect, implement, and verify the work.'
-                          : 'Harness is isolated to one project. Use + to choose the folder where it may work.'
-                        : 'Prism session is ready. Type your request or choose a mode.'}
-                    </p>
+                      <h1 className="text-3xl sm:text-4xl tracking-wide hero-shimmer-text">
+                        {isHarness
+                          ? tab.disciplinePath
+                            ? tab.harnessPhase === 'plan'
+                              ? 'Plan & Research'
+                              : 'Build & Edit'
+                            : 'Choose a project to build'
+                          : 'Search & Create'}
+                      </h1>
+                      <p className="text-sm text-text-secondary/80">
+                        {isHarness
+                          ? tab.disciplinePath
+                            ? tab.harnessPhase === 'plan'
+                              ? 'Describe the outcome. Harness will research the project and prepare an Implementation Plan.'
+                              : 'Describe the outcome. Harness will inspect, implement, and verify the work.'
+                            : 'Harness is isolated to one project. Use + to choose the folder where it may work.'
+                          : 'Prism session is ready. Type your request or choose a mode.'}
+                      </p>
                       </motion.div>
                     </AnimatePresence>
                   </MotionConfig>
+                  )}
 
                   <div className="w-full flex flex-col gap-0">
                     {/* AI Todo & Artifacts panel docked above InputBar (landing state) */}

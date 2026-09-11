@@ -1,7 +1,71 @@
 @import 'tailwindcss';
 @plugin "@tailwindcss/typography";
 
-/* Live compositor backdrop. Only the decorative child owns the filter so
+/* ─── Hero theme dynamic accent (set by HeroParticles' driver) ─── */
+:root {
+  --hero-accent: #38bdf8;
+  --hero-accent-2: #f472b6;
+}
+
+/* ─── Hero theme shared keyframes (Arcade + particles) ─── */
+@keyframes hero-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.06);
+    filter: brightness(1.25);
+  }
+}
+
+@keyframes float-up-fade {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) translateY(-34px);
+  }
+}
+
+/* Hero badge on the Settings gear: a tiny orbiting hue ring. */
+.hero-settings-badge {
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-settings-badge::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: conic-gradient(
+    from var(--hero-badge-angle, 0deg),
+    #38bdf8,
+    #f472b6,
+    #facc15,
+    #4ade80,
+    #38bdf8
+  );
+  opacity: 0.35;
+  animation: hero-badge-spin 6s linear infinite;
+}
+
+@property --hero-badge-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes hero-badge-spin {
+  to {
+    --hero-badge-angle: 360deg;
+  }
+}
+
+/* ─── Live compositor backdrop. Only the decorative child owns the filter so
    nested menus retain their own backdrop roots and normal hit testing. */
 .liquid-glass-anchor {
   position: absolute;
@@ -439,6 +503,31 @@
   --theme-base-bg: #06020c;
   --home-glow-color-1: rgba(168, 85, 247, 0.12);
   --home-glow-color-2: rgba(216, 180, 254, 0.18);
+}
+
+/* Hero (easter-egg reward): the interface loses its fixed accent and the
+   whole palette breathes through a slow hue orbit. Surfaces stay deep and
+   neutral so chat text keeps its contrast; only light sources move. */
+[data-theme='hero'] {
+  --background-secondary: #050505;
+  --surface-lowest: #08080c;
+  --surface: #0d0d13;
+  --surface-raised: #14141c;
+  --sidebar-bg: #090910;
+  --sidebar-surface: #10101a;
+  --sidebar-hover: #191926;
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-default: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.22);
+  --accent-primary: var(--hero-accent, #38bdf8);
+  --accent-secondary: var(--hero-accent-2, #f472b6);
+  --accent-glow: color-mix(in srgb, var(--hero-accent, #38bdf8) 30%, transparent);
+  --theme-aura-1: var(--hero-accent, #38bdf8);
+  --theme-aura-2: var(--hero-accent-2, #f472b6);
+  --theme-aura-3: #17103a;
+  --theme-base-bg: #040407;
+  --home-glow-color-1: color-mix(in srgb, var(--hero-accent, #38bdf8) 14%, transparent);
+  --home-glow-color-2: color-mix(in srgb, var(--hero-accent-2, #f472b6) 18%, transparent);
 }
 
 /* Classic White (default accent, explicit selector) */
@@ -3096,6 +3185,11 @@
 /* Hide the atmospheric orbs, vignette, and grain veil (all direct layers
    of the background field); the single base gradient stays. */
 .perf-performance .prism-background-field > div {
+  display: none;
+}
+
+/* Hero particles are decorative too — drop the canvas in Performance mode. */
+.perf-performance canvas.prism-background-field {
   display: none;
 }
 

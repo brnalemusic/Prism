@@ -93,5 +93,5 @@ For complex multi-file engineering tasks, Prism executes tools directly within t
 
 Design directly impacts developer focus and cognitive state:
 * **Glassmorphism:** CSS backdrop filters create semi-transparent surfaces blending into the host OS.
-* **Curated Themes:** Themes (`marine`, `vertez`, `akoustik`, `terno`, `ursula`, `rgb`) powered by Tailwind v4.
+* **Curated Themes:** Themes (`marine`, `fire`, `lava`, `gold`, `forest`, `indigo`, `violet`, `white`) powered by Tailwind v4, plus the unlockable `hero` reward theme.
 * **Responsive Scaling:** Adjustable interface zoom factor (0.5x to 3.0x).

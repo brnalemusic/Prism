@@ -48,11 +48,6 @@ export interface AppConfig {
   ttsVoice: string
   theme:
     | 'marine'
-    | 'vertez'
-    | 'akoustik'
-    | 'terno'
-    | 'ursula'
-    | 'rgb'
     | 'fire'
     | 'lava'
     | 'gold'
@@ -60,10 +55,14 @@ export interface AppConfig {
     | 'indigo'
     | 'violet'
     | 'white'
+    | 'hero'
   zoomFactor: number
   terminalShell?: string
   workflows?: SlashWorkflow[]
-  rgbThemeExpiry?: number
+  /** True once the user has beaten all nine Prism Arcade games. Permanently unlocks the Hero theme. */
+  heroUnlocked?: boolean
+  /** Personal-best result per Prism Arcade mini-game, keyed by game id. */
+  arcadeScores?: Record<string, number>
   sessionMode: SessionMode
   disciplinePath?: string
   modelReasoningLevels?: Record<string, string>
@@ -191,19 +190,28 @@ const DEFAULT_CONFIG: AppConfig = {
 const VALID_VOICES = new Set(['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir'])
 const VALID_THEMES = new Set([
   'marine',
-  'vertez',
-  'akoustik',
-  'terno',
-  'ursula',
-  'rgb',
   'fire',
   'lava',
   'gold',
   'forest',
   'indigo',
   'violet',
-  'white'
+  'white',
+  'hero'
 ])
+
+/** Legacy themes removed in v9. Existing installs collapse onto Marine. */
+const DISCONTINUED_THEMES = new Set(['vertez', 'akoustik', 'terno', 'ursula', 'rgb'])
+
+function normalizeArcadeScores(scores?: Record<string, number>): Record<string, number> {
+  const normalized: Record<string, number> = {}
+  for (const [gameId, score] of Object.entries(scores || {})) {
+    if (typeof score === 'number' && Number.isFinite(score) && score >= 0) {
+      normalized[gameId] = score
+    }
+  }
+  return normalized
+}
 const VALID_SESSION_MODES = new Set(['conversation', 'execution', 'discipline', 'harness'])
 const VALID_HARNESS_PERMISSION_MODES = new Set(['ask', 'independent', 'yolo'])
 const VALID_HARNESS_STARTUP_MODES = new Set(['last_opened', 'default_project', 'prompt'])
@@ -602,7 +610,9 @@ function normalizeConfig(config: AppConfig): AppConfig {
     ttsVoice: VALID_VOICES.has(config.ttsVoice) ? config.ttsVoice : DEFAULT_CONFIG.ttsVoice,
     theme: VALID_THEMES.has(config.theme)
       ? (config.theme as AppConfig['theme'])
-      : DEFAULT_CONFIG.theme,
+      : DISCONTINUED_THEMES.has(config.theme)
+        ? 'marine'
+        : DEFAULT_CONFIG.theme,
     zoomFactor:
       config.zoomFactor !== undefined &&
       !isNaN(config.zoomFactor) &&
@@ -612,7 +622,8 @@ function normalizeConfig(config: AppConfig): AppConfig {
         : DEFAULT_CONFIG.zoomFactor,
     terminalShell: config.terminalShell || DEFAULT_CONFIG.terminalShell,
     workflows: Array.isArray(config.workflows) ? config.workflows : DEFAULT_CONFIG.workflows,
-    rgbThemeExpiry: config.rgbThemeExpiry,
+    heroUnlocked: config.heroUnlocked === true,
+    arcadeScores: normalizeArcadeScores(config.arcadeScores),
     sessionMode: VALID_SESSION_MODES.has(config.sessionMode)
       ? config.sessionMode
       : DEFAULT_CONFIG.sessionMode,

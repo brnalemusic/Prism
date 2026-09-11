@@ -310,13 +310,10 @@ const miniAppDataMap = new Map<
 >()
 
 function getEffectiveIconTheme(config?: AppConfig): AppConfig['theme'] {
+  // Icon assets only exist for the eight classic themes; the Hero theme keeps
+  // the default marine icon.
   const theme = config?.theme || 'marine'
-
-  if (theme === 'rgb' && !(config?.rgbThemeExpiry && Date.now() < config.rgbThemeExpiry)) {
-    return 'marine'
-  }
-
-  return theme
+  return theme === 'hero' ? 'marine' : theme
 }
 
 function getIconResourcePath(iconName: string): string {

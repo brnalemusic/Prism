@@ -41,16 +41,23 @@ let cachedTheme = ''
 let cachedAccent = ACCENT_FALLBACK
 
 // Resolves the current theme accent once per theme (not per span) so the
-// tint always starts from the active theme color.
+// tint always starts from the active theme color. The Hero theme rotates
+// its accent continuously, so the cache also expires on a short interval.
+let cachedAt = 0
+const HERO_CACHE_TTL_MS = 200
 export function getStreamingAccentColor(): string {
   try {
     const theme = document.documentElement.getAttribute('data-theme') || ''
-    if (theme === cachedTheme && cachedAccent) return cachedAccent
+    if (theme === 'hero' && Date.now() - cachedAt < HERO_CACHE_TTL_MS && cachedAccent) {
+      return cachedAccent
+    }
+    if (theme === cachedTheme && theme !== 'hero' && cachedAccent) return cachedAccent
     const resolved = getComputedStyle(document.documentElement)
       .getPropertyValue('--color-accent-primary')
       .trim()
     cachedTheme = theme
     cachedAccent = resolved || ACCENT_FALLBACK
+    cachedAt = Date.now()
     return cachedAccent
   } catch {
     return ACCENT_FALLBACK

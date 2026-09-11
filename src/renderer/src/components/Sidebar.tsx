@@ -122,44 +122,17 @@ export function Sidebar({
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const [viewMoreGroupId, setViewMoreGroupId] = useState<string | null>(null)
 
+  // Hero-theme easter egg: with the Arcade mastered, the Settings gear gets a
+  // permanent celebratory badge instead of the old expiring countdown.
+  const isRgbActive = config?.heroUnlocked === true
+  const countdownText = 'HERO'
+
   const toggleGroup = (groupId: string): void => {
     setCollapsedGroups((prev) => ({
       ...prev,
       [groupId]: !prev[groupId]
     }))
   }
-
-  // RGB Countdown Easter Egg state
-  const [countdownText, setCountdownText] = useState('')
-  const [isRgbActive, setIsRgbActive] = useState(false)
-
-  useEffect(() => {
-    if (!config || !config.rgbThemeExpiry) {
-      setIsRgbActive(false)
-      return
-    }
-
-    const updateCountdown = () => {
-      const now = Date.now()
-      const expiry = config.rgbThemeExpiry || 0
-      if (now < expiry) {
-        setIsRgbActive(true)
-        const diff = expiry - now
-        const hrs = Math.floor(diff / (3600 * 1000))
-        const mins = Math.floor((diff % (3600 * 1000)) / (60 * 1000))
-        const secs = Math.floor((diff % (60 * 1000)) / 1000)
-        const formatNum = (num: number) => String(num).padStart(2, '0')
-        setCountdownText(`${formatNum(hrs)}:${formatNum(mins)}:${formatNum(secs)}`)
-      } else {
-        setIsRgbActive(false)
-      }
-    }
-
-    updateCountdown()
-    const timer = setInterval(updateCountdown, 1000)
-
-    return () => clearInterval(timer)
-  }, [config])
 
   const refreshChats = async (): Promise<void> => {
     const history = await window.api.getChats()
@@ -634,7 +607,7 @@ function NavItem({
           className={clsx(
             'ml-auto flex min-w-[18px] items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-medium transition-all duration-300',
             label === 'Settings' && pulse
-              ? 'bg-gradient-to-r from-[#FF0000]/20 to-[#007BFF]/20 border border-white/10 text-white font-mono rgb-settings-timer'
+              ? 'bg-white/[0.07] border border-white/15 text-white font-mono hero-settings-badge'
               : 'bg-white/[0.04] text-text-muted'
           )}
         >
