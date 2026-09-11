@@ -200,8 +200,8 @@ export function getSkillsSystemPromptSnippetSync(disabledSkills?: string[]): str
   if (skills.length === 0) return ''
 
   const lines: string[] = [
-    '# Available Skills',
-    'You have access to specialized skills. When requested to perform tasks covered by an available skill, you MUST first call the `read_skill` tool with the corresponding skill filename to learn the required layout, best practices, and execution details:'
+    '# Skills',
+    'For skill tasks, first call `read_skill` with the filename to learn layout and rules:'
   ]
 
   for (const s of skills) {
@@ -234,25 +234,25 @@ export function getDisabledSkillsPromptSnippetSync(disabledSkills?: string[]): s
 
   if (effectiveDisabled.includes('pdf')) {
     rules.push(
-      '- **PDF Generation & Artifacts (DISABLED):** The user has disabled the PDF Document skill for this conversation. You MUST NOT compile, create, edit, or generate PDF files, PDF documents, or PDF artifacts through ANY tool, function, script, terminal command, or file writer (including `write_pdf`, `edit_pdf`, `computer_use_create_file`, `computer_use_save_file`, Python libraries, or CLI tools). If the user requests to generate, create, convert, or export a PDF, you MUST politely refuse and inform them that the PDF Skill is currently disabled in the conversation skills settings.'
+      '- PDF (DISABLED): never create/edit PDFs via any tool/script. On PDF requests, refuse and cite disabled PDF skill.'
     )
   }
 
   if (effectiveDisabled.includes('pptx')) {
     rules.push(
-      '- **PowerPoint (PPTX) Presentations (DISABLED):** The user has disabled the PowerPoint Presentation skill for this conversation. You MUST NOT compile, create, edit, or generate PowerPoint (.pptx/.ppt) presentations, slides, or slide artifacts through ANY tool, function, script, terminal command, or file writer (including `write_pptx`, `edit_pptx`, `computer_use_create_file`, `computer_use_save_file`, or CLI tools). If the user requests slides or a PowerPoint presentation, you MUST politely refuse and inform them that the PowerPoint Skill is currently disabled in the conversation skills settings.'
+      '- PPTX (DISABLED): never create/edit slides via any tool/script. On slide requests, refuse and cite disabled PowerPoint skill.'
     )
   }
 
   if (effectiveDisabled.includes('browser')) {
     rules.push(
-      '- **Integrated AI Browser & Web Automation (DISABLED):** The user has disabled the Browser Use skill for this conversation. You MUST NOT use integrated browser automation tools (open_browser, browser_*, web_script, detailed_dom_page). Any URLs or links must only be opened in the OS system browser via `open_browser_link`.'
+      '- Browser (DISABLED): never use open_browser/browser_*/web_script/detailed_dom_page. Open URLs only via `open_browser_link`.'
     )
   }
 
   if (rules.length === 0) return ''
 
-  return ['# Disabled Skills & Restrictions (STRICT POLICY)', ...rules].join('\n')
+  return ['# Disabled Skills (STRICT)', ...rules].join('\n')
 }
 
 /**

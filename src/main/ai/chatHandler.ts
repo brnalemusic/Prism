@@ -818,13 +818,13 @@ export async function handleChatMessage(
     let fullPrompt = systemPrompt
     if (requestSessionMode !== 'harness' && !hasConfiguredImageGenerationRoute()) {
       fullPrompt +=
-        '\n\n# Image Generation Availability\nNative image generation is unavailable because no valid Image Generation Model is configured in Settings > Intelligence Routing. If the user requests an image, explain that configuration is required; do not pretend to have generated one.'
+        '\n\n# No Image Model\nImage generation is unconfigured (Settings > Intelligence Routing). On image requests, explain setup; never fake output.'
     }
     if (requestSessionMode !== 'harness' && matchedWorkflow) {
       fullPrompt += `\n\n# Active Workflow: ${matchedWorkflow.name}\n${matchedWorkflow.systemInstruction}`
     }
     if (requestSessionMode !== 'harness' && isForceSearch && !isYoutubeMode) {
-      fullPrompt += `\n\n# Web Search Requirement\nThe user has explicitly enabled Web Search for this prompt. You MUST use the 'web_search' tool to search the internet for current up-to-date information before returning your response. Set resultCount from 1 to 10; use 2–4 in most cases and 5–8 only for specific needs.`
+      fullPrompt += `\n\n# Web Search Required\nWeb Search is on: call 'web_search' first for current info (resultCount 2-4 typical).`
     }
     if (requestSessionMode !== 'harness' && isYoutubeMode) {
       fullPrompt += `
@@ -1042,8 +1042,7 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
         )
       },
       finalInstruction:
-        `# Tool loop limit reached\nThe maximum of ${harnessSettings?.defaultMaxRounds || 100} tool rounds has been reached. ` +
-        'Do not call more tools. Explain what was completed, what remains, and the last tool result.'
+        `# Tool limit (${harnessSettings?.defaultMaxRounds || 100} rounds) reached. No more tools. Summarize done, remaining, last result.`
     })
 
     const finalOutput = parseThoughtAndContent(
@@ -1390,8 +1389,8 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
 
     const imageAvailabilityInstruction =
       workspace === 'harness' || hasConfiguredImageGenerationRoute()
-      ? ''
-      : '\n\n# Image Generation Availability\nNative image generation is unavailable because no valid Image Generation Model is configured in Settings > Intelligence Routing. If the user requests an image, explain that configuration is required; do not pretend to have generated one.'
+        ? ''
+        : '\n\n# No Image Model\nImage generation is unconfigured. On image requests, explain setup; never fake output.'
 
     const getToolsForRound = (): OpenAiToolDefinition[] =>
       harnessSettings
@@ -1526,8 +1525,7 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
         )
       },
       finalInstruction:
-        `# Tool loop limit reached\nThe maximum of ${harnessSettings?.defaultMaxRounds || 100} tool rounds has been reached. ` +
-        'Do not call more tools. Explain what was completed, what remains, and the last tool result.'
+        `# Tool limit (${harnessSettings?.defaultMaxRounds || 100} rounds) reached. No more tools. Summarize done, remaining, last result.`
     })
 
     const finalOutput = parseThoughtAndContent(

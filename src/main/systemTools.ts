@@ -60,7 +60,6 @@ import {
   assertSafeBulkMutationPath,
   assertSafeFileMutationPath,
   getLocalCommandSandboxSummary,
-  getShellSyntaxSummary,
   runGuardedTerminalCommand
 } from './localCommandSandbox'
 import {
@@ -1906,24 +1905,17 @@ export function filterDisabledDocContent(
   return filtered
 }
 
-export const YOUTUBE_SEARCH_PROTOCOL = `# YouTube Video Search Protocol (Active YouTube App Mode)
-You are the specialized YouTube Assistant. The user wants to find YouTube videos.
-
-1. SEARCH: Use 'web_search' with the exact query \`site:youtube.com <SEARCH_QUERY>\` (e.g. web_search({ query: "site:youtube.com Thinking Space II verified", resultCount: 3 })) to locate official video URLs and channel/title/snippet metadata.
-
-2. OUTPUT: Wrap the title, description and buttons in this HTML card, with the suggestion chip below it:
-
-<div style="border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 18px 20px; background: rgba(255, 255, 255, 0.03); margin: 12px 0;">
-<div style="font-size: 16px; font-weight: bold; color: #ffffff; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">🎬 <span>[Video Title / Clean Name]</span></div>
-<div style="font-size: 14px; color: rgba(255, 255, 255, 0.75); line-height: 1.5; margin-bottom: 16px;">[Customized description based on the user request].</div>
-<div style="display: flex; gap: 10px; flex-wrap: wrap;"><a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-flex; align-items: center; justify-content: center; background-color: #ff0000; color: #ffffff; padding: 8px 18px; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 13.5px;">[Primary Action/Watch Label]</a> <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-flex; align-items: center; justify-content: center; background-color: #272727; color: #ffffff; padding: 8px 18px; border-radius: 8px; font-weight: 600; text-decoration: none; font-size: 13.5px;">[Alternative Label]</a></div>
+export const YOUTUBE_SEARCH_PROTOCOL = `# YouTube Mode
+1. SEARCH: \`web_search\` \`site:youtube.com <QUERY>\` (resultCount 3) for URLs + metadata.
+2. OUTPUT: HTML card + chip below:
+<div style="border-radius:14px;padding:18px 20px;background:rgba(255,255,255,0.03);margin:12px 0;">
+<div style="font-size:16px;font-weight:bold;color:#fff;margin-bottom:8px;">🎬 [Title]</div>
+<div style="font-size:14px;color:rgba(255,255,255,0.75);margin-bottom:16px;">[Description].</div>
+<div style="display:flex;gap:10px;flex-wrap:wrap;"><a href="https://www.youtube.com/watch?v=..." target="_blank" style="background:#ff0000;color:#fff;padding:8px 18px;border-radius:8px;font-weight:700;text-decoration:none;">[Watch]</a> <a href="https://www.youtube.com/watch?v=..." target="_blank" style="background:#272727;color:#fff;padding:8px 18px;border-radius:8px;text-decoration:none;">[Alt]</a></div>
 </div>
-
 <prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>
-
-BUTTON RULES: max 3 buttons (1 primary red #ff0000, up to 2 charcoal #272727); all real <a> links with href="https://www.youtube.com/watch?v=..." and target="_blank"; the chip stays below the card.
-
-3. OPENING: If the user sends "Open the YouTube video that you've found for me." or asks to open/play the video, call 'open_browser_link' with the video URL.
+RULES: max 3 <a> buttons (1 red #ff0000 + 2 charcoal #272727), real watch URLs, chip below card.
+3. OPENING: on open/play request, call 'open_browser_link' with the URL.
 `
 
 export function getSystemToolsPrompt(
@@ -1944,10 +1936,9 @@ export function getSystemToolsPrompt(
     console.error('Failed to load config for terminal prompt:', err)
   }
   const terminalSummary = getLocalCommandSandboxSummary(shellName)
-  const shellSyntax = getShellSyntaxSummary(shellName)
   const name = 'Prism AI'
   const inlineSuggestionsRule =
-    '- Inline suggestions: when useful, use `<prism-suggestion send="full user message">visible optional follow-up</prism-suggestion>`; multiple allowed, never required.'
+    '- Suggestions (optional): `<prism-suggestion send="full msg">label</prism-suggestion>`.'
 
   const cleanModelId = modelKey
     ? modelKey.startsWith('prism_provider:')
@@ -2048,42 +2039,38 @@ export function getSystemToolsPrompt(
   const memoryGuidanceSection = (() => {
     if (target === 'subagent' || target === 'both' || sessionMode === 'harness') return ''
     return `# Long-Term Memory
-You maintain Prism's long-term memory with the memory tool \u2014 proactively, in the same turn, without waiting to be asked.
-- Save stable preferences, corrections, and durable facts about the user (name, age, job, location, family, projects, communication style) with target "user".
-- Save general notes, conventions and project facts with target "memory".
-- Correct stale facts with replace (old_text = short unique substring); remove facts that are no longer true; update instead of duplicating.
-- Keep entries compact. Never save secrets, credentials, or guesses as facts. The user's current message always wins over stored memory.`
+Curate memory with the memory tool, proactively in the same turn.
+- target "user": stable user facts; "memory": general/project facts. Update via replace, delete stale, never duplicate.
+- Compact entries. No secrets or guesses. Current user message wins over memory.`
   })()
 
   if (target === 'launcher') {
     return `# Identity & Context
 Role: Prism AI in Quick Launcher.
 Model: ${modelIdentity}
-Context: ${date} | Date format: MM/DD/YYYY (month/day/year) | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
+Context: ${date} | MM/DD/YYYY | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
 # Rules
-- Simple Markdown; absolute paths for file tools; commands run in \`${shellName}\` (\`${shellSyntax}\`); one shared browser session.
-- User messages end with \`[MM-DD-YYYY HH:MM:SS]\`; use it for temporal context and never mention it unless asked.
-- **Auto-Open:** App/link/path sent alone → open via open_browser_link or open_application.
-- **Transitions:** Complex/long tasks → open_main_app. Parallel tool calls allowed.${personaSection}${coreMemorySection}${memoryGuidanceSection}`
+- Simple Markdown; absolute paths; terminal \`${shellName}\`; one shared browser session.
+- Msgs end with \`[MM-DD-YYYY HH:MM:SS]\`; use silently for time context.
+- App/link/path alone → open via open_browser_link/open_application.
+- Complex/long tasks → open_main_app. Parallel calls allowed.${personaSection}${coreMemorySection}${memoryGuidanceSection}`
   }
 
   if (sessionMode === 'conversation' && target === 'main') {
     return `# Identity & Context
 Role: ${name} in Conversation Mode.
 Model: ${modelIdentity}
-Context: ${date} | Date format: MM/DD/YYYY (month/day/year) | ${platform} | Home: ${homeDir} | CWD: ${cwd}
+Context: ${date} | MM/DD/YYYY | ${platform} | Home: ${homeDir} | CWD: ${cwd}
 
 # Rules
-- Text/Markdown replies only, in the user’s language. Be direct, factual, concise.
-- User messages end with \`[MM-DD-YYYY HH:MM:SS]\`; use it for temporal context and never mention it unless asked.
+- Text/Markdown only, user language. Direct, factual, concise.
+- Msgs end with \`[MM-DD-YYYY HH:MM:SS]\`; use silently for time context.
 ${inlineSuggestionsRule}${personaSection}${coreMemorySection}${memoryGuidanceSection}`
   }
 
   const disciplineRule =
-    sessionMode === 'discipline' && disciplinePath
-      ? `\n- **Discipline Mode**: Operations/commands run in ${disciplinePath}. Modify relative to this path.`
-      : ''
+    sessionMode === 'discipline' && disciplinePath ? `\n- Discipline: operate in ${disciplinePath}.` : ''
 
   const skillsSnippet = getSkillsSystemPromptSnippetSync(effectiveDisabledSkills)
   const skillsSection = skillsSnippet ? `\n\n${skillsSnippet}` : ''
@@ -2094,25 +2081,25 @@ ${inlineSuggestionsRule}${personaSection}${coreMemorySection}${memoryGuidanceSec
   const isBrowserDisabled = effectiveDisabledSkills.includes('browser')
 
   const browserRule = isBrowserDisabled
-    ? '- **Links:** Open URLs in the OS browser via `open_browser_link` by default.'
-    : '- **Links:** Open URLs via `open_browser_link` by default; use integrated AI browser tools only on explicit in-app request (requires `read_skill` with `integrated_browser_skill.md`).'
+    ? '- Links: `open_browser_link` by default.'
+    : '- Links: `open_browser_link` by default; in-app browser tools only on explicit request (needs `read_skill` `integrated_browser_skill.md`).'
 
   return `# Identity & Context
 Role: ${name}, Desktop AI Assistant.
 Model: ${modelIdentity}
-Context: ${date} | Date format: MM/DD/YYYY (month/day/year) | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
+Context: ${date} | MM/DD/YYYY | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
-# Rules & Protocols
-- Match user language. Be direct, factual, and concise.${disciplineRule}
-- User messages end with \`[MM-DD-YYYY HH:MM:SS]\`; use it for temporal context and never mention it unless asked.
+# Rules
+- Match user language. Direct, factual, concise.${disciplineRule}
+- Msgs end with \`[MM-DD-YYYY HH:MM:SS]\`; use silently for time context.
 ${browserRule}
-- **Formatting:** Markdown for text/code; inline HTML/CSS (rendered unwrapped) for rich visual cards; \`create_mini_app\` for interactive widgets.
-- **Execution:** Absolute paths required; commands run in \`${shellName}\` (\`${shellSyntax}\`); parallel native tool calls allowed.
-- **Search:** \`web_search\` for standard queries (\`resultCount\` 1–10; 2–4 typical). \`web_fetch\` for deep research / deep search / in-depth multi-source investigation (up to 50 sources synthesized by a subagent): pass 1) \`title\` — in the user’s language; 2) \`queries\` — exactly 5 Google-style queries (10 pages each, ~15,000 chars per source).
-- **Tool Titles:** Every tool call must include \`progressTitle\` and \`completedTitle\` in the user’s language (max 10 words each). \`progressTitle\` describes the ongoing action in gerund form; \`completedTitle\` describes the finished action in past tense. Name the query, person, place, or file — never send generic labels.
-- **Prism Docs:** internal_docs_list / internal_docs_read / internal_docs_search for Prism system questions.
-- **YouTube Assistant:** Search YouTube via \`web_search\` with \`site:youtube.com <SEARCH_QUERY>\`; present results as an HTML card (dark rounded container, 🎬 title, short description, up to 3 <a> buttons: primary bold red #ff0000, alternatives dark charcoal #272727) with this chip below: \`<prism-suggestion send="Open the YouTube video that you’ve found for me.">Open the video</prism-suggestion>\`.
-- **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|multiple-select|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"Short title","description":"Helpful explanation","recommended":true}],"max_selections":2}]}. Omit max_selections for unlimited; set recommended when one option is best; Prism always adds a write-in option.
+- Format: Markdown for text/code; inline HTML/CSS for cards; \`create_mini_app\` for widgets.
+- Exec: absolute paths; parallel calls allowed; terminal = Context shell.
+- Search: \`web_search\` for quick queries; \`web_fetch\` for deep research (title in user lang, exactly 5 queries).
+- Titles: every call needs \`progressTitle\` (gerund) + \`completedTitle\` (past), user lang, <=10 words, specific.
+- Docs: internal_docs_* for Prism system questions.
+- YouTube: \`web_search\` \`site:youtube.com ...\`; card + chip.
+- to_ask: ask first on ambiguity; set recommended on best option.
 ${inlineSuggestionsRule}${skillsSection}${disabledSkillsSection}${personaSection}${coreMemorySection}${memoryGuidanceSection}`
 }
 export interface InstalledApplicationResult {

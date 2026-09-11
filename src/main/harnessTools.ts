@@ -59,87 +59,74 @@ const definition = (
 export const HARNESS_TOOL_DEFINITIONS: ToolDefinition[] = [
   definition(
     'read',
-    'Read a bounded range from one UTF-8 text file in the project. Paths are relative to the project root.',
+    'Read a line range from one project file. Relative paths only.',
     {
-      path: text('Project-relative file path.'),
-      startLine: integer('First line to read, one-based.'),
-      limit: integer('Maximum number of lines to return.')
+      path: text('Relative file path.'),
+      startLine: integer('First line (1-based).'),
+      limit: integer('Max lines.')
     },
     ['path']
   ),
-  definition(
-    'list',
-    'List the immediate entries in a project directory.',
-    { path: text('Project-relative directory path. Use "." for the project root.') },
-    []
-  ),
+  definition('list', 'List a project directory.', { path: text('Relative dir. "." = root.') }, []),
   definition(
     'find',
-    'Find project files by filename, relative path fragment, or wildcard pattern. Use this for file discovery without searching file contents.',
+    'Find files by name/pattern. No content search.',
     {
-      query: text('Relative path fragment or wildcard pattern.'),
-      path: text('Optional project-relative directory to search from.'),
-      limit: integer('Maximum number of matches.')
+      query: text('Path fragment or wildcard.'),
+      path: text('Optional dir to search from.'),
+      limit: integer('Max matches.')
     },
     ['query']
   ),
   definition(
     'grep',
-    'Search code and text contents across project files using regex or literal text patterns. Returns matching file paths and their 1-based line numbers (without line content to conserve tokens). Use the read tool to inspect specific line ranges.',
+    'Search file contents; returns paths + line numbers only. Then read ranges.',
     {
-      query: text('Text or regular expression to search for across file contents.'),
-      path: text('Optional project-relative directory or file path to search within.'),
-      include: text('Optional wildcard glob pattern to filter files (e.g. "*.ts", "src/**/*.tsx").'),
-      isRegex: boolean('Whether query should be treated as a regular expression.'),
-      caseSensitive: boolean(
-        'Whether matching is case-sensitive. Defaults to true when query contains uppercase characters (smart-case), or false for all-lowercase queries.'
-      ),
-      wordMatch: boolean(
-        'Whether to match whole words only (word boundaries \\b). Defaults to false.'
-      ),
-      limit: integer('Maximum number of matching lines to return. Defaults to 200.')
+      query: text('Text or regex.'),
+      path: text('Optional dir/file to search in.'),
+      include: text('Optional glob, e.g. "*.ts".'),
+      isRegex: boolean('Treat query as regex.'),
+      caseSensitive: boolean('Case-sensitive (smart-case default).'),
+      wordMatch: boolean('Whole words only.'),
+      limit: integer('Max matches (default 200).')
     },
     ['query']
   ),
   definition(
     'to_ask',
-    'Ask the user concise clarifying questions and wait for their response before continuing. Use this before changing code when a material requirement or tradeoff is uncertain.',
+    'Ask clarifying questions and wait. Use before code changes on uncertainty.',
     {
-      session_id: text('Unique questionnaire session ID.'),
+      session_id: text('Questionnaire ID.'),
       questions: {
         type: 'array',
         minItems: 1,
         maxItems: 3,
-        description: 'One to three questions rendered by Prism.',
+        description: '1-3 questions.',
         items: {
           type: 'object',
           properties: {
-            id: text('Unique question ID.'),
-            type: text('Question type.', ['multiple-choice', 'multiple-select', 'essay']),
-            title: text('Short category title.'),
-            prompt: text('Question shown to the user.'),
+            id: text('Question ID.'),
+            type: text('Type.', ['multiple-choice', 'multiple-select', 'essay']),
+            title: text('Category.'),
+            prompt: text('Question text.'),
             options: {
               type: 'array',
               minItems: 2,
               maxItems: 10,
-              description: 'Choices for a multiple-choice or multiple-select question.',
+              description: 'Choices.',
               items: {
                 type: 'object',
                 properties: {
-                  value: text('Stable choice value.'),
-                  label: text('Short user-facing choice title.'),
-                  description: text('Explanation shown below the choice title.'),
-                  recommended: boolean(
-                    'Set true when this is the best option you recommend to the user.'
-                  )
+                  value: text('Choice value.'),
+                  label: text('Choice title.'),
+                  description: text('Choice help.'),
+                  recommended: boolean('True for recommended option.')
                 },
                 required: ['value', 'label'],
                 additionalProperties: false
               }
             },
-            max_selections: integer(
-              'Optional maximum selections for multiple-select. Omit to allow any number.'
-            )
+            max_selections: integer('Max selections; omit for unlimited.')
           },
           required: ['id', 'type', 'title', 'prompt'],
           additionalProperties: false
@@ -150,84 +137,77 @@ export const HARNESS_TOOL_DEFINITIONS: ToolDefinition[] = [
   ),
   definition(
     'plan',
-    'Publish the complete implementation plan for the user to review. Call this only after inspecting the project and resolving material decisions.',
-    { markdown: text('The complete implementation plan in Markdown.') },
+    'Publish the implementation plan. Call after inspecting and resolving decisions.',
+    { markdown: text('Full plan in Markdown.') },
     ['markdown']
   ),
   definition(
     'write',
-    'Create a new UTF-8 file or intentionally replace its complete contents.',
+    'Create or fully replace a file.',
     {
-      path: text('Project-relative file path.'),
-      content: text('Complete UTF-8 file contents.'),
-      mode: text('Use create to fail if the file exists, or overwrite to replace it.', [
-        'create',
-        'overwrite'
-      ])
+      path: text('Relative path.'),
+      content: text('Full file contents.'),
+      mode: text('create fails if exists; overwrite replaces.', ['create', 'overwrite'])
     },
     ['path', 'content', 'mode']
   ),
   definition(
     'edit',
-    'Replace one exact, unique text snippet in a UTF-8 project file.',
+    'Replace one exact unique snippet.',
     {
-      path: text('Project-relative file path.'),
-      oldText: text('Exact text currently present in the file.'),
-      newText: text('Exact replacement text.')
+      path: text('Relative path.'),
+      oldText: text('Exact current text.'),
+      newText: text('Replacement text.')
     },
     ['path', 'oldText', 'newText']
   ),
   definition(
     'delete_lines',
-    'Delete one exact, unique text snippet from a UTF-8 project file.',
+    'Delete one exact unique snippet.',
     {
-      path: text('Project-relative file path.'),
-      oldText: text('Exact text to remove, including enough surrounding lines to be unique.')
+      path: text('Relative path.'),
+      oldText: text('Exact text to remove (unique with context).')
     },
     ['path', 'oldText']
   ),
   definition(
     'apply_patch',
-    'Apply a Codex-style contextual patch. It can add, update, move, or delete multiple project files.',
-    { patch: text('Patch text enclosed by *** Begin Patch and *** End Patch.') },
+    'Apply a contextual multi-file patch.',
+    { patch: text('Patch wrapped in *** Begin/End Patch.') },
     ['patch']
   ),
   definition(
     'exec_command',
-    'Run a command in the project root. Short commands return their exit code and output immediately. Long-running commands return a six-digit Run ID and run in the background. You do NOT need to poll: Prism will automatically resume/notify you when a background process completes or needs input.',
+    'Run a command in root. Short cmds return output; long ones return a Run ID and auto-notify. Do not poll.',
     {
-      cmd: text('Command to execute using the configured project shell.'),
-      yieldTimeMs: integer('Milliseconds to wait before returning a running command.')
+      cmd: text('Command.'),
+      yieldTimeMs: integer('Wait ms before backgrounding.')
     },
     ['cmd']
   ),
   definition(
     'write_stdin',
-    'Send text or key sequences to a running terminal command by Run ID.',
+    'Send text/keys to a running command.',
     {
-      runId: text('Six-digit terminal Run ID.'),
-      input: text('Text to write to stdin.'),
-      keys: { type: 'array', description: 'Optional key names.', items: text('Key name.') },
-      pressEnter: boolean('Press Enter after input text. Defaults to true.')
+      runId: text('Terminal Run ID.'),
+      input: text('Stdin text.'),
+      keys: { type: 'array', description: 'Optional keys.', items: text('Key.') },
+      pressEnter: boolean('Press Enter. Default true.')
     },
     ['runId']
   ),
   definition(
     'read_terminal_output',
-    'Read terminal output accumulated so far for a Run ID. Use ONLY to inspect intermediate output of live persistent services or for targeted debugging. DO NOT call this repeatedly in a polling loop to wait for completion.',
-    { runId: text('Six-digit terminal Run ID.') },
+    'Read output so far for a Run ID. Live services/debugging only. Never poll.',
+    { runId: text('Terminal Run ID.') },
     ['runId']
   ),
   definition(
     'web_search',
-    'Search DuckDuckGo HTML and automatically read the requested number of reachable source pages.',
+    'Quick web search; auto-reads pages. 2-4 sources typical, max 10.',
     {
-      query: text('Focused web search query.'),
-      resultCount: integer(
-        'Number of Sources to return. Minimum: 1. Recommended: 2–4. Use 5–8 only for specific cases. Maximum: 10.',
-        1,
-        10
-      )
+      query: text('Search query.'),
+      resultCount: integer('Sources (1-10).', 1, 10)
     },
     ['query', 'resultCount']
   )

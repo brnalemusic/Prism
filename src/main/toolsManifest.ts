@@ -60,12 +60,8 @@ const contentArg = stringSchema('Complete UTF-8 text content. Preserve whitespac
 // Custom user-facing tool titles shown in Chat mode. Every tool accepts both
 // fields; they are display-only and never affect execution. Values must be
 // written in the user's conversational language, max 10 words.
-const progressTitleArg = stringSchema(
-  'User-facing progress label shown while this tool runs. Max 10 words, gerund form, specific (include the query, entity, or file). Example: "Searching the web for GLM-5.3 equivalents".'
-)
-const completedTitleArg = stringSchema(
-  'User-facing completion label shown after this tool finishes. Max 10 words, past tense, specific. Example: "Searched the web for GLM-5.3 equivalents".'
-)
+const progressTitleArg = stringSchema('Progress label, <=10 words, gerund, specific.')
+const completedTitleArg = stringSchema('Done label, <=10 words, past tense, specific.')
 
 function withDisplayTitles(definition: ToolDefinition): ToolDefinition {
   const properties = definition.inputSchema.properties || {}
@@ -90,20 +86,15 @@ export const COMPUTER_READ_FILE_MAX_CHARACTERS = 80_000
 const baseToolsManifest: ToolDefinition[] = [
   tool(
     'generate_image',
-    'Generate a new image or edit a specific image already available in this conversation. You decide when a visual is appropriate and must supply a complete, polished final prompt. For edits, set operation to "edit" and copy the exact prism-image://asset/<uuid> reference announced with the intended image into source_image_ref. Never invent references or use filesystem paths. Generated outputs become part of this assistant response and receive references that can be edited later.',
+    'Generate or edit a chat image. Supply a complete final prompt. For edits use operation "edit" + exact prism-image://asset/<uuid> ref. Never invent refs or paths.',
     {
-      prompt: stringSchema(
-        'Complete final prompt to send to the configured image-generation model.'
-      ),
-      operation: stringSchema(
-        'Whether to create a new image or edit an existing chat image asset.',
-        {
-          enum: ['generate', 'edit'],
-          default: 'generate'
-        }
-      ),
+      prompt: stringSchema('Final prompt for the image model.'),
+      operation: stringSchema('Generate or edit a chat image.', {
+        enum: ['generate', 'edit'],
+        default: 'generate'
+      }),
       source_image_ref: stringSchema(
-        'Exact Prism image reference to edit, such as prism-image://asset/<uuid>. Required only when operation is edit.'
+        'Exact prism-image://asset/<uuid> to edit. Required for edit.'
       ),
       size: stringSchema('Requested output dimensions.', {
         enum: [
@@ -126,47 +117,41 @@ const baseToolsManifest: ToolDefinition[] = [
   ),
   tool(
     'discord_leave_voice',
-    'Requests leaving the current Discord voice channel. Use this when the user asks you to leave, or when the full conversation makes ending the voice session appropriate. After it succeeds, say a brief personalized goodbye and do not call more tools.',
+    'Leave the Discord voice channel. Then say a brief goodbye, no more tools.',
     {},
     []
   ),
   tool(
     'execute_terminal_command',
-    'Run one command in the user-configured terminal shell. Short commands return their exit code and output immediately. Long-running processes yield a six-digit Run ID and continue in the background. You do NOT need to poll: Prism will automatically resume/notify you upon completion or when input is needed.',
-    { command: stringSchema('Exact shell command to execute.') },
+    'Run one shell command. Short cmds return output; long ones return a Run ID and auto-notify on completion. Do not poll.',
+    { command: stringSchema('Shell command.') },
     ['command']
   ),
   tool(
     'read_terminal_output',
-    'Read the accumulated terminal output so far for a background or interactive terminal command using its six-digit Run ID. Use ONLY to inspect intermediate output of live persistent services or for targeted debugging. DO NOT poll in a loop to wait for completion.',
-    { runId: stringSchema('Six-digit Run ID of the terminal process.') },
+    'Read output so far for a Run ID. Only for live services/debugging. Never poll in a loop.',
+    { runId: stringSchema('Terminal Run ID.') },
     ['runId']
   ),
   tool(
     'send_terminal_input',
-    'Send input text and/or simulated keyboard key combinations (such as Arrow keys, Enter, Ctrl+B, Shift+Alt+L, etc.) to the standard input (stdin) of a running terminal command.',
+    'Send text/keys to stdin of a running command.',
     {
-      runId: stringSchema('Six-digit Run ID of the terminal process.'),
-      input: stringSchema(
-        'Optional text to write to stdin. Confirmed with Enter automatically by default.'
-      ),
+      runId: stringSchema('Terminal Run ID.'),
+      input: stringSchema('Optional stdin text. Enter-confirmed by default.'),
       keys: {
         type: 'array',
-        description:
-          'Optional list of key names or modifier combinations to press in order, e.g. ["ArrowUp", "ArrowUp", "Enter"], ["Ctrl+B"], ["Shift+Alt+L"], ["Tab"], ["Escape"], ["Ctrl+C"].',
-        items: stringSchema('Key name or combo string.')
+        description: 'Optional keys to press, e.g. ["Enter"], ["Ctrl+C"].',
+        items: stringSchema('Key name or combo.')
       },
-      pressEnter: booleanSchema(
-        'Whether to automatically confirm input text with Enter/newline. Default is true.',
-        true
-      )
+      pressEnter: booleanSchema('Confirm input with Enter. Default true.', true)
     },
     ['runId']
   ),
   tool(
     'kill_terminal_process',
-    'Terminate/kill a running background terminal command using its six-digit Run ID.',
-    { runId: stringSchema('Six-digit Run ID of the terminal process to terminate.') },
+    'Kill a running terminal command by Run ID.',
+    { runId: stringSchema('Terminal Run ID.') },
     ['runId']
   ),
   tool(
@@ -196,11 +181,11 @@ const baseToolsManifest: ToolDefinition[] = [
   ),
   tool(
     'computer_use_edit_file',
-    'Replace an inclusive line range in a text file.',
+    'Replace a line range in a file.',
     {
       path: pathArg,
-      startLine: integerSchema('First line to replace, using one-based indexing.', { minimum: 1 }),
-      endLine: integerSchema('Last line to replace, inclusive.', { minimum: 1 }),
+      startLine: integerSchema('First line (1-based).', { minimum: 1 }),
+      endLine: integerSchema('Last line, inclusive.', { minimum: 1 }),
       newContent: contentArg
     },
     ['path', 'startLine', 'endLine', 'newContent']
@@ -209,195 +194,170 @@ const baseToolsManifest: ToolDefinition[] = [
     'computer_use_copy_file',
     'Copy a file or directory.',
     {
-      sourcePath: stringSchema('Absolute source path.'),
-      destinationPath: stringSchema('Absolute destination path.'),
-      overwrite: booleanSchema('Whether an existing destination may be overwritten.', false)
+      sourcePath: stringSchema('Source path.'),
+      destinationPath: stringSchema('Destination path.'),
+      overwrite: booleanSchema('Overwrite destination.', false)
     },
     ['sourcePath', 'destinationPath']
   ),
   tool(
     'computer_use_move_file',
-    'Move or rename a file or directory.',
+    'Move/rename a file or directory.',
     {
-      sourcePath: stringSchema('Absolute source path.'),
-      destinationPath: stringSchema('Absolute destination path.'),
-      overwrite: booleanSchema('Whether an existing destination may be overwritten.', false)
+      sourcePath: stringSchema('Source path.'),
+      destinationPath: stringSchema('Destination path.'),
+      overwrite: booleanSchema('Overwrite destination.', false)
     },
     ['sourcePath', 'destinationPath']
   ),
-  tool('computer_use_get_file_info', 'Read file or directory metadata.', { path: pathArg }, [
-    'path'
-  ]),
-  tool(
-    'computer_use_list_directory',
-    'List the immediate contents of a directory.',
-    { path: pathArg },
-    ['path']
-  ),
+  tool('computer_use_get_file_info', 'Read file/directory metadata.', { path: pathArg }, ['path']),
+  tool('computer_use_list_directory', 'List a directory.', { path: pathArg }, ['path']),
   tool(
     'computer_use_read_file',
-    'Read a bounded line range from a text file, or extract and read structured text from PDF (.pdf), PowerPoint (.pptx), and Word (.docx) documents.',
+    'Read a line range from text, PDF, PPTX, or DOCX.',
     {
       path: pathArg,
-      startLine: integerSchema('First line to read, using one-based indexing.', {
-        default: 1,
-        minimum: 1
-      }),
-      limit: integerSchema(
-        `Maximum number of lines to return (up to ${COMPUTER_READ_FILE_MAX_LINES}; the selected content is capped at ${COMPUTER_READ_FILE_MAX_CHARACTERS.toLocaleString('en-US')} characters).`,
-        {
-          default: COMPUTER_READ_FILE_DEFAULT_LIMIT,
-          minimum: 1,
-          maximum: COMPUTER_READ_FILE_MAX_LINES
-        }
-      )
+      startLine: integerSchema('First line (1-based).', { default: 1, minimum: 1 }),
+      limit: integerSchema(`Max lines (up to ${COMPUTER_READ_FILE_MAX_LINES}).`, {
+        default: COMPUTER_READ_FILE_DEFAULT_LIMIT,
+        minimum: 1,
+        maximum: COMPUTER_READ_FILE_MAX_LINES
+      })
     },
     ['path']
   ),
   tool(
     'search_installed_applications',
-    'Search installed application shortcuts by name.',
-    { query: stringSchema('Application search term.') },
+    'Search installed apps by name.',
+    { query: stringSchema('Search term.') },
     ['query']
   ),
   tool(
     'open_application',
-    'Open an application or file via path in the default system app.',
-    { appPath: stringSchema('Absolute file or executable path.') },
+    'Open an app/file in the default app.',
+    { appPath: stringSchema('File or exe path.') },
     ['appPath']
   ),
   tool(
     'web_search',
-    'Search DuckDuckGo and automatically read the requested number of matching source pages. Use for standard quick search queries. Request 2–4 sources in most cases, 5–8 only for specific needs, and never more than 10.',
+    'Quick web search; auto-reads matching pages. Use 2-4 sources typically, max 10.',
     {
-      query: stringSchema('Focused web search query.'),
-      resultCount: integerSchema(
-        'Number of Sources to return. Minimum: 1. Recommended: 2–4. Use 5–8 only for specific cases. Maximum: 10.',
-        { minimum: 1, maximum: 10 }
-      )
+      query: stringSchema('Search query.'),
+      resultCount: integerSchema('Sources to return (1-10, 2-4 typical).', {
+        minimum: 1,
+        maximum: 10
+      })
     },
     ['query', 'resultCount']
   ),
   tool(
     'web_fetch',
-    'Deep web research tool. Automatically executes 5 distinct Google-style search queries (retrieving 10 pages per query, totaling up to 50 source web pages) on different facets of a topic, and synthesizes up to 15,000 characters from each Source via a dedicated subagent into a comprehensive, detailed summary (at least 1000 characters minimum, up to 4000 characters). Always call web_fetch when the user requests a deep search, deep research, comprehensive analysis, or whenever a complex topic demands thorough multi-source investigation.',
+    'Deep research: 5 queries x 10 pages, subagent synthesis. Use for deep/comprehensive requests.',
     {
-      title: stringSchema(
-        "Descriptive research title specifying the main extraction topic. MUST be written in the user's conversational language (e.g. 'Dominância das empresas chinesas de IA no mercado de 2026' if talking in Portuguese). This title guides subagent focus and appears in the user interface."
-      ),
+      title: stringSchema("Research title in the user language."),
       queries: {
         type: 'array',
-        description:
-          "Exactly 5 distinct Google-style web search queries exploring different aspects and variants of the topic. Formulate them as Google search queries in whichever language yields the highest quality global results (e.g. English for global/tech topics, or the user's language for regional topics). Each query retrieves 10 web pages (5 x 10 = up to 50 total Sources).",
+        description: 'Exactly 5 distinct Google-style queries on different facets.',
         minItems: 5,
         maxItems: 5,
-        items: stringSchema('A focused Google-style web search query.')
+        items: stringSchema('Search query.')
       }
     },
     ['title', 'queries']
   ),
   tool(
     'open_browser_link',
-    'Open a web URL (http/https) in the system browser. Do not use for local file paths.',
-    { url: stringSchema('HTTP or HTTPS URL.') },
+    'Open a URL in the system browser. No local paths.',
+    { url: stringSchema('HTTP(S) URL.') },
     ['url']
   ),
-  tool('open_browser', 'Open or attach the persistent Prism browser session.', {
-    url: stringSchema('Optional initial HTTP or HTTPS URL.')
+  tool('open_browser', 'Open/attach the Prism browser session.', {
+    url: stringSchema('Optional initial URL.')
   }),
-  tool(
-    'browser_navigate',
-    'Navigate the active Prism browser.',
-    { url: stringSchema('HTTP or HTTPS URL.') },
-    ['url']
-  ),
-  tool('browser_snapshot', 'Read a semantic snapshot of the active browser page.', {
-    full: booleanSchema('Whether to return the full page snapshot.', false)
+  tool('browser_navigate', 'Navigate the active browser.', { url: stringSchema('HTTP(S) URL.') }, [
+    'url'
+  ]),
+  tool('browser_snapshot', 'Read a semantic snapshot of the page.', {
+    full: booleanSchema('Full snapshot.', false)
   }),
   tool(
     'browser_click',
-    'Click an element in the active browser snapshot.',
-    { elementId: stringSchema('Element ID from the latest snapshot.') },
+    'Click a snapshot element.',
+    { elementId: stringSchema('Element ID from snapshot.') },
     ['elementId']
   ),
   tool(
     'browser_type',
-    'Type text into an element in the active browser.',
+    'Type text into a snapshot element.',
     {
-      elementId: stringSchema('Element ID from the latest snapshot.'),
+      elementId: stringSchema('Element ID from snapshot.'),
       text: stringSchema('Text to type.')
     },
     ['elementId', 'text']
   ),
   tool(
     'browser_press',
-    'Press a keyboard key in the active browser.',
-    { key: stringSchema('Playwright key name, such as Enter or Escape.') },
+    'Press a key in the browser.',
+    { key: stringSchema('Key name, e.g. Enter.') },
     ['key']
   ),
   tool(
     'browser_scroll',
-    'Scroll the active browser page.',
+    'Scroll the page.',
     {
-      direction: stringSchema('Scroll direction.', { enum: ['up', 'down'] }),
-      amount: integerSchema('Optional number of pixels to scroll.', { minimum: 1 })
+      direction: stringSchema('Direction.', { enum: ['up', 'down'] }),
+      amount: integerSchema('Pixels to scroll.', { minimum: 1 })
     },
     ['direction']
   ),
-  tool('browser_back', 'Navigate back in the active browser history.'),
+  tool('browser_back', 'Go back in browser history.'),
   tool(
     'web_script',
-    'Execute JavaScript in the active browser page.',
+    'Run JavaScript in the page.',
     {
-      script: stringSchema('JavaScript source to execute.'),
-      url: stringSchema('Optional expected page URL.')
+      script: stringSchema('JS source.'),
+      url: stringSchema('Optional expected URL.')
     },
     ['script']
   ),
-  tool('detailed_dom_page', 'Read the detailed DOM of the active browser page.', {
-    url: stringSchema('Optional expected page URL.')
+  tool('detailed_dom_page', 'Read the detailed page DOM.', {
+    url: stringSchema('Optional expected URL.')
   }),
-  tool(
-    'search_chat_history',
-    'Search saved conversations by keywords.',
-    { query: stringSchema('Keywords to search.') },
-    ['query']
-  ),
+  tool('search_chat_history', 'Search saved chats by keywords.', { query: stringSchema('Keywords.') }, [
+    'query'
+  ]),
   tool(
     'open_main_app',
-    'Open the main Prism window with instructions from Quick Launcher.',
+    'Open main Prism window with instructions.',
     {
-      instructions: stringSchema('Instructions to send to the main chat.'),
+      instructions: stringSchema('Instructions for main chat.'),
       model: stringSchema('Optional model key.'),
-      searchEnabled: booleanSchema('Whether search mode should be enabled.', false)
+      searchEnabled: booleanSchema('Enable search mode.', false)
     },
     ['instructions']
   ),
-  tool('computer_use_see_screen', 'Capture a screenshot of the entire screen.', {
-    appName: stringSchema(
-      'Optional window/app name (ignored, full desktop screen is always captured).',
-      { default: 'Entire Screen' }
-    )
+  tool('computer_use_see_screen', 'Screenshot the full screen.', {
+    appName: stringSchema('Ignored; full screen always.', { default: 'Entire Screen' })
   }),
-  tool('configure_prism', 'Change non-secret Prism settings. At least one property is required.', {
-    launcherShortcut: stringSchema('Quick Launcher hotkey.'),
+  tool('configure_prism', 'Change non-secret settings. One property required.', {
+    launcherShortcut: stringSchema('Launcher hotkey.'),
     modelSelectionShortcut: stringSchema('Model picker hotkey.'),
     screenshotShortcut: stringSchema('Screenshot hotkey.'),
     newChatShortcut: stringSchema('New chat hotkey.'),
-    dictationShortcut: stringSchema('Voice dictation hotkey.'),
-    webSearchShortcut: stringSchema('Search mode hotkey.'),
-    youtubeModeShortcut: stringSchema('YouTube mode hotkey.'),
-    lastSelectedChatModel: stringSchema('Main chat model key.'),
-    defaultModel: stringSchema('Alias for the main chat model key.'),
+    dictationShortcut: stringSchema('Dictation hotkey.'),
+    webSearchShortcut: stringSchema('Search hotkey.'),
+    youtubeModeShortcut: stringSchema('YouTube hotkey.'),
+    lastSelectedChatModel: stringSchema('Chat model key.'),
+    defaultModel: stringSchema('Chat model alias.'),
     searchModel: stringSchema('Search model key.'),
-    quickLauncherModel: stringSchema('Quick Launcher model key.'),
-    sttModel: stringSchema('Speech-to-text model key.'),
-    generativeBrowserModel: stringSchema('Generative AI Browser model key.'),
-    imageGenerationModel: stringSchema('Native image-generation model route key.'),
-    minimizeToTray: booleanSchema('Whether closing Prism minimizes it to the tray.'),
-    autoLaunch: booleanSchema('Whether Prism starts with the operating system.'),
-    quickLauncherMode: stringSchema('Quick Launcher mode.', { enum: ['simple', 'advanced'] }),
-    theme: stringSchema('Application color theme.', {
+    quickLauncherModel: stringSchema('Launcher model key.'),
+    sttModel: stringSchema('STT model key.'),
+    generativeBrowserModel: stringSchema('Generative browser model key.'),
+    imageGenerationModel: stringSchema('Image model route key.'),
+    minimizeToTray: booleanSchema('Minimize to tray on close.'),
+    autoLaunch: booleanSchema('Start with OS.'),
+    quickLauncherMode: stringSchema('Launcher mode.', { enum: ['simple', 'advanced'] }),
+    theme: stringSchema('Color theme.', {
       enum: [
         'marine',
         'vertez',
@@ -415,68 +375,61 @@ const baseToolsManifest: ToolDefinition[] = [
       ]
     }),
     username: stringSchema('Display name.'),
-    ttsVoice: stringSchema('Text-to-speech voice.', {
+    ttsVoice: stringSchema('TTS voice.', {
       enum: ['Aoede', 'Puck', 'Charon', 'Kore', 'Fenrir']
     }),
-    terminalShell: stringSchema('Shell executable or absolute path.'),
+    terminalShell: stringSchema('Shell exe or path.'),
     zoomFactor: {
       type: 'number',
-      description: 'Application zoom factor.',
+      description: 'App zoom.',
       minimum: 0.5,
       maximum: 3
     }
   }),
-  tool('internal_docs_list', 'List Prism internal documentation files.'),
+  tool('internal_docs_list', 'List Prism docs.'),
   tool(
     'internal_docs_read',
-    'Read one Prism internal documentation file.',
-    { filename: stringSchema('Markdown filename returned by internal_docs_list.') },
+    'Read one Prism doc file.',
+    { filename: stringSchema('Filename from internal_docs_list.') },
     ['filename']
   ),
-  tool(
-    'internal_docs_search',
-    'Search Prism internal documentation.',
-    { query: stringSchema('Search query.') },
-    ['query']
-  ),
+  tool('internal_docs_search', 'Search Prism docs.', { query: stringSchema('Query.') }, ['query']),
   tool(
     'to_ask',
-    'Show a questionnaire and wait for the user response.',
+    'Ask questions and wait for the answer.',
     {
-      session_id: stringSchema('Unique questionnaire session ID.'),
+      session_id: stringSchema('Questionnaire ID.'),
       questions: {
         type: 'array',
         minItems: 1,
-        description: 'Question objects rendered by Prism.',
+        description: 'Questions rendered by Prism.',
         items: objectSchema(
           {
-            id: stringSchema('Unique question ID.'),
-            type: stringSchema('Question type.', {
+            id: stringSchema('Question ID.'),
+            type: stringSchema('Type.', {
               enum: ['multiple-choice', 'multiple-select', 'essay']
             }),
-            title: stringSchema('Short category title.'),
-            prompt: stringSchema('Question shown to the user.'),
+            title: stringSchema('Category.'),
+            prompt: stringSchema('Question text.'),
             options: {
               type: 'array',
-              description: 'Choices for a multiple-choice or multiple-select question.',
+              description: 'Choices.',
               minItems: 2,
               maxItems: 10,
               items: objectSchema(
                 {
-                  value: stringSchema('Stable choice value.'),
-                  label: stringSchema('Short user-facing choice title.'),
-                  description: stringSchema('Explanation shown below the choice title.'),
-                  recommended: booleanSchema(
-                    'Set true when this is the best option you recommend to the user.'
-                  )
+                  value: stringSchema('Choice value.'),
+                  label: stringSchema('Choice title.'),
+                  description: stringSchema('Choice help.'),
+                  recommended: booleanSchema('True for the recommended option.')
                 },
                 ['value', 'label']
               )
             },
-            max_selections: integerSchema(
-              'Optional maximum selections for multiple-select. Omit to allow any number.',
-              { minimum: 1, maximum: 10 }
-            )
+            max_selections: integerSchema('Max selections; omit for unlimited.', {
+              minimum: 1,
+              maximum: 10
+            })
           },
           ['id', 'type', 'title', 'prompt']
         )
@@ -484,48 +437,42 @@ const baseToolsManifest: ToolDefinition[] = [
     },
     ['session_id', 'questions']
   ),
-  tool(
-    'render_chat_history',
-    'Render a saved chat session in the UI.',
-    { query: stringSchema('Chat session ID or filename.') },
-    ['query']
-  ),
-  tool(
-    'search_chat_memory',
-    'Search conversation memory.',
-    { query: stringSchema('Keywords to search.') },
-    ['query']
-  ),
-  tool('not_found_chat_history', 'Tell the UI that no matching chat history was found.'),
-  tool('list_workflows', 'List configured slash workflows.'),
+  tool('render_chat_history', 'Render a saved chat in the UI.', { query: stringSchema('Chat ID or file.') }, [
+    'query'
+  ]),
+  tool('search_chat_memory', 'Search conversation memory.', { query: stringSchema('Keywords.') }, [
+    'query'
+  ]),
+  tool('not_found_chat_history', 'Report no matching chat history.'),
+  tool('list_workflows', 'List slash workflows.'),
   tool(
     'save_workflow',
-    'Create or update a slash workflow.',
+    'Create/update a slash workflow.',
     {
-      command: stringSchema('Slash command beginning with "/".'),
+      command: stringSchema('Slash command, e.g. "/review".'),
       name: stringSchema('Workflow name.'),
-      systemInstruction: stringSchema('Workflow system instruction.'),
-      description: stringSchema('Optional workflow description.'),
-      id: stringSchema('Existing workflow ID when updating.'),
+      systemInstruction: stringSchema('Workflow instruction.'),
+      description: stringSchema('Optional description.'),
+      id: stringSchema('Existing ID when updating.'),
       toolConstraints: {
         type: 'array',
-        description: 'Optional exact tool names allowed by the workflow.',
-        items: stringSchema('Registered tool name.')
+        description: 'Allowed tool names.',
+        items: stringSchema('Tool name.')
       }
     },
     ['command', 'name', 'systemInstruction']
   ),
-  tool('delete_workflow', 'Delete a slash workflow by command or ID.', {
-    command: stringSchema('Slash command to delete.'),
-    id: stringSchema('Workflow ID to delete.')
+  tool('delete_workflow', 'Delete a workflow by command or ID.', {
+    command: stringSchema('Slash command.'),
+    id: stringSchema('Workflow ID.')
   }),
   tool(
     'create_todo',
-    'Create a task list for the current chat.',
+    'Create a task list.',
     {
       tasks: {
         type: 'array',
-        description: 'Actionable task titles.',
+        description: 'Task titles.',
         minItems: 1,
         maxItems: 30,
         items: stringSchema('Task title.')
@@ -535,10 +482,10 @@ const baseToolsManifest: ToolDefinition[] = [
   ),
   tool(
     'edit_todo',
-    'Update the status of one task.',
+    'Update one task status.',
     {
-      id: stringSchema('Task ID, such as task-0.'),
-      status: stringSchema('New task status.', { enum: ['working', 'done'] })
+      id: stringSchema('Task ID, e.g. task-0.'),
+      status: stringSchema('New status.', { enum: ['working', 'done'] })
     },
     ['id', 'status']
   ),
@@ -546,75 +493,69 @@ const baseToolsManifest: ToolDefinition[] = [
     'create_mini_app',
     'Create an interactive Mini App.',
     {
-      title: stringSchema('Mini App title.'),
-      html: stringSchema('HTML structure without script or style tags.'),
+      title: stringSchema('App title.'),
+      html: stringSchema('HTML, no script/style tags.'),
       css: stringSchema('Responsive CSS.'),
-      js: stringSchema('JavaScript interaction logic.')
+      js: stringSchema('Interaction JS.')
     },
     ['title', 'html', 'css', 'js']
   ),
   tool(
     'read_skill',
-    'Read a specialized skill file from Prism internal skills library to learn guidelines and unlock execution tools for specific tasks.',
+    'Read a skill file to learn rules and unlock its tools.',
     {
-      skill_name: stringSchema(
-        'Filename of the skill to read, e.g. "pdf_skill.md" or "pptx_skill.md".'
-      )
+      skill_name: stringSchema('Skill filename, e.g. "pdf_skill.md".')
     },
     ['skill_name']
   ),
   tool(
     'write_pdf',
-    'Generate a PDF artifact from HTML and CSS.',
-    { filename: stringSchema('PDF filename.'), html: stringSchema('Complete A4 HTML and CSS.') },
+    'Generate a PDF from HTML/CSS.',
+    { filename: stringSchema('PDF filename.'), html: stringSchema('Full A4 HTML/CSS.') },
     ['filename', 'html']
   ),
   tool(
     'edit_pdf',
-    'Update an existing PDF artifact.',
+    'Update a PDF artifact.',
     {
-      id: stringSchema('Existing six-digit artifact ID.'),
-      path: stringSchema('Existing PDF path when no artifact ID is available.'),
-      html: stringSchema('Updated complete HTML and CSS.')
+      id: stringSchema('Artifact ID.'),
+      path: stringSchema('PDF path if no ID.'),
+      html: stringSchema('Updated full HTML/CSS.')
     },
     ['html']
   ),
   tool(
     'write_pptx',
-    'Generate a 16:9 PowerPoint artifact from slide HTML and CSS.',
+    'Generate 16:9 slides from HTML/CSS.',
     {
-      filename: stringSchema('PowerPoint filename.'),
-      html: stringSchema('Complete 1920x1080 slide HTML and CSS.')
+      filename: stringSchema('Filename.'),
+      html: stringSchema('Full 1920x1080 HTML/CSS.')
     },
     ['filename', 'html']
   ),
   tool(
     'edit_pptx',
-    'Update an existing PowerPoint artifact.',
+    'Update a PowerPoint artifact.',
     {
-      id: stringSchema('Existing six-digit artifact ID.'),
-      path: stringSchema('Existing PowerPoint path when no artifact ID is available.'),
-      html: stringSchema('Updated complete slide HTML and CSS.')
+      id: stringSchema('Artifact ID.'),
+      path: stringSchema('Path if no ID.'),
+      html: stringSchema('Updated full HTML/CSS.')
     },
     ['html']
   ),
   tool(
     'memory',
-    "Manage Prism's long-term memory. add: save a new fact. replace: correct or update an existing fact (old_text = short unique substring of the current entry; content = the new full fact). remove: delete a fact that is no longer true (old_text = short unique substring). target \"user\" stores profile facts about the user (name, age, preferences, communication style); target \"memory\" stores general facts and notes. Save proactively after the user states a stable preference, correction or durable personal fact \u2014 do not wait to be asked. Keep entries compact; update instead of duplicating. Never save secrets or credentials. The user's current message always wins over stored memory.",
+    'Curate long-term memory. add: save fact. replace: fix fact (old_text = unique substring, content = new fact). remove: delete stale fact. target "user" = user profile; "memory" = general notes. Save stable facts proactively, same turn. Compact, no secrets. Current message wins.',
     {
-      action: stringSchema('Which operation to perform.', {
+      action: stringSchema('Operation.', {
         enum: ['add', 'replace', 'remove']
       }),
-      target: stringSchema('Which store to operate on.', { enum: ['user', 'memory'] }),
-      kind: stringSchema('Optional classification for the saved entry.', {
+      target: stringSchema('Store.', { enum: ['user', 'memory'] }),
+      kind: stringSchema('Entry class.', {
         enum: ['about_user', 'preference', 'fact', 'event', 'project', 'behavioral']
       }),
-      content: stringSchema(
-        "The full fact to save (add/replace). Compact, information-dense, written in the user's language."
-      ),
-      old_text: stringSchema(
-        'Short unique substring identifying the existing entry (replace/remove).'
-      )
+      content: stringSchema("Fact to save (add/replace), compact, user language."),
+      old_text: stringSchema('Unique substring of entry (replace/remove).')
     },
     ['action', 'target']
   )
