@@ -11,6 +11,7 @@ import {
 } from '@phosphor-icons/react'
 import type { TabSession } from '../types/tab'
 import type { SessionMode } from '../../../shared/types'
+import { LiquidGlassSurface } from './LiquidGlassSurface'
 
 interface HarnessHistorySession {
   id: string
@@ -165,12 +166,19 @@ export function HarnessWorkspace({
       >
         <div
           className={clsx(
-            'relative flex h-9 items-center rounded-full bg-[#090b12]/80 px-1.5 shadow-[0_12px_36px_rgba(0,0,0,0.55)] backdrop-blur-2xl overflow-hidden',
+            'true-glass glass-menu-host harness-pill-host relative isolate flex h-9 items-center rounded-full px-1.5 overflow-hidden',
             motionClass,
             isDockOpen ? 'opacity-100' : 'opacity-90 hover:opacity-100'
           )}
           style={{ width: `${isDockOpen ? dockOpenWidth : 36}px` }}
         >
+          <LiquidGlassSurface
+            refraction={22}
+            blur={2}
+            opacity={0.5}
+            specular={0.15}
+            distortionRadius={24}
+          />
           {/* Glowing Dot Button */}
           <button
             type="button"
@@ -310,7 +318,15 @@ export function HarnessWorkspace({
 
       {isHistoryOpen && (
         <div className="absolute inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/68 p-4 pt-20 backdrop-blur-sm">
-          <div className="true-glass w-full max-w-2xl overflow-hidden rounded-2xl">
+          <div className="true-glass relative w-full max-w-2xl overflow-hidden rounded-2xl">
+            <LiquidGlassSurface
+              refraction={26}
+              blur={2}
+              centerBlur={0}
+              centerAttenuation={0.18}
+              specular={0.12}
+              distortionRadius={28}
+            />
             <div className="flex items-center justify-between border-b border-white/[0.08] px-5 py-4">
               <div>
                 <h2 className="text-sm font-semibold tracking-tight text-text-primary">Harness history</h2>

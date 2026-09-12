@@ -14,8 +14,9 @@ import {
 } from '../shared/memoryReview'
 import type { MemoryReviewInfo, MemoryReviewStatus } from '../shared/memoryCore'
 import type { ProviderConfig, ProviderModel } from '../shared/types'
+import { DEFAULT_ARCADIA_MODEL_KEY } from '../shared/arcadiaCatalog'
 
-const ACCOUNT_MEMORY_MODEL_KEY = 'prism_provider:prism-ai/arcadia-1.0-mini'
+const ACCOUNT_MEMORY_MODEL_KEY = DEFAULT_ARCADIA_MODEL_KEY
 
 interface ResolvedMemoryReviewRoute {
   provider: ProviderConfig | null

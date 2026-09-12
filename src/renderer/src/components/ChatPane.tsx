@@ -27,12 +27,32 @@ import { ImplementationPlanCard } from './ImplementationPlanCard'
 import type { TabSession } from '../types/tab'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
 import type {
+  HarnessExplorerSelection,
   HarnessPermissionMode,
   HarnessPhase,
   TerminalProcessSnapshot,
   TodoState
 } from '../../../shared/types'
 import { getDefaultThinkingLevelForModel } from '../constants'
+
+/** Shared empty array so memoized children keep a stable reference. */
+const EMPTY_EXPLORER_CONTEXT: NonNullable<TabSession['harnessExplorerContext']> = []
+
+const noop = (): void => {}
+
+/**
+ * Returns a referentially stable wrapper that always forwards to the latest
+ * callback. Typing in the composer must not re-render when the parent merely
+ * re-renders (streaming tokens, todo ticks), so every function prop handed to
+ * the memoized InputBar goes through this.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function useStableCallback<T extends (...args: any[]) => any>(fn: T): T {
+  const ref = useRef(fn)
+  ref.current = fn
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useCallback(((...args: Parameters<T>): ReturnType<T> => ref.current(...args)) as T, [])
+}
 
 interface ChatPaneProps {
   tab: TabSession
@@ -379,7 +399,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                   placement === 'top' ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
                 )}
               >
-                <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
+                <LiquidGlassSurface refraction={20} blur={2} opacity={0.66} specular={0.12} distortionRadius={22} />
                 <div className="px-2.5 py-1 text-[9.5px] font-semibold uppercase tracking-wider text-text-muted flex items-center justify-between">
                   <span>Workspaces</span>
                   <span className="font-mono text-[9px] lowercase font-normal">{recentProjects.length} total</span>
@@ -613,9 +633,60 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
 
     const [localInputText, setLocalInputText] = useState(tab.inputText)
     const lastTabIdRef = useRef(tab.id)
+    const flushTabIdRef = useRef(tab.id)
     const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
     const localInputTextRef = useRef(localInputText)
     localInputTextRef.current = localInputText
+
+    // Latest parent callbacks. The wrappers below stay referentially stable so
+    // the memoized InputBar only re-renders when its data actually changes —
+    // never on unrelated parent renders (streaming tokens, todo ticks).
+    const stableOnSend = useStableCallback(onSend)
+    const stableOnCancel = useStableCallback(onCancel)
+    const stableOnModelChange = useStableCallback(onModelChange)
+    const stableOnModeChange = useStableCallback(onModeChange)
+    const stableOnSelectFolder = useStableCallback(onSelectFolder)
+    const stableOnUpdateTabInput = useStableCallback(onUpdateTabInput)
+    const stableOnOpenScreenshotModal = useStableCallback(onOpenScreenshotModal)
+    const stableOnOpenYoutubeModal = useStableCallback(onOpenYoutubeModal)
+    const stableOnClearQuote = useStableCallback((): void => {
+      onUpdateTabQuote?.(tab.id, null)
+    })
+    const stableOnToggleSearch = useStableCallback((val: boolean): void => {
+      onToggleSearch?.(val)
+    })
+    const stableOnRemoveFile = useStableCallback((): void => {
+      onUpdateTabFile(tab.id, null)
+    })
+    const stableOnAttachFile = useStableCallback((file: TabSession['attachedFile']): void => {
+      onUpdateTabFile(tab.id, file)
+    })
+    const stableOnReasoningLevelChange = useStableCallback((level: string): void => {
+      onReasoningLevelChange(tab.selectedModel, level)
+    })
+    const stableOnDisabledSkillsChange = useStableCallback((skills: string[]): void => {
+      onUpdateTabDisabledSkills?.(tab.id, skills)
+    })
+    const stableOnHarnessPermissionModeChange = useStableCallback(
+      (mode: HarnessPermissionMode): void => {
+        onHarnessPermissionModeChange?.(mode)
+      }
+    )
+    const stableOnHarnessPhaseChange = useStableCallback((phase: HarnessPhase): void => {
+      onHarnessPhaseChange?.(phase)
+    })
+    const stableOnOpenUpgradePlans = useStableCallback((): void => {
+      onOpenUpgradePlans?.()
+    })
+    const stableOnAddHarnessExplorerContext = useStableCallback(
+      (selection: HarnessExplorerSelection): boolean =>
+        onAddHarnessExplorerContext?.(selection) ?? false
+    )
+    const stableOnRemoveHarnessExplorerContext = useStableCallback(
+      (relativePath: string): void => {
+        onRemoveHarnessExplorerContext?.(relativePath)
+      }
+    )
 
     // Sync from tab.inputText when tab changes or external update happens (e.g. quote / clear)
     useEffect(() => {
@@ -625,22 +696,24 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
           debounceTimerRef.current = null
         }
         lastTabIdRef.current = tab.id
+        flushTabIdRef.current = tab.id
         setLocalInputText(tab.inputText)
       } else if (tab.inputText !== localInputTextRef.current) {
         setLocalInputText(tab.inputText)
       }
     }, [tab.id, tab.inputText])
 
-    // Flush debounced update on unmount or tab switch
+    // Flush debounced update on unmount. Deps are stable by construction, so
+    // this cleanup runs only on unmount — never spuriously mid-typing.
     useEffect(() => {
       return () => {
         if (debounceTimerRef.current) {
           clearTimeout(debounceTimerRef.current)
           debounceTimerRef.current = null
-          onUpdateTabInput(lastTabIdRef.current, localInputTextRef.current)
+          stableOnUpdateTabInput(flushTabIdRef.current, localInputTextRef.current)
         }
       }
-    }, [onUpdateTabInput])
+    }, [stableOnUpdateTabInput])
 
     const handleSendInputBar = useCallback(
       (
@@ -653,32 +726,37 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
           clearTimeout(debounceTimerRef.current)
           debounceTimerRef.current = null
         }
+        flushTabIdRef.current = tab.id
         setLocalInputText('')
         localInputTextRef.current = ''
-        onUpdateTabInput(tab.id, '')
-        onSend(message, attachedFile || tab.attachedFile || undefined)
+        stableOnUpdateTabInput(tab.id, '')
+        stableOnSend(message, attachedFile || tab.attachedFile || undefined)
       },
-      [onSend, onUpdateTabInput, tab.id, tab.attachedFile]
+      [stableOnSend, stableOnUpdateTabInput, tab.id, tab.attachedFile]
     )
 
+    // NOTE: the state updater below is intentionally pure. Timer scheduling
+    // and ref writes happen in the event-handler body (not inside the
+    // updater) so concurrent renders can never leave a stale flush behind
+    // that would overwrite freshly typed characters.
     const handleSetTextInputBar = useCallback(
       (val: string | ((prev: string) => string)) => {
-        setLocalInputText((prev) => {
-          const next = typeof val === 'function' ? val(prev) : val
-          localInputTextRef.current = next
+        const next = typeof val === 'function' ? val(localInputTextRef.current) : val
+        localInputTextRef.current = next
+        flushTabIdRef.current = tab.id
+        setLocalInputText(next)
 
-          if (debounceTimerRef.current) {
-            clearTimeout(debounceTimerRef.current)
-          }
-          debounceTimerRef.current = setTimeout(() => {
-            debounceTimerRef.current = null
-            onUpdateTabInput(tab.id, next)
-          }, 300)
-
-          return next
-        })
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current)
+        }
+        debounceTimerRef.current = setTimeout(() => {
+          debounceTimerRef.current = null
+          // Read the ref at flush time: the parent always persists the
+          // latest draft, even if more keys landed after scheduling.
+          stableOnUpdateTabInput(flushTabIdRef.current, localInputTextRef.current)
+        }, 300)
       },
-      [tab.id, onUpdateTabInput]
+      [tab.id, stableOnUpdateTabInput]
     )
 
     return (
@@ -905,12 +983,12 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                             <InputBar
                         ref={inputBarRef}
                         onSend={handleSendInputBar}
-                        onCancel={onCancel}
+                        onCancel={stableOnCancel}
                         isProcessing={tab.isProcessing}
                         isKeyMissing={isKeyMissing}
                         disabled={tab.isProcessing || isKeyMissing || !isOnline}
                         selectedModel={tab.selectedModel}
-                        onModelChange={onModelChange}
+                        onModelChange={stableOnModelChange}
                         reasoningLevel={
                           config?.modelReasoningLevels?.[tab.selectedModel] ||
                           config?.modelReasoningLevels?.[
@@ -918,43 +996,39 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                           ] ||
                           getDefaultThinkingLevelForModel(tab.selectedModel)
                         }
-                        onReasoningLevelChange={(level) =>
-                          onReasoningLevelChange(tab.selectedModel, level)
-                        }
+                        onReasoningLevelChange={stableOnReasoningLevelChange}
                         text={localInputText}
                         setText={handleSetTextInputBar}
                         quotedText={tab.quotedText}
-                        onClearQuote={() => onUpdateTabQuote?.(tab.id, null)}
+                        onClearQuote={stableOnClearQuote}
                         isSearchEnabled={tab.isSearchEnabled}
-                        setIsSearchEnabled={(val) => onToggleSearch?.(val)}
+                        setIsSearchEnabled={stableOnToggleSearch}
                         isFullscreen={false}
-                        onFullscreenToggle={() => {}}
+                        onFullscreenToggle={noop}
                         attachedFile={tab.attachedFile}
-                        onRemoveFile={() => onUpdateTabFile(tab.id, null)}
-                        onAttachFile={(f) => onUpdateTabFile(tab.id, f)}
-                        onOpenScreenshotModal={onOpenScreenshotModal}
-                        onOpenYoutubeModal={onOpenYoutubeModal}
+                        onRemoveFile={stableOnRemoveFile}
+                        onAttachFile={stableOnAttachFile}
+                        onOpenScreenshotModal={stableOnOpenScreenshotModal}
+                        onOpenYoutubeModal={stableOnOpenYoutubeModal}
                         activeWorkflow={activeWorkflow}
                         setActiveWorkflow={setActiveWorkflow}
                         sessionMode={tab.sessionMode}
                         disciplinePath={tab.disciplinePath}
-                        onModeChange={onModeChange}
-                        onSelectFolder={onSelectFolder}
+                        onModeChange={stableOnModeChange}
+                        onSelectFolder={stableOnSelectFolder}
                         disabledSkills={tab.disabledSkills}
-                        onDisabledSkillsChange={(skills) =>
-                          onUpdateTabDisabledSkills?.(tab.id, skills)
-                        }
+                        onDisabledSkillsChange={stableOnDisabledSkillsChange}
                         harnessPermissionMode={harnessPermissionMode}
-                        onHarnessPermissionModeChange={onHarnessPermissionModeChange}
+                        onHarnessPermissionModeChange={stableOnHarnessPermissionModeChange}
                         harnessPhase={tab.harnessPhase}
-                        onHarnessPhaseChange={onHarnessPhaseChange}
-                        onOpenUpgradePlans={onOpenUpgradePlans}
+                        onHarnessPhaseChange={stableOnHarnessPhaseChange}
+                        onOpenUpgradePlans={stableOnOpenUpgradePlans}
                         isEnterprise={isEnterprise}
                         harnessExplorerContext={
-                          isHarness ? tab.harnessExplorerContext || [] : undefined
+                          isHarness ? (tab.harnessExplorerContext ?? EMPTY_EXPLORER_CONTEXT) : undefined
                         }
-                        onAddHarnessExplorerContext={onAddHarnessExplorerContext}
-                        onRemoveHarnessExplorerContext={onRemoveHarnessExplorerContext}
+                        onAddHarnessExplorerContext={stableOnAddHarnessExplorerContext}
+                        onRemoveHarnessExplorerContext={stableOnRemoveHarnessExplorerContext}
                             />
                           </motion.div>
                         )}
@@ -1006,11 +1080,11 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                     title="Scroll to bottom"
                   >
                     <LiquidGlassSurface
-                      refraction={10}
-                      blur={2}
+                      refraction={16}
+                      blur={1.5}
                       opacity={0.3}
-                      specular={0.12}
-                      distortionRadius={10}
+                      specular={0.14}
+                      distortionRadius={18}
                     />
                     <CaretDown size={14} />
                   </button>
@@ -1058,12 +1132,12 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                         <InputBar
                     ref={inputBarRef}
                     onSend={handleSendInputBar}
-                    onCancel={onCancel}
+                    onCancel={stableOnCancel}
                     isProcessing={tab.isProcessing}
                     isKeyMissing={isKeyMissing}
                     disabled={tab.isProcessing || isKeyMissing || !isOnline}
                     selectedModel={tab.selectedModel}
-                    onModelChange={onModelChange}
+                    onModelChange={stableOnModelChange}
                     reasoningLevel={
                       config?.modelReasoningLevels?.[tab.selectedModel] ||
                       config?.modelReasoningLevels?.[
@@ -1071,41 +1145,39 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       ] ||
                       getDefaultThinkingLevelForModel(tab.selectedModel)
                     }
-                    onReasoningLevelChange={(level) =>
-                      onReasoningLevelChange(tab.selectedModel, level)
-                    }
+                    onReasoningLevelChange={stableOnReasoningLevelChange}
                     text={localInputText}
                     setText={handleSetTextInputBar}
                     quotedText={tab.quotedText}
-                    onClearQuote={() => onUpdateTabQuote?.(tab.id, null)}
+                    onClearQuote={stableOnClearQuote}
                     isSearchEnabled={tab.isSearchEnabled}
-                    setIsSearchEnabled={(val) => onToggleSearch?.(val)}
+                    setIsSearchEnabled={stableOnToggleSearch}
                     isFullscreen={false}
-                    onFullscreenToggle={() => {}}
+                    onFullscreenToggle={noop}
                     attachedFile={tab.attachedFile}
-                    onRemoveFile={() => onUpdateTabFile(tab.id, null)}
-                    onAttachFile={(f) => onUpdateTabFile(tab.id, f)}
-                    onOpenScreenshotModal={onOpenScreenshotModal}
-                    onOpenYoutubeModal={onOpenYoutubeModal}
+                    onRemoveFile={stableOnRemoveFile}
+                    onAttachFile={stableOnAttachFile}
+                    onOpenScreenshotModal={stableOnOpenScreenshotModal}
+                    onOpenYoutubeModal={stableOnOpenYoutubeModal}
                     activeWorkflow={activeWorkflow}
                     setActiveWorkflow={setActiveWorkflow}
                     sessionMode={tab.sessionMode}
                     disciplinePath={tab.disciplinePath}
-                    onModeChange={onModeChange}
-                    onSelectFolder={onSelectFolder}
+                    onModeChange={stableOnModeChange}
+                    onSelectFolder={stableOnSelectFolder}
                     disabledSkills={tab.disabledSkills}
-                    onDisabledSkillsChange={(skills) => onUpdateTabDisabledSkills?.(tab.id, skills)}
+                    onDisabledSkillsChange={stableOnDisabledSkillsChange}
                     harnessPermissionMode={harnessPermissionMode}
-                    onHarnessPermissionModeChange={onHarnessPermissionModeChange}
+                    onHarnessPermissionModeChange={stableOnHarnessPermissionModeChange}
                     harnessPhase={tab.harnessPhase}
-                    onHarnessPhaseChange={onHarnessPhaseChange}
-                    onOpenUpgradePlans={onOpenUpgradePlans}
+                    onHarnessPhaseChange={stableOnHarnessPhaseChange}
+                    onOpenUpgradePlans={stableOnOpenUpgradePlans}
                     isEnterprise={isEnterprise}
                     harnessExplorerContext={
-                      isHarness ? tab.harnessExplorerContext || [] : undefined
+                      isHarness ? (tab.harnessExplorerContext ?? EMPTY_EXPLORER_CONTEXT) : undefined
                     }
-                    onAddHarnessExplorerContext={onAddHarnessExplorerContext}
-                    onRemoveHarnessExplorerContext={onRemoveHarnessExplorerContext}
+                    onAddHarnessExplorerContext={stableOnAddHarnessExplorerContext}
+                    onRemoveHarnessExplorerContext={stableOnRemoveHarnessExplorerContext}
                         />
                       </motion.div>
                     )}

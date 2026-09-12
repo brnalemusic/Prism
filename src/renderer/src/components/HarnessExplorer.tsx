@@ -170,7 +170,7 @@ function TreeNode({
           className="glass-dropdown-panel fixed z-[120] w-44 border border-white/[0.13] p-1.5"
           style={{ left: menu.x, top: menu.y }}
         >
-          <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
+          <LiquidGlassSurface refraction={20} blur={2} opacity={0.66} specular={0.12} distortionRadius={22} />
           <MenuButton
             label={selected ? 'Remove from agent' : 'Send to agent'}
             accent

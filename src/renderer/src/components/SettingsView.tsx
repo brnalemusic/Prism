@@ -4410,7 +4410,7 @@ export function SettingsView({
                         ? 'No usable route is currently available; the next cycle will retry.'
                         : memoryReviewInfo?.resolvedModelName
                           ? `Using ${memoryReviewInfo.resolvedModelName}.`
-                          : 'Not set uses Arcadia-1.0 Mini with a Prism account, otherwise the main chat model.'}
+                          : 'Not set uses Arcadia 1.1 Mini with a Prism account, otherwise the main chat model.'}
                 </div>
               </div>
               <ModelSelector

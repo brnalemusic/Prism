@@ -227,7 +227,7 @@ function TodoPanel({
           >
             {/* Attached Card Docked Above InputBar */}
             <div className="liquid-glass-docked relative overflow-hidden rounded-t-2xl rounded-b-none">
-              <LiquidGlassSurface refraction={14} blur={2} opacity={0.4} distortionRadius={16} />
+              <LiquidGlassSurface refraction={18} blur={2} opacity={0.4} specular={0.12} distortionRadius={20} />
         {/* Subtle internal theme center glow */}
         <div className="absolute inset-0 rounded-t-2xl overflow-hidden pointer-events-none">
           <div

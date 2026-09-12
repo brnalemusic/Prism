@@ -1,18 +1,12 @@
 import { ProviderConfig } from '../../shared/types'
+import { ARCADIA_MODELS } from '../../shared/arcadiaCatalog'
 import { PrismThinkingLevel } from './types'
 
 const prismThinkingLevels = new Set<PrismThinkingLevel>(['minimal', 'low', 'medium', 'high'])
 
-const prismCloudThinkingCapabilities = new Map<string, ReadonlySet<PrismThinkingLevel>>([
-  ['prism-ai/arcadia-1.0-mini', prismThinkingLevels],
-  ['prism-ai/arcadia-1.0-flash', prismThinkingLevels],
-  ['prism-ai/arcadia-1.0-pro', prismThinkingLevels],
-  ['prism-ai/arcadia-1.1-flash', prismThinkingLevels],
-  ['arcadia-1.0-mini', prismThinkingLevels],
-  ['arcadia-1.0-flash', prismThinkingLevels],
-  ['arcadia-1.0-pro', prismThinkingLevels],
-  ['arcadia-1.1-flash', prismThinkingLevels]
-])
+const prismCloudThinkingCapabilities = new Map<string, ReadonlySet<PrismThinkingLevel>>(
+  ARCADIA_MODELS.map((model) => [model.id, prismThinkingLevels])
+)
 
 export function isPrismCloudProvider(provider: ProviderConfig): boolean {
   return provider.id === 'prism_provider'

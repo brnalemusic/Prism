@@ -234,7 +234,7 @@ chat's review watermark, so the same delta is retried on a later cycle. Concurre
 coalesced, and review never enters or cancels a chat's `activeRuns`.
 
 Routing priority is: an explicitly selected review model; authenticated Prism account default
-`Arcadia-1.0 Mini`; then the main chat model. Stale or unusable dedicated routes fall back to the
+`Arcadia 1.1 Mini`; then the main chat model. Stale or unusable dedicated routes fall back to the
 main model and expose that state in Settings diagnostics. When no route is available, the delta is
 left untouched for retry. Calls use normal quota accounting.
 

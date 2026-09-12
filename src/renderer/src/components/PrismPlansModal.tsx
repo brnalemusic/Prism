@@ -108,12 +108,12 @@ export const PrismPlansModal: React.FC<PrismPlansModalProps> = ({
                 <div className="flex items-start gap-2.5 text-xs text-text-secondary">
                   <Check size={16} weight="bold" className="text-accent-primary shrink-0 mt-0.5" />
                   <span>
-                    Access to <strong className="text-white">Arcadia-1.0 Mini, Flash &amp; Pro</strong>
+                    Access to <strong className="text-white">Arcadia 1.1 Mini, Small &amp; Flash</strong>
                   </span>
                 </div>
                 <div className="flex items-start gap-2.5 text-xs text-text-secondary">
                   <Check size={16} weight="bold" className="text-accent-primary shrink-0 mt-0.5" />
-                  <span>Standard 5-hour rolling request capacity</span>
+                  <span>30 shared AI requests per rolling 24-hour window</span>
                 </div>
                 <div className="flex items-start gap-2.5 text-xs text-text-secondary">
                   <Check size={16} weight="bold" className="text-accent-primary shrink-0 mt-0.5" />
@@ -166,12 +166,12 @@ export const PrismPlansModal: React.FC<PrismPlansModalProps> = ({
                 <div className="flex items-start gap-2.5 text-xs text-white font-medium">
                   <Check size={16} weight="bold" className="text-yellow-400 shrink-0 mt-0.5" />
                   <span>
-                    <strong className="text-yellow-300">Exclusive Arcadia-1.1 Flash</strong> Access (Next-Gen Reasoning Engine)
+                    <strong className="text-yellow-300">Arcadia 1.1 Pro, 1.2 Flash S, 1.2 Flash G &amp; Bot 0.8</strong> Access
                   </span>
                 </div>
                 <div className="flex items-start gap-2.5 text-xs text-text-secondary">
                   <Check size={16} weight="bold" className="text-yellow-400 shrink-0 mt-0.5" />
-                  <span>Massive up to 150x more quota in frontier models</span>
+                  <span>400 shared AI requests per rolling 24-hour window across all models</span>
                 </div>
                 <div className="flex items-start gap-2.5 text-xs text-text-secondary">
                   <Check size={16} weight="bold" className="text-yellow-400 shrink-0 mt-0.5" />

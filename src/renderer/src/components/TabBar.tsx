@@ -262,7 +262,14 @@ export const TabBar: React.FC<TabBarProps> = ({
 
         {/* Attached Plus (+) & Dropdown Button Group */}
         <div ref={plusBtnGroupRef} className="shrink-0 flex items-center">
-          <div className="flex items-center rounded-xl bg-white/[0.04] backdrop-blur-md shadow-[0_1px_5px_rgba(0,0,0,0.22)] transition-colors duration-200 hover:bg-white/[0.06] overflow-hidden">
+          <div className="relative isolate flex items-center rounded-xl bg-white/[0.04] backdrop-blur-md shadow-[0_1px_5px_rgba(0,0,0,0.22)] transition-colors duration-200 hover:bg-white/[0.06] overflow-hidden">
+            <LiquidGlassSurface
+              refraction={16}
+              blur={1.5}
+              opacity={0.35}
+              specular={0.14}
+              distortionRadius={18}
+            />
             {/* Left Button: Plus (+) */}
             <button
               type="button"
@@ -325,7 +332,7 @@ export const TabBar: React.FC<TabBarProps> = ({
               top: `${Math.min(plusMenuPos.y, window.innerHeight - 120)}px`
             }}
           >
-            <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
+            <LiquidGlassSurface refraction={20} blur={2} opacity={0.66} specular={0.12} distortionRadius={22} />
             {/* New tab */}
             <button
               type="button"
@@ -389,7 +396,7 @@ export const TabBar: React.FC<TabBarProps> = ({
               top: `${Math.min(contextMenu.y, window.innerHeight - 160)}px`
             }}
           >
-            <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
+            <LiquidGlassSurface refraction={20} blur={2} opacity={0.66} specular={0.12} distortionRadius={22} />
             {/* Split View Toggle */}
             <button
               type="button"

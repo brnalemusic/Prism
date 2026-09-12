@@ -6,6 +6,12 @@ Prism 9.0.0-beta.2 operates on an **Open Multi-Provider & Dynamic Model Architec
 
 Users can attach Google AI Studio, OpenAI, Anthropic Claude, OpenRouter, NVIDIA NIM, GroqCloud, Cerebras AI, Puter.js, or custom OpenAI-compatible / Anthropic-compatible / Responses API-compatible endpoints (such as local Ollama, LM Studio, or vLLM setups).
 
+Prism Cloud exposes seven public Arcadia routes. The free tier includes Arcadia 1.1 Mini,
+Arcadia 1.1 Small and Arcadia 1.1 Flash (09/11). Paid accounts can use all seven routes,
+including Arcadia 1.1 Pro, Arcadia 1.2 Flash S, Arcadia 1.2 Flash G and Arcadia Bot 0.8.
+Cloud quota is shared across the account, regardless of selected model: 30 requests in a
+rolling 24-hour window for free accounts and 400 for paid accounts.
+
 ---
 
 ## 2. Provider Configuration Interfaces
@@ -96,7 +102,7 @@ Prism allows users to independently assign different models to different functio
 3. **Quick Launcher Model (`quickLauncherModel`):** Low-latency model for instant overlay queries, math evaluation, and app launches.
 4. **Speech-to-Text / Dictation Model (`sttModel`):** Model for parsing voice dictation audio. Dedicated Whisper/ASR models return their raw transcription immediately, without an editorial prompt or a second LLM pass. Multimodal models that understand audio use Prism's live speech editor to remove fillers and repetitions, resolve false starts and self-corrections to the final intended wording, improve clarity and structure, and preserve explicit requests for the main assistant.
 5. **Generative Browser Model (`generativeBrowserModel`):** Dedicated model for live HTML5 + CSS website generation and interactive subpage synthesis via `generate:` prompts.
-6. **Periodic Memory Review Model (`memory.reviewModel`):** Optional dedicated model for asynchronous long-term-memory curation. An explicit available model wins. With an authenticated Prism account and no explicit selection, Prism defaults to `Arcadia-1.0 Mini`; otherwise it uses the main chat model. Invalid or unavailable dedicated routes fall back to the main model and surface that fallback in Memory settings. The selector displays **Not set** when no dedicated route is configured.
+6. **Periodic Memory Review Model (`memory.reviewModel`):** Optional dedicated model for asynchronous long-term-memory curation. An explicit available model wins. With an authenticated Prism account and no explicit selection, Prism defaults to `Arcadia 1.1 Mini`; otherwise it uses the main chat model. Invalid or unavailable dedicated routes fall back to the main model and surface that fallback in Memory settings. The selector displays **Not set** when no dedicated route is configured.
 
 The memory reviewer runs outside chat `activeRuns`, so it does not block, cancel or mutate an active
 conversation. Each model request reviews one bounded, sanitized per-chat delta and uses normal quota
@@ -124,7 +130,7 @@ Google Gemini 2.5 / 3.x thinking models require a `thought_signature` when execu
 ## 6. Context Window and Token Optimization
 
 Even with massive context windows (1M–2M tokens), context efficiency is critical:
-- **System Prompt Composition:** Injects OS version, CWD, username, current weekday and local date/time (with dates explicitly identified as `MM/DD/YYYY`), active workflow system instructions, and tool constraints. Non-Harness Chat and Quick Launcher user messages also carry compact `[MM-DD-YYYY HH:MM:SS]` metadata for temporal context; the UI keeps it hidden.
+- **System Prompt Composition:** Injects OS version, CWD, username, current weekday and local date/time (with dates explicitly identified as `MM/DD/YYYY`) for temporal understanding and date/time questions, not for repeating in every reply. It also injects active workflow system instructions and tool constraints. Non-Harness Chat and Quick Launcher user messages carry compact `[MM-DD-YYYY HH:MM:SS]` metadata for temporal context; the UI keeps it hidden.
 - **Multimodal Payloads:** Images and screenshots are packaged directly into message content payloads.
 - **Output Truncation:** Large command outputs are truncated at 50,000 characters by `localCommandSandbox.ts`.
 - **Local History Persistence:** Chat sessions are persisted as JSON files on disk for fast search and zero cloud storage dependency.

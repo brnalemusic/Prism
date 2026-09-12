@@ -54,12 +54,13 @@ export const TRUSTED_PROVIDERS: TrustedProviderMeta[] = [
 ]
 
 export const TRUSTED_MODELS_LIST: string[] = [
-  'arcadia-1.0-mini',
-  'arcadia-1-0-mini',
-  'arcadia-1.0-flash',
-  'arcadia-1-0-flash',
-  'arcadia-1.0-pro',
-  'arcadia-1-0-pro',
+  'arcadia-1-1-mini',
+  'arcadia-1-1-small',
+  'arcadia-1-1-flash-09-11',
+  'arcadia-1-1-pro',
+  'arcadia-1-2-flash-small',
+  'arcadia-1-2-flash-giga',
+  'arcadia-bot-0-8-experimental',
   'gpt-6-astra',
   'gpt-5.6-sol',
   'gpt-5-6-sol',

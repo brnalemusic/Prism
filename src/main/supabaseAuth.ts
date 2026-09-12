@@ -7,7 +7,6 @@ import type {
   UserProfile,
   AuthResponse,
   UserAiUsageStatus,
-  ModelAiUsageStatus,
   WebLoginBeginResult,
   ActivationStatusResult,
   AccountActivationResult
@@ -756,17 +755,12 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
   const { session, user } = await ensureActiveSession()
   if (!user || !session?.access_token) return null
 
-  // 1. Determine if the user has an enterprise tier from profile metadata or database
-  let isEnterpriseAccount = false
-  const metadataAccountType = String(user.user_metadata?.account_type || '').toLowerCase()
-  if (metadataAccountType === 'enterprise' || metadataAccountType === 'company') {
-    isEnterpriseAccount = true
-  }
+  let isPaidAccount = false
 
   try {
     const client = getSupabaseClient()
     const { data: profile } = await client
-      .from('user_profiles')
+      .from('profiles')
       .select('account_type')
       .eq('id', user.id)
       .maybeSingle()
@@ -774,7 +768,7 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
     if (profile?.account_type) {
       const pType = String(profile.account_type).toLowerCase()
       if (pType === 'enterprise' || pType === 'company') {
-        isEnterpriseAccount = true
+        isPaidAccount = true
       }
     }
 
@@ -794,11 +788,11 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
         String(l.license_key || '').toUpperCase().includes('ENTERPRISE')
       )
       if (hasEntLicense) {
-        isEnterpriseAccount = true
+        isPaidAccount = true
       }
     }
   } catch (dbErr) {
-    console.warn('[Auth] Error querying enterprise status from database in getUserAiUsage:', dbErr)
+    console.warn('[Auth] Error querying paid account status in getUserAiUsage:', dbErr)
   }
 
   const localLicense = getLicenseInfo()
@@ -806,7 +800,7 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
     localLicense?.isActivated &&
     (localLicense.type?.toUpperCase() === 'ENTERPRISE' || localLicense.type?.toUpperCase() === 'COMPANY')
   ) {
-    isEnterpriseAccount = true
+    isPaidAccount = true
   }
 
   try {
@@ -821,102 +815,18 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
 
     if (response.ok) {
       const rpcData = await response.json()
-      const rawList: any[] = Array.isArray(rpcData) ? rpcData : [rpcData]
-
-      const modelList: ModelAiUsageStatus[] = rawList.map((item) => {
-        const modelId = item.model_id || 'prism-ai/arcadia-1.0-flash'
-        const modelName =
-          modelId === 'prism-ai/arcadia-1.0-mini'
-            ? 'Arcadia-1.0 Mini'
-            : modelId === 'prism-ai/arcadia-1.0-flash'
-              ? 'Arcadia-1.0 Flash'
-              : modelId === 'prism-ai/arcadia-1.0-pro'
-                ? 'Arcadia-1.0 Pro'
-                : modelId === 'prism-ai/arcadia-1.1-flash'
-                  ? 'Arcadia-1.1 Flash'
-                  : modelId
-
-        const max5h = item.max_5h || (isEnterpriseAccount ? 300 : 60)
-        const max1w = item.max_1w || item.max_7d || (isEnterpriseAccount ? 1200 : 240)
-        const count5h = item.count_5h ?? 0
-        const count1w = item.count_1w ?? 0
-        const remaining5h = item.remaining_5h ?? Math.max(0, max5h - count5h)
-        const remaining1w = item.remaining_1w ?? Math.max(0, max1w - count1w)
-
-        const percentage5h = max5h > 0 ? Math.round((remaining5h / max5h) * 100) : 0
-        const percentage1w = max1w > 0 ? Math.round((remaining1w / max1w) * 100) : 0
-        const percentageRemaining = max5h > 0 && max1w > 0 ? Math.min(percentage5h, percentage1w) : 0
-
-        const itemTier = String(item.tier || 'free').toLowerCase()
-        const effectiveTier = isEnterpriseAccount ? 'enterprise' : itemTier
-
-        return {
-          modelId,
-          modelName,
-          tier: effectiveTier,
-          count5h,
-          count1w,
-          remaining5h,
-          remaining1w,
-          max5h,
-          max1w,
-          percentage5h,
-          percentage1w,
-          percentageRemaining,
-          reset5hSeconds: item.reset_5h_seconds ?? 0,
-          reset1wSeconds: item.reset_1w_seconds ?? 0
-        }
-      })
-
-      const modelsMap: Record<string, ModelAiUsageStatus> = {}
-      for (const m of modelList) {
-        modelsMap[m.modelId] = m
-      }
-
-      if (isEnterpriseAccount && !modelsMap['prism-ai/arcadia-1.1-flash']) {
-        const arcadia11: ModelAiUsageStatus = {
-          modelId: 'prism-ai/arcadia-1.1-flash',
-          modelName: 'Arcadia-1.1 Flash',
-          tier: 'enterprise',
-          count5h: 0,
-          count1w: 0,
-          remaining5h: 300,
-          remaining1w: 1200,
-          max5h: 300,
-          max1w: 1200,
-          percentage5h: 100,
-          percentage1w: 100,
-          percentageRemaining: 100,
-          reset5hSeconds: 0,
-          reset1wSeconds: 0
-        }
-        modelsMap['prism-ai/arcadia-1.1-flash'] = arcadia11
-        modelList.push(arcadia11)
-      }
-
-      const primary =
-        modelsMap['prism-ai/arcadia-1.1-flash'] ||
-        modelsMap['prism-ai/arcadia-1.0-flash'] ||
-        modelsMap['prism-ai/arcadia-1.0-mini'] ||
-        modelList[0]
-
-      const tier = isEnterpriseAccount ? 'enterprise' : (modelList[0]?.tier || 'free')
-
+      const item = Array.isArray(rpcData) ? rpcData[0] : rpcData
+      const max24h = Number(item?.max_24h ?? (isPaidAccount ? 400 : 30))
+      const count24h = Number(item?.count_24h ?? 0)
+      const remaining24h = Number(item?.remaining_24h ?? Math.max(0, max24h - count24h))
+      const percentageRemaining = max24h > 0 ? Math.round((remaining24h / max24h) * 100) : 0
       return {
-        tier,
-        percentageRemaining: primary ? primary.percentageRemaining : 100,
-        percentage5h: primary ? primary.percentage5h : 100,
-        percentage1w: primary ? primary.percentage1w : 100,
-        count5h: primary ? primary.count5h : 0,
-        count1w: primary ? primary.count1w : 0,
-        remaining5h: primary ? primary.remaining5h : (isEnterpriseAccount ? 300 : 60),
-        remaining1w: primary ? primary.remaining1w : (isEnterpriseAccount ? 1200 : 240),
-        max5h: primary ? primary.max5h : (isEnterpriseAccount ? 300 : 60),
-        max1w: primary ? primary.max1w : (isEnterpriseAccount ? 1200 : 240),
-        reset5hSeconds: primary ? primary.reset5hSeconds : 0,
-        reset1wSeconds: primary ? primary.reset1wSeconds : 0,
-        models: modelsMap,
-        modelList
+        tier: isPaidAccount ? 'paid' : String(item?.tier || 'free').toLowerCase(),
+        percentageRemaining,
+        count24h,
+        remaining24h,
+        max24h,
+        reset24hSeconds: Number(item?.reset_24h_seconds ?? 0)
       }
     }
 
@@ -929,38 +839,14 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
     console.error('[Auth] Error fetching user AI usage status:', err)
   }
 
-  if (isEnterpriseAccount) {
-    const arcadia11: ModelAiUsageStatus = {
-      modelId: 'prism-ai/arcadia-1.1-flash',
-      modelName: 'Arcadia-1.1 Flash',
-      tier: 'enterprise',
-      count5h: 0,
-      count1w: 0,
-      remaining5h: 300,
-      remaining1w: 1200,
-      max5h: 300,
-      max1w: 1200,
-      percentage5h: 100,
-      percentage1w: 100,
-      percentageRemaining: 100,
-      reset5hSeconds: 0,
-      reset1wSeconds: 0
-    }
+  if (isPaidAccount) {
     return {
-      tier: 'enterprise',
+      tier: 'paid',
       percentageRemaining: 100,
-      percentage5h: 100,
-      percentage1w: 100,
-      count5h: 0,
-      count1w: 0,
-      remaining5h: 300,
-      remaining1w: 1200,
-      max5h: 300,
-      max1w: 1200,
-      reset5hSeconds: 0,
-      reset1wSeconds: 0,
-      models: { 'prism-ai/arcadia-1.1-flash': arcadia11 },
-      modelList: [arcadia11]
+      count24h: 0,
+      remaining24h: 400,
+      max24h: 400,
+      reset24hSeconds: 0
     }
   }
 

@@ -80,7 +80,7 @@ function Fixture() {
             onFullscreenToggle={() => setFullscreen(!fullscreen)}
             sessionMode="conversation"
             disciplinePath=""
-            selectedModel="prism_provider:prism-ai/arcadia-1.0-pro"
+            selectedModel="prism_provider:prism-ai/arcadia-1-1-pro"
             onModelChange={() => {}}
           />
         </div>

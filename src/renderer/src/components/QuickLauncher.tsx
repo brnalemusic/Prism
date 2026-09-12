@@ -26,6 +26,7 @@ import { MODELS } from '../constants'
 import { isShortcutPressed, triggerErrorPopup } from '../utils'
 import { ErrorPopup } from './ErrorPopup'
 import { ApplicationInfo, FileSearchResult } from '../../../shared/types'
+import { isPaidArcadiaModel } from '../../../shared/arcadiaCatalog'
 import { AppConfig } from '../../../main/config'
 import clsx from 'clsx'
 import { LiquidGlassSurface } from './LiquidGlassSurface'
@@ -148,16 +149,9 @@ export function QuickLauncher(): React.JSX.Element {
         window.api.getAuthUser ? window.api.getAuthUser().catch(() => null) : Promise.resolve(null)
       ])
 
-      const isUsageEnt =
+      const isUsageEnt = usage?.tier?.toLowerCase() === 'paid' ||
         usage?.tier?.toLowerCase().startsWith('enterprise') ||
-        usage?.tier?.toLowerCase() === 'company' ||
-        Boolean(
-          usage?.modelList?.some(
-            (m) =>
-              m.tier?.toLowerCase().startsWith('enterprise') ||
-              m.tier?.toLowerCase() === 'company'
-          )
-        )
+        usage?.tier?.toLowerCase() === 'company'
 
       const isLicenseEnt = Boolean(
         license?.isActivated &&
@@ -890,9 +884,7 @@ export function QuickLauncher(): React.JSX.Element {
               Prism engines
             </div>
             {MODELS.map((model, index) => {
-              const isArcadia11 =
-                model.id === 'prism-ai/arcadia-1.1-flash' || model.id === 'arcadia-1.1-flash'
-              const isLocked = isArcadia11 && !isEnterprise
+              const isLocked = isPaidArcadiaModel(model.id) && !isEnterprise
 
               return (
                 <button
@@ -968,10 +960,12 @@ export function QuickLauncher(): React.JSX.Element {
             )}
           >
             <LiquidGlassSurface
-              refraction={30}
+              refraction={36}
               blur={2}
               centerBlur={0}
               centerAttenuation={0.18}
+              specular={0.14}
+              distortionRadius={40}
             />
             {attachedScreenshot && (
               <div className="relative flex items-center justify-start self-start bg-white/[0.03] border border-white/[0.08] p-1.5 rounded-xl pr-8 animate-soft-pop group/thumb">

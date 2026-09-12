@@ -1,3 +1,5 @@
+import { ARCADIA_MODELS } from '../../shared/arcadiaCatalog'
+
 export interface Model {
   id: string
   name: string
@@ -11,10 +13,7 @@ export const MODEL_CATEGORIES: Record<string, string> = {
 }
 
 export const MODELS: Model[] = [
-  { id: 'prism-ai/arcadia-1.0-mini', name: 'Arcadia-1.0 Mini', category: 'arcadia' },
-  { id: 'prism-ai/arcadia-1.0-flash', name: 'Arcadia-1.0 Flash', category: 'arcadia' },
-  { id: 'prism-ai/arcadia-1.0-pro', name: 'Arcadia-1.0 Pro', category: 'arcadia' },
-  { id: 'prism-ai/arcadia-1.1-flash', name: 'Arcadia-1.1 Flash', category: 'arcadia' },
+  ...ARCADIA_MODELS.map((model) => ({ ...model, category: 'arcadia' })),
   { id: 'deepseek-ai/deepseek-v4-flash', name: 'Deepseek V4 Flash', category: 'nvidia-nim' },
   { id: 'deepseek-ai/deepseek-v4-pro', name: 'Deepseek V4 Pro', category: 'nvidia-nim' },
   { id: 'z-ai/glm-5.2', name: 'GLM-5.2', category: 'nvidia-nim' },
@@ -29,18 +28,7 @@ export interface ThinkingLevelOption {
 }
 
 export function isPrismCloudModel(modelId: string): boolean {
-  if (!modelId.startsWith('prism_provider:')) return false
-  const cleanId = modelId.replace('prism_provider:', '').replace(/^models\//, '')
-  return (
-    cleanId === 'prism-ai/arcadia-1.0-mini' ||
-    cleanId === 'prism-ai/arcadia-1.0-flash' ||
-    cleanId === 'prism-ai/arcadia-1.0-pro' ||
-    cleanId === 'prism-ai/arcadia-1.1-flash' ||
-    cleanId === 'arcadia-1.0-mini' ||
-    cleanId === 'arcadia-1.0-flash' ||
-    cleanId === 'arcadia-1.0-pro' ||
-    cleanId === 'arcadia-1.1-flash'
-  )
+  return modelId.startsWith('prism_provider:') && ARCADIA_MODELS.some((model) => model.id === modelId.slice('prism_provider:'.length).replace(/^models\//, ''))
 }
 
 export const isPrismCloudGeminiModel = isPrismCloudModel

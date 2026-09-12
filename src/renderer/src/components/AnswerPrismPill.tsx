@@ -120,11 +120,11 @@ export function AnswerPrismPill({ onAnswer }: AnswerPrismPillProps): React.JSX.E
       title="Answer Prism"
     >
       <LiquidGlassSurface
-        refraction={10}
-        blur={2}
+        refraction={16}
+        blur={1.5}
         opacity={0.3}
-        specular={0.12}
-        distortionRadius={10}
+        specular={0.14}
+        distortionRadius={18}
       />
       <Quotes
         size={14}

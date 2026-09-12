@@ -340,7 +340,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             </div>
 
             <p className="text-xs text-text-secondary leading-relaxed">
-              Live model capacity, 5-hour rolling reset windows, and weekly allocations across all Arcadia models are managed securely on Prism Cloud.
+              Shared account quota and rolling 24-hour reset windows across all Arcadia models are managed securely on Prism Cloud.
             </p>
 
             <button

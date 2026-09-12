@@ -1,4 +1,5 @@
 import { ProviderConfig, ProviderModel, CompletionType } from '../../shared/types'
+import { ARCADIA_MODELS } from '../../shared/arcadiaCatalog'
 import { loadConfig, saveConfig } from '../config'
 import { isUserAuthenticated, isUserEmailVerifiedSync } from '../supabaseAuth'
 import {
@@ -229,12 +230,12 @@ export const PRISM_PROVIDER: ProviderConfig = {
   completionType: 'gemini_native',
   isTrusted: true,
   isOfficial: true,
-  models: [
-    { id: 'prism-ai/arcadia-1.0-mini', name: 'Arcadia-1.0 Mini', enabled: true, isTrusted: true },
-    { id: 'prism-ai/arcadia-1.0-flash', name: 'Arcadia-1.0 Flash', enabled: true, isTrusted: true },
-    { id: 'prism-ai/arcadia-1.0-pro', name: 'Arcadia-1.0 Pro', enabled: true, isTrusted: true },
-    { id: 'prism-ai/arcadia-1.1-flash', name: 'Arcadia-1.1 Flash', enabled: true, isTrusted: true }
-  ]
+  models: ARCADIA_MODELS.map((model) => ({
+    id: model.id,
+    name: model.name,
+    enabled: true,
+    isTrusted: true
+  }))
 }
 
 export function getAllProviders(): ProviderConfig[] {

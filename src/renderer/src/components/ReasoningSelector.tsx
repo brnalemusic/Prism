@@ -50,7 +50,7 @@ export function ReasoningSelector({
         disabled={disabled}
         onClick={() => setIsOpen(!isOpen)}
         className={clsx(
-          'flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold outline-none transition-all duration-200 border border-transparent hover:bg-white/[0.05] hover:border-white/[0.09]',
+          'relative isolate flex items-center gap-1.5 overflow-hidden rounded-xl px-3 py-2 text-xs font-semibold outline-none transition-all duration-200 border border-transparent hover:bg-white/[0.05] hover:border-white/[0.09]',
           isOpen
             ? 'bg-white/[0.08] text-text-primary border-white/10'
             : 'bg-transparent text-text-secondary',
@@ -58,6 +58,13 @@ export function ReasoningSelector({
         )}
         title="Reasoning depth"
       >
+        <LiquidGlassSurface
+          refraction={16}
+          blur={1.5}
+          opacity={0.35}
+          specular={0.14}
+          distortionRadius={18}
+        />
         <Brain
           size={12}
           className={clsx(
@@ -81,11 +88,12 @@ export function ReasoningSelector({
           style={{ width: '8.5rem' }}
         >
           <LiquidGlassSurface
-            refraction={30}
+            refraction={28}
             blur={2}
             centerBlur={0}
             centerAttenuation={0.18}
-            distortionRadius={16}
+            specular={0.12}
+            distortionRadius={30}
           />
           <div className="px-2.5 py-1 text-[10px] font-bold text-text-secondary/50 border-b border-white/[0.04] mb-1 select-none">
             THINKING LEVEL

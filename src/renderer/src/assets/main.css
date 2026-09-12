@@ -312,6 +312,35 @@
   --host-shadow: none;
 }
 
+/* Input bar host recipe: a touch more opaque than the shared true-glass
+   frost (52% -> 58%) so text typed over busy chat content stays readable.
+   Uniform across the whole plate (edges + center aligned) — no extra
+   center veil or center blur. Maximum mode is unaffected here (its
+   ::before is neutralized while the SVG optics are active); the matching
+   Maximum bump lives on the plate's LiquidGlassSurface opacity prop. */
+.input-bar-host {
+  --host-tint: color-mix(in srgb, var(--surface-lowest) 58%, transparent);
+}
+
+.true-glass.glass-menu-host.input-bar-host.is-active::before {
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--surface-lowest) 58%, transparent) 86%,
+    white 4%
+  );
+}
+/* Harness dock pill host recipe: preserves its exact chrome look
+   (#090b12 at 80%, 40px blur, upward ambient shadow) in Medium/
+   Performance, while the Maximum-only LiquidGlassSurface carries the
+   live refraction. The max-active ::before neutralization for
+   .true-glass.glass-menu-host covers this host, so the SVG chain
+   replaces the frost without double blur. */
+.harness-pill-host {
+  --host-tint: rgb(9 11 18 / 0.8);
+  --host-filter: blur(40px);
+  --host-shadow: 0 12px 36px rgb(0 0 0 / 0.55);
+}
+
 /* Hoverable true-glass affordance (e.g. the scroll-to-bottom pill). */
 .true-glass-hover {
   transition:

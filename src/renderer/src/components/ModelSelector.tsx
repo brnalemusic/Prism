@@ -16,6 +16,7 @@ import type {
   ImageGenerationCapabilities,
   ImageGenerationOperationCapability
 } from '../../../shared/types'
+import { isPaidArcadiaModel } from '../../../shared/arcadiaCatalog'
 
 interface ActiveModelItem {
   providerId: string
@@ -92,16 +93,9 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
           window.api.getAuthUser ? window.api.getAuthUser().catch(() => null) : Promise.resolve(null)
         ])
 
-        const isUsageEnt =
+        const isUsageEnt = usage?.tier?.toLowerCase() === 'paid' ||
           usage?.tier?.toLowerCase().startsWith('enterprise') ||
-          usage?.tier?.toLowerCase() === 'company' ||
-          Boolean(
-            usage?.modelList?.some(
-              (m) =>
-                m.tier?.toLowerCase().startsWith('enterprise') ||
-                m.tier?.toLowerCase() === 'company'
-            )
-          )
+          usage?.tier?.toLowerCase() === 'company'
 
         const isLicenseEnt = Boolean(
           license?.isActivated &&
@@ -242,13 +236,20 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
           disabled={disabled}
           onClick={() => setIsOpen(!isOpen)}
           className={clsx(
-            'flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs sm:text-[13px] font-semibold outline-none transition-all duration-150 cursor-pointer shadow-[0_1px_6px_rgba(0,0,0,0.25)] active:scale-95',
+            'relative isolate flex items-center gap-2 overflow-hidden rounded-xl px-3.5 py-1.5 text-xs sm:text-[13px] font-semibold outline-none transition-all duration-150 cursor-pointer shadow-[0_1px_6px_rgba(0,0,0,0.25)] active:scale-95',
             isOpen
               ? 'bg-white/[0.1] text-text-primary'
               : 'bg-white/[0.04] text-text-primary hover:bg-white/[0.08]',
             disabled && 'cursor-not-allowed opacity-50'
           )}
         >
+          <LiquidGlassSurface
+            refraction={16}
+            blur={1.5}
+            opacity={0.35}
+            specular={0.14}
+            distortionRadius={18}
+          />
           <span className="text-xs sm:text-[13px] font-bold tracking-wide truncate max-w-[160px] sm:max-w-[220px]">
             {displayName}
           </span>
@@ -272,11 +273,12 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
             )}
           >
             <LiquidGlassSurface
-              refraction={30}
+              refraction={32}
               blur={2}
               centerBlur={0}
               centerAttenuation={0.18}
-              distortionRadius={28}
+              specular={0.12}
+              distortionRadius={34}
             />
             {/* Search Box */}
             <div className="border-b border-white/[0.08] bg-white/[0.02] p-2.5">
@@ -364,12 +366,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
                         const mainLabel = getModelOnly(item.model.name || item.model.id)
                         const subLabel = getModelOnly(item.model.id)
-                        const isArcadia11 =
-                          item.model.id === 'prism-ai/arcadia-1.1-flash' ||
-                          item.model.id === 'arcadia-1.1-flash' ||
-                          item.fullKey.includes('arcadia-1.1-flash')
-
-                        const isLocked = isArcadia11 && !isEnterprise
+                        const isLocked = isPaidArcadiaModel(item.fullKey) && !isEnterprise
                         const generationState = item.model.imageGeneration?.generate
                         const editState = item.model.imageGeneration?.edit
                         const getStatus = (

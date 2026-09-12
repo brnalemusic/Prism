@@ -96,6 +96,7 @@ import type {
   WorkspaceKind
 } from '../../shared/types'
 import type { MemoryReviewStatus } from '../../shared/memoryCore'
+import { isPaidArcadiaModel } from '../../shared/arcadiaCatalog'
 import { getDefaultThinkingLevelForModel, isPrismCloudGeminiModel } from './constants'
 import {
   applyToolCallEnd,
@@ -2091,15 +2092,9 @@ function RealApp(): React.JSX.Element {
         window.api.getAuthUser ? window.api.getAuthUser().catch(() => null) : Promise.resolve(null)
       ])
 
-      const isUsageEnt =
+      const isUsageEnt = usage?.tier?.toLowerCase() === 'paid' ||
         usage?.tier?.toLowerCase().startsWith('enterprise') ||
-        usage?.tier?.toLowerCase() === 'company' ||
-        Boolean(
-          usage?.modelList?.some(
-            (m) =>
-              m.tier?.toLowerCase().startsWith('enterprise') || m.tier?.toLowerCase() === 'company'
-          )
-        )
+        usage?.tier?.toLowerCase() === 'company'
 
       const isLicenseEnt = Boolean(
         license?.isActivated &&
@@ -3782,12 +3777,7 @@ function RealApp(): React.JSX.Element {
 
   const handleModelChange = useCallback(
     (modelKey: string) => {
-      const isArcadia11 =
-        modelKey === 'prism-ai/arcadia-1.1-flash' ||
-        modelKey === 'arcadia-1.1-flash' ||
-        modelKey.includes('arcadia-1.1-flash')
-
-      if (isArcadia11 && !isEnterpriseUser) {
+      if (isPaidArcadiaModel(modelKey) && !isEnterpriseUser) {
         setIsPlansModalOpen(true)
         return
       }
@@ -3802,12 +3792,7 @@ function RealApp(): React.JSX.Element {
 
   const handleHarnessModelChange = useCallback(
     (tabId: string, modelKey: string): void => {
-      const isArcadia11 =
-        modelKey === 'prism-ai/arcadia-1.1-flash' ||
-        modelKey === 'arcadia-1.1-flash' ||
-        modelKey.includes('arcadia-1.1-flash')
-
-      if (isArcadia11 && !isEnterpriseUser) {
+      if (isPaidArcadiaModel(modelKey) && !isEnterpriseUser) {
         setIsPlansModalOpen(true)
         return
       }

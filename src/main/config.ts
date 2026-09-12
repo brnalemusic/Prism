@@ -15,6 +15,11 @@ import {
   normalizeMemoryConfig,
   type MemoryConfig
 } from '../shared/memoryCore'
+import {
+  ARCADIA_MODEL_IDS,
+  DEFAULT_ARCADIA_MODEL_KEY,
+  normalizeArcadiaModelId
+} from '../shared/arcadiaCatalog'
 
 export interface SlashWorkflow {
   id: string
@@ -217,32 +222,23 @@ const VALID_HARNESS_PERMISSION_MODES = new Set(['ask', 'independent', 'yolo'])
 const VALID_HARNESS_STARTUP_MODES = new Set(['last_opened', 'default_project', 'prompt'])
 const VALID_HARNESS_TOOLS = new Set<string>(DEFAULT_HARNESS_TOOLS)
 const VALID_PRISM_THINKING_LEVELS = new Set(['minimal', 'low', 'medium', 'high'])
-const PRISM_CLOUD_MODEL_IDS = new Set([
-  'prism-ai/arcadia-1.0-mini',
-  'prism-ai/arcadia-1.0-flash',
-  'prism-ai/arcadia-1.0-pro',
-  'prism-ai/arcadia-1.1-flash',
-  'arcadia-1.0-mini',
-  'arcadia-1.0-flash',
-  'arcadia-1.0-pro',
-  'arcadia-1.1-flash'
-])
+const PRISM_CLOUD_MODEL_IDS = ARCADIA_MODEL_IDS
 
 export function migrateLegacyModelKey(key: string): string {
   if (!key || typeof key !== 'string') return ''
-  if (key === 'gemini-3.1-flash-lite' || key === 'prism_provider:gemini-3.1-flash-lite') {
-    return 'prism_provider:prism-ai/arcadia-1.0-mini'
+  if (!key.startsWith('prism_provider:')) return key
+
+  const modelId = normalizeArcadiaModelId(key)
+  if (PRISM_CLOUD_MODEL_IDS.has(modelId)) {
+    return `prism_provider:${modelId}`
   }
-  if (
-    key === 'models/gemini-3-flash-preview' ||
-    key === 'gemini-3-flash-preview' ||
-    key === 'gemini-3-flash' ||
-    key === 'prism_provider:models/gemini-3-flash-preview' ||
-    key === 'prism_provider:gemini-3-flash-preview' ||
-    key === 'prism_provider:gemini-3-flash'
-  ) {
-    return 'prism_provider:prism-ai/arcadia-1.0-flash'
+
+  // Previously persisted Prism Cloud routes are intentionally collapsed onto
+  // the current public default without retaining legacy provider identifiers.
+  if (modelId.startsWith('prism-ai/') || modelId.startsWith('arcadia-')) {
+    return DEFAULT_ARCADIA_MODEL_KEY
   }
+
   return key
 }
 

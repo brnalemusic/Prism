@@ -31,38 +31,74 @@ function loadArcadiaUpstreamMap(): Record<string, string> | null {
 
 const PUBLIC_ARCADIA_MODELS = [
   {
-    id: 'prism-ai/arcadia-1.0-mini',
+    id: 'prism-ai/arcadia-1-1-mini',
     object: 'model',
     created: 1786800000,
     owned_by: 'prism-ai',
-    name: 'Arcadia-1.0 Mini',
-    description: 'High-Throughput Lightweight Model'
+    name: 'Arcadia 1.1 Mini',
+    description: 'High-Throughput Lightweight Model',
+    access_tier: 'free'
   },
   {
-    id: 'prism-ai/arcadia-1.0-flash',
+    id: 'prism-ai/arcadia-1-1-small',
     object: 'model',
     created: 1786800000,
     owned_by: 'prism-ai',
-    name: 'Arcadia-1.0 Flash',
-    description: 'Primary High-Speed Reasoning Model'
+    name: 'Arcadia 1.1 Small',
+    description: 'Low-Latency General Model',
+    access_tier: 'free'
   },
   {
-    id: 'prism-ai/arcadia-1.0-pro',
+    id: 'prism-ai/arcadia-1-1-flash-09-11',
     object: 'model',
     created: 1786800000,
     owned_by: 'prism-ai',
-    name: 'Arcadia-1.0 Pro',
-    description: 'Deep Reasoning & Advanced Synthesis'
+    name: 'Arcadia 1.1 Flash (09/11)',
+    description: 'Primary High-Speed Reasoning Model',
+    access_tier: 'free'
   },
   {
-    id: 'prism-ai/arcadia-1.1-flash',
+    id: 'prism-ai/arcadia-1-1-pro',
     object: 'model',
     created: 1786800000,
     owned_by: 'prism-ai',
-    name: 'Arcadia-1.1 Flash',
-    description: 'Next-Gen Enterprise Reasoning Engine'
+    name: 'Arcadia 1.1 Pro',
+    description: 'Deep Reasoning & Advanced Synthesis',
+    access_tier: 'paid'
+  },
+  {
+    id: 'prism-ai/arcadia-1-2-flash-small',
+    object: 'model',
+    created: 1786800000,
+    owned_by: 'prism-ai',
+    name: 'Arcadia 1.2 Flash S',
+    description: 'Fast Paid Model',
+    access_tier: 'paid'
+  },
+  {
+    id: 'prism-ai/arcadia-1-2-flash-giga',
+    object: 'model',
+    created: 1786800000,
+    owned_by: 'prism-ai',
+    name: 'Arcadia 1.2 Flash G',
+    description: 'High-Capacity Paid Model',
+    access_tier: 'paid'
+  },
+  {
+    id: 'prism-ai/arcadia-bot-0-8-experimental',
+    object: 'model',
+    created: 1786800000,
+    owned_by: 'prism-ai',
+    name: 'Arcadia Bot 0.8',
+    description: 'Experimental Robotics Model',
+    access_tier: 'paid'
   }
 ]
+
+const PAID_ARCADIA_MODEL_IDS = new Set(
+  PUBLIC_ARCADIA_MODELS.filter((model) => model.access_tier === 'paid').map((model) => model.id)
+)
+const PUBLIC_ARCADIA_MODEL_IDS = new Set(PUBLIC_ARCADIA_MODELS.map((model) => model.id))
 
 const ALLOWED_ORIGINS = new Set([
   'https://prismagent.vercel.app',
@@ -213,8 +249,7 @@ serve(async (req) => {
       try {
         const upstream = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
           method: 'GET',
-          headers: { 'x-goog-api-key': keys[0].key_value },
-          signal: req.signal
+          headers: { 'x-goog-api-key': keys[0].key_value }
         })
         if (!upstream.ok) {
           console.warn(`[prism-ai-proxy] Warm-up upstream returned status ${upstream.status}`)
@@ -268,8 +303,8 @@ serve(async (req) => {
       )
     }
 
-    // Validate against the server-side Arcadia allowlist.
-    if (!(rawModelId in arcadiaUpstreamMap)) {
+    // Validate against the server-side Arcadia allowlist before consulting the private map.
+    if (!PUBLIC_ARCADIA_MODEL_IDS.has(rawModelId)) {
       return new Response(
         JSON.stringify({
           error: 'Model not supported. Please use an official Prism Arcadia model identifier.',
@@ -279,9 +314,16 @@ serve(async (req) => {
       )
     }
 
-    // 6. Enterprise Entitlement Validation in Proxy (Defense in Depth)
-    let isEnterpriseEntitled = false
-    if (rawModelId === 'prism-ai/arcadia-1.1-flash') {
+    if (!(rawModelId in arcadiaUpstreamMap)) {
+      return new Response(
+        JSON.stringify({ error: 'Internal routing configuration is unavailable.', code: 'ROUTING_ERROR' }),
+        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // 6. Paid entitlement validation in the proxy (defense in depth)
+    let isPaidEntitled = false
+    if (PAID_ARCADIA_MODEL_IDS.has(rawModelId)) {
       const nowIso = new Date().toISOString()
       const { data: entLicenses, error: entErr } = await supabase
         .from('user_licenses')
@@ -292,7 +334,7 @@ serve(async (req) => {
         .limit(5)
 
       if (entErr) {
-        console.error('[prism-ai-proxy] Error checking Enterprise license:', entErr)
+        console.error('[prism-ai-proxy] Error checking paid entitlement:', entErr)
       }
 
       const hasLicense = Boolean(
@@ -305,7 +347,7 @@ serve(async (req) => {
       )
 
       const { data: userProfile, error: profileErr } = await supabase
-        .from('user_profiles')
+        .from('profiles')
         .select('account_type')
         .eq('id', userId)
         .maybeSingle()
@@ -317,13 +359,13 @@ serve(async (req) => {
       const pType = String(userProfile?.account_type || '').toLowerCase()
       const isProfileEnterprise = pType === 'enterprise' || pType === 'company'
 
-      isEnterpriseEntitled = hasLicense || isProfileEnterprise
-      if (!isEnterpriseEntitled) {
+      isPaidEntitled = hasLicense || isProfileEnterprise
+      if (!isPaidEntitled) {
         return new Response(
           JSON.stringify({
-            error: 'Arcadia-1.1 Flash is exclusive to Enterprise subscribers.',
-            code: 'ENTERPRISE_REQUIRED',
-            enterpriseRequired: true
+            error: 'This Arcadia model requires an active paid subscription.',
+            code: 'PAID_PLAN_REQUIRED',
+            paidPlanRequired: true
           }),
           {
             status: 403,
@@ -350,12 +392,10 @@ serve(async (req) => {
         })
       }
 
-      const rawList: any[] = Array.isArray(statusResult) ? statusResult : [statusResult]
-      const modelMetric = rawList.find((m) => m.model_id === rawModelId) || rawList[0]
-      const remaining5h = modelMetric?.remaining_5h ?? 0
-      const remaining1w = modelMetric?.remaining_1w ?? 0
+      const accountMetric = Array.isArray(statusResult) ? statusResult[0] : statusResult
+      const remaining24h = accountMetric?.remaining_24h ?? 0
 
-      if (remaining5h <= 0 || remaining1w <= 0) {
+      if (remaining24h <= 0) {
         return new Response(
           JSON.stringify({
             error: 'Prism Cloud quota limit reached.',
@@ -380,27 +420,21 @@ serve(async (req) => {
       }
 
       if (!usageResult?.allowed) {
-        if (usageResult?.reason === 'enterprise_required') {
-          if (!isEnterpriseEntitled) {
-            return new Response(
-              JSON.stringify({
-                error: 'Arcadia-1.1 Flash is exclusive to Enterprise subscribers.',
-                code: 'ENTERPRISE_REQUIRED',
-                enterpriseRequired: true
-              }),
-              { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            )
-          }
+        if (usageResult?.reason === 'paid_plan_required') {
+          return new Response(
+            JSON.stringify({
+              error: 'This Arcadia model requires an active paid subscription.',
+              code: 'PAID_PLAN_REQUIRED',
+              paidPlanRequired: true
+            }),
+            { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
         } else {
 
-        const max5h = usageResult?.max_5h ?? '?'
-        const max7d = usageResult?.max_7d ?? '?'
+        const max24h = usageResult?.max_24h ?? '?'
         const tier = usageResult?.tier ?? 'free'
 
-        const reasonMsg =
-          usageResult?.reason === '5h_limit_exceeded'
-            ? `Prism Cloud quota limit reached (${max5h} requests per 5 hours for ${tier} tier). Please try again later.`
-            : `Prism Cloud weekly quota limit reached (${max7d} requests per 7 days for ${tier} tier). Please try again later.`
+        const reasonMsg = `Prism Cloud quota limit reached (${max24h} requests per 24 hours for ${tier} tier). Please try again later.`
 
         return new Response(
           JSON.stringify({
@@ -412,6 +446,7 @@ serve(async (req) => {
           { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }
+    }
     }
 
     // 8. Resolve Private Upstream Model
@@ -443,13 +478,21 @@ serve(async (req) => {
     const availableKeys = keys.map((k) => k.key_value)
     const shuffledKeys = [...availableKeys].sort(() => Math.random() - 0.5)
 
-    const bodyPayload = await req.json()
+    let bodyPayload: unknown
+    try {
+      bodyPayload = await req.json()
+    } catch {
+      return new Response(
+        JSON.stringify({ error: 'Invalid JSON request body.', code: 'INVALID_PAYLOAD' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
     const action = nativeRoute[2]
     const streamQuery = action === 'streamGenerateContent' ? '?alt=sse' : ''
     const targetEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${upstreamModelId}:${action}${streamQuery}`
 
     let keyIndex = 0
-    const failureDetails: Array<{ index: number; status: number; reason: string }> = []
+    const failureDetails: Array<{ index: number; status: number }> = []
 
     for (const key of shuffledKeys) {
       keyIndex++
@@ -461,7 +504,6 @@ serve(async (req) => {
             'x-goog-api-key': key
           },
           body: JSON.stringify(bodyPayload),
-          signal: req.signal
         })
 
         if (geminiRes.ok) {
@@ -476,12 +518,13 @@ serve(async (req) => {
           })
         }
 
-        const errText = await geminiRes.text().catch(() => '')
-        const truncated = errText.length > 500 ? errText.slice(0, 500) + '...' : errText
-        console.warn(
-          `[prism-ai-proxy] Key ${keyIndex}/${shuffledKeys.length} failed | Status: ${geminiRes.status} | Details: ${truncated}`
-        )
-        failureDetails.push({ index: keyIndex, status: geminiRes.status, reason: truncated })
+        try {
+          await geminiRes.body?.cancel()
+        } catch {
+          // The upstream body may already be closed; the sanitized response below is authoritative.
+        }
+        console.warn(`[prism-ai-proxy] Key ${keyIndex}/${shuffledKeys.length} failed | Status: ${geminiRes.status}`)
+        failureDetails.push({ index: keyIndex, status: geminiRes.status })
 
         // Client payload validation error (e.g. malformed parameters)
         if (geminiRes.status >= 400 && geminiRes.status < 500 && geminiRes.status !== 429) {
@@ -496,15 +539,9 @@ serve(async (req) => {
             }
           )
         }
-      } catch (fetchErr: any) {
-        console.warn(
-          `[prism-ai-proxy] Key ${keyIndex}/${shuffledKeys.length} network error: ${fetchErr?.message}`
-        )
-        failureDetails.push({
-          index: keyIndex,
-          status: 0,
-          reason: fetchErr?.message || 'Network error'
-        })
+      } catch {
+        console.warn(`[prism-ai-proxy] Key ${keyIndex}/${shuffledKeys.length} network error`)
+        failureDetails.push({ index: keyIndex, status: 0 })
       }
     }
 
@@ -516,7 +553,7 @@ serve(async (req) => {
       {} as Record<number, number>
     )
     console.error(
-      `[prism-ai-proxy] All keys exhausted | Public: ${rawModelId} | Upstream: ${upstreamModelId} | Breakdown: ${JSON.stringify(statusCounts)}`
+      `[prism-ai-proxy] All keys exhausted | Public route: ${rawModelId} | Breakdown: ${JSON.stringify(statusCounts)}`
     )
 
     return new Response(
@@ -528,8 +565,8 @@ serve(async (req) => {
       }),
       { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
-  } catch (err: any) {
-    console.error('[prism-ai-proxy] Unexpected error:', err)
+  } catch {
+    console.error('[prism-ai-proxy] Unexpected proxy error')
     return new Response(
       JSON.stringify({
         error:

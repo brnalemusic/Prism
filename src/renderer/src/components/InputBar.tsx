@@ -1,4 +1,4 @@
-import React, { useState, useRef, useImperativeHandle, forwardRef, useEffect, useMemo } from 'react'
+import React, { useState, useRef, useImperativeHandle, forwardRef, useEffect, useLayoutEffect, useMemo } from 'react'
 import {
   PaperPlaneRight as SendHorizontal,
   Stop as Square,
@@ -176,6 +176,10 @@ export const InputBar = React.memo(
       }
 
       const inputRef = useRef<HTMLTextAreaElement>(null)
+      // Cursor position to restore after a synchronous text rewrite (slash
+      // command strip). Applied in a layout effect so it lands before paint
+      // and before the next key event — never racing in-flight keystrokes.
+      const pendingCursorRef = useRef<number | null>(null)
       const attachMenuRef = useRef<HTMLDivElement>(null)
       const attachButtonRef = useRef<HTMLButtonElement>(null)
       const fileInputRef = useRef<HTMLInputElement>(null)
@@ -193,7 +197,7 @@ export const InputBar = React.memo(
             handleSend(newText)
           }
 
-          setTimeout(() => inputRef.current?.focus(), 100)
+          inputRef.current?.focus()
         }
       )
 
@@ -233,29 +237,14 @@ export const InputBar = React.memo(
         setShowHarnessPermissionMenu(false)
       }, [sessionMode, isSearchEnabled, activeWorkflow, setActiveWorkflow, setIsSearchEnabled])
 
-      useEffect(() => {
-        if (!text || !text.startsWith('/') || !setActiveWorkflow) return
-
-        const spaceMatch = text.match(/^(\/[^\s]+)\s/)
-        if (spaceMatch) {
-          const cmd = spaceMatch[1]
-          const wf = workflows.find((w) => w.command.toLowerCase() === cmd.toLowerCase())
-          if (wf) {
-            setActiveWorkflow(wf)
-            // Set text to the remaining text after the command and space
-            setText(text.substring(spaceMatch[0].length))
-
-            // Move cursor to the end of textarea
-            setTimeout(() => {
-              if (inputRef.current) {
-                inputRef.current.focus()
-                inputRef.current.selectionStart = inputRef.current.selectionEnd =
-                  inputRef.current.value.length
-              }
-            }, 50)
-          }
+      useLayoutEffect(() => {
+        if (pendingCursorRef.current !== null && inputRef.current) {
+          const pos = Math.min(pendingCursorRef.current, inputRef.current.value.length)
+          pendingCursorRef.current = null
+          inputRef.current.focus()
+          inputRef.current.selectionStart = inputRef.current.selectionEnd = pos
         }
-      }, [text, workflows, setActiveWorkflow, setText])
+      }, [text])
 
       const filteredWorkflows = useMemo(() => {
         if (!text.startsWith('/')) return []
@@ -273,9 +262,11 @@ export const InputBar = React.memo(
       }, [showSlashMenu, text])
 
       const handleSelectWorkflow = (workflow: any) => {
-        setText(workflow.command + ' ')
+        const nextValue = workflow.command + ' '
+        pendingCursorRef.current = nextValue.length
+        setText(nextValue)
         setSlashSelectedIndex(0)
-        setTimeout(() => inputRef.current?.focus(), 50)
+        inputRef.current?.focus()
       }
 
       const renderSlashMenu = (): React.JSX.Element | null => {
@@ -288,7 +279,7 @@ export const InputBar = React.memo(
             exit="exit"
             className="glass-dropdown-panel z-30 mb-3 w-full overflow-hidden"
           >
-            <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
+            <LiquidGlassSurface refraction={20} blur={2} opacity={0.66} specular={0.12} distortionRadius={22} />
             <div className="border-b border-white/[0.08] px-4 py-3 text-xs font-semibold text-text-secondary/70">
               Workflows
             </div>
@@ -382,33 +373,39 @@ export const InputBar = React.memo(
         }
       }))
 
-      // Textarea height auto-resizer and Scroll Detection
+      // Textarea height auto-resizer and scroll detection. Deferred to the
+      // next animation frame and guarded so fast typing never forces
+      // synchronous layout thrash or redundant renders per keystroke.
       useEffect(() => {
-        const textarea = inputRef.current
-        if (!textarea) return
+        let frame = 0
+        const applySize = (): void => {
+          const textarea = inputRef.current
+          if (!textarea) return
 
-        if (!isFullscreen) {
-          // Reset height to get correct scrollHeight
-          textarea.style.height = 'auto'
-          const nextHeight = Math.max(64, Math.min(textarea.scrollHeight, 300))
-          textarea.style.height = `${nextHeight}px`
+          if (!isFullscreen) {
+            // Reset height to get correct scrollHeight
+            textarea.style.height = 'auto'
+            const nextHeight = Math.max(64, Math.min(textarea.scrollHeight, 300))
+            textarea.style.height = `${nextHeight}px`
 
-          if (textarea.scrollHeight > 300) {
-            textarea.style.overflowY = 'auto'
+            const nextOverflow = textarea.scrollHeight > 300 ? 'auto' : 'hidden'
+            if (textarea.style.overflowY !== nextOverflow) {
+              textarea.style.overflowY = nextOverflow
+            }
+
+            const hasScroll =
+              textarea.scrollHeight > 300 ||
+              (textarea.scrollHeight > textarea.clientHeight && textarea.clientHeight >= 280)
+            setShowFullscreenBtn((prev) => (prev === hasScroll ? prev : hasScroll))
           } else {
-            textarea.style.overflowY = 'hidden'
+            if (textarea.style.height !== '100%') textarea.style.height = '100%'
+            if (textarea.style.overflowY !== 'auto') textarea.style.overflowY = 'auto'
+            setShowFullscreenBtn((prev) => (prev === false ? prev : false))
           }
-
-          const hasScroll =
-            textarea.scrollHeight > 300 ||
-            (textarea.scrollHeight > textarea.clientHeight && textarea.clientHeight >= 280)
-          setShowFullscreenBtn(hasScroll)
-        } else {
-          textarea.style.height = '100%'
-          textarea.style.overflowY = 'auto'
-          setShowFullscreenBtn(false)
         }
-      }, [text, isFullscreen, isFocused])
+        frame = requestAnimationFrame(applySize)
+        return () => cancelAnimationFrame(frame)
+      }, [text, isFullscreen])
 
       // Escape key listener for fullscreen mode
       useEffect(() => {
@@ -453,6 +450,51 @@ export const InputBar = React.memo(
       useEffect(() => {
         textRef.current = text
       }, [text])
+
+      // Slash command activation, handled synchronously inside onChange so the
+      // rewrite commits with the keystroke itself. The old passive-effect
+      // version rewrote text after paint and yanked the cursor via setTimeout,
+      // racing fast typing and dropping characters.
+      const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
+        const nextValue = e.target.value
+        if (setActiveWorkflow && nextValue.startsWith('/')) {
+          const spaceMatch = nextValue.match(/^(\/[^\s]+)\s/)
+          if (spaceMatch) {
+            const wf = workflows.find(
+              (w) => w.command.toLowerCase() === spaceMatch[1].toLowerCase()
+            )
+            if (wf) {
+              setActiveWorkflow(wf)
+              const stripped = nextValue.substring(spaceMatch[0].length)
+              pendingCursorRef.current = stripped.length
+              setText(stripped)
+              return
+            }
+          }
+        }
+        setText(nextValue)
+      }
+
+      // Fallback for the narrow race where "/cmd " was typed before the
+      // workflow catalog finished loading: strip once the catalog arrives.
+      const prevWorkflowCountRef = useRef(workflows.length)
+      useEffect(() => {
+        const hadNone = prevWorkflowCountRef.current === 0
+        prevWorkflowCountRef.current = workflows.length
+        if (!hadNone || workflows.length === 0 || !setActiveWorkflow) return
+        const current = textRef.current
+        if (!current.startsWith('/')) return
+        const spaceMatch = current.match(/^(\/[^\s]+)\s/)
+        if (!spaceMatch) return
+        const wf = workflows.find(
+          (w) => w.command.toLowerCase() === spaceMatch[1].toLowerCase()
+        )
+        if (!wf) return
+        setActiveWorkflow(wf)
+        const stripped = current.substring(spaceMatch[0].length)
+        pendingCursorRef.current = stripped.length
+        setText(stripped)
+      }, [workflows, setActiveWorkflow, setText])
 
       // Global keyboard shortcuts (configurable)
       useEffect(() => {
@@ -537,9 +579,7 @@ export const InputBar = React.memo(
             onFullscreenToggle()
           }
 
-          setTimeout(() => {
-            inputRef.current?.focus()
-          }, 0)
+          inputRef.current?.focus()
         }
       }
 
@@ -675,7 +715,7 @@ export const InputBar = React.memo(
                 onClick={() => setShowAttachMenu(!showAttachMenu)}
                 disabled={disabled}
                 className={clsx(
-                  'flex h-8 w-8 items-center justify-center rounded-xl transition-colors duration-150 bg-white/[0.04] text-text-secondary hover:bg-white/[0.08] hover:text-text-primary cursor-pointer active:scale-95',
+                  'relative isolate flex h-8 w-8 items-center justify-center overflow-hidden rounded-xl transition-colors duration-150 bg-white/[0.04] text-text-secondary hover:bg-white/[0.08] hover:text-text-primary cursor-pointer active:scale-95',
                   showAttachMenu && 'bg-white/[0.09] text-text-primary'
                 )}
                 title={
@@ -684,6 +724,13 @@ export const InputBar = React.memo(
                     : 'Add attachment / App'
                 }
               >
+                <LiquidGlassSurface
+                  refraction={16}
+                  blur={1.5}
+                  opacity={0.35}
+                  specular={0.14}
+                  distortionRadius={18}
+                />
                 <Plus size={15} weight="bold" />
               </button>
 
@@ -697,7 +744,7 @@ export const InputBar = React.memo(
                     variants={menuPopUp}
                     className="glass-dropdown-panel absolute bottom-full left-0 mb-3 z-[60] w-52 p-1.5 text-left"
                   >
-                  <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
+                  <LiquidGlassSurface refraction={20} blur={2} opacity={0.66} specular={0.12} distortionRadius={22} />
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-all text-left"
@@ -815,7 +862,7 @@ export const InputBar = React.memo(
                         {showSkillsMenu && (
                           <div className="absolute left-full bottom-0 pl-1.5 z-[70] -ml-px">
                             <div className="glass-dropdown-panel w-52 p-2 animate-soft-pop text-left space-y-1">
-                              <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
+                              <LiquidGlassSurface refraction={20} blur={2} opacity={0.66} specular={0.12} distortionRadius={22} />
                               <div className="px-2 py-1 text-[10px] font-bold text-text-secondary/40 uppercase tracking-wider">
                                 AI Skills
                               </div>
@@ -1064,7 +1111,7 @@ export const InputBar = React.memo(
                   disabled={disabled}
                   onClick={() => setShowHarnessPermissionMenu((open) => !open)}
                   className={clsx(
-                    'flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-medium transition-all duration-150 outline-none active:scale-[0.98]',
+                    'relative isolate flex items-center gap-1.5 overflow-hidden rounded-xl border px-2.5 py-1.5 text-[11px] font-medium transition-all duration-150 outline-none active:scale-[0.98]',
                     harnessPermissionMode === 'ask'
                       ? 'border-white/[0.09] bg-white/[0.035] text-text-secondary hover:bg-white/[0.07] hover:text-text-primary'
                       : harnessPermissionMode === 'independent'
@@ -1076,6 +1123,13 @@ export const InputBar = React.memo(
                   aria-haspopup="menu"
                   aria-expanded={showHarnessPermissionMenu}
                 >
+                  <LiquidGlassSurface
+                    refraction={16}
+                    blur={1.5}
+                    opacity={0.35}
+                    specular={0.14}
+                    distortionRadius={18}
+                  />
                   {harnessPermissionMode === 'ask' ? (
                     <Lock size={13} />
                   ) : harnessPermissionMode === 'independent' ? (
@@ -1105,7 +1159,7 @@ export const InputBar = React.memo(
                       role="menu"
                       aria-label="Harness permission profile"
                     >
-                    <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
+                    <LiquidGlassSurface refraction={20} blur={2} opacity={0.66} specular={0.12} distortionRadius={22} />
                     <div className="border-b border-white/[0.06] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-secondary/65">
                       Current project permission
                     </div>
@@ -1177,7 +1231,7 @@ export const InputBar = React.memo(
                   disabled={disabled}
                   onClick={() => setShowModeMenu(!showModeMenu)}
                   className={clsx(
-                    'flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs select-none transition-all duration-200 cursor-pointer outline-none hover:scale-[1.02] active:scale-[0.98]',
+                    'relative isolate flex items-center gap-1.5 overflow-hidden rounded-xl border px-2.5 py-1.5 text-xs select-none transition-all duration-200 cursor-pointer outline-none hover:scale-[1.02] active:scale-[0.98]',
                     sessionMode === 'conversation' &&
                       'border-white/[0.04] bg-white/[0.02] text-text-secondary hover:bg-white/[0.05]',
                     sessionMode === 'execution' &&
@@ -1187,6 +1241,13 @@ export const InputBar = React.memo(
                   )}
                   title="Click to change Session Mode"
                 >
+                  <LiquidGlassSurface
+                    refraction={16}
+                    blur={1.5}
+                    opacity={0.35}
+                    specular={0.14}
+                    distortionRadius={18}
+                  />
                   {sessionMode === 'conversation' && (
                     <>
                       <ChatTeardropText size={14} className="text-text-muted" />
@@ -1222,7 +1283,7 @@ export const InputBar = React.memo(
                       variants={menuPopUp}
                       className="glass-dropdown-panel absolute bottom-full right-0 mb-3 z-50 w-72 p-2 text-left"
                     >
-                    <LiquidGlassSurface refraction={12} blur={2} opacity={0.66} distortionRadius={14} />
+                    <LiquidGlassSurface refraction={20} blur={2} opacity={0.66} specular={0.12} distortionRadius={22} />
                     <div className="px-3 py-1.5 text-[11px] font-semibold text-text-secondary/70 border-b border-white/[0.06] mb-1">
                       Select Session Mode
                     </div>
@@ -1462,7 +1523,7 @@ export const InputBar = React.memo(
               onDragLeave={() => setIsExplorerDropTarget(false)}
               onDrop={handleExplorerDrop}
               className={clsx(
-                'true-glass glass-menu-host flex-1 flex flex-col rounded-3xl p-5 transition-[background-color,box-shadow] duration-300 relative input-border-glow overflow-visible',
+                'true-glass glass-menu-host input-bar-host flex-1 flex flex-col rounded-3xl p-5 transition-[background-color,box-shadow] duration-300 relative input-border-glow overflow-visible',
                 modeStyles,
                 isFocused && !disabled && 'is-active',
                 isProcessing && 'input-bar-processing',
@@ -1471,10 +1532,13 @@ export const InputBar = React.memo(
               )}
             >
               <LiquidGlassSurface
-                refraction={30}
+                refraction={36}
                 blur={2}
+                opacity={0.34}
                 centerBlur={0}
                 centerAttenuation={0.18}
+                specular={0.14}
+                distortionRadius={40}
               />
               {/* Focus light: a faint bloom from above lifts the pane when active */}
               <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none">
@@ -1568,7 +1632,7 @@ export const InputBar = React.memo(
                 <textarea
                   ref={inputRef}
                   value={text}
-                  onChange={(e): void => setText(e.target.value)}
+                  onChange={handleTextareaChange}
                   onFocus={() => setIsFocused(true)}
                   onBlur={() => setIsFocused(false)}
                   onKeyDown={handleKeyDown}
@@ -1608,7 +1672,7 @@ export const InputBar = React.memo(
               onDragLeave={() => setIsExplorerDropTarget(false)}
               onDrop={handleExplorerDrop}
               className={clsx(
-                'true-glass glass-menu-host relative rounded-[28px] transition-[background-color,box-shadow] duration-300 input-border-glow flex flex-col overflow-visible px-4.5 pt-4 pb-3',
+                'true-glass glass-menu-host input-bar-host relative rounded-[28px] transition-[background-color,box-shadow] duration-300 input-border-glow flex flex-col overflow-visible px-4.5 pt-4 pb-3',
                 modeStyles,
                 isFocused && !disabled && 'is-active',
                 isProcessing && 'input-bar-processing',
@@ -1617,10 +1681,13 @@ export const InputBar = React.memo(
               )}
             >
               <LiquidGlassSurface
-                refraction={30}
+                refraction={36}
                 blur={2}
+                opacity={0.34}
                 centerBlur={0}
                 centerAttenuation={0.18}
+                specular={0.14}
+                distortionRadius={40}
               />
               {/* Focus light: a faint bloom from above lifts the pane when active */}
               <div className="absolute inset-0 rounded-[28px] overflow-hidden pointer-events-none">
@@ -1712,7 +1779,7 @@ export const InputBar = React.memo(
                 <textarea
                   ref={inputRef}
                   value={text}
-                  onChange={(e): void => setText(e.target.value)}
+                  onChange={handleTextareaChange}
                   onFocus={() => setIsFocused(true)}
                   onBlur={() => setIsFocused(false)}
                   onKeyDown={handleKeyDown}

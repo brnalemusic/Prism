@@ -33,6 +33,7 @@ import { loadConfig, saveConfig, SlashWorkflow } from './config'
 import { compilePersona } from '../shared/persona'
 import { executeMemoryTool, getActiveMemoryService } from './memoryStore'
 import { MEMORY_PROFILE_HEADER, buildMemoryContextBlock } from '../shared/memoryCore'
+import { ARCADIA_MODELS } from '../shared/arcadiaCatalog'
 import { searchAndReadWeb, fetchAndSummarizeWeb } from './webSearchService'
 import { requestDiscordVoiceLeave } from './discordGateway'
 import {
@@ -1829,16 +1830,12 @@ export async function detailedDomPage(url?: string, signal?: AbortSignal): Promi
   })
 }
 
-const ARCADIA_MODEL_NAMES: Record<string, string> = {
-  'prism-ai/arcadia-1.0-mini': 'Arcadia-1.0 Mini',
-  'prism-ai/arcadia-1.0-flash': 'Arcadia-1.0 Flash',
-  'prism-ai/arcadia-1.0-pro': 'Arcadia-1.0 Pro',
-  'prism-ai/arcadia-1.1-flash': 'Arcadia-1.1 Flash',
-  'arcadia-1.0-mini': 'Arcadia-1.0 Mini',
-  'arcadia-1.0-flash': 'Arcadia-1.0 Flash',
-  'arcadia-1.0-pro': 'Arcadia-1.0 Pro',
-  'arcadia-1.1-flash': 'Arcadia-1.1 Flash'
-}
+const ARCADIA_MODEL_NAMES: Record<string, string> = Object.fromEntries(
+  ARCADIA_MODELS.flatMap((model) => [
+    [model.id, model.name],
+    [model.id.replace(/^prism-ai\//, ''), model.name]
+  ])
+)
 
 /**
  * Returns the system prompt configured with the correct model identity.
@@ -1952,18 +1949,7 @@ export function getSystemToolsPrompt(
       cleanModelId.startsWith('arcadia-') ||
       Boolean(ARCADIA_MODEL_NAMES[cleanModelId]))
 
-  const resolvedArcadiaName =
-    modelDisplayName ||
-    ARCADIA_MODEL_NAMES[cleanModelId] ||
-    (cleanModelId.includes('1.0-mini')
-      ? 'Arcadia-1.0 Mini'
-      : cleanModelId.includes('1.0-pro')
-        ? 'Arcadia-1.0 Pro'
-        : cleanModelId.includes('1.1-flash')
-          ? 'Arcadia-1.1 Flash'
-          : cleanModelId.includes('1.0-flash') || cleanModelId.includes('arcadia')
-            ? 'Arcadia-1.0 Flash'
-            : '')
+  const resolvedArcadiaName = modelDisplayName || ARCADIA_MODEL_NAMES[cleanModelId] || ''
 
   const modelIdentity =
     isCloud && resolvedArcadiaName ? `${cleanModelId} (${resolvedArcadiaName})` : cleanModelId
@@ -2052,7 +2038,7 @@ Context: ${date} | MM/DD/YYYY | ${platform} | ${username} | Home: ${homeDir} | C
 
 # Rules
 - Simple Markdown; absolute paths; terminal \`${shellName}\`; one shared browser session.
-- Msgs end with \`[MM-DD-YYYY HH:MM:SS]\`; use silently for time context.
+- Date/time is context only: use it to understand timing and answer date, time, or weekday questions when asked. Do not include it in every reply.
 - App/link/path alone → open via open_browser_link/open_application.
 - Complex/long tasks → open_main_app. Parallel calls allowed.${personaSection}${coreMemorySection}${memoryGuidanceSection}`
   }
@@ -2065,7 +2051,7 @@ Context: ${date} | MM/DD/YYYY | ${platform} | Home: ${homeDir} | CWD: ${cwd}
 
 # Rules
 - Text/Markdown only, user language. Direct, factual, concise.
-- Msgs end with \`[MM-DD-YYYY HH:MM:SS]\`; use silently for time context.
+- Date/time is context only: use it to understand timing and answer date, time, or weekday questions when asked. Do not include it in every reply.
 ${inlineSuggestionsRule}${personaSection}${coreMemorySection}${memoryGuidanceSection}`
   }
 
@@ -2091,7 +2077,7 @@ Context: ${date} | MM/DD/YYYY | ${platform} | ${username} | Home: ${homeDir} | C
 
 # Rules
 - Match user language. Direct, factual, concise.${disciplineRule}
-- Msgs end with \`[MM-DD-YYYY HH:MM:SS]\`; use silently for time context.
+- Date/time is context only: use it to understand timing and answer date, time, or weekday questions when asked. Do not include it in every reply.
 ${browserRule}
 - Format: Markdown for text/code; inline HTML/CSS for cards; \`create_mini_app\` for widgets.
 - Exec: absolute paths; parallel calls allowed; terminal = Context shell.
