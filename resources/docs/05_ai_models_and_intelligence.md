@@ -7,7 +7,7 @@ Prism 9.0.0-beta.2 operates on an **Open Multi-Provider & Dynamic Model Architec
 Users can attach Google AI Studio, OpenAI, Anthropic Claude, OpenRouter, NVIDIA NIM, GroqCloud, Cerebras AI, Puter.js, or custom OpenAI-compatible / Anthropic-compatible / Responses API-compatible endpoints (such as local Ollama, LM Studio, or vLLM setups).
 
 Prism Cloud exposes seven public Arcadia routes. The free tier includes Arcadia 1.1 Mini,
-Arcadia 1.1 Small and Arcadia 1.1 Flash (09/11). Paid accounts can use all seven routes,
+Arcadia 1.1 Small and Arcadia 1.1 Flash 0911. Paid accounts can use all seven routes,
 including Arcadia 1.1 Pro, Arcadia 1.2 Flash S, Arcadia 1.2 Flash G and Arcadia Bot 0.8.
 Cloud quota is shared across the account, regardless of selected model: 30 requests in a
 rolling 24-hour window for free accounts and 400 for paid accounts.

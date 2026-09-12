@@ -11,7 +11,7 @@ export const ARCADIA_MODELS: readonly ArcadiaModelDefinition[] = [
   { id: 'prism-ai/arcadia-1-1-small', name: 'Arcadia 1.1 Small', accessTier: 'free' },
   {
     id: 'prism-ai/arcadia-1-1-flash-09-11',
-    name: 'Arcadia 1.1 Flash (09/11)',
+    name: 'Arcadia 1.1 Flash 0911',
     accessTier: 'free'
   },
   { id: 'prism-ai/arcadia-1-1-pro', name: 'Arcadia 1.1 Pro', accessTier: 'paid' },

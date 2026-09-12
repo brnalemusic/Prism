@@ -53,7 +53,7 @@ const PUBLIC_ARCADIA_MODELS = [
     object: 'model',
     created: 1786800000,
     owned_by: 'prism-ai',
-    name: 'Arcadia 1.1 Flash (09/11)',
+    name: 'Arcadia 1.1 Flash 0911',
     description: 'Primary High-Speed Reasoning Model',
     access_tier: 'free'
   },
