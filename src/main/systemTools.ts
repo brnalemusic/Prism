@@ -1918,7 +1918,7 @@ RULES: max 3 <a> buttons (1 red #ff0000 + 2 charcoal #272727), real watch URLs, 
 
 export function getSystemToolsPrompt(
   modelKey: string,
-  target: 'main' | 'subagent' | 'both' | 'launcher' = 'main',
+  target: 'main' | 'subagent' | 'both' | 'launcher' | 'discord_voice' = 'main',
   _allowedTools?: string[],
   sessionMode: SessionMode = 'execution',
   disciplinePath?: string,
@@ -2022,14 +2022,45 @@ export function getSystemToolsPrompt(
   })()
 
   // AI memory guidance (Hermes-style): the model actively curates long-term
-  // memory through the memory tool. Same surface guard as persona; never Harness.
+  // memory through the memory tool. Same surface guard as persona; never Harness or Discord Voice.
   const memoryGuidanceSection = (() => {
-    if (target === 'subagent' || target === 'both' || sessionMode === 'harness') return ''
+    if (
+      target === 'subagent' ||
+      target === 'both' ||
+      sessionMode === 'harness' ||
+      target === 'discord_voice'
+    ) {
+      return ''
+    }
     return `# Long-Term Memory
 Curate memory with the memory tool, proactively in the same turn.
 - target "user": stable user facts; "memory": general/project facts. Update via replace, delete stale, never duplicate.
 - Compact entries. No secrets or guesses. Current user message wins over memory.`
   })()
+
+  if (target === 'discord_voice') {
+    return `# Identity & Context
+Role: ${name} in Discord Voice Call.
+Model: ${modelIdentity}
+Context: ${date} | MM/DD/YYYY | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd}
+
+# Voice Rules
+- Conversational spoken language: respond naturally, concisely, and directly in audio.
+- Spoken formatting: NEVER output markdown headings (#), markdown bold/italics, bullet lists, HTML tags, raw URLs, or code blocks in your spoken output. Speak the content naturally.
+- Date/time is context only: use it to understand timing and answer date, time, or weekday questions when asked. Do not include it in every reply.
+- Available Instant Tools:
+  * Screen Inspection: Call 'computer_use_see_screen' to inspect the user's screen in real time. Inspect the screenshot before answering questions about what is on screen.
+  * Web Search: Call 'web_search' for quick factual queries and current news.
+  * Applications & Links: Call 'open_application' or 'search_installed_applications' to find/launch local apps. Call 'open_browser_link' to open URLs in the user's default browser.
+  * File Inspection: Call 'computer_use_read_file' to quickly inspect a single file if explicitly asked.
+  * Leave Voice Call: Call 'discord_leave_voice' when the user asks to leave or wrap up the call. Then say a brief, personalized goodbye and stop.
+- Task Delegation:
+  For any task beyond an instant read, search, or screen check (e.g. coding, file edits, multi-step system workflows, deep research, running terminal scripts):
+  * Use 'send_message_to_chat' to delegate the task to a background chat or Harness agent.
+  * Inform the user briefly that you have dispatched the task and will remain on standby.
+  * You will receive an automatic voice notification the moment the background agent finishes, at which point you will verbally brief the user.
+  * If delegating to Harness in plan mode, review the completed plan and use 'approve_harness_plan' when instructed.${personaSection}${coreMemorySection}`
+  }
 
   if (target === 'launcher') {
     return `# Identity & Context

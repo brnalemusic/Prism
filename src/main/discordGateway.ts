@@ -40,8 +40,9 @@ import { getSystemToolsPrompt, setCurrentSessionIdForTodo } from './systemTools'
 import { appendTurnRecallBlock, getActiveMemoryService } from './memoryStore'
 import {
   executeValidatedTool,
-  getGeminiFunctionDeclarations,
+  getDiscordVoiceGeminiDeclarations,
   getOpenAiToolDefinitions,
+  DISCORD_VOICE_ALLOWED_TOOLS,
   ToolLoopGuard
 } from './toolRuntime'
 import { normalizePrismThinkingLevel } from './ai/prismThinking'
@@ -488,6 +489,33 @@ async function executeLiveToolCalls(
     const name = functionCall.name || 'unknown_tool'
     const args = functionCall.args || {}
     recordLiveToolCall(callId, name, args)
+
+    if (!DISCORD_VOICE_ALLOWED_TOOLS.has(name)) {
+      console.warn(`[Discord Gateway] Blocked unapproved tool call in voice session: ${name}`)
+      const errorContent = `Tool "${name}" is not permitted in voice mode. Please delegate complex operations to background agents using send_message_to_chat.`
+      recordLiveToolResult(
+        callId,
+        name,
+        args,
+        errorContent,
+        {
+          ok: false,
+          error: {
+            code: 'UNKNOWN_TOOL',
+            message: errorContent,
+            retryable: false
+          }
+        }
+      )
+      functionResponses.push({
+        id: callId,
+        name,
+        response: {
+          error: errorContent
+        }
+      })
+      continue
+    }
 
     const execution = await executeValidatedTool(
       name,
@@ -1089,13 +1117,8 @@ function handleLiveMessage(msg: any, aiSession: any, apiKey: string): void {
     if (activeVoiceHistory) {
       activeVoiceHistory.activeUserMessageIndex = null
       activeVoiceHistory.activeAssistantMessageIndex = null
-      // Post-turn extraction trigger (M2): once per completed live-voice turn,
-      // after transcripts are persisted (appendVoiceTranscript persists eagerly).
-      try {
-        getActiveMemoryService()?.observeCompletedTurn(activeVoiceHistory.chatId)
-      } catch (err) {
-        console.error('[Memory] observeCompletedTurn failed:', err)
-      }
+      // Memory saving is disabled for Discord Voice sessions.
+      // Observe completed turn is intentionally skipped here to fulfill zero memory writes in voice.
     }
   }
 }
@@ -1153,12 +1176,12 @@ async function reconnectLiveVoiceSession(continueAfterSkillUnlock = false): Prom
         inputAudioTranscription: {},
         outputAudioTranscription: {},
         systemInstruction:
-          `${getSystemToolsPrompt(modelName, 'main', undefined, 'execution', '')}\n\n` +
+          `${getSystemToolsPrompt(modelName, 'discord_voice', undefined, 'execution', '')}\n\n` +
           DISCORD_VOICE_GATEWAY_BLOCK +
           historyContextPrompt + voiceMemoryRecallBlock(),
         tools: [
           {
-            functionDeclarations: getGeminiFunctionDeclarations(activeVoiceHistory?.chatId)
+            functionDeclarations: getDiscordVoiceGeminiDeclarations()
           }
         ]
       },
@@ -1245,29 +1268,71 @@ export function isDiscordVoiceChat(chatId: string): boolean {
 }
 
 export function notifyDiscordVoiceSession(chatId: string, messageText: string): boolean {
-  if (!activeVoiceHistory || activeVoiceHistory.chatId !== chatId || !activeLiveSession) {
+  if (!activeVoiceHistory || activeVoiceHistory.chatId !== chatId) {
     return false
   }
-  try {
-    appendVoiceTranscript('user', `System: ${messageText}`)
-    activeLiveSession.sendClientContent({
-      turns: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: `System: ${messageText}\n\nBriefly speak to the user to inform them of this result.`
-            }
-          ]
+
+  appendVoiceTranscript('user', `System: ${messageText}`)
+
+  if (activeLiveSession) {
+    try {
+      activeLiveSession.sendClientContent({
+        turns: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: `System: ${messageText}\n\nBriefly speak to the user to inform them of this result.`
+              }
+            ]
+          }
+        ],
+        turnComplete: true
+      })
+      return true
+    } catch (err) {
+      console.error('[Discord Gateway] Error sending inter-chat completion to Live session:', err)
+      return false
+    }
+  }
+
+  if (
+    activeVoiceConnection &&
+    activeVoiceSessionParams &&
+    !isReconnectingLive &&
+    !pendingVoiceLeave
+  ) {
+    console.log(
+      '[Discord Gateway] Reconnecting idle Gemini Live session to deliver background task completion.'
+    )
+    void reconnectLiveVoiceSession().then((reconnected) => {
+      if (reconnected && activeLiveSession) {
+        try {
+          activeLiveSession.sendClientContent({
+            turns: [
+              {
+                role: 'user',
+                parts: [
+                  {
+                    text: `System: ${messageText}\n\nBriefly speak to the user to inform them of this result.`
+                  }
+                ]
+              }
+            ],
+            turnComplete: true
+          })
+        } catch (err) {
+          console.error(
+            '[Discord Gateway] Error delivering background notification after reconnect:',
+            err
+          )
         }
-      ],
-      turnComplete: true
+      }
     })
     return true
-  } catch (err) {
-    console.error('[Discord Gateway] Error sending inter-chat completion to Live session:', err)
-    return false
   }
+
+  return false
 }
 
 async function startLiveVoiceSession(
@@ -1312,12 +1377,12 @@ async function startLiveVoiceSession(
         inputAudioTranscription: {},
         outputAudioTranscription: {},
         systemInstruction:
-          `${getSystemToolsPrompt(normalizedModelName, 'main', undefined, 'execution', '')}\n\n` +
+          `${getSystemToolsPrompt(normalizedModelName, 'discord_voice', undefined, 'execution', '')}\n\n` +
           DISCORD_VOICE_GATEWAY_BLOCK +
           voiceMemoryRecallBlock(),
         tools: [
           {
-            functionDeclarations: getGeminiFunctionDeclarations(voiceChatId)
+            functionDeclarations: getDiscordVoiceGeminiDeclarations()
           }
         ]
       },
@@ -1546,6 +1611,7 @@ export function startDiscordGateway(config: AppConfig): void {
   })
 
   client.on('messageCreate', handleDiscordMessage)
+  client.on('voiceStateUpdate', handleVoiceStateUpdate)
 
   const gatewayClient = client
   gatewayClient.login(config.discordBotToken).catch((err) => {
@@ -1556,6 +1622,36 @@ export function startDiscordGateway(config: AppConfig): void {
       appOwnerIds.clear()
     }
   })
+}
+
+function handleVoiceStateUpdate(oldState: any, newState: any): void {
+  if (!client || !activeVoiceConnection) return
+
+  // 1. If the bot itself was disconnected from the voice channel
+  if (oldState.member?.id === client.user?.id) {
+    if (!newState.channelId) {
+      console.log('[Discord Gateway] Bot was disconnected from voice channel. Cleaning up voice resources.')
+      leaveDiscordVoiceChannel()
+      return
+    }
+  }
+
+  // 2. If members change in the channel the bot is currently in
+  const botChannelId = activeVoiceConnection.joinConfig?.channelId
+  if (!botChannelId) return
+
+  if (oldState.channelId === botChannelId || newState.channelId === botChannelId) {
+    const guildId = activeVoiceConnection.joinConfig?.guildId
+    const guild = guildId ? client.guilds.cache.get(guildId) : null
+    const channel = guild?.channels.cache.get(botChannelId)
+    if (channel && channel.isVoiceBased()) {
+      const humanMembers = channel.members.filter((m: any) => !m.user.bot)
+      if (humanMembers.size === 0 && !pendingVoiceLeave) {
+        console.log('[Discord Gateway] Voice channel has no human members remaining. Leaving voice channel.')
+        leaveDiscordVoiceChannel()
+      }
+    }
+  }
 }
 
 export function stopDiscordGateway(): void {
