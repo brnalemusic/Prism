@@ -36,7 +36,11 @@ const HARNESS_LABELS: Record<HarnessToolName, string> = {
   exec_command: 'Ran command',
   write_stdin: 'Sent terminal input',
   read_terminal_output: 'Read terminal output',
-  web_search: 'Searched the web'
+  web_search: 'Searched the web',
+  read_page: 'Read page',
+  send_message_to_chat: 'Sent message to chat',
+  answer_subagent_question: 'Answered sub-agent question',
+  cancel_subagent_task: 'Cancelled sub-agent task'
 }
 
 const HARNESS_NAMES = new Set(Object.keys(HARNESS_LABELS))
@@ -142,6 +146,7 @@ function describeTool(tool: ToolCallItem): string {
   const path = targetPath(args)
   const command = stringArg(args, ['cmd', 'command'])
   const query = stringArg(args, ['query', 'pattern'])
+  const url = stringArg(args, ['url', 'link'])
 
   switch (tool.name) {
     case 'read': {
@@ -227,12 +232,24 @@ function describeTool(tool: ToolCallItem): string {
         : active
           ? 'Searching the web'
           : 'Searched the web'
+    case 'read_page':
+      return url
+        ? `${active ? 'Reading' : 'Read'} ${compact(url, 52)}`
+        : active
+          ? 'Reading web page'
+          : 'Read web page'
     case 'to_ask':
       // The questionnaire is only "waiting" once it is on screen; while the
       // call is still streaming its arguments the model is composing it.
       return tool.status === 'writing' ? 'Preparing some questions' : active ? 'Waiting for your answer' : 'Asked a question'
     case 'plan':
       return active ? 'Preparing implementation plan' : 'Prepared implementation plan'
+    case 'send_message_to_chat':
+      return active ? 'Sending message to chat' : 'Sent message to chat'
+    case 'answer_subagent_question':
+      return active ? 'Answering sub-agent' : 'Answered sub-agent'
+    case 'cancel_subagent_task':
+      return active ? 'Cancelling sub-agent' : 'Cancelled sub-agent'
     default:
       return tool.name ? String(tool.name).replace(/_/g, ' ') : 'Tool'
   }
@@ -243,7 +260,7 @@ function toolIcon(name: string): React.JSX.Element {
   if (name === 'exec_command' || name === 'write_stdin' || name === 'read_terminal_output') {
     return <TerminalWindow {...props} />
   }
-  if (name === 'web_search') return <GlobeSimple {...props} />
+  if (name === 'web_search' || name === 'read_page') return <GlobeSimple {...props} />
   if (name === 'to_ask') return <ChatTeardropText {...props} />
   if (name === 'find' || name === 'grep') return <MagnifyingGlass {...props} />
   if (name === 'list') return <FolderOpen {...props} />
@@ -388,7 +405,7 @@ function ToolRow({ tool }: { tool: ToolCallItem }): React.JSX.Element {
 
       {expanded && (
         <div className="mb-1.5 ml-[5px] mt-1 space-y-2 border-l border-white/[0.07] pb-0.5 pl-3 pr-1 animate-fade-in max-w-full">
-          {tool.name === 'web_search' ? (
+          {tool.name === 'web_search' || tool.name === 'read_page' ? (
             <div className="grid gap-0.5 py-0.5">
               {decoded.sources.length > 0 ? (
                 decoded.sources.map((source) => (

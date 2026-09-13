@@ -9,6 +9,7 @@ import type {
 import type { OpenAiToolDefinition } from './ai/types'
 import { loadConfig } from './config'
 import { requestQuestionnaire } from './systemTools'
+import { interChatManager } from './ai/interChatManager'
 import { assertCommandAllowed } from './localCommandSandbox'
 import {
   changesDiff,
@@ -20,7 +21,7 @@ import {
 import { resolveHarnessProjectPath } from './harnessPathPolicy'
 import { harnessWildcardRegex } from './harnessGlob'
 import { grepFiles } from './harnessGrep'
-import { searchAndReadWeb } from './webSearchService'
+import { searchAndReadWeb, readWebPage } from './webSearchService'
 import {
   executeTerminalWithInitialWait,
   readTerminalOutput,
@@ -210,6 +211,48 @@ export const HARNESS_TOOL_DEFINITIONS: ToolDefinition[] = [
       resultCount: integer('Sources (1-10).', 1, 10)
     },
     ['query', 'resultCount']
+  ),
+  definition(
+    'read_page',
+    'Fetch and read the text content of a web page by URL without launching a browser.',
+    {
+      url: text('The HTTP(S) URL of the web page to read.'),
+      maxCharacters: integer('Maximum characters to return (default 50,000, max 100,000).', 1000, 100000)
+    },
+    ['url']
+  ),
+  definition(
+    'send_message_to_chat',
+    'Send a message, status update, or task to another chat or to the supervising agent. Non-blocking.',
+    {
+      target: text('Destination agent: "chat" or "harness".', ['chat', 'harness']),
+      message: text('Message or task content.'),
+      path: text('Optional project path (mandatory if target is "harness").'),
+      harness_mode: text('Optional harness mode ("plan" or "build").', ['plan', 'build']),
+      target_chat_id: text('Optional target chat ID. If omitted, opens a new background chat.')
+    },
+    ['target', 'message']
+  ),
+  definition(
+    'answer_subagent_question',
+    'Submit decisions and answers to a clarifying questionnaire raised by a delegated sub-agent. Unblocks the sub-agent so it can continue running.',
+    {
+      session_id: text('The questionnaire session ID.'),
+      answers: {
+        type: 'object',
+        description: 'Key-value map of question IDs to chosen answers.'
+      }
+    },
+    ['session_id', 'answers']
+  ),
+  definition(
+    'cancel_subagent_task',
+    'Abort and cancel an active sub-agent task that was delegated by this agent. Stops model execution, terminates any background terminal processes, and cleans up resources.',
+    {
+      target_chat_id: text('The chat ID of the sub-agent to cancel.'),
+      reason: text('Optional reason for cancellation.')
+    },
+    ['target_chat_id']
   )
 ]
 
@@ -227,7 +270,11 @@ const LABELS: Record<HarnessToolName, string> = {
   exec_command: 'Running command',
   write_stdin: 'Sending terminal input',
   read_terminal_output: 'Reading terminal output',
-  web_search: 'Searching the web'
+  web_search: 'Searching the web',
+  read_page: 'Reading web page',
+  send_message_to_chat: 'Sending message to chat',
+  answer_subagent_question: 'Answering sub-agent question',
+  cancel_subagent_task: 'Cancelling sub-agent task'
 }
 
 interface HarnessExecutionContext extends ToolExecutionContext {
@@ -569,7 +616,7 @@ async function executeOperation(
     return JSON.stringify(result)
   }
   if (name === 'to_ask') {
-    return requestQuestionnaire(args, context.signal)
+    return requestQuestionnaire(args, context.signal, context.chatId)
   }
   if (name === 'plan') {
     const markdown = requiredString(args, 'markdown')
@@ -649,6 +696,56 @@ async function executeOperation(
         context.signal
       )
     )
+  }
+  if (name === 'read_page') {
+    const url =
+      typeof args.url === 'string' && args.url.trim()
+        ? args.url.trim()
+        : typeof args.link === 'string' && args.link.trim()
+          ? args.link.trim()
+          : ''
+    if (!url) throw new Error('A valid HTTP(S) URL is required.')
+    const maxCharacters =
+      typeof args.maxCharacters === 'number' && args.maxCharacters > 0
+        ? args.maxCharacters
+        : (context.settings.maxReadCharacters || 50_000)
+    return JSON.stringify(await readWebPage(url, { maxCharacters }, context.signal))
+  }
+  if (name === 'send_message_to_chat') {
+    const result = await interChatManager.dispatchInterChatTask({
+      senderChatId: context.chatId,
+      target: args.target === 'harness' ? 'harness' : 'chat',
+      message: requiredString(args, 'message'),
+      path: typeof args.path === 'string' ? args.path : undefined,
+      harness_mode: args.harness_mode === 'plan' ? 'plan' : 'build',
+      target_chat_id: typeof args.target_chat_id === 'string' ? args.target_chat_id : undefined
+    })
+    if (!result.ok) {
+      throw new Error(`Error delegating task: ${result.error || 'Failed to dispatch task.'}`)
+    }
+    return JSON.stringify(result, null, 2)
+  }
+  if (name === 'answer_subagent_question') {
+    const result = interChatManager.answerSubAgentQuestion(
+      requiredString(args, 'session_id'),
+      context.chatId,
+      (args.answers as Record<string, any>) || {}
+    )
+    if (!result.ok) {
+      throw new Error(`Error answering sub-agent question: ${result.error || 'Failed to submit responses.'}`)
+    }
+    return JSON.stringify(result, null, 2)
+  }
+  if (name === 'cancel_subagent_task') {
+    const result = interChatManager.cancelSubAgentTask(
+      requiredString(args, 'target_chat_id'),
+      context.chatId,
+      typeof args.reason === 'string' ? args.reason : undefined
+    )
+    if (!result.ok) {
+      throw new Error(`Error cancelling sub-agent task: ${result.error || 'Failed to cancel task.'}`)
+    }
+    return JSON.stringify(result, null, 2)
   }
   throw new Error(`Unsupported Harness tool: ${name}`)
 }

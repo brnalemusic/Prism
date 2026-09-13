@@ -4,18 +4,24 @@ import * as path from 'path'
 import { loadChatSession, saveChatSession, updateHarnessSessionPhase } from '../history'
 import { openHarnessProject } from '../harnessProject'
 import { bindGitPlan } from '../harnessGitRecovery'
-import { getTerminalProcessesForChat } from '../terminalProcessManager'
+import { getTerminalProcessesForChat, killTerminalProcess } from '../terminalProcessManager'
 import { broadcastIpc } from '../safeSend'
 import {
   activeRuns,
   startBackgroundChatMessage,
   wakeUpChatSession,
-  prepareHarnessPlanHandoff
+  prepareHarnessPlanHandoff,
+  cancelChatMessage,
+  getChatModel
 } from './chatHandler'
+import { loadConfig } from '../config'
+import { getActiveModels } from './providerManager'
 import { notifyDiscordVoiceSession, isDiscordVoiceChat } from '../discordGateway'
 import {
   buildHarnessImplementationHandoff,
-  buildHarnessPlanApprovalMessage
+  buildHarnessPlanApprovalMessage,
+  INTER_CHAT_TASK_COMPLETED_MARKER,
+  INTER_CHAT_TASK_FAILED_MARKER
 } from '../../shared/harnessPlanCommand'
 import type { SessionMode, WorkspaceKind, HarnessPhase } from '../../shared/types'
 import type { OpenAiMessage } from './types'
@@ -47,10 +53,56 @@ export interface InterChatNotification {
   timestamp: number
 }
 
+export interface SubAgentQuestionnaire {
+  sessionId: string
+  targetChatId: string
+  senderChatId: string
+  targetTitle: string
+  questions: any[]
+  resolve: (result: string) => void
+  reject: (err: Error) => void
+  createdAt: number
+}
+
+export function resolveSubAgentModelKey(
+  explicitModel?: string,
+  existingSessionModel?: string,
+  senderChatId?: string
+): string {
+  const explicit = explicitModel?.trim()
+  if (explicit) return explicit
+
+  const existing = existingSessionModel?.trim()
+  if (existing) return existing
+
+  if (senderChatId && senderChatId !== 'unknown') {
+    const senderSession = loadChatSession(senderChatId)
+    if (senderSession?.model?.trim()) {
+      return senderSession.model.trim()
+    }
+  }
+
+  const current = getChatModel()?.trim()
+  if (current) return current
+
+  const config = loadConfig()
+  if (config.lastSelectedChatModel?.trim()) {
+    return config.lastSelectedChatModel.trim()
+  }
+
+  const activeModels = getActiveModels()
+  if (activeModels.length > 0) {
+    return activeModels[0].fullKey
+  }
+
+  return ''
+}
+
 class InterChatManager {
   private tasks = new Map<string, InterChatTask>()
   private pendingNotifications = new Map<string, InterChatNotification[]>()
   private lastApiErrors = new Map<string, string>()
+  private activeQuestionnaires = new Map<string, SubAgentQuestionnaire>()
 
   public recordApiError(chatId: string, error: string): void {
     if (!chatId) return
@@ -58,6 +110,12 @@ class InterChatManager {
     const task = this.tasks.get(chatId)
     if (task) {
       task.lastApiError = error
+      // If the chat failed early and is not actively streaming/running, notify supervisor immediately
+      if (!activeRuns.has(chatId)) {
+        setImmediate(() => {
+          this.checkAndNotifyCompletion(chatId)
+        })
+      }
     }
   }
 
@@ -74,6 +132,8 @@ class InterChatManager {
     path?: string
     harness_mode?: 'plan' | 'build'
     target_chat_id?: string
+    modelKey?: string
+    model?: string
   }): Promise<{
     ok: boolean
     chatId?: string
@@ -144,9 +204,9 @@ class InterChatManager {
     let targetChatId = data.target_chat_id?.trim()
     let isNewChat = false
     let targetTitle = ''
+    const existingSession = targetChatId ? loadChatSession(targetChatId, workspace) : null
 
     if (targetChatId) {
-      const existingSession = loadChatSession(targetChatId, workspace)
       if (!existingSession) {
         return {
           ok: false,
@@ -162,13 +222,19 @@ class InterChatManager {
       targetTitle = target === 'harness' ? `Harness: ${titleSnippet}` : titleSnippet || 'New Chat'
     }
 
-    // 3. Resolve sender info
+    // 3. Resolve sender info & model
     const senderChatId = data.senderChatId || 'unknown'
     let senderTitle = ''
     if (senderChatId && senderChatId !== 'unknown') {
       const senderSession = loadChatSession(senderChatId)
       senderTitle = senderSession?.title || (isDiscordVoiceChat(senderChatId) ? 'Discord Voice' : '')
     }
+
+    const targetModel = resolveSubAgentModelKey(
+      data.modelKey || data.model,
+      existingSession?.model,
+      senderChatId
+    )
 
     // 4. Save initial message in history
     const userMessage: OpenAiMessage = {
@@ -178,7 +244,6 @@ class InterChatManager {
       sourceChatTitle: senderTitle || undefined
     }
 
-    const existingSession = loadChatSession(targetChatId, workspace)
     const existingMessages = existingSession?.messages ? [...existingSession.messages] : []
     existingMessages.push(userMessage)
 
@@ -188,7 +253,7 @@ class InterChatManager {
       existingSession?.title || targetTitle,
       sessionMode,
       targetProjectPath,
-      existingSession?.model,
+      targetModel || existingSession?.model,
       false,
       workspace === 'harness' ? [] : existingSession?.disabledSkills,
       harnessPhase
@@ -205,7 +270,8 @@ class InterChatManager {
         harnessPhase,
         sourceChatId: senderChatId,
         sourceChatTitle: senderTitle || undefined,
-        initialMessage: message
+        initialMessage: message,
+        modelKey: targetModel
       })
     }
 
@@ -233,7 +299,10 @@ class InterChatManager {
         chatId: targetChatId,
         sessionMode,
         disciplinePath: targetProjectPath,
-        harnessPhase
+        harnessPhase,
+        sourceChatId: senderChatId,
+        sourceChatTitle: senderTitle || undefined,
+        modelKey: targetModel
       },
       workspace
     ).catch((err) => {
@@ -404,7 +473,8 @@ class InterChatManager {
       notificationBody = `Task in chat "${session?.title || targetChatId}" (${targetChatId}) completed successfully.\n\nFinal Output:\n${finalOutput || '(No text output)'}`
     }
 
-    const notificationMessage = `[INTER-CHAT TASK NOTIFICATION: ${notificationBody}]`
+    const marker = isError ? INTER_CHAT_TASK_FAILED_MARKER : INTER_CHAT_TASK_COMPLETED_MARKER
+    const notificationMessage = `${marker}\n\n${notificationBody}`
 
     // Case A: Sender is active Discord Voice Gateway session
     if (isDiscordVoiceChat(senderChatId)) {
@@ -413,47 +483,24 @@ class InterChatManager {
     }
 
     // Case B: Sender is regular Chat or Harness
+    const currentList = this.pendingNotifications.get(senderChatId) || []
+    currentList.push({
+      taskId: task.id,
+      senderChatId,
+      targetChatId,
+      targetTitle: session?.title || targetChatId,
+      status: isError ? 'error' : 'completed',
+      content: notificationMessage,
+      timestamp: Date.now()
+    })
+    this.pendingNotifications.set(senderChatId, currentList)
+
     const isSenderRunning = activeRuns.has(senderChatId)
-    if (isSenderRunning) {
-      // Queue notification to be picked up in next tool round
-      const currentList = this.pendingNotifications.get(senderChatId) || []
-      currentList.push({
-        taskId: task.id,
-        senderChatId,
-        targetChatId,
-        targetTitle: session?.title || targetChatId,
-        status: isError ? 'error' : 'completed',
-        content: notificationMessage,
-        timestamp: Date.now()
+    if (!isSenderRunning) {
+      // Sender is idle -> wake up sender chat to process pending inter-chat notification
+      void wakeUpChatSession(senderChatId).catch((err) => {
+        console.error(`[InterChat] Failed to wake up sender chat ${senderChatId}:`, err)
       })
-      this.pendingNotifications.set(senderChatId, currentList)
-    } else {
-      // Sender is idle -> inject notification and wake up sender
-      const senderSession = loadChatSession(senderChatId)
-      if (senderSession) {
-        const senderMessages = [...senderSession.messages]
-        senderMessages.push({
-          role: 'user',
-          content: notificationMessage,
-          isSystemNotification: true,
-          hidden: false
-        })
-        saveChatSession(
-          senderChatId,
-          senderMessages,
-          senderSession.title,
-          senderSession.sessionMode,
-          senderSession.disciplinePath,
-          senderSession.model,
-          senderSession.isDiscord,
-          senderSession.disabledSkills,
-          senderSession.harnessPhase
-        )
-        // Wake up sender chat
-        void wakeUpChatSession(senderChatId).catch((err) => {
-          console.error(`[InterChat] Failed to wake up sender chat ${senderChatId}:`, err)
-        })
-      }
     }
   }
 
@@ -589,7 +636,9 @@ class InterChatManager {
           chatId: targetChatId,
           sessionMode: 'harness',
           disciplinePath: session.disciplinePath,
-          harnessPhase: 'build'
+          harnessPhase: 'build',
+          sourceChatId: data.senderChatId || existingTask?.senderChatId,
+          sourceChatTitle: 'Supervising Agent'
         },
         'harness'
       ).catch((err) => {
@@ -645,13 +694,19 @@ class InterChatManager {
         handoffMessage += `\n\nAdditional Guidance from Supervising Agent:\n${data.feedback.trim()}`
       }
 
+      const targetModel = resolveSubAgentModelKey(
+        undefined,
+        session.model,
+        data.senderChatId || existingTask?.senderChatId
+      )
+
       const saved = saveChatSession(
         newChatId,
         [],
         'Implementation Handoff',
         'harness',
         session.disciplinePath,
-        session.model,
+        targetModel || session.model,
         false,
         [],
         'build'
@@ -669,7 +724,8 @@ class InterChatManager {
         harnessPhase: 'build',
         sourceChatId: data.senderChatId || targetChatId,
         sourceChatTitle: session.title || 'Harness Plan',
-        initialMessage: handoffMessage
+        initialMessage: handoffMessage,
+        modelKey: targetModel
       })
 
       const taskId = `task-${Date.now()}-${randomUUID().slice(0, 6)}`
@@ -693,7 +749,10 @@ class InterChatManager {
           chatId: newChatId,
           sessionMode: 'harness',
           disciplinePath: session.disciplinePath,
-          harnessPhase: 'build'
+          harnessPhase: 'build',
+          sourceChatId: data.senderChatId || targetChatId,
+          sourceChatTitle: session.title || 'Harness Plan',
+          modelKey: targetModel
         },
         'harness'
       ).catch((err) => {
@@ -710,6 +769,226 @@ class InterChatManager {
         status: 'running',
         message: `Implementation plan approved in a new chat (${newChatId}) with fresh context and complementary handoff notes. The Harness agent is executing in Build mode in a background tab. You are recommended to remain in standby; you will be automatically notified upon completion.`
       }
+    }
+  }
+
+  public getSenderChatIdForTarget(targetChatId?: string): string | undefined {
+    if (!targetChatId) return undefined
+    const cleanId = targetChatId.trim()
+    const task = this.tasks.get(cleanId)
+    if (task && task.senderChatId && task.senderChatId !== 'unknown') {
+      return task.senderChatId
+    }
+    const session = loadChatSession(cleanId)
+    const firstMsg = session?.messages?.find((m) => m.sourceChatId)
+    if (firstMsg?.sourceChatId && firstMsg.sourceChatId !== 'unknown') {
+      return firstMsg.sourceChatId
+    }
+    return undefined
+  }
+
+  public routeSubAgentQuestion(
+    sessionId: string,
+    targetChatId: string,
+    senderChatId: string,
+    questions: any[],
+    signal?: AbortSignal
+  ): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const onAbort = () => {
+        this.activeQuestionnaires.delete(sessionId)
+        reject(new Error('AbortError'))
+      }
+
+      if (signal) {
+        if (signal.aborted) {
+          reject(new Error('AbortError'))
+          return
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+      }
+
+      const session = loadChatSession(targetChatId)
+      const targetTitle = session?.title || targetChatId
+
+      this.activeQuestionnaires.set(sessionId, {
+        sessionId,
+        targetChatId,
+        senderChatId,
+        targetTitle,
+        questions,
+        resolve: (res) => {
+          signal?.removeEventListener('abort', onAbort)
+          resolve(res)
+        },
+        reject: (err) => {
+          signal?.removeEventListener('abort', onAbort)
+          reject(err)
+        },
+        createdAt: Date.now()
+      })
+
+      // Format questions for supervisor prompt
+      const questionLines: string[] = []
+      questions.forEach((q, idx) => {
+        const title = q.title ? ` [${q.title}]` : ''
+        const type = q.type ? ` (${q.type})` : ''
+        questionLines.push(`${idx + 1}. [ID: ${q.id || `q${idx + 1}`}]${title}${type}: ${q.prompt || ''}`)
+        if (Array.isArray(q.options) && q.options.length > 0) {
+          const opts = q.options
+            .map((o: any) => `   - Choice: "${o.value}" (${o.label})${o.description ? ` - ${o.description}` : ''}${o.recommended ? ' [Recommended]' : ''}`)
+            .join('\n')
+          questionLines.push(opts)
+        }
+      })
+
+      const notificationBody =
+        `Sub-agent in chat "${targetTitle}" (${targetChatId}) requested clarifying decision(s) via questionnaire:\n\n` +
+        `Questionnaire Session ID: "${sessionId}"\n\n` +
+        `Questions:\n${questionLines.join('\n\n')}\n\n` +
+        `Next Steps for Supervising Agent:\n` +
+        `- You can answer directly using the tool "answer_subagent_question" with session_id="${sessionId}" and answers={ "<question_id>": "<chosen_value>" }.\n` +
+        `- Or, if user input is desired, ask the user in this conversation first, and call "answer_subagent_question" once you have their decision.\n` +
+        `- If you wish to terminate the sub-agent task instead, call "cancel_subagent_task" with target_chat_id="${targetChatId}".`
+
+      // Case A: Sender is active Discord Voice Gateway session
+      if (isDiscordVoiceChat(senderChatId)) {
+        notifyDiscordVoiceSession(
+          senderChatId,
+          `The background agent in "${targetTitle}" needs clarification:\n${questionLines.join('\n')}\n\nPlease speak to the user, gather their choice, and call "answer_subagent_question" with session_id="${sessionId}".`
+        )
+        return
+      }
+
+      // Case B: Regular Chat or Harness
+      const notificationMessage = `[INTER-CHAT SUB-AGENT QUESTION]\n${notificationBody}`
+      const currentList = this.pendingNotifications.get(senderChatId) || []
+      currentList.push({
+        taskId: sessionId,
+        senderChatId,
+        targetChatId,
+        targetTitle,
+        status: 'completed',
+        content: notificationMessage,
+        timestamp: Date.now()
+      })
+      this.pendingNotifications.set(senderChatId, currentList)
+
+      const isSenderRunning = activeRuns.has(senderChatId)
+      if (!isSenderRunning) {
+        void wakeUpChatSession(senderChatId).catch((err) => {
+          console.error(`[InterChat] Failed to wake up sender chat ${senderChatId} for questionnaire:`, err)
+        })
+      }
+    })
+  }
+
+  public answerSubAgentQuestion(
+    sessionId: string,
+    senderChatId: string | undefined,
+    answers: Record<string, any>
+  ): { ok: boolean; error?: string; message?: string } {
+    const cleanSessionId = (sessionId || '').trim()
+    if (!cleanSessionId) {
+      return { ok: false, error: 'The session_id parameter is required.' }
+    }
+    const record = this.activeQuestionnaires.get(cleanSessionId)
+    if (!record) {
+      return {
+        ok: false,
+        error: `No active sub-agent questionnaire found with session ID "${cleanSessionId}". It may have already been answered or cancelled.`
+      }
+    }
+    if (
+      senderChatId &&
+      record.senderChatId &&
+      record.senderChatId !== 'unknown' &&
+      senderChatId !== record.senderChatId
+    ) {
+      return {
+        ok: false,
+        error: `Permission denied: This questionnaire belongs to sub-agent task dispatched by "${record.senderChatId}".`
+      }
+    }
+
+    const payload = JSON.stringify({
+      session_id: cleanSessionId,
+      responses: answers || {}
+    })
+
+    record.resolve(payload)
+    this.activeQuestionnaires.delete(cleanSessionId)
+
+    return {
+      ok: true,
+      message: `Questionnaire response submitted successfully. Sub-agent in chat "${record.targetTitle}" (${record.targetChatId}) has received the decisions and resumed execution.`
+    }
+  }
+
+  public cancelSubAgentTask(
+    targetChatId: string,
+    senderChatId: string | undefined,
+    reason?: string
+  ): { ok: boolean; error?: string; message?: string } {
+    const cleanTargetId = (targetChatId || '').trim()
+    if (!cleanTargetId) {
+      return { ok: false, error: 'The target_chat_id parameter is required.' }
+    }
+    const task = this.tasks.get(cleanTargetId)
+    if (
+      task &&
+      senderChatId &&
+      task.senderChatId &&
+      task.senderChatId !== 'unknown' &&
+      senderChatId !== task.senderChatId
+    ) {
+      return {
+        ok: false,
+        error: `Permission denied: This task was dispatched by "${task.senderChatId}".`
+      }
+    }
+
+    // 1. Abort model execution
+    cancelChatMessage(cleanTargetId)
+
+    // 2. Kill background terminal processes
+    const terminalProcesses = getTerminalProcessesForChat(cleanTargetId)
+    for (const proc of terminalProcesses) {
+      if (proc.status === 'running' || proc.awaitingInput) {
+        try {
+          killTerminalProcess(proc.runId, cleanTargetId)
+        } catch (err) {
+          console.warn(`[InterChat] Failed to kill process ${proc.runId} on cancel:`, err)
+        }
+      }
+    }
+
+    // 3. Reject any pending questionnaires
+    for (const [sId, q] of this.activeQuestionnaires.entries()) {
+      if (q.targetChatId === cleanTargetId) {
+        q.reject(new Error(reason || 'Cancelled by supervising agent'))
+        this.activeQuestionnaires.delete(sId)
+      }
+    }
+
+    // 4. Update task record
+    const cancellationNotice = reason ? `Cancelled: ${reason}` : 'Cancelled by supervising agent.'
+    if (task) {
+      task.status = 'error'
+      task.resultSummary = cancellationNotice
+      task.notified = true
+      task.completedAt = Date.now()
+    }
+
+    broadcastIpc('chat-reply-error', {
+      error: cancellationNotice,
+      chatId: cleanTargetId,
+      workspace: task?.target === 'harness' ? 'harness' : 'chat'
+    })
+
+    return {
+      ok: true,
+      message: `Task for chat "${cleanTargetId}" was successfully cancelled and all associated processes terminated.`
     }
   }
 }

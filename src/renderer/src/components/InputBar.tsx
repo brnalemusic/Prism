@@ -689,7 +689,7 @@ export const InputBar = React.memo(
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault()
           if (isProcessing) {
-            const mode = e.ctrlKey || e.metaKey || e.altKey ? 'queued' : 'steering'
+            const mode = e.altKey ? 'steering' : 'queued'
             handleSend(undefined, mode)
           } else {
             handleSend()
@@ -723,7 +723,7 @@ export const InputBar = React.memo(
 
       const getPlaceholder = (): string => {
         if (isKeyMissing) return 'API key required'
-        if (isProcessing) return 'Send guidance or queue next message...'
+        if (isProcessing) return 'Queue next message (Enter) or orient in-flight (Alt+Enter)...'
         if (sessionMode === 'harness' && !disciplinePath) return 'Choose a project to start Harness'
         if (sessionMode === 'harness') return 'Describe the work for Harness'
         if (activeWorkflow) return `Ask with ${activeWorkflow.name}`
@@ -1498,7 +1498,7 @@ export const InputBar = React.memo(
                       type="button"
                       onClick={() => handleSend(undefined, 'queued')}
                       className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-text-secondary hover:text-text-primary text-xs font-medium transition-all active:scale-95 cursor-pointer shadow-[var(--glass-specular-top)]"
-                      title="Queue message to send after AI completes (Ctrl+Enter)"
+                      title="Queue message to send after AI completes (Enter)"
                     >
                       <ClockCountdown size={13} weight="bold" className="text-amber-400" />
                       <span>Queue</span>
@@ -1507,10 +1507,10 @@ export const InputBar = React.memo(
                       type="button"
                       onClick={() => handleSend(undefined, 'steering')}
                       className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-accent-primary/[0.15] hover:bg-accent-primary/[0.25] text-accent-primary text-xs font-semibold transition-all active:scale-95 cursor-pointer shadow-[var(--glass-specular-top)]"
-                      title="Send as steering guidance at next step (Enter)"
+                      title="Send as orientation guidance at next step (Alt+Enter)"
                     >
                       <Compass size={13} weight="bold" />
-                      <span>Steer</span>
+                      <span>Orientation</span>
                     </button>
                   </>
                 )}

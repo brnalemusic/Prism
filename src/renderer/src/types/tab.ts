@@ -103,7 +103,8 @@ export interface QueuedTabMessage {
   text: string
   file?: AttachedFile | null
   quote?: string | null
-  deliveryMode?: 'queued'
+  deliveryMode: 'queued' | 'steering'
+  createdAt: number
 }
 
 export interface TabSession {

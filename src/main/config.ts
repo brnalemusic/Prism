@@ -104,7 +104,11 @@ export const DEFAULT_HARNESS_TOOLS: HarnessToolName[] = [
   'exec_command',
   'write_stdin',
   'read_terminal_output',
-  'web_search'
+  'web_search',
+  'read_page',
+  'send_message_to_chat',
+  'answer_subagent_question',
+  'cancel_subagent_task'
 ]
 
 const defaultHarnessProjectsRoot = (): string =>
@@ -112,7 +116,7 @@ const defaultHarnessProjectsRoot = (): string =>
 
 export function createDefaultHarnessSettings(): HarnessSettings {
   return {
-    toolManifestVersion: 2,
+    toolManifestVersion: 3,
     projectsRoot: defaultHarnessProjectsRoot(),
     defaultPermissionMode: 'ask',
     defaultMaxRounds: 200,
@@ -348,7 +352,7 @@ export function synthesizeLegacyProviders(config: Partial<AppConfig>): ProviderC
 function normalizeConfig(config: AppConfig): AppConfig {
   const defaultHarness = createDefaultHarnessSettings()
   const rawHarness = config.harness || defaultHarness
-  const upgradeHarnessToolDefaults = rawHarness.toolManifestVersion !== 2
+  const upgradeHarnessToolDefaults = rawHarness.toolManifestVersion !== 3
   const normalizeInteger = (
     value: unknown,
     fallback: number,
@@ -396,7 +400,12 @@ function normalizeConfig(config: AppConfig): AppConfig {
           ? (Array.from(
               new Set([
                 ...candidate.enabledTools.filter((name) => VALID_HARNESS_TOOLS.has(name)),
-                ...(upgradeHarnessToolDefaults ? ['to_ask'] : [])
+                ...(upgradeHarnessToolDefaults
+                  ? [
+                      ...(rawHarness.toolManifestVersion < 2 ? (['to_ask'] as const) : []),
+                      ...(rawHarness.toolManifestVersion < 3 ? (['read_page'] as const) : [])
+                    ]
+                  : [])
               ])
             ) as HarnessToolName[])
           : undefined,
@@ -454,7 +463,7 @@ function normalizeConfig(config: AppConfig): AppConfig {
   const normalizedHarness: HarnessSettings = {
     ...defaultHarness,
     ...rawHarness,
-    toolManifestVersion: 2,
+    toolManifestVersion: 3,
     projectsRoot:
       typeof rawHarness.projectsRoot === 'string' && rawHarness.projectsRoot.trim()
         ? path.resolve(rawHarness.projectsRoot.trim())
@@ -467,7 +476,12 @@ function normalizeConfig(config: AppConfig): AppConfig {
       ? (Array.from(
           new Set([
             ...rawHarness.enabledTools.filter((name) => VALID_HARNESS_TOOLS.has(name)),
-            ...(upgradeHarnessToolDefaults ? ['to_ask'] : [])
+            ...(upgradeHarnessToolDefaults
+              ? [
+                  ...(rawHarness.toolManifestVersion < 2 ? (['to_ask'] as const) : []),
+                  ...(rawHarness.toolManifestVersion < 3 ? (['read_page'] as const) : [])
+                ]
+              : [])
           ])
         ) as HarnessToolName[])
       : [...DEFAULT_HARNESS_TOOLS],

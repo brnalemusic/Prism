@@ -25,6 +25,8 @@ import {
 } from '../src/shared/questionnaire.ts'
 import {
   buildHarnessImplementationHandoff,
+  buildHarnessPlanApprovalMessage,
+  HARNESS_PLAN_APPROVED_MARKER,
   parseHarnessPlanCommand
 } from '../src/shared/harnessPlanCommand.ts'
 import { harnessWildcardRegex } from '../src/main/harnessGlob.ts'
@@ -284,6 +286,44 @@ test('Build handoff combines the approved plan and prepared context', () => {
   assert.match(handoff, /Begin implementing this plan now/)
 })
 
+test('Same-chat plan approval message includes the approval marker and instructions', () => {
+  const approvalMsg = buildHarnessPlanApprovalMessage()
+  assert.match(approvalMsg, new RegExp(`^${HARNESS_PLAN_APPROVED_MARKER}`))
+  assert.match(approvalMsg, /Continue in Build mode/)
+})
+
+test('Plan phase exposes inter-chat coordination tools and filters mutation tools', () => {
+  const enabled = [
+    'read',
+    'to_ask',
+    'write',
+    'apply_patch',
+    'send_message_to_chat',
+    'answer_subagent_question',
+    'cancel_subagent_task'
+  ] as const
+  assert.deepEqual(getHarnessToolNamesForPhase([...enabled], 'plan'), [
+    'read',
+    'to_ask',
+    'send_message_to_chat',
+    'answer_subagent_question',
+    'cancel_subagent_task',
+    'plan'
+  ])
+  assert.deepEqual(getHarnessToolNamesForPhase([...enabled, 'plan'], 'build'), [...enabled])
+})
+
+test('read_page tool is available in both plan and build phases for web page inspection', () => {
+  const enabled = ['read', 'write', 'read_page'] as const
+  assert.deepEqual(getHarnessToolNamesForPhase([...enabled], 'plan'), [
+    'read',
+    'read_page',
+    'to_ask',
+    'plan'
+  ])
+  assert.deepEqual(getHarnessToolNamesForPhase([...enabled], 'build'), ['read', 'write', 'read_page'])
+})
+
 test('Questionnaires normalize multiple selection, limits, and the native write-in option', () => {
   const questions = normalizeQuestionnaire([
     {
@@ -443,6 +483,24 @@ test('Harness pins its session model and never falls through to Chat selection',
       'provider:chat-model'
     ),
     'provider:explicit-model'
+  )
+  assert.equal(
+    resolveRequestModelKey(
+      'harness',
+      'provider:inherited-subagent-model',
+      undefined,
+      'provider:chat-model'
+    ),
+    'provider:inherited-subagent-model'
+  )
+  assert.equal(
+    resolveRequestModelKey(
+      'harness',
+      undefined,
+      'provider:pinned-subagent-model',
+      'provider:chat-model'
+    ),
+    'provider:pinned-subagent-model'
   )
   assert.equal(resolveRequestModelKey('harness', undefined, undefined, 'provider:chat-model'), '')
   assert.equal(resolveRunWorkspace('chat', 'harness'), 'harness')

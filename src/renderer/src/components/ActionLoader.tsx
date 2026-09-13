@@ -26,6 +26,7 @@ import { PptxArtifactCard } from './PptxArtifactCard'
 const TOOL_LABELS: Record<string, string> = {
   to_ask: 'Preparing some questions',
   web_search: 'Searching web',
+  read_page: 'Reading web page',
   web_fetch: 'Deep researching the web',
   read_skill: 'Reading skill',
   execute_terminal_command: 'Running terminal command',
@@ -520,6 +521,11 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
         ? ''
         : query || 'Collecting web results.'
     tone = isYoutube ? 'youtube' : 'search'
+  } else if (toolCall.name === 'read_page') {
+    const pageUrl = getStringArg(toolCall.args, 'url') || getStringArg(toolCall.args, 'link')
+    displayTitle = 'Reading Page'
+    displayDetail = pageUrl || 'Fetching web content.'
+    tone = 'search'
   } else if (toolCall.name === 'web_fetch') {
     displayTitle = 'Deep Research'
     displayDetail = title || query || 'Synthesizing 20 source pages.'
@@ -673,6 +679,7 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
       const isSearch =
         toolCall.name === 'search' ||
         toolCall.name === 'web_search' ||
+        toolCall.name === 'read_page' ||
         toolCall.name === 'web_fetch' ||
         toolCall.name === 'search_chat_history'
       const isFile =
@@ -701,6 +708,7 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
     }
     if (
       toolCall.name === 'web_search' ||
+      toolCall.name === 'read_page' ||
       toolCall.name === 'web_fetch' ||
       toolCall.name === 'search_chat_history'
     )

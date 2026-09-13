@@ -129,6 +129,26 @@ const HARNESS_TOOLS: Array<{
     name: 'web_search',
     label: 'Web search',
     description: 'Search and read top DuckDuckGo results.'
+  },
+  {
+    name: 'read_page',
+    label: 'Read page',
+    description: 'Fetch and read content from a specific web URL.'
+  },
+  {
+    name: 'send_message_to_chat',
+    label: 'Send message to chat',
+    description: 'Send messages or updates to other chats or supervising agents.'
+  },
+  {
+    name: 'answer_subagent_question',
+    label: 'Answer sub-agent',
+    description: 'Submit answers to sub-agent questionnaires.'
+  },
+  {
+    name: 'cancel_subagent_task',
+    label: 'Cancel sub-agent',
+    description: 'Cancel a delegated sub-agent task.'
   }
 ]
 
@@ -219,6 +239,7 @@ const STATIC_TOOLS = [
     desc: 'Execute commands in the selected terminal'
   },
   { name: 'web_search', label: 'Web Search', desc: 'Search DuckDuckGo and read source pages' },
+  { name: 'read_page', label: 'Read Web Page', desc: 'Read text content directly from a web page URL' },
   {
     name: 'web_fetch',
     label: 'Deep Web Search',

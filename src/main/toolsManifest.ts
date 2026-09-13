@@ -172,6 +172,30 @@ const baseToolsManifest: ToolDefinition[] = [
     ['chat_id', 'mode']
   ),
   tool(
+    'answer_subagent_question',
+    'Submit decisions and answers to a clarifying questionnaire raised by a delegated sub-agent. Unblocks the sub-agent so it can continue running.',
+    {
+      session_id: stringSchema(
+        'The questionnaire session ID provided in the question notification.'
+      ),
+      answers: {
+        type: 'object',
+        description:
+          'Key-value map of question IDs to chosen answers (e.g. { "q1": "choice_value", "q2": ["choice1", "choice2"] }).'
+      }
+    },
+    ['session_id', 'answers']
+  ),
+  tool(
+    'cancel_subagent_task',
+    'Abort and cancel an active sub-agent task that was delegated by this agent. Stops model execution, terminates any associated background terminal processes, and cleans up resources.',
+    {
+      target_chat_id: stringSchema('The chat ID of the sub-agent to cancel.'),
+      reason: stringSchema('Optional reason or explanation for the cancellation.')
+    },
+    ['target_chat_id']
+  ),
+  tool(
     'discord_leave_voice',
     'Leave the Discord voice channel. Then say a brief goodbye, no more tools.',
     {},
@@ -320,6 +344,19 @@ const baseToolsManifest: ToolDefinition[] = [
       }
     },
     ['title', 'queries']
+  ),
+  tool(
+    'read_page',
+    'Fetch and read the text content of a web page by URL. Fast HTTP DOM extraction without launching a browser.',
+    {
+      url: stringSchema('HTTP(S) URL of the web page to read.'),
+      maxCharacters: integerSchema('Maximum characters to return (default 50,000, max 100,000).', {
+        default: 50_000,
+        minimum: 1_000,
+        maximum: 100_000
+      })
+    },
+    ['url']
   ),
   tool(
     'open_browser_link',

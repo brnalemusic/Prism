@@ -109,6 +109,8 @@ interface ChatPaneProps {
   renderedMessages: React.ReactNode
   onSwapSplitTabs?: (sourceTabId: string, targetTabId: string) => void
   swapPulse?: boolean
+  onReorderQueuedMessages?: (tabId: string, fromIndex: number, toIndex: number) => void
+  onRemoveQueuedMessage?: (tabId: string, id: string) => void
 }
 
 export const ChatPane: React.FC<ChatPaneProps> = React.memo(
@@ -159,7 +161,9 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     setActiveWorkflow,
     renderedMessages,
     onSwapSplitTabs,
-    swapPulse = false
+    swapPulse = false,
+    onReorderQueuedMessages,
+    onRemoveQueuedMessage
   }) => {
     const inputBarRef = useRef<InputBarHandle>(null)
     const [isDraggingSplit, setIsDraggingSplit] = useState(false)
@@ -967,6 +971,17 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       todo={todo}
                       artifacts={tab.artifacts}
                       terminalProcesses={terminalProcesses}
+                      queuedMessages={tab.queuedMessages}
+                      onReorderQueuedMessages={
+                        onReorderQueuedMessages
+                          ? (from, to) => onReorderQueuedMessages(tab.id, from, to)
+                          : undefined
+                      }
+                      onRemoveQueuedMessage={
+                        onRemoveQueuedMessage
+                          ? (id) => onRemoveQueuedMessage(tab.id, id)
+                          : undefined
+                      }
                     />
                     {/* Questionnaire wizard card docked above InputBar (landing state) */}
                     <AnimatePresence initial={false} mode="popLayout">
@@ -1117,6 +1132,17 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                   todo={todo}
                   artifacts={tab.artifacts}
                   terminalProcesses={terminalProcesses}
+                  queuedMessages={tab.queuedMessages}
+                  onReorderQueuedMessages={
+                    onReorderQueuedMessages
+                      ? (from, to) => onReorderQueuedMessages(tab.id, from, to)
+                      : undefined
+                  }
+                  onRemoveQueuedMessage={
+                    onRemoveQueuedMessage
+                      ? (id) => onRemoveQueuedMessage(tab.id, id)
+                      : undefined
+                  }
                 />
                 {/* Questionnaire wizard card docked above InputBar */}
                 <AnimatePresence initial={false} mode="popLayout">

@@ -152,6 +152,10 @@ export type HarnessToolName =
   | 'write_stdin'
   | 'read_terminal_output'
   | 'web_search'
+  | 'read_page'
+  | 'send_message_to_chat'
+  | 'answer_subagent_question'
+  | 'cancel_subagent_task'
 
 export type HarnessStartupProjectMode = 'last_opened' | 'default_project' | 'prompt'
 
@@ -760,6 +764,7 @@ export interface ChatOpenedInBackgroundEvent {
   sourceChatId?: string
   sourceChatTitle?: string
   initialMessage?: string
+  modelKey?: string
 }
 
 export interface HarnessPhaseChangedEvent {

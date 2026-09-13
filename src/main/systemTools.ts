@@ -34,7 +34,7 @@ import { compilePersona } from '../shared/persona'
 import { executeMemoryTool, getActiveMemoryService } from './memoryStore'
 import { MEMORY_PROFILE_HEADER, buildMemoryContextBlock } from '../shared/memoryCore'
 import { ARCADIA_MODELS } from '../shared/arcadiaCatalog'
-import { searchAndReadWeb, fetchAndSummarizeWeb } from './webSearchService'
+import { searchAndReadWeb, fetchAndSummarizeWeb, readWebPage } from './webSearchService'
 import { requestDiscordVoiceLeave } from './discordGateway'
 import {
   searchChatHistory,
@@ -2050,7 +2050,7 @@ Context: ${date} | MM/DD/YYYY | ${platform} | ${username} | Home: ${homeDir} | C
 - Date/time is context only: use it to understand timing and answer date, time, or weekday questions when asked. Do not include it in every reply.
 - Available Instant Tools:
   * Screen Inspection: Call 'computer_use_see_screen' to inspect the user's screen in real time. Inspect the screenshot before answering questions about what is on screen.
-  * Web Search: Call 'web_search' for quick factual queries and current news.
+  * Web Search: Call 'web_search' for quick factual queries and current news. Call 'read_page' to read the content of a specific web URL.
   * Applications & Links: Call 'open_application' or 'search_installed_applications' to find/launch local apps. Call 'open_browser_link' to open URLs in the user's default browser.
   * File Inspection: Call 'computer_use_read_file' to quickly inspect a single file if explicitly asked.
   * Leave Voice Call: Call 'discord_leave_voice' when the user asks to leave or wrap up the call. Then say a brief, personalized goodbye and stop.
@@ -2113,12 +2113,12 @@ Context: ${date} | MM/DD/YYYY | ${platform} | ${username} | Home: ${homeDir} | C
 ${browserRule}
 - Format: Markdown for text/code; inline HTML/CSS for cards; \`create_mini_app\` for widgets.
 - Exec: absolute paths; parallel calls allowed; terminal = Context shell.
-- Search: \`web_search\` for quick queries; \`web_fetch\` for deep research (title in user lang, exactly 5 queries).
+- Search: \`web_search\` for quick queries; \`web_fetch\` for deep research (title in user lang, exactly 5 queries); \`read_page\` to fetch and read content from a specific web URL.
 - Titles: every call needs \`progressTitle\` (gerund) + \`completedTitle\` (past), user lang, <=10 words, specific.
 - Docs: internal_docs_* for Prism system questions.
 - YouTube: \`web_search\` \`site:youtube.com ...\`; card + chip.
 - to_ask: ask first on ambiguity; set recommended on best option.
-- Delegation: Use \`send_message_to_chat\` to delegate tasks to another chat or Harness. Mandatory \`path\` for Harness (project folder); optional for chat (opens Discipline mode if provided, Execution mode if omitted). Remain in standby after delegating (you are automatically notified with the complete history upon completion). Use \`read_chat\` only when the user explicitly requests a progress check. If delegating to Harness in plan mode, you will receive the generated Implementation Plan upon completion; use \`approve_harness_plan\` to approve it (choose \`mode="same_chat"\` to continue in the same chat in Build mode, or \`mode="new_chat"\` to execute in a new chat with clean context).
+- Delegation: Use \`send_message_to_chat\` to delegate tasks to another chat or Harness. Mandatory \`path\` for Harness (project folder); optional for chat (opens Discipline mode if provided, Execution mode if omitted). Remain in standby after delegating (you are automatically notified with the complete history upon completion). Use \`read_chat\` only when the user explicitly requests a progress check. If delegating to Harness in plan mode, you will receive the generated Implementation Plan upon completion; use \`approve_harness_plan\` to approve it (choose \`mode="same_chat"\` to continue in the same chat in Build mode, or \`mode="new_chat"\` to execute in a new chat with clean context). If a delegated sub-agent requests clarifying decisions via questionnaire, use \`answer_subagent_question\` to submit responses and unblock it (or consult the user first). To abort a delegated task, use \`cancel_subagent_task\`.
 ${inlineSuggestionsRule}${skillsSection}${disabledSkillsSection}${personaSection}${coreMemorySection}${memoryGuidanceSection}`
 }
 export interface InstalledApplicationResult {
@@ -2505,6 +2505,28 @@ export async function executeSystemTool(
       }
       return JSON.stringify(result, null, 2)
     }
+    case 'answer_subagent_question': {
+      const result = interChatManager.answerSubAgentQuestion(
+        args.session_id,
+        chatId,
+        args.answers
+      )
+      if (!result.ok) {
+        return `Error answering sub-agent question: ${result.error || 'Failed to submit questionnaire responses.'}`
+      }
+      return JSON.stringify(result, null, 2)
+    }
+    case 'cancel_subagent_task': {
+      const result = interChatManager.cancelSubAgentTask(
+        args.target_chat_id,
+        chatId,
+        args.reason
+      )
+      if (!result.ok) {
+        return `Error cancelling sub-agent task: ${result.error || 'Failed to cancel task.'}`
+      }
+      return JSON.stringify(result, null, 2)
+    }
 
     // Terminal
     case 'execute_terminal_command':
@@ -2698,6 +2720,21 @@ export async function executeSystemTool(
           signal
         }
       )
+      return JSON.stringify(result)
+    }
+    case 'read_page': {
+      const url =
+        typeof args.url === 'string' && args.url.trim()
+          ? args.url.trim()
+          : typeof args.link === 'string' && args.link.trim()
+            ? args.link.trim()
+            : ''
+      if (!url) throw new Error('A valid HTTP(S) URL is required.')
+      const maxCharacters =
+        typeof args.maxCharacters === 'number' && args.maxCharacters > 0
+          ? args.maxCharacters
+          : 50_000
+      const result = await readWebPage(url, { maxCharacters }, signal)
       return JSON.stringify(result)
     }
 
@@ -3176,7 +3213,7 @@ export async function executeSystemTool(
 
     // Questionnaire
     case 'to_ask':
-      return requestQuestionnaire(args, signal)
+      return requestQuestionnaire(args, signal, chatId)
 
     // Workflow management
     case 'list_workflows': {
@@ -3858,15 +3895,28 @@ const activeQuestionnaireResolvers = new Map<string, (result: string) => void>()
 
 export function requestQuestionnaire(
   args: Record<string, unknown>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  chatId?: string
 ): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const sessionId =
-      typeof args.session_id === 'string' && args.session_id.trim()
-        ? args.session_id
-        : `session-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
-    const questions = Array.isArray(args.questions) ? args.questions : []
+  const sessionId =
+    typeof args.session_id === 'string' && args.session_id.trim()
+      ? args.session_id
+      : `session-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
+  const questions = Array.isArray(args.questions) ? args.questions : []
 
+  // Check if this chat is a delegated sub-agent with a supervising sender
+  const senderChatId = chatId ? interChatManager.getSenderChatIdForTarget(chatId) : undefined
+  if (senderChatId && senderChatId !== 'unknown') {
+    return interChatManager.routeSubAgentQuestion(
+      sessionId,
+      chatId!,
+      senderChatId,
+      questions,
+      signal
+    )
+  }
+
+  return new Promise<string>((resolve, reject) => {
     const onAbort = () => {
       activeQuestionnaireResolvers.delete(sessionId)
       reject(new Error('AbortError'))

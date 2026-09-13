@@ -65,3 +65,19 @@ Prism's AI Browser supports real-time progressive website synthesis and multi-tu
 - **Multi-Runtime Support:** The live sandbox supports both semantic HTML5 + interactive JavaScript and React 18 + Babel Standalone with an integrated Lucide React proxy for dynamic SVG icons.
 - **Interactive Prompt Protocol ("Pulo do Gato"):** The generative engine embeds `data-prompt="..."` attributes in interactive elements (buttons, links, footer terms). Clicking any element triggers contextual subpage synthesis, preserving the design language, color scheme, navbar, and footer from prior turns.
 - **Code Inspection & Export:** Users can toggle between **Live Preview** and **View Code** to inspect or copy generated source code, or click the system browser icon to export and open the site in their default browser.
+
+---
+
+## 4. Web Search and Page Reading Tools
+
+Prism provides dedicated tools for retrieving and parsing web content without requiring interactive browser sessions:
+
+| Tool | Parameters | Action |
+| --- | --- | --- |
+| `read_page` | `url`, `maxCharacters` | Fetches and extracts clean Markdown/text from a specific web URL using fast HTTP DOM extraction |
+| `web_search` | `query`, `resultCount` | Quick DuckDuckGo search that automatically fetches and extracts content from top result pages |
+| `web_fetch` | `title`, `queries` | Deep research across multiple search angles synthesized by a dedicated subagent |
+| `open_browser_link` | `url` | Launches the target HTTP(S) link in the user's default system browser |
+
+`read_page` is available in both **Chat mode** and **Harness mode** (both Plan and Build phases). It validates URLs against security policies (blocking loopback and private network addresses), follows redirects safely, extracts page titles and metadata, strips script and style boilerplate, and returns structured page content with clickable source cards in the UI.
+

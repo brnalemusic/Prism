@@ -22,6 +22,16 @@ export interface WebFetchResult {
   isSubagentFetch: true
 }
 
+export interface ReadPageResult {
+  url: string
+  title: string
+  content: string
+  domain: string
+  sources: HarnessSource[]
+  isTruncated?: boolean
+  totalCharacters?: number
+}
+
 const DEEP_RESEARCH_QUERY_COUNT = 5
 const DEEP_RESEARCH_SOURCES_PER_QUERY = 10
 const DEEP_RESEARCH_CHARACTERS_PER_SOURCE = 15_000
@@ -411,3 +421,180 @@ export async function fetchAndSummarizeWeb(
     isSubagentFetch: true
   }
 }
+
+export function htmlToMarkdown(html: string): {
+  title: string
+  description?: string
+  content: string
+} {
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+  const ogTitleMatch =
+    html.match(/<meta\s+[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i) ||
+    html.match(/<meta\s+[^>]*content=["']([^"']+)["'][^>]*property=["']og:title["']/i)
+  const rawTitle = titleMatch?.[1] || ogTitleMatch?.[1] || 'Untitled page'
+  const title = decodeEntities(rawTitle).replace(/[<>]/g, '').trim()
+
+  const descMatch =
+    html.match(/<meta\s+[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i) ||
+    html.match(/<meta\s+[^>]*content=["']([^"']+)["'][^>]*name=["']description["']/i) ||
+    html.match(/<meta\s+[^>]*property=["']og:description["'][^>]*content=["']([^"']+)["']/i)
+  const description = descMatch?.[1] ? decodeEntities(descMatch[1]).trim() : undefined
+
+  let processed = html
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<(script|style|svg|noscript|iframe|canvas|template)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+
+  processed = processed.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_match, level, text) => {
+    const hashes = '#'.repeat(Number(level))
+    return `\n\n${hashes} ${text.trim()}\n\n`
+  })
+
+  processed = processed.replace(
+    /<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/gi,
+    (_match, code) => `\n\n\`\`\`\n${code}\n\`\`\`\n\n`
+  )
+  processed = processed.replace(
+    /<pre[^>]*>([\s\S]*?)<\/pre>/gi,
+    (_match, code) => `\n\n\`\`\`\n${code}\n\`\`\`\n\n`
+  )
+  processed = processed.replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, (_match, code) => ` \`${code.trim()}\` `)
+  processed = processed.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_match, item) => `\n- ${item.trim()}`)
+  processed = processed.replace(
+    /<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi,
+    (_match, bq) => `\n\n> ${bq.trim()}\n\n`
+  )
+
+  processed = processed.replace(
+    /<a\b[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi,
+    (_match, href, text) => {
+      const cleanText = text.replace(/<[^>]+>/g, '').trim()
+      const cleanHref = href.trim()
+      if (cleanText && /^https?:\/\//i.test(cleanHref) && cleanText !== cleanHref) {
+        return ` [${cleanText}](${cleanHref}) `
+      }
+      return cleanText ? ` ${cleanText} ` : ''
+    }
+  )
+
+  processed = processed
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|article|section|tr|table|ul|ol|header|footer|aside)>/gi, '\n\n')
+    .replace(/<[^>]+>/g, ' ')
+
+  const content = decodeEntities(processed)
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+  return { title, description, content }
+}
+
+export async function readWebPage(
+  urlValue: string,
+  options: { maxCharacters?: number } = {},
+  signal?: AbortSignal,
+  redirects = 0
+): Promise<ReadPageResult> {
+  const url = safeWebUrl(urlValue)
+  const maxCharacters = options.maxCharacters ?? 50_000
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
+  const abort = (): void => controller.abort()
+  signal?.addEventListener('abort', abort, { once: true })
+
+  try {
+    const response = await fetch(url, {
+      redirect: 'manual',
+      signal: controller.signal,
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,text/markdown;q=0.8,application/json;q=0.7,*/*;q=0.5'
+      }
+    })
+
+    if (response.status >= 300 && response.status < 400) {
+      if (redirects >= 5) throw new Error('Too many redirects.')
+      const location = response.headers.get('location')
+      if (!location) throw new Error('Redirect did not include a destination.')
+      return readWebPage(new URL(location, url).toString(), options, signal, redirects + 1)
+    }
+
+    if (!response.ok) {
+      throw new Error(`HTTP error ${response.status} (${response.statusText || 'Request failed'})`)
+    }
+
+    const contentType = (response.headers.get('content-type') || '').toLowerCase()
+    const domain = url.hostname.replace(/^www\./, '')
+    const faviconUrl = `${url.origin}/favicon.ico`
+
+    if (
+      contentType.startsWith('image/') ||
+      contentType.startsWith('video/') ||
+      contentType.startsWith('audio/') ||
+      contentType.includes('application/pdf') ||
+      contentType.includes('application/zip') ||
+      contentType.includes('application/octet-stream')
+    ) {
+      throw new Error(
+        `Cannot read binary content (${contentType.split(';')[0]}). 'read_page' is intended for web pages, articles, and text documents.`
+      )
+    }
+
+    const rawBody = await response.text()
+    let title = domain
+    let content = ''
+
+    if (contentType.includes('application/json')) {
+      try {
+        const parsed = JSON.parse(rawBody)
+        title = `JSON from ${domain}${url.pathname !== '/' ? url.pathname : ''}`
+        content = JSON.stringify(parsed, null, 2)
+      } catch {
+        content = rawBody
+      }
+    } else if (
+      contentType.includes('text/plain') ||
+      contentType.includes('text/markdown')
+    ) {
+      title = `${domain}${url.pathname !== '/' ? url.pathname : ''}`
+      content = rawBody.trim()
+    } else {
+      const extracted = htmlToMarkdown(rawBody)
+      title = extracted.title || domain
+      content = extracted.content
+      if (extracted.description && !content.startsWith(extracted.description)) {
+        content = `Description: ${extracted.description}\n\n${content}`
+      }
+    }
+
+    const totalCharacters = content.length
+    const isTruncated = totalCharacters > maxCharacters
+    if (isTruncated) {
+      content = `${content.slice(0, maxCharacters)}\n\n[Content truncated: showing ${maxCharacters} of ${totalCharacters} characters]`
+    }
+
+    const source: HarnessSource = {
+      title,
+      url: url.toString(),
+      domain,
+      faviconUrl
+    }
+
+    return {
+      url: url.toString(),
+      title,
+      content,
+      domain,
+      sources: [source],
+      isTruncated,
+      totalCharacters
+    }
+  } finally {
+    clearTimeout(timeout)
+    signal?.removeEventListener('abort', abort)
+  }
+}
+

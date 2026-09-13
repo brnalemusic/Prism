@@ -218,7 +218,12 @@ const api = {
     callback: (data: {
       chatId: string
       workspace: WorkspaceKind
-      userMessage?: { role: 'user'; content: string }
+      userMessage?: {
+        role: 'user'
+        content: string
+        sourceChatId?: string
+        sourceChatTitle?: string
+      }
     }) => void
   ): (() => void) => {
     const listener = (
@@ -226,7 +231,12 @@ const api = {
       data: {
         chatId: string
         workspace: WorkspaceKind
-        userMessage?: { role: 'user'; content: string }
+        userMessage?: {
+          role: 'user'
+          content: string
+          sourceChatId?: string
+          sourceChatTitle?: string
+        }
       }
     ): void => callback(data)
     ipcRenderer.on('chat-reply-start', listener)
@@ -289,6 +299,28 @@ const api = {
     ): void => callback(data)
     ipcRenderer.on('chat-reply-error', listener)
     return () => ipcRenderer.removeListener('chat-reply-error', listener)
+  },
+  onChatSteeringApplied: (
+    callback: (data: {
+      chatId: string
+      workspace: WorkspaceKind
+      steeringId: string
+      text: string
+      timestamp: number
+    }) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: {
+        chatId: string
+        workspace: WorkspaceKind
+        steeringId: string
+        text: string
+        timestamp: number
+      }
+    ): void => callback(data)
+    ipcRenderer.on('chat-steering-applied', listener)
+    return () => ipcRenderer.removeListener('chat-steering-applied', listener)
   },
   onToolStart: (
     callback: (data: {
@@ -691,6 +723,7 @@ const api = {
     ipcRenderer.removeAllListeners('chat-reply-chunk')
     ipcRenderer.removeAllListeners('chat-reply-end')
     ipcRenderer.removeAllListeners('chat-reply-error')
+    ipcRenderer.removeAllListeners('chat-steering-applied')
     ipcRenderer.removeAllListeners('chat-tool-start')
     ipcRenderer.removeAllListeners('chat-tool-end')
     ipcRenderer.removeAllListeners('chat-tool-update')

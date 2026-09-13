@@ -33,3 +33,7 @@ export function buildHarnessPlanApprovalMessage(): string {
     'For a linked Git recovery, explicitly stage only the resolved conflicts and leave Git continuation to the user through Retry.'
   )
 }
+
+export const INTER_CHAT_TASK_COMPLETED_MARKER = '# Delegated task completed'
+export const INTER_CHAT_TASK_FAILED_MARKER = '# Delegated task failed'
+

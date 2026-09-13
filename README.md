@@ -246,6 +246,7 @@ Prism equips connected AI models with a comprehensive manifest of native system 
 │ search_installed_applications │ Discovers installed software shortcuts and executables                 │
 │ open_application              │ Launches an application or opens a file in the default OS handler      │
 │ web_search                    │ Searches DuckDuckGo and reads full content of top 5 source pages       │
+│ read_page                     │ Fetches and extracts clean Markdown/text directly from a web page URL   │
 │ web_fetch                     │ Synthesizes 20 web sources (4 queries x 5) via subagent (1000–4000 chars) │
 │ open_browser_link             │ Opens an HTTP/HTTPS link in the default system browser                 │
 │ open_browser                  │ Launches or connects to the persistent Playwright browser session      │

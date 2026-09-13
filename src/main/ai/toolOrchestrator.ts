@@ -85,7 +85,9 @@ export interface ToolOrchestratorOptions {
   tools: OpenAiToolDefinition[]
   getToolsForRound?: () => OpenAiToolDefinition[]
   getPendingNotifications?: () => BackgroundProcessNotification[]
+  getPendingInterChatMessages?: () => OpenAiMessage[]
   getPendingSteeringMessages?: () => SteeringMessage[]
+  onSteeringApplied?: (steering: SteeringMessage) => void
   signal: AbortSignal
   reasoningLevel?: string
   maxRounds?: number
@@ -193,17 +195,28 @@ export async function runToolOrchestration(
   let accumulatedReasoning = ''
 
   const appendPendingNotifications = (): number => {
-    if (!options.getPendingNotifications) return 0
-    const pending = options.getPendingNotifications()
-    for (const notification of pending) {
-      const notificationMessage = createTerminalNotificationMessage(
-        notification,
-        options.terminalInputToolName
-      )
-      options.messages.push(notificationMessage)
-      options.onHistoryMessage?.(notificationMessage)
+    let count = 0
+    if (options.getPendingNotifications) {
+      const pending = options.getPendingNotifications()
+      for (const notification of pending) {
+        const notificationMessage = createTerminalNotificationMessage(
+          notification,
+          options.terminalInputToolName
+        )
+        options.messages.push(notificationMessage)
+        options.onHistoryMessage?.(notificationMessage)
+      }
+      count += pending.length
     }
-    return pending.length
+    if (options.getPendingInterChatMessages) {
+      const interChatMessages = options.getPendingInterChatMessages()
+      for (const msg of interChatMessages) {
+        options.messages.push(msg)
+        options.onHistoryMessage?.(msg)
+      }
+      count += interChatMessages.length
+    }
+    return count
   }
 
   const appendPendingSteeringMessages = (): number => {
@@ -219,6 +232,7 @@ export async function runToolOrchestration(
       }
       options.messages.push(steeringMessage)
       options.onHistoryMessage?.(steeringMessage)
+      options.onSteeringApplied?.(steering)
     }
     return pending.length
   }

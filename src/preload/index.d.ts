@@ -127,7 +127,12 @@ export interface PrismAPI {
     callback: (data: {
       chatId: string
       workspace: WorkspaceKind
-      userMessage?: { role: 'user'; content: string }
+      userMessage?: {
+        role: 'user'
+        content: string
+        sourceChatId?: string
+        sourceChatTitle?: string
+      }
     }) => void
   ) => () => void
 
@@ -155,6 +160,15 @@ export interface PrismAPI {
   ) => () => void
   onChatError: (
     callback: (data: { error: string; chatId: string; workspace: WorkspaceKind }) => void
+  ) => () => void
+  onChatSteeringApplied: (
+    callback: (data: {
+      chatId: string
+      workspace: WorkspaceKind
+      steeringId: string
+      text: string
+      timestamp: number
+    }) => void
   ) => () => void
   onToolStart: (
     callback: (data: {

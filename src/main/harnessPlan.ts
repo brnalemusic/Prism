@@ -8,7 +8,11 @@ const PLAN_TOOLS = new Set<HarnessToolName>([
   'to_ask',
   'exec_command',
   'read_terminal_output',
-  'web_search'
+  'web_search',
+  'read_page',
+  'send_message_to_chat',
+  'answer_subagent_question',
+  'cancel_subagent_task'
 ])
 
 export function getHarnessToolNamesForPhase(

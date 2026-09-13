@@ -32,6 +32,7 @@ import {
 import {
   providerHasCompletionCredential,
   resolveProviderAndModel,
+  getActiveModels,
   PRISM_PROVIDER_ID
 } from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
@@ -59,17 +60,20 @@ import { checkHarnessProjectFolder, getEffectiveHarnessSettings } from '../harne
 import { getHarnessSystemPrompt } from '../harnessPrompt'
 import { interChatManager } from './interChatManager'
 
-function getAllPendingNotifications(chatId: string) {
-  const terminalNotifs = getPendingProcessNotifications(chatId)
-  const interChatNotifs = interChatManager.getPendingInterChatNotifications(chatId).map((n) => ({
-    kind: 'completed' as const,
-    runId: n.taskId,
-    command: `[Delegated Chat: ${n.targetTitle || n.targetChatId}]`,
-    status: n.status,
-    exitCode: null,
-    output: n.content
+function getPendingInterChatMessages(chatId: string): OpenAiMessage[] {
+  const notifs = interChatManager.getPendingInterChatNotifications(chatId)
+  return notifs.map((n) => ({
+    role: 'user',
+    content: n.content,
+    sourceChatId: n.targetChatId,
+    sourceChatTitle: n.targetTitle,
+    isSystemNotification: false,
+    hidden: false
   }))
-  return [...terminalNotifs, ...interChatNotifs]
+}
+
+function getAllPendingNotifications(chatId: string) {
+  return getPendingProcessNotifications(chatId)
 }
 import {
   executeHarnessTool,
@@ -179,7 +183,8 @@ function createHarnessToolExecutor(
     if (phase === 'plan') {
       const allowed = new Set([
         'read', 'list', 'find', 'grep', 'to_ask', 'plan',
-        'exec_command', 'read_terminal_output', 'web_search'
+        'exec_command', 'read_terminal_output', 'web_search', 'read_page',
+        'send_message_to_chat', 'answer_subagent_question', 'cancel_subagent_task'
       ])
       let planError: string | null = allowed.has(name)
         ? null
@@ -318,6 +323,12 @@ export function cancelChatMessage(chatId?: string): void {
     if (run) {
       run.abortController.abort()
       activeRuns.delete(chatId)
+    } else {
+      broadcastIpc('chat-reply-error', {
+        error: 'Message cancelled by user',
+        chatId,
+        workspace: 'chat'
+      })
     }
   } else {
     for (const [id, run] of activeRuns.entries()) {
@@ -360,6 +371,8 @@ export interface ChatMessagePayload {
   explorerContext?: HarnessExplorerSelection[]
   harnessPhase?: HarnessPhase
   deliveryMode?: MessageDeliveryMode
+  sourceChatId?: string
+  sourceChatTitle?: string
 }
 
 export function handleChatSteerMessage(
@@ -483,6 +496,21 @@ export function cancelHarnessPlanHandoff(chatId: string): void {
   activePlanHandoffs.delete(chatId)
 }
 
+function emitChatError(
+  event: IpcMainEvent | null,
+  chatId: string,
+  workspace: 'chat' | 'harness',
+  error: string
+): void {
+  interChatManager.recordApiError(chatId, error)
+  if (event?.sender) {
+    safeSend(event.sender, 'chat-reply-error', { error, chatId, workspace })
+  } else {
+    broadcastIpc('chat-reply-error', { error, chatId, workspace })
+  }
+  interChatManager.checkAndNotifyCompletion(chatId)
+}
+
 export async function handleChatMessage(
   event: IpcMainEvent | null,
   data: string | ChatMessagePayload,
@@ -503,13 +531,7 @@ export async function handleChatMessage(
   const disciplinePath = typeof data === 'object' ? data.disciplinePath : undefined
 
   if (workspace === 'chat' && sessionMode === 'harness') {
-    const error = 'Harness requests must be sent from the Harness workspace.'
-    interChatManager.recordApiError(chatId, error)
-    safeSend(event?.sender, 'chat-reply-error', {
-      error,
-      chatId,
-      workspace
-    })
+    emitChatError(event, chatId, workspace, 'Harness requests must be sent from the Harness workspace.')
     return
   }
 
@@ -534,12 +556,37 @@ export async function handleChatMessage(
         : 'build'
   const payloadModelKey =
     typeof data === 'object' && typeof data.modelKey === 'string' ? data.modelKey.trim() : ''
-  const requestModelKey = resolveRequestModelKey(
+  let requestModelKey = resolveRequestModelKey(
     workspace,
     payloadModelKey,
     session?.model,
     currentSelectedChatModel
   )
+
+  // Fallback if session/payload model is missing: prevent 401 on unpinned Harness sessions
+  if (!requestModelKey) {
+    const config = loadConfig()
+    requestModelKey =
+      session?.model?.trim() ||
+      config.lastSelectedChatModel?.trim() ||
+      currentSelectedChatModel?.trim() ||
+      getActiveModels()[0]?.fullKey ||
+      ''
+    if (requestModelKey && session && !session.model) {
+      session.model = requestModelKey
+      saveChatSession(
+        chatId,
+        session.messages || [],
+        session.title,
+        session.sessionMode,
+        session.disciplinePath,
+        requestModelKey,
+        session.isDiscord,
+        session.disabledSkills,
+        session.harnessPhase
+      )
+    }
+  }
 
   // Harness selections are scoped to their tab/session. Only Chat may update the
   // legacy global selection used by regular conversations and one-shot commands.
@@ -550,13 +597,7 @@ export async function handleChatMessage(
   const { provider, model } = resolveProviderAndModel(requestModelKey)
 
   if (!requestModelKey || !provider || !providerHasCompletionCredential(provider) || !model) {
-    const error = 'API_KEY_ERROR:401:API Key or Active Model Missing'
-    interChatManager.recordApiError(chatId, error)
-    safeSend(event?.sender, 'chat-reply-error', {
-      error,
-      chatId,
-      workspace
-    })
+    emitChatError(event, chatId, workspace, 'API_KEY_ERROR:401:API Key or Active Model Missing')
     return
   }
 
@@ -571,13 +612,7 @@ export async function handleChatMessage(
       ? 'harness'
       : sessionMode || session?.sessionMode || configuredChatMode || currentSessionMode
   if (workspace === 'chat' && requestMode === 'harness') {
-    const error = 'This conversation belongs to the Harness workspace.'
-    interChatManager.recordApiError(chatId, error)
-    safeSend(event?.sender, 'chat-reply-error', {
-      error,
-      chatId,
-      workspace
-    })
+    emitChatError(event, chatId, workspace, 'This conversation belongs to the Harness workspace.')
     return
   }
   if (workspace === 'chat') currentSessionMode = requestMode
@@ -588,13 +623,7 @@ export async function handleChatMessage(
       (session?.sessionMode === requestMode ? session.disciplinePath : undefined) ||
       (requestMode === 'harness' ? config.harness.lastProjectPath : undefined)
     if (!selectedProjectPath) {
-      const error = 'Select or create a Harness project before sending a message.'
-      interChatManager.recordApiError(chatId, error)
-      safeSend(event?.sender, 'chat-reply-error', {
-        error,
-        chatId,
-        workspace
-      })
+      emitChatError(event, chatId, workspace, 'Select or create a Harness project before sending a message.')
       return
     }
     if (workspace === 'chat') {
@@ -629,39 +658,34 @@ export async function handleChatMessage(
     persistedHarnessSnapshot &&
     !isSameProjectPath(persistedHarnessSnapshot.projectPath, requestDisciplinePath)
   ) {
-    const error =
-      'This Harness conversation is locked to its original project. Start a new conversation to use another project.'
-    interChatManager.recordApiError(chatId, error)
-    safeSend(event?.sender, 'chat-reply-error', {
-      error,
+    emitChatError(
+      event,
       chatId,
-      workspace
-    })
+      workspace,
+      'This Harness conversation is locked to its original project. Start a new conversation to use another project.'
+    )
     return
   }
   const harnessSettings =
     requestSessionMode === 'harness' ? getEffectiveHarnessSettings(requestDisciplinePath) : null
   if (requestSessionMode === 'harness') {
     if (!harnessSettings) {
-      const error =
-        'The selected Harness project is not registered. Reopen it from the project picker.'
-      interChatManager.recordApiError(chatId, error)
-      safeSend(event?.sender, 'chat-reply-error', {
-        error,
+      emitChatError(
+        event,
         chatId,
-        workspace
-      })
+        workspace,
+        'The selected Harness project is not registered. Reopen it from the project picker.'
+      )
       return
     }
     const folderHealth = await checkHarnessProjectFolder(requestDisciplinePath)
     if (!folderHealth.exists || !folderHealth.isDirectory) {
-      const error = `The project directory "${requestDisciplinePath}" does not exist on disk. Please recreate the folder or select another project.`
-      interChatManager.recordApiError(chatId, error)
-      safeSend(event?.sender, 'chat-reply-error', {
-        error,
+      emitChatError(
+        event,
         chatId,
-        workspace
-      })
+        workspace,
+        `The project directory "${requestDisciplinePath}" does not exist on disk. Please recreate the folder or select another project.`
+      )
       return
     }
   }
@@ -703,15 +727,31 @@ export async function handleChatMessage(
     }
   }
 
+  const sourceChatId = typeof data === 'object' ? data.sourceChatId : undefined
+  const sourceChatTitle = typeof data === 'object' ? data.sourceChatTitle : undefined
+  if (sourceChatId) {
+    userMessage.sourceChatId = sourceChatId
+    userMessage.sourceChatTitle = sourceChatTitle
+    userMessage.visible_user_content = userText
+    const contextHeader =
+      `[DELEGATED TASK CONTEXT]\n` +
+      `Originating Chat ID: "${sourceChatId}"\n` +
+      (sourceChatTitle ? `Originating Chat Title: "${sourceChatTitle}"\n` : '') +
+      `You were invoked as a delegated sub-agent by another Prism chat. You can communicate with the original chat:\n` +
+      `- If you strictly need clarification or must report a critical blocker before continuing, you can send a message back using the tool "send_message_to_chat" with target_chat_id="${sourceChatId}".\n` +
+      `- Otherwise, complete your task autonomously without sending unnecessary interim messages. When your execution and any background terminal processes complete, the originating agent will automatically be notified with your full output and results.\n` +
+      `[/DELEGATED TASK CONTEXT]\n\n`
+    userMessage.content = `${contextHeader}${userMessage.content}`
+  }
+
   const incomingImages = collectIncomingImages(screenshot, attachedFile)
   if (attachedFile?.mimeType.startsWith('image/') && incomingImages.length === 0) {
-    const error = 'Unsupported or invalid image. Please use a valid PNG, JPEG, or WebP file.'
-    interChatManager.recordApiError(chatId, error)
-    safeSend(event?.sender, 'chat-reply-error', {
-      error,
+    emitChatError(
+      event,
       chatId,
-      workspace
-    })
+      workspace,
+      'Unsupported or invalid image. Please use a valid PNG, JPEG, or WebP file.'
+    )
     return
   }
   if (incomingImages.length > 0) userMessage.image_attachments = incomingImages
@@ -753,7 +793,16 @@ export async function handleChatMessage(
     )
   }
 
-  broadcastIpc('chat-reply-start', { chatId, workspace })
+  broadcastIpc('chat-reply-start', {
+    chatId,
+    workspace,
+    userMessage: {
+      role: 'user',
+      content: userMessage.visible_user_content || userMessage.content,
+      sourceChatId: userMessage.sourceChatId,
+      sourceChatTitle: userMessage.sourceChatTitle
+    }
+  })
 
   const abortController = new AbortController()
   activeRuns.set(chatId, {
@@ -945,7 +994,7 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
       } else if (isForceSearch) {
         const allTools = getNativeToolsForOpenAi('main', undefined, chatId, disabledSkills)
         const searchTools = allTools.filter((t) =>
-          ['web_search', 'web_fetch', 'open_browser_link'].includes(t.function.name)
+          ['web_search', 'web_fetch', 'read_page', 'open_browser_link'].includes(t.function.name)
         )
         const existingNames = new Set(tools.map((t) => t.function.name))
         for (const tool of searchTools) {
@@ -974,12 +1023,22 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
       tools: openAiTools,
       getToolsForRound: () => getToolsForSessionMode(),
       getPendingNotifications: () => getAllPendingNotifications(chatId),
+      getPendingInterChatMessages: () => getPendingInterChatMessages(chatId),
       getPendingSteeringMessages: () => {
         const run = activeRuns.get(chatId)
         if (!run?.steeringQueue || run.steeringQueue.length === 0) return []
         turnStartTime = Date.now()
         totalThinkingDuration = 0
         return run.steeringQueue.splice(0)
+      },
+      onSteeringApplied: (steering) => {
+        broadcastIpc('chat-steering-applied', {
+          chatId,
+          workspace,
+          steeringId: steering.id,
+          text: steering.text,
+          timestamp: Date.now()
+        })
       },
       terminalInputToolName: harnessSettings ? 'write_stdin' : 'send_terminal_input',
       signal: abortController.signal,
@@ -1411,8 +1470,10 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
       prepareHistoryMessage(chatId, {
         role: 'user',
         content: notif.content,
-        isSystemNotification: true,
-        hidden: true
+        sourceChatId: notif.targetChatId,
+        sourceChatTitle: notif.targetTitle,
+        isSystemNotification: false,
+        hidden: false
       })
     )
   }
@@ -1429,7 +1490,21 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
 
   markConnectionActive()
 
-  broadcastIpc('chat-reply-start', { chatId, workspace })
+  const lastInterChat = pendingInterChat[pendingInterChat.length - 1]
+  broadcastIpc('chat-reply-start', {
+    chatId,
+    workspace,
+    ...(lastInterChat
+      ? {
+          userMessage: {
+            role: 'user',
+            content: lastInterChat.content,
+            sourceChatId: lastInterChat.targetChatId,
+            sourceChatTitle: lastInterChat.targetTitle
+          }
+        }
+      : {})
+  })
 
   const abortController = new AbortController()
   activeRuns.set(chatId, {
@@ -1500,12 +1575,22 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
       tools: openAiTools,
       getToolsForRound,
       getPendingNotifications: () => getAllPendingNotifications(chatId),
+      getPendingInterChatMessages: () => getPendingInterChatMessages(chatId),
       getPendingSteeringMessages: () => {
         const run = activeRuns.get(chatId)
         if (!run?.steeringQueue || run.steeringQueue.length === 0) return []
         turnStartTime = Date.now()
         totalThinkingDuration = 0
         return run.steeringQueue.splice(0)
+      },
+      onSteeringApplied: (steering) => {
+        broadcastIpc('chat-steering-applied', {
+          chatId,
+          workspace,
+          steeringId: steering.id,
+          text: steering.text,
+          timestamp: Date.now()
+        })
       },
       terminalInputToolName,
       signal: abortController.signal,
