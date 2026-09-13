@@ -6,7 +6,9 @@ import {
   TodoState,
   PrismThinkingLevel,
   HarnessContextSnapshot,
-  HarnessExplorerContextSnapshot
+  HarnessExplorerContextSnapshot,
+  AttachedFile,
+  MessageDeliveryMode
 } from '../../shared/types'
 import type { ToolResultEnvelope } from '../toolRuntime'
 import type { ToolAttachment, ToolImageReference } from '../toolAttachments'
@@ -20,12 +22,20 @@ export type {
   PrismThinkingLevel
 }
 
+export interface SteeringMessage {
+  id: string
+  text: string
+  timestamp: number
+  attachedFile?: AttachedFile
+}
+
 export interface ActiveRun {
   chatId: string
   abortController: AbortController
   streamedText: string
   streamedReasoning?: string
   status: 'running' | 'idle' | 'cancelled' | 'error'
+  steeringQueue?: SteeringMessage[]
 }
 
 export interface StructuredChatResponse {
@@ -96,6 +106,10 @@ export interface OpenAiMessage {
   harness_explorer_context?: HarnessExplorerContextSnapshot
   visible_user_content?: string
   quote?: string
+  sourceChatId?: string
+  sourceChatTitle?: string
+  isSteering?: boolean
+  deliveryMode?: MessageDeliveryMode
   provider_metadata?: {
     gemini?: {
       content: GeminiContentData

@@ -5,7 +5,8 @@ import type {
   ToolAttachment,
   HarnessContextSnapshot,
   HarnessExplorerSelection,
-  HarnessPhase
+  HarnessPhase,
+  MessageDeliveryMode
 } from '../../../shared/types'
 
 export interface AttachedFile {
@@ -66,6 +67,7 @@ export interface ChatRoundItem {
 }
 
 export interface Message {
+  id?: string
   role: 'user' | 'ai' | 'separator' | 'context'
   content: string
   thoughts?: string
@@ -84,11 +86,24 @@ export interface Message {
   screenshot?: string
   file?: AttachedFile
   quote?: string
+  sourceChatId?: string
+  sourceChatTitle?: string
   separatorType?: 'error' | 'cancel'
   contextSnapshot?: HarnessContextSnapshot
   harnessRound?: number
   harnessRounds?: HarnessRoundItem[]
   chatRounds?: ChatRoundItem[]
+  isSteering?: boolean
+  isQueued?: boolean
+  deliveryMode?: MessageDeliveryMode
+}
+
+export interface QueuedTabMessage {
+  id: string
+  text: string
+  file?: AttachedFile | null
+  quote?: string | null
+  deliveryMode?: 'queued'
 }
 
 export interface TabSession {
@@ -96,6 +111,7 @@ export interface TabSession {
   chatId?: string
   title: string
   messages: Message[]
+  queuedMessages?: QueuedTabMessage[]
   inputText: string
   quotedText?: string | null
   attachedFile: AttachedFile | null

@@ -24,6 +24,8 @@ import {
   Check,
   Sparkle,
   Quotes,
+  Compass,
+  ClockCountdown,
   X
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
@@ -49,7 +51,8 @@ interface InputBarProps {
     message: string,
     searchEnabled?: boolean,
     screenshot?: string,
-    attachedFile?: AttachedFile
+    attachedFile?: AttachedFile,
+    options?: { deliveryMode?: 'standard' | 'steering' | 'queued' }
   ) => void
   onCancel?: () => void
   disabled?: boolean
@@ -176,6 +179,7 @@ export const InputBar = React.memo(
       }
 
       const inputRef = useRef<HTMLTextAreaElement>(null)
+      const lastTypedValueRef = useRef<string | null>(text)
       // Cursor position to restore after a synchronous text rewrite (slash
       // command strip). Applied in a layout effect so it lands before paint
       // and before the next key event — never racing in-flight keystrokes.
@@ -191,6 +195,7 @@ export const InputBar = React.memo(
           const newText = textRef.current.trim()
             ? textRef.current + '\n\n' + transcription
             : transcription
+          lastTypedValueRef.current = newText
           setText(newText)
 
           if (action === 'send') {
@@ -243,6 +248,19 @@ export const InputBar = React.memo(
           pendingCursorRef.current = null
           inputRef.current.focus()
           inputRef.current.selectionStart = inputRef.current.selectionEnd = pos
+        }
+        if (inputRef.current) {
+          if (
+            lastTypedValueRef.current !== null &&
+            inputRef.current.value !== lastTypedValueRef.current
+          ) {
+            // Restore native DOM value if a concurrent React render tried to roll back to stale state
+            inputRef.current.value = lastTypedValueRef.current
+          } else if (text !== lastTypedValueRef.current) {
+            // External update (tab switch, external quote, clear, etc.)
+            inputRef.current.value = text
+            lastTypedValueRef.current = text
+          }
         }
       }, [text])
 
@@ -383,10 +401,15 @@ export const InputBar = React.memo(
           if (!textarea) return
 
           if (!isFullscreen) {
-            // Reset height to get correct scrollHeight
+            const currentHeightStr = textarea.style.height
             textarea.style.height = 'auto'
             const nextHeight = Math.max(64, Math.min(textarea.scrollHeight, 300))
-            textarea.style.height = `${nextHeight}px`
+            const nextHeightStr = `${nextHeight}px`
+            if (currentHeightStr !== nextHeightStr) {
+              textarea.style.height = nextHeightStr
+            } else {
+              textarea.style.height = currentHeightStr
+            }
 
             const nextOverflow = textarea.scrollHeight > 300 ? 'auto' : 'hidden'
             if (textarea.style.overflowY !== nextOverflow) {
@@ -457,6 +480,8 @@ export const InputBar = React.memo(
       // racing fast typing and dropping characters.
       const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
         const nextValue = e.target.value
+        lastTypedValueRef.current = nextValue
+        textRef.current = nextValue
         if (setActiveWorkflow && nextValue.startsWith('/')) {
           const spaceMatch = nextValue.match(/^(\/[^\s]+)\s/)
           if (spaceMatch) {
@@ -467,6 +492,9 @@ export const InputBar = React.memo(
               setActiveWorkflow(wf)
               const stripped = nextValue.substring(spaceMatch[0].length)
               pendingCursorRef.current = stripped.length
+              lastTypedValueRef.current = stripped
+              textRef.current = stripped
+              if (inputRef.current) inputRef.current.value = stripped
               setText(stripped)
               return
             }
@@ -493,6 +521,9 @@ export const InputBar = React.memo(
         setActiveWorkflow(wf)
         const stripped = current.substring(spaceMatch[0].length)
         pendingCursorRef.current = stripped.length
+        lastTypedValueRef.current = stripped
+        textRef.current = stripped
+        if (inputRef.current) inputRef.current.value = stripped
         setText(stripped)
       }, [workflows, setActiveWorkflow, setText])
 
@@ -549,9 +580,13 @@ export const InputBar = React.memo(
         }
       }, [disabled])
 
-      const handleSend = (overrideText?: string): void => {
-        const currentText = overrideText !== undefined ? overrideText : text
-        if ((currentText.trim() || attachedFile) && !disabled) {
+      const handleSend = (overrideText?: string, mode?: 'standard' | 'steering' | 'queued'): void => {
+        const domValue = inputRef.current?.value ?? ''
+        const rawText = overrideText !== undefined ? overrideText : (domValue || text)
+        const currentText = rawText
+        const isSendAllowed =
+          (currentText.trim() || attachedFile) && (!disabled || (isProcessing && !isKeyMissing))
+        if (isSendAllowed) {
           const trimmedText = currentText.trim()
 
           let finalMessage = trimmedText
@@ -563,12 +598,20 @@ export const InputBar = React.memo(
             }
           }
 
+          const deliveryMode = mode || (isProcessing ? 'steering' : 'standard')
+
           onSend(
             finalMessage,
             isSearchEnabled,
             attachedFile?.mimeType.startsWith('image/') ? attachedFile.data : undefined,
-            attachedFile || undefined
+            attachedFile || undefined,
+            { deliveryMode }
           )
+          lastTypedValueRef.current = ''
+          textRef.current = ''
+          if (inputRef.current) {
+            inputRef.current.value = ''
+          }
           setText('')
           setActiveWorkflow?.(null)
           if (isSearchEnabled) {
@@ -645,12 +688,17 @@ export const InputBar = React.memo(
 
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault()
-          handleSend()
+          if (isProcessing) {
+            const mode = e.ctrlKey || e.metaKey || e.altKey ? 'queued' : 'steering'
+            handleSend(undefined, mode)
+          } else {
+            handleSend()
+          }
         }
       }
 
       const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
-        if (disabled) return
+        if (disabled && !isProcessing) return
         const items = e.clipboardData.items
         for (let i = 0; i < items.length; i++) {
           if (items[i].type.indexOf('image') !== -1) {
@@ -675,7 +723,7 @@ export const InputBar = React.memo(
 
       const getPlaceholder = (): string => {
         if (isKeyMissing) return 'API key required'
-        if (isProcessing) return sessionMode === 'harness' ? 'Harness is working' : 'Prism is responding'
+        if (isProcessing) return 'Send guidance or queue next message...'
         if (sessionMode === 'harness' && !disciplinePath) return 'Choose a project to start Harness'
         if (sessionMode === 'harness') return 'Describe the work for Harness'
         if (activeWorkflow) return `Ask with ${activeWorkflow.name}`
@@ -1443,23 +1491,47 @@ export const InputBar = React.memo(
             )}
 
             {isProcessing ? (
-              <button
-                type="button"
-                onClick={() => onCancel?.()}
-                disabled={!onCancel}
-                className="input-bar-processing-stop ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-150 active:scale-95"
-                title="Stop generation"
-                aria-label="Stop generation"
-              >
-                <Square size={13} fill="currentColor" />
-              </button>
+              <div className="flex items-center gap-1.5 ml-1">
+                {(text.trim() || Boolean(inputRef.current?.value?.trim()) || attachedFile) && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleSend(undefined, 'queued')}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-text-secondary hover:text-text-primary text-xs font-medium transition-all active:scale-95 cursor-pointer shadow-[var(--glass-specular-top)]"
+                      title="Queue message to send after AI completes (Ctrl+Enter)"
+                    >
+                      <ClockCountdown size={13} weight="bold" className="text-amber-400" />
+                      <span>Queue</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSend(undefined, 'steering')}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-accent-primary/[0.15] hover:bg-accent-primary/[0.25] text-accent-primary text-xs font-semibold transition-all active:scale-95 cursor-pointer shadow-[var(--glass-specular-top)]"
+                      title="Send as steering guidance at next step (Enter)"
+                    >
+                      <Compass size={13} weight="bold" />
+                      <span>Steer</span>
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onCancel?.()}
+                  disabled={!onCancel}
+                  className="input-bar-processing-stop flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-150 active:scale-95 cursor-pointer"
+                  title="Stop generation"
+                  aria-label="Stop generation"
+                >
+                  <Square size={13} fill="currentColor" />
+                </button>
+              </div>
             ) : (
               <button
                 onClick={() => handleSend()}
-                disabled={(!text.trim() && !attachedFile) || disabled}
+                disabled={(!text.trim() && !inputRef.current?.value?.trim() && !attachedFile) || disabled}
                 className={clsx(
                   'ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors duration-150',
-                  text.trim() && !disabled
+                  (text.trim() || Boolean(inputRef.current?.value?.trim())) && !disabled
                     ? 'bg-white text-black hover:bg-neutral-100 active:scale-95 cursor-pointer'
                     : 'bg-white/[0.04] text-text-muted/60'
                 )}
@@ -1638,7 +1710,7 @@ export const InputBar = React.memo(
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}
                   placeholder={getPlaceholder()}
-                  disabled={disabled}
+                  disabled={disabled && !isProcessing}
                   className={clsx(
                     'w-full flex-1 resize-none bg-transparent py-2 text-lg font-medium outline-none border-0 border-transparent m-0 shadow-none leading-relaxed placeholder:text-text-muted disabled:cursor-not-allowed cursor-text text-text-primary selection:bg-accent-primary/30 whitespace-pre-wrap break-words',
                     activeMode === 'search' ? 'caret-accent-secondary' : 'caret-white'
@@ -1785,7 +1857,7 @@ export const InputBar = React.memo(
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}
                   placeholder={getPlaceholder()}
-                  disabled={disabled}
+                  disabled={disabled && !isProcessing}
                   className={clsx(
                     'relative z-10 w-full resize-none bg-transparent text-base font-medium outline-none border-0 border-transparent m-0 shadow-none leading-relaxed placeholder:text-text-muted disabled:cursor-not-allowed cursor-text block min-h-[48px] max-h-[300px] text-text-primary selection:bg-accent-primary/30 whitespace-pre-wrap break-words',
                     activeMode === 'search' ? 'caret-accent-secondary' : 'caret-white'

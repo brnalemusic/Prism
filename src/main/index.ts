@@ -23,6 +23,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import {
   initGemini,
   handleChatMessage,
+  handleChatSteerMessage,
   handleHarnessMessage,
   prepareHarnessPlanHandoff,
   cancelHarnessPlanHandoff,
@@ -1003,6 +1004,8 @@ if (!gotTheLock) {
         currentConfig = loadConfig()
         safeSend(mainWindow, 'config-changed', currentConfig)
         safeSend(launcherWindow, 'config-changed', currentConfig)
+        safeSend(mainWindow, 'license-status-changed', null)
+        safeSend(launcherWindow, 'license-status-changed', null)
       })
 
       // The Demo uses its own local installer flow and does not need browser download hooks.
@@ -1044,6 +1047,11 @@ if (!gotTheLock) {
 
     // IPC Handlers
     ipcMain.on('chat-message', handleChatMessage)
+    ipcMain.on('chat-steer-message', (_event, data) => {
+      if (data && typeof data === 'object' && data.chatId && data.message) {
+        handleChatSteerMessage(data.chatId, data.message, data.attachedFile, data.workspace)
+      }
+    })
     ipcMain.on('harness-message', handleHarnessMessage)
     ipcMain.handle('prepare-harness-plan-handoff', (_event, data) =>
       prepareHarnessPlanHandoff(data)
@@ -1794,6 +1802,8 @@ if (!gotTheLock) {
         currentConfig = loadConfig()
         safeSend(mainWindow, 'config-changed', currentConfig)
         safeSend(launcherWindow, 'config-changed', currentConfig)
+        safeSend(mainWindow, 'license-status-changed', result.info)
+        safeSend(launcherWindow, 'license-status-changed', result.info)
       }
       return result
     })
@@ -1809,6 +1819,8 @@ if (!gotTheLock) {
         currentConfig = loadConfig()
         safeSend(mainWindow, 'config-changed', currentConfig)
         safeSend(launcherWindow, 'config-changed', currentConfig)
+        safeSend(mainWindow, 'license-status-changed', null)
+        safeSend(launcherWindow, 'license-status-changed', null)
       }
       return success
     })

@@ -72,6 +72,7 @@ import { isExtractableDocument, extractDocumentText } from './documentExtractor'
 import { safeSend } from './safeSend'
 import { SystemToolOutput, ToolImageAttachment } from './toolAttachments'
 import { asImageGenerationArguments, generateImage } from './ai/imageGeneration'
+import { interChatManager } from './ai/interChatManager'
 
 function getDownloadsFolder(): string {
   try {
@@ -773,7 +774,7 @@ export async function detectAvailableTerminals(): Promise<TerminalOption[]> {
 
   terminals.push({
     id: 'powershell',
-    name: 'PowerShell do Windows',
+    name: 'Windows PowerShell',
     path: 'powershell.exe'
   })
 
@@ -2086,6 +2087,7 @@ ${browserRule}
 - Docs: internal_docs_* for Prism system questions.
 - YouTube: \`web_search\` \`site:youtube.com ...\`; card + chip.
 - to_ask: ask first on ambiguity; set recommended on best option.
+- Delegation: Use \`send_message_to_chat\` to delegate tasks to another chat or Harness. Mandatory \`path\` for Harness (project folder); optional for chat (opens Discipline mode if provided, Execution mode if omitted). Remain in standby after delegating (you are automatically notified with the complete history upon completion). Use \`read_chat\` only when the user explicitly requests a progress check. If delegating to Harness in plan mode, you will receive the generated Implementation Plan upon completion; use \`approve_harness_plan\` to approve it (choose \`mode="same_chat"\` to continue in the same chat in Build mode, or \`mode="new_chat"\` to execute in a new chat with clean context).
 ${inlineSuggestionsRule}${skillsSection}${disabledSkillsSection}${personaSection}${coreMemorySection}${memoryGuidanceSection}`
 }
 export interface InstalledApplicationResult {
@@ -2439,6 +2441,39 @@ export async function executeSystemTool(
   switch (toolName) {
     case 'generate_image':
       return generateImage(asImageGenerationArguments(args), signal, chatId)
+
+    // Inter-Chat Communication
+    case 'send_message_to_chat': {
+      const result = await interChatManager.dispatchInterChatTask({
+        senderChatId: chatId,
+        target: args.target === 'harness' ? 'harness' : 'chat',
+        message: args.message || '',
+        path: args.path,
+        harness_mode: args.harness_mode,
+        target_chat_id: args.target_chat_id
+      })
+      if (!result.ok) {
+        return `Error delegating task: ${result.error || 'Failed to dispatch task.'}`
+      }
+      return JSON.stringify(result, null, 2)
+    }
+    case 'read_chat': {
+      const progress = interChatManager.readChatProgress(args.chat_id || '')
+      return JSON.stringify(progress, null, 2)
+    }
+    case 'approve_harness_plan': {
+      const result = await interChatManager.approveHarnessPlan({
+        senderChatId: chatId,
+        chatId: args.chat_id || '',
+        mode: args.mode === 'new_chat' ? 'new_chat' : 'same_chat',
+        plan: args.plan,
+        feedback: args.feedback
+      })
+      if (!result.ok) {
+        return `Error approving implementation plan: ${result.error || 'Failed to approve plan.'}`
+      }
+      return JSON.stringify(result, null, 2)
+    }
 
     // Terminal
     case 'execute_terminal_command':

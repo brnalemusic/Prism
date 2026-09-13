@@ -31,7 +31,10 @@ import type {
   HarnessGitAction,
   HarnessGitActionResult,
   HarnessGitSnapshot,
-  HarnessGitStatusDelta
+  HarnessGitStatusDelta,
+  ChatOpenedInBackgroundEvent,
+  HarnessPhaseChangedEvent,
+  MessageDeliveryMode
 } from '../shared/types'
 import type {
   MemoryEntry,
@@ -87,6 +90,7 @@ export interface PrismAPI {
     modelKey?: string
     reasoningLevel?: string
     disabledSkills?: string[]
+    deliveryMode?: MessageDeliveryMode
   }) => void
   sendHarnessMessage: (data: {
     message: string
@@ -98,6 +102,13 @@ export interface PrismAPI {
     reasoningLevel?: string
     explorerContext?: HarnessExplorerSelection[]
     harnessPhase?: HarnessPhase
+    deliveryMode?: MessageDeliveryMode
+  }) => void
+  sendSteeringMessage: (data: {
+    chatId: string
+    message: string
+    attachedFile?: AttachedFile
+    workspace?: WorkspaceKind
   }) => void
   setHarnessSessionPhase: (chatId: string, phase: HarnessPhase) => Promise<boolean>
   prepareHarnessPlanHandoff: (data: {
@@ -252,6 +263,12 @@ export interface PrismAPI {
   onConfigChanged: (callback: (config: AppConfig) => void) => () => void
   onChatSessionCreated: (callback: (data: { id: string }) => void) => () => void
   onChatTitleReceived: (callback: (data: { id: string; title: string }) => void) => () => void
+  onChatOpenedInBackground: (
+    callback: (data: ChatOpenedInBackgroundEvent) => void
+  ) => () => void
+  onHarnessPhaseChanged: (
+    callback: (data: HarnessPhaseChangedEvent) => void
+  ) => () => void
   submitLauncher: (data: { message: string; screenshot?: string; appMode?: string }) => void
   hideLauncher: () => void
   minimizeApp: () => void
@@ -474,6 +491,9 @@ export interface PrismAPI {
   ) => () => void
   onBrowserGenError: (
     callback: (data: import('../shared/types').BrowserGenErrorEvent) => void
+  ) => () => void
+  onLicenseStatusChanged: (
+    callback: (info: import('../shared/types').LicenseInfo | null) => void
   ) => () => void
   activateLicense: (key: string) => Promise<import('../shared/types').ActivationResult>
   deactivateLicense: () => Promise<boolean>

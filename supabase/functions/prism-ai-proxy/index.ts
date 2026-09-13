@@ -327,7 +327,7 @@ serve(async (req) => {
       const nowIso = new Date().toISOString()
       const { data: entLicenses, error: entErr } = await supabase
         .from('user_licenses')
-        .select('id, plan_id, type, license_key')
+        .select('id, plan_id, license_key')
         .eq('user_id', userId)
         .eq('status', 'active')
         .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
@@ -337,29 +337,17 @@ serve(async (req) => {
         console.error('[prism-ai-proxy] Error checking paid entitlement:', entErr)
       }
 
+      // An account with company/enterprise account_type is an organizational model,
+      // NOT a paid Enterprise subscription plan. Paid model access requires an active plan or license.
       const hasLicense = Boolean(
         entLicenses &&
         entLicenses.some((l: any) =>
           String(l.plan_id || '').toLowerCase().startsWith('enterprise') ||
-          String(l.type || '').toUpperCase() === 'ENTERPRISE' ||
           String(l.license_key || '').toUpperCase().includes('ENTERPRISE')
         )
       )
 
-      const { data: userProfile, error: profileErr } = await supabase
-        .from('profiles')
-        .select('account_type')
-        .eq('id', userId)
-        .maybeSingle()
-
-      if (profileErr) {
-        console.error('[prism-ai-proxy] Error checking user profile:', profileErr)
-      }
-
-      const pType = String(userProfile?.account_type || '').toLowerCase()
-      const isProfileEnterprise = pType === 'enterprise' || pType === 'company'
-
-      isPaidEntitled = hasLicense || isProfileEnterprise
+      isPaidEntitled = hasLicense
       if (!isPaidEntitled) {
         return new Response(
           JSON.stringify({

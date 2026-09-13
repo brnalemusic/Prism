@@ -87,27 +87,24 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
     const checkEnterpriseStatus = async (): Promise<void> => {
       try {
-        const [usage, license, user] = await Promise.all([
+        const [usage, license] = await Promise.all([
           window.api.getUserAiUsage().catch(() => null),
-          window.api.getLicenseInfo ? window.api.getLicenseInfo().catch(() => null) : Promise.resolve(null),
-          window.api.getAuthUser ? window.api.getAuthUser().catch(() => null) : Promise.resolve(null)
+          window.api.getLicenseInfo ? window.api.getLicenseInfo().catch(() => null) : Promise.resolve(null)
         ])
 
-        const isUsageEnt = usage?.tier?.toLowerCase() === 'paid' ||
-          usage?.tier?.toLowerCase().startsWith('enterprise') ||
-          usage?.tier?.toLowerCase() === 'company'
+        const isUsageEnt =
+          usage?.tier?.toLowerCase() === 'paid' ||
+          usage?.tier?.toLowerCase().startsWith('enterprise')
 
         const isLicenseEnt = Boolean(
           license?.isActivated &&
             (license?.type?.toUpperCase() === 'ENTERPRISE' ||
-              license?.type?.toUpperCase() === 'COMPANY')
+              (license as any)?.plan_id?.toLowerCase().startsWith('enterprise'))
         )
 
-        const isUserEnt =
-          user?.accountType?.toLowerCase() === 'enterprise' ||
-          user?.accountType?.toLowerCase() === 'company'
-
-        setIsEnterpriseInternal(isUsageEnt || isLicenseEnt || isUserEnt)
+        // An account with company/enterprise account_type is an organizational model,
+        // NOT an Enterprise subscription plan. Paid model access requires an active plan or license.
+        setIsEnterpriseInternal(isUsageEnt || isLicenseEnt)
       } catch {
         setIsEnterpriseInternal(false)
       }
@@ -132,6 +129,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
       const unsubscribeConfig = window.api.onConfigChanged((config) => {
         if (config.modelSelectionShortcut) setShortcut(config.modelSelectionShortcut)
+        checkEnterpriseStatus()
         loadActiveModels()
       })
 
@@ -140,9 +138,22 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         loadActiveModels()
       })
 
+      const unsubscribeLicense = window.api.onLicenseStatusChanged?.(() => {
+        checkEnterpriseStatus()
+        loadActiveModels()
+      })
+
+      const onCustomLicenseUpdate = (): void => {
+        checkEnterpriseStatus()
+        loadActiveModels()
+      }
+      window.addEventListener('prism:license-updated', onCustomLicenseUpdate)
+
       return () => {
         unsubscribeConfig()
         unsubscribeAuth?.()
+        unsubscribeLicense?.()
+        window.removeEventListener('prism:license-updated', onCustomLicenseUpdate)
       }
     }, [])
 

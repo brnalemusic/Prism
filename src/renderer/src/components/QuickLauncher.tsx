@@ -143,27 +143,24 @@ export function QuickLauncher(): React.JSX.Element {
 
   const checkEnterpriseStatus = useCallback(async () => {
     try {
-      const [usage, license, user] = await Promise.all([
+      const [usage, license] = await Promise.all([
         window.api.getUserAiUsage().catch(() => null),
-        window.api.getLicenseInfo ? window.api.getLicenseInfo().catch(() => null) : Promise.resolve(null),
-        window.api.getAuthUser ? window.api.getAuthUser().catch(() => null) : Promise.resolve(null)
+        window.api.getLicenseInfo ? window.api.getLicenseInfo().catch(() => null) : Promise.resolve(null)
       ])
 
-      const isUsageEnt = usage?.tier?.toLowerCase() === 'paid' ||
-        usage?.tier?.toLowerCase().startsWith('enterprise') ||
-        usage?.tier?.toLowerCase() === 'company'
+      const isUsageEnt =
+        usage?.tier?.toLowerCase() === 'paid' ||
+        usage?.tier?.toLowerCase().startsWith('enterprise')
 
       const isLicenseEnt = Boolean(
         license?.isActivated &&
           (license?.type?.toUpperCase() === 'ENTERPRISE' ||
-            license?.type?.toUpperCase() === 'COMPANY')
+            (license as any)?.plan_id?.toLowerCase().startsWith('enterprise'))
       )
 
-      const isUserEnt =
-        user?.accountType?.toLowerCase() === 'enterprise' ||
-        user?.accountType?.toLowerCase() === 'company'
-
-      setIsEnterprise(isUsageEnt || isLicenseEnt || isUserEnt)
+      // An account with company/enterprise account_type is an organizational model,
+      // NOT an Enterprise subscription plan. Paid model access requires an active plan or license.
+      setIsEnterprise(isUsageEnt || isLicenseEnt)
     } catch {
       setIsEnterprise(false)
     }
@@ -174,8 +171,18 @@ export function QuickLauncher(): React.JSX.Element {
     const unsubscribeAuth = window.api.onAuthSessionUpdated?.(() => {
       checkEnterpriseStatus()
     })
+    const unsubscribeLicense = window.api.onLicenseStatusChanged?.(() => {
+      checkEnterpriseStatus()
+    })
+    const onCustomLicenseUpdate = (): void => {
+      checkEnterpriseStatus()
+    }
+    window.addEventListener('prism:license-updated', onCustomLicenseUpdate)
+
     return () => {
       unsubscribeAuth?.()
+      unsubscribeLicense?.()
+      window.removeEventListener('prism:license-updated', onCustomLicenseUpdate)
     }
   }, [checkEnterpriseStatus])
 
@@ -329,6 +336,7 @@ export function QuickLauncher(): React.JSX.Element {
 
     const removeConfigListener = window.api.onConfigChanged((cfg) => {
       setConfig(cfg)
+      void checkEnterpriseStatus()
       if (cfg.theme) {
         document.documentElement.setAttribute('data-theme', cfg.theme)
       }

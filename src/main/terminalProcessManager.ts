@@ -436,7 +436,7 @@ export function spawnGuardedTerminalProcess(
   if (isWindows) {
     if (lowerShell.includes('powershell') || lowerShell.includes('pwsh')) {
       const utf8Prefix = `$OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; chcp 65001 | Out-Null; `
-      spawnArgs = ['-NoLogo', '-NoProfile', '-Command', `${utf8Prefix}${command}`]
+      spawnArgs = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `${utf8Prefix}${command}`]
     } else if (lowerShell.includes('cmd')) {
       spawnArgs = ['/d', '/s', '/c', `chcp 65001 > nul & ${command}`]
     } else if (lowerShell.includes('bash')) {
@@ -477,15 +477,33 @@ export function spawnGuardedTerminalProcess(
 
   sessions.set(sessionKey, session)
 
-  const appendChunk = (rawText: string): void => {
-    appendOutput(session, rawText)
+  let ipcChunkBuffer = ''
+  let ipcThrottleTimer: NodeJS.Timeout | null = null
+
+  const flushIpcBuffer = (): void => {
+    if (ipcThrottleTimer) {
+      clearTimeout(ipcThrottleTimer)
+      ipcThrottleTimer = null
+    }
+    if (!ipcChunkBuffer) return
+    const chunkToSend = ipcChunkBuffer
+    ipcChunkBuffer = ''
 
     if (options.event && options.chatId) {
       safeSend(options.event.sender, 'chat-tool-update', {
         toolCallName: options.toolCallName || 'execute_terminal_command',
-        update: { outputChunk: rawText, runId: session.runId },
+        update: { outputChunk: chunkToSend, runId: session.runId },
         chatId: options.chatId
       })
+    }
+  }
+
+  const appendChunk = (rawText: string): void => {
+    appendOutput(session, rawText)
+
+    ipcChunkBuffer += rawText
+    if (!ipcThrottleTimer) {
+      ipcThrottleTimer = setTimeout(flushIpcBuffer, 50)
     }
 
     eventEmitter.emit('data', rawText)
@@ -494,6 +512,7 @@ export function spawnGuardedTerminalProcess(
 
   terminalProcess.onData(appendChunk)
   terminalProcess.onExit(({ exitCode }) => {
+    flushIpcBuffer()
     if (session.promptDetectionTimer) {
       clearTimeout(session.promptDetectionTimer)
       session.promptDetectionTimer = undefined

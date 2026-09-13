@@ -71,7 +71,8 @@ interface ChatPaneProps {
     file?: TabSession['attachedFile'],
     overrideModel?: string,
     overrideSessionMode?: TabSession['sessionMode'],
-    forceYoutube?: boolean
+    forceYoutube?: boolean,
+    options?: { deliveryMode?: 'standard' | 'steering' | 'queued' }
   ) => void
   onCancel: () => void
   onModelChange: (model: string) => void
@@ -637,6 +638,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
     const localInputTextRef = useRef(localInputText)
     localInputTextRef.current = localInputText
+    const lastFlushedTextRef = useRef<string | null>(null)
 
     // Latest parent callbacks. The wrappers below stay referentially stable so
     // the memoized InputBar only re-renders when its data actually changes —
@@ -697,9 +699,15 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
         }
         lastTabIdRef.current = tab.id
         flushTabIdRef.current = tab.id
+        lastFlushedTextRef.current = null
+        localInputTextRef.current = tab.inputText
         setLocalInputText(tab.inputText)
       } else if (tab.inputText !== localInputTextRef.current) {
-        setLocalInputText(tab.inputText)
+        // Only accept external updates if they are not the echo of our own debounced flush
+        if (tab.inputText !== lastFlushedTextRef.current) {
+          localInputTextRef.current = tab.inputText
+          setLocalInputText(tab.inputText)
+        }
       }
     }, [tab.id, tab.inputText])
 
@@ -710,6 +718,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
         if (debounceTimerRef.current) {
           clearTimeout(debounceTimerRef.current)
           debounceTimerRef.current = null
+          lastFlushedTextRef.current = localInputTextRef.current
           stableOnUpdateTabInput(flushTabIdRef.current, localInputTextRef.current)
         }
       }
@@ -720,17 +729,26 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
         message: string,
         _searchEnabled?: boolean,
         _screenshot?: string,
-        attachedFile?: TabSession['attachedFile']
+        attachedFile?: TabSession['attachedFile'],
+        options?: { deliveryMode?: 'standard' | 'steering' | 'queued' }
       ) => {
         if (debounceTimerRef.current) {
           clearTimeout(debounceTimerRef.current)
           debounceTimerRef.current = null
         }
         flushTabIdRef.current = tab.id
+        lastFlushedTextRef.current = ''
         setLocalInputText('')
         localInputTextRef.current = ''
         stableOnUpdateTabInput(tab.id, '')
-        stableOnSend(message, attachedFile || tab.attachedFile || undefined)
+        stableOnSend(
+          message,
+          attachedFile || tab.attachedFile || undefined,
+          undefined,
+          undefined,
+          undefined,
+          options
+        )
       },
       [stableOnSend, stableOnUpdateTabInput, tab.id, tab.attachedFile]
     )
@@ -753,6 +771,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
           debounceTimerRef.current = null
           // Read the ref at flush time: the parent always persists the
           // latest draft, even if more keys landed after scheduling.
+          lastFlushedTextRef.current = localInputTextRef.current
           stableOnUpdateTabInput(flushTabIdRef.current, localInputTextRef.current)
         }, 300)
       },
@@ -986,7 +1005,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                         onCancel={stableOnCancel}
                         isProcessing={tab.isProcessing}
                         isKeyMissing={isKeyMissing}
-                        disabled={tab.isProcessing || isKeyMissing || !isOnline}
+                        disabled={isKeyMissing || !isOnline}
                         selectedModel={tab.selectedModel}
                         onModelChange={stableOnModelChange}
                         reasoningLevel={
@@ -1135,7 +1154,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                     onCancel={stableOnCancel}
                     isProcessing={tab.isProcessing}
                     isKeyMissing={isKeyMissing}
-                    disabled={tab.isProcessing || isKeyMissing || !isOnline}
+                    disabled={isKeyMissing || !isOnline}
                     selectedModel={tab.selectedModel}
                     onModelChange={stableOnModelChange}
                     reasoningLevel={

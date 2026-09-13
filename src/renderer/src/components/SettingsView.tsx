@@ -735,6 +735,7 @@ export function SettingsView({
         setLicenseSuccess(`Enterprise License activated for ${res.info.licensee}!`)
         setInputLicenseKey('')
         setIsActivationModalOpen(true)
+        window.dispatchEvent(new CustomEvent('prism:license-updated'))
       } else {
         setLicenseError(res.error || 'Invalid license key.')
       }
@@ -751,6 +752,7 @@ export function SettingsView({
       if (ok) {
         setLicenseInfo(null)
         setLicenseSuccess('Enterprise License deactivated.')
+        window.dispatchEvent(new CustomEvent('prism:license-updated'))
       }
     } catch {
       setLicenseError('Failed to deactivate license.')

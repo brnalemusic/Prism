@@ -7,10 +7,26 @@ import {
   ValidatedToolExecution
 } from '../toolRuntime'
 import { streamOpenAiCompletion, StreamResult } from './openaiClient'
-import { OpenAiMessage, OpenAiToolDefinition } from './types'
+import { OpenAiMessage, OpenAiToolDefinition, SteeringMessage } from './types'
 import { ToolAttachment } from '../toolAttachments'
 import { createPinnedModelInvoker } from './sessionRuntime'
 import { shouldForwardImageToolAttachments } from './imageGenerationCore'
+
+export const STEERING_INSTRUCTION_HEADER = '[SYSTEM: USER STEERING GUIDANCE]'
+
+export function formatSteeringPrompt(userText: string): string {
+  return `${STEERING_INSTRUCTION_HEADER}
+The user sent the following guidance while you are actively working on this task.
+
+CRITICAL STEERING PROTOCOL:
+1. Do NOT stop, abort, or reset your current task or broader plan.
+2. Do NOT drop your ongoing workflow to focus exclusively on this message; it is guidance, not a workflow cancellation.
+3. Integrate this guidance smoothly into your ongoing execution and next steps.
+4. Continue your remaining work, adapting your actions to honor this guidance.
+
+User Guidance:
+${userText}`
+}
 
 export interface OrchestratorStreamState {
   round: number
@@ -69,6 +85,7 @@ export interface ToolOrchestratorOptions {
   tools: OpenAiToolDefinition[]
   getToolsForRound?: () => OpenAiToolDefinition[]
   getPendingNotifications?: () => BackgroundProcessNotification[]
+  getPendingSteeringMessages?: () => SteeringMessage[]
   signal: AbortSignal
   reasoningLevel?: string
   maxRounds?: number
@@ -189,6 +206,23 @@ export async function runToolOrchestration(
     return pending.length
   }
 
+  const appendPendingSteeringMessages = (): number => {
+    if (!options.getPendingSteeringMessages) return 0
+    const pending = options.getPendingSteeringMessages()
+    for (const steering of pending) {
+      const steeringMessage: OpenAiMessage = {
+        role: 'user',
+        content: formatSteeringPrompt(steering.text),
+        visible_user_content: steering.text,
+        isSteering: true,
+        deliveryMode: 'steering'
+      }
+      options.messages.push(steeringMessage)
+      options.onHistoryMessage?.(steeringMessage)
+    }
+    return pending.length
+  }
+
   const streamRound = async (
     round: number,
     finalizing: boolean,
@@ -280,6 +314,7 @@ export async function runToolOrchestration(
     abortIfNeeded(options.signal)
 
     appendPendingNotifications()
+    appendPendingSteeringMessages()
 
     const currentTools = options.getToolsForRound ? options.getToolsForRound() : options.tools
     const streamed = await streamRound(round, false, options.messages, currentTools)
@@ -295,6 +330,7 @@ export async function runToolOrchestration(
 
     if (streamed.result.toolCalls.length === 0) {
       if (appendPendingNotifications() > 0) continue
+      if (appendPendingSteeringMessages() > 0) continue
       return {
         accumulatedText,
         accumulatedReasoning,
@@ -392,6 +428,8 @@ export async function runToolOrchestration(
         nonRetryableFailure = execution.envelope.error.message
       }
     }
+
+    appendPendingSteeringMessages()
 
     if (nonRetryableFailure) {
       return finalize(

@@ -47,7 +47,7 @@ Prism is an Electron + React + TypeScript application with Tailwind CSS v4. You 
 
 ---
 
-## 3. Validation & Build Commands
+## 3. Validation, Build & CLI Commands
 
 ### 3.1 Typechecking & Tests
 - Always run `npm run typecheck` (`typecheck:node` && `typecheck:web`) after implementing code changes.
@@ -61,6 +61,10 @@ Prism is an Electron + React + TypeScript application with Tailwind CSS v4. You 
   npm run build:win
   ```
 - Do not run these commands under any circumstance, even for verification or if requested.
+
+### 3.3 Supabase CLI via npx
+- Always use the Supabase CLI via `npx` (e.g., `npx supabase <command>`), as the Supabase CLI is not guaranteed to be installed globally in the environment.
+- The Supabase CLI must also be properly configured when invoked via `npx` (e.g., ensuring appropriate flags, project references, or environment variables are provided so commands execute correctly).
 
 ---
 

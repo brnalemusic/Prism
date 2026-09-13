@@ -121,6 +121,8 @@ export interface AttachedFile {
   data: string
 }
 
+export type MessageDeliveryMode = 'standard' | 'steering' | 'queued'
+
 export type SessionMode = 'conversation' | 'execution' | 'discipline' | 'harness'
 
 /** Active workflow inside an isolated Harness session. */
@@ -737,6 +739,7 @@ export interface BrowserGenChunkEvent {
   fullHtml: string
 }
 
+
 export interface BrowserGenEndEvent {
   sessionId: string
   fullHtml: string
@@ -746,3 +749,21 @@ export interface BrowserGenErrorEvent {
   sessionId: string
   error: string
 }
+
+export interface ChatOpenedInBackgroundEvent {
+  chatId: string
+  title: string
+  workspace: WorkspaceKind
+  sessionMode: SessionMode
+  disciplinePath?: string
+  harnessPhase?: HarnessPhase
+  sourceChatId?: string
+  sourceChatTitle?: string
+  initialMessage?: string
+}
+
+export interface HarnessPhaseChangedEvent {
+  chatId: string
+  phase: HarnessPhase
+}
+

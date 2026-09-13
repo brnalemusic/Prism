@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { clsx } from 'clsx'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import {
@@ -851,6 +851,8 @@ function parseAnsi(text: string): React.ReactNode[] {
 }
 
 export function AnsiRenderer({ text }: { text: string }): React.JSX.Element {
+  const parsedContent = useMemo(() => parseAnsi(text), [text])
+
   return (
     <span className="ansi-renderer-root">
       <style dangerouslySetInnerHTML={{ __html: `
@@ -884,7 +886,7 @@ export function AnsiRenderer({ text }: { text: string }): React.JSX.Element {
         .ansi-renderer-root .ansi-bg-cyan { background-color: #155e75; }
         .ansi-renderer-root .ansi-bg-white { background-color: #e5e7eb; }
       `}} />
-      {parseAnsi(text)}
+      {parsedContent}
     </span>
   )
 }

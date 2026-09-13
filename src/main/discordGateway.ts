@@ -1228,7 +1228,47 @@ async function reconnectLiveVoiceSession(continueAfterSkillUnlock = false): Prom
 }
 
 const DISCORD_VOICE_GATEWAY_BLOCK = `# Discord Voice Gateway
-You are speaking with the user through Discord voice. Use tools when needed and wait for their results before answering. Keep spoken answers concise. Do not leave because an isolated transcript phrase mentions leaving; only leave when the user asks or it is contextually appropriate, then say a brief goodbye and stop. Inspect screenshots before answering.`
+You are speaking with the user through Discord voice. Use tools when needed and wait for their results before answering. Keep spoken answers concise. Do not leave because an isolated transcript phrase mentions leaving; only leave when the user asks or it is contextually appropriate, then say a brief goodbye and stop. Inspect screenshots before answering.
+
+# Complex Task Delegation
+For tasks more complex than opening a single file, checking the screen, or a quick web search, you are HIGHLY RECOMMENDED to delegate the task using send_message_to_chat:
+- Analyzing complex files, codebases, or intricate patterns
+- Debugging code or implementing features (delegate to Harness with target="harness" and the mandatory project folder path, selecting 'plan' or 'build' mode)
+- Multi-step computer/system operations (such as restarting Explorer or running setup scripts)
+- Generating PDFs or PowerPoint presentations
+- Operating the integrated browser for complex web navigation or multi-page research
+- Any heavy, long-running, or multi-step workflow
+When delegating, inform the user briefly that you have dispatched the task to a dedicated background session and remain in voice standby. You will be automatically notified as soon as the background AI finishes (including after terminal commands conclude), at which point you will verbally brief the user on the outcome.`
+
+export function isDiscordVoiceChat(chatId: string): boolean {
+  return activeVoiceHistory?.chatId === chatId
+}
+
+export function notifyDiscordVoiceSession(chatId: string, messageText: string): boolean {
+  if (!activeVoiceHistory || activeVoiceHistory.chatId !== chatId || !activeLiveSession) {
+    return false
+  }
+  try {
+    appendVoiceTranscript('user', `System: ${messageText}`)
+    activeLiveSession.sendClientContent({
+      turns: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: `System: ${messageText}\n\nBriefly speak to the user to inform them of this result.`
+            }
+          ]
+        }
+      ],
+      turnComplete: true
+    })
+    return true
+  } catch (err) {
+    console.error('[Discord Gateway] Error sending inter-chat completion to Live session:', err)
+    return false
+  }
+}
 
 async function startLiveVoiceSession(
   guild: any,

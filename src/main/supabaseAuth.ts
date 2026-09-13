@@ -759,23 +759,10 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
 
   try {
     const client = getSupabaseClient()
-    const { data: profile } = await client
-      .from('profiles')
-      .select('account_type')
-      .eq('id', user.id)
-      .maybeSingle()
-
-    if (profile?.account_type) {
-      const pType = String(profile.account_type).toLowerCase()
-      if (pType === 'enterprise' || pType === 'company') {
-        isPaidAccount = true
-      }
-    }
-
     const nowIso = new Date().toISOString()
     const { data: entLicenses } = await client
       .from('user_licenses')
-      .select('id, plan_id, type, license_key')
+      .select('id, plan_id, license_key')
       .eq('user_id', user.id)
       .eq('status', 'active')
       .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
@@ -784,7 +771,6 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
     if (entLicenses && entLicenses.length > 0) {
       const hasEntLicense = entLicenses.some((l: any) =>
         String(l.plan_id || '').toLowerCase().startsWith('enterprise') ||
-        String(l.type || '').toUpperCase() === 'ENTERPRISE' ||
         String(l.license_key || '').toUpperCase().includes('ENTERPRISE')
       )
       if (hasEntLicense) {
@@ -798,7 +784,8 @@ export async function getUserAiUsage(): Promise<UserAiUsageStatus | null> {
   const localLicense = getLicenseInfo()
   if (
     localLicense?.isActivated &&
-    (localLicense.type?.toUpperCase() === 'ENTERPRISE' || localLicense.type?.toUpperCase() === 'COMPANY')
+    (localLicense.type?.toUpperCase() === 'ENTERPRISE' ||
+      (localLicense as any).plan_id?.toLowerCase().startsWith('enterprise'))
   ) {
     isPaidAccount = true
   }

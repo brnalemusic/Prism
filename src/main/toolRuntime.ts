@@ -174,6 +174,33 @@ export function getGeminiFunctionDeclarations(
     }))
 }
 
+export const DISCORD_VOICE_ALLOWED_TOOLS = new Set<string>([
+  'send_message_to_chat',
+  'discord_leave_voice',
+  'read_chat',
+  'approve_harness_plan',
+  'computer_use_see_screen',
+  'web_search',
+  'open_browser_link',
+  'search_installed_applications',
+  'open_application',
+  'computer_use_read_file'
+])
+
+export function getDiscordVoiceGeminiDeclarations(): Array<{
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}> {
+  return toolsManifest
+    .filter((definition) => DISCORD_VOICE_ALLOWED_TOOLS.has(definition.name))
+    .map((definition) => ({
+      name: definition.name,
+      description: definition.description,
+      parameters: schemaForGemini(definition.inputSchema)
+    }))
+}
+
 function typeDescription(value: unknown): string {
   if (value === null) return 'null'
   if (Array.isArray(value)) return 'array'

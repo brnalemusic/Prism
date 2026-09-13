@@ -53,8 +53,10 @@ import type {
   AttachedFile,
   StreamingToolCall,
   ToolCallItem,
-  HarnessRoundItem
+  HarnessRoundItem,
+  QueuedTabMessage
 } from './types/tab'
+import type { MessageDeliveryMode } from '../../shared/types'
 import {
   StreamContext,
   StaticMarkdownComponents,
@@ -71,7 +73,11 @@ import {
   FilePpt,
   CheckCircle,
   XCircle,
-  GlobeSimple
+  GlobeSimple,
+  ChatTeardropText,
+  ArrowSquareOut,
+  Compass,
+  ClockCountdown
 } from '@phosphor-icons/react'
 
 import { ScreenshotModal } from './components/ScreenshotModal'
@@ -1711,6 +1717,7 @@ interface UserMessageRowProps {
   onSendSuggestion?: (payload: string, suggestionKey: string) => boolean
   suggestionMessageKey: string
   isSuggestionSendDisabled: boolean
+  handleLoadChat?: (id: string) => void
 }
 
 const areUserMessageRowPropsEqual = (
@@ -1721,7 +1728,8 @@ const areUserMessageRowPropsEqual = (
     prevProps.msg === nextProps.msg &&
     prevProps.isSuggestionSendDisabled === nextProps.isSuggestionSendDisabled &&
     prevProps.suggestionMessageKey === nextProps.suggestionMessageKey &&
-    prevProps.markdownComponents === nextProps.markdownComponents
+    prevProps.markdownComponents === nextProps.markdownComponents &&
+    prevProps.handleLoadChat === nextProps.handleLoadChat
   )
 }
 
@@ -1731,7 +1739,8 @@ const UserMessageRow = React.memo(function UserMessageRow({
   markdownComponents,
   onSendSuggestion,
   suggestionMessageKey,
-  isSuggestionSendDisabled
+  isSuggestionSendDisabled,
+  handleLoadChat
 }: UserMessageRowProps) {
   const suggestionRuntime = useMemo(
     () => ({
@@ -1764,6 +1773,30 @@ const UserMessageRow = React.memo(function UserMessageRow({
       className="chat-message-viewport w-full flex flex-col items-end px-4 py-2.5 transition-colors duration-300 animate-message"
     >
       <div className="rounded-[22px] bg-white/[0.045] shadow-[var(--glass-specular-top),0_10px_28px_-10px_rgba(0,0,0,0.4)] px-5 py-3.5 text-[14.5px] leading-relaxed text-text-primary max-w-[75%] select-text">
+        {(msg.deliveryMode === 'steering' || msg.isSteering) && (
+          <div className="inline-flex items-center gap-1.5 text-accent-primary text-[11px] font-semibold tracking-wide uppercase mb-2 select-none px-2 py-0.5 rounded-md bg-accent-primary/[0.08] border border-accent-primary/20">
+            <Compass size={13} weight="bold" className="shrink-0" />
+            <span>Guidance</span>
+          </div>
+        )}
+        {(msg.deliveryMode === 'queued' || msg.isQueued) && (
+          <div className="inline-flex items-center gap-1.5 text-amber-400 text-[11px] font-semibold tracking-wide uppercase mb-2 select-none px-2 py-0.5 rounded-md bg-amber-400/[0.08] border border-amber-400/20">
+            <ClockCountdown size={13} weight="bold" className="shrink-0 animate-pulse" />
+            <span>Queued</span>
+          </div>
+        )}
+        {msg.sourceChatId && (
+          <button
+            type="button"
+            onClick={() => handleLoadChat?.(msg.sourceChatId!)}
+            className="group inline-flex items-center gap-1.5 mb-2.5 px-3 py-1.5 rounded-xl bg-accent-primary/[0.08] hover:bg-accent-primary/[0.16] border border-accent-primary/20 text-accent-primary text-[12px] font-medium transition-all duration-150 cursor-pointer select-none"
+            title="Open source chat"
+          >
+            <ChatTeardropText size={14} weight="bold" className="shrink-0" />
+            <span>Sent from {msg.sourceChatTitle || 'another chat'}</span>
+            <ArrowSquareOut size={13} className="opacity-70 group-hover:opacity-100 transition-opacity ml-0.5" />
+          </button>
+        )}
         {msg.quote && (
           <div className="relative mb-2.5 flex flex-col gap-1 rounded-xl bg-white/[0.04] shadow-[inset_2px_0_0_0_var(--accent-secondary)] px-3.5 py-2 select-text">
             <div className="flex items-center gap-1.5 text-accent-secondary text-[11.5px] font-semibold tracking-wide select-none">
@@ -1936,6 +1969,7 @@ const TabMessagesList = React.memo(function TabMessagesList({
               onSendSuggestion={handleSendRowSuggestion}
               suggestionMessageKey={`${currentChatId || tabId}:user:${i}`}
               isSuggestionSendDisabled={isSuggestionSendDisabled}
+              handleLoadChat={handleLoadChat}
             />
           )
         }
@@ -1970,6 +2004,105 @@ function findActiveStreamingMessageIndex(messages: Message[]): number {
   const lastIndex = messages.length - 1
   const lastMessage = messages[lastIndex]
   return lastMessage?.role === 'ai' && lastMessage.isStreaming ? lastIndex : -1
+}
+
+function finalizeActiveAiTurn(messages: Message[]): Message[] {
+  const lastAiIndex = messages.findLastIndex((m) => m.role === 'ai')
+  if (lastAiIndex === -1) return messages
+
+  const lastAi = messages[lastAiIndex]
+  const wasActive = Boolean(
+    lastAi.isStreaming ||
+    lastAi.isThinking ||
+    lastAi.isWritingToolCall ||
+    lastAi.isConnecting ||
+    lastAi.streamingToolCalls?.length ||
+    lastAi.toolCalls?.some(
+      (tc) => tc.status === 'running' || tc.status === 'writing' || tc.status === 'cooldown'
+    )
+  )
+
+  if (!wasActive) return messages
+
+  const now = Date.now()
+  const workStartTime = lastAi.workStartTime || now
+  const workedDuration =
+    lastAi.workedDuration !== undefined
+      ? lastAi.workedDuration
+      : Math.max(1, Math.round((now - workStartTime) / 1000))
+
+  const thinkingDuration =
+    lastAi.thinkingDuration !== undefined
+      ? lastAi.thinkingDuration
+      : lastAi.thinkingStartTime
+        ? Math.max(1, Math.round((now - lastAi.thinkingStartTime) / 1000))
+        : undefined
+
+  let closedToolCalls = lastAi.toolCalls ? [...lastAi.toolCalls] : []
+
+  if (lastAi.streamingToolCalls && lastAi.streamingToolCalls.length > 0) {
+    for (const stc of lastAi.streamingToolCalls) {
+      const alreadyExists = closedToolCalls.some(
+        (tc) =>
+          (stc.id && tc.id === stc.id) ||
+          (tc.name === stc.name && (tc.status === 'running' || tc.status === 'done'))
+      )
+      if (!alreadyExists && stc.name) {
+        let parsedArgs: Record<string, unknown> = {}
+        try {
+          const parsed = JSON.parse(stc.arguments) as unknown
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            parsedArgs = parsed as Record<string, unknown>
+          }
+        } catch {
+          /* ignore */
+        }
+        closedToolCalls.push({
+          id: stc.id,
+          name: stc.name,
+          args: parsedArgs,
+          status: 'done'
+        })
+      }
+    }
+  }
+
+  closedToolCalls = closedToolCalls.map((tc) => {
+    if (tc.status === 'running' || tc.status === 'writing' || tc.status === 'cooldown') {
+      return {
+        ...tc,
+        status: isToolErrorResult(tc.result) ? 'error' : 'done'
+      }
+    }
+    return tc
+  })
+
+  const updatedHarnessRounds = lastAi.harnessRounds?.map((hr) => ({
+    ...hr,
+    toolCalls: hr.toolCalls?.map((tc) =>
+      tc.status === 'running' || tc.status === 'writing' || tc.status === 'cooldown'
+        ? { ...tc, status: isToolErrorResult(tc.result) ? ('error' as const) : ('done' as const) }
+        : tc
+    ),
+    streamingToolCalls: undefined
+  }))
+
+  const updatedAi: Message = {
+    ...lastAi,
+    isStreaming: false,
+    isThinking: false,
+    isWritingToolCall: false,
+    isConnecting: false,
+    workedDuration,
+    thinkingDuration,
+    toolCalls: closedToolCalls,
+    streamingToolCalls: undefined,
+    harnessRounds: updatedHarnessRounds
+  }
+
+  const result = [...messages]
+  result[lastAiIndex] = updatedAi
+  return result
 }
 
 function RealApp(): React.JSX.Element {
@@ -2017,6 +2150,10 @@ function RealApp(): React.JSX.Element {
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false)
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false)
   const [config, setConfig] = useState<AppConfig | null>(null)
+  const configRef = useRef(config)
+  useEffect(() => {
+    configRef.current = config
+  }, [config])
   const [activeWorkflow, setActiveWorkflow] = useState<SlashWorkflow | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [chatTodos, setChatTodos] = useState<Record<string, TodoState>>({})
@@ -2084,29 +2221,26 @@ function RealApp(): React.JSX.Element {
 
   const checkEnterpriseStatus = useCallback(async () => {
     try {
-      const [usage, license, user] = await Promise.all([
+      const [usage, license] = await Promise.all([
         window.api.getUserAiUsage().catch(() => null),
         window.api.getLicenseInfo
           ? window.api.getLicenseInfo().catch(() => null)
-          : Promise.resolve(null),
-        window.api.getAuthUser ? window.api.getAuthUser().catch(() => null) : Promise.resolve(null)
+          : Promise.resolve(null)
       ])
 
-      const isUsageEnt = usage?.tier?.toLowerCase() === 'paid' ||
-        usage?.tier?.toLowerCase().startsWith('enterprise') ||
-        usage?.tier?.toLowerCase() === 'company'
+      const isUsageEnt =
+        usage?.tier?.toLowerCase() === 'paid' ||
+        usage?.tier?.toLowerCase().startsWith('enterprise')
 
       const isLicenseEnt = Boolean(
         license?.isActivated &&
         (license?.type?.toUpperCase() === 'ENTERPRISE' ||
-          license?.type?.toUpperCase() === 'COMPANY')
+          (license as any)?.plan_id?.toLowerCase().startsWith('enterprise'))
       )
 
-      const isUserEnt =
-        user?.accountType?.toLowerCase() === 'enterprise' ||
-        user?.accountType?.toLowerCase() === 'company'
-
-      const isEnt = isUsageEnt || isLicenseEnt || isUserEnt
+      // An account with company/enterprise account_type is an organizational model,
+      // NOT an Enterprise subscription plan. Paid model access requires an active plan or license.
+      const isEnt = isUsageEnt || isLicenseEnt
       setIsEnterpriseUser(isEnt)
     } catch {
       setIsEnterpriseUser(false)
@@ -2128,8 +2262,9 @@ function RealApp(): React.JSX.Element {
         .catch((err) => console.error('[Auth] Initial getAuthUser failed:', err))
     }
 
+    let unsubAuth: (() => void) | undefined
     if (window.api?.onAuthSessionUpdated) {
-      const unsub = window.api.onAuthSessionUpdated((user) => {
+      unsubAuth = window.api.onAuthSessionUpdated((user) => {
         setAuthUser(user)
         checkEnterpriseStatus()
         if (user) {
@@ -2142,9 +2277,25 @@ function RealApp(): React.JSX.Element {
           }, 600)
         }
       })
-      return unsub
     }
-    return () => {}
+
+    let unsubLicense: (() => void) | undefined
+    if (window.api?.onLicenseStatusChanged) {
+      unsubLicense = window.api.onLicenseStatusChanged(() => {
+        void checkEnterpriseStatus()
+      })
+    }
+
+    const onCustomLicenseUpdate = (): void => {
+      void checkEnterpriseStatus()
+    }
+    window.addEventListener('prism:license-updated', onCustomLicenseUpdate)
+
+    return () => {
+      unsubAuth?.()
+      unsubLicense?.()
+      window.removeEventListener('prism:license-updated', onCustomLicenseUpdate)
+    }
   }, [checkEnterpriseStatus])
 
   const isKeyMissing = useMemo(() => {
@@ -2247,6 +2398,8 @@ function RealApp(): React.JSX.Element {
   useEffect(() => {
     activeHarnessTabIdRef.current = activeHarnessTabId
   }, [activeHarnessTabId])
+
+  const chunkBufferRef = useRef<PerChatStreamBuffer<any> | null>(null)
 
   useEffect(() => {
     return window.api.onHarnessContextInjection(({ chatId, snapshot }) => {
@@ -2519,6 +2672,7 @@ function RealApp(): React.JSX.Element {
     const removeConfigListener = window.api.onConfigChanged((cfg) => {
       if (cfg) {
         setConfig(cfg)
+        void checkEnterpriseStatus()
       }
     })
     return () => {
@@ -2946,6 +3100,21 @@ function RealApp(): React.JSX.Element {
 
   // Load chat into ONLY the focused tab
   const handleLoadChat = useCallback(async (chatId: string, workspace: WorkspaceKind = 'chat') => {
+    const existingChatTab = tabsRef.current.find((t) => t.chatId === chatId || t.id === chatId)
+    if (existingChatTab) {
+      setActiveView('chat')
+      setActiveTabId(existingChatTab.id)
+      return
+    }
+    const existingHarnessTab = harnessTabsRef.current.find(
+      (t) => t.chatId === chatId || t.id === chatId
+    )
+    if (existingHarnessTab) {
+      setActiveView('harness')
+      setActiveHarnessTabId(existingHarnessTab.id)
+      return
+    }
+
     setActiveView(workspace)
     const setWorkspaceTabs = workspace === 'harness' ? setHarnessTabs : setTabs
     const activeWorkspaceTabId =
@@ -2953,10 +3122,21 @@ function RealApp(): React.JSX.Element {
     const setActiveWorkspaceTabId =
       workspace === 'harness' ? setActiveHarnessTabId : setActiveTabId
     try {
-      const rawContent =
+      let rawContent =
         workspace === 'harness'
           ? await window.api.loadHarnessSession(chatId)
           : await window.api.loadChat(chatId)
+      if (!Array.isArray(rawContent) || rawContent.length === 0) {
+        const fallback =
+          workspace === 'harness'
+            ? await window.api.loadChat(chatId)
+            : await window.api.loadHarnessSession(chatId)
+        if (Array.isArray(fallback) && fallback.length > 0) {
+          rawContent = fallback
+          workspace = workspace === 'harness' ? 'chat' : 'harness'
+          setActiveView(workspace)
+        }
+      }
       if (!Array.isArray(rawContent)) return
 
       const extractMessageText = (c: any): string => {
@@ -3136,10 +3316,19 @@ function RealApp(): React.JSX.Element {
 
           let quote: string | undefined =
             typeof c.quote === 'string' && c.quote.trim() ? c.quote.trim() : undefined
+          let isSteering = c.isSteering === true || c.deliveryMode === 'steering'
           let displayText = rawText
             .replace(/^\[FORCE_SEARCH\]\s*/i, '')
             .replace(/<attached_file[^>]*\/>/gi, '')
             .trim()
+
+          if (rawText.startsWith('[SYSTEM: USER STEERING GUIDANCE]')) {
+            isSteering = true
+            displayText =
+              typeof c.visible_user_content === 'string' && c.visible_user_content.trim()
+                ? c.visible_user_content.trim()
+                : rawText.replace(/^[\s\S]*User Guidance:\n?/i, '').trim()
+          }
 
           // Backward compatibility: If no explicit quote property exists, check if text starts with markdown blockquote
           if (!quote && displayText.startsWith('> ')) {
@@ -3195,7 +3384,11 @@ function RealApp(): React.JSX.Element {
             content: displayText,
             quote,
             screenshot,
-            file
+            file,
+            isSteering,
+            deliveryMode: isSteering ? 'steering' : c.deliveryMode,
+            sourceChatId: typeof c.sourceChatId === 'string' ? c.sourceChatId : undefined,
+            sourceChatTitle: typeof c.sourceChatTitle === 'string' ? c.sourceChatTitle : undefined
           })
           continue
         }
@@ -3500,12 +3693,14 @@ function RealApp(): React.JSX.Element {
     overrideSessionMode?: SessionMode
     forceYoutube?: boolean
     isSuggestion?: boolean
+    deliveryMode?: MessageDeliveryMode
+    alreadyInTimeline?: boolean
   }
 
   const sendMessageToTab = useCallback(
     (targetTabId: string, text: string, options: SendMessageOptions = {}): boolean => {
       const currentTab = tabsRef.current.find((tab) => tab.id === targetTabId)
-      if (!currentTab || currentTab.isProcessing || !isOnlineRef.current || !text.trim()) {
+      if (!currentTab || !isOnlineRef.current || !text.trim()) {
         return false
       }
 
@@ -3524,6 +3719,79 @@ function RealApp(): React.JSX.Element {
         .replace(/<attached_file[^>]*\/>/gi, '')
         .replace(/^\[FORCE_SEARCH\]\s*/i, '')
         .trim()
+
+      if (currentTab.isProcessing && !options.alreadyInTimeline) {
+        if (options.deliveryMode === 'steering') {
+          chunkBufferRef.current?.finalize(chatId)
+
+          const userMessage: Message = {
+            role: 'user',
+            content: displayContent,
+            quote: activeQuote,
+            screenshot: activeScreenshot || undefined,
+            file: activeFile || undefined,
+            isSteering: true,
+            deliveryMode: 'steering'
+          }
+          setTabs((prev) =>
+            prev.map((tab) => {
+              if (tab.id !== targetTabId) return tab
+              const finalizedMessages = finalizeActiveAiTurn(tab.messages)
+              return {
+                ...tab,
+                messages: [...finalizedMessages, userMessage],
+                inputText: '',
+                quotedText: null,
+                attachedFile: null
+              }
+            })
+          )
+          window.api.sendSteeringMessage({
+            chatId,
+            message: text,
+            attachedFile: activeFile || undefined,
+            workspace: 'chat'
+          })
+          setQuotedText(null)
+          return true
+        } else if (options.deliveryMode === 'queued') {
+          const queueId = `queue-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+          const userMessage: Message = {
+            id: queueId,
+            role: 'user',
+            content: displayContent,
+            quote: activeQuote,
+            screenshot: activeScreenshot || undefined,
+            file: activeFile || undefined,
+            isQueued: true,
+            deliveryMode: 'queued'
+          }
+          const queuedItem: QueuedTabMessage = {
+            id: queueId,
+            text,
+            file: activeFile || null,
+            quote: activeQuote || null,
+            deliveryMode: 'queued'
+          }
+          setTabs((prev) =>
+            prev.map((tab) => {
+              if (tab.id !== targetTabId) return tab
+              return {
+                ...tab,
+                messages: [...tab.messages, userMessage],
+                queuedMessages: [...(tab.queuedMessages || []), queuedItem],
+                inputText: '',
+                quotedText: null,
+                attachedFile: null
+              }
+            })
+          )
+          setQuotedText(null)
+          return true
+        }
+        return false
+      }
+
       const userMessage: Message = {
         role: 'user',
         content: displayContent,
@@ -3540,7 +3808,7 @@ function RealApp(): React.JSX.Element {
             ...tab,
             chatId,
             isProcessing: true,
-            messages: [...tab.messages, userMessage]
+            messages: options.alreadyInTimeline ? tab.messages : [...tab.messages, userMessage]
           }
 
           return isSuggestion
@@ -3600,11 +3868,13 @@ function RealApp(): React.JSX.Element {
         isSuggestion?: boolean
         phaseOverride?: 'plan' | 'build'
         tabOverride?: TabSession
+        deliveryMode?: MessageDeliveryMode
+        alreadyInTimeline?: boolean
       } = {}
     ): boolean => {
       const currentTab =
         options.tabOverride || harnessTabsRef.current.find((tab) => tab.id === targetTabId)
-      if (!currentTab || currentTab.isProcessing || !isOnlineRef.current || !text.trim()) {
+      if (!currentTab || !isOnlineRef.current || !text.trim()) {
         return false
       }
       if (!currentTab.disciplinePath) {
@@ -3622,16 +3892,90 @@ function RealApp(): React.JSX.Element {
         : currentTab.quotedText || quotedTextRef.current || undefined
       const explorerContext = isSuggestion ? [] : currentTab.harnessExplorerContext || []
       const displayContent = text.replace(/<attached_file[^>]*\/>/gi, '').trim()
+      const activeScreenshot = activeFile?.mimeType.startsWith('image/')
+        ? activeFile.data.startsWith('data:')
+          ? activeFile.data
+          : `data:${activeFile.mimeType};base64,${activeFile.data}`
+        : undefined
+
+      if (currentTab.isProcessing && !options.alreadyInTimeline) {
+        if (options.deliveryMode === 'steering') {
+          chunkBufferRef.current?.finalize(chatId)
+
+          const userMessage: Message = {
+            role: 'user',
+            content: displayContent,
+            quote: activeQuote,
+            file: activeFile || undefined,
+            screenshot: activeScreenshot,
+            isSteering: true,
+            deliveryMode: 'steering'
+          }
+          setHarnessTabs((previous) =>
+            previous.map((tab) => {
+              if (tab.id !== targetTabId) return tab
+              const finalizedMessages = finalizeActiveAiTurn(tab.messages)
+              return {
+                ...tab,
+                messages: [...finalizedMessages, userMessage],
+                inputText: '',
+                quotedText: null,
+                attachedFile: null
+              }
+            })
+          )
+          window.api.sendSteeringMessage({
+            chatId,
+            message: text,
+            attachedFile: activeFile || undefined,
+            workspace: 'harness'
+          })
+          setQuotedText(null)
+          return true
+        } else if (options.deliveryMode === 'queued') {
+          const queueId = `queue-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+          const userMessage: Message = {
+            id: queueId,
+            role: 'user',
+            content: displayContent,
+            quote: activeQuote,
+            file: activeFile || undefined,
+            screenshot: activeScreenshot,
+            isQueued: true,
+            deliveryMode: 'queued'
+          }
+          const queuedItem: QueuedTabMessage = {
+            id: queueId,
+            text,
+            file: activeFile || null,
+            quote: activeQuote || null,
+            deliveryMode: 'queued'
+          }
+          setHarnessTabs((previous) =>
+            previous.map((tab) => {
+              if (tab.id !== targetTabId) return tab
+              return {
+                ...tab,
+                messages: [...tab.messages, userMessage],
+                queuedMessages: [...(tab.queuedMessages || []), queuedItem],
+                inputText: '',
+                quotedText: null,
+                attachedFile: null
+              }
+            })
+          )
+          setQuotedText(null)
+          return true
+        }
+        return false
+      }
+
       const userMessage: Message = {
         role: 'user',
         content: displayContent,
         quote: activeQuote,
         file: activeFile || undefined,
-        screenshot: activeFile?.mimeType.startsWith('image/')
-          ? activeFile.data.startsWith('data:')
-            ? activeFile.data
-            : `data:${activeFile.mimeType};base64,${activeFile.data}`
-          : undefined
+        screenshot: activeScreenshot
       }
 
       setHarnessTabs((previous) =>
@@ -3644,7 +3988,7 @@ function RealApp(): React.JSX.Element {
             sessionMode: 'harness' as const,
             harnessPhase,
             isProcessing: true,
-            messages: [...tab.messages, userMessage]
+            messages: options.alreadyInTimeline ? tab.messages : [...tab.messages, userMessage]
           }
           return isSuggestion
             ? updated
@@ -3717,7 +4061,11 @@ function RealApp(): React.JSX.Element {
   )
 
   const handleHarnessSend = useCallback(
-    (text: string, file?: AttachedFile | null): void => {
+    (
+      text: string,
+      file?: AttachedFile | null,
+      options?: { deliveryMode?: MessageDeliveryMode }
+    ): void => {
       const command = parseHarnessPlanCommand(text)
       if (command.matched) {
         const tabId = activeHarnessTabIdRef.current
@@ -3732,11 +4080,18 @@ function RealApp(): React.JSX.Element {
         }
         const request = command.request
         if (request) {
-          sendHarnessMessageToTab(tabId, request, { file, phaseOverride: 'plan' })
+          sendHarnessMessageToTab(tabId, request, {
+            file,
+            phaseOverride: 'plan',
+            deliveryMode: options?.deliveryMode
+          })
         }
         return
       }
-      sendHarnessMessageToTab(activeHarnessTabIdRef.current, text, { file })
+      sendHarnessMessageToTab(activeHarnessTabIdRef.current, text, {
+        file,
+        deliveryMode: options?.deliveryMode
+      })
     },
     [sendHarnessMessageToTab]
   )
@@ -3754,13 +4109,15 @@ function RealApp(): React.JSX.Element {
       file?: AttachedFile | null,
       overrideModel?: string,
       overrideSessionMode?: SessionMode,
-      forceYoutube?: boolean
+      forceYoutube?: boolean,
+      options?: { deliveryMode?: MessageDeliveryMode }
     ): void => {
       sendMessageToTab(activeTabIdRef.current, text, {
         file,
         overrideModel,
         overrideSessionMode,
-        forceYoutube
+        forceYoutube,
+        deliveryMode: options?.deliveryMode
       })
     },
     [sendMessageToTab]
@@ -3771,6 +4128,69 @@ function RealApp(): React.JSX.Element {
       sendMessageToTab(tabId, payload, { isSuggestion: true }),
     [sendMessageToTab]
   )
+
+  const drainTabQueue = useCallback(
+    (chatId: string, workspace?: WorkspaceKind) => {
+      const isHarness = workspace === 'harness' || harnessChatIdsRef.current.has(chatId)
+      if (isHarness) {
+        const tab = harnessTabsRef.current.find((t) => t.chatId === chatId)
+        if (tab && tab.queuedMessages && tab.queuedMessages.length > 0) {
+          const [nextQueued, ...remainingQueued] = tab.queuedMessages
+          setHarnessTabs((prev) =>
+            prev.map((t) => {
+              if (t.id !== tab.id) return t
+              return {
+                ...t,
+                messages: t.messages.map((m) =>
+                  m.id === nextQueued.id ||
+                  (m.isQueued &&
+                    m.content === nextQueued.text.replace(/<attached_file[^>]*\/>/gi, '').trim())
+                    ? { ...m, isQueued: false, deliveryMode: 'standard' as const }
+                    : m
+                ),
+                queuedMessages: remainingQueued
+              }
+            })
+          )
+          sendHarnessMessageToTab(tab.id, nextQueued.text, {
+            file: nextQueued.file,
+            deliveryMode: 'standard',
+            alreadyInTimeline: true
+          })
+        }
+      } else {
+        const tab = tabsRef.current.find((t) => t.chatId === chatId)
+        if (tab && tab.queuedMessages && tab.queuedMessages.length > 0) {
+          const [nextQueued, ...remainingQueued] = tab.queuedMessages
+          setTabs((prev) =>
+            prev.map((t) => {
+              if (t.id !== tab.id) return t
+              return {
+                ...t,
+                messages: t.messages.map((m) =>
+                  m.id === nextQueued.id ||
+                  (m.isQueued &&
+                    m.content === nextQueued.text.replace(/<attached_file[^>]*\/>/gi, '').trim())
+                    ? { ...m, isQueued: false, deliveryMode: 'standard' as const }
+                    : m
+                ),
+                queuedMessages: remainingQueued
+              }
+            })
+          )
+          sendMessageToTab(tab.id, nextQueued.text, {
+            file: nextQueued.file,
+            deliveryMode: 'standard',
+            alreadyInTimeline: true
+          })
+        }
+      }
+    },
+    [sendHarnessMessageToTab, sendMessageToTab]
+  )
+
+  const drainTabQueueRef = useRef(drainTabQueue)
+  drainTabQueueRef.current = drainTabQueue
 
   const handleSendRef = useRef(handleSend)
   handleSendRef.current = handleSend
@@ -4278,6 +4698,7 @@ function RealApp(): React.JSX.Element {
       cancelAnimationFrame,
       flushChunk
     )
+    chunkBufferRef.current = chunkBuffer
     const flushPendingChunk = (chatId?: string): void =>
       chatId ? chunkBuffer.flush(chatId) : chunkBuffer.flushAll()
 
@@ -4338,12 +4759,13 @@ function RealApp(): React.JSX.Element {
                 ) || undefined
 
               const workStartTime = lastMsg.workStartTime || Date.now()
+              const calculatedDuration = Math.max(1, Math.round((Date.now() - workStartTime) / 1000))
               let finalWorkedDuration =
-                eventWorkedDuration !== undefined
-                  ? eventWorkedDuration
-                  : lastMsg.workedDuration !== undefined
-                    ? lastMsg.workedDuration
-                    : Math.max(1, Math.round((Date.now() - workStartTime) / 1000))
+                lastMsg.workedDuration !== undefined
+                  ? lastMsg.workedDuration
+                  : eventWorkedDuration !== undefined && !newMessages.some((m) => m.isSteering)
+                    ? eventWorkedDuration
+                    : calculatedDuration
 
               let promotedToolCalls = lastMsg.toolCalls || []
               if (lastMsg.streamingToolCalls && lastMsg.streamingToolCalls.length > 0) {
@@ -4437,6 +4859,9 @@ function RealApp(): React.JSX.Element {
           return tab
         })
       )
+      setTimeout(() => {
+        drainTabQueueRef.current?.(chatId, data.workspace)
+      }, 50)
     })
 
     const removeChatErrorListener = window.api.onChatError((data) => {
@@ -4742,9 +5167,104 @@ function RealApp(): React.JSX.Element {
       })
     })
 
+    interface PendingToolUpdateItem {
+      chatId: string
+      toolCallName: string
+      searchTitles: string[]
+      outputChunk: string
+      runId?: string
+    }
+
+    const pendingToolUpdates = new Map<string, PendingToolUpdateItem>()
+    let toolUpdateRafId: number | null = null
+
+    const flushToolUpdates = (targetChatId?: string): void => {
+      if (pendingToolUpdates.size === 0) {
+        if (toolUpdateRafId !== null) {
+          cancelAnimationFrame(toolUpdateRafId)
+          toolUpdateRafId = null
+        }
+        return
+      }
+
+      const updatesToProcess: PendingToolUpdateItem[] = []
+      for (const [key, item] of pendingToolUpdates.entries()) {
+        if (!targetChatId || item.chatId === targetChatId) {
+          updatesToProcess.push(item)
+          pendingToolUpdates.delete(key)
+        }
+      }
+
+      if (pendingToolUpdates.size === 0 && toolUpdateRafId !== null) {
+        cancelAnimationFrame(toolUpdateRafId)
+        toolUpdateRafId = null
+      }
+
+      if (updatesToProcess.length === 0) return
+
+      const updatesByChat = new Map<string, PendingToolUpdateItem[]>()
+      for (const upd of updatesToProcess) {
+        const list = updatesByChat.get(upd.chatId) || []
+        list.push(upd)
+        updatesByChat.set(upd.chatId, list)
+      }
+
+      for (const [chatId, updates] of updatesByChat.entries()) {
+        const setTargetTabs = setTabsForChat(chatId)
+        setTargetTabs((prev) =>
+          prev.map((tab) => {
+            if (tab.chatId !== chatId) return tab
+            const newMessages = [...tab.messages]
+            let tabModified = false
+
+            for (const upd of updates) {
+              for (let i = newMessages.length - 1; i >= 0; i--) {
+                const msg = newMessages[i]
+                if (msg.role === 'ai' && msg.toolCalls) {
+                  const toolCallIndex = msg.toolCalls.findLastIndex(
+                    (t) =>
+                      t.name === upd.toolCallName &&
+                      (t.status === 'running' || t.status === 'writing' || t.status === 'done')
+                  )
+                  if (toolCallIndex !== -1) {
+                    const lastMsg = { ...msg }
+                    const toolCalls = [...(lastMsg.toolCalls || [])]
+                    const toolCall = { ...toolCalls[toolCallIndex] }
+
+                    if (upd.searchTitles.length > 0) {
+                      toolCall.searchUpdates = [
+                        ...(toolCall.searchUpdates || []),
+                        ...upd.searchTitles
+                      ]
+                    }
+                    if (upd.outputChunk) {
+                      toolCall.terminalOutput =
+                        `${toolCall.terminalOutput || ''}${upd.outputChunk}`.slice(-100_000)
+                    }
+                    if (upd.runId) {
+                      toolCall.runId = upd.runId
+                    }
+
+                    toolCalls[toolCallIndex] = toolCall
+                    lastMsg.toolCalls = toolCalls
+                    newMessages[i] = lastMsg
+                    tabModified = true
+                    break
+                  }
+                }
+              }
+            }
+
+            return tabModified ? { ...tab, messages: newMessages } : tab
+          })
+        )
+      }
+    }
+
     const removeToolEndListener = window.api.onToolEnd((data) => {
       const { chatId } = data
       flushPendingChunk(chatId)
+      flushToolUpdates(chatId)
       const setTargetTabs = setTabsForChat(chatId, data.workspace)
       setTargetTabs((prev) =>
         prev.map((tab) => {
@@ -4810,48 +5330,34 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeToolUpdateListener = window.api.onToolUpdate((data) => {
-      const { chatId } = data
-      const setTargetTabs = setTabsForChat(chatId)
-      setTargetTabs((prev) =>
-        prev.map((tab) => {
-          if (tab.chatId === chatId) {
-            const newMessages = [...tab.messages]
-            for (let i = newMessages.length - 1; i >= 0; i--) {
-              const msg = newMessages[i]
-              if (msg.role === 'ai' && msg.toolCalls) {
-                const toolCallIndex = msg.toolCalls.findLastIndex(
-                  (t) =>
-                    t.name === data.toolCallName &&
-                    (t.status === 'running' || t.status === 'writing' || t.status === 'done')
-                )
-                if (toolCallIndex !== -1) {
-                  const lastMsg = { ...msg }
-                  const toolCalls = [...(lastMsg.toolCalls || [])]
-                  const toolCall = { ...toolCalls[toolCallIndex] }
-                  if (data.toolCallName === 'web_search' && data.update.searchTitle) {
-                    toolCall.searchUpdates = [
-                      ...(toolCall.searchUpdates || []),
-                      data.update.searchTitle
-                    ]
-                  }
-                  if (typeof data.update.outputChunk === 'string') {
-                    toolCall.terminalOutput =
-                      `${toolCall.terminalOutput || ''}${data.update.outputChunk}`.slice(-100_000)
-                  }
-                  if (typeof data.update.runId === 'string') {
-                    toolCall.runId = data.update.runId
-                  }
-                  toolCalls[toolCallIndex] = toolCall
-                  lastMsg.toolCalls = toolCalls
-                  newMessages[i] = lastMsg
-                  return { ...tab, messages: newMessages }
-                }
-              }
-            }
-          }
-          return tab
+      const { chatId, toolCallName, update } = data
+      const key = `${chatId}::${toolCallName}`
+      const existing = pendingToolUpdates.get(key) || {
+        chatId,
+        toolCallName,
+        searchTitles: [],
+        outputChunk: '',
+        runId: undefined
+      }
+
+      if (toolCallName === 'web_search' && update.searchTitle) {
+        existing.searchTitles.push(update.searchTitle)
+      }
+      if (typeof update.outputChunk === 'string') {
+        existing.outputChunk += update.outputChunk
+      }
+      if (typeof update.runId === 'string') {
+        existing.runId = update.runId
+      }
+
+      pendingToolUpdates.set(key, existing)
+
+      if (toolUpdateRafId === null) {
+        toolUpdateRafId = requestAnimationFrame(() => {
+          toolUpdateRafId = null
+          flushToolUpdates()
         })
-      )
+      }
     })
 
     const removeTitleReceivedListener = window.api.onChatTitleReceived(({ id, title }) => {
@@ -4941,8 +5447,98 @@ function RealApp(): React.JSX.Element {
       }
     })
 
+    const removeChatOpenedInBackgroundListener = window.api.onChatOpenedInBackground?.((event) => {
+      setRunningChats((prev) => ({ ...prev, [event.chatId]: true }))
+
+      if (event.workspace === 'harness') {
+        setHarnessTabs((prevTabs) => {
+          if (prevTabs.some((t) => t.chatId === event.chatId || t.id === event.chatId)) {
+            return prevTabs
+          }
+          const harnessModel =
+            selectedModelRef.current || configRef.current?.lastSelectedChatModel || ''
+          const newTab: TabSession = {
+            id: event.chatId,
+            chatId: event.chatId,
+            title: event.title || 'New Harness',
+            messages: event.initialMessage
+              ? [
+                  {
+                    role: 'user',
+                    content: event.initialMessage,
+                    sourceChatId: event.sourceChatId,
+                    sourceChatTitle: event.sourceChatTitle
+                  }
+                ]
+              : [],
+            inputText: '',
+            attachedFile: null,
+            workspace: 'harness',
+            sessionMode: 'harness',
+            harnessPhase: event.harnessPhase || 'build',
+            disciplinePath: event.disciplinePath || '',
+            isProcessing: true,
+            isTodoOpen: false,
+            selectedModel: harnessModel,
+            isSearchEnabled: false,
+            disabledSkills: [],
+            harnessExplorerContext: []
+          }
+          return [...prevTabs, newTab]
+        })
+      } else {
+        setTabs((prevTabs) => {
+          if (prevTabs.some((t) => t.chatId === event.chatId || t.id === event.chatId)) {
+            return prevTabs
+          }
+          const defaultMode = event.sessionMode || 'execution'
+          const defaultPath =
+            event.disciplinePath ||
+            (defaultMode === 'discipline' ? configRef.current?.disciplinePath || '' : '')
+          const newTab: TabSession = {
+            id: event.chatId,
+            chatId: event.chatId,
+            title: event.title || 'New Chat',
+            messages: event.initialMessage
+              ? [
+                  {
+                    role: 'user',
+                    content: event.initialMessage,
+                    sourceChatId: event.sourceChatId,
+                    sourceChatTitle: event.sourceChatTitle
+                  }
+                ]
+              : [],
+            inputText: '',
+            attachedFile: null,
+            sessionMode: defaultMode,
+            disciplinePath: defaultPath,
+            isProcessing: true,
+            isTodoOpen: false,
+            selectedModel:
+              selectedModelRef.current || configRef.current?.lastSelectedChatModel || '',
+            isSearchEnabled: false
+          }
+          return [...prevTabs, newTab]
+        })
+      }
+    })
+
+    const removeHarnessPhaseChangedListener = window.api.onHarnessPhaseChanged?.(({ chatId, phase }) => {
+      setHarnessTabs((prevTabs) =>
+        prevTabs.map((t) =>
+          t.chatId === chatId || t.id === chatId
+            ? { ...t, harnessPhase: phase, dismissedPlanMarkdown: undefined }
+            : t
+        )
+      )
+    })
+
     return () => {
       removeSearchEnabledListener?.()
+      removeChatOpenedInBackgroundListener?.()
+      removeHarnessPhaseChangedListener?.()
+      chunkBufferRef.current = null
       chunkBuffer.clear()
       removeChatStartListener()
       removeChatChunkListener()
@@ -4951,6 +5547,11 @@ function RealApp(): React.JSX.Element {
       removeToolCallDeltaListener()
       removeToolStartListener()
       removeToolEndListener()
+      if (toolUpdateRafId !== null) {
+        cancelAnimationFrame(toolUpdateRafId)
+        toolUpdateRafId = null
+      }
+      pendingToolUpdates.clear()
       removeToolUpdateListener()
       removeTitleReceivedListener()
       removeTodoUpdateListener()
@@ -5321,8 +5922,8 @@ function RealApp(): React.JSX.Element {
                         onToggleSplitTab={handleToggleSplitTab}
                         onSwapSplitTabs={handleSwapSplitTabs}
                         swapPulse={swapPulseIds?.includes(tab.id) ?? false}
-                        onSend={(text, file, overrideModel, overrideMode, forceYoutube) => {
-                          handleSend(text, file, overrideModel, overrideMode, forceYoutube)
+                        onSend={(text, file, overrideModel, overrideMode, forceYoutube, options) => {
+                          handleSend(text, file, overrideModel, overrideMode, forceYoutube, options)
                         }}
                         onCancel={() => {
                           if (tab.chatId) {
@@ -5475,7 +6076,9 @@ function RealApp(): React.JSX.Element {
                   onCloseTab={handleCloseHarnessTab}
                   onToggleSplitTab={() => {}}
                   onSwapSplitTabs={() => {}}
-                  onSend={(text, file) => handleHarnessSend(text, file)}
+                  onSend={(text, file, _overrideModel, _overrideMode, _forceYoutube, options) =>
+                    handleHarnessSend(text, file, options)
+                  }
                   onCancel={() => {
                     if (tab.chatId) window.api.cancelChat(tab.chatId)
                   }}

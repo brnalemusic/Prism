@@ -41,7 +41,10 @@ import type {
   HarnessGitAction,
   HarnessGitActionResult,
   HarnessGitSnapshot,
-  HarnessGitStatusDelta
+  HarnessGitStatusDelta,
+  ChatOpenedInBackgroundEvent,
+  HarnessPhaseChangedEvent,
+  MessageDeliveryMode
 } from '../shared/types'
 import type { ChatSession } from '../main/history'
 import type {
@@ -176,6 +179,7 @@ const api = {
     modelKey?: string
     reasoningLevel?: string
     disabledSkills?: string[]
+    deliveryMode?: MessageDeliveryMode
   }): void => ipcRenderer.send('chat-message', data),
   sendHarnessMessage: (data: {
     message: string
@@ -187,7 +191,14 @@ const api = {
     reasoningLevel?: string
     explorerContext?: HarnessExplorerSelection[]
     harnessPhase?: HarnessPhase
+    deliveryMode?: MessageDeliveryMode
   }): void => ipcRenderer.send('harness-message', data),
+  sendSteeringMessage: (data: {
+    chatId: string
+    message: string
+    attachedFile?: AttachedFile
+    workspace?: WorkspaceKind
+  }): void => ipcRenderer.send('chat-steer-message', data),
   setHarnessSessionPhase: (chatId: string, phase: HarnessPhase): Promise<boolean> =>
     ipcRenderer.invoke('set-harness-session-phase', chatId, phase),
   prepareHarnessPlanHandoff: (data: {
@@ -536,6 +547,26 @@ const api = {
       callback(data)
     ipcRenderer.on('chat-title-received', listener)
     return () => ipcRenderer.removeListener('chat-title-received', listener)
+  },
+  onChatOpenedInBackground: (
+    callback: (data: ChatOpenedInBackgroundEvent) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: ChatOpenedInBackgroundEvent
+    ): void => callback(data)
+    ipcRenderer.on('chat-opened-in-background', listener)
+    return () => ipcRenderer.removeListener('chat-opened-in-background', listener)
+  },
+  onHarnessPhaseChanged: (
+    callback: (data: HarnessPhaseChangedEvent) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      data: HarnessPhaseChangedEvent
+    ): void => callback(data)
+    ipcRenderer.on('harness-phase-changed', listener)
+    return () => ipcRenderer.removeListener('harness-phase-changed', listener)
   },
   submitLauncher: (data: { message: string; screenshot?: string; appMode?: string }): void =>
     ipcRenderer.send('launcher-submit', data),
@@ -1068,6 +1099,16 @@ const api = {
     ): void => callback(data)
     ipcRenderer.on('browser-gen-error', listener)
     return () => ipcRenderer.removeListener('browser-gen-error', listener)
+  },
+  onLicenseStatusChanged: (
+    callback: (info: import('../shared/types').LicenseInfo | null) => void
+  ): (() => void) => {
+    const listener = (
+      _event: IpcRendererEvent,
+      info: import('../shared/types').LicenseInfo | null
+    ): void => callback(info)
+    ipcRenderer.on('license-status-changed', listener)
+    return () => ipcRenderer.removeListener('license-status-changed', listener)
   },
   activateLicense: (key: string): Promise<import('../shared/types').ActivationResult> =>
     ipcRenderer.invoke('activate-license', key),

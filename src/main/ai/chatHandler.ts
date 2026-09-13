@@ -11,7 +11,8 @@ import {
   HarnessContextSnapshot,
   EffectiveHarnessSettings,
   HarnessExplorerSelection,
-  HarnessPhase
+  HarnessPhase,
+  MessageDeliveryMode
 } from '../../shared/types'
 import type { ToolImageAttachment } from '../toolAttachments'
 import {
@@ -34,7 +35,7 @@ import {
   PRISM_PROVIDER_ID
 } from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
-import { ActiveRun, OpenAiMessage, OpenAiToolDefinition } from './types'
+import { ActiveRun, OpenAiMessage, OpenAiToolDefinition, SteeringMessage } from './types'
 import { appendTurnRecallBlock, getActiveMemoryService } from '../memoryStore'
 import { safeSend, broadcastIpc } from '../safeSend'
 import { getOpenAiToolDefinitions } from '../toolRuntime'
@@ -56,6 +57,20 @@ import { asDataUrl, imageAttachments } from '../toolAttachments'
 import { dedupeImageAttachments, formatImageAssetReference, isImageAssetId } from '../imageAssets'
 import { checkHarnessProjectFolder, getEffectiveHarnessSettings } from '../harnessProject'
 import { getHarnessSystemPrompt } from '../harnessPrompt'
+import { interChatManager } from './interChatManager'
+
+function getAllPendingNotifications(chatId: string) {
+  const terminalNotifs = getPendingProcessNotifications(chatId)
+  const interChatNotifs = interChatManager.getPendingInterChatNotifications(chatId).map((n) => ({
+    kind: 'completed' as const,
+    runId: n.taskId,
+    command: `[Delegated Chat: ${n.targetTitle || n.targetChatId}]`,
+    status: n.status,
+    exitCode: null,
+    output: n.content
+  }))
+  return [...terminalNotifs, ...interChatNotifs]
+}
 import {
   executeHarnessTool,
   getHarnessOpenAiToolDefinitions,
@@ -344,11 +359,36 @@ export interface ChatMessagePayload {
   disabledSkills?: string[]
   explorerContext?: HarnessExplorerSelection[]
   harnessPhase?: HarnessPhase
+  deliveryMode?: MessageDeliveryMode
+}
+
+export function handleChatSteerMessage(
+  chatId: string,
+  message: string,
+  attachedFile?: AttachedFile,
+  _workspace: 'chat' | 'harness' = 'chat'
+): boolean {
+  if (!chatId || !message.trim()) return false
+  const activeRun = activeRuns.get(chatId)
+  if (!activeRun || activeRun.status !== 'running') {
+    return false
+  }
+  if (!activeRun.steeringQueue) {
+    activeRun.steeringQueue = []
+  }
+  const steering: SteeringMessage = {
+    id: `steer-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    text: message.trim(),
+    timestamp: Date.now(),
+    attachedFile
+  }
+  activeRun.steeringQueue.push(steering)
+  return true
 }
 
 /** Dedicated entrypoint: the Harness never travels through the Chat IPC channel. */
 export async function handleHarnessMessage(
-  event: IpcMainEvent,
+  event: IpcMainEvent | null,
   data: Omit<ChatMessagePayload, 'sessionMode' | 'disciplinePath' | 'appMode'> & {
     projectPath: string
   }
@@ -444,7 +484,7 @@ export function cancelHarnessPlanHandoff(chatId: string): void {
 }
 
 export async function handleChatMessage(
-  event: IpcMainEvent,
+  event: IpcMainEvent | null,
   data: string | ChatMessagePayload,
   workspace: 'chat' | 'harness' = 'chat'
 ): Promise<void> {
@@ -463,8 +503,10 @@ export async function handleChatMessage(
   const disciplinePath = typeof data === 'object' ? data.disciplinePath : undefined
 
   if (workspace === 'chat' && sessionMode === 'harness') {
-    safeSend(event.sender, 'chat-reply-error', {
-      error: 'Harness requests must be sent from the Harness workspace.',
+    const error = 'Harness requests must be sent from the Harness workspace.'
+    interChatManager.recordApiError(chatId, error)
+    safeSend(event?.sender, 'chat-reply-error', {
+      error,
       chatId,
       workspace
     })
@@ -472,6 +514,11 @@ export async function handleChatMessage(
   }
 
   if (activeRuns.has(chatId)) {
+    const deliveryMode = typeof data === 'object' ? data.deliveryMode : undefined
+    if (deliveryMode === 'steering') {
+      handleChatSteerMessage(chatId, message, attachedFile, workspace)
+      return
+    }
     console.log(`Chat ${chatId} is already running. Ignoring duplicate.`)
     return
   }
@@ -503,8 +550,10 @@ export async function handleChatMessage(
   const { provider, model } = resolveProviderAndModel(requestModelKey)
 
   if (!requestModelKey || !provider || !providerHasCompletionCredential(provider) || !model) {
-    safeSend(event.sender, 'chat-reply-error', {
-      error: 'API_KEY_ERROR:401:API Key or Active Model Missing',
+    const error = 'API_KEY_ERROR:401:API Key or Active Model Missing'
+    interChatManager.recordApiError(chatId, error)
+    safeSend(event?.sender, 'chat-reply-error', {
+      error,
       chatId,
       workspace
     })
@@ -522,8 +571,10 @@ export async function handleChatMessage(
       ? 'harness'
       : sessionMode || session?.sessionMode || configuredChatMode || currentSessionMode
   if (workspace === 'chat' && requestMode === 'harness') {
-    safeSend(event.sender, 'chat-reply-error', {
-      error: 'This conversation belongs to the Harness workspace.',
+    const error = 'This conversation belongs to the Harness workspace.'
+    interChatManager.recordApiError(chatId, error)
+    safeSend(event?.sender, 'chat-reply-error', {
+      error,
       chatId,
       workspace
     })
@@ -537,8 +588,10 @@ export async function handleChatMessage(
       (session?.sessionMode === requestMode ? session.disciplinePath : undefined) ||
       (requestMode === 'harness' ? config.harness.lastProjectPath : undefined)
     if (!selectedProjectPath) {
-      safeSend(event.sender, 'chat-reply-error', {
-        error: 'Select or create a Harness project before sending a message.',
+      const error = 'Select or create a Harness project before sending a message.'
+      interChatManager.recordApiError(chatId, error)
+      safeSend(event?.sender, 'chat-reply-error', {
+        error,
         chatId,
         workspace
       })
@@ -576,9 +629,11 @@ export async function handleChatMessage(
     persistedHarnessSnapshot &&
     !isSameProjectPath(persistedHarnessSnapshot.projectPath, requestDisciplinePath)
   ) {
-    safeSend(event.sender, 'chat-reply-error', {
-      error:
-        'This Harness conversation is locked to its original project. Start a new conversation to use another project.',
+    const error =
+      'This Harness conversation is locked to its original project. Start a new conversation to use another project.'
+    interChatManager.recordApiError(chatId, error)
+    safeSend(event?.sender, 'chat-reply-error', {
+      error,
       chatId,
       workspace
     })
@@ -588,8 +643,11 @@ export async function handleChatMessage(
     requestSessionMode === 'harness' ? getEffectiveHarnessSettings(requestDisciplinePath) : null
   if (requestSessionMode === 'harness') {
     if (!harnessSettings) {
-      safeSend(event.sender, 'chat-reply-error', {
-        error: 'The selected Harness project is not registered. Reopen it from the project picker.',
+      const error =
+        'The selected Harness project is not registered. Reopen it from the project picker.'
+      interChatManager.recordApiError(chatId, error)
+      safeSend(event?.sender, 'chat-reply-error', {
+        error,
         chatId,
         workspace
       })
@@ -597,8 +655,10 @@ export async function handleChatMessage(
     }
     const folderHealth = await checkHarnessProjectFolder(requestDisciplinePath)
     if (!folderHealth.exists || !folderHealth.isDirectory) {
-      safeSend(event.sender, 'chat-reply-error', {
-        error: `The project directory "${requestDisciplinePath}" does not exist on disk. Please recreate the folder or select another project.`,
+      const error = `The project directory "${requestDisciplinePath}" does not exist on disk. Please recreate the folder or select another project.`
+      interChatManager.recordApiError(chatId, error)
+      safeSend(event?.sender, 'chat-reply-error', {
+        error,
         chatId,
         workspace
       })
@@ -635,7 +695,7 @@ export async function handleChatMessage(
     userMessage.visible_user_content = userText
     userMessage.content = `${userText}\n\n${resolvedContext.block}`
     if (resolvedContext.snapshot.warnings.length > 0) {
-      safeSend(event.sender, 'harness-prompt-warning', {
+      safeSend(event?.sender, 'harness-prompt-warning', {
         chatId,
         warnings: resolvedContext.snapshot.warnings,
         repoInstructionsLoaded: false
@@ -645,8 +705,10 @@ export async function handleChatMessage(
 
   const incomingImages = collectIncomingImages(screenshot, attachedFile)
   if (attachedFile?.mimeType.startsWith('image/') && incomingImages.length === 0) {
-    safeSend(event.sender, 'chat-reply-error', {
-      error: 'Unsupported or invalid image. Please use a valid PNG, JPEG, or WebP file.',
+    const error = 'Unsupported or invalid image. Please use a valid PNG, JPEG, or WebP file.'
+    interChatManager.recordApiError(chatId, error)
+    safeSend(event?.sender, 'chat-reply-error', {
+      error,
       chatId,
       workspace
     })
@@ -900,7 +962,7 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
       { role: 'system', content: fullPrompt },
       ...convertHistoryToOpenAi(historyMessages)
     ]
-    const turnStartTime = Date.now()
+    let turnStartTime = Date.now()
     const thinkingTimes = new Map<number, { startedAt?: number; endedAt?: number }>()
     let totalThinkingDuration = 0
 
@@ -911,7 +973,14 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
       messages: messagesForApi,
       tools: openAiTools,
       getToolsForRound: () => getToolsForSessionMode(),
-      getPendingNotifications: () => getPendingProcessNotifications(chatId),
+      getPendingNotifications: () => getAllPendingNotifications(chatId),
+      getPendingSteeringMessages: () => {
+        const run = activeRuns.get(chatId)
+        if (!run?.steeringQueue || run.steeringQueue.length === 0) return []
+        turnStartTime = Date.now()
+        totalThinkingDuration = 0
+        return run.steeringQueue.splice(0)
+      },
       terminalInputToolName: harnessSettings ? 'write_stdin' : 'send_terminal_input',
       signal: abortController.signal,
       reasoningLevel,
@@ -1086,6 +1155,7 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
       console.error(`[Main Chat] Error in handleChatMessage for chat ${chatId}:`, caughtError)
       console.error(`[Main Chat] Error name: ${caughtError.name}, message: ${caughtError.message}`)
       if (caughtError.stack) console.error(`[Main Chat] Stack: ${caughtError.stack}`)
+      interChatManager.recordApiError(chatId, caughtError.message)
       broadcastIpc('chat-reply-error', { error: caughtError.message, chatId, workspace })
     }
   } finally {
@@ -1098,7 +1168,10 @@ ${YOUTUBE_SEARCH_PROTOCOL}`
     })
     activeRuns.delete(chatId)
     deletedActiveChats.delete(chatId)
-    setImmediate(() => void wakeUpChatFromPendingTerminalNotifications(chatId))
+    setImmediate(() => {
+      interChatManager.checkAndNotifyCompletion(chatId)
+      void wakeUpChatFromPendingTerminalNotifications(chatId)
+    })
   }
 }
 
@@ -1214,7 +1287,7 @@ function convertHistoryToOpenAi(history: OpenAiMessage[]): OpenAiMessage[] {
 }
 
 async function generateTitleInBackground(
-  _event: IpcMainEvent,
+  _event: IpcMainEvent | null,
   provider: import('../../shared/types').ProviderConfig,
   modelId: string,
   firstMessage: string,
@@ -1287,7 +1360,8 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
   }
 
   const pendingNotifications = getPendingProcessNotifications(chatId)
-  if (pendingNotifications.length === 0) return
+  const pendingInterChat = interChatManager.getPendingInterChatNotifications(chatId)
+  if (pendingNotifications.length === 0 && pendingInterChat.length === 0) return
   const historyMessages = hydrateHistoryToolAttachments(chatId, chatSession.messages)
   let harnessPrompt: Awaited<ReturnType<typeof getHarnessSystemPrompt>> | null = null
   if (harnessSettings) {
@@ -1330,6 +1404,16 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
         chatId,
         createTerminalNotificationMessage(notification, terminalInputToolName)
       )
+    )
+  }
+  for (const notif of pendingInterChat) {
+    historyMessages.push(
+      prepareHistoryMessage(chatId, {
+        role: 'user',
+        content: notif.content,
+        isSystemNotification: true,
+        hidden: true
+      })
     )
   }
   saveChatSession(
@@ -1405,7 +1489,7 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
       ...convertHistoryToOpenAi(historyMessages)
     ]
 
-    const turnStartTime = Date.now()
+    let turnStartTime = Date.now()
     const thinkingTimes = new Map<number, { startedAt?: number; endedAt?: number }>()
     let totalThinkingDuration = 0
 
@@ -1415,7 +1499,14 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
       messages: messagesForApi,
       tools: openAiTools,
       getToolsForRound,
-      getPendingNotifications: () => getPendingProcessNotifications(chatId),
+      getPendingNotifications: () => getAllPendingNotifications(chatId),
+      getPendingSteeringMessages: () => {
+        const run = activeRuns.get(chatId)
+        if (!run?.steeringQueue || run.steeringQueue.length === 0) return []
+        turnStartTime = Date.now()
+        totalThinkingDuration = 0
+        return run.steeringQueue.splice(0)
+      },
       terminalInputToolName,
       signal: abortController.signal,
       reasoningLevel,
@@ -1565,8 +1656,20 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
   } finally {
     activeRuns.delete(chatId)
     deletedActiveChats.delete(chatId)
-    setImmediate(() => void wakeUpChatFromPendingTerminalNotifications(chatId))
+    setImmediate(() => {
+      interChatManager.checkAndNotifyCompletion(chatId)
+      void wakeUpChatFromPendingTerminalNotifications(chatId)
+    })
   }
+}
+
+export const wakeUpChatSession = wakeUpChatFromPendingTerminalNotifications
+
+export async function startBackgroundChatMessage(
+  data: ChatMessagePayload,
+  workspace: 'chat' | 'harness' = 'chat'
+): Promise<void> {
+  return handleChatMessage(null, data, workspace)
 }
 
 // Wake an idle chat immediately; active chats drain the queue between tool rounds.
