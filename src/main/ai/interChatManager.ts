@@ -16,6 +16,7 @@ import {
 } from './chatHandler'
 import { loadConfig } from '../config'
 import { getActiveModels } from './providerManager'
+import { isLiveOnlyModel } from './trustedRegistry'
 import { notifyDiscordVoiceSession, isDiscordVoiceChat } from '../discordGateway'
 import {
   buildHarnessImplementationHandoff,
@@ -70,27 +71,54 @@ export function resolveSubAgentModelKey(
   senderChatId?: string
 ): string {
   const explicit = explicitModel?.trim()
-  if (explicit) return explicit
+  if (explicit && !isLiveOnlyModel(explicit)) return explicit
 
   const existing = existingSessionModel?.trim()
-  if (existing) return existing
+  if (existing && !isLiveOnlyModel(existing)) return existing
 
-  if (senderChatId && senderChatId !== 'unknown') {
+  // 1. Model currently selected in the Prism app
+  const appSelectedModel = getChatModel()?.trim()
+  if (appSelectedModel && !isLiveOnlyModel(appSelectedModel)) {
+    return appSelectedModel
+  }
+
+  // 2. Model persisted in config from previous user selection in the Prism app
+  const config = loadConfig()
+  if (config.lastSelectedChatModel?.trim() && !isLiveOnlyModel(config.lastSelectedChatModel)) {
+    return config.lastSelectedChatModel.trim()
+  }
+
+  // 3. Configured default model in Prism
+  if (config.defaultModel?.trim() && !isLiveOnlyModel(config.defaultModel)) {
+    return config.defaultModel.trim()
+  }
+
+  // 4. If sender is not from Discord Voice and not using a live-only model, fall back to sender model
+  const isFromVoice =
+    Boolean(senderChatId) &&
+    (senderChatId!.startsWith('discord-voice-') || isDiscordVoiceChat(senderChatId!))
+
+  if (!isFromVoice && senderChatId && senderChatId !== 'unknown') {
     const senderSession = loadChatSession(senderChatId)
-    if (senderSession?.model?.trim()) {
+    if (senderSession?.model?.trim() && !isLiveOnlyModel(senderSession.model)) {
       return senderSession.model.trim()
     }
   }
 
-  const current = getChatModel()?.trim()
-  if (current) return current
-
-  const config = loadConfig()
-  if (config.lastSelectedChatModel?.trim()) {
-    return config.lastSelectedChatModel.trim()
+  // 5. If called from Discord Gateway, check if a text gateway model is configured
+  if (isFromVoice && config.discordGatewayModel?.trim() && !isLiveOnlyModel(config.discordGatewayModel)) {
+    return config.discordGatewayModel.trim()
   }
 
+  // 6. Active models fallback (excluding live-only models)
   const activeModels = getActiveModels()
+  const nonLiveModel = activeModels.find(
+    (m) => !isLiveOnlyModel(m.fullKey) && !isLiveOnlyModel(m.model.id)
+  )
+  if (nonLiveModel) {
+    return nonLiveModel.fullKey
+  }
+
   if (activeModels.length > 0) {
     return activeModels[0].fullKey
   }

@@ -2099,8 +2099,8 @@ ${inlineSuggestionsRule}${personaSection}${coreMemorySection}${memoryGuidanceSec
   const isBrowserDisabled = effectiveDisabledSkills.includes('browser')
 
   const browserRule = isBrowserDisabled
-    ? '- Links: `open_browser_link` by default.'
-    : '- Links: `open_browser_link` by default; in-app browser tools only on explicit request (needs `read_skill` `integrated_browser_skill.md`).'
+    ? '- Web & Links: MANDATORY: Always call `read_page` whenever a URL is provided or whenever the user asks to visit, enter, read, inspect, or check a site (e.g., "entra nesse site", "acesse o link", "dá uma olhada no site", "visite a página", "check this link"). Never call `open_browser_link` unless the user explicitly asks to open it in their personal OS browser window.'
+    : '- Web & Links: MANDATORY: Always call `read_page` whenever a URL is provided or whenever the user asks to visit, enter, read, inspect, check, or explore a website (e.g., "entra nesse site", "acesse esse link", "dá uma olhada no site", "visite a página", "check this link", "leia o link", "o que tem nesse site"). `read_page` fetches the web page content directly without opening any browser. NEVER call `read_skill` for `integrated_browser_skill.md` and NEVER open any browser just because the user provided a link or said to enter/visit a site. Only call `open_browser_link` if the user explicitly asks to view it in their personal OS browser (e.g., "abra no meu navegador"). The in-app Playwright browser is strictly reserved for when the user explicitly commands "abra o navegador integrado do Prism".'
 
   return `# Identity & Context
 Role: ${name}, Desktop AI Assistant.
@@ -2113,7 +2113,7 @@ Context: ${date} | MM/DD/YYYY | ${platform} | ${username} | Home: ${homeDir} | C
 ${browserRule}
 - Format: Markdown for text/code; inline HTML/CSS for cards; \`create_mini_app\` for widgets.
 - Exec: absolute paths; parallel calls allowed; terminal = Context shell.
-- Search: \`web_search\` for quick queries; \`web_fetch\` for deep research (title in user lang, exactly 5 queries); \`read_page\` to fetch and read content from a specific web URL.
+- Search & Reading: \`read_page\` to read/inspect any web URL or link; \`web_search\` for quick queries; \`web_fetch\` for deep research (title in user lang, exactly 5 queries).
 - Titles: every call needs \`progressTitle\` (gerund) + \`completedTitle\` (past), user lang, <=10 words, specific.
 - Docs: internal_docs_* for Prism system questions.
 - YouTube: \`web_search\` \`site:youtube.com ...\`; card + chip.
@@ -3152,6 +3152,9 @@ export async function executeSystemTool(
             .filter(Boolean)
 
           unlockedToolsMsg = `\n\n[System Note: The following native execution tool definitions have been UNLOCKED for this conversation:\n\`\`\`json\n${JSON.stringify(definitions, null, 2)}\n\`\`\`\n]`
+        }
+        if (path.basename(skillName).toLowerCase().includes('browser')) {
+          unlockedToolsMsg += `\n\n[CRITICAL NOTE FOR AI: If your goal is to visit, enter, read, inspect, check, or summarize a web link or URL (such as reading a webpage, article, or site provided by the user, or requests like "entra nesse site", "acesse o link", "visite a página"), you MUST NOT use 'open_browser' or any browser tool! Call 'read_page' with the URL directly instead. The browser tools are strictly for complex interactive automation under explicit user instruction.]`
         }
         return `${result.content}${unlockedToolsMsg}`
       } catch (err) {

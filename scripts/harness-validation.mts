@@ -41,6 +41,7 @@ import {
   resolveRequestModelKey,
   resolveRunWorkspace
 } from '../src/main/ai/sessionRuntime.ts'
+import { isLiveOnlyModel } from '../src/main/ai/trustedRegistry.ts'
 import {
   PerChatStreamBuffer,
   thinkingDurationSeconds
@@ -973,3 +974,16 @@ test('Git Control parses porcelain state and performs local checkpoint operation
     await fs.rm(root, { recursive: true, force: true })
   }
 })
+
+test('isLiveOnlyModel detects WebSocket-only voice models and permits standard chat models', () => {
+  assert.equal(isLiveOnlyModel('gemini-3.1-flash-live-preview'), true)
+  assert.equal(isLiveOnlyModel('gemini-3-1-flash-live-preview'), true)
+  assert.equal(isLiveOnlyModel('models/gemini-3.1-flash-live-preview'), true)
+  assert.equal(isLiveOnlyModel('prism_provider:google:gemini-3.1-flash-live-preview'), true)
+  assert.equal(isLiveOnlyModel('gpt-4o-realtime-preview'), true)
+  assert.equal(isLiveOnlyModel('gemini-3.8-flash'), false)
+  assert.equal(isLiveOnlyModel('gemini-3.5-flash-lite'), false)
+  assert.equal(isLiveOnlyModel('claude-3-7-sonnet'), false)
+  assert.equal(isLiveOnlyModel('deepseek-v4-flash-0731'), false)
+})
+

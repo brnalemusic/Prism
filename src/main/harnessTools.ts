@@ -214,7 +214,7 @@ export const HARNESS_TOOL_DEFINITIONS: ToolDefinition[] = [
   ),
   definition(
     'read_page',
-    'Fetch and read the text content of a web page by URL without launching a browser.',
+    'Read and extract the full content of a web page URL directly. ALWAYS use this tool whenever you need to read, inspect, check, or analyze an external link or web page without opening a browser.',
     {
       url: text('The HTTP(S) URL of the web page to read.'),
       maxCharacters: integer('Maximum characters to return (default 50,000, max 100,000).', 1000, 100000)

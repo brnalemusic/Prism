@@ -1,7 +1,7 @@
 ---
 name: integrated_browser_skill.md
-title: Technical Skill: Prism Integrated AI Browser & Web Automation
-description: Complete specification, session management, Playwright DOM inspection, element ID resolution, form interaction, JS scripting, and tool instructions for operating the Prism integrated browser.
+title: Technical Skill: Prism Integrated AI Browser & Web Automation (Playwright)
+description: ONLY for explicit user requests to operate the in-app Playwright browser (interactive form filling, multi-step UI testing). FORBIDDEN for visiting, entering, reading, checking, or exploring URLs (use read_page directly without reading this skill).
 unlocked_tools:
   - open_browser
   - browser_navigate
@@ -20,16 +20,21 @@ unlocked_tools:
 ## 1. Scope, Purpose & System Browser Distinction
 
 ### 1.1 Critical Scope Rule
-The Prism platform features two distinct browser interaction modes:
+The Prism platform features three distinct web interaction modes:
 
-1. **System Default Browser (`open_browser_link`)**:
-   - **Purpose**: Opens external URLs directly in the user's primary operating system browser (e.g. Google Chrome, Microsoft Edge, Mozilla Firefox, Brave, Safari).
-   - **When to Use**: MANDATORY default whenever the user asks to open a link, visit a website, or view a webpage (e.g., *"Abre o link https://..."*, *"Visita o site do Google"*).
+1. **Web Page Reader (`read_page`)**:
+   - **Purpose**: Directly fetches and extracts clean DOM text and Markdown from any web URL without opening any browser window.
+   - **When to Use**: MANDATORY default whenever the AI needs to read, inspect, check, summarize, analyze, or answer questions about a web page or link (e.g. user sends a link, says *"visit this link and take it in"*, *"lê a página https://..."*, *"o que tem nesse site?"*, *"summarize https://..."*).
+   - **Tool**: `read_page({ url: "https://..." })`. Does NOT require this skill file to be read.
+
+2. **System Default Browser (`open_browser_link`)**:
+   - **Purpose**: Opens external URLs directly in the user's primary operating system browser for the user to view.
+   - **When to Use**: ONLY when the user explicitly asks to open a link in their external browser for them to view (e.g., *"Abre o link no meu navegador"*, *"Open this URL in Chrome for me"*).
    - **Tool**: `open_browser_link({ url: "https://..." })`. Does NOT require this skill file to be read.
 
-2. **Prism Integrated AI Browser (`open_browser` and `browser_*` tools)**:
-   - **Purpose**: An embedded, persistent, Playwright-controlled Chromium instance running inside Prism for autonomous web navigation, interactive form filling, and live DOM inspection.
-   - **When to Use**: ONLY when the user EXPLICITLY requests the AI in-app browser using terms such as *"navegador integrado"*, *"navegador da IA"*, *"seu navegador"*, *"navegador do Prism"*, *"navegador in-app"*, *"AI Browser"*, *"browser interno"*, etc.
+3. **Prism Integrated AI Browser (`open_browser` and `browser_*` tools)**:
+   - **Purpose**: An embedded, persistent, Playwright-controlled Chromium instance running inside Prism for autonomous multi-step web navigation, interactive form filling, clicking elements, typing, and complex web automation.
+   - **When to Use**: ONLY when the user EXPLICITLY requests interactive browser automation (e.g., clicking buttons, submitting forms, logging in, or navigating multiple pages interactively). NEVER use this skill or its tools simply to read, inspect, or summarize the text of a webpage (always use `read_page` for that).
    - **Activation**: Requires reading this skill file (`integrated_browser_skill.md`), which unlocks the 10 integrated browser execution tools for the session.
 
 ---
@@ -344,8 +349,9 @@ If a page load times out or fails:
 
 ## 10. Summary Protocol & Checklist
 
-- **System Browser Default**: Always use `open_browser_link` for general user URL opening requests.
-- **In-App AI Browser**: Use `open_browser` and `browser_*` tools ONLY when the user explicitly requests the AI/integrated/in-app browser.
+- **Reading Web Pages**: Always use `read_page` to read, inspect, check, or scrape web page content directly. Do not open any browser or read this skill just to read a page.
+- **User OS Browser**: Use `open_browser_link` ONLY when the user explicitly requests opening a URL in their personal external browser (e.g. "open this link in my browser").
+- **In-App AI Browser**: Use `open_browser` and `browser_*` tools ONLY for complex interactive browser automation (clicking buttons, filling forms, multi-step sessions) upon explicit user request.
 - **Snapshot Before Action**: Always take a `browser_snapshot` to get fresh `elementId` tags before interacting.
 - **Re-Snapshot After Change**: Navigations, clicks, and form submissions invalidate old `elementId` tags. Take a new snapshot after DOM mutations.
 - **JS Scripting Fallback**: Use `web_script` for complex DOM extraction or custom JS evaluation.

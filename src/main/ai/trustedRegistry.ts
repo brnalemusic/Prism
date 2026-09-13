@@ -186,3 +186,15 @@ export function isPuterHost(urlStr: string): boolean {
   const host = getHostname(urlStr)
   return host === 'api.puter.com' || host === 'puter.com' || host.endsWith('.puter.com')
 }
+
+export function isLiveOnlyModel(modelId?: string): boolean {
+  if (!modelId) return false
+  const clean = modelId.toLowerCase().replace(/^models\//i, '')
+  return (
+    clean.includes('live-preview') ||
+    clean.includes('-live') ||
+    clean.endsWith('live') ||
+    clean.includes('bidi') ||
+    clean.includes('realtime')
+  )
+}

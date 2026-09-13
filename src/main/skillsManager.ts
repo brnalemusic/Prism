@@ -201,7 +201,7 @@ export function getSkillsSystemPromptSnippetSync(disabledSkills?: string[]): str
 
   const lines: string[] = [
     '# Skills',
-    'For skill tasks, first call `read_skill` with the filename to learn layout and rules:'
+    'For specialized tasks (PDF generation, PPTX slides), call `read_skill` with the filename to learn layout and rules. NEVER call `read_skill` for `integrated_browser_skill.md` just because a web URL is provided or to visit/read/check websites (always use `read_page` directly):'
   ]
 
   for (const s of skills) {
@@ -246,7 +246,7 @@ export function getDisabledSkillsPromptSnippetSync(disabledSkills?: string[]): s
 
   if (effectiveDisabled.includes('browser')) {
     rules.push(
-      '- Browser (DISABLED): never use open_browser/browser_*/web_script/detailed_dom_page. Open URLs only via `open_browser_link`.'
+      '- Browser (DISABLED): never use open_browser/browser_*/web_script/detailed_dom_page. Read web pages directly with `read_page`. Open URLs in the user\'s personal browser only if explicitly requested via `open_browser_link`.'
     )
   }
 

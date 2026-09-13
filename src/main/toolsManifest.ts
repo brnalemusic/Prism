@@ -347,7 +347,7 @@ const baseToolsManifest: ToolDefinition[] = [
   ),
   tool(
     'read_page',
-    'Fetch and read the text content of a web page by URL. Fast HTTP DOM extraction without launching a browser.',
+    'Read and extract the full content of a web page URL directly. MANDATORY tool whenever a web URL is provided or whenever the user asks to visit, enter, check, view, inspect, or summarize a website (e.g. "entra nesse site", "acesse o link", "visite a página", "check this link", "dá uma olhada no site", "veja a página"). Extracts clean DOM text directly without launching any browser. NEVER use browser tools or call read_skill for web URLs.',
     {
       url: stringSchema('HTTP(S) URL of the web page to read.'),
       maxCharacters: integerSchema('Maximum characters to return (default 50,000, max 100,000).', {
@@ -360,13 +360,17 @@ const baseToolsManifest: ToolDefinition[] = [
   ),
   tool(
     'open_browser_link',
-    'Open a URL in the system browser. No local paths.',
+    'Launch a URL in the user\'s default external OS browser window so the user can view it. NEVER use this tool when you need to read, inspect, summarize, or analyze page content yourself (use read_page instead). Only call this when the user explicitly asks you to open a link in their browser for them.',
     { url: stringSchema('HTTP(S) URL.') },
     ['url']
   ),
-  tool('open_browser', 'Open/attach the Prism browser session.', {
-    url: stringSchema('Optional initial URL.')
-  }),
+  tool(
+    'open_browser',
+    'Open or attach the persistent Prism in-app browser session for interactive UI automation. NEVER use this simply to read or inspect the text of a URL (use read_page instead).',
+    {
+      url: stringSchema('Optional initial URL.')
+    }
+  ),
   tool('browser_navigate', 'Navigate the active browser.', { url: stringSchema('HTTP(S) URL.') }, [
     'url'
   ]),
@@ -413,9 +417,13 @@ const baseToolsManifest: ToolDefinition[] = [
     },
     ['script']
   ),
-  tool('detailed_dom_page', 'Read the detailed page DOM.', {
-    url: stringSchema('Optional expected URL.')
-  }),
+  tool(
+    'detailed_dom_page',
+    'Read the detailed page DOM of the active in-app browser page. Requires an active open_browser session; never use to simply read a URL (use read_page instead).',
+    {
+      url: stringSchema('Optional expected URL.')
+    }
+  ),
   tool('search_chat_history', 'Search saved chats by keywords.', { query: stringSchema('Keywords.') }, [
     'query'
   ]),
@@ -595,7 +603,7 @@ const baseToolsManifest: ToolDefinition[] = [
   ),
   tool(
     'read_skill',
-    'Read a skill file to learn rules and unlock its tools.',
+    'Read a skill file to learn rules and unlock its tools (e.g. "pdf_skill.md", "pptx_skill.md"). NEVER call this tool with "integrated_browser_skill.md" just because a URL is present or because the user asks to visit, enter, check, or interact with a website (use "read_page" instead). The integrated browser skill is ONLY for explicit user requests to open the in-app browser.',
     {
       skill_name: stringSchema('Skill filename, e.g. "pdf_skill.md".')
     },

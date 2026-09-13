@@ -32,7 +32,6 @@ import {
 import {
   providerHasCompletionCredential,
   resolveProviderAndModel,
-  getActiveModels,
   PRISM_PROVIDER_ID
 } from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
@@ -58,7 +57,8 @@ import { asDataUrl, imageAttachments } from '../toolAttachments'
 import { dedupeImageAttachments, formatImageAssetReference, isImageAssetId } from '../imageAssets'
 import { checkHarnessProjectFolder, getEffectiveHarnessSettings } from '../harnessProject'
 import { getHarnessSystemPrompt } from '../harnessPrompt'
-import { interChatManager } from './interChatManager'
+import { interChatManager, resolveSubAgentModelKey } from './interChatManager'
+import { isLiveOnlyModel } from './trustedRegistry'
 
 function getPendingInterChatMessages(chatId: string): OpenAiMessage[] {
   const notifs = interChatManager.getPendingInterChatNotifications(chatId)
@@ -563,16 +563,11 @@ export async function handleChatMessage(
     currentSelectedChatModel
   )
 
-  // Fallback if session/payload model is missing: prevent 401 on unpinned Harness sessions
-  if (!requestModelKey) {
-    const config = loadConfig()
-    requestModelKey =
-      session?.model?.trim() ||
-      config.lastSelectedChatModel?.trim() ||
-      currentSelectedChatModel?.trim() ||
-      getActiveModels()[0]?.fullKey ||
-      ''
-    if (requestModelKey && session && !session.model) {
+  // Fallback if session/payload model is missing or is a live-only voice model:
+  // prevent 401 on unpinned Harness sessions and 400 on WebSocket-only live models
+  if (!requestModelKey || isLiveOnlyModel(requestModelKey)) {
+    requestModelKey = resolveSubAgentModelKey(undefined, undefined, chatId) || ''
+    if (requestModelKey && session) {
       session.model = requestModelKey
       saveChatSession(
         chatId,
@@ -590,14 +585,46 @@ export async function handleChatMessage(
 
   // Harness selections are scoped to their tab/session. Only Chat may update the
   // legacy global selection used by regular conversations and one-shot commands.
-  if (workspace === 'chat' && payloadModelKey) {
+  if (workspace === 'chat' && payloadModelKey && !isLiveOnlyModel(payloadModelKey)) {
     currentSelectedChatModel = payloadModelKey
   }
 
-  const { provider, model } = resolveProviderAndModel(requestModelKey)
+  let { provider, model } = resolveProviderAndModel(requestModelKey)
+
+  // Double-guard: if the resolved model is a live-only model, replace it with the app-selected non-live model
+  if (model && isLiveOnlyModel(model.id)) {
+    requestModelKey = resolveSubAgentModelKey(undefined, undefined, chatId) || ''
+    const fallbackResolved = resolveProviderAndModel(requestModelKey)
+    provider = fallbackResolved.provider
+    model = fallbackResolved.model
+    if (session) {
+      session.model = requestModelKey
+      saveChatSession(
+        chatId,
+        session.messages || [],
+        session.title,
+        session.sessionMode,
+        session.disciplinePath,
+        requestModelKey,
+        session.isDiscord,
+        session.disabledSkills,
+        session.harnessPhase
+      )
+    }
+  }
 
   if (!requestModelKey || !provider || !providerHasCompletionCredential(provider) || !model) {
     emitChatError(event, chatId, workspace, 'API_KEY_ERROR:401:API Key or Active Model Missing')
+    return
+  }
+
+  if (isLiveOnlyModel(model.id)) {
+    emitChatError(
+      event,
+      chatId,
+      workspace,
+      `Model "${model.name || model.id}" only supports real-time voice streaming. Please select a standard chat model in Prism Settings.`
+    )
     return
   }
 
@@ -941,6 +968,9 @@ export async function handleChatMessage(
       fullPrompt += `
 
 ${YOUTUBE_SEARCH_PROTOCOL}`
+    }
+    if (requestSessionMode !== 'harness' && /https?:\/\/[^\s]+/i.test(userText)) {
+      fullPrompt += `\n\n# Web URL Directive\nThe user message contains one or more web URLs. You MUST call the 'read_page' tool directly with the URL to fetch and read its content (e.g. read_page({ url: "..." })). DO NOT call 'read_skill' for 'integrated_browser_skill.md', DO NOT open an interactive browser session, and DO NOT call 'open_browser_link'. Use 'read_page' directly.`
     }
 
     // Long-term memory recall (M2): relevant facts ride this turn's prompt.
