@@ -178,10 +178,14 @@ export function resolveImageGenerationCandidates({
       ? operationState.adapter
       : undefined
   const hintedAdapter = capabilities?.preferredAdapter || capabilities?.adapter
-  const addSuccessfulFirst = (candidates: ImageGenerationAdapter[]): ImageGenerationAdapter[] =>
-    successfulAdapter
-      ? [successfulAdapter, ...candidates.filter((candidate) => candidate !== successfulAdapter)]
-      : candidates
+  const addSuccessfulFirst = (candidates: ImageGenerationAdapter[]): ImageGenerationAdapter[] => {
+    const uniqueCandidates = candidates.filter(
+      (candidate, index) => candidates.indexOf(candidate) === index
+    )
+    return successfulAdapter && !(operation === 'generate' && successfulAdapter === 'openai_responses')
+      ? [successfulAdapter, ...uniqueCandidates.filter((candidate) => candidate !== successfulAdapter)]
+      : uniqueCandidates
+  }
 
   if (provider.completionType === 'puter_native') return addSuccessfulFirst(['puter'])
   if (provider.completionType === 'gemini_native') return addSuccessfulFirst(['gemini_generate_content'])
@@ -191,13 +195,25 @@ export function resolveImageGenerationCandidates({
     return addSuccessfulFirst([...(hintedAdapter ? [hintedAdapter] : []), 'stability', 'openai_images'])
   }
   if (/responses|image[_ -]?generation|gpt-image|dall[\s-]?e/.test(text)) {
-    return addSuccessfulFirst([...(hintedAdapter ? [hintedAdapter] : []), 'openai_images', 'openai_responses'])
+    const candidates: ImageGenerationAdapter[] =
+      operation === 'generate'
+        ? ['openai_images']
+        : [...(hintedAdapter ? [hintedAdapter] : []), 'openai_images', 'openai_responses']
+    return addSuccessfulFirst(candidates)
   }
   if (provider.completionType === 'responses') {
-    return addSuccessfulFirst([...(hintedAdapter ? [hintedAdapter] : []), 'openai_responses', 'openai_images'])
+    const candidates: ImageGenerationAdapter[] =
+      operation === 'generate'
+        ? ['openai_images']
+        : [...(hintedAdapter ? [hintedAdapter] : []), 'openai_responses', 'openai_images']
+    return addSuccessfulFirst(candidates)
   }
   if (provider.completionType === 'chat_completions') {
-    return addSuccessfulFirst([...(hintedAdapter ? [hintedAdapter] : []), 'openai_images', 'openai_responses'])
+    const candidates: ImageGenerationAdapter[] =
+      operation === 'generate'
+        ? ['openai_images']
+        : [...(hintedAdapter ? [hintedAdapter] : []), 'openai_images', 'openai_responses']
+    return addSuccessfulFirst(candidates)
   }
   return []
 }
@@ -328,10 +344,16 @@ export function buildAdapterImageEndpoint(input: {
   endpoint?: string
   stabilityEngine?: 'core' | 'ultra'
 }): string {
-  if (input.endpoint) return new URL(input.endpoint).toString().replace(/\/$/, '')
   if (input.adapter === 'openai_images') {
+    if (input.endpoint) {
+      const override = new URL(input.endpoint)
+      if (!/\/responses\/?$/i.test(override.pathname)) {
+        return override.toString().replace(/\/$/, '')
+      }
+    }
     return buildImageGenerationEndpoint(input.baseUrl, input.operation)
   }
+  if (input.endpoint) return new URL(input.endpoint).toString().replace(/\/$/, '')
   const parsed = normalizedApiRoot(input.baseUrl)
   if (input.adapter === 'openai_responses') {
     parsed.pathname = `${parsed.pathname}/responses`
@@ -513,7 +535,17 @@ function providerMessageSuggestsUnsupportedModel(message: string): boolean {
 }
 
 function providerMessageSuggestsUnsupportedProtocol(message: string): boolean {
-  return /(?:unsupported|not supported|not implemented|unavailable).*(?:endpoint|route|method|image generation|image editing)|(?:endpoint|route|method|image generation|image editing).*(?:unsupported|not supported|not implemented|unavailable)/i.test(message)
+  const mentionsUnsupported = /unsupported|not supported|not implemented|unavailable/i.test(message)
+  const mentionsImageFeature = /image[_\s-]?(?:generation|editing)/i.test(message)
+  const mentionsProtocolFeature = /responses?\s+api|tool(?:_choice)?|feature|endpoint|route|method/i.test(
+    message
+  )
+  return (
+    /(?:unsupported|not supported|not implemented|unavailable).*(?:endpoint|route|method|image generation|image editing)|(?:endpoint|route|method|image generation|image editing).*(?:unsupported|not supported|not implemented|unavailable)/i.test(
+      message
+    ) ||
+    (mentionsUnsupported && mentionsImageFeature && mentionsProtocolFeature)
+  )
 }
 
 export function isImageGenerationProtocolIncompatibility(

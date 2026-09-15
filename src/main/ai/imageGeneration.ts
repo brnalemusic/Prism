@@ -25,7 +25,6 @@ import {
   parseAdapterImageResponse,
   resolveImageGenerationCapabilities,
   resolveImageGenerationCandidates,
-  getImageGenerationCapabilityState,
   isImageGenerationProtocolIncompatibility,
   type ImageGenerationOperation,
   type ImageGenerationMimeType,
@@ -715,17 +714,6 @@ export async function generateImage(
   }
   const { provider, model } = resolveConfiguredImageGenerationRoute()
   const capabilities = resolveImageGenerationCapabilities(provider, model)
-  const operationState = getImageGenerationCapabilityState(capabilities, args.operation)
-  if (operationState.status === 'unsupported') {
-    throw new ImageGenerationError({
-      code: args.operation === 'edit' ? 'IMAGE_EDIT_UNSUPPORTED' : 'IMAGE_MODEL_UNSUPPORTED',
-      userMessage:
-        args.operation === 'edit'
-          ? 'The selected model cannot edit images.'
-          : 'The selected model cannot generate images.',
-      retryable: false
-    })
-  }
   let sourceAttachment: ToolImageAttachment | undefined
   if (args.operation === 'edit') {
     if (!chatId || !args.sourceImageRef) {

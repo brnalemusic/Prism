@@ -14,7 +14,7 @@ Supported image adapters are:
 - **Stability AI** for Stable Image Core/Ultra generation and Stability multipart editing.
 - **Puter Native** for account-backed `puter.ai.txt2img()` generation and editing.
 
-Prism detects the image protocol on the first real generation or edit request. It does not send a paid probe when a provider is saved. Protocol metadata and the model registry are hints only; automatic detection tries addressable candidates sequentially and never hides a model by name. Generation and editing are tracked independently, with a cached successful adapter for each operation.
+Prism detects the image protocol on the first real generation or edit request. It does not send a paid probe when a provider is saved. Protocol metadata and the model registry are hints only; automatic detection tries addressable candidates sequentially and never hides a model by name. OpenAI-compatible generation uses the direct `/images/generations` request exclusively, avoiding Responses API `image_generation` tool negotiation that is unsupported by gateways such as OmniRoute. Automatic detection is never blocked by a previously cached `unsupported` state. Generation and editing are tracked independently, with a cached successful adapter for each operation.
 
 Enabled models from a connected **Puter.js Native** provider also appear in this selector. Puter lists its complete account-visible model catalog; Prism does not guess which entries can generate images, so select the model you intend to use. Puter User-Pays generation and editing call `puter.ai.txt2img()` through the native SDK using the connected account session, never an API key or OpenAI-compatible image endpoint. The Puter session is stored separately from API keys.
 

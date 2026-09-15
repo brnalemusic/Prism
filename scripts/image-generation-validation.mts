@@ -175,6 +175,16 @@ test('builds provider-specific image endpoints', () => {
     }),
     'https://api.stability.ai/v2beta/stable-image/generate/ultra'
   )
+  assert.equal(
+    buildAdapterImageEndpoint({
+      baseUrl: 'https://gateway.example.test/v1',
+      adapter: 'openai_images',
+      model: 'antigravity/gemini-3.1-flash-image',
+      operation: 'generate',
+      endpoint: 'https://gateway.example.test/v1/responses'
+    }),
+    'https://gateway.example.test/v1/images/generations'
+  )
 })
 
 test('builds standard multipart image edit requests', async () => {
@@ -262,6 +272,12 @@ test('maps provider failures to safe actionable image errors', () => {
     mapImageGenerationHttpError(400, 'unsupported endpoint').code,
     'IMAGE_ENDPOINT_UNSUPPORTED'
   )
+  const omnirouteResponsesToolError = mapImageGenerationHttpError(
+    400,
+    "Unsupported Responses API feature: tool_choice type 'image_generation' is not supported by omniroute"
+  )
+  assert.equal(omnirouteResponsesToolError.code, 'IMAGE_ENDPOINT_UNSUPPORTED')
+  assert.equal(isImageGenerationProtocolIncompatibility(omnirouteResponsesToolError), true)
   assert.equal(
     isImageGenerationProtocolIncompatibility(mapImageGenerationHttpError(404, 'route not found')),
     true
@@ -357,6 +373,38 @@ test('orders known protocols deterministically and keeps unknown models eligible
   }
   const model = { id: 'vision-text-2026', enabled: true, isTrusted: false }
   assert.deepEqual(resolveImageGenerationCandidates({ provider, model, operation: 'generate' }), [
+    'openai_images'
+  ])
+  assert.deepEqual(resolveImageGenerationCandidates({ provider, model, operation: 'edit' }), [
+    'openai_responses',
+    'openai_images'
+  ])
+})
+
+test('does not let image adapter hints or cached Responses results override direct generation', () => {
+  const provider = {
+    id: 'custom',
+    name: 'Custom Gateway',
+    baseUrl: 'https://gateway.example.test/v1',
+    apiKey: 'secret',
+    completionType: 'chat_completions' as const,
+    isTrusted: false,
+    models: []
+  }
+  const model = {
+    id: 'antigravity/gemini-3.1-flash-image',
+    enabled: true,
+    isTrusted: false,
+    imageGeneration: {
+      preferredAdapter: 'openai_responses' as const,
+      generate: { status: 'supported' as const, adapter: 'openai_responses' as const },
+      edit: { status: 'unsupported' as const }
+    }
+  }
+  assert.deepEqual(resolveImageGenerationCandidates({ provider, model, operation: 'generate' }), [
+    'openai_images'
+  ])
+  assert.deepEqual(resolveImageGenerationCandidates({ provider, model, operation: 'edit' }), [
     'openai_responses',
     'openai_images'
   ])
