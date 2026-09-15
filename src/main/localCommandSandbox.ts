@@ -7,15 +7,20 @@ const MAX_COMMAND_LENGTH = 20_000
 const COMMAND_SEPARATOR = String.raw`(?:^|[\s;&|{}()\\/]\s*)`
 const COMMAND_END = String.raw`(?:\s|$|[;&|])`
 
+export type SandboxErrorCode = 'invalid_input' | 'dangerous_command' | 'protected_path'
+
 interface CommandRule {
   pattern: RegExp
   reason: string
 }
 
-class CommandBlockedError extends Error {
-  constructor(reason: string) {
+export class CommandBlockedError extends Error {
+  readonly code: SandboxErrorCode
+
+  constructor(reason: string, code: SandboxErrorCode = 'dangerous_command') {
     super(reason)
     this.name = 'CommandBlockedError'
+    this.code = code
   }
 }
 
@@ -299,16 +304,17 @@ function normalizeCommandForScan(command: string): string {
 
 export function assertCommandAllowed(command: string): void {
   const trimmed = command.trim()
-  if (!trimmed) throw new CommandBlockedError('empty commands are not allowed')
+  if (!trimmed) throw new CommandBlockedError('empty commands are not allowed', 'invalid_input')
   if (trimmed.length > MAX_COMMAND_LENGTH) {
     throw new CommandBlockedError(
-      `commands longer than ${MAX_COMMAND_LENGTH} characters are blocked`
+      `commands longer than ${MAX_COMMAND_LENGTH} characters are blocked`,
+      'invalid_input'
     )
   }
 
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(trimmed)) {
-    throw new CommandBlockedError('control characters are blocked in terminal commands')
+    throw new CommandBlockedError('control characters are blocked in terminal commands', 'invalid_input')
   }
 
   const scanText = normalizeCommandForScan(trimmed)
@@ -324,7 +330,7 @@ export function assertCommandAllowed(command: string): void {
   if (hasDestructiveFileVerb(scanText)) {
     const protectedPath = findProtectedPathReason(scanText)
     if (protectedPath) {
-      throw new CommandBlockedError(`file mutation against ${protectedPath} is blocked`)
+      throw new CommandBlockedError(`file mutation against ${protectedPath} is blocked`, 'protected_path')
     }
   }
 }

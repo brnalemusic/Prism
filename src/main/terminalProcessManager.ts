@@ -2,7 +2,7 @@ import { spawn } from 'child_process'
 import { EventEmitter } from 'events'
 import type { IpcMainEvent } from 'electron'
 import * as pty from 'node-pty'
-import type { TerminalProcessSnapshot, TerminalProcessStatus } from '../shared/types'
+import type { TerminalProcessSnapshot, TerminalProcessStatus, TerminalTerminationReason } from '../shared/types'
 import { broadcastIpc, safeSend } from './safeSend'
 
 export interface KeyModifierOptions {
@@ -29,6 +29,7 @@ export interface TerminalProcessSession {
   error?: string
   startedAt: number
   completedAt: number | null
+  terminationReason?: TerminalTerminationReason
   isBackgrounded: boolean
   awaitingInput: boolean
   detectedPrompt?: string
@@ -110,7 +111,8 @@ function createSnapshot(session: TerminalProcessSession): TerminalProcessSnapsho
     isBackgrounded: session.isBackgrounded,
     awaitingInput: session.awaitingInput,
     ...(session.detectedPrompt ? { detectedPrompt: session.detectedPrompt } : {}),
-    outputTruncated: session.outputTruncated
+    outputTruncated: session.outputTruncated,
+    ...(session.terminationReason ? { terminationReason: session.terminationReason } : {})
   }
 }
 
@@ -519,6 +521,9 @@ export function spawnGuardedTerminalProcess(
     }
     if (session.status !== 'killed') {
       session.status = exitCode === 0 ? 'completed' : 'failed'
+      session.terminationReason = exitCode === 0 ? 'completed' : 'failed'
+    } else {
+      session.terminationReason = session.terminationReason || 'killed'
     }
     session.exitCode = exitCode
     session.awaitingInput = false
@@ -533,10 +538,10 @@ export function spawnGuardedTerminalProcess(
   // Handle abort signal if provided
   if (options.signal) {
     if (options.signal.aborted) {
-      killTerminalProcess(runId, options.chatId)
+      killTerminalProcess(runId, options.chatId, 'cancelled')
     } else {
       options.signal.addEventListener('abort', () => {
-        killTerminalProcess(runId, options.chatId)
+        killTerminalProcess(runId, options.chatId, 'cancelled')
       })
     }
   }
@@ -713,7 +718,11 @@ export async function sendTerminalInput(
 /**
  * Kills a running terminal process.
  */
-export function killTerminalProcess(runId: string, chatId?: string): string {
+export function killTerminalProcess(
+  runId: string,
+  chatId?: string,
+  reason: TerminalTerminationReason = 'killed'
+): string {
   const targetSession = findSession(runId, chatId)
   if (!targetSession) {
     return `Error: No terminal process found with Run ID "${runId}".`
@@ -725,6 +734,7 @@ export function killTerminalProcess(runId: string, chatId?: string): string {
 
   try {
     targetSession.status = 'killed'
+    targetSession.terminationReason = reason
     targetSession.awaitingInput = false
     targetSession.detectedPrompt = undefined
     publishSnapshot(targetSession)

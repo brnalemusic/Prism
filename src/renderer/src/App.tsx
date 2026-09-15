@@ -5899,7 +5899,10 @@ function RealApp(): React.JSX.Element {
         <HarnessApprovalDialog
           request={harnessApprovalRequest}
           onResolve={(approved) => {
-            window.api.resolveHarnessApproval(harnessApprovalRequest.requestId, approved)
+            window.api.resolveHarnessApproval(harnessApprovalRequest.requestId, approved, {
+              chatId: harnessApprovalRequest.chatId,
+              projectPath: harnessApprovalRequest.projectPath
+            })
             setHarnessApprovalRequest(null)
           }}
         />

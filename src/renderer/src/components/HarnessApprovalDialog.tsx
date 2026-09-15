@@ -28,6 +28,11 @@ export function HarnessApprovalDialog({
               {request.items.length} {request.items.length === 1 ? 'action' : 'actions'} in{' '}
               {request.projectPath.split(/[\\/]/).pop()}
             </p>
+            {request.expiresAt && (
+              <p className="mt-1 text-[10px] text-text-muted">
+                Expires {new Date(request.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            )}
           </div>
           <TerminalWindow size={18} className="mt-0.5 text-accent-primary" />
         </header>

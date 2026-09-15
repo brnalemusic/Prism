@@ -21,6 +21,12 @@ export interface ToolUpdate {
 }
 
 export type TerminalProcessStatus = 'running' | 'completed' | 'failed' | 'killed'
+export type TerminalTerminationReason =
+  | 'completed'
+  | 'failed'
+  | 'killed'
+  | 'timeout'
+  | 'cancelled'
 
 export interface TerminalProcessSnapshot {
   runId: string
@@ -34,6 +40,7 @@ export interface TerminalProcessSnapshot {
   awaitingInput: boolean
   detectedPrompt?: string
   outputTruncated: boolean
+  terminationReason?: TerminalTerminationReason
 }
 
 export type DownloadProgressStatus =
@@ -392,6 +399,9 @@ export interface HarnessApprovalRequest {
   chatId: string
   projectPath: string
   items: HarnessApprovalItem[]
+  createdAt?: number
+  expiresAt?: number
+  status?: 'pending' | 'approved' | 'denied' | 'expired' | 'cancelled' | 'stale'
 }
 
 export interface HarnessInstructionStatus {

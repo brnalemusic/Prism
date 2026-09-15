@@ -1753,8 +1753,8 @@ if (!gotTheLock) {
 
     ipcMain.on(
       'harness-resolve-approval',
-      (_event, payload: { requestId: string; approved: boolean }) => {
-        resolveHarnessApproval(payload.requestId, payload.approved)
+      (_event, payload: { requestId: string; approved: boolean; chatId?: string; projectPath?: string }) => {
+        resolveHarnessApproval(payload.requestId, payload.approved, payload)
       }
     )
 

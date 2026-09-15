@@ -4,8 +4,10 @@ import { broadcastIpc } from './safeSend'
 
 interface PendingApproval {
   chatId: string
+  projectPath: string
   resolve: (approved: boolean) => void
   timer: NodeJS.Timeout
+  expiresAt: number
 }
 
 const pendingApprovals = new Map<string, PendingApproval>()
@@ -17,7 +19,11 @@ export function requestHarnessApproval(
   signal?: AbortSignal
 ): Promise<boolean> {
   const requestId = randomUUID()
-  const request: HarnessApprovalRequest = { requestId, chatId, projectPath, items }
+  const createdAt = Date.now()
+  const expiresAt = createdAt + 10 * 60 * 1000
+  const request: HarnessApprovalRequest = {
+    requestId, chatId, projectPath, items, createdAt, expiresAt, status: 'pending'
+  }
   return new Promise((resolve) => {
     const finish = (approved: boolean): void => {
       const pending = pendingApprovals.get(requestId)
@@ -26,8 +32,8 @@ export function requestHarnessApproval(
       pendingApprovals.delete(requestId)
       resolve(approved)
     }
-    const timer = setTimeout(() => finish(false), 10 * 60 * 1000)
-    pendingApprovals.set(requestId, { chatId, resolve: finish, timer })
+    const timer = setTimeout(() => finish(false), expiresAt - createdAt)
+    pendingApprovals.set(requestId, { chatId, projectPath, resolve: finish, timer, expiresAt })
     if (signal) {
       signal.addEventListener('abort', () => finish(false), { once: true })
     }
@@ -35,9 +41,19 @@ export function requestHarnessApproval(
   })
 }
 
-export function resolveHarnessApproval(requestId: string, approved: boolean): boolean {
+export function resolveHarnessApproval(
+  requestId: string,
+  approved: boolean,
+  context?: { chatId?: string; projectPath?: string }
+): boolean {
   const pending = pendingApprovals.get(requestId)
   if (!pending) return false
+  if (Date.now() >= pending.expiresAt) {
+    pending.resolve(false)
+    return false
+  }
+  if (context?.chatId && context.chatId !== pending.chatId) return false
+  if (context?.projectPath && context.projectPath !== pending.projectPath) return false
   pending.resolve(approved)
   return true
 }

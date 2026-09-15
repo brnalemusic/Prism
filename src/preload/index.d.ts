@@ -198,7 +198,7 @@ export interface PrismAPI {
   onDiscordVoiceOutput: (callback: (data: { chatId: string }) => void) => () => void
   onToolUpdate: (callback: (data: ToolUpdate & { chatId: string }) => void) => () => void
   onHarnessApprovalRequest: (callback: (data: HarnessApprovalRequest) => void) => () => void
-  resolveHarnessApproval: (requestId: string, approved: boolean) => void
+  resolveHarnessApproval: (requestId: string, approved: boolean, context?: { chatId?: string; projectPath?: string }) => void
   onHarnessPromptWarning: (
     callback: (data: {
       chatId: string

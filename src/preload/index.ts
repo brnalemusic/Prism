@@ -421,8 +421,8 @@ const api = {
     ipcRenderer.on('harness-approval-request', listener)
     return () => ipcRenderer.removeListener('harness-approval-request', listener)
   },
-  resolveHarnessApproval: (requestId: string, approved: boolean): void =>
-    ipcRenderer.send('harness-resolve-approval', { requestId, approved }),
+  resolveHarnessApproval: (requestId: string, approved: boolean, context?: { chatId?: string; projectPath?: string }): void =>
+    ipcRenderer.send('harness-resolve-approval', { requestId, approved, ...context }),
   onHarnessPromptWarning: (
     callback: (data: {
       chatId: string
