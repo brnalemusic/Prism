@@ -84,5 +84,5 @@ export function glassNormalField(
       paths.push(`<polygon points="${points}" fill="rgb(${red}%,${green}%,50%)"/>`)
     }
   }
-  return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="rgb(50%,50%,50%)"/>${paths.join('')}</svg>`)}`
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="rgb(50%,50%,50%)"/>${paths.join('')}</svg>`)}`
 }

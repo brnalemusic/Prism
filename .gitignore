@@ -38,6 +38,8 @@ supabase/migrations
 .claude/
 .kilo/
 .freebuff/
+.agents/
+supabase/.temp
 
 # License Security & Keys
 scripts/license-keys/

@@ -116,7 +116,7 @@ export function LiquidGlassSurface({
   const band = Math.max(1, distortionRadius)
   const scale = Math.max(0, Math.min(refraction, band * 0.9))
   const style = {
-    '--liquid-filter': `url("#${id}")`,
+    '--liquid-filter': `url(#${id})`,
     '--liquid-specular': Math.max(0, Math.min(0.3, specular)),
     '--liquid-opacity': Math.max(0, Math.min(1, opacity)),
     '--liquid-center-attenuation': Math.max(0, Math.min(0.3, centerAttenuation)),
@@ -127,7 +127,15 @@ export function LiquidGlassSurface({
     <span ref={anchor} className="liquid-glass-anchor" aria-hidden="true" style={style}>
       {active && geometry && (
         <>
-          <svg className="liquid-glass-definitions" xmlns="http://www.w3.org/2000/svg">
+          <svg
+            className="liquid-glass-definitions"
+            xmlns="http://www.w3.org/2000/svg"
+            width="0"
+            height="0"
+            aria-hidden="true"
+            focusable="false"
+            style={{ position: 'absolute', pointerEvents: 'none' }}
+          >
             <defs>
               <filter
                 id={id}
@@ -140,6 +148,7 @@ export function LiquidGlassSurface({
               >
                 <feImage
                   href={geometry.map}
+                  xlinkHref={geometry.map}
                   x="0"
                   y="0"
                   width={geometry.width}

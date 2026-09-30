@@ -40,10 +40,19 @@ function readStoredMode(): PerformanceMode {
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY)
     if (stored === 'max' || stored === 'performance') return stored
+    if (stored === null) {
+      window.localStorage.setItem(STORAGE_KEY, 'auto')
+    }
     return 'auto'
   } catch {
     return 'auto'
   }
+}
+
+if (typeof document !== 'undefined') {
+  const initialMode = getMode()
+  document.documentElement.classList.toggle(MAX_CLASS, initialMode === 'max')
+  document.documentElement.classList.toggle(PERFORMANCE_CLASS, initialMode === 'performance')
 }
 
 /**

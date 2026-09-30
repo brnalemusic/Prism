@@ -78,7 +78,7 @@
   position: absolute;
   width: 0;
   height: 0;
-  overflow: hidden;
+  pointer-events: none;
 }
 .liquid-glass-optics,
 .liquid-glass-light,
@@ -89,16 +89,16 @@
 }
 .liquid-glass-readability {
   background: color-mix(in srgb, var(--surface-lowest) calc(var(--liquid-center-attenuation) * 100%), transparent);
-  backdrop-filter: blur(var(--liquid-center-blur));
   -webkit-backdrop-filter: blur(var(--liquid-center-blur));
+  backdrop-filter: blur(var(--liquid-center-blur));
   mask-image:
     linear-gradient(to right, transparent, #000 var(--liquid-edge-band), #000 calc(100% - var(--liquid-edge-band)), transparent),
     linear-gradient(to bottom, transparent, #000 var(--liquid-edge-band), #000 calc(100% - var(--liquid-edge-band)), transparent);
   mask-composite: intersect;
 }
 .perf-max .liquid-glass-optics {
-  backdrop-filter: var(--liquid-filter);
   -webkit-backdrop-filter: var(--liquid-filter);
+  backdrop-filter: var(--liquid-filter);
   background: color-mix(in srgb, var(--surface-lowest) calc(var(--liquid-opacity) * 100%), transparent);
 }
 .perf-max .liquid-glass-light {
@@ -127,8 +127,8 @@
 .perf-max [data-liquid-glass='active'].true-glass:not(.glass-menu-host),
 .perf-max [data-liquid-glass='active'].liquid-glass-docked {
   background: transparent;
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 /* Keep Tailwind hover feedback alive on small pills whose base background
    the rule above strips (the rule out-specifies hover:bg-* utilities). */
@@ -137,15 +137,15 @@
 }
 .perf-max [data-liquid-glass='active'].true-glass.glass-menu-host::before,
 .perf-max [data-liquid-glass='active'].liquid-glass-docked::before {
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   background: transparent;
   box-shadow: none;
 }
 .perf-max [data-liquid-glass='active'].glass-dropdown-panel {
   background: transparent;
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .perf-max [data-liquid-glass='active'].true-glass.input-bar-processing {
   background: transparent !important;
@@ -239,8 +239,8 @@
    and a tinted ambient shadow. No hard border; depth comes from light. */
 .true-glass {
   background: var(--glass-surface-tint);
-  backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
   -webkit-backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
+  backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
   box-shadow: var(--glass-surface-shadow);
 }
 
@@ -261,8 +261,8 @@
    and below all content, including static-flow children. */
 .true-glass.glass-menu-host {
   background: transparent;
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* Generic host foundation: any blurred chrome that contains dropdowns
@@ -271,8 +271,8 @@
    unset vars fall back to the true-glass recipe. */
 .glass-menu-host {
   background: transparent;
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .glass-menu-host::before {
@@ -281,8 +281,8 @@
   inset: 0;
   border-radius: inherit;
   background: var(--host-tint, var(--glass-surface-tint));
-  backdrop-filter: var(--host-filter, blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06));
   -webkit-backdrop-filter: var(--host-filter, blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06));
+  backdrop-filter: var(--host-filter, blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06));
   box-shadow: var(--host-shadow, var(--glass-surface-shadow));
   z-index: -1;
   pointer-events: none;
@@ -360,14 +360,14 @@
 @media (prefers-reduced-transparency: reduce) {
   .true-glass {
     background: var(--surface-lowest);
-    backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     box-shadow: var(--glass-shadow-md);
   }
   .true-glass.glass-menu-host::before {
     background: transparent;
-    backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     box-shadow: none;
   }
 }
@@ -729,8 +729,8 @@
       background: var(--surface-lowest) !important;
       /* !important is required: the unlayered .true-glass backdrop-filter
          would otherwise win over this layered rule. */
-      backdrop-filter: none !important;
       -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
     }
   }
 
@@ -758,8 +758,8 @@
      blur step-down (see below) so the frost stays full in every mode. */
   .glass-dropdown-panel {
     background: var(--glass-surface-tint);
-    backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
     -webkit-backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
+    backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
     border-radius: 18px;
     box-shadow: var(--glass-surface-shadow);
   }
@@ -768,8 +768,8 @@
      so the ambient shadow is cast upward instead of down. */
   .liquid-glass-docked {
     background: var(--glass-surface-tint);
-    backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
     -webkit-backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
+    backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
     box-shadow:
       inset 0 1px 1px 0 rgba(255, 255, 255, 0.09),
       0 -12px 36px -8px rgba(0, 0, 0, 0.5);
@@ -779,8 +779,8 @@
     isolation: isolate;
     background: var(--surface-lowest) !important;
     background-image: none !important;
-    backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
 
   .implementation-plan-surface {
@@ -801,8 +801,8 @@
       inset 0 1px 0 color-mix(in srgb, white 22%, transparent),
       inset 0 -1px 0 rgba(0, 0, 0, 0.32),
       0 22px 48px -28px rgba(0, 0, 0, 0.92);
-    backdrop-filter: blur(28px) saturate(145%);
     -webkit-backdrop-filter: blur(28px) saturate(145%);
+    backdrop-filter: blur(28px) saturate(145%);
   }
 
   .implementation-plan-surface__header {
@@ -1179,8 +1179,8 @@
   @media (prefers-reduced-transparency: reduce) {
     .implementation-plan-surface {
       background: var(--surface-lowest);
-      backdrop-filter: none;
       -webkit-backdrop-filter: none;
+      backdrop-filter: none;
     }
   }
 
@@ -1197,8 +1197,8 @@
 
   .premium-panel {
     background: color-mix(in srgb, var(--surface) 80%, rgba(0, 0, 0, 0.4));
-    backdrop-filter: blur(24px) saturate(160%);
     -webkit-backdrop-filter: blur(24px) saturate(160%);
+    backdrop-filter: blur(24px) saturate(160%);
     border-radius: var(--radius-card);
     box-shadow: var(--glass-specular-top), var(--glass-shadow-md);
   }
@@ -1206,24 +1206,24 @@
   /* Model menu flyout: same glass as every other dropdown. */
   .model-menu-panel {
     background: var(--glass-surface-tint);
-    backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
     -webkit-backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
+    backdrop-filter: blur(var(--glass-surface-blur)) saturate(180%) brightness(1.06);
     border-radius: 18px;
     box-shadow: var(--glass-surface-shadow);
   }
 
   .premium-panel-soft {
     background: color-mix(in srgb, var(--background-secondary) 60%, rgba(0, 0, 0, 0.35));
-    backdrop-filter: blur(20px) saturate(160%);
     -webkit-backdrop-filter: blur(20px) saturate(160%);
+    backdrop-filter: blur(20px) saturate(160%);
     border-radius: var(--radius-card);
     box-shadow: var(--glass-specular-top);
   }
 
   .premium-control {
     background: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(14px) saturate(150%);
     -webkit-backdrop-filter: blur(14px) saturate(150%);
+    backdrop-filter: blur(14px) saturate(150%);
     border-radius: var(--radius-control);
     box-shadow: var(--glass-specular-top);
   }
@@ -1628,6 +1628,7 @@
 
 .quick-launcher-overlay {
   background-color: transparent !important;
+  -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
 
@@ -1992,8 +1993,8 @@
   border-radius: 0.85rem;
   background: color-mix(in srgb, var(--color-background-secondary) 92%, transparent);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
-  backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2026,8 +2027,8 @@
 
   .discord-voice-tool-panel {
     background: var(--color-background-secondary);
-    backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
 
@@ -2448,6 +2449,7 @@
 
 .prism-modal-backdrop {
   background: rgba(0, 0, 0, 0.84);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }
 
@@ -2855,6 +2857,7 @@
   background: rgba(2, 5, 14, 0.72);
   color: rgba(255, 255, 255, 0.9);
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.3);
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   cursor: pointer;
   transition:
@@ -3188,8 +3191,8 @@
      legacy panel background so every dropdown goes fully opaque here. */
   background: var(--surface-lowest) !important;
   background-image: none !important;
-  backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
   box-shadow: var(--glass-shadow-md);
 }
 
@@ -3197,8 +3200,8 @@
    matching their pre-host look (veil without frost). True-glass hosts go
    fully solid via the stricter rule below. */
 .perf-performance .glass-menu-host::before {
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   box-shadow: none;
 }
 
@@ -3206,8 +3209,8 @@
    bar would keep a glass veil over its solid surface in Performance mode. */
 .perf-performance .true-glass.glass-menu-host::before {
   background: transparent;
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   box-shadow: none;
 }
 
@@ -3231,8 +3234,8 @@
   *:not(.streaming-character-fade):not(.streaming-element-fade)::before,
 .perf-performance
   *:not(.streaming-character-fade):not(.streaming-element-fade)::after {
-  backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;

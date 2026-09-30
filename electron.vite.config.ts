@@ -47,6 +47,10 @@ export default defineConfig({
         '@renderer': resolve('src/renderer/src')
       }
     },
+    build: {
+      target: 'chrome130',
+      cssTarget: 'chrome130'
+    },
     plugins: [react(), tailwindcss()]
   }
 })
