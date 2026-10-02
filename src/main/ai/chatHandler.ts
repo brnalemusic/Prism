@@ -1,7 +1,26 @@
 import { IpcMainEvent } from 'electron'
+import { beginGitBuild, finishGitBuild } from '../harnessGitRecovery'
+import { getTerminalProcessesForChat } from '../terminalProcessManager'
 import * as os from 'os'
-import { SessionMode, AttachedFile } from '../../shared/types'
-import { getSystemToolsPrompt, setActiveCwd, setCurrentSessionIdForTodo } from '../systemTools'
+import * as path from 'path'
+import {
+  SessionMode,
+  AttachedFile,
+  HarnessApprovalItem,
+  HarnessToolName,
+  HarnessContextSnapshot,
+  EffectiveHarnessSettings,
+  HarnessExplorerSelection,
+  HarnessPhase,
+  MessageDeliveryMode
+} from '../../shared/types'
+import type { ToolImageAttachment } from '../toolAttachments'
+import {
+  getSystemToolsPrompt,
+  setActiveCwd,
+  setCurrentSessionIdForTodo,
+  YOUTUBE_SEARCH_PROTOCOL
+} from '../systemTools'
 import { loadConfig } from '../config'
 import {
   hydrateHistoryToolAttachments,
@@ -10,30 +29,270 @@ import {
   loadChatSession,
   updateChatSessionTitle
 } from '../history'
-import { resolveProviderAndModel, PRISM_PROVIDER_ID } from './providerManager'
+import {
+  providerHasCompletionCredential,
+  resolveProviderAndModel,
+  PRISM_PROVIDER_ID
+} from './providerManager'
 import { streamOpenAiCompletion } from './openaiClient'
-import { ActiveRun, OpenAiMessage, OpenAiToolDefinition } from './types'
+import { ActiveRun, OpenAiMessage, OpenAiToolDefinition, SteeringMessage } from './types'
+import { appendTurnRecallBlock, getActiveMemoryService } from '../memoryStore'
 import { safeSend, broadcastIpc } from '../safeSend'
 import { getOpenAiToolDefinitions } from '../toolRuntime'
 import { unlockBrowserToolsForSession } from '../skillsManager'
 import { normalizePrismThinkingLevel } from './prismThinking'
-import { createTerminalNotificationMessage, runToolOrchestration } from './toolOrchestrator'
+import {
+  createTerminalNotificationMessage,
+  runToolOrchestration,
+  type ToolOrchestratorOptions
+} from './toolOrchestrator'
 import { markConnectionActive } from '../connection'
 import {
   getPendingProcessNotifications,
   onTerminalNotificationPending
 } from '../terminalProcessManager'
+import { hasConfiguredImageGenerationRoute } from './imageGeneration'
+import { isStrictBase64 } from './imageGenerationCore'
+import { asDataUrl, imageAttachments } from '../toolAttachments'
+import { dedupeImageAttachments, formatImageAssetReference, isImageAssetId } from '../imageAssets'
+import { checkHarnessProjectFolder, getEffectiveHarnessSettings } from '../harnessProject'
+import { getHarnessSystemPrompt } from '../harnessPrompt'
+import { interChatManager, resolveSubAgentModelKey } from './interChatManager'
+import { isLiveOnlyModel } from './trustedRegistry'
+
+function getPendingInterChatMessages(chatId: string): OpenAiMessage[] {
+  const notifs = interChatManager.getPendingInterChatNotifications(chatId)
+  return notifs.map((n) => ({
+    role: 'user',
+    content: n.content,
+    sourceChatId: n.targetChatId,
+    sourceChatTitle: n.targetTitle,
+    isSystemNotification: false,
+    hidden: false
+  }))
+}
+
+function getAllPendingNotifications(chatId: string) {
+  return getPendingProcessNotifications(chatId)
+}
+import {
+  executeHarnessTool,
+  getHarnessOpenAiToolDefinitions,
+  getHarnessToolLabel,
+  harnessToolRequiresExternalApproval,
+  previewHarnessTool
+} from '../harnessTools'
+import { getHarnessToolNamesForPhase, isReadOnlyHarnessPlanCommand } from '../harnessPlan'
+import { requestHarnessApproval, cancelHarnessApprovalsForChat } from '../harnessApproval'
+import type { ToolResultEnvelope } from '../toolRuntime'
+import { resolveRequestModelKey, resolveRunWorkspace } from './sessionRuntime'
+import { readHarnessExplorerContext } from '../harnessExplorer'
 
 export const activeRuns = new Map<string, ActiveRun>()
 export const lastScreenshots = new Map<string, string>()
+const deletedActiveChats = new Set<string>()
+const activePlanHandoffs = new Map<string, AbortController>()
 const currentSessionId = ''
 
 let currentSelectedChatModel = ''
 let currentSessionMode: SessionMode = 'execution'
 let currentDisciplinePath = ''
 
+function isSameProjectPath(left: string, right: string): boolean {
+  const resolvedLeft = path.resolve(left)
+  const resolvedRight = path.resolve(right)
+  return process.platform === 'win32'
+    ? resolvedLeft.toLowerCase() === resolvedRight.toLowerCase()
+    : resolvedLeft === resolvedRight
+}
+
+function harnessSystemPromptLabel(modelId: string): string {
+  const cleanId = modelId
+    .replace(/^prism_provider:/, '')
+    .replace(/\s+/g, '-')
+    .toLowerCase()
+  return `@${cleanId}/harness-system-prompt`
+}
+
+function parseThoughtAndContent(
+  rawText: string,
+  extraReasoning: string
+): { thoughts: string; content: string } {
+  let thoughts = extraReasoning || ''
+  let content = rawText
+  const thinkMatch = rawText.match(/<think>([\s\S]*?)(?:<\/think>|$)/i)
+  if (thinkMatch) {
+    thoughts = thoughts ? `${thoughts}\n${thinkMatch[1]}` : thinkMatch[1]
+    content = rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*/gi, '')
+  }
+  return { thoughts, content }
+}
+
+function createHarnessBeforeToolBatch(
+  chatId: string,
+  projectPath: string,
+  settings: EffectiveHarnessSettings,
+  signal: AbortSignal
+): NonNullable<ToolOrchestratorOptions['beforeToolBatch']> {
+  return async (calls) => {
+    const callsRequiringApproval = calls.filter(
+      (call) => call.name !== 'to_ask' && call.name !== 'plan'
+    )
+    if (callsRequiringApproval.length === 0) return true
+    const needsApproval =
+      settings.defaultPermissionMode === 'ask' ||
+      (settings.defaultPermissionMode === 'yolo' && !settings.yoloAcknowledged) ||
+      (settings.defaultPermissionMode === 'independent' &&
+        callsRequiringApproval.some((call) =>
+          harnessToolRequiresExternalApproval(call.name, call.args)
+        ))
+    if (!needsApproval) return true
+    const items: HarnessApprovalItem[] = await Promise.all(
+      callsRequiringApproval.map(async (call) => {
+        try {
+          return await previewHarnessTool(call.callId, call.name, call.args, projectPath)
+        } catch (error) {
+          return {
+            callId: call.callId,
+            name: call.name as HarnessToolName,
+            label: getHarnessToolLabel(call.name),
+            args:
+              call.args && typeof call.args === 'object' && !Array.isArray(call.args)
+                ? (call.args as Record<string, unknown>)
+                : {},
+            preview: `Unable to prepare preview: ${error instanceof Error ? error.message : String(error)}`,
+            destructive: true
+          }
+        }
+      })
+    )
+    return requestHarnessApproval(chatId, projectPath, items, signal)
+  }
+}
+
+// Tools that change the repository or its working tree. A failure inside one of
+// these can leave the linked Git Build incomplete; read-only tools cannot.
+const MUTATING_HARNESS_TOOLS = new Set(['write', 'edit', 'apply_patch', 'exec_command', 'write_stdin'])
+
+function createHarnessToolExecutor(
+  projectPath: string,
+  settings: EffectiveHarnessSettings,
+  phase: HarnessPhase
+): NonNullable<ToolOrchestratorOptions['executeTool']> {
+  return async (name, args, context, loopGuard) => {
+    if (phase === 'plan') {
+      const allowed = new Set([
+        'read', 'list', 'find', 'grep', 'to_ask', 'plan',
+        'exec_command', 'read_terminal_output', 'web_search', 'read_page',
+        'send_message_to_chat', 'answer_subagent_question', 'cancel_subagent_task'
+      ])
+      let planError: string | null = allowed.has(name)
+        ? null
+        : `The ${name} tool is unavailable in Plan mode.`
+      if (!planError && name === 'exec_command') {
+        let command = ''
+        try {
+          const parsed = typeof args === 'string' ? JSON.parse(args) : args
+          command =
+            parsed && typeof parsed === 'object' && typeof parsed.cmd === 'string'
+              ? parsed.cmd
+              : ''
+        } catch {
+          command = ''
+        }
+        if (!isReadOnlyHarnessPlanCommand(command)) {
+          planError = 'Plan mode only allows terminal commands that are provably read-only.'
+        }
+      }
+      if (planError) {
+        const envelope: ToolResultEnvelope = {
+          ok: false,
+          error: { code: 'EXECUTION_FAILED', message: planError, retryable: false }
+        }
+        return { args: {}, envelope, modelContent: JSON.stringify(envelope) }
+      }
+    }
+    const repeatedError = loopGuard.register(name, args)
+    if (repeatedError) {
+      const envelope: ToolResultEnvelope = { ok: false, error: repeatedError }
+      return { args: {}, envelope, modelContent: JSON.stringify(envelope) }
+    }
+    return executeHarnessTool(name, args, {
+      ...context,
+      projectRoot: projectPath,
+      settings
+    })
+  }
+}
+
+const SUPPORTED_CHAT_IMAGE_MIME_TYPES = new Set<ToolImageAttachment['mimeType']>([
+  'image/jpeg',
+  'image/png',
+  'image/webp'
+])
+
+function normalizeChatImage(
+  value: string,
+  declaredMimeType: string,
+  name?: string
+): ToolImageAttachment | null {
+  let mimeType =
+    declaredMimeType.toLowerCase() === 'image/jpg' ? 'image/jpeg' : declaredMimeType.toLowerCase()
+  let data = value.trim()
+  const dataUrl = data.match(/^data:([^;,]+);base64,(.+)$/s)
+  if (dataUrl) {
+    mimeType = dataUrl[1].toLowerCase()
+    data = dataUrl[2]
+  }
+  if (!SUPPORTED_CHAT_IMAGE_MIME_TYPES.has(mimeType as ToolImageAttachment['mimeType'])) {
+    return null
+  }
+  data = data.replace(/\s/g, '')
+  if (!isStrictBase64(data)) return null
+  return {
+    kind: 'image',
+    mimeType: mimeType as ToolImageAttachment['mimeType'],
+    data,
+    ...(name ? { name } : {})
+  }
+}
+
+function collectIncomingImages(
+  screenshot?: string,
+  attachedFile?: AttachedFile
+): ToolImageAttachment[] {
+  const candidates: ToolImageAttachment[] = []
+  if (attachedFile?.mimeType.startsWith('image/')) {
+    const attachment = normalizeChatImage(
+      attachedFile.data,
+      attachedFile.mimeType,
+      attachedFile.name
+    )
+    if (attachment) candidates.push(attachment)
+  }
+  if (screenshot) {
+    const attachment = normalizeChatImage(screenshot, 'image/png', 'Screenshot.png')
+    if (attachment) candidates.push(attachment)
+  }
+  return dedupeImageAttachments(candidates)
+}
+
 export function setChatModel(modelKey: string): void {
   currentSelectedChatModel = modelKey
+}
+
+export function formatUserMessageTimestamp(timestamp: number): string {
+  const date = new Date(timestamp)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())}-${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+function withUserMessageTimestamp(content: string, timestamp: number): string {
+  return `${content}\n[${formatUserMessageTimestamp(timestamp)}]`
+}
+
+export function markActiveChatDeleted(chatId: string): void {
+  if (activeRuns.has(chatId)) deletedActiveChats.add(chatId)
 }
 
 export function getChatModel(id?: string): string {
@@ -59,13 +318,21 @@ export function getSessionMode(): { mode: SessionMode; disciplinePath?: string }
 
 export function cancelChatMessage(chatId?: string): void {
   if (chatId) {
+    cancelHarnessApprovalsForChat(chatId)
     const run = activeRuns.get(chatId)
     if (run) {
       run.abortController.abort()
       activeRuns.delete(chatId)
+    } else {
+      broadcastIpc('chat-reply-error', {
+        error: 'Message cancelled by user',
+        chatId,
+        workspace: 'chat'
+      })
     }
   } else {
     for (const [id, run] of activeRuns.entries()) {
+      cancelHarnessApprovalsForChat(id)
       run.abortController.abort()
       activeRuns.delete(id)
     }
@@ -78,131 +345,448 @@ export function getNativeToolsForOpenAi(
   chatId?: string,
   disabledSkills?: string[]
 ): OpenAiToolDefinition[] {
-  void _target
-  const definitions = getOpenAiToolDefinitions(chatId, disabledSkills)
+  const definitions = getOpenAiToolDefinitions(chatId, disabledSkills).filter(
+    (definition) =>
+      definition.function.name !== 'generate_image' ||
+      (_target === 'main' && hasConfiguredImageGenerationRoute())
+  )
   if (allowedTools === undefined) return definitions
   const allowed = new Set(allowedTools)
   return definitions.filter((definition) => allowed.has(definition.function.name))
 }
 
-export async function handleChatMessage(
-  event: IpcMainEvent,
-  data:
-    | string
-    | {
-        message: string
-        thinkMode?: boolean
-        chatId?: string
-        screenshot?: string
-        quote?: string
-        attachedFile?: AttachedFile
-        appMode?: string
-        sessionMode?: SessionMode
-        disciplinePath?: string
-        modelKey?: string
-        reasoningLevel?: string
-        disabledSkills?: string[]
+export interface ChatMessagePayload {
+  message: string
+  thinkMode?: boolean
+  chatId?: string
+  screenshot?: string
+  quote?: string
+  attachedFile?: AttachedFile
+  appMode?: string
+  sessionMode?: SessionMode
+  disciplinePath?: string
+  modelKey?: string
+  reasoningLevel?: string
+  disabledSkills?: string[]
+  explorerContext?: HarnessExplorerSelection[]
+  harnessPhase?: HarnessPhase
+  deliveryMode?: MessageDeliveryMode
+  sourceChatId?: string
+  sourceChatTitle?: string
+}
+
+export function handleChatSteerMessage(
+  chatId: string,
+  message: string,
+  attachedFile?: AttachedFile,
+  _workspace: 'chat' | 'harness' = 'chat'
+): boolean {
+  if (!chatId || !message.trim()) return false
+  const activeRun = activeRuns.get(chatId)
+  if (!activeRun || activeRun.status !== 'running') {
+    return false
+  }
+  if (!activeRun.steeringQueue) {
+    activeRun.steeringQueue = []
+  }
+  const steering: SteeringMessage = {
+    id: `steer-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    text: message.trim(),
+    timestamp: Date.now(),
+    attachedFile
+  }
+  activeRun.steeringQueue.push(steering)
+  return true
+}
+
+/** Dedicated entrypoint: the Harness never travels through the Chat IPC channel. */
+export async function handleHarnessMessage(
+  event: IpcMainEvent | null,
+  data: Omit<ChatMessagePayload, 'sessionMode' | 'disciplinePath' | 'appMode'> & {
+    projectPath: string
+  }
+): Promise<void> {
+  return handleChatMessage(
+    event,
+    {
+      ...data,
+      sessionMode: 'harness',
+      disciplinePath: data.projectPath,
+      appMode: undefined,
+      disabledSkills: []
+    },
+    'harness'
+  )
+}
+
+export async function prepareHarnessPlanHandoff(data: {
+  chatId: string
+  projectPath: string
+  modelKey: string
+  plan: string
+}): Promise<{ context: string }> {
+  const session = loadChatSession(data.chatId, 'harness')
+  if (!session || !session.disciplinePath) {
+    throw new Error('The source Harness session could not be loaded.')
+  }
+  if (!isSameProjectPath(session.disciplinePath, data.projectPath)) {
+    throw new Error('The handoff must remain in the source Harness project.')
+  }
+  const publishedPlans = session.messages.flatMap((message) =>
+    (message.tool_calls || [])
+      .filter((call) => call.function.name === 'plan')
+      .map((call) => {
+        try {
+          const args = JSON.parse(call.function.arguments) as { markdown?: unknown }
+          return typeof args.markdown === 'string' ? args.markdown.trim() : ''
+        } catch {
+          return ''
+        }
+      })
+  )
+  if (!data.plan.trim() || !publishedPlans.includes(data.plan.trim())) {
+    throw new Error('The selected implementation plan is not part of the source session.')
+  }
+  const { provider, model } = resolveProviderAndModel(data.modelKey || session.model)
+  if (!provider || !model || !providerHasCompletionCredential(provider)) {
+    throw new Error('The source Harness model is unavailable.')
+  }
+
+  activePlanHandoffs.get(data.chatId)?.abort()
+  const controller = new AbortController()
+  activePlanHandoffs.set(data.chatId, controller)
+  try {
+    const history = hydrateHistoryToolAttachments(data.chatId, session.messages)
+    const messages: OpenAiMessage[] = [
+      {
+        role: 'system',
+        content:
+          'Implementation handoff for another coding agent: use the source conversation to close gaps, preserve decisions/constraints, summarize repository discoveries, list likely files and risks, and state validation expectations. Do not repeat the plan verbatim; return only the complementary context.'
+      },
+      ...convertHistoryToOpenAi(history),
+      {
+        role: 'user',
+        content: `Prepare the final complementary context for this approved implementation plan:\n\n${data.plan}`
       }
+    ]
+    const result = await streamOpenAiCompletion(
+      provider,
+      model.id,
+      messages,
+      [],
+      controller.signal,
+      {
+        onTextDelta: () => {},
+        onReasoningDelta: () => {},
+        onToolCallDelta: () => {}
+      }
+    )
+    const context = result.text.trim()
+    if (!context) throw new Error('The model returned an empty implementation context.')
+    return { context }
+  } finally {
+    if (activePlanHandoffs.get(data.chatId) === controller) {
+      activePlanHandoffs.delete(data.chatId)
+    }
+  }
+}
+
+export function cancelHarnessPlanHandoff(chatId: string): void {
+  activePlanHandoffs.get(chatId)?.abort()
+  activePlanHandoffs.delete(chatId)
+}
+
+function emitChatError(
+  event: IpcMainEvent | null,
+  chatId: string,
+  workspace: 'chat' | 'harness',
+  error: string
+): void {
+  interChatManager.recordApiError(chatId, error)
+  if (event?.sender) {
+    safeSend(event.sender, 'chat-reply-error', { error, chatId, workspace })
+  } else {
+    broadcastIpc('chat-reply-error', { error, chatId, workspace })
+  }
+  interChatManager.checkAndNotifyCompletion(chatId)
+}
+
+export async function handleChatMessage(
+  event: IpcMainEvent | null,
+  data: string | ChatMessagePayload,
+  workspace: 'chat' | 'harness' = 'chat'
 ): Promise<void> {
   const message = typeof data === 'string' ? data : data.message
   const chatId = typeof data === 'object' && data.chatId ? data.chatId : currentSessionId
+  deletedActiveChats.delete(chatId)
   const screenshot = typeof data === 'object' ? data.screenshot : undefined
   const quote = typeof data === 'object' ? data.quote : undefined
   const attachedFile = typeof data === 'object' ? data.attachedFile : undefined
+  const explorerContext =
+    workspace === 'harness' && typeof data === 'object' && Array.isArray(data.explorerContext)
+      ? data.explorerContext
+      : []
 
   const sessionMode = typeof data === 'object' ? data.sessionMode : undefined
   const disciplinePath = typeof data === 'object' ? data.disciplinePath : undefined
 
-  if (typeof data === 'object' && data.modelKey) {
-    currentSelectedChatModel = data.modelKey
+  if (workspace === 'chat' && sessionMode === 'harness') {
+    emitChatError(event, chatId, workspace, 'Harness requests must be sent from the Harness workspace.')
+    return
   }
 
-  const { provider, model } = resolveProviderAndModel(currentSelectedChatModel)
+  if (activeRuns.has(chatId)) {
+    const deliveryMode = typeof data === 'object' ? data.deliveryMode : undefined
+    if (deliveryMode === 'steering') {
+      handleChatSteerMessage(chatId, message, attachedFile, workspace)
+      return
+    }
+    console.log(`Chat ${chatId} is already running. Ignoring duplicate.`)
+    return
+  }
 
-  if (!provider || !provider.apiKey || !model) {
-    safeSend(event.sender, 'chat-reply-error', {
-      error: 'API_KEY_ERROR:401:API Key or Active Model Missing',
-      chatId
-    })
+  const session = loadChatSession(chatId, workspace)
+  const requestHarnessPhase: HarnessPhase =
+    workspace === 'harness' &&
+    typeof data === 'object' &&
+    (data.harnessPhase === 'plan' || data.harnessPhase === 'build')
+      ? data.harnessPhase
+      : workspace === 'harness' && session?.harnessPhase === 'plan'
+        ? 'plan'
+        : 'build'
+  const payloadModelKey =
+    typeof data === 'object' && typeof data.modelKey === 'string' ? data.modelKey.trim() : ''
+  let requestModelKey = resolveRequestModelKey(
+    workspace,
+    payloadModelKey,
+    session?.model,
+    currentSelectedChatModel
+  )
+
+  // Fallback if session/payload model is missing or is a live-only voice model:
+  // prevent 401 on unpinned Harness sessions and 400 on WebSocket-only live models
+  if (!requestModelKey || isLiveOnlyModel(requestModelKey)) {
+    requestModelKey = resolveSubAgentModelKey(undefined, undefined, chatId) || ''
+    if (requestModelKey && session) {
+      session.model = requestModelKey
+      saveChatSession(
+        chatId,
+        session.messages || [],
+        session.title,
+        session.sessionMode,
+        session.disciplinePath,
+        requestModelKey,
+        session.isDiscord,
+        session.disabledSkills,
+        session.harnessPhase
+      )
+    }
+  }
+
+  // Harness selections are scoped to their tab/session. Only Chat may update the
+  // legacy global selection used by regular conversations and one-shot commands.
+  if (workspace === 'chat' && payloadModelKey && !isLiveOnlyModel(payloadModelKey)) {
+    currentSelectedChatModel = payloadModelKey
+  }
+
+  let { provider, model } = resolveProviderAndModel(requestModelKey)
+
+  // Double-guard: if the resolved model is a live-only model, replace it with the app-selected non-live model
+  if (model && isLiveOnlyModel(model.id)) {
+    requestModelKey = resolveSubAgentModelKey(undefined, undefined, chatId) || ''
+    const fallbackResolved = resolveProviderAndModel(requestModelKey)
+    provider = fallbackResolved.provider
+    model = fallbackResolved.model
+    if (session) {
+      session.model = requestModelKey
+      saveChatSession(
+        chatId,
+        session.messages || [],
+        session.title,
+        session.sessionMode,
+        session.disciplinePath,
+        requestModelKey,
+        session.isDiscord,
+        session.disabledSkills,
+        session.harnessPhase
+      )
+    }
+  }
+
+  if (!requestModelKey || !provider || !providerHasCompletionCredential(provider) || !model) {
+    emitChatError(event, chatId, workspace, 'API_KEY_ERROR:401:API Key or Active Model Missing')
+    return
+  }
+
+  if (isLiveOnlyModel(model.id)) {
+    emitChatError(
+      event,
+      chatId,
+      workspace,
+      `Model "${model.name || model.id}" only supports real-time voice streaming. Please select a standard chat model in Prism Settings.`
+    )
     return
   }
 
   markConnectionActive()
 
-  if (activeRuns.has(chatId)) {
-    console.log(`Chat ${chatId} is already running. Ignoring duplicate.`)
+  const config = loadConfig()
+
+  // Request-local mode avoids one workspace mutating another workspace's runtime.
+  const configuredChatMode = config.sessionMode === 'harness' ? 'execution' : config.sessionMode
+  const requestMode: SessionMode =
+    workspace === 'harness'
+      ? 'harness'
+      : sessionMode || session?.sessionMode || configuredChatMode || currentSessionMode
+  if (workspace === 'chat' && requestMode === 'harness') {
+    emitChatError(event, chatId, workspace, 'This conversation belongs to the Harness workspace.')
     return
   }
+  if (workspace === 'chat') currentSessionMode = requestMode
 
-  // Session mode setup
-  if (sessionMode) {
-    currentSessionMode = sessionMode
-  }
-  if (currentSessionMode === 'discipline') {
-    if (disciplinePath) {
-      currentDisciplinePath = disciplinePath
-      setActiveCwd(disciplinePath)
+  if (requestMode === 'discipline' || requestMode === 'harness') {
+    const selectedProjectPath =
+      disciplinePath ||
+      (session?.sessionMode === requestMode ? session.disciplinePath : undefined) ||
+      (requestMode === 'harness' ? config.harness.lastProjectPath : undefined)
+    if (!selectedProjectPath) {
+      emitChatError(event, chatId, workspace, 'Select or create a Harness project before sending a message.')
+      return
+    }
+    if (workspace === 'chat') {
+      currentDisciplinePath = selectedProjectPath
+      setActiveCwd(selectedProjectPath)
     }
   } else {
-    currentDisciplinePath = ''
-    if (currentSessionMode === 'execution') {
-      setActiveCwd(os.homedir())
-    } else {
-      setActiveCwd(process.cwd())
+    if (workspace === 'chat') {
+      currentDisciplinePath = ''
+      if (requestMode === 'execution') {
+        setActiveCwd(os.homedir())
+      } else {
+        setActiveCwd(process.cwd())
+      }
     }
   }
+  const requestSessionMode = requestMode
+  const requestDisciplinePath =
+    requestMode === 'discipline' || requestMode === 'harness'
+      ? disciplinePath || session?.disciplinePath || config.harness.lastProjectPath || ''
+      : ''
 
   // Load chat session from disk if existing
-  const session = loadChatSession(chatId)
   const historyMessages: OpenAiMessage[] = session
     ? hydrateHistoryToolAttachments(chatId, session.messages)
     : []
+  const persistedHarnessSnapshot = historyMessages.find(
+    (historyMessage) => historyMessage.role === 'system' && historyMessage.harness_context_snapshot
+  )?.harness_context_snapshot
+  if (
+    requestSessionMode === 'harness' &&
+    persistedHarnessSnapshot &&
+    !isSameProjectPath(persistedHarnessSnapshot.projectPath, requestDisciplinePath)
+  ) {
+    emitChatError(
+      event,
+      chatId,
+      workspace,
+      'This Harness conversation is locked to its original project. Start a new conversation to use another project.'
+    )
+    return
+  }
+  const harnessSettings =
+    requestSessionMode === 'harness' ? getEffectiveHarnessSettings(requestDisciplinePath) : null
+  if (requestSessionMode === 'harness') {
+    if (!harnessSettings) {
+      emitChatError(
+        event,
+        chatId,
+        workspace,
+        'The selected Harness project is not registered. Reopen it from the project picker.'
+      )
+      return
+    }
+    const folderHealth = await checkHarnessProjectFolder(requestDisciplinePath)
+    if (!folderHealth.exists || !folderHealth.isDirectory) {
+      emitChatError(
+        event,
+        chatId,
+        workspace,
+        `The project directory "${requestDisciplinePath}" does not exist on disk. Please recreate the folder or select another project.`
+      )
+      return
+    }
+  }
 
   // Check if first message
   const isFirstMessage = historyMessages.length === 0
 
   // Construct current user content
-  let rawUserText = message
+  const rawUserText = message
   const isForceSearch = rawUserText.startsWith('[FORCE_SEARCH]')
-  let userText = rawUserText.replace(/^\[FORCE_SEARCH\]\s*/i, '')
-
-  if (quote) {
-    userText = `> ${quote}\n\n${userText}`
-  }
+  const userText = rawUserText.replace(/^\[FORCE_SEARCH\]\s*/i, '')
+  const userMessageSentAt = Date.now()
+  const shouldAnnotateUserMessage = requestSessionMode !== 'harness'
 
   const userMessage: OpenAiMessage = {
     role: 'user',
-    content: userText
+    content: shouldAnnotateUserMessage
+      ? withUserMessageTimestamp(userText, userMessageSentAt)
+      : userText,
+    ...(shouldAnnotateUserMessage ? { visible_user_content: userText } : {}),
+    quote: quote || undefined
   }
 
-  if (screenshot || attachedFile) {
-    const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
-      { type: 'text', text: userText }
-    ]
-    if (screenshot) {
-      parts.push({
-        type: 'image_url',
-        image_url: {
-          url: screenshot.startsWith('data:') ? screenshot : `data:image/png;base64,${screenshot}`
-        }
+  if (harnessSettings && explorerContext.length > 0) {
+    const resolvedContext = await readHarnessExplorerContext(
+      harnessSettings.project.rootPath,
+      explorerContext,
+      harnessSettings.maxContextCharacters
+    )
+    userMessage.harness_explorer_context = resolvedContext.snapshot
+    userMessage.visible_user_content = userText
+    userMessage.content = `${userText}\n\n${resolvedContext.block}`
+    if (resolvedContext.snapshot.warnings.length > 0) {
+      safeSend(event?.sender, 'harness-prompt-warning', {
+        chatId,
+        warnings: resolvedContext.snapshot.warnings,
+        repoInstructionsLoaded: false
       })
     }
-    if (attachedFile && attachedFile.mimeType.startsWith('image/')) {
-      parts.push({
-        type: 'image_url',
-        image_url: {
-          url: attachedFile.data.startsWith('data:')
-            ? attachedFile.data
-            : `data:${attachedFile.mimeType};base64,${attachedFile.data}`
-        }
-      })
-    }
-    userMessage.content = parts
   }
 
-  historyMessages.push(userMessage)
+  const sourceChatId = typeof data === 'object' ? data.sourceChatId : undefined
+  const sourceChatTitle = typeof data === 'object' ? data.sourceChatTitle : undefined
+  if (sourceChatId) {
+    userMessage.sourceChatId = sourceChatId
+    userMessage.sourceChatTitle = sourceChatTitle
+    userMessage.visible_user_content = userText
+    const contextHeader =
+      `[DELEGATED TASK CONTEXT]\n` +
+      `Originating Chat ID: "${sourceChatId}"\n` +
+      (sourceChatTitle ? `Originating Chat Title: "${sourceChatTitle}"\n` : '') +
+      `You were invoked as a delegated sub-agent by another Prism chat. You can communicate with the original chat:\n` +
+      `- If you strictly need clarification or must report a critical blocker before continuing, you can send a message back using the tool "send_message_to_chat" with target_chat_id="${sourceChatId}".\n` +
+      `- Otherwise, complete your task autonomously without sending unnecessary interim messages. When your execution and any background terminal processes complete, the originating agent will automatically be notified with your full output and results.\n` +
+      `[/DELEGATED TASK CONTEXT]\n\n`
+    userMessage.content = `${contextHeader}${userMessage.content}`
+  }
 
-  const config = loadConfig()
+  const incomingImages = collectIncomingImages(screenshot, attachedFile)
+  if (attachedFile?.mimeType.startsWith('image/') && incomingImages.length === 0) {
+    emitChatError(
+      event,
+      chatId,
+      workspace,
+      'Unsupported or invalid image. Please use a valid PNG, JPEG, or WebP file.'
+    )
+    return
+  }
+  if (incomingImages.length > 0) userMessage.image_attachments = incomingImages
+
+  const persistedUserMessage = prepareHistoryMessage(chatId, userMessage)
+  const hydratedUserMessage = hydrateHistoryToolAttachments(chatId, [persistedUserMessage])[0]
+  historyMessages.push(hydratedUserMessage)
+
   const disabledSkills =
     typeof data === 'object' && Array.isArray(data.disabledSkills)
       ? data.disabledSkills
@@ -214,29 +798,38 @@ export async function handleChatMessage(
       chatId,
       historyMessages,
       'New Conversation',
-      currentSessionMode,
-      currentDisciplinePath,
-      currentSelectedChatModel,
+      requestSessionMode,
+      requestDisciplinePath,
+      requestModelKey,
       false,
-      disabledSkills
+      disabledSkills,
+      requestHarnessPhase
     )
     broadcastIpc('chat-session-created', { id: chatId })
-    // Background title generator
-    generateTitleInBackground(event, provider, model.id, message, chatId)
   } else {
     saveChatSession(
       chatId,
       historyMessages,
       undefined,
-      currentSessionMode,
-      currentDisciplinePath,
-      currentSelectedChatModel,
+      requestSessionMode,
+      requestDisciplinePath,
+      requestModelKey,
       undefined,
-      disabledSkills
+      disabledSkills,
+      requestHarnessPhase
     )
   }
 
-  broadcastIpc('chat-reply-start', { chatId })
+  broadcastIpc('chat-reply-start', {
+    chatId,
+    workspace,
+    userMessage: {
+      role: 'user',
+      content: userMessage.visible_user_content || userMessage.content,
+      sourceChatId: userMessage.sourceChatId,
+      sourceChatTitle: userMessage.sourceChatTitle
+    }
+  })
 
   const abortController = new AbortController()
   activeRuns.set(chatId, {
@@ -246,17 +839,21 @@ export async function handleChatMessage(
     status: 'running'
   })
 
+  let recoveryRunId: string | undefined
+  let recoverySucceeded = false
+  let recoveryToolFailed = false
   try {
+    if (workspace === 'harness' && requestHarnessPhase === 'build') recoveryRunId = await beginGitBuild(chatId)
     // Workflow matching: check if the user's message starts with a slash command
     const cleanModelId = model.id.startsWith('prism_provider:')
       ? model.id.replace('prism_provider:', '')
       : model.id
-    const cleanSelectedKey = currentSelectedChatModel.startsWith('prism_provider:')
-      ? currentSelectedChatModel.replace('prism_provider:', '')
-      : currentSelectedChatModel
+    const cleanSelectedKey = requestModelKey.startsWith('prism_provider:')
+      ? requestModelKey.replace('prism_provider:', '')
+      : requestModelKey
 
     const configLevel =
-      config.modelReasoningLevels?.[currentSelectedChatModel] ||
+      config.modelReasoningLevels?.[requestModelKey] ||
       config.modelReasoningLevels?.[cleanSelectedKey] ||
       config.modelReasoningLevels?.[model.id] ||
       config.modelReasoningLevels?.[cleanModelId]
@@ -280,60 +877,119 @@ export async function handleChatMessage(
     }
 
     const isPrismCloud = provider?.id === PRISM_PROVIDER_ID || provider?.name === 'Prism Cloud'
-    const systemPrompt = getSystemToolsPrompt(
-      model.id,
-      'main',
-      matchedWorkflow?.toolConstraints,
-      currentSessionMode,
-      currentDisciplinePath,
-      model.name,
-      isPrismCloud,
-      disabledSkills
-    )
+    let harnessSystemPrompt: string | null = null
+    if (harnessSettings) {
+      const contextMessages = historyMessages.filter(
+        (historyMessage) =>
+          historyMessage.role === 'system' && historyMessage.harness_context_snapshot
+      )
+      const existingSnapshot = contextMessages[contextMessages.length - 1]?.harness_context_snapshot
+      const harnessPrompt = await getHarnessSystemPrompt(
+        harnessSettings,
+        harnessSystemPromptLabel(model.id),
+        requestHarnessPhase
+      )
+      const needsContextInjection =
+        !existingSnapshot || existingSnapshot.fingerprint !== harnessPrompt.fingerprint
+      if (needsContextInjection) {
+        const snapshot: HarnessContextSnapshot = {
+          version: 1,
+          createdAt: Date.now(),
+          projectPath: harnessSettings.project.rootPath,
+          modelId: model.id,
+          fingerprint: harnessPrompt.fingerprint,
+          entries: harnessPrompt.entries,
+          warnings: harnessPrompt.warnings
+        }
+        const contextMessage: OpenAiMessage = {
+          role: 'system',
+          content: harnessPrompt.prompt,
+          hidden: true,
+          harness_context_snapshot: snapshot
+        }
+        // Initial context precedes the first user message. Refreshes are placed
+        // immediately before the next user turn so the visible timeline matches
+        // the prompt that will be used for that turn.
+        if (existingSnapshot) {
+          historyMessages.splice(Math.max(0, historyMessages.length - 1), 0, contextMessage)
+        } else {
+          historyMessages.unshift(contextMessage)
+        }
+        saveChatSession(
+          chatId,
+          historyMessages,
+          undefined,
+          requestSessionMode,
+          requestDisciplinePath,
+          requestModelKey,
+          undefined,
+          disabledSkills,
+          requestHarnessPhase
+        )
+        broadcastIpc('harness-context-injection', { chatId, snapshot })
+        if (harnessPrompt.warnings.length) {
+          broadcastIpc('harness-prompt-warning', {
+            chatId,
+            warnings: harnessPrompt.warnings,
+            repoInstructionsLoaded: harnessPrompt.repoInstructionsLoaded
+          })
+        }
+      }
+      harnessSystemPrompt = harnessPrompt.prompt
+    }
+    if (isFirstMessage) {
+      // Start title generation only after a Harness context snapshot has been persisted.
+      generateTitleInBackground(event, provider, model.id, message, chatId)
+    }
+    const systemPrompt = harnessSystemPrompt
+      ? harnessSystemPrompt
+      : getSystemToolsPrompt(
+          model.id,
+          'main',
+          matchedWorkflow?.toolConstraints,
+          requestSessionMode,
+          requestDisciplinePath,
+          model.name,
+          isPrismCloud,
+          disabledSkills
+        )
     let fullPrompt = systemPrompt
-    if (matchedWorkflow) {
+    if (requestSessionMode !== 'harness' && !hasConfiguredImageGenerationRoute()) {
+      fullPrompt +=
+        '\n\n# No Image Model\nImage generation is unconfigured (Settings > Intelligence Routing). On image requests, explain setup; never fake output.'
+    }
+    if (requestSessionMode !== 'harness' && matchedWorkflow) {
       fullPrompt += `\n\n# Active Workflow: ${matchedWorkflow.name}\n${matchedWorkflow.systemInstruction}`
     }
-    if (isForceSearch && !isYoutubeMode) {
-      fullPrompt += `\n\n# Web Search Requirement\nThe user has explicitly enabled Web Search for this prompt. You MUST use the 'web_search' tool to search the internet for current up-to-date information before returning your response.`
+    if (requestSessionMode !== 'harness' && isForceSearch && !isYoutubeMode) {
+      fullPrompt += `\n\n# Web Search Required\nWeb Search is on: call 'web_search' first for current info (resultCount 2-4 typical).`
     }
-    if (isYoutubeMode) {
-      fullPrompt += `\n\n# YouTube Video Search Protocol (Active YouTube App Mode)
-You are acting as the specialized YouTube Assistant. The user wants to find YouTube videos.
-STRICT EXECUTION PROTOCOL:
-1. SEARCH VIA GOOGLE QUERY: You MUST search using the 'web_search' tool with the exact query format:
-   \`site:youtube.com <SEARCH_QUERY>\`
-   (e.g., web_search({ query: "site:youtube.com Thinking Space II verified" })).
-   This uses Google search to instantly and reliably locate the official YouTube video URLs (https://www.youtube.com/watch?v=...), channel names, video titles, and snippets.
-2. OUTPUT FORMAT (MANDATORY STYLED CARD BLOCK): You MUST format your final response by wrapping the title, description, and buttons in an HTML card container block, followed by the suggestion chip below it:
+    if (requestSessionMode !== 'harness' && isYoutubeMode) {
+      fullPrompt += `
 
-<div style="border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 18px 20px; background: rgba(255, 255, 255, 0.03); margin: 12px 0;">
-  <div style="font-size: 16px; font-weight: bold; color: #ffffff; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
-    🎬 <span>[Video Title / Clean Name]</span>
-  </div>
-  <div style="font-size: 14px; color: rgba(255, 255, 255, 0.75); line-height: 1.5; margin-bottom: 16px;">
-    [Customized description of what was found based on the user request].
-  </div>
-  <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-    <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-flex; align-items: center; justify-content: center; background-color: #ff0000; color: #ffffff; padding: 8px 18px; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 13.5px;">[Primary Action/Watch Label]</a>
-    <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-flex; align-items: center; justify-content: center; background-color: #272727; color: #ffffff; padding: 8px 18px; border-radius: 8px; font-weight: 600; text-decoration: none; font-size: 13.5px;">[Alternative Label]</a>
-  </div>
-</div>
+${YOUTUBE_SEARCH_PROTOCOL}`
+    }
+    if (requestSessionMode !== 'harness' && /https?:\/\/[^\s]+/i.test(userText)) {
+      fullPrompt += `\n\n# Web URL Directive\nThe user message contains one or more web URLs. You MUST call the 'read_page' tool directly with the URL to fetch and read its content (e.g. read_page({ url: "..." })). DO NOT call 'read_skill' for 'integrated_browser_skill.md', DO NOT open an interactive browser session, and DO NOT call 'open_browser_link'. Use 'read_page' directly.`
+    }
 
-<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>
-
-STRICT BUTTON RULES:
-- Maximum 3 buttons total inside the flex container (1 primary in bold red #ff0000, up to 2 alternatives in dark charcoal #272727).
-- All buttons MUST be clickable <a> links with real href="https://www.youtube.com/watch?v=..." and target="_blank".
-- The <prism-suggestion> chip MUST be outside/below the card container.
-3. OPENING THE FOUND VIDEO: If the user sends "Open the YouTube video that you've found for me." or asks to open/play the video, immediately call 'open_browser_link' with the target video URL to open it in their browser.`
+    // Long-term memory recall (M2): relevant facts ride this turn's prompt.
+    // Never injected into Harness prompts; pinned facts already ride the
+    // static core-profile block, so they are excluded here (no duplication).
+    if (requestSessionMode !== 'harness') {
+      fullPrompt = appendTurnRecallBlock(fullPrompt, userText)
     }
 
     setCurrentSessionIdForTodo(chatId)
 
     const getToolsForSessionMode = (): OpenAiToolDefinition[] => {
-      let tools =
-        currentSessionMode === 'conversation'
+      if (requestSessionMode === 'harness' && harnessSettings) {
+        return getHarnessOpenAiToolDefinitions(
+          getHarnessToolNamesForPhase(harnessSettings.enabledTools, requestHarnessPhase)
+        )
+      }
+      const tools =
+        requestSessionMode === 'conversation'
           ? []
           : getNativeToolsForOpenAi(
               'main',
@@ -368,7 +1024,7 @@ STRICT BUTTON RULES:
       } else if (isForceSearch) {
         const allTools = getNativeToolsForOpenAi('main', undefined, chatId, disabledSkills)
         const searchTools = allTools.filter((t) =>
-          ['web_search', 'saw_link_from_url', 'open_browser_link'].includes(t.function.name)
+          ['web_search', 'web_fetch', 'read_page', 'open_browser_link'].includes(t.function.name)
         )
         const existingNames = new Set(tools.map((t) => t.function.name))
         for (const tool of searchTools) {
@@ -385,33 +1041,58 @@ STRICT BUTTON RULES:
       { role: 'system', content: fullPrompt },
       ...convertHistoryToOpenAi(historyMessages)
     ]
-    const turnStartTime = Date.now()
+    let turnStartTime = Date.now()
     const thinkingTimes = new Map<number, { startedAt?: number; endedAt?: number }>()
     let totalThinkingDuration = 0
 
-    const parseThoughtAndContent = (
-      rawText: string,
-      extraReasoning: string
-    ): { thoughts: string; content: string } => {
-      let thoughts = extraReasoning || ''
-      let content = rawText
-      const thinkMatch = rawText.match(/<think>([\s\S]*?)(?:<\/think>|$)/i)
-      if (thinkMatch) {
-        thoughts = thoughts ? `${thoughts}\n${thinkMatch[1]}` : thinkMatch[1]
-        content = rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*/gi, '')
-      }
-      return { thoughts, content }
-    }
-
+    let lastChatRound = 1
     const orchestration = await runToolOrchestration({
       provider,
       modelId: model.id,
       messages: messagesForApi,
       tools: openAiTools,
       getToolsForRound: () => getToolsForSessionMode(),
-      getPendingNotifications: () => getPendingProcessNotifications(chatId),
+      getPendingNotifications: () => getAllPendingNotifications(chatId),
+      getPendingInterChatMessages: () => getPendingInterChatMessages(chatId),
+      getPendingSteeringMessages: () => {
+        const run = activeRuns.get(chatId)
+        if (!run?.steeringQueue || run.steeringQueue.length === 0) return []
+        turnStartTime = Date.now()
+        totalThinkingDuration = 0
+        return run.steeringQueue.splice(0)
+      },
+      onSteeringApplied: (steering) => {
+        broadcastIpc('chat-steering-applied', {
+          chatId,
+          workspace,
+          steeringId: steering.id,
+          text: steering.text,
+          timestamp: Date.now()
+        })
+      },
+      terminalInputToolName: harnessSettings ? 'write_stdin' : 'send_terminal_input',
       signal: abortController.signal,
       reasoningLevel,
+      maxRounds: harnessSettings?.defaultMaxRounds,
+      beforeToolBatch: harnessSettings
+        ? createHarnessBeforeToolBatch(
+            chatId,
+            requestDisciplinePath,
+            harnessSettings,
+            abortController.signal
+          )
+        : undefined,
+      executeTool: harnessSettings
+        ? async (...args) => {
+            const result = await createHarnessToolExecutor(requestDisciplinePath, harnessSettings, requestHarnessPhase)(...args)
+            // Only a broken mutating tool fails the linked Git Build. Read-only
+            // probes and non-zero verification exits (for example `git diff --check`
+            // or a failing test run) are diagnostics; the recovery independently
+            // validates the staged resolution before enabling Retry.
+            if (!result.envelope.ok && MUTATING_HARNESS_TOOLS.has(args[0])) recoveryToolFailed = true
+            return result
+          }
+        : undefined,
       onStreamEvent: (streamEvent, state) => {
         const timing = thinkingTimes.get(state.round) || {}
         if (streamEvent.type === 'reasoning' && !timing.startedAt) timing.startedAt = Date.now()
@@ -421,25 +1102,48 @@ STRICT BUTTON RULES:
         thinkingTimes.set(state.round, timing)
 
         if (streamEvent.type === 'tool') {
-          broadcastIpc('chat-tool-call-delta', { chatId, ...streamEvent.delta })
+          broadcastIpc('chat-tool-call-delta', { chatId, workspace, ...streamEvent.delta, round: state.round, roundContent: parseThoughtAndContent(state.currentText, '').content })
           return
         }
+        const roundParsed = parseThoughtAndContent(
+          state.currentText,
+          harnessSettings?.showThinking === false ? '' : state.currentReasoning
+        )
         const combinedText = state.accumulatedText
           ? `${state.accumulatedText}\n\n${state.currentText}`
           : state.currentText
         const combinedReasoning = state.accumulatedReasoning
           ? `${state.accumulatedReasoning}\n\n${state.currentReasoning}`
           : state.currentReasoning
-        const parsed = parseThoughtAndContent(combinedText, combinedReasoning)
+        const parsed = parseThoughtAndContent(
+          combinedText,
+          harnessSettings?.showThinking === false ? '' : combinedReasoning
+        )
         broadcastIpc('chat-reply-chunk', {
           chatId,
+          workspace,
           thoughts: parsed.thoughts,
           finalResponse: parsed.content,
           isThinking: streamEvent.type === 'reasoning',
-          isWritingToolCall: state.streamingToolCalls.length > 0
+          isWritingToolCall: state.streamingToolCalls.length > 0,
+          harnessRound: state.round,
+          harnessRoundContent: roundParsed.content,
+          harnessRoundThoughts: roundParsed.thoughts
         })
       },
       decorateAssistantMessage: (assistantMessage, _result, state) => {
+        lastChatRound = state.round
+        if (!harnessSettings) {
+          const parsed = parseThoughtAndContent(
+            state.accumulatedText ? `${state.accumulatedText}\n\n${state.currentText}` : state.currentText,
+            state.accumulatedReasoning ? `${state.accumulatedReasoning}\n\n${state.currentReasoning}` : state.currentReasoning
+          )
+          broadcastIpc('chat-reply-chunk', {
+            chatId, workspace, thoughts: parsed.thoughts, finalResponse: parsed.content,
+            isThinking: false, harnessRound: state.round,
+            harnessRoundContent: parseThoughtAndContent(state.currentText, '').content
+          })
+        }
         const timing = thinkingTimes.get(state.round)
         if (timing?.startedAt) {
           const duration = Math.max(
@@ -451,19 +1155,23 @@ STRICT BUTTON RULES:
         }
         return assistantMessage
       },
-      createToolContext: ({ callId, name }) => ({
+      createToolContext: ({ callId, name, round }) => ({
         event,
         apiKey: provider.apiKey,
         signal: abortController.signal,
         chatId,
         disabledSkills,
+        provider,
+        modelId: model.id,
         onStart: (args) =>
           broadcastIpc('chat-tool-start', {
             callId,
             name,
             args,
             timestamp: Date.now(),
-            chatId
+            chatId,
+            workspace,
+            round
           })
       }),
       onToolResult: (call) =>
@@ -471,28 +1179,39 @@ STRICT BUTTON RULES:
           callId: call.callId,
           name: call.name,
           result: call.modelContent,
-          chatId
+          attachments: call.attachments,
+          chatId,
+          workspace,
+          round: call.round
         }),
       onHistoryMessage: (historyMessage) => {
+        if (deletedActiveChats.has(chatId)) return
         historyMessages.push(prepareHistoryMessage(chatId, historyMessage))
         saveChatSession(
           chatId,
           historyMessages,
           undefined,
-          currentSessionMode,
-          currentDisciplinePath,
-          currentSelectedChatModel
+          requestSessionMode,
+          requestDisciplinePath,
+          requestModelKey,
+          undefined,
+          undefined,
+          requestHarnessPhase
         )
       },
       finalInstruction:
-        '# Tool loop limit reached\nThe maximum of 100 tool rounds has been reached. ' +
-        'Do not call more tools. Explain what was completed, what remains, and the last tool result.'
+        `# Tool limit (${harnessSettings?.defaultMaxRounds || 100} rounds) reached. No more tools. Summarize done, remaining, last result.`
     })
 
     const finalOutput = parseThoughtAndContent(
       orchestration.accumulatedText,
-      orchestration.accumulatedReasoning
+      harnessSettings?.showThinking === false ? '' : orchestration.accumulatedReasoning
     )
+    const finalRoundOutput = parseThoughtAndContent(
+      orchestration.lastRoundText,
+      harnessSettings?.showThinking === false ? '' : orchestration.lastRoundReasoning
+    )
+    recoverySucceeded = !orchestration.loopLimitReached && !abortController.signal.aborted && !recoveryToolFailed
     const totalWorkedDuration = Math.max(1, Math.round((Date.now() - turnStartTime) / 1000))
     broadcastIpc('chat-reply-end', {
       thoughts: finalOutput.thoughts,
@@ -502,39 +1221,151 @@ STRICT BUTTON RULES:
       thinkingDuration: totalThinkingDuration || undefined,
       workedDuration: totalWorkedDuration || undefined,
       chatId,
+      workspace,
+      harnessRound: lastChatRound,
+      harnessRoundContent: finalRoundOutput.content,
+      harnessRoundThoughts: finalRoundOutput.thoughts,
       ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})
     })
+    // Post-turn extraction trigger (M2): only after a real assistant
+    // completion (never on error paths); Harness turns stay excluded.
+    if (requestSessionMode !== 'harness' && workspace === 'chat') {
+      try {
+        getActiveMemoryService()?.observeCompletedTurn(chatId)
+      } catch (err) {
+        console.error('[Memory] observeCompletedTurn failed:', err)
+      }
+    }
   } catch (error: unknown) {
     const caughtError = error instanceof Error ? error : new Error(String(error))
     if (abortController.signal.aborted || caughtError.name === 'AbortError') {
-      broadcastIpc('chat-reply-error', { error: 'Message cancelled by user', chatId })
+      broadcastIpc('chat-reply-error', { error: 'Message cancelled by user', chatId, workspace })
     } else {
       console.error(`[Main Chat] Error in handleChatMessage for chat ${chatId}:`, caughtError)
       console.error(`[Main Chat] Error name: ${caughtError.name}, message: ${caughtError.message}`)
       if (caughtError.stack) console.error(`[Main Chat] Stack: ${caughtError.stack}`)
-      broadcastIpc('chat-reply-error', { error: caughtError.message, chatId })
+      interChatManager.recordApiError(chatId, caughtError.message)
+      broadcastIpc('chat-reply-error', { error: caughtError.message, chatId, workspace })
     }
   } finally {
+    // Only unfinished or input-blocked terminal tasks hold the Build back; a
+    // finished command with a non-zero exit is a diagnostic, not a Build
+    // failure. The recovery independently validates the staged resolution.
+    const pendingOrFailed = getTerminalProcessesForChat(chatId).some((p) => p.status === 'running' || p.awaitingInput)
+    await finishGitBuild(chatId, recoveryRunId, recoverySucceeded && !pendingOrFailed, historyMessages.filter((m) => m.role === 'user' && !m.hidden && !m.isSystemNotification).length).catch((error) => {
+      console.error('[Git recovery] Could not verify Build completion:', error)
+    })
     activeRuns.delete(chatId)
-    setImmediate(() => void wakeUpChatFromPendingTerminalNotifications(chatId))
+    deletedActiveChats.delete(chatId)
+    setImmediate(() => {
+      interChatManager.checkAndNotifyCompletion(chatId)
+      void wakeUpChatFromPendingTerminalNotifications(chatId)
+    })
   }
 }
 
+function imageReferenceContext(message: OpenAiMessage): string {
+  const references = [
+    ...(message.image_attachment_refs || []),
+    ...(message.tool_attachment_refs || [])
+  ]
+  if (references.length === 0) return ''
+  const lines = references
+    .filter((reference) => isImageAssetId(reference.id))
+    .map((reference) => {
+      const label = reference.name ? ` (${reference.name})` : ''
+      const dimensions =
+        reference.width && reference.height ? `, ${reference.width}x${reference.height}` : ''
+      return `- ${formatImageAssetReference(reference.id)}${label}${dimensions}`
+    })
+  if (lines.length === 0) return ''
+  return `[Prism image assets available to tools]\n${lines.join('\n')}`
+}
+
+function appendImageReferenceContext(content: string, context: string): string {
+  if (!context || content.includes(context)) return content
+  try {
+    const parsed = JSON.parse(content)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return JSON.stringify({ ...parsed, image_references: context.split('\n').slice(1) })
+    }
+  } catch {
+    // Plain text tool and user content is annotated below.
+  }
+  return content ? `${content}\n\n${context}` : context
+}
+
 function convertHistoryToOpenAi(history: OpenAiMessage[]): OpenAiMessage[] {
+  const seenImages = new Set<string>()
   return history
     .filter((m) => m.role !== 'system')
     .map((m) => {
+      const referenceContext = imageReferenceContext(m)
       if (m.role === 'tool') {
+        const content = appendImageReferenceContext(
+          typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+          referenceContext
+        )
         return {
           role: 'tool',
           tool_call_id: m.tool_call_id || `call_${Date.now()}`,
           name: m.name,
-          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-          tool_attachments: m.tool_attachments
+          content,
+          ...(m.name === 'generate_image'
+            ? {}
+            : {
+                tool_attachments: dedupeImageAttachments(
+                  imageAttachments(m.tool_attachments),
+                  seenImages
+                )
+              })
         }
       }
-      const content =
+      let content =
         m.content ?? (m.parts ? m.parts.map((part) => part.text || '').join('\n') : null)
+      if (m.role === 'user' && m.quote) {
+        if (typeof content === 'string' && !content.startsWith('> ')) {
+          content = `> ${m.quote}\n\n${content}`
+        } else if (Array.isArray(content)) {
+          content = content.map((part) => {
+            if (
+              part &&
+              typeof part === 'object' &&
+              part.type === 'text' &&
+              typeof part.text === 'string' &&
+              !part.text.startsWith('> ')
+            ) {
+              return { ...part, text: `> ${m.quote}\n\n${part.text}` }
+            }
+            return part
+          })
+        }
+      }
+
+      if (m.role === 'user') {
+        const textParts = Array.isArray(content)
+          ? content.filter((part) => part.type === 'text')
+          : [{ type: 'text', text: String(content || '') }]
+        const annotatedText = appendImageReferenceContext(
+          textParts.map((part) => part.text || '').join('\n'),
+          referenceContext
+        )
+        const attachments = dedupeImageAttachments(
+          imageAttachments(m.image_attachments),
+          seenImages
+        )
+        content =
+          attachments.length > 0
+            ? [
+                { type: 'text', text: annotatedText },
+                ...attachments.map((attachment) => ({
+                  type: 'image_url',
+                  image_url: { url: asDataUrl(attachment) }
+                }))
+              ]
+            : annotatedText
+      }
+
       return {
         role: m.role === 'model' ? 'assistant' : m.role,
         content: content || '',
@@ -545,7 +1376,7 @@ function convertHistoryToOpenAi(history: OpenAiMessage[]): OpenAiMessage[] {
 }
 
 async function generateTitleInBackground(
-  _event: IpcMainEvent,
+  _event: IpcMainEvent | null,
   provider: import('../../shared/types').ProviderConfig,
   modelId: string,
   firstMessage: string,
@@ -587,16 +1418,93 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
   const chatSession = loadChatSession(chatId)
   if (!chatSession || !chatSession.messages || chatSession.messages.length === 0) return
 
-  const selectedModel = chatSession.model || currentSelectedChatModel
+  const workspace = resolveRunWorkspace(chatSession.workspace, chatSession.sessionMode)
+  const selectedModel = resolveRequestModelKey(
+    workspace,
+    undefined,
+    chatSession.model,
+    currentSelectedChatModel
+  )
   const { provider, model } = resolveProviderAndModel(selectedModel)
-  if (!provider || !provider.apiKey || !model) return
+  if (!selectedModel || !provider || !providerHasCompletionCredential(provider) || !model) {
+    broadcastIpc('chat-reply-error', {
+      error: 'API_KEY_ERROR:401:API Key or Active Model Missing',
+      chatId,
+      workspace
+    })
+    return
+  }
+
+  const config = loadConfig()
+  const projectPath = chatSession.disciplinePath || ''
+  const harnessSettings =
+    workspace === 'harness' && projectPath ? getEffectiveHarnessSettings(projectPath) : null
+  if (workspace === 'harness' && !harnessSettings) {
+    broadcastIpc('chat-reply-error', {
+      error: 'The Harness project for this conversation is no longer registered.',
+      chatId,
+      workspace
+    })
+    return
+  }
 
   const pendingNotifications = getPendingProcessNotifications(chatId)
-  if (pendingNotifications.length === 0) return
+  const pendingInterChat = interChatManager.getPendingInterChatNotifications(chatId)
+  if (pendingNotifications.length === 0 && pendingInterChat.length === 0) return
   const historyMessages = hydrateHistoryToolAttachments(chatId, chatSession.messages)
+  let harnessPrompt: Awaited<ReturnType<typeof getHarnessSystemPrompt>> | null = null
+  if (harnessSettings) {
+    harnessPrompt = await getHarnessSystemPrompt(harnessSettings, harnessSystemPromptLabel(model.id))
+    const previousSnapshot = [...historyMessages]
+      .reverse()
+      .find((message) => message.role === 'system' && message.harness_context_snapshot)
+      ?.harness_context_snapshot
+    if (!previousSnapshot || previousSnapshot.fingerprint !== harnessPrompt.fingerprint) {
+      const snapshot: HarnessContextSnapshot = {
+        version: 1,
+        createdAt: Date.now(),
+        projectPath,
+        modelId: model.id,
+        fingerprint: harnessPrompt.fingerprint,
+        entries: harnessPrompt.entries,
+        warnings: harnessPrompt.warnings
+      }
+      historyMessages.push({
+        role: 'system',
+        content: harnessPrompt.prompt,
+        hidden: true,
+        harness_context_snapshot: snapshot
+      })
+      broadcastIpc('harness-context-injection', { chatId, snapshot })
+      if (harnessPrompt.warnings.length > 0) {
+        broadcastIpc('harness-prompt-warning', {
+          chatId,
+          warnings: harnessPrompt.warnings,
+          repoInstructionsLoaded: harnessPrompt.repoInstructionsLoaded
+        })
+      }
+    }
+  }
+
+  const terminalInputToolName = harnessSettings ? 'write_stdin' : 'send_terminal_input'
   for (const notification of pendingNotifications) {
     historyMessages.push(
-      prepareHistoryMessage(chatId, createTerminalNotificationMessage(notification))
+      prepareHistoryMessage(
+        chatId,
+        createTerminalNotificationMessage(notification, terminalInputToolName)
+      )
+    )
+  }
+  for (const notif of pendingInterChat) {
+    historyMessages.push(
+      prepareHistoryMessage(chatId, {
+        role: 'user',
+        content: notif.content,
+        sourceChatId: notif.targetChatId,
+        sourceChatTitle: notif.targetTitle,
+        isSystemNotification: false,
+        hidden: false
+      })
     )
   }
   saveChatSession(
@@ -605,12 +1513,28 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
     undefined,
     chatSession.sessionMode,
     chatSession.disciplinePath,
-    chatSession.model
+    selectedModel,
+    chatSession.isDiscord,
+    workspace === 'harness' ? [] : chatSession.disabledSkills
   )
 
   markConnectionActive()
 
-  broadcastIpc('chat-reply-start', { chatId })
+  const lastInterChat = pendingInterChat[pendingInterChat.length - 1]
+  broadcastIpc('chat-reply-start', {
+    chatId,
+    workspace,
+    ...(lastInterChat
+      ? {
+          userMessage: {
+            role: 'user',
+            content: lastInterChat.content,
+            sourceChatId: lastInterChat.targetChatId,
+            sourceChatTitle: lastInterChat.targetTitle
+          }
+        }
+      : {})
+  })
 
   const abortController = new AbortController()
   activeRuns.set(chatId, {
@@ -621,8 +1545,7 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
   })
 
   try {
-    const config = loadConfig()
-    const disabledSkills = chatSession.disabledSkills || config.disabledSkills || []
+    const disabledSkills = workspace === 'harness' ? [] : chatSession.disabledSkills || config.disabledSkills || []
     const isPrismCloud = provider.id === PRISM_PROVIDER_ID || provider.name === 'Prism Cloud'
 
     const cleanModelId = model.id.startsWith('prism_provider:')
@@ -640,57 +1563,79 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
 
     const reasoningLevel = normalizePrismThinkingLevel(provider, model.id, configLevel)
 
-    const systemPrompt = getSystemToolsPrompt(
-      model.id,
-      'main',
-      undefined,
-      chatSession.sessionMode,
-      chatSession.disciplinePath,
-      model.name,
-      isPrismCloud,
-      disabledSkills
-    )
+    const systemPrompt = harnessPrompt
+      ? harnessPrompt.prompt
+      : getSystemToolsPrompt(
+          model.id,
+          'main',
+          undefined,
+          chatSession.sessionMode,
+          chatSession.disciplinePath,
+          model.name,
+          isPrismCloud,
+          disabledSkills
+        )
 
-    const openAiTools =
-      chatSession.sessionMode === 'conversation'
+    const imageAvailabilityInstruction =
+      workspace === 'harness' || hasConfiguredImageGenerationRoute()
+        ? ''
+        : '\n\n# No Image Model\nImage generation is unconfigured. On image requests, explain setup; never fake output.'
+
+    const getToolsForRound = (): OpenAiToolDefinition[] =>
+      harnessSettings
+        ? getHarnessOpenAiToolDefinitions(harnessSettings.enabledTools)
+        : chatSession.sessionMode === 'conversation'
         ? []
         : getNativeToolsForOpenAi('main', undefined, chatId, disabledSkills)
+    const openAiTools = getToolsForRound()
 
     const messagesForApi: OpenAiMessage[] = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: `${systemPrompt}${imageAvailabilityInstruction}` },
       ...convertHistoryToOpenAi(historyMessages)
     ]
 
-    const turnStartTime = Date.now()
+    let turnStartTime = Date.now()
     const thinkingTimes = new Map<number, { startedAt?: number; endedAt?: number }>()
     let totalThinkingDuration = 0
-
-    const parseThoughtAndContent = (
-      rawText: string,
-      extraReasoning: string
-    ): { thoughts: string; content: string } => {
-      let thoughts = extraReasoning || ''
-      let content = rawText
-      const thinkMatch = rawText.match(/<think>([\s\S]*?)(?:<\/think>|$)/i)
-      if (thinkMatch) {
-        thoughts = thoughts ? `${thoughts}\n${thinkMatch[1]}` : thinkMatch[1]
-        content = rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*/gi, '')
-      }
-      return { thoughts, content }
-    }
 
     const orchestration = await runToolOrchestration({
       provider,
       modelId: model.id,
       messages: messagesForApi,
       tools: openAiTools,
-      getToolsForRound: () =>
-        chatSession.sessionMode === 'conversation'
-          ? []
-          : getNativeToolsForOpenAi('main', undefined, chatId, disabledSkills),
-      getPendingNotifications: () => getPendingProcessNotifications(chatId),
+      getToolsForRound,
+      getPendingNotifications: () => getAllPendingNotifications(chatId),
+      getPendingInterChatMessages: () => getPendingInterChatMessages(chatId),
+      getPendingSteeringMessages: () => {
+        const run = activeRuns.get(chatId)
+        if (!run?.steeringQueue || run.steeringQueue.length === 0) return []
+        turnStartTime = Date.now()
+        totalThinkingDuration = 0
+        return run.steeringQueue.splice(0)
+      },
+      onSteeringApplied: (steering) => {
+        broadcastIpc('chat-steering-applied', {
+          chatId,
+          workspace,
+          steeringId: steering.id,
+          text: steering.text,
+          timestamp: Date.now()
+        })
+      },
+      terminalInputToolName,
       signal: abortController.signal,
       reasoningLevel,
+      maxRounds: harnessSettings?.defaultMaxRounds,
+      beforeToolBatch: harnessSettings
+        ? createHarnessBeforeToolBatch(chatId, projectPath, harnessSettings, abortController.signal)
+        : undefined,
+      executeTool: harnessSettings
+        ? createHarnessToolExecutor(
+            projectPath,
+            harnessSettings,
+            chatSession.harnessPhase === 'plan' ? 'plan' : 'build'
+          )
+        : undefined,
       onStreamEvent: (streamEvent, state) => {
         const timing = thinkingTimes.get(state.round) || {}
         if (streamEvent.type === 'reasoning' && !timing.startedAt) timing.startedAt = Date.now()
@@ -700,22 +1645,37 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
         thinkingTimes.set(state.round, timing)
 
         if (streamEvent.type === 'tool') {
-          broadcastIpc('chat-tool-call-delta', { chatId, ...streamEvent.delta })
+          broadcastIpc('chat-tool-call-delta', { chatId, workspace, ...streamEvent.delta, round: state.round, roundContent: parseThoughtAndContent(state.currentText, '').content })
           return
         }
+        const roundParsed = parseThoughtAndContent(
+          state.currentText,
+          harnessSettings?.showThinking === false ? '' : state.currentReasoning
+        )
         const combinedText = state.accumulatedText
           ? `${state.accumulatedText}\n\n${state.currentText}`
           : state.currentText
         const combinedReasoning = state.accumulatedReasoning
           ? `${state.accumulatedReasoning}\n\n${state.currentReasoning}`
           : state.currentReasoning
-        const parsed = parseThoughtAndContent(combinedText, combinedReasoning)
+        const parsed = parseThoughtAndContent(
+          combinedText,
+          harnessSettings?.showThinking === false ? '' : combinedReasoning
+        )
         broadcastIpc('chat-reply-chunk', {
           chatId,
+          workspace,
           thoughts: parsed.thoughts,
           finalResponse: parsed.content,
           isThinking: streamEvent.type === 'reasoning',
-          isWritingToolCall: state.streamingToolCalls.length > 0
+          isWritingToolCall: state.streamingToolCalls.length > 0,
+          ...(harnessSettings
+            ? {
+                harnessRound: state.round,
+                harnessRoundContent: roundParsed.content,
+                harnessRoundThoughts: roundParsed.thoughts
+              }
+            : {})
         })
       },
       decorateAssistantMessage: (assistantMessage, _result, state) => {
@@ -730,18 +1690,22 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
         }
         return assistantMessage
       },
-      createToolContext: ({ callId, name }) => ({
+      createToolContext: ({ callId, name, round }) => ({
         apiKey: provider.apiKey,
         signal: abortController.signal,
         chatId,
         disabledSkills,
+        provider,
+        modelId: model.id,
         onStart: (args) =>
           broadcastIpc('chat-tool-start', {
             callId,
             name,
             args,
             timestamp: Date.now(),
-            chatId
+            chatId,
+            workspace,
+            round
           })
       }),
       onToolResult: (call) =>
@@ -749,9 +1713,13 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
           callId: call.callId,
           name: call.name,
           result: call.modelContent,
-          chatId
+          attachments: call.attachments,
+          chatId,
+          workspace,
+          round: call.round
         }),
       onHistoryMessage: (historyMessage) => {
+        if (deletedActiveChats.has(chatId)) return
         historyMessages.push(prepareHistoryMessage(chatId, historyMessage))
         saveChatSession(
           chatId,
@@ -763,13 +1731,16 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
         )
       },
       finalInstruction:
-        '# Tool loop limit reached\nThe maximum of 100 tool rounds has been reached. ' +
-        'Do not call more tools. Explain what was completed, what remains, and the last tool result.'
+        `# Tool limit (${harnessSettings?.defaultMaxRounds || 100} rounds) reached. No more tools. Summarize done, remaining, last result.`
     })
 
     const finalOutput = parseThoughtAndContent(
       orchestration.accumulatedText,
-      orchestration.accumulatedReasoning
+      harnessSettings?.showThinking === false ? '' : orchestration.accumulatedReasoning
+    )
+    const finalRoundOutput = parseThoughtAndContent(
+      orchestration.lastRoundText,
+      harnessSettings?.showThinking === false ? '' : orchestration.lastRoundReasoning
     )
     const totalWorkedDuration = Math.max(1, Math.round((Date.now() - turnStartTime) / 1000))
     broadcastIpc('chat-reply-end', {
@@ -780,20 +1751,40 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
       thinkingDuration: totalThinkingDuration || undefined,
       workedDuration: totalWorkedDuration || undefined,
       chatId,
+      workspace,
+      ...(harnessSettings
+        ? {
+            harnessRoundContent: finalRoundOutput.content,
+            harnessRoundThoughts: finalRoundOutput.thoughts
+          }
+        : {}),
       ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})
     })
   } catch (error: unknown) {
     const caughtError = error instanceof Error ? error : new Error(String(error))
     if (abortController.signal.aborted || caughtError.name === 'AbortError') {
-      broadcastIpc('chat-reply-error', { error: 'Message cancelled by user', chatId })
+      broadcastIpc('chat-reply-error', { error: 'Message cancelled by user', chatId, workspace })
     } else {
       console.error(`[Background Wakeup] Error in chat ${chatId}:`, caughtError)
-      broadcastIpc('chat-reply-error', { error: caughtError.message, chatId })
+      broadcastIpc('chat-reply-error', { error: caughtError.message, chatId, workspace })
     }
   } finally {
     activeRuns.delete(chatId)
-    setImmediate(() => void wakeUpChatFromPendingTerminalNotifications(chatId))
+    deletedActiveChats.delete(chatId)
+    setImmediate(() => {
+      interChatManager.checkAndNotifyCompletion(chatId)
+      void wakeUpChatFromPendingTerminalNotifications(chatId)
+    })
   }
+}
+
+export const wakeUpChatSession = wakeUpChatFromPendingTerminalNotifications
+
+export async function startBackgroundChatMessage(
+  data: ChatMessagePayload,
+  workspace: 'chat' | 'harness' = 'chat'
+): Promise<void> {
+  return handleChatMessage(null, data, workspace)
 }
 
 // Wake an idle chat immediately; active chats drain the queue between tool rounds.

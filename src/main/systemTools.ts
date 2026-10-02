@@ -14,16 +14,27 @@ import * as fssync from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import PptxGenJS from 'pptxgenjs'
-import { toolsManifest, getToolDefinition } from './toolsManifest'
+import {
+  toolsManifest,
+  getToolDefinition,
+  COMPUTER_READ_FILE_DEFAULT_LIMIT,
+  COMPUTER_READ_FILE_MAX_CHARACTERS
+} from './toolsManifest'
 import {
   BrowserAction,
   DownloadProgress,
   SessionMode,
   TodoState,
-  ArtifactItem
+  ArtifactItem,
+  ProviderConfig
 } from '../shared/types'
 
 import { loadConfig, saveConfig, SlashWorkflow } from './config'
+import { compilePersona } from '../shared/persona'
+import { executeMemoryTool, getActiveMemoryService } from './memoryStore'
+import { MEMORY_PROFILE_HEADER, buildMemoryContextBlock } from '../shared/memoryCore'
+import { ARCADIA_MODELS } from '../shared/arcadiaCatalog'
+import { searchAndReadWeb, fetchAndSummarizeWeb, readWebPage } from './webSearchService'
 import { requestDiscordVoiceLeave } from './discordGateway'
 import {
   searchChatHistory,
@@ -50,7 +61,6 @@ import {
   assertSafeBulkMutationPath,
   assertSafeFileMutationPath,
   getLocalCommandSandboxSummary,
-  getShellSyntaxSummary,
   runGuardedTerminalCommand
 } from './localCommandSandbox'
 import {
@@ -61,6 +71,8 @@ import {
 import { isExtractableDocument, extractDocumentText } from './documentExtractor'
 import { safeSend } from './safeSend'
 import { SystemToolOutput, ToolImageAttachment } from './toolAttachments'
+import { asImageGenerationArguments, generateImage } from './ai/imageGeneration'
+import { interChatManager } from './ai/interChatManager'
 
 function getDownloadsFolder(): string {
   try {
@@ -762,7 +774,7 @@ export async function detectAvailableTerminals(): Promise<TerminalOption[]> {
 
   terminals.push({
     id: 'powershell',
-    name: 'PowerShell do Windows',
+    name: 'Windows PowerShell',
     path: 'powershell.exe'
   })
 
@@ -1219,15 +1231,15 @@ export async function computerReadFile(
       return `Error reading file: startLine (${startLine}) exceeds the total number of lines in the file (${totalLines}).`
     }
 
-    const actualLimit = limit !== undefined ? limit : 200
+    const actualLimit = limit !== undefined ? limit : COMPUTER_READ_FILE_DEFAULT_LIMIT
     const startIdx = startLine - 1
     const endIdx = Math.min(startLine + actualLimit - 1, totalLines - 1)
 
     const sliceOfLines = lines.slice(startIdx, endIdx + 1)
     const selectedContent = sliceOfLines.join('\n')
 
-    if (selectedContent.length > 8000) {
-      return `Content Locked: The requested range contains ${selectedContent.length} characters, which exceeds the limit of 8,000 characters. Please request a smaller limit to read less content.`
+    if (selectedContent.length > COMPUTER_READ_FILE_MAX_CHARACTERS) {
+      return `Content Locked: The requested range contains ${selectedContent.length} characters, which exceeds the limit of ${COMPUTER_READ_FILE_MAX_CHARACTERS.toLocaleString('en-US')} characters. Please request a smaller limit to read less content.`
     }
 
     const numberedLines = sliceOfLines.map((line, index) => `${startLine + index}: ${line}`)
@@ -1819,312 +1831,12 @@ export async function detailedDomPage(url?: string, signal?: AbortSignal): Promi
   })
 }
 
-/**
- * Automatically clicks common cookie consent banners to expose the main page content.
- */
-async function handleConsentBanners(page: any) {
-  try {
-    const selectors = [
-      'button:has-text("Accept all")',
-      'button:has-text("Aceitar tudo")',
-      'button:has-text("Aceptar todo")',
-      'button:has-text("I agree")',
-      'button:has-text("Concordo")',
-      'button:has-text("Concordar")',
-      'button:has-text("Accept")',
-      'button:has-text("Aceitar")',
-      'button:has-text("Agree")',
-      'button:has-text("Aceito")',
-      'button:has-text("Accept All")'
-    ]
-
-    for (const selector of selectors) {
-      const locator = page.locator(selector).first()
-      if ((await locator.count()) > 0 && (await locator.isVisible())) {
-        console.log(`handleConsentBanners: Clicking consent button matching "${selector}"`)
-        await locator.click()
-        await page.waitForTimeout(1000).catch(() => {})
-        break
-      }
-    }
-  } catch (err) {
-    console.warn('handleConsentBanners: Error handling banners:', err)
-  }
-}
-
-/**
- * Fetches and returns text content from a URL using Playwright.
- */
-export async function sawLinkFromUrl(url: string, signal?: AbortSignal): Promise<string> {
-  let browser: Browser | null = null
-
-  // Handle abort logic
-  const onAbort = () => {
-    console.log('sawLinkFromUrl: Abort requested, closing browser.')
-    browser?.close().catch(() => {})
-  }
-
-  try {
-    const targetUrl = normalizeHttpUrl(url, 'url')
-
-    if (signal) {
-      if (signal.aborted) throw new Error('AbortError')
-      signal.addEventListener('abort', onAbort)
-    }
-
-    browser = await launchBrowser()
-    const context = await createBrowserContext(browser)
-    const page = await context.newPage()
-
-    // Spoof navigator.webdriver to bypass automated browser detection
-    await page.addInitScript(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
-      ;(window as any).chrome = { runtime: {} }
-    })
-
-    await page.goto(targetUrl, {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000
-    })
-
-    // Try to auto-dismiss any cookie banners to avoid text cluttering
-    await handleConsentBanners(page)
-
-    // Clean page and extract text
-    const text = await page.evaluate(() => {
-      const scripts = document.querySelectorAll('script, style, iframe, noscript, svg, path')
-      scripts.forEach((el) => el.remove())
-      return document.body.innerText || ''
-    })
-
-    const cleaned = text.replace(/\s+/g, ' ').trim()
-    const MAX_CONTENT = 20000
-    return cleaned.length > MAX_CONTENT
-      ? cleaned.substring(0, MAX_CONTENT) + '... (truncated)'
-      : cleaned
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') throw error
-    const message = error instanceof Error ? error.message : String(error)
-    return `Error fetching URL: ${message}`
-  } finally {
-    if (signal) {
-      signal.removeEventListener('abort', onAbort)
-    }
-    if (browser) {
-      await browser.close().catch(() => {})
-    }
-  }
-}
-
-/**
- * Performs a single web search query using Google Search and Playwright.
- * Returns the formatted results string (or an error message on failure).
- *
- * Reused by the continuous `webSearch` (one call per search term) and kept as
- * a standalone export for surfaces that still use the legacy `{query}` shape
- * (e.g. the AI Search modal and the Launcher).
- */
-export async function webSearchSingle(query: string, signal?: AbortSignal): Promise<string> {
-  let browser: Browser | null = null
-
-  // Handle abort logic
-  const onAbort = () => {
-    console.log('webSearchSingle: Abort requested, closing browser.')
-    browser?.close().catch(() => {})
-  }
-
-  try {
-    if (signal) {
-      if (signal.aborted) throw new Error('AbortError')
-      signal.addEventListener('abort', onAbort)
-    }
-
-    browser = await launchBrowser()
-    const context = await createBrowserContext(browser)
-    const page = await context.newPage()
-
-    // Spoof navigator.webdriver to bypass automated browser detection
-    await page.addInitScript(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
-      ;(window as any).chrome = { runtime: {} }
-    })
-
-    // Perform Google Search
-    await page.goto(`https://www.google.com/search?q=${encodeURIComponent(query)}`, {
-      waitUntil: 'domcontentloaded',
-      timeout: 15000
-    })
-
-    // Handle Google's redirect consent walls or overlay banners
-    const currentHost = (() => {
-      try {
-        return new URL(page.url()).hostname
-      } catch {
-        return ''
-      }
-    })()
-    if (currentHost === 'consent.google.com') {
-      console.log('webSearchSingle: Redirected to Google consent page. Clicking accept...')
-      await handleConsentBanners(page)
-      await page
-        .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 })
-        .catch(() => {})
-    } else {
-      await handleConsentBanners(page)
-    }
-
-    // Extract organic search results immediately (no waiting for Gemini / AI Overview)
-    let results = await page.evaluate(() => {
-      const links = Array.from(document.querySelectorAll('a h3'))
-      const seenLinks = new Set<string>()
-      const list: { title: string; link: string; snippet: string }[] = []
-
-      for (const h3 of links) {
-        const anchor = h3.closest('a')
-        if (!anchor) continue
-        const link = anchor.getAttribute('href')
-        if (!link || seenLinks.has(link)) continue
-        seenLinks.add(link)
-
-        // Climb up DOM to search for description snippet
-        let container = h3.parentElement
-        let snippet = ''
-        let attempts = 0
-        while (container && attempts < 6) {
-          const descEl = container.querySelector(
-            '.VwiC3b, .yD3nu, div[style*="-webkit-line-clamp"]'
-          )
-          if (descEl) {
-            snippet = descEl.textContent || ''
-            break
-          }
-          container = container.parentElement
-          attempts++
-        }
-
-        list.push({
-          title: h3.textContent || '',
-          link,
-          snippet
-        })
-        if (list.length >= 5) break
-      }
-      return list
-    })
-
-    if (results.length === 0) {
-      console.log(
-        'webSearchSingle: Google search yielded no results. Trying DuckDuckGo fallback...'
-      )
-      await page.goto(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
-        waitUntil: 'domcontentloaded',
-        timeout: 15000
-      })
-
-      results = await page.evaluate(() => {
-        const list: { title: string; link: string; snippet: string }[] = []
-        const resultElements = Array.from(document.querySelectorAll('.result'))
-        for (const el of resultElements) {
-          const titleEl = el.querySelector('.result__title a') as HTMLAnchorElement
-          const snippetEl = el.querySelector('.result__snippet')
-          if (!titleEl) continue
-          let link = titleEl.getAttribute('href') || ''
-          if (link.includes('uddg=')) {
-            const match = link.match(/uddg=([^&]+)/)
-            if (match && match[1]) {
-              try {
-                link = decodeURIComponent(match[1])
-              } catch (e) {
-                // ignore
-              }
-            }
-          }
-          const title = titleEl.textContent || ''
-          const snippet = snippetEl?.textContent || ''
-          list.push({ title, link, snippet })
-          if (list.length >= 5) break
-        }
-        return list
-      })
-    }
-
-    if (results.length === 0) {
-      return 'No results found.'
-    }
-
-    return results
-      .map((r, i) => `${i + 1}. ${r.title}\n   Link: ${r.link}\n   Snippet: ${r.snippet}`)
-      .join('\n\n')
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') throw error
-    const message = error instanceof Error ? error.message : String(error)
-    return `Error performing web search: ${message}`
-  } finally {
-    if (signal) {
-      signal.removeEventListener('abort', onAbort)
-    }
-    if (browser) {
-      await browser.close().catch(() => {})
-    }
-  }
-}
-
-/**
- * A single continuous web search session. Each entry carries a human-friendly
- * `title` (what the user sees in the UI) and the actual `query` keywords sent
- * to Google.
- */
-export interface WebSearchEntry {
-  title: string
-  query: string
-}
-
-/**
- * Performs a continuous web search across multiple terms. Each search runs
- * sequentially via `webSearchSingle`; before every term, `onProgress(title)`
- * fires so the UI can append the friendly title to the live "Searching Web"
- * list. All results are concatenated under per-title headers and returned as
- * one string for the model to consume.
- */
-export async function webSearchContinuous(
-  searches: WebSearchEntry[],
-  opts: { onProgress?: (title: string) => void; signal?: AbortSignal } = {}
-): Promise<string> {
-  if (!searches || searches.length === 0) {
-    return 'No search terms provided.'
-  }
-
-  const sections: string[] = []
-
-  for (const entry of searches) {
-    if (opts.signal?.aborted) throw new Error('AbortError')
-
-    // Notify the UI a new search is starting before actually running it.
-    try {
-      opts.onProgress?.(entry.title)
-    } catch (e) {
-      // onProgress failures must never break the search itself.
-    }
-
-    const result = await webSearchSingle(entry.query, opts.signal)
-
-    const header = searches.length > 1 ? `### ${entry.title}\n(Query: ${entry.query})\n\n` : ''
-
-    sections.push(`${header}${result}`)
-  }
-
-  return sections.join('\n\n---\n\n')
-}
-const ARCADIA_MODEL_NAMES: Record<string, string> = {
-  'prism-ai/arcadia-1.0-mini': 'Arcadia-1.0 Mini',
-  'prism-ai/arcadia-1.0-flash': 'Arcadia-1.0 Flash',
-  'prism-ai/arcadia-1.0-pro': 'Arcadia-1.0 Pro',
-  'prism-ai/arcadia-1.1-flash': 'Arcadia-1.1 Flash',
-  'arcadia-1.0-mini': 'Arcadia-1.0 Mini',
-  'arcadia-1.0-flash': 'Arcadia-1.0 Flash',
-  'arcadia-1.0-pro': 'Arcadia-1.0 Pro',
-  'arcadia-1.1-flash': 'Arcadia-1.1 Flash'
-}
+const ARCADIA_MODEL_NAMES: Record<string, string> = Object.fromEntries(
+  ARCADIA_MODELS.flatMap((model) => [
+    [model.id, model.name],
+    [model.id.replace(/^prism-ai\//, ''), model.name]
+  ])
+)
 
 /**
  * Returns the system prompt configured with the correct model identity.
@@ -2191,9 +1903,22 @@ export function filterDisabledDocContent(
   return filtered
 }
 
+export const YOUTUBE_SEARCH_PROTOCOL = `# YouTube Mode
+1. SEARCH: \`web_search\` \`site:youtube.com <QUERY>\` (resultCount 3) for URLs + metadata.
+2. OUTPUT: HTML card + chip below:
+<div style="border-radius:14px;padding:18px 20px;background:rgba(255,255,255,0.03);margin:12px 0;">
+<div style="font-size:16px;font-weight:bold;color:#fff;margin-bottom:8px;">🎬 [Title]</div>
+<div style="font-size:14px;color:rgba(255,255,255,0.75);margin-bottom:16px;">[Description].</div>
+<div style="display:flex;gap:10px;flex-wrap:wrap;"><a href="https://www.youtube.com/watch?v=..." target="_blank" style="background:#ff0000;color:#fff;padding:8px 18px;border-radius:8px;font-weight:700;text-decoration:none;">[Watch]</a> <a href="https://www.youtube.com/watch?v=..." target="_blank" style="background:#272727;color:#fff;padding:8px 18px;border-radius:8px;text-decoration:none;">[Alt]</a></div>
+</div>
+<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>
+RULES: max 3 <a> buttons (1 red #ff0000 + 2 charcoal #272727), real watch URLs, chip below card.
+3. OPENING: on open/play request, call 'open_browser_link' with the URL.
+`
+
 export function getSystemToolsPrompt(
   modelKey: string,
-  target: 'main' | 'subagent' | 'both' | 'launcher' = 'main',
+  target: 'main' | 'subagent' | 'both' | 'launcher' | 'discord_voice' = 'main',
   _allowedTools?: string[],
   sessionMode: SessionMode = 'execution',
   disciplinePath?: string,
@@ -2209,10 +1934,9 @@ export function getSystemToolsPrompt(
     console.error('Failed to load config for terminal prompt:', err)
   }
   const terminalSummary = getLocalCommandSandboxSummary(shellName)
-  const shellSyntax = getShellSyntaxSummary(shellName)
   const name = 'Prism AI'
   const inlineSuggestionsRule =
-    '- Inline suggestions: when useful, use `<prism-suggestion send="full user message">visible optional follow-up</prism-suggestion>`; multiple allowed, never required.'
+    '- Suggestions (optional): `<prism-suggestion send="full msg">label</prism-suggestion>`.'
 
   const cleanModelId = modelKey
     ? modelKey.startsWith('prism_provider:')
@@ -2226,18 +1950,7 @@ export function getSystemToolsPrompt(
       cleanModelId.startsWith('arcadia-') ||
       Boolean(ARCADIA_MODEL_NAMES[cleanModelId]))
 
-  const resolvedArcadiaName =
-    modelDisplayName ||
-    ARCADIA_MODEL_NAMES[cleanModelId] ||
-    (cleanModelId.includes('1.0-mini')
-      ? 'Arcadia-1.0 Mini'
-      : cleanModelId.includes('1.0-pro')
-        ? 'Arcadia-1.0 Pro'
-        : cleanModelId.includes('1.1-flash')
-          ? 'Arcadia-1.1 Flash'
-          : cleanModelId.includes('1.0-flash') || cleanModelId.includes('arcadia')
-            ? 'Arcadia-1.0 Flash'
-            : '')
+  const resolvedArcadiaName = modelDisplayName || ARCADIA_MODEL_NAMES[cleanModelId] || ''
 
   const modelIdentity =
     isCloud && resolvedArcadiaName ? `${cleanModelId} (${resolvedArcadiaName})` : cleanModelId
@@ -2259,6 +1972,7 @@ export function getSystemToolsPrompt(
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
+    weekday: 'long',
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit'
@@ -2274,35 +1988,107 @@ export function getSystemToolsPrompt(
     }
   }
 
+  // Personality profile (M1): chat, launcher and conversation surfaces only.
+  // Harness and subagent prompts stay neutral — persona never touches them.
+  const personaSection = (() => {
+    if (target === 'subagent' || target === 'both' || sessionMode === 'harness') return ''
+    try {
+      const text = compilePersona(loadConfig().persona)
+      return text ? `\n\n${text}` : ''
+    } catch (err) {
+      console.error('Failed to load persona prompt:', err)
+      return ''
+    }
+  })()
+
+  // Pinned core memories (M2): the always-on profile block (USER.md analog).
+  // Same surface guard as persona; skipped when the store is not up yet.
+  const coreMemorySection = (() => {
+    if (target === 'subagent' || target === 'both' || sessionMode === 'harness') return ''
+    try {
+      const service = getActiveMemoryService()
+      if (!service) return ''
+      const block = buildMemoryContextBlock(service.list(), {
+        pinnedOnly: true,
+        maxChars: 600,
+        maxEntries: 8,
+        header: MEMORY_PROFILE_HEADER
+      })
+      return block ? `\n\n${block}` : ''
+    } catch (err) {
+      console.error('Failed to load pinned memory prompt:', err)
+      return ''
+    }
+  })()
+
+  // AI memory guidance (Hermes-style): the model actively curates long-term
+  // memory through the memory tool. Same surface guard as persona; never Harness or Discord Voice.
+  const memoryGuidanceSection = (() => {
+    if (
+      target === 'subagent' ||
+      target === 'both' ||
+      sessionMode === 'harness' ||
+      target === 'discord_voice'
+    ) {
+      return ''
+    }
+    return `# Long-Term Memory
+Curate memory with the memory tool, proactively in the same turn.
+- target "user": stable user facts; "memory": general/project facts. Update via replace, delete stale, never duplicate.
+- Compact entries. No secrets or guesses. Current user message wins over memory.`
+  })()
+
+  if (target === 'discord_voice') {
+    return `# Identity & Context
+Role: ${name} in Discord Voice Call.
+Model: ${modelIdentity}
+Context: ${date} | MM/DD/YYYY | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd}
+
+# Voice Rules
+- Conversational spoken language: respond naturally, concisely, and directly in audio.
+- Spoken formatting: NEVER output markdown headings (#), markdown bold/italics, bullet lists, HTML tags, raw URLs, or code blocks in your spoken output. Speak the content naturally.
+- Date/time is context only: use it to understand timing and answer date, time, or weekday questions when asked. Do not include it in every reply.
+- Available Instant Tools:
+  * Screen Inspection: Call 'computer_use_see_screen' to inspect the user's screen in real time. Inspect the screenshot before answering questions about what is on screen.
+  * Web Search: Call 'web_search' for quick factual queries and current news. Call 'read_page' to read the content of a specific web URL.
+  * Applications & Links: Call 'open_application' or 'search_installed_applications' to find/launch local apps. Call 'open_browser_link' to open URLs in the user's default browser.
+  * File Inspection: Call 'computer_use_read_file' to quickly inspect a single file if explicitly asked.
+  * Leave Voice Call: Call 'discord_leave_voice' when the user asks to leave or wrap up the call. Then say a brief, personalized goodbye and stop.
+- Task Delegation:
+  For any task beyond an instant read, search, or screen check (e.g. coding, file edits, multi-step system workflows, deep research, running terminal scripts):
+  * Use 'send_message_to_chat' to delegate the task to a background chat or Harness agent.
+  * Inform the user briefly that you have dispatched the task and will remain on standby.
+  * You will receive an automatic voice notification the moment the background agent finishes, at which point you will verbally brief the user.
+  * If delegating to Harness in plan mode, review the completed plan and use 'approve_harness_plan' when instructed.${personaSection}${coreMemorySection}`
+  }
+
   if (target === 'launcher') {
     return `# Identity & Context
 Role: Prism AI in Quick Launcher.
 Model: ${modelIdentity}
-Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
+Context: ${date} | MM/DD/YYYY | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
 # Rules
-- Use simple Markdown.
-- **Auto-Open:** If an app, link, or path is sent alone, open it via open_browser_link or open_application.
-- **Transitions:** For complex/long tasks, call open_main_app.
-- Natively invoke tools in parallel when applicable. Absolute paths required for file tools. Commands run in \`${shellName}\` (${shellSyntax}). Shared single browser session.`
+- Simple Markdown; absolute paths; terminal \`${shellName}\`; one shared browser session.
+- Date/time is context only: use it to understand timing and answer date, time, or weekday questions when asked. Do not include it in every reply.
+- App/link/path alone → open via open_browser_link/open_application.
+- Complex/long tasks → open_main_app. Parallel calls allowed.${personaSection}${coreMemorySection}${memoryGuidanceSection}`
   }
 
   if (sessionMode === 'conversation' && target === 'main') {
     return `# Identity & Context
 Role: ${name} in Conversation Mode.
 Model: ${modelIdentity}
-Context: ${date} | ${platform} | Home: ${homeDir} | CWD: ${cwd}
+Context: ${date} | MM/DD/YYYY | ${platform} | Home: ${homeDir} | CWD: ${cwd}
 
 # Rules
-- Conversation Mode: No tool access. Reply using text/Markdown.
-- Match user language. Be direct, factual, and concise.
-${inlineSuggestionsRule}`
+- Text/Markdown only, user language. Direct, factual, concise.
+- Date/time is context only: use it to understand timing and answer date, time, or weekday questions when asked. Do not include it in every reply.
+${inlineSuggestionsRule}${personaSection}${coreMemorySection}${memoryGuidanceSection}`
   }
 
   const disciplineRule =
-    sessionMode === 'discipline' && disciplinePath
-      ? `\n- **Discipline Mode**: Operations/commands run in ${disciplinePath}. Modify relative to this path.`
-      : ''
+    sessionMode === 'discipline' && disciplinePath ? `\n- Discipline: operate in ${disciplinePath}.` : ''
 
   const skillsSnippet = getSkillsSystemPromptSnippetSync(effectiveDisabledSkills)
   const skillsSection = skillsSnippet ? `\n\n${skillsSnippet}` : ''
@@ -2313,33 +2099,28 @@ ${inlineSuggestionsRule}`
   const isBrowserDisabled = effectiveDisabledSkills.includes('browser')
 
   const browserRule = isBrowserDisabled
-    ? '- **Auto-Open & Links:** Open URLs/links in OS system browser via `open_browser_link` by default.'
-    : '- **Auto-Open & Links:** Open URLs/links in OS system browser via `open_browser_link` by default. Use integrated AI browser tools only if user explicitly requests in-app/AI browser (requires `read_skill` with `integrated_browser_skill.md`).'
+    ? '- Web & Links: MANDATORY: Always call `read_page` whenever a URL is provided or whenever the user asks to visit, enter, read, inspect, or check a site (e.g., "entra nesse site", "acesse o link", "dá uma olhada no site", "visite a página", "check this link"). Never call `open_browser_link` unless the user explicitly asks to open it in their personal OS browser window.'
+    : '- Web & Links: MANDATORY: Always call `read_page` whenever a URL is provided or whenever the user asks to visit, enter, read, inspect, check, or explore a website (e.g., "entra nesse site", "acesse esse link", "dá uma olhada no site", "visite a página", "check this link", "leia o link", "o que tem nesse site"). `read_page` fetches the web page content directly without opening any browser. NEVER call `read_skill` for `integrated_browser_skill.md` and NEVER open any browser just because the user provided a link or said to enter/visit a site. Only call `open_browser_link` if the user explicitly asks to view it in their personal OS browser (e.g., "abra no meu navegador"). The in-app Playwright browser is strictly reserved for when the user explicitly commands "abra o navegador integrado do Prism".'
 
   return `# Identity & Context
 Role: ${name}, Desktop AI Assistant.
 Model: ${modelIdentity}
-Context: ${date} | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
+Context: ${date} | MM/DD/YYYY | ${platform} | ${username} | Home: ${homeDir} | CWD: ${cwd} | Terminal: ${terminalSummary}
 
-# Rules & Protocols
-- Match user language. Be direct, factual, and concise.${disciplineRule}
+# Rules
+- Match user language. Direct, factual, concise.${disciplineRule}
+- Date/time is context only: use it to understand timing and answer date, time, or weekday questions when asked. Do not include it in every reply.
 ${browserRule}
-- **Formatting:**
-  1. Simple Markdown for standard text/code.
-  2. Inline HTML/CSS inside Markdown for rich visual cards/designs (render directly, do not block-wrap in \`\`\`html).
-  3. Call \`create_mini_app\` tool for interactive widgets/games.
-- **Execution & Tools:**
-  - Absolute paths required for file operations.
-  - Commands run in \`${shellName}\` (${shellSyntax}).
-  - Parallel native tool calls allowed.
-  - Do not invent tool results, paths, or citations.
-- **Search:** Use web_search and saw_link_from_url. For Deep Research: 1. Search context, 2. Present plan & await user approval, 3. 10+ iterations, 4. Output Markdown report.
-- **Prism Docs:** Use internal_docs_list, internal_docs_read, internal_docs_search for Prism system queries.
-- **YouTube Assistant Protocol:** When searching for YouTube videos, search via \`web_search\` with query \`site:youtube.com <SEARCH_QUERY>\`. Output the final result enclosed in a styled card container block (\`<div style="border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 18px 20px; background: rgba(255, 255, 255, 0.03); margin: 12px 0;">...</div>\`) containing 🎬 title, customized description, up to 3 clickable HTML <a> button links (primary bold red #ff0000, alternatives dark charcoal #272727), and the suggestion chip below the card: \`<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>\`.
-- **Surveys (to_ask):** Schema: {"session_id":"UUID","questions":[{"id":"q1","type":"multiple-choice|essay","title":"Category","prompt":"Prompt","options":[{"value":"v","label":"L"}]}]}
-${inlineSuggestionsRule}${skillsSection}${disabledSkillsSection}`
+- Format: Markdown for text/code; inline HTML/CSS for cards; \`create_mini_app\` for widgets.
+- Exec: absolute paths; parallel calls allowed; terminal = Context shell.
+- Search & Reading: \`read_page\` to read/inspect any web URL or link; \`web_search\` for quick queries; \`web_fetch\` for deep research (title in user lang, exactly 5 queries).
+- Titles: every call needs \`progressTitle\` (gerund) + \`completedTitle\` (past), user lang, <=10 words, specific.
+- Docs: internal_docs_* for Prism system questions.
+- YouTube: \`web_search\` \`site:youtube.com ...\`; card + chip.
+- to_ask: ask first on ambiguity; set recommended on best option.
+- Delegation: Use \`send_message_to_chat\` to delegate tasks to another chat or Harness. Mandatory \`path\` for Harness (project folder); optional for chat (opens Discipline mode if provided, Execution mode if omitted). Remain in standby after delegating (you are automatically notified with the complete history upon completion). Use \`read_chat\` only when the user explicitly requests a progress check. If delegating to Harness in plan mode, you will receive the generated Implementation Plan upon completion; use \`approve_harness_plan\` to approve it (choose \`mode="same_chat"\` to continue in the same chat in Build mode, or \`mode="new_chat"\` to execute in a new chat with clean context). If a delegated sub-agent requests clarifying decisions via questionnaire, use \`answer_subagent_question\` to submit responses and unblock it (or consult the user first). To abort a delegated task, use \`cancel_subagent_task\`.
+${inlineSuggestionsRule}${skillsSection}${disabledSkillsSection}${personaSection}${coreMemorySection}${memoryGuidanceSection}`
 }
-
 export interface InstalledApplicationResult {
   name: string
   path: string
@@ -2651,7 +2432,9 @@ export async function executeSystemTool(
   apiKey?: string,
   signal?: AbortSignal,
   chatId?: string,
-  disabledSkills?: string[]
+  disabledSkills?: string[],
+  provider?: ProviderConfig,
+  modelId?: string
 ): Promise<SystemToolOutput> {
   if (chatId) {
     _currentSessionIdForTodo = chatId
@@ -2687,6 +2470,64 @@ export async function executeSystemTool(
     return `Error: Browser Use skill is currently disabled for this conversation.`
   }
   switch (toolName) {
+    case 'generate_image':
+      return generateImage(asImageGenerationArguments(args), signal, chatId)
+
+    // Inter-Chat Communication
+    case 'send_message_to_chat': {
+      const result = await interChatManager.dispatchInterChatTask({
+        senderChatId: chatId,
+        target: args.target === 'harness' ? 'harness' : 'chat',
+        message: args.message || '',
+        path: args.path,
+        harness_mode: args.harness_mode,
+        target_chat_id: args.target_chat_id
+      })
+      if (!result.ok) {
+        return `Error delegating task: ${result.error || 'Failed to dispatch task.'}`
+      }
+      return JSON.stringify(result, null, 2)
+    }
+    case 'read_chat': {
+      const progress = interChatManager.readChatProgress(args.chat_id || '')
+      return JSON.stringify(progress, null, 2)
+    }
+    case 'approve_harness_plan': {
+      const result = await interChatManager.approveHarnessPlan({
+        senderChatId: chatId,
+        chatId: args.chat_id || '',
+        mode: args.mode === 'new_chat' ? 'new_chat' : 'same_chat',
+        plan: args.plan,
+        feedback: args.feedback
+      })
+      if (!result.ok) {
+        return `Error approving implementation plan: ${result.error || 'Failed to approve plan.'}`
+      }
+      return JSON.stringify(result, null, 2)
+    }
+    case 'answer_subagent_question': {
+      const result = interChatManager.answerSubAgentQuestion(
+        args.session_id,
+        chatId,
+        args.answers
+      )
+      if (!result.ok) {
+        return `Error answering sub-agent question: ${result.error || 'Failed to submit questionnaire responses.'}`
+      }
+      return JSON.stringify(result, null, 2)
+    }
+    case 'cancel_subagent_task': {
+      const result = interChatManager.cancelSubAgentTask(
+        args.target_chat_id,
+        chatId,
+        args.reason
+      )
+      if (!result.ok) {
+        return `Error cancelling sub-agent task: ${result.error || 'Failed to cancel task.'}`
+      }
+      return JSON.stringify(result, null, 2)
+    }
+
     // Terminal
     case 'execute_terminal_command':
       return await runTerminalCommand(args.command || '', apiKey, signal, event, chatId)
@@ -2743,11 +2584,11 @@ export async function executeSystemTool(
       return await computerAppendToFile(args.path, args.content, signal)
     case 'computer_use_read_file': {
       const startLine = args.startLine !== undefined ? Number(args.startLine) : 1
-      const limit = args.limit !== undefined ? Number(args.limit) : 200
+      const limit = args.limit !== undefined ? Number(args.limit) : COMPUTER_READ_FILE_DEFAULT_LIMIT
       return await computerReadFile(
         args.path,
         isNaN(startLine) ? 1 : startLine,
-        isNaN(limit) ? 200 : limit,
+        isNaN(limit) ? COMPUTER_READ_FILE_DEFAULT_LIMIT : limit,
         signal
       )
     }
@@ -2830,12 +2671,72 @@ export async function executeSystemTool(
         : 'No matching installed applications found.'
     }
 
-    // Web search
+    // Web search & research
     case 'web_search': {
-      return await webSearchContinuous(args.searches, { signal })
+      let query = ''
+      if (typeof args.query === 'string') {
+        query = args.query.trim()
+      } else if (Array.isArray(args.searches) && typeof args.searches[0]?.query === 'string') {
+        query = args.searches[0].query.trim()
+      }
+      if (!query) throw new Error('A search query is required.')
+      const resultCount = Number(args.resultCount)
+      if (!Number.isInteger(resultCount) || resultCount < 1 || resultCount > 10) {
+        throw new Error('resultCount must be an integer between 1 and 10.')
+      }
+      const result = await searchAndReadWeb(
+        query,
+        { maxContextCharacters: 15_000 * resultCount, webPageCount: resultCount },
+        signal
+      )
+      return JSON.stringify(result)
     }
-    case 'saw_link_from_url':
-      return await sawLinkFromUrl(args.url || '', signal)
+    case 'web_fetch': {
+      const title =
+        typeof args.title === 'string' && args.title.trim()
+          ? args.title.trim()
+          : typeof args.query === 'string' && args.query.trim()
+            ? args.query.trim()
+            : 'Deep Research'
+
+      let queries: string[] = []
+      if (Array.isArray(args.queries) && args.queries.length > 0) {
+        queries = args.queries
+          .map((q) => (typeof q === 'string' ? q.trim() : ''))
+          .filter(Boolean)
+      } else if (typeof args.query === 'string' && args.query.trim()) {
+        queries = [args.query.trim()]
+      }
+
+      if (queries.length === 0) {
+        throw new Error('At least one search query or topic is required for web_fetch.')
+      }
+
+      const result = await fetchAndSummarizeWeb(
+        { title, queries },
+        {
+          provider,
+          modelId,
+          signal
+        }
+      )
+      return JSON.stringify(result)
+    }
+    case 'read_page': {
+      const url =
+        typeof args.url === 'string' && args.url.trim()
+          ? args.url.trim()
+          : typeof args.link === 'string' && args.link.trim()
+            ? args.link.trim()
+            : ''
+      if (!url) throw new Error('A valid HTTP(S) URL is required.')
+      const maxCharacters =
+        typeof args.maxCharacters === 'number' && args.maxCharacters > 0
+          ? args.maxCharacters
+          : 50_000
+      const result = await readWebPage(url, { maxCharacters }, signal)
+      return JSON.stringify(result)
+    }
 
     // Persistent browser
     case 'open_browser':
@@ -3035,6 +2936,8 @@ export async function executeSystemTool(
       return await searchChatHistory(args.query || '')
     case 'search_chat_memory':
       return await searchChatMemory(args.query || '')
+    case 'memory':
+      return executeMemoryTool(args, chatId)
     case 'render_chat_history': {
       const query = args.query || ''
       const cleanId = query.replace('chat_', '').replace('.json', '').trim()
@@ -3110,6 +3013,14 @@ export async function executeSystemTool(
         if (args.sttModel !== undefined && args.sttModel !== '') {
           config.sttModel = args.sttModel
           changed.push(`sttModel: "${args.sttModel}"`)
+        }
+        if (args.generativeBrowserModel !== undefined && args.generativeBrowserModel !== '') {
+          config.generativeBrowserModel = args.generativeBrowserModel
+          changed.push(`generativeBrowserModel: "${args.generativeBrowserModel}"`)
+        }
+        if (args.imageGenerationModel !== undefined && args.imageGenerationModel !== '') {
+          config.imageGenerationModel = args.imageGenerationModel
+          changed.push(`imageGenerationModel: "${args.imageGenerationModel}"`)
         }
         if (args.minimizeToTray !== undefined) {
           config.minimizeToTray = args.minimizeToTray === 'true' || args.minimizeToTray === true
@@ -3242,6 +3153,9 @@ export async function executeSystemTool(
 
           unlockedToolsMsg = `\n\n[System Note: The following native execution tool definitions have been UNLOCKED for this conversation:\n\`\`\`json\n${JSON.stringify(definitions, null, 2)}\n\`\`\`\n]`
         }
+        if (path.basename(skillName).toLowerCase().includes('browser')) {
+          unlockedToolsMsg += `\n\n[CRITICAL NOTE FOR AI: If your goal is to visit, enter, read, inspect, check, or summarize a web link or URL (such as reading a webpage, article, or site provided by the user, or requests like "entra nesse site", "acesse o link", "visite a página"), you MUST NOT use 'open_browser' or any browser tool! Call 'read_page' with the URL directly instead. The browser tools are strictly for complex interactive automation under explicit user instruction.]`
+        }
         return `${result.content}${unlockedToolsMsg}`
       } catch (err) {
         return `Error reading skill: ${err instanceof Error ? err.message : String(err)}`
@@ -3301,47 +3215,8 @@ export async function executeSystemTool(
     }
 
     // Questionnaire
-    case 'to_ask': {
-      return new Promise<string>((resolve, reject) => {
-        const sessionId =
-          args.session_id || `session-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
-
-        const onAbort = () => {
-          activeQuestionnaireResolvers.delete(sessionId)
-          reject(new Error('AbortError'))
-        }
-
-        if (signal) {
-          if (signal.aborted) {
-            return reject(new Error('AbortError'))
-          }
-          signal.addEventListener('abort', onAbort)
-        }
-
-        // Send questionnaire to renderer
-        try {
-          const wins = BrowserWindow.getAllWindows()
-          for (const win of wins) {
-            if (
-              !win.webContents.getURL().includes('#launcher') &&
-              !win.webContents.getURL().includes('#subagents')
-            ) {
-              safeSend(win, 'show-questionnaire', {
-                sessionId,
-                questions: args.questions || []
-              })
-            }
-          }
-        } catch {}
-
-        activeQuestionnaireResolvers.set(sessionId, (result) => {
-          if (signal) {
-            signal.removeEventListener('abort', onAbort)
-          }
-          resolve(result)
-        })
-      })
-    }
+    case 'to_ask':
+      return requestQuestionnaire(args, signal, chatId)
 
     // Workflow management
     case 'list_workflows': {
@@ -4018,12 +3893,69 @@ function broadcastArtifactsUpdate(targetChatId: string): void {
   }
 }
 
-// Questionnaire resolvers (for to_ask tool)
+// Questionnaire resolvers are shared by Chat and the isolated Harness runtime.
 const activeQuestionnaireResolvers = new Map<string, (result: string) => void>()
+
+export function requestQuestionnaire(
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+  chatId?: string
+): Promise<string> {
+  const sessionId =
+    typeof args.session_id === 'string' && args.session_id.trim()
+      ? args.session_id
+      : `session-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
+  const questions = Array.isArray(args.questions) ? args.questions : []
+
+  // Check if this chat is a delegated sub-agent with a supervising sender
+  const senderChatId = chatId ? interChatManager.getSenderChatIdForTarget(chatId) : undefined
+  if (senderChatId && senderChatId !== 'unknown') {
+    return interChatManager.routeSubAgentQuestion(
+      sessionId,
+      chatId!,
+      senderChatId,
+      questions,
+      signal
+    )
+  }
+
+  return new Promise<string>((resolve, reject) => {
+    const onAbort = () => {
+      activeQuestionnaireResolvers.delete(sessionId)
+      reject(new Error('AbortError'))
+    }
+
+    if (signal) {
+      if (signal.aborted) {
+        reject(new Error('AbortError'))
+        return
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    try {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (
+          !win.webContents.getURL().includes('#launcher') &&
+          !win.webContents.getURL().includes('#subagents')
+        ) {
+          safeSend(win, 'show-questionnaire', { sessionId, questions })
+        }
+      }
+    } catch {
+      // The streamed tool call remains enough for the active workspace to render the form.
+    }
+
+    activeQuestionnaireResolvers.set(sessionId, (result) => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve(result)
+    })
+  })
+}
 
 ipcMain.on(
   'submit-questionnaire',
-  (_event, data: { sessionId: string; responses: Record<string, string> }) => {
+  (_event, data: { sessionId: string; responses: Record<string, string | string[]> }) => {
     const resolver = activeQuestionnaireResolvers.get(data.sessionId)
     if (resolver) {
       resolver(JSON.stringify({ session_id: data.sessionId, responses: data.responses }))

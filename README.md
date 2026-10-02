@@ -9,7 +9,7 @@
 
 ### The Open, Multi-Provider Desktop AI Copilot & Autonomous Execution Engine
 
-[![Version](https://img.shields.io/badge/version-8.6.1-38bdf8?style=for-the-badge&logo=electron&logoColor=white)](https://github.com/brnalemusic/Prism)
+[![Version](https://img.shields.io/badge/version-9.1.0-38bdf8?style=for-the-badge&logo=electron&logoColor=white)](https://github.com/brnalemusic/Prism)
 [![License](https://img.shields.io/badge/license-PRISM%20LICENSE%201.0-eab308?style=for-the-badge)](./LICENSE)
 
 <br />
@@ -90,15 +90,17 @@ Prism breaks free from proprietary vendor lock-in. Connect trusted cloud provide
 
 | Provider Category | Supported Platforms / Endpoints | Paradigms |
 | :--- | :--- | :--- |
-| **Trusted Cloud** | **Google AI Studio** (`gemini-3.7-flash`, `gemini-3.6-pro`, `gemini-3.5-flash-lite`)<br/>**OpenAI GPT** (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-4o`)<br/>**Anthropic Claude** (`claude-sonnet-5`, `claude-opus-5`, `claude-haiku-4.5`) | `gemini_native`<br/>`chat_completions`<br/>`anthropic_messages` |
-| **Accelerated Cloud** | **GroqCloud**, **Cerebras AI**, **NVIDIA NIM**, **OpenRouter** | `chat_completions` |
+| **Trusted Cloud** | **Prism Cloud Arcadia** (seven public routes with shared account quota)<br/>**Google AI Studio** (`gemini-3.7-flash`, `gemini-3.6-pro`, `gemini-3.5-flash-lite`)<br/>**OpenAI GPT** (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-4o`)<br/>**Anthropic Claude** (`claude-sonnet-5`, `claude-opus-5`, `claude-haiku-4.5`) | `gemini_native`<br/>`chat_completions`<br/>`anthropic_messages` |
+| **Accelerated Cloud** | **GroqCloud**, **Cerebras AI**, **Puter.js**, **NVIDIA NIM**, **OpenRouter** | `chat_completions` |
 | **Local & Custom** | **Ollama**, **LM Studio**, **vLLM**, **LocalAI**, Custom Base URLs | OpenAI / Anthropic Compatible |
 
 </div>
 
-- **Dynamic Model Discovery:** Automatically queries `/models` or `/openai/models` endpoints to populate active model listings.
+- **Preset-first Provider Setup:** Choose a verified provider preset to populate its canonical endpoint and protocol immediately, or use a custom HTTP(S) endpoint. Connection, models and custom identity/protocol settings are independently accessible; model discovery is optional and can be deferred.
+- **Dynamic Model Discovery & Puter.js Native Account:** Automatically queries `/models` endpoints or native Puter.js SDK (`puter.ai.listModels()`), with seamless default browser login for Puter accounts. Puter also supports a separate manual API-key mode.
 - **Granular Role Routing:** Independently assign dedicated models for:
   - 💬 **Main Chat Model** (Deep reasoning, coding, and workflow orchestration)
+  - 🌐 **Generative Browser Model** (Real-time HTML+CSS website synthesis via `generate:`)
   - 🔍 **Web Search Model** (Fast grounding & real-time summarization)
   - ⚡ **Quick Launcher Model** (Sub-second inline responses & calculations)
   - 🎙️ **Dictation / STT Model** (High-accuracy speech-to-text transcription)
@@ -139,6 +141,7 @@ Prism allows AI models to interact safely with your computer through a hardened 
 Prism embeds a high-performance Playwright Chromium engine capable of navigating, inspecting, and operating web pages autonomously.
 
 - **Semantic Snapshot Engine (`browser_snapshot`):** Extracts an accessible DOM tree with unique element IDs for rapid, robust AI interaction.
+- **Generative AI Website Engine (`generate:`):** Synthesize live, production-grade Single-File React 18 + Tailwind applications and websites in real time directly from the address bar (e.g. `generate:youtube.com`), with Babel Standalone live compilation, `lucide-react` icons, streaming token preview, and multi-turn interactive subpage navigation (`data-prompt`).
 - **Full Action Suite:** `open_browser`, `browser_navigate`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_back`, `detailed_dom_page`, and `web_script` (direct JavaScript injection).
 - **CDPSession Download Tracker:** Automatically monitors file downloads via Chrome DevTools Protocol with live progress overlays in the user interface.
 - **Interactive Split Views (`BrowserPane`):** View the live browser session alongside your chat conversation.
@@ -188,9 +191,22 @@ Prism features an extensible internal skills library (`resources/docs/skills/`).
 
 ### 8. Interactive Mini-Apps & Questionnaires
 
-- **Sandboxed Mini-Apps (`create_mini_app`):** AI models can author fully functional, interactive web widgets (HTML, CSS, JavaScript) that render inside isolated sandboxed web views within the chat.
+- **Sandboxed Mini-Apps (`create_mini_app`):** AI models can author fully functional, interactive web widgets (HTML, CSS, JavaScript). The chat keeps a persistent launch card, and the app runs inside an isolated sandboxed web view in its dedicated window.
 - **Interactive Questionnaires (`to_ask`):** Generate multi-choice or essay questionnaires directly in the chat to clarify project requirements before executing long-running code refactors.
 - **Quantum Physics Simulator:** A built-in interactive physics simulation engine showcasing complex canvas-based micro-interactions.
+
+---
+
+### 9. Memory & Personality Center
+
+Prism keeps a consistent voice and remembers you across conversations through local structured memory, immediate heuristic capture and an asynchronous periodic AI curator (`src/shared/memoryCore.ts`, `src/main/memoryStore.ts`, `src/main/memoryReviewer.ts`).
+
+- **Personality & Tone panel:** A predefined arsenal of tone presets (friendly, cynical, philosophical, warm, quirky, and more) built from style tokens — not free-form instructions — plus tuning dials for closeness, formality, humor, verbosity, emojis and slang, with an instant local preview. The compiled Communication Style block rides Chat, the Quick Launcher and Discord (text and live voice) — never Harness sessions.
+- **Zero-token memory engine:** After each completed Chat, Discord text and voice turn, Prism scans for stable facts and preferences (explicit triggers, structured slots, repetition, contradiction invalidation, natural decay) and commits only high-confidence captures to a local `memories.json`; anything uncertain lands in a review queue that never reaches a prompt until you accept it.
+- **Per-turn recall + pinned core:** Each turn injects a compact Long-term Memory block (top matches, budgeted), while pinned facts ride an always-on Core Profile block — so Prism remembers you across chats without re-reading history.
+- **AI-managed memory (the `memory` tool):** The model can add, replace or remove committed memories itself (targeting the pinned Core Profile or general long-term memory), with budgets, duplicate rejection and a credential gate — and is prompted to save proactively, correct stale facts and update instead of duplicating.
+- **Periodic memory review:** By default, every 15 minutes Prism reviews only unprocessed, sanitized deltas from eligible chats, can save multiple profile or general memories, and retries without losing a delta when routing or validation fails. The interval, dedicated model and review status are available in Settings → Memory; model calls count toward normal quota.
+- **Memory center in Settings:** Review and curate everything Prism remembers — search committed facts, pin core-profile entries, edit, archive or delete, and accept or reject suggestions, all updating live from the engine.
 
 ---
 
@@ -202,6 +218,7 @@ Prism features a signature **Prism Marine** visual aesthetic built on **Tailwind
 - 🔤 **Modern Typography:** High-legibility variable typefaces — [Geist Variable](https://github.com/vercel/geist-font) for interface elements and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) for codeblocks, tool execution logs, and terminal outputs.
 - 🔍 **Dynamic UI Scaling:** Configurable zoom factors ranging from `0.5x` to `3.0x` for seamless adaptation to 4K and ultra-wide displays.
 - ✨ **Fluid Micro-Animations:** Real-time token streaming cursors, animated thinking state expanders, and transparent desktop HUD overlays.
+- **Liquid Glass (Maximum only):** The InputBar and model/reasoning menus refract the live Chromium backdrop through geometry-aware SVG filters. Medium retains standard glass; Performance retains opaque surfaces. Reduced motion/transparency disables refraction. See [Liquid Glass rendering](resources/docs/liquid_glass.md) for architecture and validation.
 
 ---
 
@@ -228,8 +245,9 @@ Prism equips connected AI models with a comprehensive manifest of native system 
 │ computer_use_see_screen       │ Captures a full desktop screenshot for vision analysis                 │
 │ search_installed_applications │ Discovers installed software shortcuts and executables                 │
 │ open_application              │ Launches an application or opens a file in the default OS handler      │
-│ web_search                    │ Performs multi-query web search and fact verification                  │
-│ saw_link_from_url             │ Extracts clean text content from a web URL                             │
+│ web_search                    │ Searches DuckDuckGo and reads full content of top 5 source pages       │
+│ read_page                     │ Fetches and extracts clean Markdown/text directly from a web page URL   │
+│ web_fetch                     │ Synthesizes 20 web sources (4 queries x 5) via subagent (1000–4000 chars) │
 │ open_browser_link             │ Opens an HTTP/HTTPS link in the default system browser                 │
 │ open_browser                  │ Launches or connects to the persistent Playwright browser session      │
 │ browser_navigate              │ Navigates active Playwright browser to an address                      │

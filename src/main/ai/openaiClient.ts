@@ -1,7 +1,8 @@
 import { ProviderConfig, StreamToolCallDelta } from '../../shared/types'
-import { normalizeBaseUrl, isGoogleHost } from './trustedRegistry'
+import { normalizeBaseUrl, isGoogleHost, isPuterHost } from './trustedRegistry'
 import { OpenAiMessage, OpenAiToolDefinition } from './types'
 import { asDataUrl, imageAttachments } from '../toolAttachments'
+import { shouldForwardImageToolAttachments } from './imageGenerationCore'
 
 export interface StreamCallbacks {
   onTextDelta: (text: string) => void
@@ -90,6 +91,9 @@ export function sanitizeOpenAiMessages(messages: OpenAiMessage[]): OpenAiMessage
     if (m.tool_call_id) cleanMsg.tool_call_id = m.tool_call_id
     const attachments = imageAttachments(m.tool_attachments)
     if (m.role === 'tool' && attachments.length > 0) {
+      if (!shouldForwardImageToolAttachments(m.name)) {
+        return [cleanMsg]
+      }
       // Chat Completions only accepts text in a tool message. The visual result is
       // supplied in a following user message, after the required tool response.
       return [
@@ -127,7 +131,9 @@ export async function streamOpenAiCompletion(
 ): Promise<StreamResult> {
   const normUrl = normalizeBaseUrl(provider.baseUrl)
   const completionType = provider.completionType || 'chat_completions'
-  const visualAttachments = messages.flatMap((message) => imageAttachments(message.tool_attachments))
+  const visualAttachments = messages.flatMap((message) =>
+    shouldForwardImageToolAttachments(message.name) ? imageAttachments(message.tool_attachments) : []
+  )
   if (visualAttachments.length > 0) {
     console.info('[AI Client] Sending visual tool attachment.', {
       provider: provider.name || provider.baseUrl,
@@ -168,6 +174,22 @@ export async function streamOpenAiCompletion(
     return streamAnthropicMessages(
       provider,
       normUrl,
+      modelId,
+      messages,
+      tools,
+      signal,
+      callbacks,
+      reasoningLevel
+    )
+  }
+
+  if (
+    completionType === 'puter_native' ||
+    (isPuterHost(normUrl) && completionType !== 'chat_completions')
+  ) {
+    const { streamPuterCompletion } = await import('./puterClient')
+    return streamPuterCompletion(
+      provider,
       modelId,
       messages,
       tools,
@@ -452,7 +474,9 @@ async function streamAnthropicMessages(
     }
 
     if (message.role === 'tool') {
-      const attachments = imageAttachments(message.tool_attachments)
+      const attachments = shouldForwardImageToolAttachments(message.name)
+        ? imageAttachments(message.tool_attachments)
+        : []
       let toolContent: string | AnthropicContentBlock[] =
         typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
 
@@ -668,12 +692,15 @@ async function streamOpenAiResponses(
   for (const message of messages) {
     if (message.role === 'tool') {
       const text = typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+      const attachments = shouldForwardImageToolAttachments(message.name)
+        ? imageAttachments(message.tool_attachments)
+        : []
       responsesInput.push({
         type: 'function_call_output',
         call_id: message.tool_call_id,
         output: [
           { type: 'input_text', text },
-          ...imageAttachments(message.tool_attachments).map((attachment) => ({
+          ...attachments.map((attachment) => ({
             type: 'input_image',
             image_url: asDataUrl(attachment),
             detail: 'auto'

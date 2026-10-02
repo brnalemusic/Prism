@@ -1,20 +1,58 @@
-import React, { useRef, useEffect, useState, useMemo } from 'react'
+import React, { useRef, useEffect, useLayoutEffect, useState, useMemo, useCallback } from 'react'
+import type { Components } from 'react-markdown'
 import clsx from 'clsx'
+import { AnimatePresence, MotionConfig, motion } from 'motion/react'
+import { modeSwap } from '../motion/presets'
 import {
   CaretDown,
+  CaretRight,
   ChatTeardropText,
+  Check,
   Columns,
+  Desktop,
+  FolderOpen,
   X,
   ArrowsLeftRight,
-  DotsSixVertical
+  DotsSixVertical,
+  Trash,
+  Warning
 } from '@phosphor-icons/react'
 import { InputBar, InputBarHandle } from './InputBar'
+import { HeroParticles } from './HeroParticles'
+import { LiquidGlassSurface } from './LiquidGlassSurface'
+import { HarnessGitControl } from './HarnessGitControl'
 import TodoPanel from './TodoPanel'
 import { QuestionnaireWizard } from './QuestionnaireRenderer'
+import { ImplementationPlanCard } from './ImplementationPlanCard'
 import type { TabSession } from '../types/tab'
 import type { AppConfig, SlashWorkflow } from '../../../main/config'
-import type { TerminalProcessSnapshot, TodoState } from '../../../shared/types'
+import type {
+  HarnessExplorerSelection,
+  HarnessPermissionMode,
+  HarnessPhase,
+  TerminalProcessSnapshot,
+  TodoState
+} from '../../../shared/types'
 import { getDefaultThinkingLevelForModel } from '../constants'
+
+/** Shared empty array so memoized children keep a stable reference. */
+const EMPTY_EXPLORER_CONTEXT: NonNullable<TabSession['harnessExplorerContext']> = []
+
+const noop = (): void => {}
+
+/**
+ * Returns a referentially stable wrapper that always forwards to the latest
+ * callback. Typing in the composer must not re-render when the parent merely
+ * re-renders (streaming tokens, todo ticks), so every function prop handed to
+ * the memoized InputBar goes through this.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function useStableCallback<T extends (...args: any[]) => any>(fn: T): T {
+  const ref = useRef(fn)
+  ref.current = fn
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useCallback(((...args: Parameters<T>): ReturnType<T> => ref.current(...args)) as T, [])
+}
 
 interface ChatPaneProps {
   tab: TabSession
@@ -33,16 +71,36 @@ interface ChatPaneProps {
     file?: TabSession['attachedFile'],
     overrideModel?: string,
     overrideSessionMode?: TabSession['sessionMode'],
-    forceYoutube?: boolean
+    forceYoutube?: boolean,
+    options?: { deliveryMode?: 'standard' | 'steering' | 'queued' }
   ) => void
   onCancel: () => void
   onModelChange: (model: string) => void
   onReasoningLevelChange: (model: string, level: string) => void
   onModeChange: (mode: TabSession['sessionMode']) => void
   onSelectFolder: () => void
+  onSwitchProject?: (projectPath: string) => void
+  onResolveGitConflict?: (snapshot: import('../../../shared/types').HarnessGitSnapshot) => void
+  onOpenProjectInExplorer?: (projectPath: string) => void
   onUpdateTabInput: (id: string, text: string) => void
   onUpdateTabFile: (id: string, file: TabSession['attachedFile']) => void
+  onUpdateTabQuote?: (id: string, quote: string | null) => void
   onUpdateTabDisabledSkills?: (id: string, disabledSkills: string[]) => void
+  onAddHarnessExplorerContext?: (selection: import('../../../shared/types').HarnessExplorerSelection) => boolean
+  onRemoveHarnessExplorerContext?: (relativePath: string) => void
+  harnessPermissionMode?: HarnessPermissionMode
+  onHarnessPermissionModeChange?: (mode: HarnessPermissionMode) => void
+  onHarnessPhaseChange?: (phase: HarnessPhase) => void
+  isPlanPreparing?: boolean
+  planBusyLabel?: string
+  planError?: string | null
+  onAcceptPlanHere?: (markdown: string) => void
+  onAcceptPlanNewChat?: (markdown: string) => void
+  onSendPlanFeedback?: (feedback: string) => void
+  onCancelPlan?: () => void
+  markdownComponents: Components
+  onOpenUpgradePlans?: () => void
+  isEnterprise?: boolean
   onToggleSearch?: (enabled?: boolean) => void
   onOpenScreenshotModal: () => void
   onOpenYoutubeModal: () => void
@@ -50,6 +108,9 @@ interface ChatPaneProps {
   setActiveWorkflow: (wf: SlashWorkflow | null) => void
   renderedMessages: React.ReactNode
   onSwapSplitTabs?: (sourceTabId: string, targetTabId: string) => void
+  swapPulse?: boolean
+  onReorderQueuedMessages?: (tabId: string, fromIndex: number, toIndex: number) => void
+  onRemoveQueuedMessage?: (tabId: string, id: string) => void
 }
 
 export const ChatPane: React.FC<ChatPaneProps> = React.memo(
@@ -71,20 +132,365 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
     onReasoningLevelChange,
     onModeChange,
     onSelectFolder,
+    onSwitchProject,
+    onResolveGitConflict,
+    onOpenProjectInExplorer,
     onUpdateTabInput,
     onUpdateTabFile,
+    onUpdateTabQuote,
     onUpdateTabDisabledSkills,
+    onAddHarnessExplorerContext,
+    onRemoveHarnessExplorerContext,
+    harnessPermissionMode,
+    onHarnessPermissionModeChange,
+    onHarnessPhaseChange,
+    isPlanPreparing,
+    planBusyLabel,
+    planError,
+    onAcceptPlanHere,
+    onAcceptPlanNewChat,
+    onSendPlanFeedback,
+    onCancelPlan,
+    markdownComponents,
+    onOpenUpgradePlans,
+    isEnterprise,
     onToggleSearch,
     onOpenScreenshotModal,
     onOpenYoutubeModal,
     activeWorkflow,
     setActiveWorkflow,
     renderedMessages,
-    onSwapSplitTabs
+    onSwapSplitTabs,
+    swapPulse = false,
+    onReorderQueuedMessages,
+    onRemoveQueuedMessage
   }) => {
     const inputBarRef = useRef<InputBarHandle>(null)
     const [isDraggingSplit, setIsDraggingSplit] = useState(false)
     const [isDragTargetSplit, setIsDragTargetSplit] = useState(false)
+    const isHarness = tab.sessionMode === 'harness'
+
+    const [recentProjects, setRecentProjects] = useState<{ path: string; name: string }[]>([])
+    const [projectHealthMap, setProjectHealthMap] = useState<Record<string, boolean>>({})
+    const [isProjectMissing, setIsProjectMissing] = useState(false)
+    const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false)
+    const projectButtonRef = useRef<HTMLButtonElement>(null)
+    const projectDropdownRef = useRef<HTMLDivElement>(null)
+
+    const checkCurrentProjectHealth = useCallback(async (): Promise<void> => {
+      if (!isHarness || !tab.disciplinePath) {
+        setIsProjectMissing(false)
+        return
+      }
+      try {
+        const status = await window.api.checkHarnessProject(tab.disciplinePath)
+        setIsProjectMissing(!status.exists || !status.isDirectory)
+      } catch {
+        setIsProjectMissing(false)
+      }
+    }, [isHarness, tab.disciplinePath])
+
+    useEffect(() => {
+      void checkCurrentProjectHealth()
+    }, [checkCurrentProjectHealth])
+
+    const refreshRecentProjects = useCallback(async (): Promise<void> => {
+      if (!isHarness) return
+      try {
+        const sessions = await window.api.getHarnessSessions()
+        const seen = new Set<string>()
+        const list: { path: string; name: string }[] = []
+
+        const addPath = (p?: string, name?: string): void => {
+          if (!p) return
+          const norm = p.trim().toLowerCase()
+          if (!norm || seen.has(norm)) return
+          seen.add(norm)
+          const pieces = p.split(/[\\/]/).filter(Boolean)
+          list.push({ path: p, name: name || pieces[pieces.length - 1] || p })
+        }
+
+        const configProjects = Object.values(config?.harness.projects || {})
+        const activeProjectPath = config?.harness.lastProjectPath
+        const activeProject = configProjects.find(
+          (project) => project.rootPath.toLowerCase() === activeProjectPath?.toLowerCase()
+        )
+        addPath(activeProject?.rootPath, activeProject?.displayName)
+
+        for (const project of [...configProjects].sort((left, right) => right.updatedAt - left.updatedAt)) {
+          addPath(project.rootPath, project.displayName)
+        }
+
+        // The tab and session history remain available, after persisted recents.
+        addPath(tab.disciplinePath)
+
+        // History sessions
+        for (const session of sessions) {
+          addPath(session.disciplinePath)
+        }
+
+        const topRecent = list.slice(0, 7)
+        setRecentProjects(topRecent)
+
+        // Check health of all recent projects
+        const healthResults: Record<string, boolean> = {}
+        await Promise.all(
+          topRecent.map(async (item) => {
+            try {
+              const res = await window.api.checkHarnessProject(item.path)
+              healthResults[item.path.toLowerCase()] = res.exists && res.isDirectory
+            } catch {
+              healthResults[item.path.toLowerCase()] = true
+            }
+          })
+        )
+        setProjectHealthMap(healthResults)
+      } catch (err) {
+        console.error('Failed to get recent projects:', err)
+      }
+    }, [isHarness, tab.disciplinePath, config?.harness.lastProjectPath, config?.harness.projects])
+
+    useEffect(() => {
+      void refreshRecentProjects()
+    }, [refreshRecentProjects])
+
+    useEffect(() => {
+      if (!isProjectDropdownOpen) return
+
+      const handleClickOutside = (e: MouseEvent): void => {
+        if (
+          projectDropdownRef.current &&
+          !projectDropdownRef.current.contains(e.target as Node) &&
+          projectButtonRef.current &&
+          !projectButtonRef.current.contains(e.target as Node)
+        ) {
+          setIsProjectDropdownOpen(false)
+        }
+      }
+
+      const handleKeyDown = (e: KeyboardEvent): void => {
+        if (e.key === 'Escape') {
+          setIsProjectDropdownOpen(false)
+        }
+      }
+
+      document.addEventListener('mousedown', handleClickOutside)
+      window.addEventListener('keydown', handleKeyDown)
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside)
+        window.removeEventListener('keydown', handleKeyDown)
+      }
+    }, [isProjectDropdownOpen])
+
+    const renderMissingFolderBanner = (): React.JSX.Element | null => {
+      if (!isHarness || !isProjectMissing || !tab.disciplinePath) return null
+      return (
+        <div className="w-full max-w-[820px] mx-auto px-4 sm:px-8 mt-2 mb-2 pointer-events-auto">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 rounded-xl border border-amber-500/35 bg-[#17120a]/90 px-3.5 py-2.5 text-xs text-amber-200 shadow-[0_12px_36px_rgba(0,0,0,0.5)] backdrop-blur-2xl animate-soft-pop">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                <Warning size={15} weight="fill" />
+              </div>
+              <div className="min-w-0">
+                <div className="font-semibold text-amber-300 flex items-center gap-2">
+                  <span>Project folder not found on disk</span>
+                </div>
+                <p className="font-mono text-[10.5px] text-amber-200/70 truncate">{tab.disciplinePath}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await window.api.recreateHarnessProjectFolder(tab.disciplinePath!)
+                    void checkCurrentProjectHealth()
+                    void refreshRecentProjects()
+                  } catch (e) {
+                    console.error(e)
+                  }
+                }}
+                className="rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 px-2.5 py-1 text-[11px] font-semibold text-amber-200 transition-colors cursor-pointer"
+              >
+                Recreate folder
+              </button>
+              <button
+                type="button"
+                onClick={onSelectFolder}
+                className="rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 px-2.5 py-1 text-[11px] font-medium text-text-primary transition-colors cursor-pointer"
+              >
+                Choose project
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (tab.disciplinePath) {
+                    await window.api.deleteHarnessProject(tab.disciplinePath)
+                    onSelectFolder()
+                  }
+                }}
+                className="rounded-lg p-1 text-text-muted hover:text-status-error hover:bg-white/10 transition-colors cursor-pointer"
+                title="Remove project from Prism"
+                aria-label="Remove project from Prism"
+              >
+                <Trash size={14} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    const renderProjectDropdown = (placement: 'top' | 'bottom' = 'bottom'): React.JSX.Element | null => {
+      if (!isHarness) return null
+      const currentName = tab.disciplinePath
+        ? tab.disciplinePath.split(/[\\/]/).filter(Boolean).pop() || tab.disciplinePath
+        : 'Choose project'
+
+      return (
+        <div className="w-full max-w-[820px] mx-auto px-4 sm:px-8 pointer-events-auto">
+          <div className="relative mt-2 px-1.5 flex items-center self-start">
+            <button
+              ref={projectButtonRef}
+              type="button"
+              onClick={() => setIsProjectDropdownOpen((prev) => !prev)}
+              className={clsx(
+                'group inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary border cursor-pointer',
+                isProjectMissing
+                  ? 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
+                  : 'text-text-secondary/70 hover:bg-white/[0.06] hover:text-text-primary border-transparent hover:border-white/[0.08]'
+              )}
+              title={isProjectMissing ? 'Project folder missing on disk' : 'Switch workspace project'}
+            >
+              {isProjectMissing ? (
+                <Warning size={13} weight="fill" className="shrink-0 text-amber-400" />
+              ) : (
+                <Desktop
+                  size={13}
+                  weight="fill"
+                  className="shrink-0 text-text-muted transition-colors group-hover:text-accent-primary"
+                />
+              )}
+              <span className="max-w-[190px] truncate text-[11.5px] font-medium tracking-tight">
+                {currentName}
+              </span>
+              {isProjectMissing && (
+                <span className="rounded bg-amber-500/20 px-1 py-0.2 text-[9px] font-semibold text-amber-300 uppercase">
+                  Missing
+                </span>
+              )}
+              <CaretRight
+                size={10}
+                weight="bold"
+                className={clsx(
+                  'shrink-0 text-text-muted transition-transform duration-200',
+                  isProjectDropdownOpen && 'rotate-90 text-text-primary'
+                )}
+              />
+            </button>
+
+            <HarnessGitControl
+              projectPath={tab.disciplinePath}
+              modelKey={tab.selectedModel}
+              onResolveConflict={(snapshot) => onResolveGitConflict?.(snapshot)}
+              onOpenProject={(projectPath) => onOpenProjectInExplorer?.(projectPath)}
+            />
+
+            {isProjectDropdownOpen && (
+              <div
+                ref={projectDropdownRef}
+                className={clsx(
+                  'glass-dropdown-panel absolute left-1.5 z-50 w-64 border border-white/[0.12] p-1.5 text-xs animate-soft-pop select-none',
+                  placement === 'top' ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+                )}
+              >
+                <LiquidGlassSurface refraction={20} blur={2} opacity={0.66} specular={0.12} distortionRadius={22} />
+                <div className="px-2.5 py-1 text-[9.5px] font-semibold uppercase tracking-wider text-text-muted flex items-center justify-between">
+                  <span>Workspaces</span>
+                  <span className="font-mono text-[9px] lowercase font-normal">{recentProjects.length} total</span>
+                </div>
+                <div className="flex flex-col gap-0.5 max-h-56 overflow-y-auto custom-scrollbar">
+                  {recentProjects.map((proj) => {
+                    const isCurrent =
+                      Boolean(tab.disciplinePath) &&
+                      tab.disciplinePath.toLowerCase() === proj.path.toLowerCase()
+                    const isMissing = projectHealthMap[proj.path.toLowerCase()] === false
+
+                    return (
+                      <div
+                        key={proj.path}
+                        className={clsx(
+                          'group/item flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[11.5px] transition-colors w-full',
+                          isCurrent
+                            ? 'bg-white/[0.08] font-medium text-accent-primary'
+                            : 'text-text-secondary hover:bg-white/[0.06] hover:text-text-primary'
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsProjectDropdownOpen(false)
+                            onSwitchProject?.(proj.path)
+                          }}
+                          className="flex items-center gap-2 min-w-0 flex-1 text-left cursor-pointer focus:outline-none"
+                          title={proj.path}
+                        >
+                          {isMissing ? (
+                            <Warning size={12.5} weight="fill" className="shrink-0 text-amber-400" />
+                          ) : (
+                            <Desktop
+                              size={12.5}
+                              weight={isCurrent ? 'fill' : 'regular'}
+                              className={clsx('shrink-0', isCurrent ? 'text-accent-primary' : 'text-text-muted')}
+                            />
+                          )}
+                          <span className="truncate flex-1">{proj.name}</span>
+                          {isMissing && (
+                            <span className="shrink-0 text-[8.5px] font-mono uppercase rounded bg-amber-500/20 px-1 text-amber-300">
+                              missing
+                            </span>
+                          )}
+                        </button>
+                        {isCurrent && (
+                          <Check size={12} weight="bold" className="shrink-0 text-accent-primary" />
+                        )}
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            await window.api.deleteHarnessProject(proj.path)
+                            void refreshRecentProjects()
+                            if (isCurrent) onSelectFolder()
+                          }}
+                          className="opacity-0 group-hover/item:opacity-100 p-0.5 rounded text-text-muted hover:text-status-error hover:bg-white/10 transition-all shrink-0 cursor-pointer"
+                          title="Remove from Prism"
+                        >
+                          <Trash size={12} />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <div className="my-1 h-[1px] bg-white/[0.06]" />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsProjectDropdownOpen(false)
+                    onSelectFolder()
+                  }}
+                  className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11.5px] text-text-muted transition-colors hover:bg-white/[0.06] hover:text-text-primary"
+                >
+                  <FolderOpen size={12.5} className="shrink-0" />
+                  <span>Manage / choose project...</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )
+    }
 
     // Find the active to_ask tool call from the latest AI message (status running or writing)
     const activeQuestionnaire = useMemo(() => {
@@ -102,18 +508,72 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
       }
       return null
     }, [tab.messages, tab.chatId])
+
+    const implementationPlan = useMemo(() => {
+      for (let messageIndex = tab.messages.length - 1; messageIndex >= 0; messageIndex--) {
+        const calls = tab.messages[messageIndex].toolCalls || []
+        for (let callIndex = calls.length - 1; callIndex >= 0; callIndex--) {
+          const call = calls[callIndex]
+          if (call.name === 'plan' && typeof call.args.markdown === 'string' && call.args.markdown.trim()) {
+            return call.args.markdown.trim()
+          }
+        }
+      }
+      return null
+    }, [tab.messages])
+
+    const hasVisibleImplementationPlan =
+      Boolean(implementationPlan) && implementationPlan !== tab.dismissedPlanMarkdown
+    const hasPlanActions =
+      Boolean(onAcceptPlanHere) &&
+      Boolean(onAcceptPlanNewChat) &&
+      Boolean(onSendPlanFeedback) &&
+      Boolean(onCancelPlan)
+    const isPlanReviewActive =
+      isHarness &&
+      tab.harnessPhase === 'plan' &&
+      tab.dismissedPlanMarkdown === undefined &&
+      hasVisibleImplementationPlan
+
+    const renderPlanReviewSurface = (): React.JSX.Element | null => {
+      if (
+        !isPlanReviewActive ||
+        !hasPlanActions ||
+        !onAcceptPlanHere ||
+        !onAcceptPlanNewChat ||
+        !onSendPlanFeedback ||
+        !onCancelPlan
+      ) {
+        return null
+      }
+      return (
+        <ImplementationPlanCard
+          markdown={hasVisibleImplementationPlan ? implementationPlan || undefined : undefined}
+          isPreparing={isPlanPreparing}
+          busyLabel={planBusyLabel}
+          error={planError}
+          markdownComponents={markdownComponents}
+          onAcceptHere={() => onAcceptPlanHere(implementationPlan || '')}
+          onAcceptNewChat={() => onAcceptPlanNewChat(implementationPlan || '')}
+          onFeedback={onSendPlanFeedback}
+          onCancel={onCancelPlan}
+        />
+      )
+    }
+
     const scrollContainerRef = useRef<HTMLDivElement>(null)
     const [showScrollButton, setShowScrollButton] = useState(false)
     const isAtBottomRef = useRef(true)
+    const bottomThreshold = 80
 
-    const scrollToBottom = (behavior: ScrollBehavior = 'smooth'): void => {
+    const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth'): void => {
       if (scrollContainerRef.current) {
         scrollContainerRef.current.scrollTo({
           top: scrollContainerRef.current.scrollHeight,
           behavior
         })
       }
-    }
+    }, [])
 
     useEffect(() => {
       const el = scrollContainerRef.current
@@ -121,42 +581,206 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
 
       const handleScroll = (): void => {
         const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-        const atBottom = distanceToBottom < 80
+        const atBottom = distanceToBottom <= bottomThreshold
         isAtBottomRef.current = atBottom
         setShowScrollButton(!atBottom)
       }
 
+      const handleWorkToggle = (): void => { isAtBottomRef.current = false }
+      el.addEventListener('prism-work-toggle', handleWorkToggle)
       el.addEventListener('scroll', handleScroll, { passive: true })
-      return () => el.removeEventListener('scroll', handleScroll)
+      handleScroll()
+
+      const resizeObserver = new ResizeObserver(() => {
+        if (isAtBottomRef.current) {
+          el.scrollTop = el.scrollHeight - el.clientHeight
+        } else {
+          const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+          setShowScrollButton(distanceToBottom > bottomThreshold)
+        }
+      })
+
+      resizeObserver.observe(el)
+      if (el.firstElementChild) {
+        resizeObserver.observe(el.firstElementChild)
+      }
+
+      return () => {
+        el.removeEventListener('scroll', handleScroll)
+        el.removeEventListener('prism-work-toggle', handleWorkToggle)
+        resizeObserver.disconnect()
+      }
     }, [])
 
-    useEffect(() => {
-      if (isAtBottomRef.current) {
-        scrollToBottom('smooth')
+    // Synchronous layout effect ensuring the chat stays firmly locked to the bottom
+    // during tool execution, "Worked for N steps" accordion collapses, and streaming chunks.
+    useLayoutEffect(() => {
+      if (isAtBottomRef.current && scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
       }
-    }, [tab.messages.length, tab.messages[tab.messages.length - 1]?.content])
+    }, [
+      tab.messages,
+      tab.messages.length,
+      tab.messages[tab.messages.length - 1]?.content,
+      tab.messages[tab.messages.length - 1]?.toolCalls,
+      tab.messages[tab.messages.length - 1]?.streamingToolCalls,
+      tab.messages[tab.messages.length - 1]?.harnessRounds,
+      tab.isProcessing
+    ])
 
     useEffect(() => {
-      if (!isFocused) return
+      if (!isFocused || isPlanReviewActive) return
       const timer = setTimeout(() => {
         inputBarRef.current?.focus()
       }, 50)
       return () => clearTimeout(timer)
-    }, [isFocused, tab.id])
+    }, [isFocused, isPlanReviewActive, tab.id])
 
-    const handleSendInputBar = (
-      message: string,
-      _searchEnabled?: boolean,
-      _screenshot?: string,
-      attachedFile?: TabSession['attachedFile']
-    ) => {
-      onSend(message, attachedFile || tab.attachedFile || undefined)
-    }
+    const [localInputText, setLocalInputText] = useState(tab.inputText)
+    const lastTabIdRef = useRef(tab.id)
+    const flushTabIdRef = useRef(tab.id)
+    const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+    const localInputTextRef = useRef(localInputText)
+    localInputTextRef.current = localInputText
+    const lastFlushedTextRef = useRef<string | null>(null)
 
-    const handleSetTextInputBar = (val: string | ((prev: string) => string)) => {
-      const nextText = typeof val === 'function' ? val(tab.inputText) : val
-      onUpdateTabInput(tab.id, nextText)
-    }
+    // Latest parent callbacks. The wrappers below stay referentially stable so
+    // the memoized InputBar only re-renders when its data actually changes —
+    // never on unrelated parent renders (streaming tokens, todo ticks).
+    const stableOnSend = useStableCallback(onSend)
+    const stableOnCancel = useStableCallback(onCancel)
+    const stableOnModelChange = useStableCallback(onModelChange)
+    const stableOnModeChange = useStableCallback(onModeChange)
+    const stableOnSelectFolder = useStableCallback(onSelectFolder)
+    const stableOnUpdateTabInput = useStableCallback(onUpdateTabInput)
+    const stableOnOpenScreenshotModal = useStableCallback(onOpenScreenshotModal)
+    const stableOnOpenYoutubeModal = useStableCallback(onOpenYoutubeModal)
+    const stableOnClearQuote = useStableCallback((): void => {
+      onUpdateTabQuote?.(tab.id, null)
+    })
+    const stableOnToggleSearch = useStableCallback((val: boolean): void => {
+      onToggleSearch?.(val)
+    })
+    const stableOnRemoveFile = useStableCallback((): void => {
+      onUpdateTabFile(tab.id, null)
+    })
+    const stableOnAttachFile = useStableCallback((file: TabSession['attachedFile']): void => {
+      onUpdateTabFile(tab.id, file)
+    })
+    const stableOnReasoningLevelChange = useStableCallback((level: string): void => {
+      onReasoningLevelChange(tab.selectedModel, level)
+    })
+    const stableOnDisabledSkillsChange = useStableCallback((skills: string[]): void => {
+      onUpdateTabDisabledSkills?.(tab.id, skills)
+    })
+    const stableOnHarnessPermissionModeChange = useStableCallback(
+      (mode: HarnessPermissionMode): void => {
+        onHarnessPermissionModeChange?.(mode)
+      }
+    )
+    const stableOnHarnessPhaseChange = useStableCallback((phase: HarnessPhase): void => {
+      onHarnessPhaseChange?.(phase)
+    })
+    const stableOnOpenUpgradePlans = useStableCallback((): void => {
+      onOpenUpgradePlans?.()
+    })
+    const stableOnAddHarnessExplorerContext = useStableCallback(
+      (selection: HarnessExplorerSelection): boolean =>
+        onAddHarnessExplorerContext?.(selection) ?? false
+    )
+    const stableOnRemoveHarnessExplorerContext = useStableCallback(
+      (relativePath: string): void => {
+        onRemoveHarnessExplorerContext?.(relativePath)
+      }
+    )
+
+    // Sync from tab.inputText when tab changes or external update happens (e.g. quote / clear)
+    useEffect(() => {
+      if (tab.id !== lastTabIdRef.current) {
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current)
+          debounceTimerRef.current = null
+        }
+        lastTabIdRef.current = tab.id
+        flushTabIdRef.current = tab.id
+        lastFlushedTextRef.current = null
+        localInputTextRef.current = tab.inputText
+        setLocalInputText(tab.inputText)
+      } else if (tab.inputText !== localInputTextRef.current) {
+        // Only accept external updates if they are not the echo of our own debounced flush
+        if (tab.inputText !== lastFlushedTextRef.current) {
+          localInputTextRef.current = tab.inputText
+          setLocalInputText(tab.inputText)
+        }
+      }
+    }, [tab.id, tab.inputText])
+
+    // Flush debounced update on unmount. Deps are stable by construction, so
+    // this cleanup runs only on unmount — never spuriously mid-typing.
+    useEffect(() => {
+      return () => {
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current)
+          debounceTimerRef.current = null
+          lastFlushedTextRef.current = localInputTextRef.current
+          stableOnUpdateTabInput(flushTabIdRef.current, localInputTextRef.current)
+        }
+      }
+    }, [stableOnUpdateTabInput])
+
+    const handleSendInputBar = useCallback(
+      (
+        message: string,
+        _searchEnabled?: boolean,
+        _screenshot?: string,
+        attachedFile?: TabSession['attachedFile'],
+        options?: { deliveryMode?: 'standard' | 'steering' | 'queued' }
+      ) => {
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current)
+          debounceTimerRef.current = null
+        }
+        flushTabIdRef.current = tab.id
+        lastFlushedTextRef.current = ''
+        setLocalInputText('')
+        localInputTextRef.current = ''
+        stableOnUpdateTabInput(tab.id, '')
+        stableOnSend(
+          message,
+          attachedFile || tab.attachedFile || undefined,
+          undefined,
+          undefined,
+          undefined,
+          options
+        )
+      },
+      [stableOnSend, stableOnUpdateTabInput, tab.id, tab.attachedFile]
+    )
+
+    // NOTE: the state updater below is intentionally pure. Timer scheduling
+    // and ref writes happen in the event-handler body (not inside the
+    // updater) so concurrent renders can never leave a stale flush behind
+    // that would overwrite freshly typed characters.
+    const handleSetTextInputBar = useCallback(
+      (val: string | ((prev: string) => string)) => {
+        const next = typeof val === 'function' ? val(localInputTextRef.current) : val
+        localInputTextRef.current = next
+        flushTabIdRef.current = tab.id
+        setLocalInputText(next)
+
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current)
+        }
+        debounceTimerRef.current = setTimeout(() => {
+          debounceTimerRef.current = null
+          // Read the ref at flush time: the parent always persists the
+          // latest draft, even if more keys landed after scheduling.
+          lastFlushedTextRef.current = localInputTextRef.current
+          stableOnUpdateTabInput(flushTabIdRef.current, localInputTextRef.current)
+        }, 300)
+      },
+      [tab.id, stableOnUpdateTabInput]
+    )
 
     return (
       <div
@@ -185,6 +809,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
         }}
         className={clsx(
           'relative flex h-full w-full flex-col overflow-hidden bg-black transition-all duration-200 border',
+          swapPulse && 'animate-pane-swap',
           isSplitView ? 'rounded-xl' : 'rounded-none',
           isDraggingSplit && 'opacity-40 scale-[0.99] border-dashed border-accent-primary/50',
           isDragTargetSplit
@@ -258,36 +883,87 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
         )}
 
         {/* Swap drop target overlay */}
-        {isDragTargetSplit && (
-          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-accent-primary/60 bg-black/90 animate-drop-target pointer-events-none transition-all duration-200">
+        <AnimatePresence initial={false}>
+          {isDragTargetSplit && (
+            <motion.div
+              key="split-swap-overlay"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.18 }}
+              className="absolute inset-0 z-50 flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-accent-primary/60 bg-black/90 animate-drop-target pointer-events-none"
+            >
             <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl border border-accent-primary/25 bg-[var(--surface)] text-accent-primary animate-bounce">
               <ArrowsLeftRight size={24} />
             </div>
             <span className="rounded-lg border border-[var(--border-default)] bg-[var(--surface-raised)] px-3 py-1.5 text-xs font-semibold tracking-wide text-text-primary">
               Swap window
             </span>
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Main Content Area */}
         <div className="relative flex flex-1 w-full overflow-hidden">
+          {/* Hero reward: full-pane ambient "9" behind active conversations. */}
+          {config?.heroUnlocked === true && tab.messages.length > 0 && (
+            <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+              <HeroParticles mode="backdrop" />
+            </div>
+          )}
           {/* Chat scroll area */}
           <div
             ref={scrollContainerRef}
+            data-prism-chat-scroll="true"
             className="relative flex-1 h-full overflow-y-auto no-scrollbar flex flex-col"
           >
             {/* Landing State when tab has no messages */}
             {tab.messages.length === 0 && (
-              <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-full bg-black">
+              <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-full bg-transparent select-none">
                 <div className="w-full max-w-[720px] flex flex-col items-center gap-6 z-10 my-auto">
-                  <div className="flex flex-col items-center text-center space-y-2">
-                    <h1 className="text-[28px] font-semibold tracking-[-0.025em] text-text-primary">
-                      What would you like to build?
-                    </h1>
-                    <p className="text-sm text-text-muted">
-                      Prism session is ready. Type your request or choose a mode.
-                    </p>
-                  </div>
+                  {/* Hero reward: the particle "9" owns the landing stage where
+                      the hero titles used to be. */}
+                  {config?.heroUnlocked === true ? (
+                    <div className="relative w-full h-[min(38vh,380px)] min-h-[200px]">
+                      <HeroParticles mode="stage" />
+                    </div>
+                  ) : (
+                  <MotionConfig reducedMotion="user">
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.div
+                        key={
+                          isHarness
+                            ? `harness-${tab.disciplinePath ? 'project' : 'no-project'}`
+                            : `chat-${tab.sessionMode}`
+                        }
+                        variants={modeSwap}
+                        initial="hidden"
+                        animate="visible"
+                        exit="exit"
+                        className="flex flex-col items-center text-center space-y-2"
+                      >
+                      <h1 className="text-3xl sm:text-4xl tracking-wide hero-shimmer-text">
+                        {isHarness
+                          ? tab.disciplinePath
+                            ? tab.harnessPhase === 'plan'
+                              ? 'Plan & Research'
+                              : 'Build & Edit'
+                            : 'Choose a project to build'
+                          : 'Search & Create'}
+                      </h1>
+                      <p className="text-sm text-text-secondary/80">
+                        {isHarness
+                          ? tab.disciplinePath
+                            ? tab.harnessPhase === 'plan'
+                              ? 'Describe the outcome. Harness will research the project and prepare an Implementation Plan.'
+                              : 'Describe the outcome. Harness will inspect, implement, and verify the work.'
+                            : 'Harness is isolated to one project. Use + to choose the folder where it may work.'
+                          : 'Prism session is ready. Type your request or choose a mode.'}
+                      </p>
+                      </motion.div>
+                    </AnimatePresence>
+                  </MotionConfig>
+                  )}
 
                   <div className="w-full flex flex-col gap-0">
                     {/* AI Todo & Artifacts panel docked above InputBar (landing state) */}
@@ -295,55 +971,104 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       todo={todo}
                       artifacts={tab.artifacts}
                       terminalProcesses={terminalProcesses}
+                      queuedMessages={tab.queuedMessages}
+                      onReorderQueuedMessages={
+                        onReorderQueuedMessages
+                          ? (from, to) => onReorderQueuedMessages(tab.id, from, to)
+                          : undefined
+                      }
+                      onRemoveQueuedMessage={
+                        onRemoveQueuedMessage
+                          ? (id) => onRemoveQueuedMessage(tab.id, id)
+                          : undefined
+                      }
                     />
                     {/* Questionnaire wizard card docked above InputBar (landing state) */}
-                    {activeQuestionnaire && (
-                      <QuestionnaireWizard
-                        toolCall={activeQuestionnaire.toolCall}
-                        chatId={activeQuestionnaire.chatId}
-                      />
-                    )}
-                    <InputBar
-                      ref={inputBarRef}
-                      onSend={handleSendInputBar}
-                      onCancel={onCancel}
-                      isProcessing={tab.isProcessing}
-                      isKeyMissing={isKeyMissing}
-                      disabled={tab.isProcessing || isKeyMissing || !isOnline}
-                      selectedModel={tab.selectedModel}
-                      onModelChange={onModelChange}
-                      reasoningLevel={
-                        config?.modelReasoningLevels?.[tab.selectedModel] ||
-                        config?.modelReasoningLevels?.[
-                          tab.selectedModel.replace('prism_provider:', '')
-                        ] ||
-                        getDefaultThinkingLevelForModel(tab.selectedModel)
-                      }
-                      onReasoningLevelChange={(level) =>
-                        onReasoningLevelChange(tab.selectedModel, level)
-                      }
-                      text={tab.inputText}
-                      setText={handleSetTextInputBar}
-                      isSearchEnabled={tab.isSearchEnabled}
-                      setIsSearchEnabled={(val) => onToggleSearch?.(val)}
-                      isFullscreen={false}
-                      onFullscreenToggle={() => {}}
-                      attachedFile={tab.attachedFile}
-                      onRemoveFile={() => onUpdateTabFile(tab.id, null)}
-                      onAttachFile={(f) => onUpdateTabFile(tab.id, f)}
-                      onOpenScreenshotModal={onOpenScreenshotModal}
-                      onOpenYoutubeModal={onOpenYoutubeModal}
-                      activeWorkflow={activeWorkflow}
-                      setActiveWorkflow={setActiveWorkflow}
-                      sessionMode={tab.sessionMode}
-                      disciplinePath={tab.disciplinePath}
-                      onModeChange={onModeChange}
-                      onSelectFolder={onSelectFolder}
-                      disabledSkills={tab.disabledSkills}
-                      onDisabledSkillsChange={(skills) =>
-                        onUpdateTabDisabledSkills?.(tab.id, skills)
-                      }
-                    />
+                    <AnimatePresence initial={false} mode="popLayout">
+                      {activeQuestionnaire && (
+                        <QuestionnaireWizard
+                          key={`questionnaire-${activeQuestionnaire.chatId}`}
+                          toolCall={activeQuestionnaire.toolCall}
+                          chatId={activeQuestionnaire.chatId}
+                        />
+                      )}
+                    </AnimatePresence>
+                    {renderMissingFolderBanner()}
+                    <MotionConfig reducedMotion="user">
+                      <AnimatePresence mode="wait" initial={false}>
+                        {isPlanReviewActive ? (
+                          <motion.div
+                            key="plan-review"
+                            variants={modeSwap}
+                            initial="hidden"
+                            animate="visible"
+                            exit="exit"
+                          >
+                            {renderPlanReviewSurface()}
+                          </motion.div>
+                        ) : (
+                          <motion.div
+                            key={`inputbar-${tab.sessionMode}`}
+                            variants={modeSwap}
+                            initial="hidden"
+                            animate="visible"
+                            exit="exit"
+                          >
+                            <InputBar
+                        ref={inputBarRef}
+                        onSend={handleSendInputBar}
+                        onCancel={stableOnCancel}
+                        isProcessing={tab.isProcessing}
+                        isKeyMissing={isKeyMissing}
+                        disabled={isKeyMissing || !isOnline}
+                        selectedModel={tab.selectedModel}
+                        onModelChange={stableOnModelChange}
+                        reasoningLevel={
+                          config?.modelReasoningLevels?.[tab.selectedModel] ||
+                          config?.modelReasoningLevels?.[
+                            tab.selectedModel.replace('prism_provider:', '')
+                          ] ||
+                          getDefaultThinkingLevelForModel(tab.selectedModel)
+                        }
+                        onReasoningLevelChange={stableOnReasoningLevelChange}
+                        text={localInputText}
+                        setText={handleSetTextInputBar}
+                        quotedText={tab.quotedText}
+                        onClearQuote={stableOnClearQuote}
+                        isSearchEnabled={tab.isSearchEnabled}
+                        setIsSearchEnabled={stableOnToggleSearch}
+                        isFullscreen={false}
+                        onFullscreenToggle={noop}
+                        attachedFile={tab.attachedFile}
+                        onRemoveFile={stableOnRemoveFile}
+                        onAttachFile={stableOnAttachFile}
+                        onOpenScreenshotModal={stableOnOpenScreenshotModal}
+                        onOpenYoutubeModal={stableOnOpenYoutubeModal}
+                        activeWorkflow={activeWorkflow}
+                        setActiveWorkflow={setActiveWorkflow}
+                        sessionMode={tab.sessionMode}
+                        disciplinePath={tab.disciplinePath}
+                        onModeChange={stableOnModeChange}
+                        onSelectFolder={stableOnSelectFolder}
+                        disabledSkills={tab.disabledSkills}
+                        onDisabledSkillsChange={stableOnDisabledSkillsChange}
+                        harnessPermissionMode={harnessPermissionMode}
+                        onHarnessPermissionModeChange={stableOnHarnessPermissionModeChange}
+                        harnessPhase={tab.harnessPhase}
+                        onHarnessPhaseChange={stableOnHarnessPhaseChange}
+                        onOpenUpgradePlans={stableOnOpenUpgradePlans}
+                        isEnterprise={isEnterprise}
+                        harnessExplorerContext={
+                          isHarness ? (tab.harnessExplorerContext ?? EMPTY_EXPLORER_CONTEXT) : undefined
+                        }
+                        onAddHarnessExplorerContext={stableOnAddHarnessExplorerContext}
+                        onRemoveHarnessExplorerContext={stableOnRemoveHarnessExplorerContext}
+                            />
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </MotionConfig>
+                    {renderProjectDropdown('bottom')}
                   </div>
                 </div>
               </div>
@@ -351,7 +1076,14 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
 
             {/* Messages list when tab has messages */}
             {tab.messages.length > 0 && (
-              <div className="w-full flex-grow flex flex-col pb-[27.5vh] pt-4">
+              <div
+                className={clsx(
+                  'w-full flex-grow flex flex-col',
+                  isPlanReviewActive ? 'pb-[min(72vh,720px)]' : 'pb-[27.5vh]',
+                  isHarness ? 'pt-16' : 'pt-4'
+                )}
+              >
+                {renderMissingFolderBanner()}
                 {renderedMessages}
               </div>
             )}
@@ -359,9 +1091,17 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
 
           {/* Input Bar Overlay when tab has messages */}
           {tab.messages.length > 0 && (
-            <div className="absolute bottom-0 left-0 right-0 pb-6 pt-12 z-20 pointer-events-none bg-[linear-gradient(to_top,#000_0%,#000_72%,transparent_100%)] px-4">
-              {showScrollButton && (
-                <div className="absolute left-0 right-0 -top-10 flex justify-center pointer-events-none z-20 animate-soft-pop">
+            <div className="absolute bottom-0 left-0 right-0 pb-6 pt-12 z-20 pointer-events-none bg-[linear-gradient(to_top,rgba(0,0,0,0.45)_0%,rgba(0,0,0,0.15)_50%,transparent_100%)] px-4">
+              <AnimatePresence initial={false}>
+                {showScrollButton && (
+                  <motion.div
+                    key="scroll-bottom"
+                    initial={{ opacity: 0, y: 8, scale: 0.9 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 8, scale: 0.9 }}
+                    transition={{ duration: 0.18 }}
+                    className="absolute left-0 right-0 -top-10 flex justify-center pointer-events-none z-20"
+                  >
                   <button
                     type="button"
                     onClick={(e) => {
@@ -370,13 +1110,21 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       scrollToBottom('smooth')
                       setShowScrollButton(false)
                     }}
-                    className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-background-secondary/90 text-text-secondary shadow-lg backdrop-blur-md transition-all duration-200 hover:bg-white/[0.08] hover:text-text-primary active:scale-95 cursor-pointer"
+                    className="true-glass pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.12] text-text-primary shadow-[var(--glass-shadow-md)] transition-all duration-150 hover:bg-white/[0.1] active:scale-95 cursor-pointer"
                     title="Scroll to bottom"
                   >
+                    <LiquidGlassSurface
+                      refraction={16}
+                      blur={1.5}
+                      opacity={0.3}
+                      specular={0.14}
+                      distortionRadius={18}
+                    />
                     <CaretDown size={14} />
                   </button>
-                </div>
-              )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               <div className="pointer-events-auto max-w-[800px] mx-auto flex flex-col gap-0">
                 {/* AI Todo & Artifacts panel docked above InputBar */}
@@ -384,53 +1132,103 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                   todo={todo}
                   artifacts={tab.artifacts}
                   terminalProcesses={terminalProcesses}
+                  queuedMessages={tab.queuedMessages}
+                  onReorderQueuedMessages={
+                    onReorderQueuedMessages
+                      ? (from, to) => onReorderQueuedMessages(tab.id, from, to)
+                      : undefined
+                  }
+                  onRemoveQueuedMessage={
+                    onRemoveQueuedMessage
+                      ? (id) => onRemoveQueuedMessage(tab.id, id)
+                      : undefined
+                  }
                 />
                 {/* Questionnaire wizard card docked above InputBar */}
-                {activeQuestionnaire && (
-                  <QuestionnaireWizard
-                    toolCall={activeQuestionnaire.toolCall}
-                    chatId={activeQuestionnaire.chatId}
-                  />
-                )}
-                <InputBar
-                  ref={inputBarRef}
-                  onSend={handleSendInputBar}
-                  onCancel={onCancel}
-                  isProcessing={tab.isProcessing}
-                  isKeyMissing={isKeyMissing}
-                  disabled={tab.isProcessing || isKeyMissing || !isOnline}
-                  selectedModel={tab.selectedModel}
-                  onModelChange={onModelChange}
-                  reasoningLevel={
-                    config?.modelReasoningLevels?.[tab.selectedModel] ||
-                    config?.modelReasoningLevels?.[
-                      tab.selectedModel.replace('prism_provider:', '')
-                    ] ||
-                    getDefaultThinkingLevelForModel(tab.selectedModel)
-                  }
-                  onReasoningLevelChange={(level) =>
-                    onReasoningLevelChange(tab.selectedModel, level)
-                  }
-                  text={tab.inputText}
-                  setText={handleSetTextInputBar}
-                  isSearchEnabled={tab.isSearchEnabled}
-                  setIsSearchEnabled={(val) => onToggleSearch?.(val)}
-                  isFullscreen={false}
-                  onFullscreenToggle={() => {}}
-                  attachedFile={tab.attachedFile}
-                  onRemoveFile={() => onUpdateTabFile(tab.id, null)}
-                  onAttachFile={(f) => onUpdateTabFile(tab.id, f)}
-                  onOpenScreenshotModal={onOpenScreenshotModal}
-                  onOpenYoutubeModal={onOpenYoutubeModal}
-                  activeWorkflow={activeWorkflow}
-                  setActiveWorkflow={setActiveWorkflow}
-                  sessionMode={tab.sessionMode}
-                  disciplinePath={tab.disciplinePath}
-                  onModeChange={onModeChange}
-                  onSelectFolder={onSelectFolder}
-                  disabledSkills={tab.disabledSkills}
-                  onDisabledSkillsChange={(skills) => onUpdateTabDisabledSkills?.(tab.id, skills)}
-                />
+                <AnimatePresence initial={false} mode="popLayout">
+                  {activeQuestionnaire && (
+                    <QuestionnaireWizard
+                      key={`questionnaire-${activeQuestionnaire.chatId}`}
+                      toolCall={activeQuestionnaire.toolCall}
+                      chatId={activeQuestionnaire.chatId}
+                    />
+                  )}
+                </AnimatePresence>
+                <MotionConfig reducedMotion="user">
+                  <AnimatePresence mode="wait" initial={false}>
+                    {isPlanReviewActive ? (
+                      <motion.div
+                        key="plan-review"
+                        variants={modeSwap}
+                        initial="hidden"
+                        animate="visible"
+                        exit="exit"
+                      >
+                        {renderPlanReviewSurface()}
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key={`inputbar-${tab.sessionMode}`}
+                        variants={modeSwap}
+                        initial="hidden"
+                        animate="visible"
+                        exit="exit"
+                      >
+                        <InputBar
+                    ref={inputBarRef}
+                    onSend={handleSendInputBar}
+                    onCancel={stableOnCancel}
+                    isProcessing={tab.isProcessing}
+                    isKeyMissing={isKeyMissing}
+                    disabled={isKeyMissing || !isOnline}
+                    selectedModel={tab.selectedModel}
+                    onModelChange={stableOnModelChange}
+                    reasoningLevel={
+                      config?.modelReasoningLevels?.[tab.selectedModel] ||
+                      config?.modelReasoningLevels?.[
+                        tab.selectedModel.replace('prism_provider:', '')
+                      ] ||
+                      getDefaultThinkingLevelForModel(tab.selectedModel)
+                    }
+                    onReasoningLevelChange={stableOnReasoningLevelChange}
+                    text={localInputText}
+                    setText={handleSetTextInputBar}
+                    quotedText={tab.quotedText}
+                    onClearQuote={stableOnClearQuote}
+                    isSearchEnabled={tab.isSearchEnabled}
+                    setIsSearchEnabled={stableOnToggleSearch}
+                    isFullscreen={false}
+                    onFullscreenToggle={noop}
+                    attachedFile={tab.attachedFile}
+                    onRemoveFile={stableOnRemoveFile}
+                    onAttachFile={stableOnAttachFile}
+                    onOpenScreenshotModal={stableOnOpenScreenshotModal}
+                    onOpenYoutubeModal={stableOnOpenYoutubeModal}
+                    activeWorkflow={activeWorkflow}
+                    setActiveWorkflow={setActiveWorkflow}
+                    sessionMode={tab.sessionMode}
+                    disciplinePath={tab.disciplinePath}
+                    onModeChange={stableOnModeChange}
+                    onSelectFolder={stableOnSelectFolder}
+                    disabledSkills={tab.disabledSkills}
+                    onDisabledSkillsChange={stableOnDisabledSkillsChange}
+                    harnessPermissionMode={harnessPermissionMode}
+                    onHarnessPermissionModeChange={stableOnHarnessPermissionModeChange}
+                    harnessPhase={tab.harnessPhase}
+                    onHarnessPhaseChange={stableOnHarnessPhaseChange}
+                    onOpenUpgradePlans={stableOnOpenUpgradePlans}
+                    isEnterprise={isEnterprise}
+                    harnessExplorerContext={
+                      isHarness ? (tab.harnessExplorerContext ?? EMPTY_EXPLORER_CONTEXT) : undefined
+                    }
+                    onAddHarnessExplorerContext={stableOnAddHarnessExplorerContext}
+                    onRemoveHarnessExplorerContext={stableOnRemoveHarnessExplorerContext}
+                        />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </MotionConfig>
+                {renderProjectDropdown('top')}
               </div>
             </div>
           )}

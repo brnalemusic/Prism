@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 export type SpeechToTextAction = 'insert' | 'send'
 
@@ -28,7 +28,7 @@ export function useSpeechToText(
     setIsRecording(nextValue)
   }
 
-  const startRecording = async (): Promise<void> => {
+  const startRecording = useCallback(async (): Promise<void> => {
     if (isRecordingRef.current || mediaRecorderRef.current?.state === 'recording') {
       return
     }
@@ -84,30 +84,36 @@ export function useSpeechToText(
       setRecordingState(false)
       console.error('Error accessing microphone:', err)
     }
-  }
+  }, [])
 
-  const stopRecording = (action: SpeechToTextAction = 'insert'): void => {
+  const stopRecording = useCallback((action: SpeechToTextAction = 'insert'): void => {
     const mediaRecorder = mediaRecorderRef.current
     if (mediaRecorder && mediaRecorder.state === 'recording') {
       pendingActionRef.current = action
       mediaRecorder.stop()
       setRecordingState(false)
     }
-  }
+  }, [])
 
-  const toggleRecording = (stopAction: SpeechToTextAction = 'insert'): void => {
-    if (isRecordingRef.current || mediaRecorderRef.current?.state === 'recording') {
-      stopRecording(stopAction)
-    } else {
-      startRecording()
-    }
-  }
+  const toggleRecording = useCallback(
+    (stopAction: SpeechToTextAction = 'insert'): void => {
+      if (isRecordingRef.current || mediaRecorderRef.current?.state === 'recording') {
+        stopRecording(stopAction)
+      } else {
+        void startRecording()
+      }
+    },
+    [startRecording, stopRecording]
+  )
 
-  return {
-    isRecording,
-    isTranscribing,
-    toggleRecording,
-    startRecording,
-    stopRecording
-  }
+  return useMemo(
+    () => ({
+      isRecording,
+      isTranscribing,
+      toggleRecording,
+      startRecording,
+      stopRecording
+    }),
+    [isRecording, isTranscribing, toggleRecording, startRecording, stopRecording]
+  )
 }

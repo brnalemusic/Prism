@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { clsx } from 'clsx'
+import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import {
   MagnifyingGlass,
   Terminal,
@@ -23,8 +24,10 @@ import { PptxArtifactCard } from './PptxArtifactCard'
 
 // Tool labels mapping for simplified display
 const TOOL_LABELS: Record<string, string> = {
+  to_ask: 'Preparing some questions',
   web_search: 'Searching web',
-  saw_link_from_url: 'Reading web page',
+  read_page: 'Reading web page',
+  web_fetch: 'Deep researching the web',
   read_skill: 'Reading skill',
   execute_terminal_command: 'Running terminal command',
   run_command: 'Running terminal command',
@@ -55,23 +58,147 @@ export function getToolLabel(name: string): string {
   return TOOL_LABELS[name] || 'Working'
 }
 
-interface ToolCallIndicatorProps {
-  tools?: Array<{ name: string; status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown' }>
-  overrideLabel?: string
-  isItalic?: boolean
+export const TOOL_TITLE_MAX_WORDS = 10
+
+export function truncateToWords(text: string, maxWords: number = TOOL_TITLE_MAX_WORDS): string {
+  const words = text.trim().split(/\s+/)
+  if (words.length <= maxWords) return text.trim()
+  return words.slice(0, maxWords).join(' ')
 }
 
-export function ToolCallIndicator({ tools, overrideLabel, isItalic }: ToolCallIndicatorProps): React.JSX.Element | null {
+function resolveCustomTitles(toolCall: {
+  progressTitle?: unknown
+  completedTitle?: unknown
+  args: Record<string, unknown>
+}): { progressTitle?: string; completedTitle?: string } {
+  const out: { progressTitle?: string; completedTitle?: string } = {}
+  const topProgress = toolCall.progressTitle
+  const topCompleted = toolCall.completedTitle
+  const argProgress = toolCall.args.progressTitle
+  const argCompleted = toolCall.args.completedTitle
+  const progress = typeof topProgress === 'string' && topProgress.trim() ? topProgress : argProgress
+  const completed =
+    typeof topCompleted === 'string' && topCompleted.trim() ? topCompleted : argCompleted
+  if (typeof progress === 'string' && progress.trim()) {
+    out.progressTitle = truncateToWords(progress)
+  }
+  if (typeof completed === 'string' && completed.trim()) {
+    out.completedTitle = truncateToWords(completed)
+  }
+  return out
+}
+
+export function getCustomToolLabel(
+  name: string,
+  status: string,
+  progressTitle?: string,
+  completedTitle?: string
+): string {
+  const isActive = isActiveToolStatus(status)
+  if (isActive && progressTitle && progressTitle.trim()) {
+    return truncateToWords(progressTitle)
+  }
+  if (!isActive && completedTitle && completedTitle.trim()) {
+    return truncateToWords(completedTitle)
+  }
+  if (!isActive && progressTitle && progressTitle.trim()) {
+    return truncateToWords(progressTitle)
+  }
+  // to_ask spans two distinct phases: the model composing the questions
+  // (writing) and the questionnaire already shown to the user (running).
+  if (name === 'to_ask' && !(progressTitle || '').trim() && !(completedTitle || '').trim()) {
+    if (status === 'writing') return 'Preparing some questions'
+    if (isActive) return 'Waiting for your answer'
+    return 'Asked a question'
+  }
+  return getToolLabel(name)
+}
+
+export function isActiveToolStatus(status: string): boolean {
+  return status === 'writing' || status === 'running' || status === 'cooldown'
+}
+
+export function hasCustomProgressTitle(toolCall: {
+  progressTitle?: unknown
+  args?: Record<string, unknown>
+}): boolean {
+  const top = toolCall.progressTitle
+  if (typeof top === 'string' && top.trim()) return true
+  const arg = toolCall.args?.progressTitle
+  return typeof arg === 'string' && arg.trim() !== ''
+}
+
+export function hasCustomTitles(toolCall: {
+  progressTitle?: unknown
+  completedTitle?: unknown
+  args?: Record<string, unknown>
+}): boolean {
+  if (hasCustomProgressTitle(toolCall)) return true
+  const top = toolCall.completedTitle
+  if (typeof top === 'string' && top.trim()) return true
+  const arg = toolCall.args?.completedTitle
+  return typeof arg === 'string' && arg.trim() !== ''
+}
+
+// While streaming, an active tool row appears only after the model has
+// generated its progress title, so users never see a generic label swapped
+// out for the custom one. Finished rows and finalized turns always show.
+export function isToolRowVisible(
+  status: string,
+  toolCall: {
+    progressTitle?: unknown
+    completedTitle?: unknown
+    args?: Record<string, unknown>
+  },
+  isStreaming: boolean
+): boolean {
+  if (!isStreaming) return true
+  if (!isActiveToolStatus(status)) return true
+  return hasCustomProgressTitle(toolCall)
+}
+
+interface ToolCallIndicatorProps {
+  tools?: Array<{
+    name: string
+    status: 'writing' | 'running' | 'done' | 'error' | 'cancelled' | 'cooldown'
+    progressTitle?: string
+    completedTitle?: string
+    args?: Record<string, unknown>
+  }>
+  overrideLabel?: string
+  isItalic?: boolean
+  active?: boolean
+}
+
+export function ToolCallIndicator({
+  tools,
+  overrideLabel,
+  isItalic,
+  active
+}: ToolCallIndicatorProps): React.JSX.Element | null {
   if ((!tools || tools.length === 0) && !overrideLabel) return null
 
   // Show only the LAST tool (even if done/error/etc to keep text visible)
   const lastTool = tools && tools.length > 0 ? tools[tools.length - 1] : null
-  const displayText = overrideLabel || (lastTool ? getToolLabel(lastTool.name) : 'Working')
+  const customLabel = lastTool
+    ? getCustomToolLabel(
+        lastTool.name,
+        lastTool.status,
+        lastTool.progressTitle ??
+          (lastTool.args?.progressTitle as string | undefined),
+        lastTool.completedTitle ??
+          (lastTool.args?.completedTitle as string | undefined)
+      )
+    : 'Working'
+  const displayText = overrideLabel ? truncateToWords(overrideLabel) : customLabel
+  const isShimmer =
+    active ?? (lastTool ? isActiveToolStatus(lastTool.status) : Boolean(overrideLabel))
 
   return (
     <span
       className={clsx(
-        'tool-shimmer-text text-[13px] font-medium leading-normal inline-block pb-[1.5px]',
+        'text-[13px] font-medium leading-normal inline-block pb-[1.5px]',
+        isShimmer ? 'tool-shimmer-text' : 'text-text-secondary',
         isItalic && 'italic'
       )}
     >
@@ -86,6 +213,8 @@ export interface ToolCall {
   args: Record<string, unknown>
   result?: string
   status: 'writing' | 'running' | 'cooldown' | 'done' | 'error' | 'cancelled'
+  progressTitle?: string
+  completedTitle?: string
   agentUpdates?: Record<
     string | number,
     {
@@ -219,7 +348,7 @@ function renderToolDetails(toolCall: ToolCall): React.ReactNode {
 
   if (isTerminal && command) {
     return (
-      <div className="text-text-secondary/60 font-mono text-[11px] bg-white/[0.03] rounded px-2 py-1 mt-1 border border-white/[0.04]">
+      <div className="text-text-secondary/60 font-mono text-[11px] bg-white/[0.03] rounded px-2 py-1 mt-1">
         {command}
       </div>
     )
@@ -327,6 +456,7 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
 
   const url = getStringArg(toolCall.args, 'url')
   const query = getStringArg(toolCall.args, 'query')
+  const title = getStringArg(toolCall.args, 'title')
   const isYoutube = /youtube\.com|youtu\.be|^\/youtube|\byoutube\b/i.test(`${url} ${query}`)
 
   const isDone =
@@ -342,8 +472,8 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
     const isSearch =
       toolCall.name === 'search' ||
       toolCall.name === 'web_search' ||
-      toolCall.name === 'search_chat_history' ||
-      toolCall.name === 'saw_link_from_url'
+      toolCall.name === 'web_fetch' ||
+      toolCall.name === 'search_chat_history'
     const isFileWrite =
       toolCall.name === 'computer_use_create_file' ||
       toolCall.name === 'computer_use_save_file' ||
@@ -391,13 +521,18 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
         ? ''
         : query || 'Collecting web results.'
     tone = isYoutube ? 'youtube' : 'search'
+  } else if (toolCall.name === 'read_page') {
+    const pageUrl = getStringArg(toolCall.args, 'url') || getStringArg(toolCall.args, 'link')
+    displayTitle = 'Reading Page'
+    displayDetail = pageUrl || 'Fetching web content.'
+    tone = 'search'
+  } else if (toolCall.name === 'web_fetch') {
+    displayTitle = 'Deep Research'
+    displayDetail = title || query || 'Synthesizing 20 source pages.'
+    tone = 'search'
   } else if (toolCall.name === 'search_chat_history') {
     displayTitle = 'Searching Memory'
     displayDetail = query || 'Looking through prior context.'
-    tone = 'search'
-  } else if (toolCall.name === 'saw_link_from_url') {
-    displayTitle = toolCall.status === 'cooldown' ? 'Cooling Down' : 'Reading Page'
-    displayDetail = url || 'Inspecting web content.'
     tone = 'search'
   } else if (toolCall.name === 'execute_terminal_command' || toolCall.name === 'run_command') {
     displayTitle = 'Terminal'
@@ -508,6 +643,14 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
     displayDetail = getStringArg(toolCall.args, 'title') || (writingArgs?.title as string) || 'Mini App'
   }
 
+  // Custom user-facing titles take precedence over derived labels.
+  const customTitles = resolveCustomTitles(toolCall)
+  if (isRunning && customTitles.progressTitle) {
+    displayTitle = customTitles.progressTitle
+  } else if (isDone && (customTitles.completedTitle || customTitles.progressTitle)) {
+    displayTitle = (customTitles.completedTitle || customTitles.progressTitle) as string
+  }
+
   if (toolCall.status === 'done') tone = 'success'
   if (toolCall.status === 'error' || toolCall.status === 'cancelled') tone = 'error'
 
@@ -536,8 +679,9 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
       const isSearch =
         toolCall.name === 'search' ||
         toolCall.name === 'web_search' ||
-        toolCall.name === 'search_chat_history' ||
-        toolCall.name === 'saw_link_from_url'
+        toolCall.name === 'read_page' ||
+        toolCall.name === 'web_fetch' ||
+        toolCall.name === 'search_chat_history'
       const isFile =
         toolCall.name === 'computer_use_create_file' ||
         toolCall.name === 'computer_use_save_file' ||
@@ -562,7 +706,12 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
         return <Terminal size={size} weight="regular" className="animate-pulse" />
       return <Brain size={size} weight="regular" className="animate-pulse" />
     }
-    if (toolCall.name === 'web_search' || toolCall.name === 'search_chat_history')
+    if (
+      toolCall.name === 'web_search' ||
+      toolCall.name === 'read_page' ||
+      toolCall.name === 'web_fetch' ||
+      toolCall.name === 'search_chat_history'
+    )
       return <MagnifyingGlass size={size} weight="regular" className="animate-pulse" />
     if (isYoutube) return <PlayCircle size={size} weight="regular" className="animate-pulse" />
     if (
@@ -590,7 +739,7 @@ function useToolCallMeta(toolCall: ToolCall, writingArgs?: Record<string, unknow
       return <FileCode size={size} weight="regular" />
     }
     if (toolCall.name.startsWith('computer_use_')) return <HardDrive size={size} weight="regular" />
-    if (toolCall.name === 'saw_link_from_url' || toolCall.name.startsWith('internal_docs_')) return <FileText size={size} weight="regular" />
+    if (toolCall.name.startsWith('internal_docs_')) return <FileText size={size} weight="regular" />
     if (toolCall.name === 'configure_prism')
       return <Gear size={size} weight="regular" className="animate-pulse" />
     if (
@@ -710,6 +859,8 @@ function parseAnsi(text: string): React.ReactNode[] {
 }
 
 export function AnsiRenderer({ text }: { text: string }): React.JSX.Element {
+  const parsedContent = useMemo(() => parseAnsi(text), [text])
+
   return (
     <span className="ansi-renderer-root">
       <style dangerouslySetInnerHTML={{ __html: `
@@ -743,7 +894,7 @@ export function AnsiRenderer({ text }: { text: string }): React.JSX.Element {
         .ansi-renderer-root .ansi-bg-cyan { background-color: #155e75; }
         .ansi-renderer-root .ansi-bg-white { background-color: #e5e7eb; }
       `}} />
-      {parseAnsi(text)}
+      {parsedContent}
     </span>
   )
 }
@@ -929,11 +1080,21 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
         )}
 
       {/* ── Expanded View (Success/Fail Status Only) ── */}
-      {isExpanded && (
-        <div className="pl-5 text-xs text-text-secondary/80 animate-fade-in py-0.5 select-text">
+      <MotionConfig reducedMotion="user">
+        <AnimatePresence initial={false}>
+          {isExpanded && (
+            <motion.div
+              key="tool-expanded"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              className="overflow-hidden"
+            >
+              <div className="pl-5 text-xs text-text-secondary/80 py-0.5 select-text">
           {isTerminal ? (
             <div className="flex flex-col max-w-full my-2">
-              <div className="font-mono text-[12px] bg-[#012456] text-[#eeedf0] border border-white/10 rounded-xl p-4 flex flex-col gap-1 shadow-inner max-h-[320px] overflow-y-auto whitespace-pre-wrap select-text leading-relaxed">
+              <div className="font-mono text-[12px] bg-[#0b111e] text-[#eeedf0] rounded-xl p-4 flex flex-col gap-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_1px_8px_rgba(0,0,0,0.25)] max-h-[320px] overflow-y-auto whitespace-pre-wrap select-text leading-relaxed">
                 <div className="text-[#00ffff] font-semibold select-none mb-1">
                   PS C:\\Users\\Breno\\Documents\\Code\\Prism&gt; {(toolCall.args.command || toolCall.args.CommandLine || writingArgs?.command) as string}
                 </div>
@@ -960,8 +1121,11 @@ function CompactActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; wr
               Execution cancelled.
             </span>
           ) : null}
-        </div>
-      )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </MotionConfig>
     </div>
   )
 }
@@ -1163,11 +1327,21 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
         )}
 
       {/* ── Expanded View (Success/Fail Status Only) ── */}
-      {isExpanded && (
-        <div className="pl-5 text-xs text-text-secondary/80 animate-fade-in py-0.5 select-text">
+      <MotionConfig reducedMotion="user">
+        <AnimatePresence initial={false}>
+          {isExpanded && (
+            <motion.div
+              key="tool-expanded"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              className="overflow-hidden"
+            >
+              <div className="pl-5 text-xs text-text-secondary/80 py-0.5 select-text">
           {isTerminal ? (
             <div className="flex flex-col max-w-full my-2">
-              <div className="font-mono text-[12px] bg-[#012456] text-[#eeedf0] border border-white/10 rounded-xl p-4 flex flex-col gap-1 shadow-inner max-h-[320px] overflow-y-auto whitespace-pre-wrap select-text leading-relaxed">
+              <div className="font-mono text-[12px] bg-[#0b111e] text-[#eeedf0] rounded-xl p-4 flex flex-col gap-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_1px_8px_rgba(0,0,0,0.25)] max-h-[320px] overflow-y-auto whitespace-pre-wrap select-text leading-relaxed">
                 <div className="text-[#00ffff] font-semibold select-none mb-1">
                   PS C:\\Users\\Breno\\Documents\\Code\\Prism&gt; {(toolCall.args.command || toolCall.args.CommandLine || writingArgs?.command) as string}
                 </div>
@@ -1194,18 +1368,21 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
               Execution cancelled.
             </span>
           ) : null}
-        </div>
-      )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </MotionConfig>
 
       {/* Subagent graph (Full) */}
       {toolCall.name === 'run_subagents' &&
         (toolCall.status === 'running' ||
           toolCall.status === 'done' ||
           toolCall.status === 'cancelled') && (
-          <div className="w-full mt-2 flex flex-col gap-4 p-4 rounded-xl border border-white/[0.04] bg-white/[0.015] backdrop-blur-md transition-all duration-300">
+          <div className="w-full mt-2 flex flex-col gap-4 p-4 rounded-xl bg-white/[0.018] transition-colors duration-300">
             {hasAgentUpdates ? (
               <>
-                <div className="w-full relative flex justify-center py-2 rounded-lg border border-white/[0.02] bg-black/10">
+                <div className="w-full relative flex justify-center py-2 rounded-lg bg-black/15">
                   <svg viewBox="0 0 400 160" className="w-full select-none">
                     {/* Glow Filters */}
                     <defs>
@@ -1437,7 +1614,7 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
                 </div>
 
                 {activeAgent && (
-                  <div className="flex flex-col gap-3 p-3.5 rounded-xl border border-white/[0.04] bg-white/[0.015] backdrop-blur-md transition-all duration-300">
+                  <div className="flex flex-col gap-3 p-3.5 rounded-xl bg-white/[0.02] transition-colors duration-300">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-medium text-text-secondary uppercase tracking-widest flex items-center gap-1.5">
                         {activeKey === 'master'
@@ -1475,7 +1652,7 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
                     </div>
 
                     {activeAgent.command && (
-                      <div className="font-mono text-[10.5px] bg-black/35 border border-white/[0.03] rounded-lg p-3 flex flex-col gap-1.5 select-text">
+                      <div className="font-mono text-[10.5px] bg-black/30 rounded-lg p-3 flex flex-col gap-1.5 select-text">
                         <div className="flex items-center gap-1.5 text-accent-secondary/90 font-semibold border-b border-white/[0.04] pb-1.5 mb-0.5">
                           <Terminal size={12} />
                           <span>ACTIVE PROCESS</span>
@@ -1490,7 +1667,7 @@ function FullActionLoader({ toolCall, writingArgs }: { toolCall: ToolCall; writi
                     )}
 
                     {activeAgent.output && (
-                      <div className="font-mono text-[10.5px] bg-black/35 border border-white/[0.03] rounded-lg p-3 flex flex-col gap-1.5 select-text">
+                      <div className="font-mono text-[10.5px] bg-black/30 rounded-lg p-3 flex flex-col gap-1.5 select-text">
                         <div className="flex items-center gap-1.5 text-text-muted opacity-80 font-semibold border-b border-white/[0.04] pb-1.5 mb-0.5">
                           <FileText size={12} />
                           <span>CONSOLE OUTPUT</span>
@@ -1531,7 +1708,7 @@ function BrowserSessionSeparator({
   return (
     <div className="w-full flex items-center gap-4 py-4 select-none animate-fade-in">
       <div className="flex-grow border-t border-dashed border-white/[0.08]" />
-      <div className="flex items-center gap-2 px-3 py-1 rounded-full border border-white/[0.04] bg-white/[0.01] shadow-sm">
+      <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.045] shadow-[0_1px_6px_rgba(0,0,0,0.18)]">
         <div className="flex gap-1.5 mr-1 select-none">
           <span
             className={clsx(

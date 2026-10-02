@@ -11,6 +11,7 @@ import {
   desktopCapturer,
   dialog,
   session,
+  clipboard,
   type NativeImage
 } from 'electron'
 import { join, dirname } from 'path'
@@ -22,6 +23,10 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import {
   initGemini,
   handleChatMessage,
+  handleChatSteerMessage,
+  handleHarnessMessage,
+  prepareHarnessPlanHandoff,
+  cancelHarnessPlanHandoff,
   setChatModel,
   cancelChatMessage,
   activeRuns,
@@ -33,11 +38,17 @@ import {
   cancelAiSearch,
   transcribeAudio,
   getChatModel,
+  markActiveChatDeleted,
   getAllProviders,
   saveProviders,
   deleteProvider,
   fetchModelsFromProvider,
-  getActiveModels
+  getActiveModels,
+  handleGenerateBrowserSite,
+  cancelBrowserGeneration,
+  startPuterLoginFlow,
+  cancelPuterLoginFlow,
+  TRUSTED_PROVIDERS
 } from './ai'
 import {
   searchWorkspaceFiles,
@@ -55,6 +66,11 @@ import { asDataUrl } from './toolAttachments'
 
 import { initAppScanner, registerAppsUpdatedCallback, forceRescan, getAppsList } from './appScanner'
 import { loadConfig, saveConfig, AppConfig } from './config'
+import { createMemoryService, defaultPrismDataDir, type MemoryService } from './memoryStore'
+import {
+  createMemoryReviewScheduler,
+  type MemoryReviewScheduler
+} from './memoryReviewer'
 import {
   activateLicenseKey,
   deactivateLicense,
@@ -65,7 +81,20 @@ import {
   verifyLicenseKey
 } from './license'
 import { toolsManifest } from './toolsManifest'
-import { listChatSessions, loadChatSession, deleteChatSession, searchChatsOffline } from './history'
+import {
+  listChatSessions,
+  loadChatSession,
+  deleteChatSession,
+  searchChatsOffline,
+  hydrateHistoryToolAttachments,
+  updateChatSessionModel,
+  updateHarnessSessionPhase
+} from './history'
+import {
+  cancelImageGenerationRetries,
+  saveGeneratedImage,
+  startImageGenerationRetry
+} from './ai/imageGenerationIpc'
 import {
   testGeminiConnection,
   markConnectionActive,
@@ -75,9 +104,37 @@ import {
   checkInternetConnectivity
 } from './connection'
 import type { ApplicationInfo } from '../shared/types'
+import type { HarnessExplorerSelection } from '../shared/types'
 import { IS_DEMO } from '../shared/demo'
-import { safeSend } from './safeSend'
+import { broadcastIpc, safeSend } from './safeSend'
 import { getTerminalProcessesForChat } from './terminalProcessManager'
+import {
+  checkAllHarnessProjects,
+  checkHarnessProjectFolder,
+  activateHarnessProject,
+  createHarnessProject,
+  deleteHarnessProject,
+  getEffectiveHarnessSettings,
+  getHarnessProject,
+  openHarnessProject,
+  recreateHarnessProjectFolder,
+  resolveHarnessStartupProject,
+  updateHarnessProject
+} from './harnessProject'
+import { generateHarnessGitCommitMessage } from './harnessGit'
+import { getTrackedGitSnapshot, runTrackedGitAction, getChatGitRecoveries, bindGitPlan, onGitRecoveryChanged } from './harnessGitRecovery'
+import type { HarnessGitPlanBinding } from '../shared/types'
+import { saveChatSession } from './history'
+import type { HarnessGitAction } from '../shared/types'
+import { resolveHarnessApproval } from './harnessApproval'
+import { getHarnessInstructionStatus } from './harnessPrompt'
+import { installProcessOutputGuards } from './brokenPipeGuard'
+import {
+  listHarnessDirectory,
+  resolveHarnessExplorerItem
+} from './harnessExplorer'
+
+installProcessOutputGuards()
 
 if (process.platform === 'win32') {
   try {
@@ -181,6 +238,8 @@ function saveWindowState(state: WindowState): void {
 let currentConfig: AppConfig
 let mainWindow: BrowserWindow | null = null
 let launcherWindow: BrowserWindow | null = null
+let memoryService: MemoryService | null = null
+let memoryReviewScheduler: MemoryReviewScheduler | null = null
 let launcherShowWhenReady = false
 let launcherLoadListenerAttached = false
 export let voiceOverlayWindow: BrowserWindow | null = null
@@ -252,13 +311,10 @@ const miniAppDataMap = new Map<
 >()
 
 function getEffectiveIconTheme(config?: AppConfig): AppConfig['theme'] {
+  // Icon assets only exist for the eight classic themes; the Hero theme keeps
+  // the default marine icon.
   const theme = config?.theme || 'marine'
-
-  if (theme === 'rgb' && !(config?.rgbThemeExpiry && Date.now() < config.rgbThemeExpiry)) {
-    return 'marine'
-  }
-
-  return theme
+  return theme === 'hero' ? 'marine' : theme
 }
 
 function getIconResourcePath(iconName: string): string {
@@ -948,6 +1004,8 @@ if (!gotTheLock) {
         currentConfig = loadConfig()
         safeSend(mainWindow, 'config-changed', currentConfig)
         safeSend(launcherWindow, 'config-changed', currentConfig)
+        safeSend(mainWindow, 'license-status-changed', null)
+        safeSend(launcherWindow, 'license-status-changed', null)
       })
 
       // The Demo uses its own local installer flow and does not need browser download hooks.
@@ -989,6 +1047,18 @@ if (!gotTheLock) {
 
     // IPC Handlers
     ipcMain.on('chat-message', handleChatMessage)
+    ipcMain.on('chat-steer-message', (_event, data) => {
+      if (data && typeof data === 'object' && data.chatId && data.message) {
+        handleChatSteerMessage(data.chatId, data.message, data.attachedFile, data.workspace)
+      }
+    })
+    ipcMain.on('harness-message', handleHarnessMessage)
+    ipcMain.handle('prepare-harness-plan-handoff', (_event, data) =>
+      prepareHarnessPlanHandoff(data)
+    )
+    ipcMain.on('cancel-harness-plan-handoff', (_event, chatId: string) => {
+      cancelHarnessPlanHandoff(chatId)
+    })
 
     // Register browser session action emitter so the renderer can watch AI browser interactions
     setBrowserActionEmitter((action) => {
@@ -1018,6 +1088,16 @@ if (!gotTheLock) {
       return closePersistentBrowser()
     })
 
+    ipcMain.on('browser-generate-site', (_event, data) => {
+      if (mainWindow) {
+        handleGenerateBrowserSite(mainWindow, data)
+      }
+    })
+
+    ipcMain.on('browser-cancel-generation', (_event, sessionId) => {
+      cancelBrowserGeneration(sessionId)
+    })
+
     ipcMain.on('reset-browser-idle', () => {
       _resetIdleTimer()
     })
@@ -1031,6 +1111,13 @@ if (!gotTheLock) {
       safeSend(mainWindow, 'config-changed', currentConfig)
       safeSend(launcherWindow, 'config-changed', currentConfig)
     })
+    ipcMain.handle('set-harness-session-model', (_event, chatId: string, modelKey: string) => {
+      return updateChatSessionModel(chatId, modelKey, 'harness')
+    })
+    ipcMain.handle('set-harness-session-phase', (_event, chatId: string, phase: 'plan' | 'build') => {
+      if ((phase !== 'plan' && phase !== 'build') || activeRuns.has(chatId)) return false
+      return updateHarnessSessionPhase(chatId, phase)
+    })
     ipcMain.on('set-think-mode', (_event, val) => {
       safeSend(mainWindow, 'think-mode-changed', val)
       safeSend(launcherWindow, 'think-mode-changed', val)
@@ -1041,7 +1128,10 @@ if (!gotTheLock) {
     })
 
     ipcMain.on('clear-chat', () => initGemini())
-    ipcMain.on('chat-cancel', (_event, chatId?: string) => cancelChatMessage(chatId))
+    ipcMain.on('chat-cancel', (_event, chatId?: string) => {
+      cancelChatMessage(chatId)
+      cancelImageGenerationRetries(chatId)
+    })
     ipcMain.on('ai-search-message', (event, data) => {
       handleAiSearchChatMessage(event, data)
     })
@@ -1065,16 +1155,27 @@ if (!gotTheLock) {
     })
 
     ipcMain.handle('search-chats-offline', (_event, query: string) => {
-      return searchChatsOffline(query)
+      return searchChatsOffline(query, 'chat')
     })
 
     ipcMain.handle('get-chats', () => {
-      return listChatSessions()
+      return listChatSessions('chat')
     })
 
     ipcMain.handle('load-chat', (_event, id: string) => {
-      const session = loadChatSession(id)
-      return session ? session.messages : []
+      const session = loadChatSession(id, 'chat')
+      return session ? hydrateHistoryToolAttachments(id, session.messages) : []
+    })
+
+    ipcMain.handle('get-harness-sessions', () => listChatSessions('harness'))
+
+    ipcMain.handle('load-harness-session', (_event, id: string) => {
+      const session = loadChatSession(id, 'harness')
+      return session ? hydrateHistoryToolAttachments(id, session.messages) : []
+    })
+
+    ipcMain.handle('search-harness-sessions', (_event, query: string) => {
+      return searchChatsOffline(query, 'harness')
     })
 
     ipcMain.handle('is-chat-running', (_event, id: string) => {
@@ -1094,8 +1195,26 @@ if (!gotTheLock) {
     })
 
     ipcMain.handle('delete-chat', (_event, id: string) => {
+      if (!loadChatSession(id, 'chat')) return false
+      markActiveChatDeleted(id)
+      cancelChatMessage(id)
+      cancelImageGenerationRetries(id)
+      return deleteChatSession(id)
+    })
+
+    ipcMain.handle('delete-harness-session', (_event, id: string) => {
+      if (!loadChatSession(id, 'harness')) return false
+      markActiveChatDeleted(id)
       cancelChatMessage(id)
       return deleteChatSession(id)
+    })
+
+    ipcMain.handle('retry-image-generation', (_event, request) => {
+      return startImageGenerationRetry(request)
+    })
+
+    ipcMain.handle('save-generated-image', (_event, request) => {
+      return saveGeneratedImage(request)
     })
 
     ipcMain.handle('generate-tts', async (_event, text: string) => {
@@ -1285,10 +1404,82 @@ if (!gotTheLock) {
       const success = saveConfig(config, currentConfig)
       if (success) {
         currentConfig = loadConfig()
+        memoryReviewScheduler?.reconfigure()
         if (!IS_DEMO) registerGlobalShortcuts()
         updateNativeIcons()
         if (!IS_DEMO) reconcileDiscordGateway(currentConfig)
         // Notify windows with merged config
+        safeSend(mainWindow, 'config-changed', currentConfig)
+        safeSend(launcherWindow, 'config-changed', currentConfig)
+      }
+      return success
+    })
+
+    const getMemoryService = (): MemoryService => {
+      if (!memoryService) {
+        const dataRoot = defaultPrismDataDir()
+        memoryService = createMemoryService({
+          chatsDir: join(dataRoot, 'PrismDesktop', 'chats'),
+          memoryDir: join(dataRoot, 'PrismDesktop', 'memory'),
+          config: currentConfig.memory,
+          notify: (event) => {
+            const channel =
+              event.type === 'write'
+                ? 'memory-write'
+                : event.type === 'suggest'
+                  ? 'memory-suggest'
+                  : 'memory-archived'
+            safeSend(mainWindow, channel, event)
+            safeSend(launcherWindow, channel, event)
+          }
+        })
+        // Non-blocking startup catch-up over chats completed before launch.
+        setTimeout(() => {
+          try {
+            memoryService?.startupCatchUp()
+          } catch (error) {
+            console.error('[Memory] Startup catch-up failed:', error)
+          }
+        }, 3000)
+      }
+      return memoryService
+    }
+
+    if (!IS_DEMO) {
+      memoryReviewScheduler = createMemoryReviewScheduler({
+        getConfig: () => currentConfig,
+        getMemoryService,
+        notify: (status) => broadcastIpc('memory-review-status', status)
+      })
+      memoryReviewScheduler.start()
+    }
+
+    ipcMain.handle('memory-list', (_event, options: any) => getMemoryService().list(options))
+    ipcMain.handle('memory-update', (_event, id: string, patch: any) =>
+      getMemoryService().update(id, patch)
+    )
+    ipcMain.handle('memory-archive', (_event, id: string) => getMemoryService().archive(id))
+    ipcMain.handle('memory-restore', (_event, id: string) => getMemoryService().restore(id))
+    ipcMain.handle('memory-delete', (_event, id: string) => getMemoryService().remove(id))
+    ipcMain.handle('memory-stats', () => getMemoryService().stats())
+    ipcMain.handle('memory-review-info', () => memoryReviewScheduler?.getInfo())
+    ipcMain.handle('memory-review-run-now', async () => {
+      await memoryReviewScheduler?.runNow()
+      return memoryReviewScheduler?.getInfo()
+    })
+    ipcMain.handle('memory-toggle-auto', (_event, enabled: boolean) => {
+      const success = saveConfig(
+        {
+          memory: {
+            ...(currentConfig.memory ?? loadConfig().memory),
+            autoExtract: enabled === true
+          }
+        },
+        currentConfig
+      )
+      if (success) {
+        currentConfig = loadConfig()
+        memoryReviewScheduler?.reconfigure()
         safeSend(mainWindow, 'config-changed', currentConfig)
         safeSend(launcherWindow, 'config-changed', currentConfig)
       }
@@ -1301,6 +1492,15 @@ if (!gotTheLock) {
 
     ipcMain.handle('get-providers', () => {
       return getAllProviders()
+    })
+
+    ipcMain.handle('get-trusted-provider-presets', () => {
+      return TRUSTED_PROVIDERS.map(({ id, name, baseUrl, completionType }) => ({
+        id,
+        name,
+        baseUrl,
+        completionType
+      }))
     })
 
     ipcMain.handle('save-providers', (_event, providers: any) => {
@@ -1325,10 +1525,18 @@ if (!gotTheLock) {
 
     ipcMain.handle(
       'fetch-provider-models',
-      async (_event, { baseUrl, apiKey, completionType }: any) => {
-        return await fetchModelsFromProvider(baseUrl, apiKey, completionType)
+      async (_event, { baseUrl, apiKey, completionType, puterAuthToken }: any) => {
+        return await fetchModelsFromProvider(baseUrl, apiKey, completionType, puterAuthToken)
       }
     )
+
+    ipcMain.handle('puter-login', async () => {
+      return await startPuterLoginFlow()
+    })
+
+    ipcMain.handle('puter-cancel-login', () => {
+      return cancelPuterLoginFlow()
+    })
 
     ipcMain.handle('get-active-models', () => {
       return getActiveModels()
@@ -1352,6 +1560,203 @@ if (!gotTheLock) {
       }
       return result.filePaths[0]
     })
+
+    ipcMain.handle('harness-create-project', async (_event, name: string) => {
+      const result = await createHarnessProject(name)
+      currentConfig = loadConfig()
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
+      return result
+    })
+
+    ipcMain.handle('harness-open-project', async (_event, selectedPath?: string) => {
+      let projectPath = selectedPath
+      if (!projectPath) {
+        const result = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory'] })
+        if (result.canceled || result.filePaths.length === 0) return null
+        projectPath = result.filePaths[0]
+      }
+      const opened = await openHarnessProject(projectPath)
+      currentConfig = loadConfig()
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
+      return opened
+    })
+
+    ipcMain.handle('harness-get-project', (_event, projectPath?: string) => {
+      return getHarnessProject(projectPath)
+    })
+
+    ipcMain.handle('harness-activate-project', (_event, projectPath: string) => {
+      const activated = activateHarnessProject(projectPath)
+      currentConfig = loadConfig()
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
+      return activated
+    })
+
+    ipcMain.handle('harness-get-instruction-status', async (_event, projectPath?: string) => {
+      const settings = getEffectiveHarnessSettings(projectPath)
+      return settings ? getHarnessInstructionStatus(settings) : null
+    })
+
+    ipcMain.handle('harness-update-project', (_event, projectPath: string, overrides) => {
+      const updated = updateHarnessProject(projectPath, overrides || {})
+      currentConfig = loadConfig()
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
+      return updated
+    })
+
+    ipcMain.handle('harness-delete-project', (_event, rootPath: string) => {
+      const updatedSettings = deleteHarnessProject(rootPath)
+      currentConfig = loadConfig()
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
+      return updatedSettings
+    })
+
+    ipcMain.handle('harness-check-project', async (_event, rootPath: string) => {
+      return await checkHarnessProjectFolder(rootPath)
+    })
+
+    ipcMain.handle('harness-check-all-projects', async () => {
+      return await checkAllHarnessProjects()
+    })
+
+    ipcMain.handle('harness-recreate-project-folder', async (_event, rootPath: string) => {
+      const result = await recreateHarnessProjectFolder(rootPath)
+      currentConfig = loadConfig()
+      safeSend(mainWindow, 'config-changed', currentConfig)
+      safeSend(launcherWindow, 'config-changed', currentConfig)
+      return result
+    })
+
+    ipcMain.handle('harness-resolve-startup-project', () => {
+      return resolveHarnessStartupProject()
+    })
+
+    onGitRecoveryChanged((record) => broadcastIpc('harness-git-recovery-changed', record))
+    ipcMain.handle('harness-git-recoveries', async (_event, projectPath: string, chatId: string) => {
+      if (!getEffectiveHarnessSettings(projectPath)) throw new Error('The Harness project is not registered.')
+      return getChatGitRecoveries(projectPath, chatId)
+    })
+    ipcMain.handle('harness-git-bind-plan', async (_event, binding: HarnessGitPlanBinding) => {
+      if (!getEffectiveHarnessSettings(binding.projectPath)) throw new Error('The Harness project is not registered.')
+      if (!['plan', 'build'].includes(binding.phase) || !binding.chatId) throw new Error('Invalid Harness session binding.')
+      if (activeRuns.has(binding.chatId) || (binding.sourceChatId && activeRuns.has(binding.sourceChatId))) throw new Error('Wait for the active Harness execution to finish.')
+      const source = loadChatSession(binding.sourceChatId || binding.chatId, 'harness')
+      if (binding.phase === 'build') {
+        const plans = (source?.messages || []).flatMap((message) => (message.tool_calls || []).filter((call) => call.function.name === 'plan').map((call) => {
+          try { return (JSON.parse(call.function.arguments) as { markdown?: string }).markdown?.trim() } catch { return undefined }
+        }))
+        if (!source || source.disciplinePath !== binding.projectPath || !binding.plan?.trim() || !plans.includes(binding.plan.trim())) throw new Error('Approve a native plan from the source session before starting Build.')
+      }
+      const existing = loadChatSession(binding.chatId, 'harness')
+      if (existing && existing.disciplinePath !== binding.projectPath) throw new Error('The session belongs to a different project.')
+      if (!existing && !saveChatSession(binding.chatId, [], binding.phase === 'plan' ? 'Git conflict plan' : 'Implementation Handoff', 'harness', binding.projectPath, undefined, false, [], binding.phase)) throw new Error('Could not create the Harness session.')
+      await bindGitPlan(binding)
+      if (!updateHarnessSessionPhase(binding.chatId, binding.phase)) throw new Error('Could not save the Harness phase.')
+      return true
+    })
+    ipcMain.handle('harness-git-status', async (_event, projectPath: string) => {
+      if (!getEffectiveHarnessSettings(projectPath)) {
+        throw new Error('The Harness project is not registered.')
+      }
+      return getTrackedGitSnapshot(projectPath)
+    })
+
+    ipcMain.handle('harness-git-status-delta', async (_event, projectPath: string) => {
+      if (!getEffectiveHarnessSettings(projectPath)) {
+        throw new Error('The Harness project is not registered.')
+      }
+      return getTrackedGitSnapshot(projectPath)
+    })
+
+    ipcMain.handle('harness-git-action', async (_event, projectPath: string, action: HarnessGitAction) => {
+      if (!getEffectiveHarnessSettings(projectPath)) {
+        throw new Error('The Harness project is not registered.')
+      }
+      return runTrackedGitAction(projectPath, action)
+    })
+
+    ipcMain.handle(
+      'harness-git-generate-commit-message',
+      async (_event, projectPath: string, modelKey: string) => {
+        if (!getEffectiveHarnessSettings(projectPath)) {
+          throw new Error('The Harness project is not registered.')
+        }
+        return generateHarnessGitCommitMessage(projectPath, modelKey)
+      }
+    )
+
+    ipcMain.handle(
+      'harness-list-directory',
+      async (_event, projectPath: string, relativePath: string) => {
+        if (!getEffectiveHarnessSettings(projectPath)) {
+          return { ok: false, items: [], error: 'The Harness project is not registered.' }
+        }
+        return listHarnessDirectory(projectPath, relativePath)
+      }
+    )
+
+    ipcMain.handle(
+      'harness-open-explorer-file',
+      async (_event, projectPath: string, selection: HarnessExplorerSelection) => {
+        try {
+          if (!getEffectiveHarnessSettings(projectPath)) throw new Error('The Harness project is not registered.')
+          if (selection.kind !== 'file') throw new Error('Only files can be opened.')
+          const target = await resolveHarnessExplorerItem(projectPath, selection)
+          const error = await shell.openPath(target)
+          return error ? { ok: false, error } : { ok: true }
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) }
+        }
+      }
+    )
+
+    ipcMain.handle(
+      'harness-copy-explorer-path',
+      async (_event, projectPath: string, selection: HarnessExplorerSelection) => {
+        try {
+          if (!getEffectiveHarnessSettings(projectPath)) throw new Error('The Harness project is not registered.')
+          clipboard.writeText(await resolveHarnessExplorerItem(projectPath, selection))
+          return { ok: true }
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) }
+        }
+      }
+    )
+
+    ipcMain.handle(
+      'harness-show-explorer-item',
+      async (_event, projectPath: string, selection: HarnessExplorerSelection) => {
+        try {
+          if (!getEffectiveHarnessSettings(projectPath)) throw new Error('The Harness project is not registered.')
+          const target = await resolveHarnessExplorerItem(projectPath, selection)
+          shell.showItemInFolder(target)
+          return { ok: true }
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) }
+        }
+      }
+    )
+
+    ipcMain.handle('open-folder-in-explorer', async (_event, folderPath: string) => {
+      try {
+        const err = await shell.openPath(folderPath)
+        return err ? `Error: ${err}` : 'Success'
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`
+      }
+    })
+
+    ipcMain.on(
+      'harness-resolve-approval',
+      (_event, payload: { requestId: string; approved: boolean; chatId?: string; projectPath?: string }) => {
+        resolveHarnessApproval(payload.requestId, payload.approved, payload)
+      }
+    )
 
     ipcMain.handle('get-session-mode', () => {
       return {
@@ -1397,6 +1802,8 @@ if (!gotTheLock) {
         currentConfig = loadConfig()
         safeSend(mainWindow, 'config-changed', currentConfig)
         safeSend(launcherWindow, 'config-changed', currentConfig)
+        safeSend(mainWindow, 'license-status-changed', result.info)
+        safeSend(launcherWindow, 'license-status-changed', result.info)
       }
       return result
     })
@@ -1412,6 +1819,8 @@ if (!gotTheLock) {
         currentConfig = loadConfig()
         safeSend(mainWindow, 'config-changed', currentConfig)
         safeSend(launcherWindow, 'config-changed', currentConfig)
+        safeSend(mainWindow, 'license-status-changed', null)
+        safeSend(launcherWindow, 'license-status-changed', null)
       }
       return success
     })
@@ -1544,6 +1953,7 @@ if (!gotTheLock) {
     })
 
     ipcMain.on('set-session-mode', (_event, { mode, disciplinePath }) => {
+      if (mode === 'harness') return
       currentConfig.sessionMode = mode
       if (disciplinePath !== undefined) {
         currentConfig.disciplinePath = disciplinePath
@@ -1693,6 +2103,8 @@ if (!gotTheLock) {
 
   app.on('will-quit', () => {
     globalShortcut.unregisterAll()
+    memoryReviewScheduler?.stop()
+    memoryReviewScheduler = null
     stopLicenseMonitor?.()
     stopLicenseMonitor = null
     stopKeepAlive()

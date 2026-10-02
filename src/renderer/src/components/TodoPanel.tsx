@@ -1,5 +1,15 @@
-import React, { useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
+import { LiquidGlassSurface } from './LiquidGlassSurface'
+import { AnimatePresence, MotionConfig, motion } from 'motion/react'
+import {
+  dockRise,
+  staggerChild,
+  staggerParent,
+  tabContent,
+  terminalSuccessPop,
+  TERMINAL_ERROR_SHAKE
+} from '../motion/presets'
 import {
   ListChecks,
   Circle,
@@ -11,47 +21,136 @@ import {
   FolderOpen,
   ArrowSquareOut,
   Terminal,
-  XCircle
+  XCircle,
+  Compass,
+  ClockCountdown,
+  ArrowUp,
+  ArrowDown,
+  Trash,
+  Paperclip
 } from '@phosphor-icons/react'
 import type { TodoState, ArtifactItem, TerminalProcessSnapshot } from '../../../shared/types'
+import type { QueuedTabMessage } from '../types/tab'
 
 interface TodoPanelProps {
   todo?: TodoState | null
   artifacts?: ArtifactItem[]
   terminalProcesses?: TerminalProcessSnapshot[]
+  queuedMessages?: QueuedTabMessage[]
+  onReorderQueuedMessages?: (fromIndex: number, toIndex: number) => void
+  onRemoveQueuedMessage?: (id: string) => void
 }
 
-type PanelTab = 'todo' | 'artifacts' | 'terminal'
+type PanelTab = 'todo' | 'artifacts' | 'terminal' | 'queue'
+
+// Finished terminal rows linger briefly with a success/error treatment,
+// then animate out instead of staying forever. Running rows and rows
+// waiting for input are never auto-dismissed.
+const TERMINAL_DISMISS_MS = 2000
+
+function isTerminallyFinished(status: string): boolean {
+  return status === 'completed' || status === 'failed' || status === 'killed'
+}
 
 function TodoPanel({
   todo,
   artifacts = [],
-  terminalProcesses = []
+  terminalProcesses = [],
+  queuedMessages = [],
+  onReorderQueuedMessages,
+  onRemoveQueuedMessage
 }: TodoPanelProps): React.ReactElement | null {
+  const [dismissedRunIds, setDismissedRunIds] = useState<ReadonlySet<string>>(new Set())
+  const [resolvingRunIds, setResolvingRunIds] = useState<ReadonlySet<string>>(new Set())
+  const dismissTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+
+  const visibleTerminalProcesses = useMemo(
+    () => terminalProcesses.filter((process) => !dismissedRunIds.has(process.runId)),
+    [terminalProcesses, dismissedRunIds]
+  )
+
+  // Schedule the 2s resolve-then-dismiss cycle for newly finished rows.
+  useEffect(() => {
+    for (const process of terminalProcesses) {
+      if (dismissedRunIds.has(process.runId) || resolvingRunIds.has(process.runId)) continue
+      if (process.awaitingInput || process.status === 'running') continue
+      if (!isTerminallyFinished(process.status)) continue
+      setResolvingRunIds((prev) => {
+        if (prev.has(process.runId)) return prev
+        const next = new Set(prev)
+        next.add(process.runId)
+        return next
+      })
+      const timer = setTimeout(() => {
+        dismissTimers.current.delete(process.runId)
+        setDismissedRunIds((prev) => {
+          if (prev.has(process.runId)) return prev
+          const next = new Set(prev)
+          next.add(process.runId)
+          return next
+        })
+      }, TERMINAL_DISMISS_MS)
+      dismissTimers.current.set(process.runId, timer)
+    }
+    return () => {
+      for (const [runId, timer] of dismissTimers.current) {
+        const stillPresent = terminalProcesses.some((p) => p.runId === runId)
+        if (!stillPresent) {
+          clearTimeout(timer)
+          dismissTimers.current.delete(runId)
+        }
+      }
+    }
+  }, [terminalProcesses, dismissedRunIds, resolvingRunIds])
+
+  useEffect(() => {
+    const timers = dismissTimers.current
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer)
+      timers.clear()
+    }
+  }, [])
+
   const hasTodo = !!(todo && todo.tasks.length > 0)
   const hasArtifacts = artifacts.length > 0
-  const hasTerminal = terminalProcesses.length > 0
+  const hasTerminal = visibleTerminalProcesses.length > 0
+  const hasQueue = Boolean(queuedMessages && queuedMessages.length > 0)
 
   const [activeTab, setActiveTab] = useState<PanelTab>(() => {
+    if (hasQueue) return 'queue'
     if (!hasTodo && hasArtifacts) return 'artifacts'
     if (!hasTodo && !hasArtifacts && hasTerminal) return 'terminal'
     return 'todo'
   })
-  const [isExpanded, setIsExpanded] = useState(false)
-  const latestTerminal = terminalProcesses[terminalProcesses.length - 1]
 
-  if (!hasTodo && !hasArtifacts && !hasTerminal) return null
+  // Switch to queue tab whenever new items are queued
+  const prevQueueLengthRef = useRef(queuedMessages?.length || 0)
+  useEffect(() => {
+    const currentLen = queuedMessages?.length || 0
+    if (currentLen > prevQueueLengthRef.current && currentLen > 0) {
+      setActiveTab('queue')
+    }
+    prevQueueLengthRef.current = currentLen
+  }, [queuedMessages?.length])
+
+  const [isExpanded, setIsExpanded] = useState(false)
+  const latestTerminal = visibleTerminalProcesses[visibleTerminalProcesses.length - 1]
+
+  const hasPanel = hasTodo || hasArtifacts || hasTerminal || hasQueue
 
   const displayedTab: PanelTab =
+    (activeTab === 'queue' && hasQueue) ||
     (activeTab === 'todo' && hasTodo) ||
     (activeTab === 'artifacts' && hasArtifacts) ||
     (activeTab === 'terminal' && hasTerminal)
       ? activeTab
-      : hasTodo
-        ? 'todo'
-        : hasArtifacts
-          ? 'artifacts'
-          : 'terminal'
+      : hasQueue
+        ? 'queue'
+        : hasTodo
+          ? 'todo'
+          : hasArtifacts
+            ? 'artifacts'
+            : 'terminal'
 
   // Todo progress stats
   const totalTasks = todo?.tasks.length || 0
@@ -68,11 +167,24 @@ function TodoPanel({
       ? lastDoneTask.title
       : 'AI has started a to-do list'
 
+  const nextQueuedMessage = queuedMessages?.[0]
+  const queueCompactText = nextQueuedMessage
+    ? `${nextQueuedMessage.deliveryMode === 'steering' ? 'Orientation' : 'Next in queue'}: ${
+        nextQueuedMessage.text
+          .replace(/<attached_file[^>]*\/>/gi, '')
+          .replace(/^\[FORCE_SEARCH\]\s*/i, '')
+          .trim() ||
+        (nextQueuedMessage.file ? nextQueuedMessage.file.name : 'Queued message')
+      }`
+    : 'No queued messages'
+
   const latestArtifact = artifacts.length > 0 ? artifacts[artifacts.length - 1] : null
-  const activeTerminalCount = terminalProcesses.filter(
+  const activeTerminalCount = visibleTerminalProcesses.filter(
     (process) => process.status === 'running'
   ).length
-  const waitingTerminalCount = terminalProcesses.filter((process) => process.awaitingInput).length
+  const waitingTerminalCount = visibleTerminalProcesses.filter(
+    (process) => process.awaitingInput
+  ).length
 
   const terminalStatusLabel = (process: TerminalProcessSnapshot): string => {
     if (process.awaitingInput) return 'Waiting for input'
@@ -82,27 +194,37 @@ function TodoPanel({
     return 'Running'
   }
   const panelTitle =
-    displayedTab === 'todo' ? 'AI Tasks' : displayedTab === 'artifacts' ? 'Artifacts' : 'Terminal'
+    displayedTab === 'queue'
+      ? 'Queue'
+      : displayedTab === 'todo'
+        ? 'AI Tasks'
+        : displayedTab === 'artifacts'
+          ? 'Artifacts'
+          : 'Terminal'
   const panelCount =
-    displayedTab === 'todo'
-      ? `${doneCount}/${totalTasks}`
-      : displayedTab === 'artifacts'
-        ? artifacts.length.toString()
-        : waitingTerminalCount > 0
-          ? `${waitingTerminalCount} waiting`
-          : activeTerminalCount > 0
-            ? `${activeTerminalCount} active`
-            : terminalProcesses.length.toString()
+    displayedTab === 'queue'
+      ? `${queuedMessages?.length || 0}`
+      : displayedTab === 'todo'
+        ? `${doneCount}/${totalTasks}`
+        : displayedTab === 'artifacts'
+          ? artifacts.length.toString()
+          : waitingTerminalCount > 0
+            ? `${waitingTerminalCount} waiting`
+            : activeTerminalCount > 0
+              ? `${activeTerminalCount} active`
+              : visibleTerminalProcesses.length.toString()
   const panelCompactText =
-    displayedTab === 'todo'
-      ? compactText
-      : displayedTab === 'artifacts'
-        ? latestArtifact
-          ? `Latest: ${latestArtifact.filename} (#${latestArtifact.id})`
-          : 'No artifacts generated'
-        : latestTerminal
-          ? `${terminalStatusLabel(latestTerminal)} · ${latestTerminal.command}`
-          : 'No background terminal commands'
+    displayedTab === 'queue'
+      ? queueCompactText
+      : displayedTab === 'todo'
+        ? compactText
+        : displayedTab === 'artifacts'
+          ? latestArtifact
+            ? `Latest: ${latestArtifact.filename} (#${latestArtifact.id})`
+            : 'No artifacts generated'
+          : latestTerminal
+            ? `${terminalStatusLabel(latestTerminal)} · ${latestTerminal.command}`
+            : 'No background terminal commands'
 
   const handleOpenFile = (pathStr: string): void => {
     if (window.api?.openArtifactFile) {
@@ -142,14 +264,32 @@ function TodoPanel({
   }
 
   return (
-    <div className="w-[70%] mx-auto relative select-none animate-fade-in z-20 transition-all duration-300">
-      {/* Attached Card Docked Above InputBar */}
-      <div className="relative overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-[var(--border-default)] bg-[var(--surface-lowest)]">
-        {/* Background accent glow */}
-        <div className="absolute -top-20 -right-20 w-48 h-48 rounded-full bg-accent-primary/8 blur-[60px] pointer-events-none" />
+    <MotionConfig reducedMotion="user">
+      <AnimatePresence initial={false}>
+        {hasPanel && (
+          <motion.div
+            key="todo-panel"
+            variants={dockRise}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            className="w-[70%] mx-auto relative select-none z-20 gpu-composed"
+          >
+            {/* Attached Card Docked Above InputBar */}
+            <div className="liquid-glass-docked relative overflow-hidden rounded-t-2xl rounded-b-none">
+              <LiquidGlassSurface refraction={18} blur={2} opacity={0.4} specular={0.12} distortionRadius={20} />
+        {/* Subtle internal theme center glow */}
+        <div className="absolute inset-0 rounded-t-2xl overflow-hidden pointer-events-none">
+          <div
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3/4 h-3/4 rounded-full blur-[36px] opacity-18 transition-all duration-300 pointer-events-none"
+            style={{
+              background: 'radial-gradient(ellipse at center, var(--accent-primary) 0%, transparent 70%)'
+            }}
+          />
+        </div>
 
         {/* Header Bar */}
-        <div className="flex items-center justify-between px-5 py-2.5 border-b border-white/[0.05] bg-white/[0.015]">
+        <div className="relative z-10 flex items-center justify-between px-5 py-2.5 border-b border-white/[0.08] bg-white/[0.02]">
           {/* Left Title / Summary (Clicking header toggles expanded dropdown) */}
           <div
             onClick={() => setIsExpanded((prev) => !prev)}
@@ -157,7 +297,13 @@ function TodoPanel({
             title={isExpanded ? 'Click to collapse panel' : 'Click to expand panel'}
           >
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-primary/15 text-accent-primary shrink-0">
-              {displayedTab === 'todo' ? (
+              {displayedTab === 'queue' ? (
+                nextQueuedMessage?.deliveryMode === 'steering' ? (
+                  <Compass size={15} className="text-accent-primary animate-pulse" weight="bold" />
+                ) : (
+                  <ClockCountdown size={15} className="text-amber-400" weight="bold" />
+                )
+              ) : displayedTab === 'todo' ? (
                 workingTask ? (
                   <CircleNotch
                     size={15}
@@ -203,7 +349,33 @@ function TodoPanel({
           {/* Right Controls: Tab Switcher & Collapse Caret */}
           <div className="flex items-center gap-3 shrink-0">
             {/* Tab Selector Buttons — Switching tabs DOES NOT force expand the panel */}
-            <div className="flex items-center p-0.5 rounded-lg bg-black/40 border border-white/[0.06]">
+            <div className="flex items-center p-0.5 rounded-lg bg-black/40 border border-white/[0.08]">
+              {hasQueue && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setActiveTab('queue')
+                  }}
+                  className={clsx(
+                    'relative flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer',
+                    displayedTab === 'queue'
+                      ? 'text-accent-primary'
+                      : 'text-text-muted hover:text-text-primary'
+                  )}
+                >
+                  {displayedTab === 'queue' && (
+                    <motion.span
+                      layoutId="todo-panel-tab-pill"
+                      transition={{ type: 'spring', stiffness: 550, damping: 40 }}
+                      className="absolute inset-0 rounded-md bg-accent-primary/20 border border-accent-primary/30 shadow-sm"
+                    />
+                  )}
+                  <ClockCountdown size={13} weight="bold" className="relative" />
+                  <span className="relative">Queue ({queuedMessages.length})</span>
+                </button>
+              )}
+
               {hasTodo && (
                 <button
                   type="button"
@@ -212,14 +384,21 @@ function TodoPanel({
                     setActiveTab('todo')
                   }}
                   className={clsx(
-                    'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-all cursor-pointer',
+                    'relative flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer',
                     displayedTab === 'todo'
-                      ? 'bg-accent-primary/20 text-accent-primary border border-accent-primary/30 shadow-sm'
+                      ? 'text-accent-primary'
                       : 'text-text-muted hover:text-text-primary'
                   )}
                 >
-                  <ListChecks size={13} weight="bold" />
-                  <span>To-Do List</span>
+                  {displayedTab === 'todo' && (
+                    <motion.span
+                      layoutId="todo-panel-tab-pill"
+                      transition={{ type: 'spring', stiffness: 550, damping: 40 }}
+                      className="absolute inset-0 rounded-md bg-accent-primary/20 border border-accent-primary/30 shadow-sm"
+                    />
+                  )}
+                  <ListChecks size={13} weight="bold" className="relative" />
+                  <span className="relative">To-Do List</span>
                 </button>
               )}
 
@@ -231,14 +410,21 @@ function TodoPanel({
                     setActiveTab('artifacts')
                   }}
                   className={clsx(
-                    'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-all cursor-pointer',
+                    'relative flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer',
                     displayedTab === 'artifacts'
-                      ? 'bg-accent-primary/20 text-accent-primary border border-accent-primary/30 shadow-sm'
+                      ? 'text-accent-primary'
                       : 'text-text-muted hover:text-text-primary'
                   )}
                 >
-                  <FilePdf size={13} weight="bold" />
-                  <span>Artifacts</span>
+                  {displayedTab === 'artifacts' && (
+                    <motion.span
+                      layoutId="todo-panel-tab-pill"
+                      transition={{ type: 'spring', stiffness: 550, damping: 40 }}
+                      className="absolute inset-0 rounded-md bg-accent-primary/20 border border-accent-primary/30 shadow-sm"
+                    />
+                  )}
+                  <FilePdf size={13} weight="bold" className="relative" />
+                  <span className="relative">Artifacts</span>
                 </button>
               )}
 
@@ -250,16 +436,23 @@ function TodoPanel({
                     setActiveTab('terminal')
                   }}
                   className={clsx(
-                    'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-all cursor-pointer',
+                    'relative flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer',
                     displayedTab === 'terminal'
-                      ? 'bg-accent-primary/20 text-accent-primary border border-accent-primary/30 shadow-sm'
+                      ? 'text-accent-primary'
                       : waitingTerminalCount > 0
                         ? 'text-status-warning hover:text-text-primary'
                         : 'text-text-muted hover:text-text-primary'
                   )}
                 >
-                  <Terminal size={13} weight="bold" />
-                  <span>Terminal</span>
+                  {displayedTab === 'terminal' && (
+                    <motion.span
+                      layoutId="todo-panel-tab-pill"
+                      transition={{ type: 'spring', stiffness: 550, damping: 40 }}
+                      className="absolute inset-0 rounded-md bg-accent-primary/20 border border-accent-primary/30 shadow-sm"
+                    />
+                  )}
+                  <Terminal size={13} weight="bold" className="relative" />
+                  <span className="relative">Terminal</span>
                 </button>
               )}
             </div>
@@ -279,16 +472,155 @@ function TodoPanel({
         </div>
 
         {/* Expanded View */}
-        {isExpanded && (
-          <div className="flex flex-col border-t border-white/[0.05] animate-fade-in">
+        <AnimatePresence initial={false}>
+          {isExpanded && (
+            <motion.div
+              key="todo-panel-expanded"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+              className="relative z-10 flex flex-col border-t border-white/[0.06] overflow-hidden"
+            >
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={displayedTab}
+                  variants={tabContent}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                >
+            {/* QUEUE TAB CONTENT */}
+            {displayedTab === 'queue' && hasQueue && (
+              <div className="flex flex-col p-4">
+                <div className="flex flex-col gap-2 max-h-[35vh] overflow-y-auto no-scrollbar">
+                  {queuedMessages.map((item, index) => {
+                    const isSteering = item.deliveryMode === 'steering'
+                    const cleanText = item.text
+                      .replace(/<attached_file[^>]*\/>/gi, '')
+                      .replace(/^\[FORCE_SEARCH\]\s*/i, '')
+                      .trim()
+
+                    return (
+                      <div
+                        key={item.id}
+                        className={clsx(
+                          'flex items-center justify-between p-3 rounded-xl border transition-all group',
+                          isSteering
+                            ? 'border-accent-primary/25 bg-accent-primary/[0.04] hover:bg-accent-primary/[0.08]'
+                            : 'border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.06]'
+                        )}
+                      >
+                        <div className="flex items-center gap-3 min-w-0 flex-1 pr-3">
+                          {/* Position index / Icon */}
+                          <div
+                            className={clsx(
+                              'flex h-7 w-7 items-center justify-center rounded-lg shrink-0 text-xs font-semibold',
+                              isSteering
+                                ? 'bg-accent-primary/15 text-accent-primary'
+                                : 'bg-amber-400/15 text-amber-400'
+                            )}
+                          >
+                            {isSteering ? (
+                              <Compass size={14} weight="bold" />
+                            ) : (
+                              <span>#{index + 1}</span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={clsx(
+                                  'text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded',
+                                  isSteering
+                                    ? 'bg-accent-primary/20 text-accent-primary border border-accent-primary/30'
+                                    : 'bg-amber-400/15 text-amber-400 border border-amber-400/25'
+                                )}
+                              >
+                                {isSteering ? 'Orientation (Next Step)' : 'Queued (Next Turn)'}
+                              </span>
+                              {item.file && (
+                                <span className="text-[10px] text-text-muted flex items-center gap-1">
+                                  <Paperclip size={11} />
+                                  <span className="truncate max-w-[120px]">{item.file.name}</span>
+                                </span>
+                              )}
+                            </div>
+                            <p
+                              className="text-xs text-text-primary mt-1 truncate select-text font-normal leading-relaxed"
+                              title={cleanText}
+                            >
+                              {cleanText || (item.file ? item.file.name : 'Queued message')}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Actions: Reorder Up, Reorder Down, Remove */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          {onReorderQueuedMessages && queuedMessages.length > 1 && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={index === 0}
+                                onClick={() => onReorderQueuedMessages(index, index - 1)}
+                                className={clsx(
+                                  'p-1.5 rounded-lg transition-colors cursor-pointer',
+                                  index === 0
+                                    ? 'text-white/20 cursor-not-allowed'
+                                    : 'text-text-muted hover:text-text-primary hover:bg-white/[0.08]'
+                                )}
+                                title="Move up in queue"
+                                aria-label="Move up in queue"
+                              >
+                                <ArrowUp size={13} weight="bold" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={index === queuedMessages.length - 1}
+                                onClick={() => onReorderQueuedMessages(index, index + 1)}
+                                className={clsx(
+                                  'p-1.5 rounded-lg transition-colors cursor-pointer',
+                                  index === queuedMessages.length - 1
+                                    ? 'text-white/20 cursor-not-allowed'
+                                    : 'text-text-muted hover:text-text-primary hover:bg-white/[0.08]'
+                                )}
+                                title="Move down in queue"
+                                aria-label="Move down in queue"
+                              >
+                                <ArrowDown size={13} weight="bold" />
+                              </button>
+                            </>
+                          )}
+                          {onRemoveQueuedMessage && (
+                            <button
+                              type="button"
+                              onClick={() => onRemoveQueuedMessage(item.id)}
+                              className="p-1.5 text-text-muted hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition-colors cursor-pointer"
+                              title="Cancel / remove message"
+                              aria-label="Cancel / remove message"
+                            >
+                              <Trash size={13} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* TO-DO TAB CONTENT */}
             {displayedTab === 'todo' && hasTodo && (
               <div className="flex flex-col">
                 {/* Full progress bar */}
                 <div className="w-full h-1 bg-white/[0.06] overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-accent-primary to-accent-secondary transition-all duration-500 ease-out"
-                    style={{ width: `${progress}%` }}
+                  <motion.div
+                    className="h-full bg-gradient-to-r from-accent-primary to-accent-secondary"
+                    initial={false}
+                    animate={{ width: `${progress}%` }}
+                    transition={{ type: 'spring', stiffness: 120, damping: 22 }}
                   />
                 </div>
 
@@ -300,10 +632,10 @@ function TodoPanel({
                       className={clsx(
                         'flex items-center gap-3 rounded-xl border px-3.5 py-2 text-xs transition-all duration-200',
                         task.status === 'working'
-                          ? 'border-accent-primary/30 bg-accent-primary/[0.06] text-text-primary font-medium shadow-[inset_0_1px_0_rgba(255,255,255,0.01)]'
+                          ? 'border-accent-primary/35 bg-accent-primary/[0.12] text-text-primary font-medium shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
                           : task.status === 'done'
-                            ? 'border-transparent opacity-60 text-text-muted'
-                            : 'border-white/[0.04] bg-white/[0.01] text-text-secondary hover:bg-white/[0.03]'
+                            ? 'border-white/[0.04] bg-white/[0.015] opacity-60 text-text-muted'
+                            : 'border-white/[0.06] bg-white/[0.03] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary'
                       )}
                     >
                       <div className="flex items-center justify-center w-4 h-4 shrink-0">
@@ -334,7 +666,7 @@ function TodoPanel({
                   {artifacts.map((art) => (
                     <div
                       key={art.id}
-                      className="flex items-center justify-between p-3 rounded-xl border border-white/[0.05] bg-white/[0.015] hover:bg-white/[0.04] transition-all group"
+                      className="flex items-center justify-between p-3 rounded-xl border border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.06] transition-all group"
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
                         <div
@@ -393,24 +725,40 @@ function TodoPanel({
             {/* TERMINAL TAB CONTENT */}
             {displayedTab === 'terminal' && hasTerminal && (
               <div className="flex flex-col p-4">
-                <div className="flex flex-col gap-2 max-h-[35vh] overflow-y-auto no-scrollbar">
-                  {[...terminalProcesses].reverse().map((process) => {
-                    const statusLabel = terminalStatusLabel(process)
-                    const isFailed = process.status === 'failed' || process.status === 'killed'
-                    return (
-                      <div
-                        key={process.runId}
-                        className={clsx(
-                          'flex items-start gap-3 rounded-xl border px-3.5 py-3 transition-all',
-                          process.awaitingInput
-                            ? 'border-status-warning/30 bg-status-warning/[0.06]'
-                            : isFailed
-                              ? 'border-status-error/25 bg-status-error/[0.05]'
-                              : process.status === 'completed'
-                                ? 'border-status-success/20 bg-status-success/[0.04]'
-                                : 'border-accent-primary/25 bg-accent-primary/[0.05]'
-                        )}
-                      >
+                <motion.div
+                  variants={staggerParent}
+                  initial="hidden"
+                  animate="visible"
+                  className="flex flex-col gap-2 max-h-[35vh] overflow-y-auto no-scrollbar"
+                >
+                  <AnimatePresence initial={false} mode="popLayout">
+                    {[...visibleTerminalProcesses].reverse().map((process) => {
+                      const statusLabel = terminalStatusLabel(process)
+                      const isFailed = process.status === 'failed' || process.status === 'killed'
+                      const isResolving = resolvingRunIds.has(process.runId)
+                      const showSuccess = isResolving && process.status === 'completed'
+                      const showError = isResolving && isFailed
+                      return (
+                        <motion.div
+                          key={process.runId}
+                          variants={staggerChild}
+                          exit={{ opacity: 0, scale: 0.96, y: 8, transition: { duration: 0.22 } }}
+                          animate={
+                            showError
+                              ? { opacity: 1, scale: 1, y: 0, ...TERMINAL_ERROR_SHAKE }
+                              : undefined
+                          }
+                          className={clsx(
+                            'flex items-start gap-3 rounded-xl border px-3.5 py-3',
+                            process.awaitingInput
+                              ? 'border-status-warning/30 bg-status-warning/[0.08]'
+                              : isFailed
+                                ? 'border-status-error/25 bg-status-error/[0.08]'
+                                : process.status === 'completed'
+                                  ? 'border-status-success/20 bg-status-success/[0.06]'
+                                  : 'border-accent-primary/30 bg-accent-primary/[0.08]'
+                          )}
+                        >
                         <div
                           className={clsx(
                             'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg',
@@ -428,7 +776,18 @@ function TodoPanel({
                           ) : process.status === 'running' ? (
                             <CircleNotch size={14} className="animate-spin" weight="bold" />
                           ) : process.status === 'completed' ? (
-                            <CheckCircle size={14} weight="fill" />
+                            showSuccess ? (
+                              <motion.span
+                                variants={terminalSuccessPop}
+                                initial="hidden"
+                                animate="visible"
+                                className="flex"
+                              >
+                                <CheckCircle size={14} weight="fill" />
+                              </motion.span>
+                            ) : (
+                              <CheckCircle size={14} weight="fill" />
+                            )
                           ) : (
                             <XCircle size={14} weight="fill" />
                           )}
@@ -473,17 +832,41 @@ function TodoPanel({
                               Prompt: {process.detectedPrompt}
                             </p>
                           )}
+
+                          {isResolving && !process.awaitingInput && (
+                            <motion.p
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              className={clsx(
+                                'text-[10px] font-semibold',
+                                process.status === 'completed'
+                                  ? 'text-status-success'
+                                  : 'text-status-error'
+                              )}
+                            >
+                              {process.status === 'completed'
+                                ? 'Confirmed — closing'
+                                : 'Failed — closing'}
+                            </motion.p>
+                          )}
                         </div>
-                      </div>
-                    )
-                  })}
-                </div>
+                        </motion.div>
+                      )
+                    })}
+                  </AnimatePresence>
+                </motion.div>
               </div>
             )}
+                </motion.div>
+              </AnimatePresence>
+            </motion.div>
+          )}
+          </AnimatePresence>
           </div>
+          </motion.div>
         )}
-      </div>
-    </div>
+      </AnimatePresence>
+    </MotionConfig>
   )
 }
 

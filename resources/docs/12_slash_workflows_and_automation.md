@@ -21,7 +21,7 @@ Creates a new workflow or updates an existing one:
 - `name`: Human-readable name.
 - `description`: Brief description of workflow objective.
 - `systemInstruction`: System instructions injected into prompt payload when active.
-- `toolConstraints`: Optional array of allowed tool names (e.g. `['web_search', 'saw_link_from_url']`). If omitted, all tools remain available.
+- `toolConstraints`: Optional array of allowed tool names (e.g. `['web_search', 'web_fetch']`). If omitted, all tools remain available.
 
 ### 2.3. `delete_workflow`
 Deletes a custom workflow by command or ID.
@@ -32,5 +32,7 @@ Deletes a custom workflow by command or ID.
 
 | Command | Name | Goal / System Instruction | Tool Constraints |
 | --- | --- | --- | --- |
-| `/search` | Search | Perform deep web research on a topic | `web_search`, `saw_link_from_url`, `open_browser_link` |
+| `/search` | Search | Perform deep web research on a topic | `web_search`, `web_fetch`, `open_browser_link` |
 | `/summarize` | Summarizer | Extract key points, check errors, and format structured summaries | All tools allowed |
+
+The Search workflow uses `web_fetch` for deep research with exactly five queries and up to ten readable Sources per query (up to 50 Sources total). Up to 15,000 characters from each Source are provided to the research subagent. For standard `web_search` calls, the model sets `resultCount` from 1 to 10; 2–4 is recommended, while 5–8 is reserved for specific cases.

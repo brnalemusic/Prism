@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent, webFrame } from 'electron'
+
+// Increase max listeners to prevent warnings when multiple React components subscribe to config/events
+ipcRenderer.setMaxListeners(50)
 import type { AppConfig } from '../main/config'
 import type {
   DemoDependencyProgress,

@@ -1,12 +1,36 @@
 import { ProviderConfig, ProviderModel, CompletionType } from '../../shared/types'
+import { ARCADIA_MODELS } from '../../shared/arcadiaCatalog'
 import { loadConfig, saveConfig } from '../config'
 import { isUserAuthenticated, isUserEmailVerifiedSync } from '../supabaseAuth'
-import { isModelTrusted, normalizeBaseUrl, isGoogleHost, isAnthropicHost } from './trustedRegistry'
+import {
+  isModelTrusted,
+  normalizeBaseUrl,
+  isGoogleHost,
+  isAnthropicHost,
+  isPuterHost
+} from './trustedRegistry'
+import { fetchPuterModels, fetchPuterModelsViaSDK } from './puterClient'
+import {
+  imageGenerationRouteFingerprint,
+  resolveExactImageRouteFromProviders,
+  type ImageGenerationOperation,
+  type ImageGenerationCapabilityState
+} from './imageGenerationCore'
+import type { ImageGenerationAdapter } from '../../shared/types'
+import type { ImageGenerationCapabilities } from '../../shared/types'
 
 export interface FetchModelsResult {
   success: boolean
   models: ProviderModel[]
   error?: string
+}
+
+export function providerHasCompletionCredential(
+  provider: Pick<ProviderConfig, 'completionType' | 'apiKey' | 'puterAuthToken'>
+): boolean {
+  return provider.completionType === 'puter_native'
+    ? Boolean(provider.puterAuthToken?.trim())
+    : Boolean(provider.apiKey?.trim())
 }
 
 function getModelId(value: unknown): string | undefined {
@@ -36,7 +60,8 @@ function getModelList(payload: unknown): string[] {
 export async function fetchModelsFromProvider(
   baseUrl: string,
   apiKey: string,
-  completionType: CompletionType
+  completionType: CompletionType,
+  puterAuthToken?: string
 ): Promise<FetchModelsResult> {
   const normUrl = normalizeBaseUrl(baseUrl)
   if (!normUrl) {
@@ -44,16 +69,111 @@ export async function fetchModelsFromProvider(
   }
 
   const isGoogle = isGoogleHost(normUrl)
+  const isPuter = isPuterHost(normUrl)
+
+  if (isPuter) {
+    if (completionType === 'puter_native') {
+      const puterSdkRes = await fetchPuterModelsViaSDK(puterAuthToken || undefined)
+      if (puterSdkRes.success && puterSdkRes.models.length > 0) {
+        return puterSdkRes
+      }
+      if (!puterSdkRes.success) {
+        return puterSdkRes
+      }
+    } else {
+      const puterRes = await fetchPuterModels(apiKey || undefined)
+      if (puterRes.success && puterRes.models.length > 0) {
+        return puterRes
+      }
+    }
+  }
+
   const googleBaseUrl = normUrl.replace(/\/openai$/, '')
-  const endpoint = isGoogle ? `${googleBaseUrl}/models` : `${normUrl}/models`
+
+  if (isGoogle) {
+    const baseModelsUrl = googleBaseUrl.replace(/\/+$/, '').replace(/\/models\/?$/i, '') + '/models'
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+    if (apiKey?.trim()) {
+      headers['x-goog-api-key'] = apiKey.trim()
+    }
+
+    try {
+      const allModelIds: string[] = []
+      let pageToken: string | undefined = undefined
+      const maxPages = 10
+
+      for (let page = 0; page < maxPages; page++) {
+        const url = new URL(baseModelsUrl)
+        url.searchParams.set('pageSize', '1000')
+        if (pageToken) {
+          url.searchParams.set('pageToken', pageToken)
+        }
+
+        const response = await fetch(url.toString(), {
+          method: 'GET',
+          headers
+        })
+
+        if (!response.ok) {
+          const errText = await response.text().catch(() => '')
+          return {
+            success: false,
+            models: [],
+            error: `HTTP ${response.status}: ${errText || response.statusText}`
+          }
+        }
+
+        const data: unknown = await response.json()
+        const pageModels = getModelList(data)
+        allModelIds.push(...pageModels)
+
+        const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : null
+        if (record && typeof record.nextPageToken === 'string' && record.nextPageToken.trim()) {
+          pageToken = record.nextPageToken.trim()
+        } else {
+          break
+        }
+      }
+
+      const uniqueModelIds = Array.from(
+        new Set(
+          allModelIds
+            .map((id) => (id.startsWith('models/') ? id.slice(7) : id).trim())
+            .filter((id) => id.length > 0)
+        )
+      )
+
+      const models: ProviderModel[] = uniqueModelIds.map((id) => {
+        const trusted = isModelTrusted(id)
+        return {
+          id,
+          name: id,
+          isTrusted: trusted,
+          enabled: trusted
+        }
+      })
+
+      return { success: true, models }
+    } catch (error: unknown) {
+      return {
+        success: false,
+        models: [],
+        error: error instanceof Error ? error.message : 'Failed to connect to endpoint'
+      }
+    }
+  }
+
+  const endpoint = isPuter
+    ? 'https://api.puter.com/puterai/chat/models/details'
+    : `${normUrl}/models`
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   }
 
-  if (isGoogle) {
-    headers['x-goog-api-key'] = apiKey
-  } else if (completionType === 'anthropic_messages' || isAnthropicHost(normUrl)) {
+  if (completionType === 'anthropic_messages' || isAnthropicHost(normUrl)) {
     headers['x-api-key'] = apiKey
     headers['anthropic-version'] = '2023-06-01'
   } else if (apiKey) {
@@ -110,12 +230,12 @@ export const PRISM_PROVIDER: ProviderConfig = {
   completionType: 'gemini_native',
   isTrusted: true,
   isOfficial: true,
-  models: [
-    { id: 'prism-ai/arcadia-1.0-mini', name: 'Arcadia-1.0 Mini', enabled: true, isTrusted: true },
-    { id: 'prism-ai/arcadia-1.0-flash', name: 'Arcadia-1.0 Flash', enabled: true, isTrusted: true },
-    { id: 'prism-ai/arcadia-1.0-pro', name: 'Arcadia-1.0 Pro', enabled: true, isTrusted: true },
-    { id: 'prism-ai/arcadia-1.1-flash', name: 'Arcadia-1.1 Flash', enabled: true, isTrusted: true }
-  ]
+  models: ARCADIA_MODELS.map((model) => ({
+    id: model.id,
+    name: model.name,
+    enabled: true,
+    isTrusted: true
+  }))
 }
 
 export function getAllProviders(): ProviderConfig[] {
@@ -128,6 +248,7 @@ export function getAllProviders(): ProviderConfig[] {
       name: p?.name || 'Unnamed Provider',
       baseUrl: p?.baseUrl || '',
       apiKey: p?.apiKey || '',
+      puterAuthToken: p?.puterAuthToken || '',
       completionType: isGoogleHost(p?.baseUrl || '')
         ? 'gemini_native'
         : p?.completionType || 'chat_completions',
@@ -149,6 +270,7 @@ export function getActiveModels(): Array<{
   isProviderTrusted: boolean
   model: ProviderModel
   fullKey: string // format: providerId:modelId
+  completionType: CompletionType
 }> {
   const providers = getAllProviders()
   const result: Array<{
@@ -157,6 +279,7 @@ export function getActiveModels(): Array<{
     isProviderTrusted: boolean
     model: ProviderModel
     fullKey: string
+    completionType: CompletionType
   }> = []
 
   for (const p of providers) {
@@ -168,13 +291,21 @@ export function getActiveModels(): Array<{
           providerName: p.name,
           isProviderTrusted: p.isTrusted,
           model: m,
-          fullKey: `${p.id}:${m.id}`
+          fullKey: `${p.id}:${m.id}`,
+          completionType: p.completionType
         })
       }
     }
   }
 
   return result
+}
+
+export function resolveExactProviderAndModel(fullKey?: string): {
+  provider: ProviderConfig | null
+  model: ProviderModel | null
+} {
+  return resolveExactImageRouteFromProviders(getAllProviders(), fullKey)
 }
 
 export function resolveProviderAndModel(fullKey?: string): {
@@ -232,96 +363,78 @@ export function resolveProviderAndModel(fullKey?: string): {
 
 export function saveProviders(providers: ProviderConfig[]): boolean {
   const config = loadConfig()
-  config.providers = (providers || []).filter((p) => p && p.id !== PRISM_PROVIDER_ID)
+  const previous = Array.isArray(config.providers) ? config.providers : []
+  config.providers = (providers || [])
+    .filter((p) => p && p.id !== PRISM_PROVIDER_ID)
+    .map((provider) => {
+      const oldProvider = previous.find((candidate) => candidate?.id === provider.id)
+      const oldFingerprintByModel = new Map(
+        oldProvider
+          ? oldProvider.models.map((model) => [
+              model.id,
+              imageGenerationRouteFingerprint(oldProvider, model)
+            ])
+          : []
+      )
+      return {
+        ...provider,
+        models: (provider.models || []).map((model) => {
+          const oldFingerprint = oldFingerprintByModel.get(model.id)
+          const nextFingerprint = imageGenerationRouteFingerprint(provider, model)
+          if (oldFingerprint && oldFingerprint !== nextFingerprint) {
+            return { ...model, imageGeneration: undefined }
+          }
+          return model
+        })
+      }
+    })
   config.userGeminiKey = ''
   config.userNvidiaNimKey = ''
   config.userOpenaiKey = ''
   return saveConfig(config)
 }
 
+export function saveImageGenerationCapability(
+  routeKey: string,
+  operation: ImageGenerationOperation,
+  state: ImageGenerationCapabilityState,
+  resolvedAdapter?: ImageGenerationAdapter
+): boolean {
+  const config = loadConfig()
+  const providers = Array.isArray(config.providers) ? config.providers : []
+  const { provider, model } = resolveExactImageRouteFromProviders(providers, routeKey)
+  if (!provider || !model) return false
+  const nextState = {
+    ...state,
+    routeFingerprint: imageGenerationRouteFingerprint(provider, model),
+    ...(resolvedAdapter ? { adapter: resolvedAdapter } : {})
+  }
+  const updatedProviders = providers.map((candidate) => {
+    if (candidate.id !== provider.id) return candidate
+    return {
+      ...candidate,
+      models: candidate.models.map((candidateModel) => {
+        if (candidateModel.id !== model.id) return candidateModel
+        const current: Partial<ImageGenerationCapabilities> = candidateModel.imageGeneration || {}
+        return {
+          ...candidateModel,
+          imageGeneration: {
+            ...current,
+            mode: 'automatic' as const,
+            generate: current.generate || { status: 'unknown' as const },
+            edit: current.edit || { status: 'unknown' as const },
+            ...(resolvedAdapter ? { resolvedAdapter } : {}),
+            [operation]: nextState
+          }
+        }
+      })
+    }
+  })
+  return saveConfig({ providers: updatedProviders }, config)
+}
+
 export function deleteProvider(providerId: string): boolean {
   const config = loadConfig()
   const currentProviders = Array.isArray(config.providers) ? config.providers : []
-
-  const target = currentProviders.find((p) => p && p.id === providerId)
-  const targetName = target?.name?.toLowerCase() || ''
-  const targetBaseUrl = target?.baseUrl?.toLowerCase() || ''
-
-  const updatedProviders = currentProviders.filter((p) => {
-    if (!p) return false
-    if (p.id === providerId) return false
-
-    // Supreme deletion: match target by ID, name, or endpoint (especially Google AI Studio / Gemini)
-    if (
-      providerId === 'google-gemini' ||
-      targetName.includes('google') ||
-      targetBaseUrl.includes('googleapis')
-    ) {
-      if (
-        p.id === 'google-gemini' ||
-        p.name?.toLowerCase().includes('google') ||
-        p.baseUrl?.toLowerCase().includes('googleapis')
-      ) {
-        return false
-      }
-    }
-
-    if (
-      providerId === 'openai' ||
-      targetName.includes('openai') ||
-      (() => {
-        try {
-          return new URL(targetBaseUrl).hostname === 'api.openai.com'
-        } catch {
-          return false
-        }
-      })()
-    ) {
-      if (
-        p.id === 'openai' ||
-        p.name?.toLowerCase().includes('openai') ||
-        (() => {
-          try {
-            return new URL((p.baseUrl || '').toLowerCase()).hostname === 'api.openai.com'
-          } catch {
-            return false
-          }
-        })()
-      ) {
-        return false
-      }
-    }
-
-    if (
-      providerId === 'nvidia-nim' ||
-      targetName.includes('nvidia') ||
-      (() => {
-        try {
-          const h = new URL(targetBaseUrl).hostname
-          return h === 'nvidia.com' || h.endsWith('.nvidia.com')
-        } catch {
-          return false
-        }
-      })()
-    ) {
-      if (
-        p.id === 'nvidia-nim' ||
-        p.name?.toLowerCase().includes('nvidia') ||
-        (() => {
-          try {
-            const h = new URL((p.baseUrl || '').toLowerCase()).hostname
-            return h === 'nvidia.com' || h.endsWith('.nvidia.com')
-          } catch {
-            return false
-          }
-        })()
-      ) {
-        return false
-      }
-    }
-
-    return true
-  })
-
-  return saveProviders(updatedProviders)
+  return saveProviders(currentProviders.filter((provider) => provider?.id !== providerId))
 }

@@ -75,6 +75,31 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const [hasEnterprisePlan, setHasEnterprisePlan] = useState(false)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const checkPlan = async (): Promise<void> => {
+      try {
+        const [usage, license] = await Promise.all([
+          window.api.getUserAiUsage().catch(() => null),
+          window.api.getLicenseInfo ? window.api.getLicenseInfo().catch(() => null) : Promise.resolve(null)
+        ])
+        const isUsageEnt =
+          usage?.tier?.toLowerCase() === 'paid' ||
+          usage?.tier?.toLowerCase().startsWith('enterprise')
+        const isLicenseEnt = Boolean(
+          license?.isActivated &&
+            (license?.type?.toUpperCase() === 'ENTERPRISE' ||
+              (license as any)?.plan_id?.toLowerCase().startsWith('enterprise'))
+        )
+        setHasEnterprisePlan(isUsageEnt || isLicenseEnt)
+      } catch {
+        setHasEnterprisePlan(false)
+      }
+    }
+    void checkPlan()
+  }, [isOpen])
 
   if (!isOpen || !user) return null
 
@@ -227,6 +252,16 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 {isEnterprise ? 'ENTERPRISE ACCOUNT' : 'INDIVIDUAL ACCOUNT'}
               </span>
 
+              <span
+                className={`font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                  hasEnterprisePlan
+                    ? 'border-accent-primary/40 bg-accent-primary/15 text-accent-primary'
+                    : 'border-white/10 bg-white/[0.05] text-text-muted'
+                }`}
+              >
+                {hasEnterprisePlan ? 'ENTERPRISE PLAN' : 'FREE PLAN'}
+              </span>
+
               {isActivated ? (
                 <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-400">
                   ACCOUNT ACTIVE
@@ -340,7 +375,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             </div>
 
             <p className="text-xs text-text-secondary leading-relaxed">
-              Live model capacity, 5-hour rolling reset windows, and weekly allocations across all Arcadia models are managed securely on Prism Cloud.
+              Shared account quota and rolling 24-hour reset windows across all Arcadia models are managed securely on Prism Cloud.
             </p>
 
             <button

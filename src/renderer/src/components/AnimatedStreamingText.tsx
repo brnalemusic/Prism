@@ -1,5 +1,15 @@
-import React, { useContext, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import React, {
+  memo,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState
+} from 'react'
 import { Components } from 'react-markdown'
+import { motion } from 'motion/react'
+import { getStreamingCharMotion } from './streamingMotion'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-javascript'
 import 'prismjs/components/prism-typescript'
@@ -24,6 +34,7 @@ export interface StreamContextType {
   prevTotalLength: number
   charDuration: number
   animationClock: StreamingAnimationClock
+  earliestActiveOffset?: number
 }
 
 interface CharacterTiming {
@@ -47,18 +58,30 @@ interface StreamingTimeline {
   timings: Map<string, CharacterTiming>
   nextStartAt: number
   maxEndAt: number
+  earliestActiveOffset: number
   cadenceSamples: Array<{ duration: number; characters: number }>
 }
 
 const DEFAULT_CHARACTER_CADENCE = 4
-const MIN_CHARACTER_CADENCE = 0.35
+const MIN_TIMELINE_INCREMENT = 0.001
 const MAX_CHARACTER_CADENCE = 500
-const OPACITY_DURATION = 260
-const COLOR_DURATION = 390
+// Motion reveal timings: fade-in 0.8s, letter tint 1.2s, unblur 1.0s (Max).
+// The timeline keeps the longest duration (tint) so spans stay alive until
+// the reveal completes in every mode.
+const OPACITY_DURATION = 800
+const COLOR_DURATION = 1200
 const CADENCE_SAMPLE_COUNT = 6
 const INITIAL_REVEAL_WINDOW = 320
 const MIN_PREDICTED_CHUNK_INTERVAL = 40
 const MAX_PREDICTED_CHUNK_INTERVAL = 4000
+/** Target window used to drain a burst without changing the grapheme order. */
+export const STREAMING_BACKLOG_WINDOW_MS = 320
+/**
+ * PERFORMANCE: cap of live animation timings. Only the newest window
+ * animates; older spans resolve to static text with identical final look.
+ * Bounds DOM spans and Map growth during long streams.
+ */
+const MAX_LIVE_TIMINGS = 400
 
 const idleAnimationClock: StreamingAnimationClock = {
   renderTime: 0,
@@ -94,6 +117,7 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
     timings: new Map(),
     nextStartAt: 0,
     maxEndAt: 0,
+    earliestActiveOffset: Number.POSITIVE_INFINITY,
     cadenceSamples: []
   })
   const [, forceTimelineCleanup] = useReducer((version: number) => version + 1, 0)
@@ -109,33 +133,46 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
   const renderTime = performance.now()
   const timeline = timelineRef.current
 
+  // Purge expired timings and track active timeline bounds in a single pass without array allocations.
+  let maxEndAt = 0
+  let earliestActiveOffset = Number.POSITIVE_INFINITY
+
   for (const [token, timing] of timeline.timings) {
-    if (timing.endAt <= renderTime) timeline.timings.delete(token)
+    if (timing.endAt <= renderTime) {
+      timeline.timings.delete(token)
+    } else {
+      if (timing.endAt > maxEndAt) maxEndAt = timing.endAt
+      const start = getTokenStart(token)
+      if (start < earliestActiveOffset) earliestActiveOffset = start
+    }
   }
-  timeline.maxEndAt = Array.from(timeline.timings.values()).reduce(
-    (latestEnd, timing) => Math.max(latestEnd, timing.endAt),
-    0
-  )
+  timeline.maxEndAt = maxEndAt
 
   if (text !== previousCommittedText && stablePrefixLength < previousCommittedText.length) {
     for (const token of timeline.timings.keys()) {
-      const tokenStart = Number(token.split(':', 1)[0])
-      if (Number.isFinite(tokenStart) && tokenStart >= stablePrefixLength) {
+      const tokenStart = getTokenStart(token)
+      if (tokenStart >= stablePrefixLength) {
         timeline.timings.delete(token)
       }
     }
 
-    const retainedTimings = Array.from(timeline.timings.values())
-    timeline.maxEndAt = retainedTimings.reduce(
-      (latestEnd, timing) => Math.max(latestEnd, timing.endAt),
-      0
-    )
-    timeline.nextStartAt = retainedTimings.reduce(
-      (latestStart, timing) =>
-        Math.max(latestStart, timing.startAt + charDurationRef.current * timing.units),
-      renderTime
-    )
+    maxEndAt = 0
+    let nextStartAt = renderTime
+    earliestActiveOffset = Number.POSITIVE_INFINITY
+    for (const [token, timing] of timeline.timings) {
+      if (timing.endAt > maxEndAt) maxEndAt = timing.endAt
+      const timingStart = timing.startAt + charDurationRef.current * timing.units
+      if (timingStart > nextStartAt) nextStartAt = timingStart
+      const start = getTokenStart(token)
+      if (start < earliestActiveOffset) earliestActiveOffset = start
+    }
+    timeline.maxEndAt = maxEndAt
+    timeline.nextStartAt = nextStartAt
   }
+
+  timeline.earliestActiveOffset = Number.isFinite(earliestActiveOffset)
+    ? earliestActiveOffset
+    : prevTotalLength
 
   const hasRunningAnimations = timeline.maxEndAt > renderTime
   const isVisuallyStreaming = shouldAnimateNewText || hasRunningAnimations
@@ -161,17 +198,20 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
       renderCadence = Math.min(DEFAULT_CHARACTER_CADENCE, INITIAL_REVEAL_WINDOW / addedLength)
     }
 
-    const pendingUnits = Array.from(timeline.timings.values()).reduce(
-      (total, timing) => total + (timing.startAt > renderTime ? timing.units : 0),
-      0
-    )
+    let pendingUnits = 0
+    for (const timing of timeline.timings.values()) {
+      if (timing.startAt > renderTime) pendingUnits += timing.units
+    }
+
     const predictedChunkInterval =
       timeline.cadenceSamples.length > 0
         ? getWeightedChunkInterval(timeline.cadenceSamples)
         : INITIAL_REVEAL_WINDOW
-    const queueSafeCadence = predictedChunkInterval / Math.max(1, pendingUnits + addedLength)
+    const queueSafeCadence =
+      Math.min(predictedChunkInterval, STREAMING_BACKLOG_WINDOW_MS) /
+      Math.max(1, pendingUnits + addedLength)
     renderCadence = Math.max(
-      MIN_CHARACTER_CADENCE,
+      MIN_TIMELINE_INCREMENT,
       Math.min(MAX_CHARACTER_CADENCE, renderCadence, queueSafeCadence)
     )
 
@@ -184,6 +224,13 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
       const existing = timeline.timings.get(token)
       if (existing) return existing.endAt > renderTime ? existing : undefined
       if (!isNew || !isVisuallyStreaming) return undefined
+
+      // Bound live spans: evict the oldest timing when over budget so
+      // long streams keep a constant animation window with identical output.
+      if (timeline.timings.size >= MAX_LIVE_TIMINGS) {
+        const oldest = timeline.timings.keys().next()
+        if (!oldest.done) timeline.timings.delete(oldest.value)
+      }
 
       const startAt = Math.max(renderTime, timeline.nextStartAt)
       const timing = {
@@ -215,27 +262,18 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
     }
 
     const effectTime = performance.now()
-    const nextPendingStart = Array.from(timeline.timings.values()).reduce(
-      (earliestStart, timing) =>
-        timing.startAt > effectTime ? Math.min(earliestStart, timing.startAt) : earliestStart,
-      Number.POSITIVE_INFINITY
-    )
-    const nextVisualUpdate = Number.isFinite(nextPendingStart)
-      ? nextPendingStart
-      : !isStreaming
-      ? timeline.maxEndAt
-      : Number.POSITIVE_INFINITY
-    const remainingAnimationTime = nextVisualUpdate - effectTime
-
-    if (Number.isFinite(nextVisualUpdate) && remainingAnimationTime > 0) {
-      cleanupTimerRef.current = setTimeout(
-        forceTimelineCleanup,
-        Math.max(0, Math.ceil(remainingAnimationTime))
-      )
+    // When actively streaming, IPC chunks arrive frame-by-frame via requestAnimationFrame,
+    // and CSS native delays drive the visual reveal. Intermediate timers during active stream
+    // cause redundant markdown reparses. We only schedule a cleanup timer when stream ends
+    // to clear remaining finished animation spans.
+    if (!isStreaming && timeline.maxEndAt > effectTime) {
+      const remaining = timeline.maxEndAt - effectTime
+      cleanupTimerRef.current = setTimeout(forceTimelineCleanup, Math.max(0, Math.ceil(remaining)))
     } else if (!isStreaming && timeline.maxEndAt <= effectTime) {
       timeline.timings.clear()
       timeline.nextStartAt = 0
       timeline.maxEndAt = 0
+      timeline.earliestActiveOffset = Number.POSITIVE_INFINITY
       timeline.cadenceSamples = []
       lastTimeRef.current = 0
       charDurationRef.current = DEFAULT_CHARACTER_CADENCE
@@ -253,34 +291,46 @@ export function useStreamStats(text: string, isStreaming: boolean): StreamContex
     isStreaming: isVisuallyStreaming,
     prevTotalLength,
     charDuration: renderCadence,
-    animationClock
+    animationClock,
+    earliestActiveOffset: timeline.earliestActiveOffset
   }
 }
 /* eslint-enable react-hooks/refs, react-hooks/purity */
 
 function reschedulePendingTimings(timeline: StreamingTimeline, now: number, cadence: number): void {
-  const pendingTimings = Array.from(timeline.timings.entries())
-    .filter(([, timing]) => timing.startAt > now)
-    .sort(([leftToken], [rightToken]) => getTokenStart(leftToken) - getTokenStart(rightToken))
+  const pendingEntries: Array<[string, CharacterTiming]> = []
+  let lastStartedAt = Number.NEGATIVE_INFINITY
+  let maxEndAt = 0
 
-  const lastStartedAt = Array.from(timeline.timings.values()).reduce(
-    (latestStart, timing) =>
-      timing.startAt <= now ? Math.max(latestStart, timing.startAt) : latestStart,
-    Number.NEGATIVE_INFINITY
-  )
-  let nextStartAt = Number.isFinite(lastStartedAt) ? Math.max(now, lastStartedAt + cadence) : now
-
-  for (const [, timing] of pendingTimings) {
-    timing.startAt = nextStartAt
-    timing.endAt = nextStartAt + timing.duration
-    nextStartAt += cadence * timing.units
+  for (const entry of timeline.timings.entries()) {
+    const timing = entry[1]
+    if (timing.startAt > now) {
+      pendingEntries.push(entry)
+    } else if (timing.startAt > lastStartedAt) {
+      lastStartedAt = timing.startAt
+    }
+    if (timing.endAt > maxEndAt) {
+      maxEndAt = timing.endAt
+    }
   }
 
-  timeline.nextStartAt = nextStartAt
-  timeline.maxEndAt = Array.from(timeline.timings.values()).reduce(
-    (latestEnd, timing) => Math.max(latestEnd, timing.endAt),
-    0
-  )
+  if (pendingEntries.length > 0) {
+    pendingEntries.sort(([leftToken], [rightToken]) => getTokenStart(leftToken) - getTokenStart(rightToken))
+
+    let nextStartAt = Number.isFinite(lastStartedAt) ? Math.max(now, lastStartedAt + cadence) : now
+    for (let i = 0; i < pendingEntries.length; i++) {
+      const timing = pendingEntries[i][1]
+      timing.startAt = nextStartAt
+      timing.endAt = nextStartAt + timing.duration
+      if (timing.endAt > maxEndAt) {
+        maxEndAt = timing.endAt
+      }
+      nextStartAt += cadence * timing.units
+    }
+    timeline.nextStartAt = nextStartAt
+  }
+
+  timeline.maxEndAt = maxEndAt
 }
 
 function getTokenStart(token: string): number {
@@ -353,8 +403,6 @@ interface HastNode {
 
 const STREAMING_CHARACTER_FADE_CLASS = 'streaming-character-fade'
 const STREAMING_ELEMENT_FADE_CLASS = 'streaming-element-fade'
-const STREAMING_CHARACTER_PENDING_CLASS = 'streaming-character-pending'
-const STREAMING_ELEMENT_PENDING_CLASS = 'streaming-element-pending'
 
 interface GraphemePart {
   segment: string
@@ -363,12 +411,34 @@ interface GraphemePart {
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
+function isAscii(str: string): boolean {
+  for (let i = 0; i < str.length; i++) {
+    if (str.charCodeAt(i) > 127) return false
+  }
+  return true
+}
+
+function getAsciiSegments(value: string): GraphemePart[] {
+  const parts: GraphemePart[] = new Array(value.length)
+  for (let i = 0; i < value.length; i++) {
+    parts[i] = { segment: value[i], index: i }
+  }
+  return parts
+}
+
 function segmentGraphemes(value: string): GraphemePart[] {
+  if (isAscii(value)) return getAsciiSegments(value)
   return Array.from(graphemeSegmenter.segment(value), ({ segment, index }) => ({ segment, index }))
 }
 
 function countGraphemes(value: string): number {
-  return Array.from(graphemeSegmenter.segment(value)).length
+  if (!value) return 0
+  if (isAscii(value)) return value.length
+  let count = 0
+  for (const _ of graphemeSegmenter.segment(value)) {
+    count++
+  }
+  return count
 }
 
 function getOffset(positionPoint: HastPosition['start']): number | undefined {
@@ -431,7 +501,9 @@ function setStreamToken(node: HastNode, token: string): void {
   node.properties = {
     ...(node.properties || {}),
     dataStreamToken: token,
-    'data-stream-token': token
+    'data-stream-token': token,
+    dataStreamEngine: 'css',
+    'data-stream-engine': 'css'
   }
 }
 
@@ -466,17 +538,17 @@ function createFadeSpan(
   value: string,
   token: string,
   delay: number,
-  isPending: boolean
+  fadeClassName: string = STREAMING_CHARACTER_FADE_CLASS
 ): HastNode {
   return {
     type: 'element',
     tagName: 'span',
     properties: {
-      className: [
-        isPending ? STREAMING_CHARACTER_PENDING_CLASS : STREAMING_CHARACTER_FADE_CLASS
-      ],
+      className: [fadeClassName],
       dataStreamToken: token,
       'data-stream-token': token,
+      dataStreamEngine: 'css',
+      'data-stream-engine': 'css',
       dataStreamDelay: String(delay),
       'data-stream-delay': String(delay)
     },
@@ -495,7 +567,9 @@ function splitTextNodeForFade(
   boundary: number,
   fallbackStart: number,
   partStartOffset: number,
-  animationClock: StreamingAnimationClock
+  animationClock: StreamingAnimationClock,
+  safeStaticOffset: number,
+  fadeClassName: string = STREAMING_CHARACTER_FADE_CLASS
 ): HastNode[] {
   const value = node.value || ''
   if (!value) return [node]
@@ -504,8 +578,33 @@ function splitTextNodeForFade(
   const positionedEnd = getOffset(node.position?.end)
   const start = positionedStart ?? fallbackStart
   const end = positionedEnd ?? start + value.length
-  const sourceSpan = Math.max(value.length, end - start)
+
+  if (end <= safeStaticOffset) {
+    return [node]
+  }
+
   const nextNodes: HastNode[] = []
+  let activeValue = value
+  let activeStart = start
+
+  // Slice off any static prefix before safeStaticOffset as plain text in O(1)
+  if (start < safeStaticOffset) {
+    const staticCut = Math.min(value.length, safeStaticOffset - start)
+    if (staticCut > 0) {
+      nextNodes.push({
+        ...node,
+        value: value.slice(0, staticCut)
+      })
+      activeValue = value.slice(staticCut)
+      activeStart = start + staticCut
+    }
+  }
+
+  if (!activeValue) {
+    return nextNodes
+  }
+
+  const sourceSpan = Math.max(activeValue.length, end - activeStart)
   let plainText = ''
 
   const flushPlainText = (): void => {
@@ -514,36 +613,71 @@ function splitTextNodeForFade(
     plainText = ''
   }
 
-  for (const grapheme of segmentGraphemes(value)) {
+  // Segment only the active tail (typically a few dozen characters at most!)
+  const segments = isAscii(activeValue)
+    ? getAsciiSegments(activeValue)
+    : segmentGraphemes(activeValue)
+
+  // Cluster consecutive characters into frame-quantized buckets (~16ms)
+  // to avoid thousands of individual DOM spans during rapid streaming.
+  const FRAME_QUANTUM_MS = 16
+  let currentCluster = ''
+  let currentClusterToken = ''
+  let currentClusterDelay = -1
+
+  const flushCluster = (): void => {
+    if (!currentCluster) return
+    nextNodes.push(
+      createFadeSpan(
+        node,
+        currentCluster,
+        currentClusterToken,
+        currentClusterDelay,
+        fadeClassName
+      )
+    )
+    currentCluster = ''
+    currentClusterToken = ''
+    currentClusterDelay = -1
+  }
+
+  for (let i = 0; i < segments.length; i++) {
+    const grapheme = segments[i]
     const nextGrapheme = grapheme.index + grapheme.segment.length
-    const relativeStart = Math.round((grapheme.index / value.length) * sourceSpan)
+    const relativeStart = Math.round((grapheme.index / activeValue.length) * sourceSpan)
     const relativeEnd = Math.max(
       relativeStart + 1,
-      Math.round((nextGrapheme / value.length) * sourceSpan)
+      Math.round((nextGrapheme / activeValue.length) * sourceSpan)
     )
-    const globalStart = partStartOffset + start + relativeStart
-    const globalEnd = partStartOffset + start + relativeEnd
+    const globalStart = partStartOffset + activeStart + relativeStart
+    const globalEnd = partStartOffset + activeStart + relativeEnd
     const token = `${globalStart}:${globalEnd}:char`
-    const timing = animationClock.getTiming(token, start + relativeEnd > boundary)
+    const isNew = activeStart + relativeEnd > boundary
+    const timing = animationClock.getTiming(token, isNew)
 
-    if (!timing || /^\s+$/u.test(grapheme.segment)) {
+    if (!timing) {
+      flushCluster()
       plainText += grapheme.segment
       continue
     }
 
     flushPlainText()
-    nextNodes.push(
-      createFadeSpan(
-        node,
-        grapheme.segment,
-        token,
-        timing.startAt - animationClock.renderTime,
-        timing.startAt > animationClock.renderTime
-      )
-    )
+    const rawDelay = Math.max(0, timing.startAt - animationClock.renderTime)
+    const quantizedDelay = Math.round(rawDelay / FRAME_QUANTUM_MS) * FRAME_QUANTUM_MS
+
+    if (currentCluster && currentClusterDelay === quantizedDelay) {
+      currentCluster += grapheme.segment
+      currentClusterToken = `${currentClusterToken.split(':', 1)[0]}:${globalEnd}:char`
+    } else {
+      flushCluster()
+      currentCluster = grapheme.segment
+      currentClusterToken = token
+      currentClusterDelay = quantizedDelay
+    }
   }
 
   flushPlainText()
+  flushCluster()
   return nextNodes
 }
 
@@ -558,33 +692,57 @@ export function createStreamingFadeRehypePlugin(
       if (!streamStats.isStreaming || localBoundary >= Number.MAX_SAFE_INTEGER) return
 
       const boundary = Math.max(0, localBoundary)
+      // Safe static offset: any characters at or before this global offset are guaranteed
+      // to not be new and have no active timings.
+      const safeStaticOffset = Math.min(
+        streamStats.prevTotalLength,
+        streamStats.earliestActiveOffset ?? streamStats.prevTotalLength
+      )
+      const localSafeStaticOffset = Math.max(0, safeStaticOffset - partStartOffset)
       let fallbackTextOffset = 0
 
-      const visit = (node: HastNode): void => {
+      const visit = (node: HastNode, insideLink = false): void => {
         if (!node.children || shouldSkipChildren(node)) return
 
         const nextChildren: HastNode[] = []
-        for (const child of node.children) {
+        for (let i = 0; i < node.children.length; i++) {
+          const child = node.children[i]
           if (child.type === 'text') {
-            nextChildren.push(
-              ...splitTextNodeForFade(
-                child,
-                boundary,
-                fallbackTextOffset,
-                partStartOffset,
-                streamStats.animationClock
+            const childLength = child.value?.length || 0
+            const positionedStart = getOffset(child.position?.start)
+            const nodeStart = positionedStart ?? fallbackTextOffset
+            const nodeEnd = nodeStart + childLength
+
+            if (nodeEnd <= localSafeStaticOffset) {
+              // FAST PATH: Static text completely prior to any active animations.
+              // Skip segmentation, Map lookups, and regex in O(1).
+              nextChildren.push(child)
+            } else {
+              // Link text keeps its link color: opacity-only fade so the
+              // letter tint never drifts links toward body text color.
+              nextChildren.push(
+                ...splitTextNodeForFade(
+                  child,
+                  boundary,
+                  nodeStart,
+                  partStartOffset,
+                  streamStats.animationClock,
+                  localSafeStaticOffset,
+                  insideLink ? STREAMING_ELEMENT_FADE_CLASS : STREAMING_CHARACTER_FADE_CLASS
+                )
               )
-            )
-            fallbackTextOffset += child.value?.length || 0
+            }
+            fallbackTextOffset = nodeEnd
             continue
           }
 
           if (shouldSkipChildren(child)) {
             const childTextLength = getTextLength(child)
-            if (canFadeSkippedElement(child)) {
-              const positionedStart = getOffset(child.position?.start) ?? fallbackTextOffset
-              const positionedEnd =
-                getOffset(child.position?.end) ?? positionedStart + childTextLength
+            const positionedStart = getOffset(child.position?.start) ?? fallbackTextOffset
+            const positionedEnd =
+              getOffset(child.position?.end) ?? positionedStart + childTextLength
+
+            if (positionedEnd > localSafeStaticOffset && canFadeSkippedElement(child)) {
               const globalStart = partStartOffset + positionedStart
               const globalEnd = partStartOffset + positionedEnd
               const token = `${globalStart}:${globalEnd}:element`
@@ -597,12 +755,7 @@ export function createStreamingFadeRehypePlugin(
               )
 
               if (timing) {
-                addClassName(
-                  child,
-                  timing.startAt > streamStats.animationClock.renderTime
-                    ? STREAMING_ELEMENT_PENDING_CLASS
-                    : STREAMING_ELEMENT_FADE_CLASS
-                )
+                addClassName(child, STREAMING_ELEMENT_FADE_CLASS)
                 setStreamTiming(
                   child,
                   token,
@@ -610,13 +763,12 @@ export function createStreamingFadeRehypePlugin(
                 )
               }
             }
-            fallbackTextOffset += childTextLength
+            fallbackTextOffset = positionedEnd
             nextChildren.push(child)
             continue
           }
 
-          visit(child)
-          fallbackTextOffset += getTextLength(child)
+          visit(child, insideLink || child.tagName?.toLowerCase() === 'a')
           nextChildren.push(child)
         }
 
@@ -639,6 +791,40 @@ const wrapTextWithAnimation = (
   return children
 }
 
+function hasFadeClass(className: unknown, fadeClass: string): boolean {
+  if (Array.isArray(className)) return className.map(String).includes(fadeClass)
+  if (typeof className === 'string') return className.split(/\s+/).includes(fadeClass)
+  return false
+}
+
+function isAnimatedSpan(className: unknown): boolean {
+  return (
+    hasFadeClass(className, STREAMING_CHARACTER_FADE_CLASS) ||
+    hasFadeClass(className, STREAMING_ELEMENT_FADE_CLASS)
+  )
+}
+
+// Removes the streaming fade classes for Motion-managed elements. Motion
+// drives those spans via WAAPI; keeping the classes would ALSO trigger the
+// CSS keyframe safety net on the same properties (CSS animations win over
+// WAAPI and would destroy the stagger). Plain (non-Motion) spans keep the
+// classes so the CSS net animates them. Other classes (katex, prism tokens,
+// language-*) are preserved untouched.
+function stripStreamingFadeClasses(className: unknown): string | undefined {
+  const names = Array.isArray(className)
+    ? className.map(String)
+    : typeof className === 'string'
+      ? className.split(/\s+/)
+      : []
+  const kept = names.filter(
+    (name) =>
+      name &&
+      name !== STREAMING_CHARACTER_FADE_CLASS &&
+      name !== STREAMING_ELEMENT_FADE_CLASS
+  )
+  return kept.length > 0 ? kept.join(' ') : undefined
+}
+
 interface StreamingSpanProps extends React.ComponentPropsWithoutRef<'span'> {
   node?: unknown
   dataStreamToken?: string
@@ -647,7 +833,9 @@ interface StreamingSpanProps extends React.ComponentPropsWithoutRef<'span'> {
   'data-stream-delay'?: string
 }
 
-function StreamingSpan({
+// Motion-driven reveal. Non-animated spans (syntax tokens, KaTeX output,
+// static text) render as plain spans with zero Motion cost.
+const StreamingSpan = memo(function StreamingSpan({
   children,
   className,
   dataStreamToken,
@@ -655,20 +843,52 @@ function StreamingSpan({
   dataStreamDelay,
   'data-stream-delay': dataStreamDelayAttribute,
   node: _node,
-  style,
+  // Motion owns onAnimationStart/onDrag* (gesture callbacks), which collide
+  // with the DOM event handler types on spread. react-markdown never sets
+  // them on streaming spans.
+  onAnimationStart: _onAnimationStart,
+  onDrag: _onDragSpan,
+  onDragStart: _onDragStartSpan,
+  onDragEnd: _onDragEndSpan,
   ...props
 }: StreamingSpanProps): React.JSX.Element {
   void _node
+  void _onAnimationStart
+  void _onDragSpan
+  void _onDragStartSpan
+  void _onDragEndSpan
   const streamToken = dataStreamTokenAttribute ?? dataStreamToken
-  const streamDelay = dataStreamDelayAttribute ?? dataStreamDelay
-  const animationStyle = getStreamingAnimationStyle(style, streamDelay)
+  const animated = isAnimatedSpan(className)
+  const delayMs = Number(dataStreamDelayAttribute ?? dataStreamDelay) || 0
+  // Element-faded spans (link text) keep opacity-only so colors never drift.
+  const tint = !hasFadeClass(className, STREAMING_ELEMENT_FADE_CLASS)
+  const motionProps = useMemo(
+    () => (animated ? getStreamingCharMotion(delayMs, tint) : null),
+    [animated, delayMs, tint]
+  )
+
+  if (!motionProps || motionProps.initial === false) {
+    return (
+      <span className={className} data-stream-token={streamToken} {...props}>
+        {children}
+      </span>
+    )
+  }
 
   return (
-    <span className={className} data-stream-token={streamToken} style={animationStyle} {...props}>
+    <motion.span
+      {...props}
+      className={stripStreamingFadeClasses(className)}
+      data-stream-token={streamToken}
+      data-stream-engine="motion"
+      initial={motionProps.initial}
+      animate={motionProps.animate}
+      transition={motionProps.transition}
+    >
       {children}
-    </span>
+    </motion.span>
   )
-}
+})
 
 interface StreamingDivProps extends React.ComponentPropsWithoutRef<'div'> {
   node?: unknown
@@ -678,42 +898,59 @@ interface StreamingDivProps extends React.ComponentPropsWithoutRef<'div'> {
   'data-stream-delay'?: string
 }
 
-function StreamingDiv({
+// Opacity-only element reveal (code blocks, math). Plain divs stay plain.
+const StreamingDiv = memo(function StreamingDiv({
   children,
+  className,
   dataStreamToken,
   'data-stream-token': dataStreamTokenAttribute,
   dataStreamDelay,
   'data-stream-delay': dataStreamDelayAttribute,
   node: _node,
-  style,
+  // Motion owns onAnimationStart/onDrag* (gesture callbacks), which collide
+  // with the DOM event handler types on spread. react-markdown never sets
+  // them on streaming elements.
+  onAnimationStart: _onAnimationStartDiv,
+  onDrag: _onDragDiv,
+  onDragStart: _onDragStartDiv,
+  onDragEnd: _onDragEndDiv,
   ...props
 }: StreamingDivProps): React.JSX.Element {
   void _node
+  void _onAnimationStartDiv
+  void _onDragDiv
+  void _onDragStartDiv
+  void _onDragEndDiv
+  const streamToken = dataStreamTokenAttribute ?? dataStreamToken
+  const streamDelay = dataStreamDelayAttribute ?? dataStreamDelay
+  const delayMs = Number(streamDelay) || 0
+  const motionProps = useMemo(
+    () => (streamDelay === undefined ? null : getStreamingCharMotion(delayMs, false)),
+    [streamDelay, delayMs]
+  )
+
+  if (!motionProps || motionProps.initial === false) {
+    return (
+      <div className={className} data-stream-token={streamToken} {...props}>
+        {children}
+      </div>
+    )
+  }
+
   return (
-    <div
-      data-stream-token={dataStreamTokenAttribute ?? dataStreamToken}
-      style={getStreamingAnimationStyle(style, dataStreamDelayAttribute ?? dataStreamDelay)}
+    <motion.div
       {...props}
+      className={stripStreamingFadeClasses(className)}
+      data-stream-token={streamToken}
+      data-stream-engine="motion"
+      initial={motionProps.initial}
+      animate={motionProps.animate}
+      transition={motionProps.transition}
     >
       {children}
-    </div>
+    </motion.div>
   )
-}
-
-type StreamingStyle = React.CSSProperties & {
-  '--streaming-character-delay'?: string
-}
-
-function getStreamingAnimationStyle(
-  style: React.CSSProperties | undefined,
-  delay: string | undefined
-): StreamingStyle | undefined {
-  if (delay === undefined) return style
-  return {
-    ...style,
-    '--streaming-character-delay': `${Number(delay) || 0}ms`
-  }
-}
+})
 
 function renderToken(token: string | Prism.Token, key: string | number): React.ReactNode {
   if (typeof token === 'string') {
@@ -762,6 +999,36 @@ const getGrammar = (lang: string) => {
   return Prism.languages[target]
 }
 
+// PERFORMANCE: cache syntax tokens so streaming re-renders reuse the last
+// tokenization instead of retokenizing the whole block every frame.
+// Bounded Map keeps memory flat with identical highlighted output.
+const PRISM_TOKEN_CACHE = new Map<string, Array<string | Prism.Token>>()
+const MAX_PRISM_TOKEN_CACHE = 40
+
+function getCachedTokens(lang: string, code: string): Array<string | Prism.Token> | null {
+  const grammar = getGrammar(lang)
+  if (!grammar) return null
+  const key = `${lang}:${code.length}:${hashCode(code)}`
+  const cached = PRISM_TOKEN_CACHE.get(key)
+  if (cached) return cached
+  const tokens = Prism.tokenize(code, grammar)
+  PRISM_TOKEN_CACHE.set(key, tokens)
+  if (PRISM_TOKEN_CACHE.size > MAX_PRISM_TOKEN_CACHE) {
+    const oldest = PRISM_TOKEN_CACHE.keys().next()
+    if (!oldest.done) PRISM_TOKEN_CACHE.delete(oldest.value)
+  }
+  return tokens
+}
+
+function hashCode(value: string): number {
+  let hash = 0
+  const step = Math.max(1, Math.floor(value.length / 512))
+  for (let i = 0; i < value.length; i += step) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0
+  }
+  return hash
+}
+
 interface StreamingCodeProps extends React.ComponentPropsWithoutRef<'code'> {
   node?: unknown
   dataStreamToken?: string
@@ -779,58 +1046,87 @@ export const CodeBlock = ({
   'data-stream-delay': dataStreamDelayAttribute,
   node: _node,
   style,
+  // Motion owns onAnimationStart/onDrag* (gesture callbacks), which collide
+  // with the DOM event handler types on spread. react-markdown never sets
+  // them on code elements.
+  onAnimationStart: _onAnimationStartCode,
+  onDrag: _onDragCode,
+  onDragStart: _onDragStartCode,
+  onDragEnd: _onDragEndCode,
   ...props
 }: StreamingCodeProps) => {
   void _node
+  void _onAnimationStartCode
+  void _onDragCode
+  void _onDragStartCode
+  void _onDragEndCode
   const [copied, setCopied] = useState(false)
   const match = /language-(\w+)/.exec(className || '')
   const isInline = !match
   const codeContent = String(children).replace(/\n$/, '')
+  const lang = match ? match[1] : 'text'
   const streamToken = dataStreamTokenAttribute ?? dataStreamToken
   const streamDelay = dataStreamDelayAttribute ?? dataStreamDelay
   const streamingElementClass = className
     ?.split(/\s+/)
-    .find(
-      (name) =>
-        name === STREAMING_ELEMENT_FADE_CLASS || name === STREAMING_ELEMENT_PENDING_CLASS
-    )
-  const animationStyle = getStreamingAnimationStyle(style, streamDelay)
+    .find((name) => name === STREAMING_ELEMENT_FADE_CLASS)
+  // Opacity-only element reveal via Motion. Non-animated blocks skip Motion.
+  const elementMotion = useMemo(
+    () =>
+      streamingElementClass && streamDelay !== undefined
+        ? getStreamingCharMotion(Number(streamDelay) || 0, false)
+        : null,
+    [streamingElementClass, streamDelay]
+  )
+  const motionInitial = elementMotion?.initial ?? false
   const codeClassName = className
     ?.split(/\s+/)
     .filter(
       (name) =>
         name &&
-        name !== STREAMING_ELEMENT_FADE_CLASS &&
-        name !== STREAMING_ELEMENT_PENDING_CLASS
+        name !== STREAMING_ELEMENT_FADE_CLASS
     )
     .join(' ')
 
+  const renderedCode: React.ReactNode = useMemo(() => {
+    if (isInline) return null
+    const tokens = getCachedTokens(lang, codeContent)
+    if (!tokens) return codeContent
+    return tokens.map((token, i) => renderToken(token, i))
+  }, [isInline, lang, codeContent])
+
   if (isInline) {
+    const inlineStyle = {
+      ...style,
+      fontFamily:
+        "'Cascadia Code', 'Fira Code', 'Ubuntu Mono', 'JetBrains Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'Consolas', monospace"
+    }
+    if (!elementMotion || motionInitial === false) {
+      return (
+        <code
+          className={`${className || ''} text-accent-secondary font-mono text-[13px] font-medium tracking-tight bg-transparent border-none p-0 mx-0.5 inline select-text`}
+          data-stream-token={streamToken}
+          style={inlineStyle}
+          {...props}
+        >
+          {children}
+        </code>
+      )
+    }
     return (
-      <code
-        className={`${className || ''} text-accent-secondary font-mono text-[13px] font-medium tracking-tight bg-transparent border-none p-0 mx-0.5 inline select-text`}
-        data-stream-token={streamToken}
-        style={{
-          ...animationStyle,
-          fontFamily:
-            "'Cascadia Code', 'Fira Code', 'Ubuntu Mono', 'JetBrains Mono', 'Liberation Mono', 'DejaVu Sans Mono', 'Consolas', monospace"
-        }}
+      <motion.code
         {...props}
+        className={`${stripStreamingFadeClasses(className) || ''} text-accent-secondary font-mono text-[13px] font-medium tracking-tight bg-transparent border-none p-0 mx-0.5 inline select-text`}
+        data-stream-token={streamToken}
+        data-stream-engine="motion"
+        style={inlineStyle}
+        initial={elementMotion.initial}
+        animate={elementMotion.animate}
+        transition={elementMotion.transition}
       >
         {children}
-      </code>
+      </motion.code>
     )
-  }
-
-  const lang = match ? match[1] : 'text'
-  const grammar = getGrammar(lang)
-
-  let renderedCode: React.ReactNode
-  if (grammar) {
-    const tokens = Prism.tokenize(codeContent, grammar)
-    renderedCode = tokens.map((token, i) => renderToken(token, i))
-  } else {
-    renderedCode = codeContent
   }
 
   const handleCopy = () => {
@@ -839,20 +1135,21 @@ export const CodeBlock = ({
     setTimeout(() => setCopied(false), 2000)
   }
 
-  return (
-    <div
-      className={`not-prose my-4 overflow-hidden rounded-xl border border-white/[0.08] bg-[#07080a] shadow-lg font-mono text-xs w-full text-text-primary ${streamingElementClass || ''}`}
-      data-stream-token={streamToken}
-      style={animationStyle}
-    >
-      <div className="flex items-center justify-between bg-white/[0.02] border-b border-white/[0.05] px-4 py-2 select-none">
-        <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
+  if (!elementMotion || motionInitial === false) {
+    return (
+      <div
+        className={`not-prose my-4 overflow-hidden rounded-xl bg-[#060709] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04),0_10px_30px_-12px_rgba(0,0,0,0.5)] font-mono text-xs w-full text-text-primary ${streamingElementClass || ''}`}
+        data-stream-token={streamToken}
+        style={style}
+      >
+      <div className="flex items-center justify-between bg-white/[0.02] px-4 py-2 select-none">
+        <span className="text-[11px] font-semibold text-text-secondary/80 uppercase tracking-[0.14em]">
           {lang}
         </span>
         <button
           type="button"
           onClick={handleCopy}
-          className="flex items-center gap-1.5 rounded-lg bg-white/[0.02] border border-white/[0.06] px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-white/[0.06] hover:text-text-primary transition-all duration-200 active:scale-95 cursor-pointer min-w-[75px] justify-center"
+          className="flex items-center gap-1.5 rounded-lg bg-white/[0.05] px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-white/[0.09] hover:text-text-primary transition-colors duration-200 active:scale-95 cursor-pointer min-w-[75px] justify-center"
         >
           <span>{copied ? 'Copied!' : 'Copy Code'}</span>
         </button>
@@ -863,6 +1160,37 @@ export const CodeBlock = ({
         </code>
       </div>
     </div>
+    )
+  }
+
+  return (
+    <motion.div
+      className={`not-prose my-4 overflow-hidden rounded-xl bg-[#060709] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04),0_10px_30px_-12px_rgba(0,0,0,0.5)] font-mono text-xs w-full text-text-primary`}
+      data-stream-token={streamToken}
+      data-stream-engine="motion"
+      style={style}
+      initial={elementMotion.initial}
+      animate={elementMotion.animate}
+      transition={elementMotion.transition}
+    >
+      <div className="flex items-center justify-between bg-white/[0.02] px-4 py-2 select-none">
+        <span className="text-[11px] font-semibold text-text-secondary/80 uppercase tracking-[0.14em]">
+          {lang}
+        </span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="flex items-center gap-1.5 rounded-lg bg-white/[0.05] px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-white/[0.09] hover:text-text-primary transition-colors duration-200 active:scale-95 cursor-pointer min-w-[75px] justify-center"
+        >
+          <span>{copied ? 'Copied!' : 'Copy Code'}</span>
+        </button>
+      </div>
+      <div className="p-4 overflow-x-auto">
+        <code className={`${codeClassName || ''} block whitespace-pre`} {...props}>
+          {renderedCode}
+        </code>
+      </div>
+    </motion.div>
   )
 }
 

@@ -4,7 +4,11 @@ import {
   CompletionType,
   StreamToolCallDelta,
   TodoState,
-  PrismThinkingLevel
+  PrismThinkingLevel,
+  HarnessContextSnapshot,
+  HarnessExplorerContextSnapshot,
+  AttachedFile,
+  MessageDeliveryMode
 } from '../../shared/types'
 import type { ToolResultEnvelope } from '../toolRuntime'
 import type { ToolAttachment, ToolImageReference } from '../toolAttachments'
@@ -18,12 +22,20 @@ export type {
   PrismThinkingLevel
 }
 
+export interface SteeringMessage {
+  id: string
+  text: string
+  timestamp: number
+  attachedFile?: AttachedFile
+}
+
 export interface ActiveRun {
   chatId: string
   abortController: AbortController
   streamedText: string
   streamedReasoning?: string
   status: 'running' | 'idle' | 'cancelled' | 'error'
+  steeringQueue?: SteeringMessage[]
 }
 
 export interface StructuredChatResponse {
@@ -79,6 +91,8 @@ export interface OpenAiMessage {
   tool_call_id?: string
   tool_attachments?: ToolAttachment[]
   tool_attachment_refs?: ToolImageReference[]
+  image_attachments?: ToolAttachment[]
+  image_attachment_refs?: ToolImageReference[]
   tool_metadata?: {
     originalArguments: unknown
     validatedArguments: Record<string, unknown>
@@ -88,12 +102,22 @@ export interface OpenAiMessage {
   thinking_duration?: number
   isSystemNotification?: boolean
   hidden?: boolean
+  harness_context_snapshot?: HarnessContextSnapshot
+  harness_explorer_context?: HarnessExplorerContextSnapshot
+  visible_user_content?: string
+  quote?: string
+  sourceChatId?: string
+  sourceChatTitle?: string
+  isSteering?: boolean
+  deliveryMode?: MessageDeliveryMode
   provider_metadata?: {
     gemini?: {
       content: GeminiContentData
     }
   }
 }
+
+export type OpenAiToolCall = NonNullable<OpenAiMessage['tool_calls']>[number]
 
 export interface OpenAiToolDefinition {
   type: 'function'

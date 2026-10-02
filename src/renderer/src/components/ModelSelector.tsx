@@ -5,10 +5,18 @@ import {
   MagnifyingGlass,
   CheckCircle,
   Warning,
+  XCircle,
   Crown
 } from '@phosphor-icons/react'
 import { clsx } from 'clsx'
 import { isShortcutPressed } from '../utils'
+import { LiquidGlassSurface } from './LiquidGlassSurface'
+import type { CompletionType } from '../../../shared/types'
+import type {
+  ImageGenerationCapabilities,
+  ImageGenerationOperationCapability
+} from '../../../shared/types'
+import { isPaidArcadiaModel } from '../../../shared/arcadiaCatalog'
 
 interface ActiveModelItem {
   providerId: string
@@ -19,8 +27,10 @@ interface ActiveModelItem {
     name?: string
     enabled: boolean
     isTrusted: boolean
+    imageGeneration?: ImageGenerationCapabilities
   }
   fullKey: string
+  completionType: CompletionType
 }
 
 interface ModelSelectorProps {
@@ -30,6 +40,12 @@ interface ModelSelectorProps {
   isEnterprise?: boolean
   disabled?: boolean
   align?: 'left' | 'right'
+  menuPlacement?: 'top' | 'bottom'
+  allowedCompletionTypes?: CompletionType[]
+  allowClear?: boolean
+  emptyLabel?: string
+  clearLabel?: string
+  imageGenerationStatus?: boolean
 }
 
 export interface ModelSelectorHandle {
@@ -44,7 +60,13 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
       onOpenUpgradePlans,
       isEnterprise: isEnterpriseProp,
       disabled,
-      align = 'right'
+      align = 'right',
+      menuPlacement = 'bottom',
+      allowedCompletionTypes,
+      allowClear = false,
+      emptyLabel = 'Select Model',
+      clearLabel = 'Not configured',
+      imageGenerationStatus = false
     },
     ref
   ) => {
@@ -65,34 +87,24 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
     const checkEnterpriseStatus = async (): Promise<void> => {
       try {
-        const [usage, license, user] = await Promise.all([
+        const [usage, license] = await Promise.all([
           window.api.getUserAiUsage().catch(() => null),
-          window.api.getLicenseInfo ? window.api.getLicenseInfo().catch(() => null) : Promise.resolve(null),
-          window.api.getAuthUser ? window.api.getAuthUser().catch(() => null) : Promise.resolve(null)
+          window.api.getLicenseInfo ? window.api.getLicenseInfo().catch(() => null) : Promise.resolve(null)
         ])
 
         const isUsageEnt =
-          usage?.tier?.toLowerCase().startsWith('enterprise') ||
-          usage?.tier?.toLowerCase() === 'company' ||
-          Boolean(
-            usage?.modelList?.some(
-              (m) =>
-                m.tier?.toLowerCase().startsWith('enterprise') ||
-                m.tier?.toLowerCase() === 'company'
-            )
-          )
+          usage?.tier?.toLowerCase() === 'paid' ||
+          usage?.tier?.toLowerCase().startsWith('enterprise')
 
         const isLicenseEnt = Boolean(
           license?.isActivated &&
             (license?.type?.toUpperCase() === 'ENTERPRISE' ||
-              license?.type?.toUpperCase() === 'COMPANY')
+              (license as any)?.plan_id?.toLowerCase().startsWith('enterprise'))
         )
 
-        const isUserEnt =
-          user?.accountType?.toLowerCase() === 'enterprise' ||
-          user?.accountType?.toLowerCase() === 'company'
-
-        setIsEnterpriseInternal(isUsageEnt || isLicenseEnt || isUserEnt)
+        // An account with company/enterprise account_type is an organizational model,
+        // NOT an Enterprise subscription plan. Paid model access requires an active plan or license.
+        setIsEnterpriseInternal(isUsageEnt || isLicenseEnt)
       } catch {
         setIsEnterpriseInternal(false)
       }
@@ -117,6 +129,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
       const unsubscribeConfig = window.api.onConfigChanged((config) => {
         if (config.modelSelectionShortcut) setShortcut(config.modelSelectionShortcut)
+        checkEnterpriseStatus()
         loadActiveModels()
       })
 
@@ -125,9 +138,22 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         loadActiveModels()
       })
 
+      const unsubscribeLicense = window.api.onLicenseStatusChanged?.(() => {
+        checkEnterpriseStatus()
+        loadActiveModels()
+      })
+
+      const onCustomLicenseUpdate = (): void => {
+        checkEnterpriseStatus()
+        loadActiveModels()
+      }
+      window.addEventListener('prism:license-updated', onCustomLicenseUpdate)
+
       return () => {
         unsubscribeConfig()
         unsubscribeAuth?.()
+        unsubscribeLicense?.()
+        window.removeEventListener('prism:license-updated', onCustomLicenseUpdate)
       }
     }, [])
 
@@ -169,8 +195,13 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
       }
     }, [isOpen, shortcut, disabled])
 
+    const completionEligibleModels = allowedCompletionTypes?.length
+      ? activeModels.filter((item) => allowedCompletionTypes.includes(item.completionType))
+      : activeModels
+    const eligibleModels = completionEligibleModels
+
     // Find currently selected model display item
-    const selectedItem = activeModels.find(
+    const selectedItem = eligibleModels.find(
       (item) =>
         item.fullKey === selectedModel ||
         item.model.id === selectedModel ||
@@ -179,7 +210,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
     const rawDisplayName = selectedItem
       ? selectedItem.model.name || selectedItem.model.id
-      : selectedModel || 'Select Model'
+      : selectedModel || emptyLabel
 
     const getModelOnly = (val: string): string => {
       if (!val) return ''
@@ -194,7 +225,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
     // Group active models by provider
     const grouped: Record<string, ActiveModelItem[]> = {}
-    for (const item of activeModels) {
+    for (const item of eligibleModels) {
       if (!grouped[item.providerName]) grouped[item.providerName] = []
       grouped[item.providerName].push(item)
     }
@@ -216,14 +247,21 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
           disabled={disabled}
           onClick={() => setIsOpen(!isOpen)}
           className={clsx(
-            'flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs sm:text-sm font-semibold outline-none transition-colors duration-200 border hover:bg-[var(--surface-raised)] hover:border-[var(--border-strong)] cursor-pointer',
+            'relative isolate flex items-center gap-2 overflow-hidden rounded-xl px-3.5 py-1.5 text-xs sm:text-[13px] font-semibold outline-none transition-all duration-150 cursor-pointer shadow-[0_1px_6px_rgba(0,0,0,0.25)] active:scale-95',
             isOpen
-              ? 'bg-[var(--surface-raised)] text-text-primary border-[var(--border-strong)]'
-              : 'bg-transparent text-text-primary border-[var(--border-default)]',
+              ? 'bg-white/[0.1] text-text-primary'
+              : 'bg-white/[0.04] text-text-primary hover:bg-white/[0.08]',
             disabled && 'cursor-not-allowed opacity-50'
           )}
         >
-          <span className="text-xs sm:text-[13.5px] font-bold tracking-wide truncate max-w-[160px] sm:max-w-[220px]">
+          <LiquidGlassSurface
+            refraction={16}
+            blur={1.5}
+            opacity={0.35}
+            specular={0.14}
+            distortionRadius={18}
+          />
+          <span className="text-xs sm:text-[13px] font-bold tracking-wide truncate max-w-[160px] sm:max-w-[220px]">
             {displayName}
           </span>
           <ChevronDown
@@ -238,12 +276,23 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
         {isOpen && (
           <div
             className={clsx(
-              'absolute top-full mt-2 w-72 sm:w-80 z-[100] rounded-xl border border-[var(--border-strong)] bg-[var(--surface-raised)] shadow-[0_18px_45px_rgba(0,0,0,0.55)] overflow-hidden flex flex-col max-h-96 animate-soft-pop',
+              'glass-dropdown-panel absolute w-72 sm:w-80 z-[200] overflow-hidden flex flex-col max-h-96 animate-soft-pop',
+              menuPlacement === 'top'
+                ? 'bottom-full mb-2 origin-bottom'
+                : 'top-full mt-2 origin-top',
               align === 'left' ? 'left-0' : 'right-0'
             )}
           >
+            <LiquidGlassSurface
+              refraction={32}
+              blur={2}
+              centerBlur={0}
+              centerAttenuation={0.18}
+              specular={0.12}
+              distortionRadius={34}
+            />
             {/* Search Box */}
-            <div className="border-b border-[var(--border-default)] bg-black p-2.5">
+            <div className="border-b border-white/[0.08] bg-white/[0.02] p-2.5">
               <div className="relative">
                 <MagnifyingGlass size={14} className="absolute left-3 top-2.5 text-text-muted" />
                 <input
@@ -251,7 +300,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search models or providers..."
-                  className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--surface-lowest)] py-1.5 pl-9 pr-3 text-xs text-text-primary placeholder-text-muted focus:border-accent-primary focus:outline-none"
+                  className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] py-1.5 pl-9 pr-3 text-xs text-text-primary placeholder-text-muted focus:border-white/[0.2] focus:outline-none"
                   autoFocus
                 />
               </div>
@@ -259,9 +308,27 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
             {/* Models list */}
             <div className="p-2 overflow-y-auto space-y-3 flex-1">
+              {allowClear && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onModelChange('')
+                    setIsOpen(false)
+                  }}
+                  className={clsx(
+                    'w-full flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs transition-colors cursor-pointer',
+                    !selectedModel
+                      ? 'bg-accent-primary/10 text-accent-primary'
+                      : 'text-text-secondary hover:bg-white/[0.05] hover:text-text-primary'
+                  )}
+                >
+                  <span>{clearLabel}</span>
+                  {!selectedModel && <Check size={14} weight="bold" />}
+                </button>
+              )}
               {filteredGroupKeys.length === 0 ? (
                 <div className="py-6 text-center text-xs text-text-muted">
-                  {activeModels.length === 0
+                  {eligibleModels.length === 0
                     ? 'No active models found in API Settings.'
                     : 'No models match search.'}
                 </div>
@@ -310,12 +377,29 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
 
                         const mainLabel = getModelOnly(item.model.name || item.model.id)
                         const subLabel = getModelOnly(item.model.id)
-                        const isArcadia11 =
-                          item.model.id === 'prism-ai/arcadia-1.1-flash' ||
-                          item.model.id === 'arcadia-1.1-flash' ||
-                          item.fullKey.includes('arcadia-1.1-flash')
-
-                        const isLocked = isArcadia11 && !isEnterprise
+                        const isLocked = isPaidArcadiaModel(item.fullKey) && !isEnterprise
+                        const generationState = item.model.imageGeneration?.generate
+                        const editState = item.model.imageGeneration?.edit
+                        const getStatus = (
+                          state: ImageGenerationOperationCapability | boolean | undefined
+                        ): 'auto' | 'supported' | 'unsupported' =>
+                          typeof state === 'boolean'
+                            ? state
+                              ? 'supported'
+                              : 'unsupported'
+                            : state?.status === 'supported'
+                              ? 'supported'
+                              : state?.status === 'unsupported'
+                                ? 'unsupported'
+                                : 'auto'
+                        const generationStatus = getStatus(generationState)
+                        const editStatus = getStatus(editState)
+                        const generationReason =
+                          generationState && typeof generationState !== 'boolean'
+                            ? generationState.reason
+                            : undefined
+                        const editReason =
+                          editState && typeof editState !== 'boolean' ? editState.reason : undefined
 
                         return (
                           <button
@@ -358,6 +442,33 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
                                   <span>Enterprise</span>
                                 </span>
                               )}
+                              {imageGenerationStatus &&
+                              (generationStatus === 'unsupported' || editStatus === 'unsupported') ? (
+                                <span
+                                  title={`Generation: ${generationStatus === 'unsupported' ? generationReason || 'The provider rejected image generation.' : 'available'}. Editing: ${editStatus === 'unsupported' ? editReason || 'The provider rejected image editing.' : 'available'}.`}
+                                  aria-label={`Image capability status: generation ${generationStatus}, editing ${editStatus}`}
+                                  className="flex items-center gap-1 text-[10px] text-red-400 cursor-help"
+                                >
+                                  <XCircle size={13} weight="fill" />
+                                </span>
+                              ) : imageGenerationStatus &&
+                                (generationStatus === 'supported' || editStatus === 'supported') ? (
+                                <span
+                                  title={`Image capabilities verified: generation ${generationStatus}, editing ${editStatus}.`}
+                                  aria-label={`Image capability status: generation ${generationStatus}, editing ${editStatus}`}
+                                  className="text-status-success cursor-help"
+                                >
+                                  <CheckCircle size={13} weight="fill" />
+                                </span>
+                              ) : imageGenerationStatus ? (
+                                <span
+                                  title="Image protocol will be detected automatically on the first generation or edit."
+                                  aria-label="Image protocol will be detected automatically"
+                                  className="rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wider text-text-muted border border-white/[0.12]"
+                                >
+                                  Auto
+                                </span>
+                              ) : null}
                               {isSelected && (
                                 <Check
                                   size={14}

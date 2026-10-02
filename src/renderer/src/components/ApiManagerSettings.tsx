@@ -54,7 +54,7 @@ export const ApiManagerSettings: React.FC = () => {
     }
   }, [])
 
-  const handleSaveProvider = async (provider: ProviderConfig) => {
+  const handleSaveProvider = async (provider: ProviderConfig): Promise<boolean> => {
     try {
       let updated: ProviderConfig[] = []
       const exists = providers.some((p) => p && p.id === provider.id)
@@ -64,15 +64,19 @@ export const ApiManagerSettings: React.FC = () => {
         updated = [...providers, provider]
       }
 
-      setProviders(updated)
       if (window.api && typeof window.api.saveProviders === 'function') {
-        await window.api.saveProviders(updated)
+        const saved = await window.api.saveProviders(updated)
+        if (!saved) {
+          return false
+        }
       }
-    } catch (e) {
-      console.error('Failed to save provider:', e)
-    } finally {
+      setProviders(updated)
       setIsWizardOpen(false)
       setEditingProvider(null)
+      return true
+    } catch (e) {
+      console.error('Failed to save provider:', e)
+      return false
     }
   }
 
@@ -217,6 +221,15 @@ export const ApiManagerSettings: React.FC = () => {
                           className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-status-warning/15 text-status-warning border border-status-warning/30 cursor-help shrink-0"
                         >
                           <Warning size={12} weight="fill" /> Untrusted
+                        </span>
+                      )}
+                      {(p.name?.toLowerCase().includes('puter') ||
+                        p.baseUrl?.toLowerCase().includes('puter')) && (
+                        <span
+                          title="Puter.js Native Integration"
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/30 shrink-0"
+                        >
+                          Puter.js Native
                         </span>
                       )}
                     </div>

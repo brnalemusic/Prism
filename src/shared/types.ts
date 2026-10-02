@@ -21,6 +21,12 @@ export interface ToolUpdate {
 }
 
 export type TerminalProcessStatus = 'running' | 'completed' | 'failed' | 'killed'
+export type TerminalTerminationReason =
+  | 'completed'
+  | 'failed'
+  | 'killed'
+  | 'timeout'
+  | 'cancelled'
 
 export interface TerminalProcessSnapshot {
   runId: string
@@ -34,6 +40,7 @@ export interface TerminalProcessSnapshot {
   awaitingInput: boolean
   detectedPrompt?: string
   outputTruncated: boolean
+  terminationReason?: TerminalTerminationReason
 }
 
 export type DownloadProgressStatus =
@@ -75,6 +82,34 @@ export interface ToolCall {
   terminalOutput?: string
 }
 
+export interface ToolImageAttachment {
+  kind: 'image'
+  assetId?: string
+  name?: string
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
+  data: string
+  width?: number
+  height?: number
+  byteLength?: number
+}
+
+export type ToolAttachment = ToolImageAttachment
+
+export interface SaveGeneratedImageRequest extends ToolImageAttachment {
+  suggestedName?: string
+}
+
+export interface SaveGeneratedImageResult {
+  saved: boolean
+  path?: string
+  error?: string
+}
+
+export interface RetryImageGenerationRequest {
+  chatId: string
+  callId: string
+}
+
 export interface ApplicationInfo {
   name: string
   version?: string
@@ -93,7 +128,359 @@ export interface AttachedFile {
   data: string
 }
 
-export type SessionMode = 'conversation' | 'execution' | 'discipline'
+export type MessageDeliveryMode = 'standard' | 'steering' | 'queued'
+
+export type SessionMode = 'conversation' | 'execution' | 'discipline' | 'harness'
+
+/** Active workflow inside an isolated Harness session. */
+export type HarnessPhase = 'plan' | 'build'
+
+/**
+ * Product-level boundary for persisted sessions and renderer state. `harness`
+ * is intentionally separate from the Chat workspace even though it reuses the
+ * same account and provider registry.
+ */
+export type WorkspaceKind = 'chat' | 'harness'
+
+export type HarnessPermissionMode = 'ask' | 'independent' | 'yolo'
+
+export type HarnessToolName =
+  | 'read'
+  | 'list'
+  | 'find'
+  | 'grep'
+  | 'to_ask'
+  | 'plan'
+  | 'write'
+  | 'edit'
+  | 'delete_lines'
+  | 'apply_patch'
+  | 'exec_command'
+  | 'write_stdin'
+  | 'read_terminal_output'
+  | 'web_search'
+  | 'read_page'
+  | 'send_message_to_chat'
+  | 'answer_subagent_question'
+  | 'cancel_subagent_task'
+
+export type HarnessStartupProjectMode = 'last_opened' | 'default_project' | 'prompt'
+
+export interface HarnessProjectOverrides {
+  displayName?: string
+  permissionMode?: HarnessPermissionMode
+  maxRounds?: number
+  enabledTools?: HarnessToolName[]
+  maxReadLines?: number
+  maxReadCharacters?: number
+  maxTerminalOutputCharacters?: number
+  maxContextCharacters?: number
+  webPageCount?: number
+  showSteps?: boolean
+  showThinking?: boolean
+  animateActivity?: boolean
+  reduceMotion?: boolean
+  userProjectInstructions?: string
+}
+
+export interface HarnessProjectConfig extends HarnessProjectOverrides {
+  rootPath: string
+  displayName: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface HarnessSettings {
+  /** Allows Prism to add safe defaults to legacy tool lists exactly once. */
+  toolManifestVersion: number
+  projectsRoot: string
+  defaultPermissionMode: HarnessPermissionMode
+  defaultMaxRounds: number
+  enabledTools: HarnessToolName[]
+  maxReadLines: number
+  maxReadCharacters: number
+  maxTerminalOutputCharacters: number
+  maxContextCharacters: number
+  webPageCount: number
+  showSteps: boolean
+  showThinking: boolean
+  animateActivity: boolean
+  reduceMotion: boolean
+  /** Fixed roots keep every Harness tab pinned to one project. */
+  tabProjectMode: 'fixed' | 'grouped'
+  startupProjectMode: HarnessStartupProjectMode
+  defaultProjectPath?: string
+  userGlobalInstructions: string
+  yoloAcknowledged: boolean
+  lastProjectPath?: string
+  projects: Record<string, HarnessProjectConfig>
+}
+
+export interface EffectiveHarnessSettings extends Omit<
+  HarnessSettings,
+  'projects' | 'lastProjectPath' | 'defaultProjectPath'
+> {
+  project: HarnessProjectConfig
+}
+
+export type HarnessGitOperationKind = 'merge' | 'rebase' | 'cherry-pick'
+
+export interface HarnessGitFile {
+  path: string
+  indexStatus: string
+  workTreeStatus: string
+  isUntracked: boolean
+  isConflicted: boolean
+}
+
+export interface HarnessGitBranch {
+  name: string
+  fullName: string
+  isCurrent: boolean
+  isRemote: boolean
+  upstream?: string
+  ahead?: number
+  behind?: number
+}
+
+export interface HarnessGitRemote {
+  name: string
+  fetchUrl?: string
+  pushUrl?: string
+}
+
+export interface HarnessGitCommit {
+  hash: string
+  shortHash: string
+  subject: string
+  author: string
+  authoredAt: string
+}
+
+export interface HarnessGitOperation {
+  kind: HarnessGitOperationKind
+  target?: string
+  fingerprint?: string
+}
+
+export type HarnessGitRecoveryState = 'running' | 'conflicts' | 'planning' | 'awaiting-approval' | 'implementing' | 'verifying' | 'ready' | 'blocked' | 'completed' | 'aborted' | 'uncertain'
+
+export interface HarnessGitRecovery {
+  id: string
+  revision: number
+  projectPath: string
+  repoRoot: string
+  action: string
+  step: string
+  state: HarnessGitRecoveryState
+  branch?: string
+  operation?: HarnessGitOperation
+  reason?: string
+  canRetry: boolean
+  canAbort: boolean
+  canResolve: boolean
+  needsPull?: boolean
+  chatIds: string[]
+  cards: { chatId: string; afterMessage: number; step: number }[]
+  generation: number
+}
+
+export interface HarnessGitRecoveryRequest {
+  id: string
+  revision: number
+  requestId: string
+}
+
+export interface HarnessGitPlanBinding {
+  projectPath: string
+  chatId: string
+  sourceChatId?: string
+  recoveryId?: string
+  plan?: string
+  phase: HarnessPhase
+}
+
+export interface HarnessGitSnapshot {
+  recovery?: HarnessGitRecovery
+  ok: boolean
+  projectPath: string
+  repoRoot?: string
+  isGit: boolean
+  headHash?: string
+  metadataFingerprint?: string
+  branch?: string
+  detached: boolean
+  upstream?: string
+  ahead: number
+  behind: number
+  files: HarnessGitFile[]
+  conflicts: string[]
+  branches: HarnessGitBranch[]
+  remotes: HarnessGitRemote[]
+  commits: HarnessGitCommit[]
+  operation?: HarnessGitOperation
+  signing: { enabled: boolean; format?: string; key?: string }
+  github: { available: boolean; authenticated: boolean; username?: string }
+  defaultBranch?: string
+  error?: string
+}
+
+export interface HarnessGitStatusDelta {
+  recovery?: HarnessGitRecovery
+  ok: boolean
+  projectPath: string
+  repoRoot?: string
+  isGit: boolean
+  headHash?: string
+  metadataFingerprint?: string
+  branch?: string
+  detached: boolean
+  upstream?: string
+  ahead: number
+  behind: number
+  files: HarnessGitFile[]
+  conflicts: string[]
+  operation?: HarnessGitOperation
+  error?: string
+}
+
+export interface HarnessGitCommitOptions {
+  message?: string
+  sign?: boolean
+  signoff?: boolean
+  coAuthor?: { name: string; email: string }
+}
+
+export type HarnessGitAction = (
+  | { kind: 'switchBranch'; name: string }
+  | { kind: 'createBranch'; name: string; startPoint?: string }
+  | { kind: 'renameBranch'; from: string; to: string }
+  | { kind: 'deleteBranch'; name: string; remote?: string; force?: boolean }
+  | { kind: 'fetch'; remote?: string }
+  | { kind: 'merge'; branch: string }
+  | { kind: 'commit'; options: HarnessGitCommitOptions }
+  | { kind: 'push'; remote?: string }
+  | { kind: 'pull'; remote?: string }
+  | { kind: 'sync'; remote?: string }
+  | { kind: 'reset'; hash: string; mode: 'hard' | 'soft' }
+  | { kind: 'abortOperation' }
+  | { kind: 'createPr'; title: string; body: string; base: string; head?: string }
+  | { kind: 'retryOperation'; recovery: HarnessGitRecoveryRequest; integrateRemote?: boolean }
+  | { kind: 'cancelRecovery'; recovery: HarnessGitRecoveryRequest }
+) & { confirmation?: string }
+
+export interface HarnessGitActionResult {
+  ok: boolean
+  snapshot: HarnessGitSnapshot
+  output?: string
+  error?: string
+  conflict?: boolean
+  prUrl?: string
+}
+
+export interface HarnessSource {
+  title: string
+  url: string
+  domain: string
+  faviconUrl: string
+}
+
+export interface HarnessApprovalItem {
+  callId: string
+  name: HarnessToolName
+  label: string
+  args: Record<string, unknown>
+  preview?: string
+  destructive: boolean
+}
+
+export interface HarnessApprovalRequest {
+  requestId: string
+  chatId: string
+  projectPath: string
+  items: HarnessApprovalItem[]
+  createdAt?: number
+  expiresAt?: number
+  status?: 'pending' | 'approved' | 'denied' | 'expired' | 'cancelled' | 'stale'
+}
+
+export interface HarnessInstructionStatus {
+  projectPath: string
+  coreCharacters: number
+  globalCharacters: number
+  repoExists: boolean
+  /** Repository instruction files discovered in their precedence order. */
+  repoInstructionPaths: string[]
+  repoCharacters: number
+  repoIncludedCharacters: number
+  projectCharacters: number
+  totalCharacters: number
+  estimatedTokens: number
+  warnings: string[]
+}
+
+export type HarnessExplorerItemKind = 'file' | 'directory'
+
+export interface HarnessExplorerItem {
+  name: string
+  kind: HarnessExplorerItemKind
+  relativePath: string
+  absolutePath: string
+}
+
+export interface HarnessExplorerSelection {
+  name: string
+  kind: HarnessExplorerItemKind
+  relativePath: string
+}
+
+export interface HarnessExplorerDirectoryResult {
+  ok: boolean
+  items: HarnessExplorerItem[]
+  error?: string
+}
+
+export interface HarnessExplorerActionResult {
+  ok: boolean
+  error?: string
+}
+
+export interface HarnessExplorerContextItem {
+  selection: HarnessExplorerSelection
+  absolutePath?: string
+  truncated: boolean
+  warnings: string[]
+}
+
+export interface HarnessExplorerContextSnapshot {
+  version: 1
+  createdAt: number
+  projectPath: string
+  items: HarnessExplorerContextItem[]
+  warnings: string[]
+}
+
+export type HarnessContextInjectionKind = 'system' | 'global' | 'repo' | 'project'
+
+export interface HarnessContextInjectionEntry {
+  id: string
+  kind: HarnessContextInjectionKind
+  label: string
+  origin: string
+  content: string
+  characterCount: number
+}
+
+export interface HarnessContextSnapshot {
+  version: 1
+  createdAt: number
+  projectPath: string
+  modelId: string
+  /** Stable digest of the exact injected instructions. */
+  fingerprint?: string
+  entries: HarnessContextInjectionEntry[]
+  warnings: string[]
+}
 
 export type PrismThinkingLevel = 'minimal' | 'low' | 'medium' | 'high'
 
@@ -115,12 +502,61 @@ export type CompletionType =
   | 'responses'
   | 'anthropic_messages'
   | 'gemini_native'
+  | 'puter_native'
+
+export interface TrustedProviderPreset {
+  id: string
+  name: string
+  baseUrl: string
+  completionType: CompletionType
+}
+
+export type ImageGenerationAdapter =
+  | 'openai_images'
+  | 'openai_responses'
+  | 'gemini_generate_content'
+  | 'stability'
+  | 'puter'
+
+export type ImageGenerationCapabilityStatus = 'unknown' | 'supported' | 'unsupported'
+
+export interface ImageGenerationOperationCapability {
+  status: ImageGenerationCapabilityStatus
+  reason?: string
+  checkedAt?: number
+  adapter?: ImageGenerationAdapter
+  routeFingerprint?: string
+}
+
+export interface ImageGenerationCapabilities {
+  /** Automatic detection is the normal mode; manual is retained for migration metadata. */
+  mode?: 'automatic' | 'manual'
+  /** Adapter metadata is a hint. It must not prevent automatic fallback. */
+  preferredAdapter?: ImageGenerationAdapter
+  /** Last adapter that completed the operation successfully. */
+  resolvedAdapter?: ImageGenerationAdapter
+  /** Legacy adapter field, retained so old provider JSON can be normalized safely. */
+  adapter?: ImageGenerationAdapter
+  generate: ImageGenerationOperationCapability | boolean
+  edit: ImageGenerationOperationCapability | boolean
+  /** Fingerprint of the provider/model route used to verify this state. */
+  routeFingerprint?: string
+  /** Optional image renderer used by an orchestration/LLM model. */
+  renderModel?: string
+  /** Optional absolute endpoint override for non-standard provider deployments. */
+  endpoint?: string
+  /** Stability API route variant. */
+  stabilityEngine?: 'core' | 'ultra'
+}
 
 export interface ProviderModel {
   id: string
   name?: string
+  /** Native provider identifier when a model catalog exposes one (for example, Puter). */
+  provider?: string
   enabled: boolean
   isTrusted: boolean
+  imageGeneration?: ImageGenerationCapabilities
 }
 
 export interface ProviderConfig {
@@ -128,6 +564,8 @@ export interface ProviderConfig {
   name: string
   baseUrl: string
   apiKey: string
+  /** User-Pays account session for the native Puter.js SDK. Never an API key. */
+  puterAuthToken?: string
   completionType: CompletionType
   isTrusted: boolean
   isOfficial?: boolean
@@ -295,36 +733,52 @@ export interface PaymentVerificationResult {
   error?: string
 }
 
-export interface ModelAiUsageStatus {
-  modelId: string
-  modelName: string
-  tier: string
-  count5h: number
-  count1w: number
-  remaining5h: number
-  remaining1w: number
-  max5h: number
-  max1w: number
-  percentage5h: number
-  percentage1w: number
-  percentageRemaining: number
-  reset5hSeconds?: number
-  reset1wSeconds?: number
-}
-
 export interface UserAiUsageStatus {
   tier?: string
   percentageRemaining: number
-  percentage5h: number
-  percentage1w: number
-  count5h: number
-  count1w: number
-  remaining5h: number
-  remaining1w: number
-  max5h?: number
-  max1w?: number
-  reset5hSeconds?: number
-  reset1wSeconds?: number
-  models?: Record<string, ModelAiUsageStatus>
-  modelList?: ModelAiUsageStatus[]
+  count24h: number
+  remaining24h: number
+  max24h: number
+  reset24hSeconds?: number
 }
+
+export interface BrowserGenStartEvent {
+  sessionId: string
+  prompt: string
+}
+
+export interface BrowserGenChunkEvent {
+  sessionId: string
+  chunk: string
+  fullHtml: string
+}
+
+
+export interface BrowserGenEndEvent {
+  sessionId: string
+  fullHtml: string
+}
+
+export interface BrowserGenErrorEvent {
+  sessionId: string
+  error: string
+}
+
+export interface ChatOpenedInBackgroundEvent {
+  chatId: string
+  title: string
+  workspace: WorkspaceKind
+  sessionMode: SessionMode
+  disciplinePath?: string
+  harnessPhase?: HarnessPhase
+  sourceChatId?: string
+  sourceChatTitle?: string
+  initialMessage?: string
+  modelKey?: string
+}
+
+export interface HarnessPhaseChangedEvent {
+  chatId: string
+  phase: HarnessPhase
+}
+

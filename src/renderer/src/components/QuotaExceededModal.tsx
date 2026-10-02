@@ -67,8 +67,8 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
   if (!isOpen) return null
 
   const isEnterprise =
-    aiUsage?.tier?.toLowerCase().startsWith('enterprise') ||
-    Boolean(aiUsage?.modelList?.some((m) => m.tier?.toLowerCase().startsWith('enterprise')))
+    aiUsage?.tier?.toLowerCase() === 'paid' ||
+    aiUsage?.tier?.toLowerCase().startsWith('enterprise')
 
   return createPortal(
     <div className="prism-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
@@ -121,27 +121,15 @@ export const QuotaExceededModal: React.FC<QuotaExceededModalProps> = ({
           </p>
         )}
 
-        {/* Reset Countdown Cards */}
-        <div className="grid grid-cols-2 gap-3 mb-6">
-          <div className="rounded-2xl border border-white/[0.08] bg-black/40 p-3.5 flex flex-col justify-between space-y-1">
-            <div className="flex items-center gap-1.5 text-text-muted text-[11px] font-medium">
-              <Clock size={14} className="text-accent-primary" />
-              <span>5-Hour Reset</span>
-            </div>
-            <span className="font-mono text-sm font-bold text-white">
-              {aiUsage?.reset5hSeconds ? formatResetTime(aiUsage.reset5hSeconds) : 'Resets soon'}
-            </span>
+        {/* Shared account quota countdown */}
+        <div className="rounded-2xl border border-white/[0.08] bg-black/40 p-3.5 flex flex-col justify-between space-y-1 mb-6">
+          <div className="flex items-center gap-1.5 text-text-muted text-[11px] font-medium">
+            <Clock size={14} className="text-accent-primary" />
+            <span>24-Hour Account Reset</span>
           </div>
-
-          <div className="rounded-2xl border border-white/[0.08] bg-black/40 p-3.5 flex flex-col justify-between space-y-1">
-            <div className="flex items-center gap-1.5 text-text-muted text-[11px] font-medium">
-              <Clock size={14} className="text-purple-400" />
-              <span>Weekly Reset</span>
-            </div>
-            <span className="font-mono text-sm font-bold text-white">
-              {aiUsage?.reset1wSeconds ? formatResetTime(aiUsage.reset1wSeconds) : 'Resets soon'}
-            </span>
-          </div>
+          <span className="font-mono text-sm font-bold text-white">
+            {aiUsage?.reset24hSeconds ? formatResetTime(aiUsage.reset24hSeconds) : 'Resets soon'}
+          </span>
         </div>
 
         {/* Action Buttons */}

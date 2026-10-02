@@ -2,7 +2,7 @@ import { spawn } from 'child_process'
 import { EventEmitter } from 'events'
 import type { IpcMainEvent } from 'electron'
 import * as pty from 'node-pty'
-import type { TerminalProcessSnapshot, TerminalProcessStatus } from '../shared/types'
+import type { TerminalProcessSnapshot, TerminalProcessStatus, TerminalTerminationReason } from '../shared/types'
 import { broadcastIpc, safeSend } from './safeSend'
 
 export interface KeyModifierOptions {
@@ -29,6 +29,7 @@ export interface TerminalProcessSession {
   error?: string
   startedAt: number
   completedAt: number | null
+  terminationReason?: TerminalTerminationReason
   isBackgrounded: boolean
   awaitingInput: boolean
   detectedPrompt?: string
@@ -110,7 +111,8 @@ function createSnapshot(session: TerminalProcessSession): TerminalProcessSnapsho
     isBackgrounded: session.isBackgrounded,
     awaitingInput: session.awaitingInput,
     ...(session.detectedPrompt ? { detectedPrompt: session.detectedPrompt } : {}),
-    outputTruncated: session.outputTruncated
+    outputTruncated: session.outputTruncated,
+    ...(session.terminationReason ? { terminationReason: session.terminationReason } : {})
   }
 }
 
@@ -403,6 +405,7 @@ export interface SpawnTerminalOptions {
   apiKey?: string
   signal?: AbortSignal
   event?: IpcMainEvent
+  toolCallName?: string
 }
 
 /**
@@ -435,7 +438,7 @@ export function spawnGuardedTerminalProcess(
   if (isWindows) {
     if (lowerShell.includes('powershell') || lowerShell.includes('pwsh')) {
       const utf8Prefix = `$OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; chcp 65001 | Out-Null; `
-      spawnArgs = ['-NoLogo', '-NoProfile', '-Command', `${utf8Prefix}${command}`]
+      spawnArgs = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `${utf8Prefix}${command}`]
     } else if (lowerShell.includes('cmd')) {
       spawnArgs = ['/d', '/s', '/c', `chcp 65001 > nul & ${command}`]
     } else if (lowerShell.includes('bash')) {
@@ -476,15 +479,33 @@ export function spawnGuardedTerminalProcess(
 
   sessions.set(sessionKey, session)
 
-  const appendChunk = (rawText: string): void => {
-    appendOutput(session, rawText)
+  let ipcChunkBuffer = ''
+  let ipcThrottleTimer: NodeJS.Timeout | null = null
+
+  const flushIpcBuffer = (): void => {
+    if (ipcThrottleTimer) {
+      clearTimeout(ipcThrottleTimer)
+      ipcThrottleTimer = null
+    }
+    if (!ipcChunkBuffer) return
+    const chunkToSend = ipcChunkBuffer
+    ipcChunkBuffer = ''
 
     if (options.event && options.chatId) {
       safeSend(options.event.sender, 'chat-tool-update', {
-        toolCallName: 'execute_terminal_command',
-        update: { outputChunk: rawText, runId: session.runId },
+        toolCallName: options.toolCallName || 'execute_terminal_command',
+        update: { outputChunk: chunkToSend, runId: session.runId },
         chatId: options.chatId
       })
+    }
+  }
+
+  const appendChunk = (rawText: string): void => {
+    appendOutput(session, rawText)
+
+    ipcChunkBuffer += rawText
+    if (!ipcThrottleTimer) {
+      ipcThrottleTimer = setTimeout(flushIpcBuffer, 50)
     }
 
     eventEmitter.emit('data', rawText)
@@ -493,12 +514,16 @@ export function spawnGuardedTerminalProcess(
 
   terminalProcess.onData(appendChunk)
   terminalProcess.onExit(({ exitCode }) => {
+    flushIpcBuffer()
     if (session.promptDetectionTimer) {
       clearTimeout(session.promptDetectionTimer)
       session.promptDetectionTimer = undefined
     }
     if (session.status !== 'killed') {
       session.status = exitCode === 0 ? 'completed' : 'failed'
+      session.terminationReason = exitCode === 0 ? 'completed' : 'failed'
+    } else {
+      session.terminationReason = session.terminationReason || 'killed'
     }
     session.exitCode = exitCode
     session.awaitingInput = false
@@ -513,10 +538,10 @@ export function spawnGuardedTerminalProcess(
   // Handle abort signal if provided
   if (options.signal) {
     if (options.signal.aborted) {
-      killTerminalProcess(runId, options.chatId)
+      killTerminalProcess(runId, options.chatId, 'cancelled')
     } else {
       options.signal.addEventListener('abort', () => {
-        killTerminalProcess(runId, options.chatId)
+        killTerminalProcess(runId, options.chatId, 'cancelled')
       })
     }
   }
@@ -535,6 +560,9 @@ export async function executeTerminalWithInitialWait(
   initialTimeoutMs = 5000
 ): Promise<InitialExecutionResult> {
   const session = spawnGuardedTerminalProcess(command, options)
+  const inputToolName =
+    options.toolCallName === 'exec_command' ? 'write_stdin' : 'send_terminal_input'
+  const outputToolName = 'read_terminal_output'
 
   return new Promise((resolve) => {
     let resolved = false
@@ -552,7 +580,7 @@ export async function executeTerminalWithInitialWait(
       const notice =
         `Command execution exceeded 5 seconds. It is now running in the background with Run ID: ${session.runId}.` +
         `${outputSnippet}\n\n` +
-        `You can continue other work, inspect output with read_terminal_output, send keyboard/text input with send_terminal_input, or safely end your turn in Standby. ` +
+        `You can continue other work, inspect output with ${outputToolName}, send keyboard/text input with ${inputToolName}, or safely end your turn in Standby. ` +
         `When the command finishes, the system will automatically ping and wake you up with the complete output.`
 
       resolve({
@@ -573,7 +601,7 @@ export async function executeTerminalWithInitialWait(
         output:
           `Terminal input is required. The command is still running in the background with Run ID: ${session.runId}.\n\n` +
           `Detected prompt: ${notification.detectedPrompt || '(Prompt text unavailable).'}\n\n` +
-          `The complete output-so-far snapshot has been queued as a system notification. Use send_terminal_input to answer without asking the user unless their decision is genuinely required.`
+          `The complete output-so-far snapshot has been queued as a system notification. Use ${inputToolName} to answer without asking the user unless their decision is genuinely required.`
       })
     })
 
@@ -690,7 +718,11 @@ export async function sendTerminalInput(
 /**
  * Kills a running terminal process.
  */
-export function killTerminalProcess(runId: string, chatId?: string): string {
+export function killTerminalProcess(
+  runId: string,
+  chatId?: string,
+  reason: TerminalTerminationReason = 'killed'
+): string {
   const targetSession = findSession(runId, chatId)
   if (!targetSession) {
     return `Error: No terminal process found with Run ID "${runId}".`
@@ -702,6 +734,7 @@ export function killTerminalProcess(runId: string, chatId?: string): string {
 
   try {
     targetSession.status = 'killed'
+    targetSession.terminationReason = reason
     targetSession.awaitingInput = false
     targetSession.detectedPrompt = undefined
     publishSnapshot(targetSession)

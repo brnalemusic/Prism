@@ -50,10 +50,7 @@ export async function handleAiSearchChatMessage(event: IpcMainEvent, query: stri
 
     const systemPrompt: OpenAiMessage = {
       role: 'system',
-      content: `Prism Conversation Search Assistant. Analyze query and past chat context.
-1. If matches found, invoke 'render_chat_history' for each matching Chat ID.
-2. If no matches found, invoke 'not_found_chat_history'.
-Do not reply with plain text summaries without tool calls.`
+      content: `Prism Conversation Search Assistant. Analyze the query and past chat context, then respond via tools: 'render_chat_history' per matching Chat ID, or 'not_found_chat_history' when none match. Never reply with plain-text summaries without tool calls.`
     }
 
     const userPrompt: OpenAiMessage = {

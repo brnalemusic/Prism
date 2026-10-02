@@ -1,6 +1,9 @@
 import { executeSystemTool } from './systemTools'
 import { getToolDefinition, JsonSchema, ToolDefinition, toolsManifest } from './toolsManifest'
 import { SystemToolOutput, ToolAttachment } from './toolAttachments'
+import type { ProviderConfig } from '../shared/types'
+import type { ImageGenerationErrorCode } from './ai/imageGenerationCore'
+import { imageGenerationToolError } from './ai/imageGeneration'
 
 export type ToolErrorCode =
   | 'UNKNOWN_TOOL'
@@ -9,6 +12,7 @@ export type ToolErrorCode =
   | 'REPEATED_CALL'
   | 'EXECUTION_FAILED'
   | 'CANCELLED'
+  | ImageGenerationErrorCode
 
 export interface ToolError {
   code: ToolErrorCode
@@ -32,6 +36,8 @@ export interface ToolExecutionContext {
   signal?: AbortSignal
   chatId?: string
   disabledSkills?: string[]
+  provider?: ProviderConfig
+  modelId?: string
   onStart?: (args: Record<string, unknown>) => void
 }
 
@@ -168,6 +174,36 @@ export function getGeminiFunctionDeclarations(
     }))
 }
 
+export const DISCORD_VOICE_ALLOWED_TOOLS = new Set<string>([
+  'send_message_to_chat',
+  'discord_leave_voice',
+  'read_chat',
+  'approve_harness_plan',
+  'answer_subagent_question',
+  'cancel_subagent_task',
+  'computer_use_see_screen',
+  'web_search',
+  'read_page',
+  'open_browser_link',
+  'search_installed_applications',
+  'open_application',
+  'computer_use_read_file'
+])
+
+export function getDiscordVoiceGeminiDeclarations(): Array<{
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}> {
+  return toolsManifest
+    .filter((definition) => DISCORD_VOICE_ALLOWED_TOOLS.has(definition.name))
+    .map((definition) => ({
+      name: definition.name,
+      description: definition.description,
+      parameters: schemaForGemini(definition.inputSchema)
+    }))
+}
+
 function typeDescription(value: unknown): string {
   if (value === null) return 'null'
   if (Array.isArray(value)) return 'array'
@@ -289,6 +325,21 @@ function validateCrossFieldRules(
     args.endLine < args.startLine
   ) {
     return ['arguments.endLine must be greater than or equal to arguments.startLine.']
+  }
+  if (
+    definition.name === 'generate_image' &&
+    args.operation === 'edit' &&
+    (typeof args.source_image_ref !== 'string' || !args.source_image_ref.trim())
+  ) {
+    return ['arguments.source_image_ref is required when operation is edit.']
+  }
+  if (
+    definition.name === 'generate_image' &&
+    args.operation !== 'edit' &&
+    typeof args.source_image_ref === 'string' &&
+    args.source_image_ref.trim()
+  ) {
+    return ['arguments.source_image_ref can only be used when operation is edit.']
   }
   return []
 }
@@ -414,7 +465,9 @@ export async function executeValidatedTool(
       context.apiKey,
       context.signal,
       context.chatId,
-      context.disabledSkills
+      context.disabledSkills,
+      context.provider,
+      context.modelId
     )
     const { output, attachments } = normalizeSystemToolOutput(rawOutput)
     if (attachments.length > 0) {
@@ -448,6 +501,21 @@ export async function executeValidatedTool(
       ...(attachments.length > 0 ? { attachments } : {})
     }
   } catch (error) {
+    const imageError = imageGenerationToolError(error)
+    if (imageError) {
+      const envelope: ToolResultEnvelope = {
+        ok: false,
+        error: {
+          code: imageError.details.code,
+          message: imageError.details.userMessage,
+          details: {
+            imageGeneration: imageError.details
+          },
+          retryable: imageError.details.retryable
+        }
+      }
+      return { args: validation.args, envelope, modelContent: JSON.stringify(envelope) }
+    }
     const cancelled =
       context.signal?.aborted || (error instanceof Error && error.name === 'AbortError')
     const envelope: ToolResultEnvelope = {

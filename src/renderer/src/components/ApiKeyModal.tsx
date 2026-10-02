@@ -16,19 +16,21 @@ export function ApiKeyModal({
 }: ApiKeyModalProps): React.JSX.Element | null {
   if (!isOpen) return null
 
-  const handleSaveProvider = async (provider: ProviderConfig) => {
+  const handleSaveProvider = async (provider: ProviderConfig): Promise<boolean> => {
     try {
       const existing = await window.api.getProviders()
       const updated = [...(existing || []), provider]
-      await window.api.saveProviders(updated)
+      const saved = await window.api.saveProviders(updated)
+      if (!saved) return false
       if (onSave) {
         onSave(provider.apiKey)
       } else {
         onClose()
       }
+      return true
     } catch (e) {
       console.error('Failed to save provider from modal:', e)
-      onClose()
+      return false
     }
   }
 

@@ -33,7 +33,7 @@ Prism rejects vendor lock-in. A developer should never be forced to rely on a si
 
 ### 3.1. Connect Any Model, Cloud or Local
 Prism allows users to connect any model provider:
-- **Cloud APIs:** Google AI Studio, OpenAI, Anthropic, OpenRouter, NVIDIA NIM, Groq, Cerebras.
+- **Cloud APIs:** Google AI Studio, OpenAI, Anthropic, OpenRouter, NVIDIA NIM, Groq, Cerebras, Puter.js.
 - **Local Models:** Local LLM instances running on Ollama, LM Studio, vLLM, or LocalAI via custom Base URL configurations.
 
 ### 3.2. Granular Feature Mapping
@@ -93,5 +93,5 @@ For complex multi-file engineering tasks, Prism executes tools directly within t
 
 Design directly impacts developer focus and cognitive state:
 * **Glassmorphism:** CSS backdrop filters create semi-transparent surfaces blending into the host OS.
-* **Curated Themes:** Themes (`marine`, `vertez`, `akoustik`, `terno`, `ursula`, `rgb`) powered by Tailwind v4.
+* **Curated Themes:** Themes (`marine`, `fire`, `lava`, `gold`, `forest`, `indigo`, `violet`, `white`) powered by Tailwind v4, plus the unlockable `hero` reward theme.
 * **Responsive Scaling:** Adjustable interface zoom factor (0.5x to 3.0x).

@@ -2,8 +2,8 @@ import { BrowserWindow } from 'electron'
 import { loadConfig } from '../config'
 import { resolveProviderAndModel, PRISM_PROVIDER_ID } from './providerManager'
 import { OpenAiMessage } from './types'
-import { getNativeToolsForOpenAi } from './chatHandler'
-import { getSystemToolsPrompt } from '../systemTools'
+import { formatUserMessageTimestamp, getNativeToolsForOpenAi } from './chatHandler'
+import { getSystemToolsPrompt, YOUTUBE_SEARCH_PROTOCOL } from '../systemTools'
 import { safeSend } from '../safeSend'
 import { runToolOrchestration } from './toolOrchestrator'
 import { markConnectionActive } from '../connection'
@@ -29,6 +29,7 @@ export async function handleLauncherChatMessage(
   if (launcherAbortController) {
     launcherAbortController.abort()
   }
+  const turnStartTime = Date.now()
   const abortController = new AbortController()
   launcherAbortController = abortController
 
@@ -46,7 +47,10 @@ export async function handleLauncherChatMessage(
 
   markConnectionActive()
 
-  launcherHistory.push({ role: 'user', content: message })
+  launcherHistory.push({
+    role: 'user',
+    content: `${message}\n[${formatUserMessageTimestamp(turnStartTime)}]`
+  })
   safeSend(window, 'launcher-reply-start')
 
   try {
@@ -71,35 +75,9 @@ export async function handleLauncherChatMessage(
     )
 
     if (isYoutubeMode) {
-      systemContent += `\n\n# YouTube Video Search Protocol (Active YouTube App Mode)
-You are acting as the specialized YouTube Assistant. The user wants to find YouTube videos.
-STRICT EXECUTION PROTOCOL:
-1. SEARCH VIA GOOGLE QUERY: You MUST search using the 'web_search' tool with the exact query format:
-   \`site:youtube.com <SEARCH_QUERY>\`
-   (e.g., web_search({ query: "site:youtube.com Thinking Space II verified" })).
-   This uses Google search to instantly and reliably locate the official YouTube video URLs (https://www.youtube.com/watch?v=...), channel names, video titles, and snippets.
-2. OUTPUT FORMAT (MANDATORY STYLED CARD BLOCK): You MUST format your final response by wrapping the title, description, and buttons in an HTML card container block, followed by the suggestion chip below it:
+      systemContent += `
 
-<div style="border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 18px 20px; background: rgba(255, 255, 255, 0.03); margin: 12px 0;">
-  <div style="font-size: 16px; font-weight: bold; color: #ffffff; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
-    🎬 <span>[Video Title / Clean Name]</span>
-  </div>
-  <div style="font-size: 14px; color: rgba(255, 255, 255, 0.75); line-height: 1.5; margin-bottom: 16px;">
-    [Customized description of what was found based on the user request].
-  </div>
-  <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-    <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-flex; align-items: center; justify-content: center; background-color: #ff0000; color: #ffffff; padding: 8px 18px; border-radius: 8px; font-weight: 700; text-decoration: none; font-size: 13.5px;">[Primary Action/Watch Label]</a>
-    <a href="https://www.youtube.com/watch?v=..." target="_blank" style="display: inline-flex; align-items: center; justify-content: center; background-color: #272727; color: #ffffff; padding: 8px 18px; border-radius: 8px; font-weight: 600; text-decoration: none; font-size: 13.5px;">[Alternative Label]</a>
-  </div>
-</div>
-
-<prism-suggestion send="Open the YouTube video that you've found for me.">Open the video</prism-suggestion>
-
-STRICT BUTTON RULES:
-- Maximum 3 buttons total inside the flex container (1 primary in bold red #ff0000, up to 2 alternatives in dark charcoal #272727).
-- All buttons MUST be clickable <a> links with real href="https://www.youtube.com/watch?v=..." and target="_blank".
-- The <prism-suggestion> chip MUST be outside/below the card container.
-3. OPENING THE FOUND VIDEO: If the user sends "Open the YouTube video that you've found for me." or asks to open/play the video, immediately call 'open_browser_link' with the target video URL to open it in their browser.`
+${YOUTUBE_SEARCH_PROTOCOL}`
     }
 
     const systemPrompt: OpenAiMessage = {
@@ -123,6 +101,7 @@ STRICT BUTTON RULES:
       return { thoughts, content }
     }
 
+    let lastChatRound = 1
     const orchestration = await runToolOrchestration({
       provider,
       modelId: model.id,
@@ -138,6 +117,8 @@ STRICT BUTTON RULES:
           : state.currentReasoning
         const parsed = parseThoughtAndContent(combinedText, combinedReasoning)
         safeSend(window, 'launcher-reply-chunk', {
+          round: state.round,
+          roundContent: parseThoughtAndContent(state.currentText, '').content,
           thoughts: parsed.thoughts,
           finalResponse: parsed.content,
           isThinking: streamEvent.type === 'reasoning',
@@ -148,13 +129,27 @@ STRICT BUTTON RULES:
               : undefined
         })
       },
-      createToolContext: ({ callId, name }) => ({
+      decorateAssistantMessage: (assistantMessage, _result, state) => {
+        lastChatRound = state.round
+        const parsed = parseThoughtAndContent(
+          state.accumulatedText ? `${state.accumulatedText}\n\n${state.currentText}` : state.currentText,
+          state.accumulatedReasoning ? `${state.accumulatedReasoning}\n\n${state.currentReasoning}` : state.currentReasoning
+        )
+        safeSend(window, 'launcher-reply-chunk', {
+          thoughts: parsed.thoughts, finalResponse: parsed.content, isThinking: false,
+          round: state.round, roundContent: parseThoughtAndContent(state.currentText, '').content,
+          streamingToolCalls: state.streamingToolCalls.map((call) => ({ ...call, isComplete: false }))
+        })
+        return assistantMessage
+      },
+      createToolContext: ({ callId, name, round }) => ({
         event: { sender: window.webContents },
         signal: abortController.signal,
-        onStart: (args) => safeSend(window, 'launcher-tool-start', { callId, name, args })
+        onStart: (args) => safeSend(window, 'launcher-tool-start', { callId, name, args, round })
       }),
       onToolResult: (call) =>
         safeSend(window, 'launcher-tool-end', {
+          round: call.round,
           callId: call.callId,
           name: call.name,
           result: call.modelContent
@@ -170,6 +165,9 @@ STRICT BUTTON RULES:
       orchestration.accumulatedReasoning
     )
     safeSend(window, 'launcher-reply-end', {
+      round: lastChatRound,
+      roundContent: parseThoughtAndContent(orchestration.lastRoundText, '').content,
+      workedDuration: Math.max(1, Math.round((Date.now() - turnStartTime) / 1000)),
       thoughts: finalOutput.thoughts,
       finalResponse: finalOutput.content,
       ...(orchestration.loopLimitReached ? { loopLimitReached: true } : {})

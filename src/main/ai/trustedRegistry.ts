@@ -1,104 +1,127 @@
-import { CompletionType } from '../../shared/types'
+import type { TrustedProviderPreset } from '../../shared/types'
 
-export interface TrustedProviderMeta {
-  baseUrl: string
-  name: string
-  completionType: CompletionType
-}
+export interface TrustedProviderMeta extends TrustedProviderPreset {}
 
 export const TRUSTED_PROVIDERS: TrustedProviderMeta[] = [
   {
+    id: 'google-ai-studio',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     name: 'Google AI Studio',
     completionType: 'gemini_native'
   },
   {
+    id: 'nvidia-nim',
     baseUrl: 'https://integrate.api.nvidia.com/v1',
     name: 'NVIDIA NIM',
     completionType: 'chat_completions'
   },
   {
+    id: 'openai',
     baseUrl: 'https://api.openai.com/v1',
     name: 'OpenAI GPT',
     completionType: 'chat_completions'
   },
   {
+    id: 'anthropic',
     baseUrl: 'https://api.anthropic.com/v1',
     name: 'Anthropic Claude',
     completionType: 'anthropic_messages'
   },
   {
+    id: 'openrouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     name: 'OpenRouter',
     completionType: 'chat_completions'
   },
   {
+    id: 'groqcloud',
     baseUrl: 'https://api.groq.com/openai/v1',
     name: 'GroqCloud',
     completionType: 'chat_completions'
   },
   {
+    id: 'cerebras-ai',
     baseUrl: 'https://api.cerebras.ai/v1',
     name: 'Cerebras AI',
     completionType: 'chat_completions'
+  },
+  {
+    id: 'puter-js',
+    baseUrl: 'https://api.puter.com/puterai/openai/v1',
+    name: 'Puter.js',
+    completionType: 'puter_native'
   }
 ]
 
 export const TRUSTED_MODELS_LIST: string[] = [
-  'prism-ai/arcadia-1.0-mini',
-  'prism-ai/arcadia-1.0-flash',
-  'prism-ai/arcadia-1.0-pro',
-  'prism-ai/arcadia-1.1-flash',
-  'arcadia-1.0-mini',
-  'arcadia-1.0-flash',
-  'arcadia-1.0-pro',
-  'arcadia-1.1-flash',
+  'arcadia-1-1-mini',
+  'arcadia-1-1-small',
+  'arcadia-1-1-flash-09-11',
+  'arcadia-1-1-pro',
+  'arcadia-1-2-flash-small',
+  'arcadia-1-2-flash-giga',
+  'arcadia-bot-0-8-experimental',
+  'gpt-6-astra',
   'gpt-5.6-sol',
+  'gpt-5-6-sol',
   'gpt-5.6-terra',
+  'gpt-5-6-terra',
   'gpt-5.6-luna',
-  'gpt-5.5',
-  'gpt-5.4-mini',
-  'claude-haiku-4-5-20251001',
-  'claude-haiku-4.5',
+  'gpt-5-6-luna',
   'claude-sonnet-5',
   'claude-opus-5',
-  'claude-fable-5',
-  'gemma-4-31b-it',
-  'llama-4-maverick-17b-128e-instruct',
-  'minimax-m3',
-  'nemotron-3-ultra-550b-a55b',
-  'gpt-oss-120b',
-  'qwen3.5-397b-a17b',
-  'qwen3.6-27b',
-  'qwen3.7-flash',
-  'qwen3-7-flash',
-  'qwen3.8-max',
-  'qwen3-8-max',
-  'step-3.7-flash',
-  'glm-5.2',
-  'gemini-3-flash-preview',
-  'gemini-3-flash',
-  'gemini-3.1-flash-lite',
-  'gemini-3.5-flash-lite',
-  'gemini-3.1-pro',
-  'gemini-3.7-flash',
-  'gemini-3-7-flash',
+  'claude-fable-5.1',
+  'claude-fable-5-1',
+  'claude-haiku-4.5',
+  'claude-haiku-4-5',
+  'claude-haiku-4.5-20251001',
+  'claude-haiku-4-5-20251001',
+  'qwen3.8-max-0902',
+  'qwen3-8-max-0902',
+  'qwen-3.8-max-0902',
+  'qwen-3-8-max-0902',
+  'qwen3.8-flash',
+  'qwen3-8-flash',
+  'qwen-3.8-flash',
+  'qwen-3-8-flash',
+  'qwen3.8-27b',
+  'qwen3-8-27b',
+  'qwen-3.8-27b',
+  'qwen-3-8-27b',
+  'qwen3.8-2.4t-a95b',
+  'qwen3-8-2.4t-a95b',
+  'qwen-3.8-2.4t-a95b',
+  'qwen-3-8-2.4t-a95b',
   'kimi-k3',
-  'free',
-  'openrouter/free',
-  'llama-3.3-70b-versatile',
-  'seed-2-1-turbo',
-  'seed-2.1-turbo',
+  'kimi-k-3',
+  'muse-spark-1.3',
+  'muse-spark-1-3',
+  'muse-spark-1.3-contribuitor',
+  'muse-spark-1-3-contribuitor',
+  'gemini-3.8-flash',
+  'gemini-3-8-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3-5-flash-lite',
+  'gemini-3.1-pro',
+  'gemini-3-1-pro',
+  'gemini-pro-agent',
+  'gemini-3.1-flash-live-preview',
+  'gemini-3-1-flash-live-preview',
+  'gemma-4-31b-it',
+  'gemma-4-26b-a4b-it',
   'deepseek-v4-flash-0731',
+  'deepseek-4-flash-0731',
   'deepseek-v4-pro-0813',
-  'longcat-2.0',
-  'laguna-s-2.1',
-  'laguna-s-2-1',
-  'grok-4.6',
-  'grok-4-6',
-  'ling-3.0-flash',
-  'ling-3-0-flash',
-  'mimo-v2.5'
+  'deepseek-4-pro-0813',
+  'deepseek-v4-flash-vision-exp',
+  'deepseek-4-flash-vision-exp',
+  'glm-5.3',
+  'glm-5-3',
+  'glm-5.3-flash',
+  'glm-5-3-flash',
+  'solar-pro4',
+  'solar-pro-4',
+  'free'
 ]
 
 export function normalizeBaseUrl(url: string): string {
@@ -157,4 +180,21 @@ export function isGoogleHost(urlStr: string): boolean {
 export function isAnthropicHost(urlStr: string): boolean {
   const host = getHostname(urlStr)
   return host === 'api.anthropic.com' || host === 'anthropic.com' || host.endsWith('.anthropic.com')
+}
+
+export function isPuterHost(urlStr: string): boolean {
+  const host = getHostname(urlStr)
+  return host === 'api.puter.com' || host === 'puter.com' || host.endsWith('.puter.com')
+}
+
+export function isLiveOnlyModel(modelId?: string): boolean {
+  if (!modelId) return false
+  const clean = modelId.toLowerCase().replace(/^models\//i, '')
+  return (
+    clean.includes('live-preview') ||
+    clean.includes('-live') ||
+    clean.endsWith('live') ||
+    clean.includes('bidi') ||
+    clean.includes('realtime')
+  )
 }
