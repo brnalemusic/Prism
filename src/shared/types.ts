@@ -6,6 +6,25 @@ export interface MiniAppData {
   js: string
 }
 
+export interface DeepResearchPageItem {
+  title: string
+  url: string
+  domain: string
+  faviconUrl?: string
+  snippet?: string
+}
+
+export interface DeepResearchProgressUpdate {
+  phase?: 'searching' | 'reading' | 'synthesizing' | 'polishing'
+  queries?: string[]
+  currentQuery?: string
+  pages?: DeepResearchPageItem[]
+  newPage?: DeepResearchPageItem
+  statusText?: string
+  characterCount?: number
+  minCharacters?: number
+}
+
 export interface ToolUpdate {
   toolCallName: string
   update: {
@@ -17,6 +36,8 @@ export interface ToolUpdate {
     searchTitle?: string
     outputChunk?: string
     runId?: string
+    // Continuous deep research progress
+    deepResearch?: DeepResearchProgressUpdate
   }
 }
 

@@ -6,7 +6,8 @@ import type {
   HarnessContextSnapshot,
   HarnessExplorerSelection,
   HarnessPhase,
-  MessageDeliveryMode
+  MessageDeliveryMode,
+  DeepResearchProgressUpdate
 } from '../../../shared/types'
 
 export interface AttachedFile {
@@ -46,6 +47,7 @@ export interface ToolCallItem {
   searchUpdates?: string[]
   terminalOutput?: string
   runId?: string
+  deepResearchProgress?: DeepResearchProgressUpdate
   startedAt?: number
   finishedAt?: number
   /** Orchestration round that executed this tool (chat timeline order). */

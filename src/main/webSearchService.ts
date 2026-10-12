@@ -1,6 +1,8 @@
-import { HarnessSource, ProviderConfig } from '../shared/types'
+import { HarnessSource, ProviderConfig, DeepResearchProgressUpdate, DeepResearchPageItem } from '../shared/types'
 import { streamOpenAiCompletion } from './ai/openaiClient'
 import { loadConfig } from './config'
+
+export type DeepResearchProgressCallback = (update: DeepResearchProgressUpdate) => void
 
 export interface WebSearchResult {
   query: string
@@ -264,6 +266,7 @@ export async function fetchAndSummarizeWeb(
     provider?: ProviderConfig
     modelId?: string
     signal?: AbortSignal
+    onProgress?: DeepResearchProgressCallback
   }
 ): Promise<WebFetchResult> {
   const title =
@@ -285,11 +288,26 @@ export async function fetchAndSummarizeWeb(
     )
   }
 
+  // Notify initial research start
+  options.onProgress?.({
+    phase: 'searching',
+    queries,
+    currentQuery: queries[0],
+    statusText: 'Conducting in-depth research',
+    characterCount: 0,
+    minCharacters: 5000
+  })
+
   // 1. Fetch candidate URLs for each query concurrently
   const targetPerQuery = DEEP_RESEARCH_SOURCES_PER_QUERY
   const candidateLists = await Promise.all(
     queries.map(async (q) => {
       try {
+        options.onProgress?.({
+          phase: 'searching',
+          currentQuery: q,
+          statusText: `Searching about "${q}"`
+        })
         return await fetchDuckDuckGoCandidateUrls(q, targetPerQuery * 3, options.signal)
       } catch {
         return []
@@ -314,6 +332,7 @@ export async function fetchAndSummarizeWeb(
   }
 
   // 2. Fetch and read web pages (10 per query, up to 50 total)
+  const collectedPages: DeepResearchPageItem[] = []
   const queryPages = await Promise.all(
     queryCandidates.map(async ({ query, urls }) => {
       const pages: Array<HarnessSource & { content: string; queryOrigin: string }> = []
@@ -324,11 +343,26 @@ export async function fetchAndSummarizeWeb(
           const extracted = pageText(html, DEEP_RESEARCH_CHARACTERS_PER_SOURCE)
           if (extracted.content.length < 200) continue
           const parsed = new URL(url)
+          const domain = parsed.hostname.replace(/^www\./, '')
+          const faviconUrl = `${parsed.origin}/favicon.ico`
+          const pageItem: DeepResearchPageItem = {
+            title: extracted.title,
+            url,
+            domain,
+            faviconUrl,
+            snippet: extracted.content.slice(0, 320)
+          }
+          collectedPages.push(pageItem)
+          options.onProgress?.({
+            phase: 'reading',
+            newPage: pageItem,
+            statusText: `Reading about "${extracted.title}"`
+          })
           pages.push({
             title: extracted.title,
             url,
-            domain: parsed.hostname.replace(/^www\./, ''),
-            faviconUrl: `${parsed.origin}/favicon.ico`,
+            domain,
+            faviconUrl,
             content: extracted.content,
             queryOrigin: query
           })
@@ -361,6 +395,13 @@ export async function fetchAndSummarizeWeb(
     throw new Error('No enabled AI provider available for Deep Research subagent.')
   }
 
+  options.onProgress?.({
+    phase: 'synthesizing',
+    statusText: 'Cross-referencing data',
+    characterCount: 0,
+    minCharacters: 5000
+  })
+
   const formattedPages = allPages
     .map(
       (page, idx) =>
@@ -381,13 +422,16 @@ export async function fetchAndSummarizeWeb(
     '\n' +
     '3. FOCUS: Keep the PRIMARY RESEARCH TOPIC central, connecting surrounding angles into a coherent narrative.' +
     '\n' +
-    '4. LENGTH: In-depth Markdown synthesis of AT LEAST 1000 characters (typically 1000–4000); do not truncate.' +
+    '4. LENGTH: In-depth Markdown synthesis of AT LEAST 5000 characters (typically 5000–15000); do not truncate.' +
     '\n' +
     '5. CITATIONS: Ground every fact in the provided sources, citing source numbers (e.g. [Source 1]).' +
     '\n' +
     '6. FORMAT: Clear Markdown with headings, bullet points, and paragraphs; no greetings, preamble, or meta-commentary.'
   const queriesList = queries.map((q, i) => `${i + 1}. "${q}"`).join('\n')
   const userContent = `Research Title: "${title}"\n\nSearch Queries Executed:\n${queriesList}\n\nWeb Search Sources (${allPages.length} pages):\n\n${formattedPages}`
+
+  let accumulatedLength = 0
+  let lastNotificationTime = 0
 
   const result = await streamOpenAiCompletion(
     provider,
@@ -399,13 +443,33 @@ export async function fetchAndSummarizeWeb(
     [], // No tools for subagent
     options.signal || new AbortController().signal,
     {
-      onTextDelta: () => {},
+      onTextDelta: (delta) => {
+        accumulatedLength += delta.length
+        const now = Date.now()
+        const isThreshold = accumulatedLength >= 5000
+        if (now - lastNotificationTime >= 100 || isThreshold) {
+          lastNotificationTime = now
+          options.onProgress?.({
+            phase: isThreshold ? 'polishing' : 'synthesizing',
+            characterCount: accumulatedLength,
+            minCharacters: 5000,
+            statusText: isThreshold ? 'Polishing search...' : 'Synthesizing research findings'
+          })
+        }
+      },
       onReasoningDelta: () => {},
       onToolCallDelta: () => {}
     }
   )
 
   const summary = result.text.trim()
+
+  options.onProgress?.({
+    phase: 'polishing',
+    characterCount: summary.length,
+    minCharacters: 5000,
+    statusText: 'Polishing search...'
+  })
 
   return {
     title,

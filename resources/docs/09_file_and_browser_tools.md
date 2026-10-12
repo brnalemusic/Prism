@@ -76,8 +76,10 @@ Prism provides dedicated tools for retrieving and parsing web content without re
 | --- | --- | --- |
 | `read_page` | `url`, `maxCharacters` | Fetches and extracts clean Markdown/text from a specific web URL using fast HTTP DOM extraction |
 | `web_search` | `query`, `resultCount` | Quick DuckDuckGo search that automatically fetches and extracts content from top result pages |
-| `web_fetch` | `title`, `queries` | Deep research across multiple search angles synthesized by a dedicated subagent |
+| `web_fetch` | `title`, `queries` | Deep research across multiple search angles synthesized by a dedicated subagent (minimum 5,000 characters) |
 | `open_browser_link` | `url` | Launches the target HTTP(S) link in the user's default system browser |
 
 `read_page` is available in both **Chat mode** and **Harness mode** (both Plan and Build phases). It validates URLs against security policies (blocking loopback and private network addresses), follows redirects safely, extracts page titles and metadata, strips script and style boilerplate, and returns structured page content with clickable source cards in the UI.
+
+`web_fetch` activates a dedicated, contemplative Deep Research modal while running. The modal displays real-time character streaming progress against the 5,000-character target, elastic spring animations, a dynamic carousel cycling across discovered sources, accessed page titles, search angles, and page excerpts with bottom fade masks, and fluidly morphs into the "Deep Research" pill upon completion.
 

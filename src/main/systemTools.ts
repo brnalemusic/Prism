@@ -26,7 +26,8 @@ import {
   SessionMode,
   TodoState,
   ArtifactItem,
-  ProviderConfig
+  ProviderConfig,
+  DeepResearchProgressUpdate
 } from '../shared/types'
 
 import { loadConfig, saveConfig, SlashWorkflow } from './config'
@@ -2712,12 +2713,25 @@ export async function executeSystemTool(
         throw new Error('At least one search query or topic is required for web_fetch.')
       }
 
+      const onProgress = (update: DeepResearchProgressUpdate): void => {
+        if (event?.sender && chatId) {
+          safeSend(event.sender, 'chat-tool-update', {
+            chatId,
+            toolCallName: 'web_fetch',
+            update: {
+              deepResearch: update
+            }
+          })
+        }
+      }
+
       const result = await fetchAndSummarizeWeb(
         { title, queries },
         {
           provider,
           modelId,
-          signal
+          signal,
+          onProgress
         }
       )
       return JSON.stringify(result)

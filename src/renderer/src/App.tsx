@@ -33,6 +33,7 @@ import { RenderChatHistory } from './components/RenderChatHistory'
 import { PdfArtifactCard } from './components/PdfArtifactCard'
 import { PptxArtifactCard } from './components/PptxArtifactCard'
 import { GeneratedImageCard } from './components/GeneratedImageCard'
+import { DeepResearchCard } from './components/DeepResearchCard'
 import { TtsButton } from './components/TtsButton'
 import { CopyMessageButton } from './components/CopyMessageButton'
 import {
@@ -103,7 +104,9 @@ import type {
   HarnessContextSnapshot,
   HarnessPermissionMode,
   HarnessGitSnapshot,
-  WorkspaceKind
+  WorkspaceKind,
+  DeepResearchPageItem,
+  DeepResearchProgressUpdate
 } from '../../shared/types'
 import type { MemoryReviewStatus } from '../../shared/memoryCore'
 import { isPaidArcadiaModel } from '../../shared/arcadiaCatalog'
@@ -383,7 +386,10 @@ const AiMessage = React.memo(function AiMessage({
   )
   const streamStats = useStreamStats(visibleContent, !!msg.isStreaming)
   const isStreaming = Boolean(msg.isStreaming || streamStats.isStreaming)
-  const messageSources = useMemo(() => extractMessageSources(msg), [msg])
+  const messageSources = useMemo(
+    () => extractMessageSources(msg, { excludeRenderedSubagents: true }),
+    [msg]
+  )
   const nativeToolCalls = useMemo(
     () => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls),
     [msg.toolCalls, msg.streamingToolCalls]
@@ -391,6 +397,11 @@ const AiMessage = React.memo(function AiMessage({
   const hasActiveImageGeneration = nativeToolCalls.some(
     (toolCall) =>
       toolCall.name === 'generate_image' &&
+      (toolCall.status === 'writing' || toolCall.status === 'running')
+  )
+  const hasActiveDeepResearch = nativeToolCalls.some(
+    (toolCall) =>
+      toolCall.name === 'web_fetch' &&
       (toolCall.status === 'writing' || toolCall.status === 'running')
   )
 
@@ -518,6 +529,9 @@ const AiMessage = React.memo(function AiMessage({
         return <GeneratedImageCard key={key} toolCall={tc} chatId={currentChatId || ''}
           activityTitle={!isHarness ? getCustomToolLabel(tc.name, tc.status, tc.progressTitle ?? tc.args.progressTitle as string | undefined, tc.completedTitle ?? tc.args.completedTitle as string | undefined) : undefined} />
       }
+      if (tc.name === 'web_fetch') {
+        return <DeepResearchCard key={key} toolCall={tc} chatId={currentChatId || ''} />
+      }
       if (tc.name === 'to_ask') {
         // Render done-state summary inline; active wizard is handled by ChatPane.
         return (
@@ -622,8 +636,12 @@ const AiMessage = React.memo(function AiMessage({
     key: string,
     idSeed: string | number
   ): React.JSX.Element | null => {
+    if (tc.name === 'web_fetch') {
+      const card = renderNativeToolCard(tc, key, idSeed)
+      if (card) return card
+    }
     if (!isToolRowVisible(tc.status, tc, !!msg.isStreaming)) return null
-    if (['writing', 'running', 'cooldown'].includes(tc.status) && !['generate_image', 'to_ask'].includes(tc.name)) {
+    if (['writing', 'running', 'cooldown'].includes(tc.status) && !['generate_image', 'to_ask', 'web_fetch'].includes(tc.name)) {
       return <div key={key} className="flex items-center gap-1.5"><ToolCallIndicator tools={[tc]} /></div>
     }
     const card = renderNativeToolCard(tc, key, idSeed)
@@ -653,7 +671,8 @@ const AiMessage = React.memo(function AiMessage({
         tc.name !== 'render_chat_history' &&
         tc.name !== 'malformed_tool_call' &&
         tc.name !== 'create_mini_app' &&
-        tc.name !== 'generate_image'
+        tc.name !== 'generate_image' &&
+        tc.name !== 'web_fetch'
     )
     if (collapseProgress || hasThoughtBlock) return []
     return list.filter((tc) => isToolRowVisible(tc.status, tc, !!msg.isStreaming))
@@ -670,7 +689,8 @@ const AiMessage = React.memo(function AiMessage({
           tc.name !== 'render_chat_history' &&
           tc.name !== 'malformed_tool_call' &&
           tc.name !== 'create_mini_app' &&
-          tc.name !== 'generate_image'
+          tc.name !== 'generate_image' &&
+          tc.name !== 'web_fetch'
       ),
     [nativeToolCalls, inlineToolCallRefs]
   )
@@ -1220,6 +1240,7 @@ const AiMessage = React.memo(function AiMessage({
             activeToolLabel &&
             !chatTimeline &&
             !hasActiveImageGeneration &&
+            !hasActiveDeepResearch &&
             !hasInlineGenericToolRows &&
             !hasNativeToolRows &&
             !timelineHasToolRows &&
@@ -1233,7 +1254,8 @@ const AiMessage = React.memo(function AiMessage({
             msg.isStreaming &&
             !activeToolLabel &&
             inactivityLabel &&
-            !hasActiveImageGeneration && (
+            !hasActiveImageGeneration &&
+            !hasActiveDeepResearch && (
               <div className="flex items-center gap-1.5 mt-1.5 select-none">
                 <ToolCallIndicator overrideLabel={inactivityLabel} isItalic />
               </div>
@@ -5251,6 +5273,7 @@ function RealApp(): React.JSX.Element {
       searchTitles: string[]
       outputChunk: string
       runId?: string
+      deepResearch?: DeepResearchProgressUpdate
     }
 
     const pendingToolUpdates = new Map<string, PendingToolUpdateItem>()
@@ -5321,6 +5344,20 @@ function RealApp(): React.JSX.Element {
                     }
                     if (upd.runId) {
                       toolCall.runId = upd.runId
+                    }
+                    if (upd.deepResearch) {
+                      const currentProgress = toolCall.deepResearchProgress
+                      const existingPages = currentProgress?.pages || []
+                      const incomingPages = upd.deepResearch.pages || []
+                      const mergedPagesMap = new Map<string, DeepResearchPageItem>()
+                      for (const p of existingPages) mergedPagesMap.set(p.url, p)
+                      for (const p of incomingPages) mergedPagesMap.set(p.url, p)
+
+                      toolCall.deepResearchProgress = {
+                        ...currentProgress,
+                        ...upd.deepResearch,
+                        pages: Array.from(mergedPagesMap.values())
+                      }
                     }
 
                     toolCalls[toolCallIndex] = toolCall
@@ -5426,6 +5463,19 @@ function RealApp(): React.JSX.Element {
       }
       if (typeof update.runId === 'string') {
         existing.runId = update.runId
+      }
+      if (toolCallName === 'web_fetch' && update.deepResearch) {
+        const prevPages = existing.deepResearch?.pages || []
+        const newPage = update.deepResearch.newPage
+        const nextPages = newPage
+          ? [...prevPages.filter((p) => p.url !== newPage.url), newPage]
+          : update.deepResearch.pages || prevPages
+
+        existing.deepResearch = {
+          ...existing.deepResearch,
+          ...update.deepResearch,
+          pages: nextPages
+        }
       }
 
       pendingToolUpdates.set(key, existing)

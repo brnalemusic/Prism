@@ -240,7 +240,10 @@ export interface ExtractedMessageSources {
   fetchSubagents: DecodedFetchSubagent[]
 }
 
-export function extractMessageSources(msg: Message): ExtractedMessageSources {
+export function extractMessageSources(
+  msg: Message,
+  options?: { excludeRenderedSubagents?: boolean }
+): ExtractedMessageSources {
   const allTools: ToolCallItem[] = []
 
   if (msg.harnessRounds && Array.isArray(msg.harnessRounds)) {
@@ -255,6 +258,7 @@ export function extractMessageSources(msg: Message): ExtractedMessageSources {
     allTools.push(...msg.toolCalls)
   }
 
+  const hasInlineWebFetch = allTools.some((tc) => tc.name === 'web_fetch')
   const sources: HarnessSource[] = []
   const fetchSubagents: DecodedFetchSubagent[] = []
   const seenUrls = new Set<string>()
@@ -264,7 +268,7 @@ export function extractMessageSources(msg: Message): ExtractedMessageSources {
     if (!tool.result) continue
     const decoded = decodeHarnessToolResult(tool.result)
 
-    if (decoded.fetchSubagent) {
+    if (decoded.fetchSubagent && (!options?.excludeRenderedSubagents || !hasInlineWebFetch)) {
       const subagentKey = `${decoded.fetchSubagent.title || decoded.fetchSubagent.query}-${decoded.fetchSubagent.summary}`
       if (!seenSubagents.has(subagentKey)) {
         seenSubagents.add(subagentKey)
