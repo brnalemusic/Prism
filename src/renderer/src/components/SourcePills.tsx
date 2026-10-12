@@ -156,7 +156,7 @@ export function FetchSubagentPill({
               <button
                 type="button"
                 onClick={() => setIsExpanded(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11.5px] font-medium text-accent-primary hover:text-accent-secondary bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/20 hover:border-accent-primary/30 transition-all duration-150 cursor-pointer shadow-xs"
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11.5px] font-medium text-accent-primary hover:text-accent-secondary bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/20 hover:border-accent-primary/30 transition-interactive duration-150 cursor-pointer shadow-xs"
               >
                 <BookOpen size={13} weight="bold" />
                 <span>Read the full article</span>

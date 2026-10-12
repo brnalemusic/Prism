@@ -127,7 +127,7 @@ export function getStreamingCharMotion(delayMs: number, tint: boolean): Streamin
     }
   }
 
-  const unblur = tint && mode === 'max'
+  const unblur = tint
   const initial: TargetAndTransition = tint
     ? { opacity: 0, color: getStreamingAccentColor() }
     : { opacity: 0 }

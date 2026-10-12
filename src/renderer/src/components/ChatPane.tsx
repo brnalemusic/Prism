@@ -355,7 +355,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
               type="button"
               onClick={() => setIsProjectDropdownOpen((prev) => !prev)}
               className={clsx(
-                'group inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary border cursor-pointer',
+                'group inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-interactive duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary border cursor-pointer',
                 isProjectMissing
                   ? 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
                   : 'text-text-secondary/70 hover:bg-white/[0.06] hover:text-text-primary border-transparent hover:border-white/[0.08]'
@@ -462,7 +462,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                             void refreshRecentProjects()
                             if (isCurrent) onSelectFolder()
                           }}
-                          className="opacity-0 group-hover/item:opacity-100 p-0.5 rounded text-text-muted hover:text-status-error hover:bg-white/10 transition-all shrink-0 cursor-pointer"
+                          className="opacity-0 group-hover/item:opacity-100 p-0.5 rounded text-text-muted hover:text-status-error hover:bg-white/10 transition-interactive shrink-0 cursor-pointer"
                           title="Remove from Prism"
                         >
                           <Trash size={12} />
@@ -1110,7 +1110,7 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                       scrollToBottom('smooth')
                       setShowScrollButton(false)
                     }}
-                    className="true-glass pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.12] text-text-primary shadow-[var(--glass-shadow-md)] transition-all duration-150 hover:bg-white/[0.1] active:scale-95 cursor-pointer"
+                    className="true-glass pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.12] text-text-primary shadow-[var(--glass-shadow-md)] transition-interactive duration-150 hover:bg-white/[0.1] active:scale-95 cursor-pointer"
                     title="Scroll to bottom"
                   >
                     <LiquidGlassSurface

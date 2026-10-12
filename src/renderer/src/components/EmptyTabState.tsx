@@ -30,7 +30,7 @@ export const EmptyTabState: React.FC<EmptyTabStateProps> = ({ onNewTab }) => {
         <button
           type="button"
           onClick={onNewTab}
-          className="group relative inline-flex items-center gap-2.5 px-6 py-3 rounded-xl bg-white hover:bg-neutral-100 text-black font-semibold text-sm transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] shadow-[0_12px_32px_rgba(255,255,255,0.18)] cursor-pointer"
+          className="group relative inline-flex items-center gap-2.5 px-6 py-3 rounded-xl bg-white hover:bg-neutral-100 text-black font-semibold text-sm transition-interactive duration-200 hover:scale-[1.02] active:scale-[0.98] shadow-[0_12px_32px_rgba(255,255,255,0.18)] cursor-pointer"
         >
           <Plus
             size={18}

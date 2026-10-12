@@ -795,7 +795,7 @@ export const InputBar = React.memo(
                   <LiquidGlassSurface refraction={20} blur={2} opacity={0.66} specular={0.12} distortionRadius={22} />
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-all text-left"
+                    className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-interactive text-left"
                   >
                     <Paperclip size={15} className="text-text-secondary" />
                     <div className="flex flex-col">
@@ -811,7 +811,7 @@ export const InputBar = React.memo(
                       onOpenScreenshotModal?.()
                       setShowAttachMenu(false)
                     }}
-                    className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-all text-left"
+                    className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-interactive text-left"
                   >
                     <Camera size={16} className="text-text-secondary" />
                     <div className="flex flex-col">
@@ -828,7 +828,7 @@ export const InputBar = React.memo(
                         onSelectFolder?.()
                         setShowAttachMenu(false)
                       }}
-                      className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-all text-left"
+                      className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-interactive text-left"
                     >
                       <Folder size={16} className="text-accent-primary" />
                       <div className="flex min-w-0 flex-col">
@@ -848,7 +848,7 @@ export const InputBar = React.memo(
                           setShowAttachMenu(false)
                         }}
                         className={clsx(
-                          'w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-white/[0.07] transition-all text-left',
+                          'w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-white/[0.07] transition-interactive text-left',
                           isSearchEnabled ? 'text-accent-secondary' : 'text-text-primary'
                         )}
                       >
@@ -873,7 +873,7 @@ export const InputBar = React.memo(
                           onOpenYoutubeModal?.()
                           setShowAttachMenu(false)
                         }}
-                        className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-all text-left"
+                        className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-interactive text-left"
                       >
                         <CirclePlay size={16} className="text-accent-primary" />
                         <div className="flex flex-col">
@@ -892,7 +892,7 @@ export const InputBar = React.memo(
                       >
                         <button
                           onClick={() => setShowSkillsMenu(!showSkillsMenu)}
-                          className="w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-all text-left"
+                          className="w-full flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold text-text-primary hover:bg-white/[0.07] transition-interactive text-left"
                         >
                           <div className="flex items-center gap-2.5">
                             <Sparkle size={16} className="text-text-secondary" />
@@ -918,7 +918,7 @@ export const InputBar = React.memo(
                               {/* PowerPoint Skill */}
                               <button
                                 onClick={() => toggleSkill('pptx')}
-                                className="w-full flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-white/[0.04] transition-all"
+                                className="w-full flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-white/[0.04] transition-interactive"
                               >
                                 <div className="flex items-center gap-2">
                                   <FilePpt
@@ -949,7 +949,7 @@ export const InputBar = React.memo(
                               {/* PDF Skill */}
                               <button
                                 onClick={() => toggleSkill('pdf')}
-                                className="w-full flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-white/[0.04] transition-all"
+                                className="w-full flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-white/[0.04] transition-interactive"
                               >
                                 <div className="flex items-center gap-2">
                                   <FilePdf
@@ -980,7 +980,7 @@ export const InputBar = React.memo(
                               {/* Browser Skill */}
                               <button
                                 onClick={() => toggleSkill('browser')}
-                                className="w-full flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-white/[0.04] transition-all"
+                                className="w-full flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs font-medium text-text-primary hover:bg-white/[0.04] transition-interactive"
                               >
                                 <div className="flex items-center gap-2">
                                   <Globe
@@ -1159,7 +1159,7 @@ export const InputBar = React.memo(
                   disabled={disabled}
                   onClick={() => setShowHarnessPermissionMenu((open) => !open)}
                   className={clsx(
-                    'relative isolate flex items-center gap-1.5 overflow-hidden rounded-xl border px-2.5 py-1.5 text-[11px] font-medium transition-all duration-150 outline-none active:scale-[0.98]',
+                    'relative isolate flex items-center gap-1.5 overflow-hidden rounded-xl border px-2.5 py-1.5 text-[11px] font-medium transition-interactive duration-150 outline-none active:scale-[0.98]',
                     harnessPermissionMode === 'ask'
                       ? 'border-white/[0.09] bg-white/[0.035] text-text-secondary hover:bg-white/[0.07] hover:text-text-primary'
                       : harnessPermissionMode === 'independent'
@@ -1279,7 +1279,7 @@ export const InputBar = React.memo(
                   disabled={disabled}
                   onClick={() => setShowModeMenu(!showModeMenu)}
                   className={clsx(
-                    'relative isolate flex items-center gap-1.5 overflow-hidden rounded-xl border px-2.5 py-1.5 text-xs select-none transition-all duration-200 cursor-pointer outline-none hover:scale-[1.02] active:scale-[0.98]',
+                    'relative isolate flex items-center gap-1.5 overflow-hidden rounded-xl border px-2.5 py-1.5 text-xs select-none transition-interactive duration-200 cursor-pointer outline-none hover:scale-[1.02] active:scale-[0.98]',
                     sessionMode === 'conversation' &&
                       'border-white/[0.04] bg-white/[0.02] text-text-secondary hover:bg-white/[0.05]',
                     sessionMode === 'execution' &&
@@ -1343,7 +1343,7 @@ export const InputBar = React.memo(
                         onModeChange?.('conversation')
                       }}
                       className={clsx(
-                        'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-0.5 cursor-pointer',
+                        'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-interactive text-left mt-0.5 cursor-pointer',
                         sessionMode === 'conversation'
                           ? 'bg-white/[0.06] text-text-primary border border-white/10'
                           : 'border border-transparent hover:bg-white/[0.04] text-text-secondary hover:text-text-primary'
@@ -1377,7 +1377,7 @@ export const InputBar = React.memo(
                         onModeChange?.('execution')
                       }}
                       className={clsx(
-                        'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-0.5 cursor-pointer',
+                        'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-interactive text-left mt-0.5 cursor-pointer',
                         sessionMode === 'execution'
                           ? 'bg-accent-primary/[0.12] text-accent-primary border border-accent-primary/20'
                           : 'border border-transparent hover:bg-white/[0.04] text-text-secondary hover:text-text-primary'
@@ -1412,7 +1412,7 @@ export const InputBar = React.memo(
                         onModeChange?.('discipline')
                       }}
                       className={clsx(
-                        'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-all text-left mt-0.5 cursor-pointer',
+                        'w-full flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-interactive text-left mt-0.5 cursor-pointer',
                         sessionMode === 'discipline'
                           ? 'bg-accent-primary/[0.12] text-accent-primary border border-accent-primary/20'
                           : 'border border-transparent hover:bg-white/[0.04] text-text-secondary hover:text-text-primary'
@@ -1497,7 +1497,7 @@ export const InputBar = React.memo(
                     <button
                       type="button"
                       onClick={() => handleSend(undefined, 'queued')}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-text-secondary hover:text-text-primary text-xs font-medium transition-all active:scale-95 cursor-pointer shadow-[var(--glass-specular-top)]"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-text-secondary hover:text-text-primary text-xs font-medium transition-interactive active:scale-95 cursor-pointer shadow-[var(--glass-specular-top)]"
                       title="Queue message to send after AI completes (Enter)"
                     >
                       <ClockCountdown size={13} weight="bold" className="text-amber-400" />
@@ -1506,7 +1506,7 @@ export const InputBar = React.memo(
                     <button
                       type="button"
                       onClick={() => handleSend(undefined, 'steering')}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-accent-primary/[0.15] hover:bg-accent-primary/[0.25] text-accent-primary text-xs font-semibold transition-all active:scale-95 cursor-pointer shadow-[var(--glass-specular-top)]"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-accent-primary/[0.15] hover:bg-accent-primary/[0.25] text-accent-primary text-xs font-semibold transition-interactive active:scale-95 cursor-pointer shadow-[var(--glass-specular-top)]"
                       title="Send as orientation guidance at next step (Alt+Enter)"
                     >
                       <Compass size={13} weight="bold" />
@@ -1518,7 +1518,7 @@ export const InputBar = React.memo(
                   type="button"
                   onClick={() => onCancel?.()}
                   disabled={!onCancel}
-                  className="input-bar-processing-stop flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-150 active:scale-95 cursor-pointer"
+                  className="input-bar-processing-stop flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-interactive duration-150 active:scale-95 cursor-pointer"
                   title="Stop generation"
                   aria-label="Stop generation"
                 >

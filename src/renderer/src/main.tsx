@@ -2,40 +2,36 @@ import '@fontsource-variable/geist'
 import '@fontsource-variable/jetbrains-mono'
 import './assets/main.css'
 
-import { lazy, StrictMode, Suspense } from 'react'
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { IS_DEMO } from '../../shared/demo'
 import { UpdaterView } from './components/UpdaterView'
-import { StartupShell } from './components/StartupShell'
+import { QuickLauncher } from './components/QuickLauncher'
+import { DiscordVoiceGlowOverlay } from './components/DiscordVoiceGlowOverlay'
+import { DemoApp } from './components/demo/DemoApp'
+import App from './App'
 
-const RootApp = lazy(async () => {
+function RootApp(): React.JSX.Element {
   if (IS_DEMO) {
-    const { DemoApp } = await import('./components/demo/DemoApp')
-    return { default: DemoApp }
+    return <DemoApp />
   }
 
   // Secondary BrowserWindows use focused entrypoints so the launcher and
   // voice overlay do not parse the full chat application at startup.
   switch (window.location.hash) {
-    case '#launcher': {
-      const { QuickLauncher } = await import('./components/QuickLauncher')
-      return { default: QuickLauncher }
-    }
-    case '#voice-overlay': {
-      const { DiscordVoiceGlowOverlay } = await import('./components/DiscordVoiceGlowOverlay')
-      return { default: DiscordVoiceGlowOverlay }
-    }
+    case '#launcher':
+      return <QuickLauncher />
+    case '#voice-overlay':
+      return <DiscordVoiceGlowOverlay />
     case '#updater':
-      return { default: UpdaterView }
+      return <UpdaterView />
+    default:
+      return <App />
   }
-
-  return await import('./App')
-})
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Suspense fallback={<StartupShell isDemo={IS_DEMO} />}>
-      <RootApp />
-    </Suspense>
+    <RootApp />
   </StrictMode>
 )

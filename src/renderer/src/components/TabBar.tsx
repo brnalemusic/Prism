@@ -188,13 +188,13 @@ export const TabBar: React.FC<TabBarProps> = ({
                 setDraggedTabId(null)
               }}
               className={clsx(
-                'group relative flex h-8 items-center gap-2 rounded-xl px-2.5 text-xs font-medium cursor-pointer shrink flex-1 min-w-[80px] max-w-[180px] transition-colors duration-150',
+                'group relative flex h-8 items-center gap-2 rounded-xl px-2.5 text-xs font-medium cursor-pointer shrink flex-1 min-w-[80px] max-w-[180px] transition-[transform,background-color,border-color,color,opacity,box-shadow] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.98]',
                 isDragging
                   ? 'opacity-30 scale-95 border border-dashed border-accent-primary/40 bg-white/[0.02]'
                   : isDragOver
                     ? 'bg-accent-primary/15 border border-accent-primary/60 text-text-primary scale-[1.03] z-10'
                     : isActive
-                      ? 'bg-white/[0.08] text-text-primary shadow-[0_1px_6px_rgba(0,0,0,0.25)]'
+                      ? 'bg-white/[0.085] text-text-primary shadow-[var(--glass-specular-top),0_2px_8px_rgba(0,0,0,0.28)]'
                       : isVisible
                         ? 'bg-white/[0.03] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary'
                         : 'bg-transparent text-text-muted hover:bg-white/[0.03] hover:text-text-secondary'
@@ -242,7 +242,7 @@ export const TabBar: React.FC<TabBarProps> = ({
                   e.stopPropagation()
                   onCloseTab(tab.id)
                 }}
-                className="flex h-4.5 w-4.5 items-center justify-center rounded text-text-muted opacity-0 group-hover:opacity-100 hover:bg-white/[0.12] hover:text-text-primary transition-all duration-150 shrink-0"
+                className="flex h-4.5 w-4.5 items-center justify-center rounded text-text-muted opacity-0 group-hover:opacity-100 hover:bg-white/[0.12] hover:text-text-primary transition-[transform,background-color,border-color,color,opacity,box-shadow] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] shrink-0"
                 title="Close tab"
               >
                 <X size={11} />
@@ -278,7 +278,7 @@ export const TabBar: React.FC<TabBarProps> = ({
               disabled={isMaxTabs}
               title={isMaxTabs ? 'Maximum 10 tabs reached' : 'New tab'}
               className={clsx(
-                'flex h-8 px-2.5 items-center justify-center transition-all duration-150 cursor-pointer text-text-secondary hover:bg-white/[0.07] hover:text-text-primary active:scale-95',
+                'flex h-8 px-2.5 items-center justify-center transition-[transform,background-color,border-color,color,opacity,box-shadow] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] cursor-pointer text-text-secondary hover:bg-white/[0.07] hover:text-text-primary active:scale-95',
                 isMaxTabs && 'opacity-30 cursor-not-allowed hover:bg-transparent text-text-muted'
               )}
             >
@@ -292,7 +292,7 @@ export const TabBar: React.FC<TabBarProps> = ({
               onContextMenu={togglePlusMenu}
               title="More options"
               className={clsx(
-                'flex h-8 px-1.5 items-center justify-center transition-all duration-200 cursor-pointer text-text-secondary hover:bg-white/[0.07] hover:text-text-primary active:scale-95',
+                'flex h-8 px-1.5 items-center justify-center transition-[transform,background-color,border-color,color,opacity,box-shadow] duration-[180ms] ease-[cubic-bezier(0.16,1,0.3,1)] cursor-pointer text-text-secondary hover:bg-white/[0.07] hover:text-text-primary active:scale-95',
                 isPlusMenuOpen && 'bg-white/[0.08] text-text-primary'
               )}
             >

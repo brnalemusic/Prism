@@ -247,7 +247,7 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, ModelSelectorProps>
           disabled={disabled}
           onClick={() => setIsOpen(!isOpen)}
           className={clsx(
-            'relative isolate flex items-center gap-2 overflow-hidden rounded-xl px-3.5 py-1.5 text-xs sm:text-[13px] font-semibold outline-none transition-all duration-150 cursor-pointer shadow-[0_1px_6px_rgba(0,0,0,0.25)] active:scale-95',
+            'relative isolate flex items-center gap-2 overflow-hidden rounded-xl px-3.5 py-1.5 text-xs sm:text-[13px] font-semibold outline-none transition-interactive duration-150 cursor-pointer shadow-[0_1px_6px_rgba(0,0,0,0.25)] active:scale-95',
             isOpen
               ? 'bg-white/[0.1] text-text-primary'
               : 'bg-white/[0.04] text-text-primary hover:bg-white/[0.08]',

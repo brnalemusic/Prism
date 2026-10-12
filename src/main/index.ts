@@ -1986,6 +1986,9 @@ if (!gotTheLock) {
     // Start loading the renderer as soon as all synchronous IPC contracts are registered.
     createWindow()
     if (!IS_DEMO) {
+      // Pre-create secondary windows in the background so they are loaded and ready before use
+      createLauncherWindow()
+      createVoiceOverlayWindowInstance()
       // Safety fallback for unusual renderer startup failures where
       // ready-to-show is never emitted.
       setTimeout(scheduleDiscordGatewayStart, 5000)

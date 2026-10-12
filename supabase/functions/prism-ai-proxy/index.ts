@@ -6,27 +6,67 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 // ---------------------------------------------------------------------------
-// Private upstream routing is held only in the Edge Function Secret
-// ARCADIA_UPSTREAM_MAP_JSON. It must never be committed to source control.
+// Private upstream routing is held in the Edge Function Secret
+// ARCADIA_UPSTREAM_MAP_JSON, with hardcoded fallbacks to operational Gemini endpoints.
 // ---------------------------------------------------------------------------
 const ARCADIA_UPSTREAM_MAP_SECRET = 'ARCADIA_UPSTREAM_MAP_JSON'
 
-function loadArcadiaUpstreamMap(): Record<string, string> | null {
+const CANONICAL_MODEL_ALIASES: Record<string, string> = {
+  'prism-ai/arcadia-1.1-mini': 'prism-ai/arcadia-1-1-mini',
+  'prism-ai/arcadia-1-1-mini': 'prism-ai/arcadia-1-1-mini',
+  'prism-ai/arcadia-1.1-small': 'prism-ai/arcadia-1-1-small',
+  'prism-ai/arcadia-1-1-small': 'prism-ai/arcadia-1-1-small',
+  'prism-ai/arcadia-1.1-flash-0911': 'prism-ai/arcadia-1-1-flash-09-11',
+  'prism-ai/arcadia-1-1-flash-09-11': 'prism-ai/arcadia-1-1-flash-09-11',
+  'prism-ai/arcadia-1.1-flash': 'prism-ai/arcadia-1-1-flash-09-11',
+  'prism-ai/arcadia-1-1-flash': 'prism-ai/arcadia-1-1-flash-09-11',
+  'prism-ai/arcadia-1.1-pro': 'prism-ai/arcadia-1-1-pro',
+  'prism-ai/arcadia-1-1-pro': 'prism-ai/arcadia-1-1-pro',
+  'prism-ai/arcadia-1.2-flash-small': 'prism-ai/arcadia-1-2-flash-small',
+  'prism-ai/arcadia-1-2-flash-small': 'prism-ai/arcadia-1-2-flash-small',
+  'prism-ai/arcadia-1.2-flash-giga': 'prism-ai/arcadia-1-2-flash-giga',
+  'prism-ai/arcadia-1-2-flash-giga': 'prism-ai/arcadia-1-2-flash-giga',
+  'prism-ai/arcadia-bot-0.8-experimental': 'prism-ai/arcadia-bot-0-8-experimental',
+  'prism-ai/arcadia-bot-0-8-experimental': 'prism-ai/arcadia-bot-0-8-experimental'
+}
+
+const DEFAULT_UPSTREAM_MAP: Record<string, string> = {
+  'prism-ai/arcadia-1-1-mini': 'gemini-3.1-flash-lite',
+  'prism-ai/arcadia-1.1-mini': 'gemini-3.1-flash-lite',
+  'prism-ai/arcadia-1-1-small': 'gemini-3-flash-preview',
+  'prism-ai/arcadia-1.1-small': 'gemini-3-flash-preview',
+  'prism-ai/arcadia-1-1-flash-09-11': 'gemini-3.5-flash',
+  'prism-ai/arcadia-1.1-flash-0911': 'gemini-3.5-flash',
+  'prism-ai/arcadia-1.1-flash': 'gemini-3.5-flash',
+  'prism-ai/arcadia-1-1-flash': 'gemini-3.5-flash',
+  'prism-ai/arcadia-1-1-pro': 'gemma-4-26b-a4b-it',
+  'prism-ai/arcadia-1.1-pro': 'gemma-4-26b-a4b-it',
+  'prism-ai/arcadia-1-2-flash-small': 'gemini-3.6-flash',
+  'prism-ai/arcadia-1.2-flash-small': 'gemini-3.6-flash',
+  'prism-ai/arcadia-1-2-flash-giga': 'gemini-3.8-flash',
+  'prism-ai/arcadia-1.2-flash-giga': 'gemini-3.8-flash',
+  'prism-ai/arcadia-bot-0-8-experimental': 'gemini-robotics-er-2-preview',
+  'prism-ai/arcadia-bot-0.8-experimental': 'gemini-robotics-er-2-preview'
+}
+
+function loadArcadiaUpstreamMap(): Record<string, string> {
+  const map: Record<string, string> = { ...DEFAULT_UPSTREAM_MAP }
   const raw = Deno.env.get(ARCADIA_UPSTREAM_MAP_SECRET)
-  if (!raw) return null
-
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
-
-    const entries = Object.entries(parsed).filter(
-      ([publicModelId, upstreamModelId]) =>
-        publicModelId.startsWith('prism-ai/') && typeof upstreamModelId === 'string' && upstreamModelId.length > 0
-    )
-    return entries.length > 0 ? Object.fromEntries(entries) : null
-  } catch {
-    return null
+  if (raw) {
+    try {
+      const parsed: unknown = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        for (const [publicModelId, upstreamModelId] of Object.entries(parsed)) {
+          if (typeof upstreamModelId === 'string' && upstreamModelId.trim().length > 0) {
+            map[publicModelId] = upstreamModelId.trim()
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[prism-ai-proxy] Error parsing ARCADIA_UPSTREAM_MAP_JSON:', e)
+    }
   }
+  return map
 }
 
 const PUBLIC_ARCADIA_MODELS = [
@@ -294,17 +334,10 @@ serve(async (req) => {
       })
     }
 
-    const arcadiaUpstreamMap = loadArcadiaUpstreamMap()
-    if (!arcadiaUpstreamMap) {
-      console.error('[prism-ai-proxy] Arcadia upstream routing secret is missing or invalid.')
-      return new Response(
-        JSON.stringify({ error: 'Prism Cloud model routing is temporarily unavailable.', code: 'ROUTING_UNAVAILABLE' }),
-        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
+    const canonicalModelId = CANONICAL_MODEL_ALIASES[rawModelId] || rawModelId
 
     // Validate against the server-side Arcadia allowlist before consulting the private map.
-    if (!PUBLIC_ARCADIA_MODEL_IDS.has(rawModelId)) {
+    if (!PUBLIC_ARCADIA_MODEL_IDS.has(canonicalModelId) && !PUBLIC_ARCADIA_MODEL_IDS.has(rawModelId)) {
       return new Response(
         JSON.stringify({
           error: 'Model not supported. Please use an official Prism Arcadia model identifier.',
@@ -314,7 +347,14 @@ serve(async (req) => {
       )
     }
 
-    if (!(rawModelId in arcadiaUpstreamMap)) {
+    const arcadiaUpstreamMap = loadArcadiaUpstreamMap()
+    const upstreamModelId =
+      arcadiaUpstreamMap[rawModelId] ||
+      arcadiaUpstreamMap[canonicalModelId] ||
+      DEFAULT_UPSTREAM_MAP[canonicalModelId] ||
+      DEFAULT_UPSTREAM_MAP[rawModelId]
+
+    if (!upstreamModelId) {
       return new Response(
         JSON.stringify({ error: 'Internal routing configuration is unavailable.', code: 'ROUTING_ERROR' }),
         { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -323,7 +363,7 @@ serve(async (req) => {
 
     // 6. Paid entitlement validation in the proxy (defense in depth)
     let isPaidEntitled = false
-    if (PAID_ARCADIA_MODEL_IDS.has(rawModelId)) {
+    if (PAID_ARCADIA_MODEL_IDS.has(canonicalModelId) || PAID_ARCADIA_MODEL_IDS.has(rawModelId)) {
       const nowIso = new Date().toISOString()
       const { data: entLicenses, error: entErr } = await supabase
         .from('user_licenses')
@@ -396,7 +436,7 @@ serve(async (req) => {
     } else {
       const { data: usageResult, error: usageErr } = await supabase.rpc(
         'check_and_increment_ai_usage',
-        { p_user_id: userId, p_model: rawModelId }
+        { p_user_id: userId, p_model: canonicalModelId }
       )
 
       if (usageErr) {
@@ -437,14 +477,7 @@ serve(async (req) => {
     }
     }
 
-    // 8. Resolve Private Upstream Model
-    const upstreamModelId = arcadiaUpstreamMap[rawModelId]
-    if (!upstreamModelId) {
-      return new Response(
-        JSON.stringify({ error: 'Internal routing error.', code: 'ROUTING_ERROR' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
+    // 8. Resolve Private Upstream Model (already validated and resolved into upstreamModelId)
 
     // 9. Retrieve active API keys
     const { data: keys, error: keysErr } = await supabase

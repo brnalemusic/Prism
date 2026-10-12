@@ -17,6 +17,7 @@ import clsx from 'clsx'
 import { ToolCall } from './ActionLoader'
 import { RenderChatHistory } from './RenderChatHistory'
 import { Spinner } from './Spinner'
+import { LiquidGlassSurface } from './LiquidGlassSurface'
 
 import { isShortcutPressed } from '../utils'
 import { AppConfig } from '../../../main/config'
@@ -401,8 +402,10 @@ export function SearchModal({
   return (
     <div
       className={clsx(
-        'prism-modal-backdrop fixed inset-0 z-[100] flex items-center justify-center p-4 transition-all duration-300',
-        isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        'prism-modal-backdrop fixed inset-0 z-[100] flex items-center justify-center p-4 transition-opacity',
+        isOpen
+          ? 'opacity-100 duration-[190ms] ease-out'
+          : 'opacity-0 pointer-events-none duration-[140ms] ease-out'
       )}
     >
       {/* Backdrop */}
@@ -413,10 +416,19 @@ export function SearchModal({
         role="dialog"
         aria-modal="true"
         className={clsx(
-          'prism-modal-panel relative flex max-h-[min(760px,calc(100vh-32px))] w-full max-w-2xl flex-col overflow-hidden transition-all duration-300 transform',
-          isOpen ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'
+          'prism-modal-panel relative isolate flex max-h-[min(760px,calc(100vh-32px))] w-full max-w-2xl flex-col overflow-hidden transition-[transform,opacity] ease-[cubic-bezier(0.16,1,0.3,1)]',
+          isOpen
+            ? 'scale-100 translate-y-0 opacity-100 duration-[190ms]'
+            : 'scale-[0.98] translate-y-1.5 opacity-0 duration-[140ms]'
         )}
       >
+        <LiquidGlassSurface
+          refraction={26}
+          blur={2}
+          opacity={0.38}
+          specular={0.12}
+          distortionRadius={24}
+        />
         {/* Header */}
         <div className="p-6 pb-4 border-b border-white/[0.04] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">

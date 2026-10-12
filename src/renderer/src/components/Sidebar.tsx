@@ -310,7 +310,7 @@ export function Sidebar({
           {isOpen && onClose && (
             <button
               onClick={onClose}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-text-secondary/60 hover:bg-white/[0.06] hover:text-text-primary transition-all duration-150 cursor-pointer active:scale-95"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-text-secondary/60 hover:bg-white/[0.06] hover:text-text-primary transition-[transform,background-color,border-color,color,opacity,box-shadow] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] cursor-pointer active:scale-95"
               title="Collapse sidebar"
             >
               <SidebarSimple size={15} weight="bold" />
@@ -322,7 +322,7 @@ export function Sidebar({
         <div className="px-3 pb-1 pt-1 shrink-0">
           <button
             onClick={() => (activeView === 'harness' ? onStartHarness?.() : onNewChat())}
-            className="group flex w-full items-center justify-center gap-2.5 rounded-2xl bg-white/[0.055] hover:bg-white/[0.09] text-xs font-semibold text-text-primary transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] cursor-pointer py-2.5 px-3 shadow-[0_1px_6px_rgba(0,0,0,0.25)] active:scale-[0.97]"
+            className="group flex w-full items-center justify-center gap-2.5 rounded-2xl bg-white/[0.055] hover:bg-white/[0.09] text-xs font-semibold text-text-primary transition-[transform,background-color,border-color,color,opacity,box-shadow] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] cursor-pointer py-2.5 px-3 shadow-[0_1px_6px_rgba(0,0,0,0.25)] active:scale-[0.97]"
           >
             {activeView === 'harness' ? (
               <Code
@@ -397,7 +397,7 @@ export function Sidebar({
                   <div key={group.id} className="flex flex-col mb-1.5">
                     <button
                       onClick={() => toggleGroup(group.id)}
-                      className="group/btn flex items-center gap-2 px-2 py-1 rounded-lg text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-white/[0.025] transition-all duration-200 text-left w-full select-none cursor-pointer"
+                      className="group/btn flex items-center gap-2 px-2 py-1 rounded-lg text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-white/[0.025] transition-[transform,background-color,border-color,color,opacity,box-shadow] duration-[180ms] ease-[cubic-bezier(0.16,1,0.3,1)] text-left w-full select-none cursor-pointer"
                       title={group.isGeneral ? undefined : group.id}
                     >
                       <CaretIcon
@@ -440,10 +440,10 @@ export function Sidebar({
                               onLoadChat(chat.id)
                             }}
                             className={clsx(
-                              'min-h-[32px] w-full truncate rounded-xl px-2.5 py-1.5 pr-7 text-left text-xs transition-all duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] select-none cursor-pointer relative',
+                              'min-h-[32px] w-full truncate rounded-xl px-2.5 py-1.5 pr-7 text-left text-xs transition-[transform,background-color,border-color,color,opacity,box-shadow] duration-[180ms] ease-[cubic-bezier(0.16,1,0.3,1)] active:scale-[0.98] select-none cursor-pointer relative',
                               currentChatId === chat.id
-                                ? 'bg-white/[0.07] text-white font-semibold shadow-[0_1px_6px_rgba(0,0,0,0.22)]'
-                                : 'text-text-secondary/80 hover:bg-white/[0.035] hover:text-text-primary'
+                                ? 'bg-white/[0.075] text-white font-semibold shadow-[var(--glass-specular-top),0_2px_8px_rgba(0,0,0,0.22)]'
+                                : 'text-text-secondary/80 hover:bg-white/[0.045] hover:text-text-primary'
                             )}
                             title={chat.title}
                           >
@@ -472,7 +472,7 @@ export function Sidebar({
                             onClick={(e) => handleDelete(e, chat.id)}
                             disabled={isDeleting === chat.id}
                             className={clsx(
-                              'absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-text-muted opacity-0 scale-95 transition-all duration-200 hover:bg-white/[0.06] hover:text-status-error hover:scale-105 group-hover:opacity-100 group-hover:scale-100 active:scale-90 cursor-pointer',
+                              'absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-text-muted opacity-0 scale-95 transition-[transform,background-color,border-color,color,opacity,box-shadow] duration-[180ms] ease-[cubic-bezier(0.16,1,0.3,1)] hover:bg-white/[0.06] hover:text-status-error hover:scale-105 group-hover:opacity-100 group-hover:scale-100 active:scale-90 cursor-pointer',
                               isDeleting === chat.id && 'opacity-100 animate-pulse'
                             )}
                             title="Delete chat"
@@ -484,7 +484,7 @@ export function Sidebar({
                       {group.chats.length > 5 && (
                         <button
                           onClick={() => setViewMoreGroupId(group.id)}
-                          className="w-full flex items-center justify-center gap-1 text-center py-1.5 px-2 text-[11px] font-medium text-text-muted hover:text-white hover:bg-white/[0.03] rounded-lg transition-all duration-200 mt-0.5 cursor-pointer"
+                          className="w-full flex items-center justify-center gap-1 text-center py-1.5 px-2 text-[11px] font-medium text-text-muted hover:text-white hover:bg-white/[0.03] rounded-lg transition-[transform,background-color,border-color,color,opacity,box-shadow] duration-[180ms] ease-[cubic-bezier(0.16,1,0.3,1)] mt-0.5 cursor-pointer"
                         >
                           <span>View more ({group.chats.length - 5}+)</span>
                           <CaretRight size={11} />
@@ -605,7 +605,7 @@ function NavItem({
       {badge !== undefined && (
         <span
           className={clsx(
-            'ml-auto flex min-w-[18px] items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-medium transition-all duration-300',
+            'ml-auto flex min-w-[18px] items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-medium transition-[transform,background-color,border-color,color,opacity,box-shadow] duration-200',
             label === 'Settings' && pulse
               ? 'bg-white/[0.07] border border-white/15 text-white font-mono hero-settings-badge'
               : 'bg-white/[0.04] text-text-muted'

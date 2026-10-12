@@ -3,7 +3,7 @@ import { AnswerPrismPill } from './components/AnswerPrismPill'
 import { useGitRecoveries } from './hooks/useGitRecoveries'
 import { buildChatTimeline, anchorStreamingCalls, bindChatTool, upsertChatRound, finishChatTools } from './chatTimeline'
 import { WorkTimeline } from './components/WorkTimeline'
-import React, { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import ReactMarkdown, { Components } from 'react-markdown'
 import { PrismBackground } from './components/PrismBackground'
@@ -126,20 +126,10 @@ import {
 } from '../../shared/harnessPlanCommand'
 import { usePerformanceLoad, usePerformanceMode } from './hooks/usePerformanceMode'
 
-const DiscordVoiceGlowOverlay = lazy(() =>
-  import('./components/DiscordVoiceGlowOverlay').then(({ DiscordVoiceGlowOverlay }) => ({
-    default: DiscordVoiceGlowOverlay
-  }))
-)
-const BrowserPane = lazy(() =>
-  import('./components/BrowserPane').then(({ BrowserPane }) => ({ default: BrowserPane }))
-)
-const QuickLauncher = lazy(() =>
-  import('./components/QuickLauncher').then(({ QuickLauncher }) => ({ default: QuickLauncher }))
-)
-const SettingsView = lazy(() =>
-  import('./components/SettingsView').then(({ SettingsView }) => ({ default: SettingsView }))
-)
+import { DiscordVoiceGlowOverlay } from './components/DiscordVoiceGlowOverlay'
+import { BrowserPane } from './components/BrowserPane'
+import { QuickLauncher } from './components/QuickLauncher'
+import { SettingsView } from './components/SettingsView'
 
 const MarkdownComponents: Components = {
   a: ({ href, children, className, style, ...props }: React.ComponentPropsWithoutRef<'a'>) => {
@@ -1161,8 +1151,8 @@ const AiMessage = React.memo(function AiMessage({
                   rehypePlugins={
                     msg.isStreaming
                       ? [
-                          ...STATIC_COMPLETED_REHYPE_PLUGINS,
-                          createStreamingFadeRehypePlugin(streamStats, startOffset)
+                          createStreamingFadeRehypePlugin(streamStats, startOffset),
+                          ...STATIC_COMPLETED_REHYPE_PLUGINS
                         ]
                       : STATIC_COMPLETED_REHYPE_PLUGINS
                   }
@@ -1184,7 +1174,7 @@ const AiMessage = React.memo(function AiMessage({
                   <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base">
                     <ReactMarkdown remarkPlugins={STATIC_REMARK_PLUGINS}
                       rehypePlugins={msg.isStreaming
-                        ? [...STATIC_COMPLETED_REHYPE_PLUGINS, createStreamingFadeRehypePlugin(streamStats, entry.textOffset)]
+                        ? [createStreamingFadeRehypePlugin(streamStats, entry.textOffset), ...STATIC_COMPLETED_REHYPE_PLUGINS]
                         : STATIC_COMPLETED_REHYPE_PLUGINS}
                       components={markdownComponents}>
                       {hideInternalImageReferences(entry.content)}
@@ -1844,7 +1834,7 @@ const UserMessageRow = React.memo(function UserMessageRow({
           <span>Queued</span>
         </div>
       )}
-      <div className="rounded-[22px] bg-white/[0.045] shadow-[var(--glass-specular-top),0_10px_28px_-10px_rgba(0,0,0,0.4)] px-5 py-3.5 text-[14.5px] leading-relaxed text-text-primary max-w-[75%] select-text">
+      <div className="rounded-[22px] bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.04))] ring-1 ring-white/[0.04] shadow-[var(--glass-specular-top),0_10px_28px_-10px_rgba(0,0,0,0.45)] px-5 py-3.5 text-[14.5px] leading-relaxed text-text-primary max-w-[75%] select-text">
         {msg.sourceChatId && (
           <button
             type="button"
@@ -2426,13 +2416,11 @@ function RealApp(): React.JSX.Element {
   // temporary imperceptible step-down while any tab streams/processes.
   const { mode: performanceMode } = usePerformanceMode()
   void performanceMode
-  const isHeavyLoad = useMemo(
-    () =>
-      tabs.some(
-        (tab) => tab.isProcessing || tab.messages.some((msg) => msg.isStreaming || msg.isThinking)
-      ) || harnessTabs.some((tab) => tab.isProcessing),
-    [tabs, harnessTabs]
-  )
+  const isHeavyLoad = useMemo(() => {
+    const processingTabsCount = tabs.filter((tab) => tab.isProcessing).length
+    const processingHarnessCount = harnessTabs.filter((tab) => tab.isProcessing).length
+    return processingTabsCount + processingHarnessCount > 1
+  }, [tabs, harnessTabs])
   usePerformanceLoad(isHeavyLoad, 800, performanceMode !== 'performance')
 
   const tabsRef = useRef(tabs)
@@ -5820,11 +5808,7 @@ function RealApp(): React.JSX.Element {
   }
 
   if (route === '#voice-overlay') {
-    return (
-      <Suspense fallback={null}>
-        <DiscordVoiceGlowOverlay />
-      </Suspense>
-    )
+    return <DiscordVoiceGlowOverlay />
   }
 
   if (route === '#launcher') {
