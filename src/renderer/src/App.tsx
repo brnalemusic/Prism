@@ -64,7 +64,11 @@ import {
   useStreamStats,
   CodeBlock
 } from './components/AnimatedStreamingText'
-import { STATIC_COMPLETED_REHYPE_PLUGINS, STATIC_REMARK_PLUGINS } from './markdownRenderer'
+import {
+  STATIC_COMPLETED_REHYPE_PLUGINS,
+  STATIC_REMARK_PLUGINS,
+  STREAMING_REMARK_PLUGINS
+} from './markdownRenderer'
 import clsx from 'clsx'
 import {
   Quotes,
@@ -378,6 +382,7 @@ const AiMessage = React.memo(function AiMessage({
     [msg.content]
   )
   const streamStats = useStreamStats(visibleContent, !!msg.isStreaming)
+  const isStreaming = Boolean(msg.isStreaming || streamStats.isStreaming)
   const messageSources = useMemo(() => extractMessageSources(msg), [msg])
   const nativeToolCalls = useMemo(
     () => consolidateToolCalls(msg.toolCalls, msg.streamingToolCalls),
@@ -1147,13 +1152,10 @@ const AiMessage = React.memo(function AiMessage({
                 className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
               >
                 <ReactMarkdown
-                  remarkPlugins={STATIC_REMARK_PLUGINS}
+                  remarkPlugins={isStreaming ? STREAMING_REMARK_PLUGINS : STATIC_REMARK_PLUGINS}
                   rehypePlugins={
-                    msg.isStreaming
-                      ? [
-                          createStreamingFadeRehypePlugin(streamStats, startOffset),
-                          ...STATIC_COMPLETED_REHYPE_PLUGINS
-                        ]
+                    isStreaming
+                      ? [createStreamingFadeRehypePlugin(streamStats, startOffset)]
                       : STATIC_COMPLETED_REHYPE_PLUGINS
                   }
                   components={markdownComponents}
@@ -1172,11 +1174,15 @@ const AiMessage = React.memo(function AiMessage({
                 ? renderTimelineTool(entry.tool, entry.key, entry.key)
                 : (
                   <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base">
-                    <ReactMarkdown remarkPlugins={STATIC_REMARK_PLUGINS}
-                      rehypePlugins={msg.isStreaming
-                        ? [createStreamingFadeRehypePlugin(streamStats, entry.textOffset), ...STATIC_COMPLETED_REHYPE_PLUGINS]
-                        : STATIC_COMPLETED_REHYPE_PLUGINS}
-                      components={markdownComponents}>
+                    <ReactMarkdown
+                      remarkPlugins={isStreaming ? STREAMING_REMARK_PLUGINS : STATIC_REMARK_PLUGINS}
+                      rehypePlugins={
+                        isStreaming
+                          ? [createStreamingFadeRehypePlugin(streamStats, entry.textOffset)]
+                          : STATIC_COMPLETED_REHYPE_PLUGINS
+                      }
+                      components={markdownComponents}
+                    >
                       {hideInternalImageReferences(entry.content)}
                     </ReactMarkdown>
                   </div>

@@ -82,6 +82,8 @@ function rehypeParseMath(): (tree: HastNode) => void {
   }
 }
 
+export const STREAMING_REMARK_PLUGINS = [remarkGfm]
+
 export const STATIC_REMARK_PLUGINS = [
   remarkGfm,
   remarkMath,
