@@ -121,35 +121,45 @@ export function DeepResearchCard({ toolCall }: DeepResearchCardProps): React.JSX
     return progress?.pages || []
   }, [progress?.pages])
 
-  // Real-time character progress calculation (minimum 5,000 chars required)
+  // Global monotonic progress calculation:
+  // Combines queries discovery (up to 15%), sources indexing (up to 20%), and synthesis streaming (up to 65%).
+  // It guarantees the percentage ONLY ever increases and NEVER regresses.
   const characterCount = progress?.characterCount || 0
   const minCharacters = progress?.minCharacters || 5000
+  const highestPercentRef = useRef(0)
 
-  // Calculate percentage: if subagent is synthesizing, compute strictly from characterCount;
-  // during searching/reading phases, show a subtle preparation progress (0% - 15%).
   const calculatedPercent = useMemo(() => {
-    if (progress?.phase === 'synthesizing' || progress?.phase === 'polishing') {
-      return Math.min(100, Math.floor((characterCount / minCharacters) * 100))
+    let raw = 0
+    if (characterCount >= minCharacters || progress?.phase === 'polishing') {
+      raw = 100
+    } else {
+      // 1. Queries discovery progression: up to 15%
+      const queriesScore = Math.min(15, Math.floor((Math.max(1, queries.length) / 5) * 15))
+      // 2. Sources reading and indexing progression: up to 20%
+      const pagesScore = Math.min(20, Math.floor((pages.length / 35) * 20))
+      // 3. Subagent text synthesis progression: up to 65%
+      const synthesisScore = Math.min(65, Math.floor((characterCount / minCharacters) * 65))
+
+      raw = queriesScore + pagesScore + synthesisScore
     }
-    if (progress?.phase === 'reading' && pages.length > 0) {
-      return Math.min(15, Math.floor((pages.length / 10) * 15))
-    }
-    if (progress?.phase === 'searching') {
-      return 5
-    }
-    return 0
-  }, [progress?.phase, characterCount, minCharacters, pages.length])
+
+    const monotonicValue = Math.max(highestPercentRef.current, Math.min(100, raw))
+    highestPercentRef.current = monotonicValue
+    return monotonicValue
+  }, [queries.length, pages.length, characterCount, minCharacters, progress?.phase])
 
   // Polishing text morph state: when 100% is reached, wait gracefully before showing "Polishing search..."
+  const hasReached100Ref = useRef(false)
   const [showPolishingText, setShowPolishingText] = useState(false)
+
   useEffect(() => {
-    if (calculatedPercent >= 100) {
+    if (calculatedPercent >= 100 && !hasReached100Ref.current) {
+      hasReached100Ref.current = true
       const timer = setTimeout(() => {
         setShowPolishingText(true)
       }, 1200)
       return () => clearTimeout(timer)
     }
-    setShowPolishingText(false)
     return undefined
   }, [calculatedPercent])
 
@@ -165,37 +175,53 @@ export function DeepResearchCard({ toolCall }: DeepResearchCardProps): React.JSX
     }
   }, [])
 
-  // Random facet carousel selection
+  // Random facet carousel selection:
+  // Using refs for queries, pages, and current facet ensures the interval timer is STABLE
+  // and is NOT torn down/restarted by streaming character updates or new incoming pages.
+  const queriesRef = useRef(queries)
+  queriesRef.current = queries
+
+  const pagesRef = useRef(pages)
+  pagesRef.current = pages
+
   const [facet, setFacet] = useState<CarouselFacet>({
     id: 'initial',
     type: 'status-phrase',
     data: 'Conducting in-depth research'
   })
 
+  const facetRef = useRef(facet)
+  facetRef.current = facet
+
   const facetIndexRef = useRef(0)
+  const isActive = toolCall.status === 'running' || toolCall.status === 'writing'
 
   useEffect(() => {
-    if (toolCall.status !== 'running' && toolCall.status !== 'writing') return undefined
+    if (!isActive) return undefined
 
-    const cycleInterval = setInterval(() => {
+    const pickNextFacet = (): void => {
+      const currentQueries = queriesRef.current
+      const currentPages = pagesRef.current
+      const currentFacet = facetRef.current
+
       facetIndexRef.current++
       const availableTypes: CarouselFacetType[] = ['status-phrase']
 
-      if (queries.length > 0) {
+      if (currentQueries.length > 0) {
         availableTypes.push('searching-about')
       }
-      if (pages.length > 0) {
+      if (currentPages.length > 0) {
         availableTypes.push('floating-portal')
         availableTypes.push('accessing-pages')
         availableTypes.push('reading-about')
-        const pagesWithSnippet = pages.filter((p) => p.snippet && p.snippet.length > 30)
+        const pagesWithSnippet = currentPages.filter((p) => p.snippet && p.snippet.length > 30)
         if (pagesWithSnippet.length > 0) {
           availableTypes.push('page-summary')
         }
       }
 
       // Filter out the current type to guarantee dynamic variety across steps
-      const candidateTypes = availableTypes.filter((t) => t !== facet.type)
+      const candidateTypes = availableTypes.filter((t) => t !== currentFacet.type)
       const selectedType =
         candidateTypes.length > 0
           ? candidateTypes[Math.floor(Math.random() * candidateTypes.length)]
@@ -204,32 +230,31 @@ export function DeepResearchCard({ toolCall }: DeepResearchCardProps): React.JSX
       let facetData: any = null
       switch (selectedType) {
         case 'floating-portal': {
-          facetData = pages[Math.floor(Math.random() * pages.length)]
+          facetData = currentPages[Math.floor(Math.random() * currentPages.length)]
           break
         }
         case 'accessing-pages': {
-          // Select 1 to 2 pages to access
-          const sampleCount = Math.min(pages.length, Math.random() > 0.5 ? 2 : 1)
-          const shuffled = [...pages].sort(() => 0.5 - Math.random())
+          const sampleCount = Math.min(currentPages.length, Math.random() > 0.5 ? 2 : 1)
+          const shuffled = [...currentPages].sort(() => 0.5 - Math.random())
           facetData = shuffled.slice(0, sampleCount)
           break
         }
         case 'reading-about': {
-          facetData = pages[Math.floor(Math.random() * pages.length)]
+          facetData = currentPages[Math.floor(Math.random() * currentPages.length)]
           break
         }
         case 'searching-about': {
-          facetData = queries[Math.floor(Math.random() * queries.length)]
+          facetData = currentQueries[Math.floor(Math.random() * currentQueries.length)]
           break
         }
         case 'page-summary': {
-          const eligible = pages.filter((p) => p.snippet && p.snippet.length > 30)
-          facetData = eligible[Math.floor(Math.random() * eligible.length)] || pages[0]
+          const eligible = currentPages.filter((p) => p.snippet && p.snippet.length > 30)
+          facetData = eligible[Math.floor(Math.random() * eligible.length)] || currentPages[0]
           break
         }
         case 'status-phrase':
         default: {
-          const phrases = CONTEMPLATIVE_PHRASES.filter((p) => p !== facet.data)
+          const phrases = CONTEMPLATIVE_PHRASES.filter((p) => p !== currentFacet.data)
           facetData = phrases[Math.floor(Math.random() * phrases.length)]
           break
         }
@@ -240,10 +265,23 @@ export function DeepResearchCard({ toolCall }: DeepResearchCardProps): React.JSX
         type: selectedType,
         data: facetData
       })
-    }, 3400)
+    }
 
-    return () => clearInterval(cycleInterval)
-  }, [toolCall.status, queries, pages, facet.type, facet.data])
+    // Initial transition after 1.4s so the user quickly sees dynamic facets
+    const initialTimeout = setTimeout(() => {
+      pickNextFacet()
+    }, 1400)
+
+    // Regular interval running steadily every 3.2s
+    const cycleInterval = setInterval(() => {
+      pickNextFacet()
+    }, 3200)
+
+    return () => {
+      clearTimeout(initialTimeout)
+      clearInterval(cycleInterval)
+    }
+  }, [isActive])
 
   // Morph to completion pill when finished
   if (toolCall.status === 'done') {

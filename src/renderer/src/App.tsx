@@ -5353,10 +5353,25 @@ function RealApp(): React.JSX.Element {
                       for (const p of existingPages) mergedPagesMap.set(p.url, p)
                       for (const p of incomingPages) mergedPagesMap.set(p.url, p)
 
+                      const prevChars = currentProgress?.characterCount || 0
+                      const incomingChars = upd.deepResearch.characterCount || 0
+                      const maxChars = Math.max(prevChars, incomingChars)
+
+                      const PHASE_ORDER: Record<string, number> = { searching: 1, reading: 2, synthesizing: 3, polishing: 4 }
+                      const prevPhase = currentProgress?.phase
+                      const incomingPhase = upd.deepResearch.phase
+                      const resolvedPhase =
+                        incomingPhase && (!prevPhase || (PHASE_ORDER[incomingPhase] || 0) >= (PHASE_ORDER[prevPhase] || 0))
+                          ? incomingPhase
+                          : prevPhase
+
                       toolCall.deepResearchProgress = {
                         ...currentProgress,
                         ...upd.deepResearch,
-                        pages: Array.from(mergedPagesMap.values())
+                        pages: Array.from(mergedPagesMap.values()),
+                        characterCount: maxChars,
+                        minCharacters: upd.deepResearch.minCharacters || currentProgress?.minCharacters || 5000,
+                        phase: resolvedPhase
                       }
                     }
 
@@ -5471,10 +5486,25 @@ function RealApp(): React.JSX.Element {
           ? [...prevPages.filter((p) => p.url !== newPage.url), newPage]
           : update.deepResearch.pages || prevPages
 
+        const prevChars = existing.deepResearch?.characterCount || 0
+        const incomingChars = update.deepResearch.characterCount || 0
+        const maxChars = Math.max(prevChars, incomingChars)
+
+        const PHASE_ORDER: Record<string, number> = { searching: 1, reading: 2, synthesizing: 3, polishing: 4 }
+        const prevPhase = existing.deepResearch?.phase
+        const incomingPhase = update.deepResearch.phase
+        const resolvedPhase =
+          incomingPhase && (!prevPhase || (PHASE_ORDER[incomingPhase] || 0) >= (PHASE_ORDER[prevPhase] || 0))
+            ? incomingPhase
+            : prevPhase
+
         existing.deepResearch = {
           ...existing.deepResearch,
           ...update.deepResearch,
-          pages: nextPages
+          pages: nextPages,
+          characterCount: maxChars,
+          minCharacters: update.deepResearch.minCharacters || existing.deepResearch?.minCharacters || 5000,
+          phase: resolvedPhase
         }
       }
 
