@@ -48,16 +48,45 @@ const CONTEMPLATIVE_PHRASES = [
   'Synthesizing multi-source intelligence',
   'Analyzing search angles',
   'Verifying authoritative references',
-  'Validating empirical claims'
+  'Validating empirical claims',
+  'Uncovering contextual nuances',
+  'Evaluating source reliability',
+  'Connecting disparate viewpoints',
+  'Filtering peripheral information',
+  'Triangulating domain perspectives',
+  'Extracting salient takeaways',
+  'Investigating primary sources',
+  'Aggregating cross-domain findings',
+  'Distilling complex arguments',
+  'Tracking factual corroboration',
+  'Synthesizing emerging patterns',
+  'Refining investigative depth'
 ]
+
+function getFacetDuration(type: CarouselFacetType): number {
+  switch (type) {
+    case 'status-phrase':
+      return 3000 // 3s for simple loose texts
+    case 'page-summary':
+      return 6500 // 6.5s for page summaries so text streams and is read comfortably
+    case 'floating-portal':
+    case 'accessing-pages':
+    case 'reading-about':
+    case 'searching-about':
+    default:
+      return 5000 // 5s for cards and search elements
+  }
+}
 
 function TypewriterText({
   text,
-  speed = 22,
+  speed = 20,
+  step = 1,
   className
 }: {
   text: string
   speed?: number
+  step?: number
   className?: string
 }): React.JSX.Element {
   const reduced = useReducedMotion()
@@ -72,7 +101,7 @@ function TypewriterText({
     setDisplayedCount(0)
     let current = 0
     const interval = setInterval(() => {
-      current++
+      current = Math.min(text.length, current + step)
       setDisplayedCount(current)
       if (current >= text.length) {
         clearInterval(interval)
@@ -80,7 +109,7 @@ function TypewriterText({
     }, speed)
 
     return () => clearInterval(interval)
-  }, [text, speed, reduced])
+  }, [text, speed, step, reduced])
 
   return (
     <span className={className}>
@@ -176,7 +205,7 @@ export function DeepResearchCard({ toolCall }: DeepResearchCardProps): React.JSX
   }, [])
 
   // Random facet carousel selection:
-  // Using refs for queries, pages, and current facet ensures the interval timer is STABLE
+  // Using refs for queries, pages, and current facet ensures the timer is STABLE
   // and is NOT torn down/restarted by streaming character updates or new incoming pages.
   const queriesRef = useRef(queries)
   queriesRef.current = queries
@@ -196,8 +225,17 @@ export function DeepResearchCard({ toolCall }: DeepResearchCardProps): React.JSX
   const facetIndexRef = useRef(0)
   const isActive = toolCall.status === 'running' || toolCall.status === 'writing'
 
+  // Anti-repeat tracking: ensure elements/sites/loose texts are not repeated
+  // until everything has been showcased across the entire pool.
+  const visitedUrlsRef = useRef<Set<string>>(new Set())
+  const visitedPhrasesRef = useRef<Set<string>>(new Set(['Conducting in-depth research']))
+  const visitedQueriesRef = useRef<Set<string>>(new Set())
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+
   useEffect(() => {
     if (!isActive) return undefined
+
+    const getPageKey = (p: DeepResearchPageItem): string => p.url || p.domain || p.title
 
     const pickNextFacet = (): void => {
       const currentQueries = queriesRef.current
@@ -220,7 +258,7 @@ export function DeepResearchCard({ toolCall }: DeepResearchCardProps): React.JSX
         }
       }
 
-      // Filter out the current type to guarantee dynamic variety across steps
+      // Filter out the current type to guarantee dynamic variety across transitions
       const candidateTypes = availableTypes.filter((t) => t !== currentFacet.type)
       const selectedType =
         candidateTypes.length > 0
@@ -228,58 +266,107 @@ export function DeepResearchCard({ toolCall }: DeepResearchCardProps): React.JSX
           : availableTypes[Math.floor(Math.random() * availableTypes.length)]
 
       let facetData: any = null
+
       switch (selectedType) {
-        case 'floating-portal': {
-          facetData = currentPages[Math.floor(Math.random() * currentPages.length)]
-          break
-        }
-        case 'accessing-pages': {
-          const sampleCount = Math.min(currentPages.length, Math.random() > 0.5 ? 2 : 1)
-          const shuffled = [...currentPages].sort(() => 0.5 - Math.random())
-          facetData = shuffled.slice(0, sampleCount)
-          break
-        }
+        case 'floating-portal':
         case 'reading-about': {
-          facetData = currentPages[Math.floor(Math.random() * currentPages.length)]
+          let unvisited = currentPages.filter((p) => !visitedUrlsRef.current.has(getPageKey(p)))
+          if (unvisited.length === 0) {
+            // All sites were shown; reset pool only now
+            visitedUrlsRef.current.clear()
+            unvisited = currentPages.filter((p) => !currentFacet.data || getPageKey(p) !== getPageKey(currentFacet.data))
+            if (unvisited.length === 0) unvisited = currentPages
+          }
+          const chosen = unvisited[Math.floor(Math.random() * unvisited.length)] || currentPages[0]
+          visitedUrlsRef.current.add(getPageKey(chosen))
+          facetData = chosen
           break
         }
-        case 'searching-about': {
-          facetData = currentQueries[Math.floor(Math.random() * currentQueries.length)]
+
+        case 'accessing-pages': {
+          let unvisited = currentPages.filter((p) => !visitedUrlsRef.current.has(getPageKey(p)))
+          if (unvisited.length === 0) {
+            visitedUrlsRef.current.clear()
+            unvisited = [...currentPages]
+          }
+          const sampleCount = Math.min(unvisited.length, Math.random() > 0.5 ? 2 : 1)
+          const shuffled = [...unvisited].sort(() => 0.5 - Math.random())
+          const chosenPages = shuffled.slice(0, sampleCount)
+          chosenPages.forEach((p) => visitedUrlsRef.current.add(getPageKey(p)))
+          facetData = chosenPages
           break
         }
+
         case 'page-summary': {
-          const eligible = currentPages.filter((p) => p.snippet && p.snippet.length > 30)
-          facetData = eligible[Math.floor(Math.random() * eligible.length)] || currentPages[0]
+          const eligiblePages = currentPages.filter((p) => p.snippet && p.snippet.length > 30)
+          let unvisited = eligiblePages.filter((p) => !visitedUrlsRef.current.has(getPageKey(p)))
+          if (unvisited.length === 0) {
+            // If all snippet pages were already visited, reset visited sites
+            visitedUrlsRef.current.clear()
+            unvisited = eligiblePages.filter((p) => !currentFacet.data || getPageKey(p) !== getPageKey(currentFacet.data))
+            if (unvisited.length === 0) unvisited = eligiblePages
+          }
+          const chosen = unvisited[Math.floor(Math.random() * unvisited.length)] || eligiblePages[0] || currentPages[0]
+          visitedUrlsRef.current.add(getPageKey(chosen))
+          facetData = chosen
           break
         }
+
+        case 'searching-about': {
+          let unvisited = currentQueries.filter((q) => !visitedQueriesRef.current.has(q))
+          if (unvisited.length === 0) {
+            visitedQueriesRef.current.clear()
+            unvisited = currentQueries.filter((q) => q !== currentFacet.data)
+            if (unvisited.length === 0) unvisited = currentQueries
+          }
+          const chosen = unvisited[Math.floor(Math.random() * unvisited.length)] || currentQueries[0]
+          visitedQueriesRef.current.add(chosen)
+          facetData = chosen
+          break
+        }
+
         case 'status-phrase':
         default: {
-          const phrases = CONTEMPLATIVE_PHRASES.filter((p) => p !== currentFacet.data)
-          facetData = phrases[Math.floor(Math.random() * phrases.length)]
+          let unvisited = CONTEMPLATIVE_PHRASES.filter((p) => !visitedPhrasesRef.current.has(p))
+          if (unvisited.length === 0) {
+            visitedPhrasesRef.current.clear()
+            unvisited = CONTEMPLATIVE_PHRASES.filter((p) => p !== currentFacet.data)
+            if (unvisited.length === 0) unvisited = CONTEMPLATIVE_PHRASES
+          }
+          const chosen = unvisited[Math.floor(Math.random() * unvisited.length)] || CONTEMPLATIVE_PHRASES[0]
+          visitedPhrasesRef.current.add(chosen)
+          facetData = chosen
           break
         }
       }
 
-      setFacet({
+      const nextFacet: CarouselFacet = {
         id: `facet-${facetIndexRef.current}-${selectedType}`,
         type: selectedType,
         data: facetData
-      })
+      }
+
+      setFacet(nextFacet)
+
+      // Schedule subsequent facet using its designated duration (3s for simple text, 6.5s for summary, 5s for cards)
+      scheduleNext(nextFacet.type)
     }
 
-    // Initial transition after 1.4s so the user quickly sees dynamic facets
-    const initialTimeout = setTimeout(() => {
-      pickNextFacet()
-    }, 1400)
+    const scheduleNext = (facetType: CarouselFacetType): void => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+      const duration = getFacetDuration(facetType)
+      timeoutRef.current = setTimeout(() => {
+        pickNextFacet()
+      }, duration)
+    }
 
-    // Regular interval running steadily every 3.2s
-    const cycleInterval = setInterval(() => {
+    // Initial transition scheduled from the starting status-phrase (3000ms)
+    timeoutRef.current = setTimeout(() => {
       pickNextFacet()
-    }, 3200)
+    }, 3000)
 
     return () => {
-      clearTimeout(initialTimeout)
-      clearInterval(cycleInterval)
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
     }
   }, [isActive])
 
@@ -483,7 +570,7 @@ export function DeepResearchCard({ toolCall }: DeepResearchCardProps): React.JSX
                   <span>Reading about</span>
                 </div>
                 <p className="text-[13px] font-medium leading-relaxed text-text-primary">
-                  <TypewriterText text={facet.data.title || facet.data.domain} speed={20} />
+                  <TypewriterText text={facet.data.title || facet.data.domain} speed={18} />
                 </p>
               </div>
             )}
@@ -496,7 +583,7 @@ export function DeepResearchCard({ toolCall }: DeepResearchCardProps): React.JSX
                   <span>Searching about</span>
                 </div>
                 <p className="text-[13px] font-medium leading-relaxed text-text-primary">
-                  <TypewriterText text={facet.data} speed={22} />
+                  <TypewriterText text={facet.data} speed={18} />
                 </p>
               </div>
             )}
@@ -505,7 +592,7 @@ export function DeepResearchCard({ toolCall }: DeepResearchCardProps): React.JSX
             {facet.type === 'status-phrase' && (
               <div className="flex items-center gap-2 text-[13px] font-medium text-text-secondary">
                 <Sparkle size={14} className="text-accent-primary shrink-0 animate-pulse" />
-                <TypewriterText text={facet.data} speed={25} />
+                <TypewriterText text={facet.data} speed={18} />
               </div>
             )}
 
@@ -527,7 +614,11 @@ export function DeepResearchCard({ toolCall }: DeepResearchCardProps): React.JSX
                   }}
                   className="max-h-[64px] overflow-hidden text-[11.5px] leading-relaxed text-text-secondary text-left"
                 >
-                  <TypewriterText text={facet.data.snippet || ''} speed={8} />
+                  <TypewriterText
+                    text={facet.data.snippet || ''}
+                    speed={10}
+                    step={(facet.data.snippet?.length || 0) > 200 ? 3 : (facet.data.snippet?.length || 0) > 100 ? 2 : 1}
+                  />
                 </div>
               </div>
             )}
