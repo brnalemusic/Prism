@@ -15,7 +15,12 @@ import {
   ArrowsLeftRight,
   DotsSixVertical,
   Trash,
-  Warning
+  Warning,
+  Sparkle,
+  Compass,
+  GitBranch,
+  TerminalWindow,
+  Cpu
 } from '@phosphor-icons/react'
 import { InputBar, InputBarHandle } from './InputBar'
 import { HeroParticles } from './HeroParticles'
@@ -39,6 +44,53 @@ import { getDefaultThinkingLevelForModel } from '../constants'
 const EMPTY_EXPLORER_CONTEXT: NonNullable<TabSession['harnessExplorerContext']> = []
 
 const noop = (): void => {}
+
+interface QuickStarter {
+  label: string
+  prompt: string
+  icon: React.ElementType
+}
+
+const HARNESS_STARTERS: QuickStarter[] = [
+  {
+    label: 'Architecture & Spec',
+    prompt: 'Research the codebase architecture and create an implementation plan for ',
+    icon: GitBranch
+  },
+  {
+    label: 'Codebase Walkthrough',
+    prompt: 'Analyze this repository and explain the core lifecycle and directory layout.',
+    icon: Compass
+  },
+  {
+    label: 'Audit & Diagnostics',
+    prompt: 'Audit current dependencies, configuration, and identify potential bugs or security risks.',
+    icon: Cpu
+  }
+]
+
+const CHAT_STARTERS: QuickStarter[] = [
+  {
+    label: 'System Architecture',
+    prompt: 'Design a clean modular software architecture for ',
+    icon: GitBranch
+  },
+  {
+    label: 'Deep Research',
+    prompt: 'Perform deep research on ',
+    icon: Compass
+  },
+  {
+    label: 'Terminal Sandbox',
+    prompt: 'Check environment diagnostics and list recent git changes.',
+    icon: TerminalWindow
+  },
+  {
+    label: 'Refactor & Review',
+    prompt: 'Review and optimize this code snippet for performance and clarity: ',
+    icon: Cpu
+  }
+]
 
 /**
  * Returns a referentially stable wrapper that always forwards to the latest
@@ -782,6 +834,14 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
       [tab.id, stableOnUpdateTabInput]
     )
 
+    const handleSelectStarter = useCallback(
+      (promptText: string) => {
+        handleSetTextInputBar(promptText)
+        inputBarRef.current?.focus()
+      },
+      [handleSetTextInputBar]
+    )
+
     return (
       <div
         onClick={() => onFocus(tab.id)}
@@ -940,26 +1000,62 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                         initial="hidden"
                         animate="visible"
                         exit="exit"
-                        className="flex flex-col items-center text-center space-y-2"
+                        className="flex flex-col items-center text-center space-y-3"
                       >
-                      <h1 className="text-3xl sm:text-4xl tracking-wide hero-shimmer-text">
-                        {isHarness
-                          ? tab.disciplinePath
-                            ? tab.harnessPhase === 'plan'
-                              ? 'Plan & Research'
-                              : 'Build & Edit'
-                            : 'Choose a project to build'
-                          : 'Search & Create'}
-                      </h1>
-                      <p className="text-sm text-text-secondary/80">
-                        {isHarness
-                          ? tab.disciplinePath
-                            ? tab.harnessPhase === 'plan'
-                              ? 'Describe the outcome. Harness will research the project and prepare an Implementation Plan.'
-                              : 'Describe the outcome. Harness will inspect, implement, and verify the work.'
-                            : 'Harness is isolated to one project. Use + to choose the folder where it may work.'
-                          : 'Prism session is ready. Type your request or choose a mode.'}
-                      </p>
+                        <div className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-[11px] font-medium tracking-wide text-text-secondary backdrop-blur-sm">
+                          <Sparkle size={12} weight="fill" className="text-accent-primary" />
+                          <span>
+                            {isHarness
+                              ? tab.disciplinePath
+                                ? `Harness / ${tab.harnessPhase === 'plan' ? 'Plan Mode' : 'Build Mode'}`
+                                : 'Harness / Workspace'
+                              : tab.sessionMode === 'execution'
+                                ? 'Execution Mode'
+                                : tab.sessionMode === 'discipline'
+                                  ? 'Discipline Mode'
+                                  : 'Interactive Assistant'}
+                          </span>
+                        </div>
+
+                        <h1 className="text-3xl sm:text-4xl font-light tracking-tight hero-shimmer-text">
+                          {isHarness
+                            ? tab.disciplinePath
+                              ? tab.harnessPhase === 'plan'
+                                ? 'Plan & Research'
+                                : 'Build & Edit'
+                              : 'Choose a project to build'
+                            : 'Search & Create'}
+                        </h1>
+                        <p className="text-sm text-text-secondary/80 max-w-md leading-relaxed">
+                          {isHarness
+                            ? tab.disciplinePath
+                              ? tab.harnessPhase === 'plan'
+                                ? 'Describe the outcome. Harness will research the project and prepare an Implementation Plan.'
+                                : 'Describe the outcome. Harness will inspect, implement, and verify the work.'
+                              : 'Harness is isolated to one project. Use + to choose the folder where it may work.'
+                            : 'Prism session is ready. Ask questions, explore codebases, or run terminal tasks.'}
+                        </p>
+
+                        <div className="pt-2 flex flex-wrap items-center justify-center gap-2 max-w-[640px]">
+                          {(isHarness ? HARNESS_STARTERS : CHAT_STARTERS).map((starter) => {
+                            const Icon = starter.icon
+                            return (
+                              <button
+                                key={starter.label}
+                                type="button"
+                                onClick={() => handleSelectStarter(starter.prompt)}
+                                className="group inline-flex items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.025] px-3.5 py-1.5 text-xs text-text-secondary/90 transition-interactive duration-150 hover:border-accent-primary/40 hover:bg-white/[0.06] hover:text-text-primary hover:shadow-[0_0_16px_var(--accent-glow)] active:scale-[0.98] cursor-pointer"
+                              >
+                                <Icon
+                                  size={13}
+                                  weight="bold"
+                                  className="text-text-muted transition-colors group-hover:text-accent-primary shrink-0"
+                                />
+                                <span className="font-medium tracking-tight">{starter.label}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
                       </motion.div>
                     </AnimatePresence>
                   </MotionConfig>

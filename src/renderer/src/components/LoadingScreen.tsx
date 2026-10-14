@@ -1,8 +1,9 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import clsx from 'clsx'
-import { Check, WarningCircle, ArrowClockwise } from '@phosphor-icons/react'
+import { Check, WarningCircle, ArrowClockwise, Sparkle } from '@phosphor-icons/react'
 import { Spinner } from './Spinner'
 import { ApiKeyModal } from './ApiKeyModal'
+import { PrismMark, PrismMarkTone } from './PrismMark'
 
 /**
  * Boot-time loading screen shown in place of the old cosmetic intro. Runs the
@@ -13,7 +14,9 @@ import { ApiKeyModal } from './ApiKeyModal'
 type BootState = 'connecting' | 'needs-key' | 'testing' | 'failed' | 'ready'
 
 interface StepStatus {
+  id: string
   label: string
+  detail: string
   state: 'pending' | 'active' | 'done' | 'error'
 }
 
@@ -59,7 +62,23 @@ export function LoadingScreen({
     setKeyMissing(isKeyMissing)
   }, [isKeyMissing])
 
-  const steps = buildSteps(bootState, keyFailed)
+  const steps = useMemo(() => buildSteps(bootState, keyFailed), [bootState, keyFailed])
+
+  const { litBeams, tone, progressPercent } = useMemo(() => {
+    switch (bootState) {
+      case 'connecting':
+        return { litBeams: 2, tone: 'live' as PrismMarkTone, progressPercent: 25 }
+      case 'needs-key':
+        return { litBeams: 4, tone: 'live' as PrismMarkTone, progressPercent: 50 }
+      case 'testing':
+        return { litBeams: 5, tone: 'live' as PrismMarkTone, progressPercent: 75 }
+      case 'ready':
+        return { litBeams: 7, tone: 'live' as PrismMarkTone, progressPercent: 100 }
+      case 'failed':
+      default:
+        return { litBeams: keyFailed ? 3 : 5, tone: 'error' as PrismMarkTone, progressPercent: 60 }
+    }
+  }, [bootState, keyFailed])
 
   // Run (or re-run, after retry) the Gemini connection test.
   const runConnectionTest = useCallback(async (): Promise<void> => {
@@ -153,80 +172,164 @@ export function LoadingScreen({
   return (
     <div
       className={clsx(
-        'fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden bg-background-main transition-opacity duration-600 ease-out',
+        'fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden bg-background-main transition-opacity duration-600 ease-out select-none',
         visible ? 'opacity-100' : 'opacity-0'
       )}
     >
-      <div className="flex w-full max-w-sm flex-col items-center px-8">
-        <h1 className="mb-1 text-2xl font-light text-text-primary tracking-wide">Loading Prism…</h1>
-        <p className="mb-7 text-xs text-text-muted">
-          {bootState === 'failed'
-            ? keyFailed
-              ? 'API key missing'
-              : 'Connection failed'
-            : 'Preparing your workspace'}
-        </p>
+      {/* Background atmospheric lighting and subtle texture */}
+      <div className="prism-boot-grain" />
+      <div
+        className="pointer-events-none absolute -top-32 left-1/2 -translate-x-1/2 w-[720px] h-[480px] rounded-full blur-[120px] opacity-25"
+        style={{
+          background:
+            'radial-gradient(circle, var(--accent-glow, rgba(56,189,248,0.3)) 0%, transparent 70%)'
+        }}
+      />
+      <div
+        className="pointer-events-none absolute bottom-0 left-1/2 -translate-x-1/2 w-[600px] h-[320px] rounded-full blur-[100px] opacity-15"
+        style={{
+          background:
+            'radial-gradient(circle, var(--home-glow-color-2, rgba(125,211,252,0.25)) 0%, transparent 70%)'
+        }}
+      />
 
-        <div className="flex w-full flex-col gap-3">
-          {steps.map((step) => (
-            <StepRow key={step.label} step={step} />
-          ))}
+      {/* Main double-bezel hardware container */}
+      <div className="relative z-10 w-full max-w-[420px] px-4">
+        <div className="rounded-[28px] border border-white/[0.08] bg-white/[0.025] p-2 backdrop-blur-2xl shadow-[0_28px_64px_-16px_rgba(0,0,0,0.85),inset_0_1px_1px_rgba(255,255,255,0.08)]">
+          <div className="rounded-[22px] border border-white/[0.04] bg-[#03060c]/90 px-6 py-7 sm:px-7">
+            {/* Header with animated brand mark */}
+            <div className="flex flex-col items-center text-center">
+              <div className="relative mb-5 flex items-center justify-center">
+                <PrismMark
+                  size={68}
+                  lit={litBeams}
+                  tone={tone}
+                  sweeping={bootState === 'connecting' || bootState === 'testing'}
+                />
+              </div>
+
+              <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.2em] text-accent-primary">
+                <Sparkle size={11} weight="fill" />
+                <span>Workspace Engine</span>
+              </div>
+
+              <h1 className="text-xl font-medium tracking-tight text-text-primary">
+                Initializing Prism
+              </h1>
+              <p className="mt-1 text-xs text-text-muted">
+                {bootState === 'failed'
+                  ? keyFailed
+                    ? 'API provider configuration required'
+                    : 'Network diagnostic failed'
+                  : bootState === 'ready'
+                    ? 'Environment verified & ready'
+                    : 'Configuring workspace diagnostics'}
+              </p>
+
+              {/* Linear Progress Track */}
+              <div className="relative mt-5 h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-accent-primary via-accent-secondary to-accent-primary transition-all duration-500 ease-out"
+                  style={{ width: `${progressPercent}%` }}
+                />
+                {bootState !== 'ready' && bootState !== 'failed' && (
+                  <span className="prism-boot-progress-shimmer" />
+                )}
+              </div>
+            </div>
+
+            {/* Diagnostic Steps */}
+            <div className="mt-6 flex flex-col gap-2.5">
+              {steps.map((step) => (
+                <StepRow key={step.id} step={step} />
+              ))}
+            </div>
+
+            {/* Error & Recovery Surface */}
+            {bootState === 'failed' && (
+              <div className="mt-6 animate-soft-pop rounded-[18px] border border-status-error/30 bg-status-error/[0.07] p-4 shadow-[0_12px_28px_-8px_rgba(248,113,113,0.18)]">
+                <div className="mb-3.5 flex items-start gap-2.5">
+                  <WarningCircle
+                    size={16}
+                    weight="fill"
+                    className="mt-0.5 shrink-0 text-status-error"
+                  />
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-status-error">Diagnostic Notice</p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-text-secondary/90">
+                      {errorMsg}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  {keyFailed ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => window.api.closeApp()}
+                        className="flex flex-1 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2 text-xs font-medium text-text-secondary transition-interactive hover:bg-white/[0.08] hover:text-text-primary active:scale-[0.98] cursor-pointer"
+                      >
+                        Close
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setKeyFailed(false)
+                          setErrorMsg('')
+                          setBootState('needs-key')
+                          setShowKeyModal(true)
+                        }}
+                        className="flex flex-1 items-center justify-center rounded-xl bg-text-primary px-3.5 py-2 text-xs font-semibold text-black transition-interactive hover:bg-white active:scale-[0.98] cursor-pointer shadow-[0_4px_16px_rgba(255,255,255,0.15)]"
+                      >
+                        Configure API
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleRetry}
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-text-primary px-3.5 py-2 text-xs font-semibold text-black transition-interactive hover:bg-white active:scale-[0.98] cursor-pointer shadow-[0_4px_16px_rgba(255,255,255,0.15)]"
+                      >
+                        <ArrowClockwise size={13} weight="bold" />
+                        <span>Retry Probe</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVisible(false)
+                          setTimeout(() => onComplete(true), 600)
+                        }}
+                        className="flex-1 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2 text-xs font-medium text-text-secondary transition-interactive hover:bg-white/[0.08] hover:text-text-primary active:scale-[0.98] cursor-pointer"
+                      >
+                        Bypass
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        {bootState === 'failed' && (
-          <div className="mt-6 w-full animate-soft-pop rounded-[18px] border border-status-error/25 bg-status-error/[0.06] p-4">
-            <div className="mb-3 flex items-start gap-2.5">
-              <WarningCircle
-                size={16}
-                weight="fill"
-                className="mt-0.5 shrink-0 text-status-error"
-              />
-              <p className="text-xs leading-relaxed text-status-error/80">{errorMsg}</p>
-            </div>
-            <div className="flex gap-2">
-              {keyFailed ? (
-                <>
-                  <button
-                    onClick={() => window.api.closeApp()}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-[14px] border border-white/[0.08] px-4 py-2.5 text-xs font-semibold text-text-secondary transition-all hover:bg-white/[0.055] hover:text-text-primary active:scale-[0.98]"
-                  >
-                    Close Prism
-                  </button>
-                  <button
-                    onClick={() => {
-                      setKeyFailed(false)
-                      setErrorMsg('')
-                      setBootState('needs-key')
-                      setShowKeyModal(true)
-                    }}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-[14px] bg-text-primary px-4 py-2.5 text-xs font-semibold text-black transition-all hover:bg-white active:scale-[0.98]"
-                  >
-                    Configure API
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={handleRetry}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-[14px] bg-text-primary px-4 py-2.5 text-xs font-semibold text-black transition-all hover:bg-white active:scale-[0.98]"
-                  >
-                    <ArrowClockwise size={14} weight="bold" />
-                    Retry
-                  </button>
-                  <button
-                    onClick={() => {
-                      setVisible(false)
-                      setTimeout(() => onComplete(true), 600)
-                    }}
-                    className="flex-1 rounded-[14px] border border-white/[0.08] px-4 py-2.5 text-xs font-semibold text-text-secondary transition-all hover:bg-white/[0.055] hover:text-text-primary active:scale-[0.98]"
-                  >
-                    Open Prism anyway
-                  </button>
-                </>
+        {/* Ambient system status footer */}
+        <div className="mt-4 flex items-center justify-between px-2 text-[11px] text-text-muted/60 font-mono">
+          <span>Prism Desktop</span>
+          <span className="flex items-center gap-1.5">
+            <span
+              className={clsx(
+                'h-1.5 w-1.5 rounded-full',
+                bootState === 'ready'
+                  ? 'bg-status-success'
+                  : bootState === 'failed'
+                    ? 'bg-status-error'
+                    : 'bg-accent-primary animate-pulse'
               )}
-            </div>
-          </div>
-        )}
+            />
+            {bootState === 'ready' ? 'Online' : bootState === 'failed' ? 'Interrupted' : 'Syncing'}
+          </span>
+        </div>
       </div>
 
       {showKeyModal && (
@@ -251,54 +354,102 @@ export function LoadingScreen({
 }
 
 function StepRow({ step }: { step: StepStatus }): React.JSX.Element {
+  const isDone = step.state === 'done'
+  const isActive = step.state === 'active'
+  const isError = step.state === 'error'
+
   return (
     <div
       className={clsx(
-        'flex items-center gap-3 rounded-[16px] border px-4 py-2.5 transition-all duration-300',
-        step.state === 'done'
-          ? 'border-status-success/20 bg-status-success/[0.05]'
-          : step.state === 'active'
-            ? 'border-accent-primary/25 bg-accent-primary/[0.05]'
-            : step.state === 'error'
-              ? 'border-status-error/25 bg-status-error/[0.05]'
+        'group flex items-center justify-between rounded-xl border px-3.5 py-2.5 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]',
+        isDone
+          ? 'border-status-success/20 bg-status-success/[0.04]'
+          : isActive
+            ? 'border-accent-primary/30 bg-accent-primary/[0.06] shadow-[0_0_20px_-4px_var(--accent-glow)]'
+            : isError
+              ? 'border-status-error/30 bg-status-error/[0.06]'
               : 'border-white/[0.04] bg-white/[0.015]'
       )}
     >
-      <div className="flex h-6 w-6 shrink-0 items-center justify-center">
-        {step.state === 'done' ? (
-          <Check size={16} weight="bold" className="text-status-success" />
-        ) : step.state === 'active' ? (
-          <Spinner size="sm" />
-        ) : step.state === 'error' ? (
-          <WarningCircle size={16} weight="fill" className="text-status-error" />
-        ) : (
-          <span className="h-1.5 w-1.5 rounded-full bg-text-muted/40" />
-        )}
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="flex h-5 w-5 shrink-0 items-center justify-center">
+          {isDone ? (
+            <div className="flex h-4 w-4 items-center justify-center rounded-full bg-status-success/20 text-status-success">
+              <Check size={11} weight="bold" />
+            </div>
+          ) : isActive ? (
+            <Spinner size="sm" />
+          ) : isError ? (
+            <WarningCircle size={15} weight="fill" className="text-status-error" />
+          ) : (
+            <span className="h-1.5 w-1.5 rounded-full bg-text-muted/30 group-hover:bg-text-muted/50 transition-colors" />
+          )}
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span
+            className={clsx(
+              'text-xs tracking-tight transition-colors truncate',
+              isDone
+                ? 'font-medium text-status-success/90'
+                : isActive
+                  ? 'font-medium text-text-primary'
+                  : isError
+                    ? 'font-medium text-status-error/90'
+                    : 'text-text-muted'
+            )}
+          >
+            {step.label}
+          </span>
+          <span className="text-[10px] text-text-muted/70 truncate">{step.detail}</span>
+        </div>
       </div>
-      <span
-        className={clsx(
-          'text-sm transition-colors',
-          step.state === 'done'
-            ? 'text-status-success/90 font-medium'
-            : step.state === 'active'
-              ? 'text-text-primary font-medium'
-              : step.state === 'error'
-                ? 'text-status-error/90 font-medium'
-                : 'text-text-muted'
-        )}
-      >
-        {step.label}
-      </span>
+
+      <div className="shrink-0 pl-2">
+        <span
+          className={clsx(
+            'text-[10px] font-mono tracking-wider uppercase',
+            isDone
+              ? 'text-status-success/75'
+              : isActive
+                ? 'text-accent-primary'
+                : isError
+                  ? 'text-status-error'
+                  : 'text-text-muted/40'
+          )}
+        >
+          {isDone ? 'Pass' : isActive ? 'Active' : isError ? 'Fail' : 'Standby'}
+        </span>
+      </div>
     </div>
   )
 }
 
 function buildSteps(state: BootState, keyFailed?: boolean): StepStatus[] {
   const base: StepStatus[] = [
-    { label: 'Establishing connection', state: 'pending' },
-    { label: 'Verifying API keys', state: 'pending' },
-    { label: 'Testing connection', state: 'pending' },
-    { label: 'Ready', state: 'pending' }
+    {
+      id: 'connection',
+      label: 'Network Core',
+      detail: 'Establishing desktop runtime channels',
+      state: 'pending'
+    },
+    {
+      id: 'keys',
+      label: 'Provider Credentials',
+      detail: 'Verifying active API keys & configuration',
+      state: 'pending'
+    },
+    {
+      id: 'models',
+      label: 'Model Diagnostic',
+      detail: 'Testing Gemini endpoint reachability',
+      state: 'pending'
+    },
+    {
+      id: 'ready',
+      label: 'System Ready',
+      detail: 'Workspace initialization complete',
+      state: 'pending'
+    }
   ]
 
   switch (state) {

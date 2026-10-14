@@ -65,6 +65,75 @@
   }
 }
 
+/* ─── Boot & welcome surfaces (LoadingScreen, EmptyTabState, PrismMark) ───
+   Transform-only, composited animations. Under prefers-reduced-motion the
+   global guard collapses them to one frame that rests off-screen. */
+.prism-mark-sweep {
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  left: 0;
+  width: 55%;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.2) 50%,
+    transparent 100%
+  );
+  transform: translateX(-120%) skewX(-12deg);
+  animation: prism-mark-sweep 2.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes prism-mark-sweep {
+  0% {
+    transform: translateX(-120%) skewX(-12deg);
+  }
+  60%,
+  100% {
+    transform: translateX(260%) skewX(-12deg);
+  }
+}
+
+.prism-boot-progress-shimmer {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--accent-primary) 65%, white),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: prism-boot-progress 1.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes prism-boot-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}
+
+/* Static film grain: breaks digital flatness on full-bleed boot surfaces. */
+.prism-boot-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.045;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+/* Faint spectral fan behind the boot stage, faded out toward the edges. */
+.prism-boot-beams {
+  -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 100%, #000 0%, transparent 75%);
+  mask-image: radial-gradient(ellipse 60% 55% at 50% 100%, #000 0%, transparent 75%);
+}
+
 /* ─── Live compositor backdrop. Only the decorative child owns the filter so
    nested menus retain their own backdrop roots and normal hit testing. */
 .liquid-glass-anchor {

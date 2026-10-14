@@ -87,3 +87,8 @@ Rendering Performance` offers `Medium` (default, full visuals with a temporary
 imperceptible step-down under load), `Performance` (lightweight look:
 no backdrop blur or glassmorphism, fade-only streaming for maximum fluidity),
 and `Maximum` (cinematic streaming with fade, tint, and unblur).
+
+### 4.5. Boot & Welcome Stage Architecture
+- **Boot Loading Screen (`LoadingScreen.tsx`)**: Replaces simple indeterminate spinners with a staged diagnostic pipeline. Features a double-bezel glass container, the vector `PrismMark` seven-beam spectral dispersion fan that progressively illuminates with boot stages (Network Core → Provider Credentials → Model Diagnostic → System Ready), a shimmering progress bar, and frosted error recovery surfaces.
+- **Empty Tab State (`EmptyTabState.tsx`)**: Renders when all workspace tabs are closed. Provides atmospheric depth lighting, the seven-beam Prism mark, an ergonomic primary "Open New Tab" button with button-in-button nested icons, and keyboard shortcut chips (`Ctrl+N`, `Ctrl+K`, `Ctrl+O`).
+- **Interactive Landing Hub (`ChatPane.tsx`)**: When a tab is newly opened with no messages, displays an ambient mode status badge, refined hero typography, and interactive Quick Starter chips (`Architecture & Spec`, `Deep Research`, `Terminal Sandbox`, `Codebase Walkthrough`, etc.) that cleanly pre-populate the input composer and focus the prompt.
