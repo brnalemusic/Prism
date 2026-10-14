@@ -20,7 +20,12 @@ import {
   Compass,
   GitBranch,
   TerminalWindow,
-  Cpu
+  Cpu,
+  Brain,
+  FileText,
+  Lightning,
+  Folder,
+  MagnifyingGlass
 } from '@phosphor-icons/react'
 import { InputBar, InputBarHandle } from './InputBar'
 import { HeroParticles } from './HeroParticles'
@@ -51,44 +56,99 @@ interface QuickStarter {
   icon: React.ElementType
 }
 
+/** Generic code manipulation & development actions for Harness mode. */
 const HARNESS_STARTERS: QuickStarter[] = [
   {
-    label: 'Architecture & Spec',
-    prompt: 'Research the codebase architecture and create an implementation plan for ',
-    icon: GitBranch
-  },
-  {
-    label: 'Codebase Walkthrough',
-    prompt: 'Analyze this repository and explain the core lifecycle and directory layout.',
+    label: 'Inspect Codebase',
+    prompt: 'Inspect the project structure, main entry points, and dependencies.',
     icon: Compass
   },
   {
-    label: 'Audit & Diagnostics',
-    prompt: 'Audit current dependencies, configuration, and identify potential bugs or security risks.',
+    label: 'Fix Bugs',
+    prompt: 'Investigate potential bugs, error handling issues, or failing tests in this codebase.',
     icon: Cpu
+  },
+  {
+    label: 'Add Feature',
+    prompt: 'Create a technical specification and implementation plan to add ',
+    icon: GitBranch
+  },
+  {
+    label: 'Refactor Code',
+    prompt: 'Identify technical debt, simplify complex logic, and refactor ',
+    icon: Sparkle
   }
 ]
 
-const CHAT_STARTERS: QuickStarter[] = [
+/** Pure conversational prompts with zero CLI or tool execution. */
+const CONVERSATION_STARTERS: QuickStarter[] = [
   {
-    label: 'System Architecture',
-    prompt: 'Design a clean modular software architecture for ',
-    icon: GitBranch
+    label: 'Explain a Concept',
+    prompt: 'Can you explain how this works with a clear real-world analogy: ',
+    icon: ChatTeardropText
   },
   {
-    label: 'Deep Research',
-    prompt: 'Perform deep research on ',
-    icon: Compass
+    label: 'Brainstorm Ideas',
+    prompt: 'Brainstorm creative, high-impact approaches and solutions for ',
+    icon: Brain
   },
   {
-    label: 'Terminal Sandbox',
-    prompt: 'Check environment diagnostics and list recent git changes.',
+    label: 'Draft Content',
+    prompt: 'Draft clear, well-structured documentation or text about ',
+    icon: FileText
+  },
+  {
+    label: 'Analyze Trade-offs',
+    prompt: 'Compare the pros, cons, and performance trade-offs between ',
+    icon: Sparkle
+  }
+]
+
+/** Guarded terminal and tool actions across the user profile. */
+const EXECUTION_STARTERS: QuickStarter[] = [
+  {
+    label: 'System Diagnostics',
+    prompt: 'Run a system diagnostic checking OS environment, active ports, and resources.',
+    icon: Lightning
+  },
+  {
+    label: 'Terminal Command',
+    prompt: 'Execute a terminal command to ',
     icon: TerminalWindow
   },
   {
-    label: 'Refactor & Review',
-    prompt: 'Review and optimize this code snippet for performance and clarity: ',
+    label: 'Inspect Environment',
+    prompt: 'List files and environment variables in the current profile directory.',
     icon: Cpu
+  },
+  {
+    label: 'Network Health',
+    prompt: 'Test internet reachability and API response times.',
+    icon: Compass
+  }
+]
+
+/** Project-bounded actions operating inside the designated project directory. */
+const DISCIPLINE_STARTERS: QuickStarter[] = [
+  {
+    label: 'Explore Project',
+    prompt: 'Analyze the folder hierarchy and list key files in this project directory.',
+    icon: Folder
+  },
+  {
+    label: 'Search Project',
+    prompt: 'Search project files for references to ',
+    icon: MagnifyingGlass
+  },
+  {
+    label: 'Run Project Scripts',
+    prompt: 'Check package scripts or project build commands and run the test suite.',
+    icon: Lightning
+  },
+  {
+    label: 'Organize Files',
+    prompt: 'Inspect the directory structure and suggest clean reorganization for these files.',
+    icon: FolderOpen
   }
 ]
 
@@ -842,6 +902,22 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
       [handleSetTextInputBar]
     )
 
+    const activeStarters = useMemo(() => {
+      if (isHarness) {
+        return HARNESS_STARTERS
+      }
+      switch (tab.sessionMode) {
+        case 'conversation':
+          return CONVERSATION_STARTERS
+        case 'execution':
+          return EXECUTION_STARTERS
+        case 'discipline':
+          return DISCIPLINE_STARTERS
+        default:
+          return CONVERSATION_STARTERS
+      }
+    }, [isHarness, tab.sessionMode])
+
     return (
       <div
         onClick={() => onFocus(tab.id)}
@@ -1033,11 +1109,17 @@ export const ChatPane: React.FC<ChatPaneProps> = React.memo(
                                 ? 'Describe the outcome. Harness will research the project and prepare an Implementation Plan.'
                                 : 'Describe the outcome. Harness will inspect, implement, and verify the work.'
                               : 'Harness is isolated to one project. Use + to choose the folder where it may work.'
-                            : 'Prism session is ready. Ask questions, explore codebases, or run terminal tasks.'}
+                            : tab.sessionMode === 'conversation'
+                              ? 'Pure conversational assistant. Brainstorm, analyze trade-offs, and draft content without executing tools.'
+                              : tab.sessionMode === 'execution'
+                                ? 'Guarded terminal and tool execution. Run commands and diagnose environment health.'
+                                : tab.sessionMode === 'discipline'
+                                  ? 'Project-bounded operations. Inspect directories, run scripts, and modify files within your project folder.'
+                                  : 'Prism session is ready. Ask questions, explore codebases, or run terminal tasks.'}
                         </p>
 
                         <div className="pt-2 flex flex-wrap items-center justify-center gap-2 max-w-[640px]">
-                          {(isHarness ? HARNESS_STARTERS : CHAT_STARTERS).map((starter) => {
+                          {activeStarters.map((starter) => {
                             const Icon = starter.icon
                             return (
                               <button

@@ -828,7 +828,7 @@ export function createVoiceOverlayWindowInstance(): void {
   })
 
   voiceOverlayWindow.setAlwaysOnTop(true, 'screen-saver')
-  voiceOverlayWindow.setIgnoreMouseEvents(true, { forward: true })
+  voiceOverlayWindow.setIgnoreMouseEvents(true)
 
   if (process.platform === 'darwin') {
     voiceOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -855,7 +855,7 @@ export function createVoiceOverlayWindow(): void {
   const primaryDisplay = screen.getPrimaryDisplay()
   voiceOverlayWindow.setBounds(primaryDisplay.bounds)
   voiceOverlayWindow.setAlwaysOnTop(true, 'screen-saver')
-  voiceOverlayWindow.setIgnoreMouseEvents(true, { forward: true })
+  voiceOverlayWindow.setIgnoreMouseEvents(true)
   if (!voiceOverlayWindow.isVisible()) {
     voiceOverlayWindow.showInactive()
   }
