@@ -16,8 +16,9 @@ To build real native binaries locally:
 
 ```bash
 npm run android    # requires Android Studio / SDK
-npm run ios        # requires macOS + Xcode
 ```
+
+Prism Mobile targets **Android only** — no iOS build is produced or published.
 
 ## Verification
 
@@ -27,8 +28,8 @@ npm test
 npm run bundle     # Metro production bundle for Android
 ```
 
-`npx expo prebuild --platform android|ios --no-install` regenerates the native
-projects; `android/` and `ios/` are generated output and stay untracked.
+`npx expo prebuild --platform android --no-install` regenerates the native
+project; `android/` is generated output and stays untracked.
 
 ## Versioning and releases
 
@@ -47,9 +48,10 @@ MAJORDSK.MINORDSK-MAJORMBL.MINORMBL/YYYYMMDD
 9.3-0.0/20261020
 ```
 
-The release workflow only builds Android/iOS when `version_m.txt` changed since
-the previous release tag, and only builds the Windows app when `version.txt`
-changed. Artifacts go to the same GitHub Release as the desktop installer.
+The release workflow only builds the Android APK when `version_m.txt` changed
+since the previous release tag, and only builds the Windows app when
+`version.txt` changed. Artifacts go to the same GitHub Release as the desktop
+installer.
 
 ## Auto-updater
 
@@ -60,7 +62,6 @@ implement an in-app updater:
 - Checks GitHub Releases on launch, at most once every six hours.
 - Shows a banner and update sheet when a newer `prism-mobile-<version>.apk` exists.
 - Downloads the APK with progress and opens the Android installer in one tap.
-- iOS opens the release page instead, since sideloaded builds cannot self-install.
 
 ## Where things live
 

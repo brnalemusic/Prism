@@ -116,7 +116,6 @@ Local commands (from the repository root):
 ```bash
 npm run mobile            # Expo dev server
 npm run mobile:android    # expo run:android (native build)
-npm run mobile:ios        # expo run:ios (macOS only)
 npm run mobile:typecheck  # tsc --noEmit for the mobile app
 npm run mobile:test       # node:test suites incl. the updater logic
 npm run mobile:bundle     # expo export --platform android (Metro validation)
@@ -124,7 +123,7 @@ npm run versions          # apply version.txt + version_m.txt
 npm run test:release-meta # tag parsing / change detection tests
 ```
 
-Native projects (`mobile/android`, `mobile/ios`) are generated on demand by `expo prebuild` and are **not** committed; `app.json` is the single source of truth for identifiers, icons and the mobile version.
+The native project (`mobile/android`) is generated on demand by `expo prebuild` and is **not** committed; `app.json` is the single source of truth for identifiers, icons and the mobile version. Prism Mobile ships for **Android only** — there is no iOS build, job or artifact.
 
 ### 7.1 Two apps, two version files
 
@@ -154,8 +153,7 @@ The tag holds each app's major.minor plus the release date. Application versions
 1. `prepare` — validates the tag, resolves both versions, and outputs `desktop_changed` / `mobile_changed` by diffing the version files against the previous release tag. Fails the run when neither file changed.
 2. `build` — Windows desktop installer; runs only when `desktop_changed`.
 3. `mobile-android` — Node 22 + Java 17, `npm ci`, typecheck, tests, `expo prebuild --platform android`, release signing, `./gradlew assembleRelease`; runs only when `mobile_changed`.
-4. `mobile-ios` — macOS, `expo prebuild --platform ios` (CocoaPods), `xcodebuild` without signing, packages `prism-mobile-<version>-unsigned.ipa`; runs only when `mobile_changed` and is `continue-on-error`.
-5. `release` — runs when no required job failed; downloads desktop and/or mobile artifacts and publishes them to the same GitHub Release. A skipped app simply contributes no artifact.
+4. `release` — runs when no required job failed; downloads desktop and/or mobile artifacts and publishes them to the same GitHub Release. A skipped app simply contributes no artifact.
 
 Tags are no longer treated as prereleases (the `-` in the new format is structural), so `prerelease` is always `false`.
 
@@ -174,9 +172,9 @@ Configure these repository secrets to publish update-compatible APKs:
 
 Without these secrets the workflow still produces an installable APK using the prebuild debug signing config, but installing a new build over an older one requires uninstalling first.
 
-### 7.5 iOS
+### 7.5 Android only
 
-iOS release signing requires an Apple developer account, certificate and provisioning profile, which the project does not manage. The workflow publishes an unsigned IPA for users who re-sign it themselves. Adding signed iOS builds later means provisioning those credentials and switching `CODE_SIGNING_ALLOWED` back on.
+Prism Mobile targets Android exclusively. The release workflow has no iOS job, no macOS runner for the mobile app and no IPA artifact, and the desktop installer never packages the mobile sources. Bringing iOS back would mean adding an `expo prebuild --platform ios` + `xcodebuild` job with Apple signing credentials.
 
 ---
 
@@ -184,7 +182,7 @@ iOS release signing requires an Apple developer account, certificate and provisi
 
 The updater is split into pure rules and a native bridge:
 
-- `src/lib/updater.ts` — SemVer precedence (including prereleases), GitHub release parsing (`prism-mobile-<version>.apk` / `.ipa` assets), latest-release selection and release-note trimming. Covered by `tests/updater.test.ts`.
+- `src/lib/updater.ts` — SemVer precedence (including prereleases), GitHub release parsing (`prism-mobile-<version>.apk` assets), latest-release selection and release-note trimming. Covered by `tests/updater.test.ts`.
 - `src/services/updateService.ts` — GitHub API request (10 s timeout, explicit `User-Agent`, rate-limit message), cached APK download with progress, and `IntentLauncher` hand-off to the Android package installer via a `FileProvider` content URI.
 - `src/state/updates.tsx` — state machine (`idle → checking → available/current → downloading → installing/error`), 6-hour throttle persisted in AsyncStorage, silent launch check after 2.5 s, manual forced checks, and installation errors surfaced in the sheet.
 - `src/components/UpdateSheet.tsx` / `UpdateBanner.tsx` — the visible flow: banner on Chats, sheet with version, notes, download progress and installer instructions.
@@ -194,7 +192,6 @@ Rules and safety:
 - Auto-checks are silent; only a newer version produces UI.
 - The APK is downloaded into the app cache, never over an existing install by the app itself: Android shows its own confirmation and verifies the package signature.
 - The Android manifest declares `REQUEST_INSTALL_PACKAGES`; users may still need to allow “Install unknown apps” for Prism once.
-- iOS cannot self-install sideloaded builds, so the sheet offers the release page instead.
 - Expo Go has no native version, so the updater reports “native builds only” there instead of showing a false update.
 
 ---
@@ -205,7 +202,7 @@ Rules and safety:
 - `npm run mobile:test` — SSE framing, protocol deltas, request construction, validation, title/preview formatting, update parsing and version precedence.
 - `npm run test:release-meta` — tag validation, per-app change detection against previous tags, and unified version sync (runs in a temporary Git repository).
 - `npm run mobile:bundle` — Metro can resolve and bundle the whole app (catches missing native modules and route errors).
-- `npx expo prebuild --platform android|ios --no-install` — `app.json` is valid and native projects generate.
+- `npx expo prebuild --platform android --no-install` — `app.json` is valid and the native project generates.
 - On a device: onboarding → add provider → streamed reply → stop/retry → rename/delete → theme switch → restart persistence.
 
 Runtime UI checks require a device or simulator; they are not covered by automated tests.

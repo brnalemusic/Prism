@@ -231,7 +231,7 @@ Prism Mobile is a **separate native application** for phones — not an Electron
 
 - **Streaming chat** with Google AI Studio (Gemini native), any OpenAI-compatible endpoint (OpenAI, OpenRouter, Groq, NVIDIA NIM, Ollama, LM Studio) and Anthropic — Markdown renders as native views while tokens arrive.
 - **Sessions on the device:** a lightweight session index plus per-session message storage, so opening the app is instant and history survives restarts.
-- **Bring your own key:** keys are written to the iOS Keychain / Android Keystore through `expo-secure-store` and only ever travel from the phone to the provider you configured. No Prism relay, no account, no analytics.
+- **Bring your own key:** keys are written to the Android Keystore through `expo-secure-store` and only ever travel from the phone to the provider you configured. No Prism relay, no account, no analytics.
 - **Prompt library:** eight starting points grouped by intent (Think, Write, Build, Study) that open a new session with an editable draft.
 - **Spectral themes:** the eight desktop accent families, retuned for OLED-dark phone surfaces and persisted locally.
 - **In-app auto-updater:** Android builds check GitHub Releases on launch (throttled), surface a banner when a newer APK exists and hand the download to the Android installer in one tap.
@@ -246,7 +246,6 @@ Prism Mobile is intentionally smaller than its desktop sibling. It has no termin
 ```bash
 npm run mobile            # Expo dev server (QR code for Expo Go or a dev build)
 npm run mobile:android    # Native Android build (requires Android SDK)
-npm run mobile:ios        # Native iOS build (requires macOS + Xcode)
 npm run mobile:typecheck  # TypeScript for the mobile app
 npm run mobile:test       # Unit tests for the streaming/protocol layer
 npm run mobile:bundle     # Verify the production Metro bundle
@@ -280,7 +279,7 @@ The `prepare` job compares `version.txt` and `version_m.txt` against the previou
 | Situation | Result |
 | --- | --- |
 | Desktop version changed | Desktop build runs; mobile is skipped unless its version changed too |
-| Mobile version changed | Android + iOS builds run; desktop is skipped |
+| Mobile version changed | Android build runs; desktop is skipped |
 | Neither changed | The run fails with a clear error instead of publishing an empty release |
 
 ### Release artifacts
@@ -291,11 +290,13 @@ Both apps publish to the **same GitHub Release**, but only the apps that changed
 | --- | --- |
 | `prism-invisible-setup-<desktop-version>.exe` | Windows installer |
 | `prism-mobile-<mobile-version>.apk` | Android — signed with the repository keystore when `ANDROID_KEYSTORE_BASE64` is configured (debug-signed otherwise) |
-| `prism-mobile-<mobile-version>-unsigned.ipa` | iOS — best-effort macOS build for users who re-sign it |
+
+Prism Mobile is **Android-only**: the release pipeline builds and publishes the APK only — no iOS job, no unsigned IPA.
+
 
 ### In-app auto-updater
 
-Android builds ask GitHub Releases for the newest mobile build on launch (throttled to once every six hours, plus a manual check in Settings → App updates). When a newer `prism-mobile-<version>.apk` exists, Prism shows a banner, downloads the package and opens the Android installer in one tap. Android still asks for confirmation and verifies the APK signature — the app cannot install silently. iOS cannot self-install a sideloaded IPA, so the same flow opens the release page.
+Android builds ask GitHub Releases for the newest mobile build on launch (throttled to once every six hours, plus a manual check in Settings → App updates). When a newer `prism-mobile-<version>.apk` exists, Prism shows a banner, downloads the package and opens the Android installer in one tap. Android still asks for confirmation and verifies the APK signature — the app cannot install silently.
 
 Mobile sources are excluded from the desktop installer and from the desktop TypeScript project, so neither build can regress the other.
 

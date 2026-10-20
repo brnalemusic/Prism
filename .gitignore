@@ -53,6 +53,7 @@ android/
 ios/
 *.jks
 *.keystore
+mobile/keystore/
 mobile-builds/
 
 # The mobile test suite ships with the app; the broad *test* rule above is for scratch files.

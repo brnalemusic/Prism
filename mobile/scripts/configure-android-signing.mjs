@@ -10,17 +10,24 @@
  *
  * Passwords are read from the environment inside Gradle, so no secret is
  * written into the generated native project.
+ *
+ * The keystore is expected at `android/app/<name>` (override with
+ * ANDROID_KEYSTORE_PATH, relative to that folder or absolute).
  */
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const mobileRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const gradlePath = path.join(mobileRoot, 'android', 'app', 'build.gradle')
-const keystorePath = path.resolve(
-  mobileRoot,
-  process.env.ANDROID_KEYSTORE_PATH ?? 'android/app/prism-release.keystore'
-)
+const appDir = path.join(mobileRoot, 'android', 'app')
+const gradlePath = path.join(appDir, 'build.gradle')
+// The keystore path is relative to the Android app module (the same base Gradle
+// uses for `file(...)`), so a relative value resolves identically in Node and
+// in the Gradle script. Absolute paths are used as-is.
+const keystoreEnv = process.env.ANDROID_KEYSTORE_PATH ?? 'prism-release.keystore'
+const keystorePath = path.isAbsolute(keystoreEnv)
+  ? keystoreEnv
+  : path.resolve(appDir, keystoreEnv)
 
 if (!fs.existsSync(gradlePath)) {
   console.error('[android-signing] android/app/build.gradle not found. Run expo prebuild first.')
