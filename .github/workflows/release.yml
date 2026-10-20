@@ -1,16 +1,54 @@
 name: Build and Release
 
+# Tags look like: MAJORDSK.MINORDSK-MAJORMBL.MINORMBL/YYYYMMDD
+# Example:        10.0-0.0/20270710
+# Desktop and mobile versions live in version.txt and version_m.txt. A build
+# only runs for an app whose version file changed since the previous release.
+
 on:
   push:
     tags:
-      - '*'
+      # `**` also matches tags containing `/`, such as 10.0-0.0/20270710.
+      - '**'
 
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    name: Resolve release versions
+    runs-on: ubuntu-latest
+    outputs:
+      desktop_version: ${{ steps.meta.outputs.desktop_version }}
+      mobile_version: ${{ steps.meta.outputs.mobile_version }}
+      desktop_changed: ${{ steps.meta.outputs.desktop_changed }}
+      mobile_changed: ${{ steps.meta.outputs.mobile_changed }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate tag and detect changed apps
+        id: meta
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/release-meta.mjs
+
   build:
     name: Build for Windows
+    needs: prepare
+    if: needs.prepare.outputs.desktop_changed == 'true'
     runs-on: windows-latest
 
     steps:
@@ -28,18 +66,19 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Sync version from tag
+      - name: Apply desktop version
+        shell: pwsh
+        run: node scripts/sync-versions.mjs
+
+      - name: Verify desktop version
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}" -replace '^v', ''
-
-          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$') {
-            throw "Tag '${{ github.ref_name }}' is not a valid semver version"
+          $expected = "${{ needs.prepare.outputs.desktop_version }}"
+          $actual = (Get-Content package.json | ConvertFrom-Json).version
+          if ($actual -ne $expected) {
+            throw "package.json version $actual does not match version.txt $expected"
           }
-
-          npm version $version --no-git-tag-version --allow-same-version
-          Set-Content -Path version.txt -Value $version -NoNewline
-          Write-Host "Building Prism version $version"
+          Write-Host "Building Prism Desktop $expected"
 
       - name: Build App
         run: npm run build:demo -- --publish never
@@ -65,7 +104,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: artifacts-win
+          name: artifacts-desktop
           path: |
             dist/*.exe
             dist/*.zip
@@ -73,23 +112,197 @@ jobs:
             dist/latest.yml
           if-no-files-found: error
 
-  release:
-    name: Create GitHub Release
-    needs: build
+  mobile-android:
+    name: Build Prism Mobile for Android
+    needs: prepare
+    if: needs.prepare.outputs.mobile_changed == 'true'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Apply app versions
+        run: node scripts/sync-versions.mjs
+
+      - name: Verify mobile version
+        shell: bash
+        run: |
+          expected="${{ needs.prepare.outputs.mobile_version }}"
+          actual="$(node -p "require('./mobile/package.json').version")"
+          app_version="$(node -p "require('./mobile/app.json').expo.version")"
+          if [ "$actual" != "$expected" ] || [ "$app_version" != "$expected" ]; then
+            echo "Mobile version mismatch: package=$actual app.json=$app_version expected=$expected"
+            exit 1
+          fi
+          echo "Building Prism Mobile $expected"
+
+      - name: Typecheck mobile app
+        working-directory: mobile
+        run: npm run typecheck
+
+      - name: Test mobile app
+        working-directory: mobile
+        run: npm test
+
+      - name: Generate native Android project
+        working-directory: mobile
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Configure Android SDK path
+        shell: bash
+        run: echo "sdk.dir=$ANDROID_HOME" > mobile/android/local.properties
+
+      - name: Configure release signing
+        working-directory: mobile
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PATH: android/app/prism-release.keystore
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/prism-release.keystore
+          fi
+          node scripts/configure-android-signing.mjs
+
+      - name: Build release APK
+        working-directory: mobile/android
+        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Collect APK
+        shell: bash
+        run: |
+          version="$(node -p "require('./mobile/package.json').version")"
+          mkdir -p mobile-builds
+          cp mobile/android/app/build/outputs/apk/release/app-release.apk "mobile-builds/prism-mobile-${version}.apk"
+          ls -lh mobile-builds
+
+      - name: Upload mobile artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-mobile-android
+          path: mobile-builds/*.apk
+          if-no-files-found: error
+
+  mobile-ios:
+    name: Build Prism Mobile for iOS (unsigned)
+    needs: prepare
+    if: needs.prepare.outputs.mobile_changed == 'true'
+    runs-on: macos-latest
+    # iOS builds are unsigned because release signing needs Apple developer
+    # credentials. The IPA is published as a best-effort artifact for users who
+    # re-sign it themselves, and it must never block the release.
+    continue-on-error: true
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Apply app versions
+        run: node scripts/sync-versions.mjs
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Generate native iOS project
+        working-directory: mobile
+        run: npx expo prebuild --platform ios
+
+      - name: Build unsigned iOS app
+        working-directory: mobile/ios
+        shell: bash
+        run: |
+          xcodebuild \
+            -workspace Prism.xcworkspace \
+            -scheme Prism \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            -quiet
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          version="$(node -p "require('./mobile/package.json').version")"
+          mkdir -p mobile-builds ios-package/Payload
+          cp -R mobile/ios/build/Build/Products/Release-iphoneos/Prism.app ios-package/Payload/
+          (cd ios-package && zip -qry "../mobile-builds/prism-mobile-${version}-unsigned.ipa" Payload)
+          ls -lh mobile-builds
+
+      - name: Upload mobile artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-mobile-ios
+          path: mobile-builds/*.ipa
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: [prepare, build, mobile-android, mobile-ios]
+    # Release when the tag resolved and every build that actually ran succeeded.
+    # Skipped apps are fine (their version did not change); a failed unsigned iOS
+    # build is tolerated so it can never block the desktop/Android release.
+    if: >-
+      ${{ always() && needs.prepare.result == 'success' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (needs.mobile-android.result == 'success' || needs.mobile-android.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-artifacts
+          pattern: artifacts-*
           merge-multiple: true
+
+      - name: Verify artifacts
+        shell: bash
+        run: |
+          if [ -z "$(ls -A release-artifacts 2>/dev/null)" ]; then
+            echo "No build artifacts were produced for this tag."
+            exit 1
+          fi
+          ls -lh release-artifacts
 
       - name: Import GPG Key
         uses: crazy-max/ghaction-import-gpg@v6
@@ -114,7 +327,7 @@ jobs:
             release-artifacts/*
           generate_release_notes: true
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
+          prerelease: false
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -7,7 +7,7 @@
 
 # Prism
 
-### The Open, Multi-Provider Desktop AI Copilot & Autonomous Execution Engine
+### The Open, Multi-Provider AI Copilot for Desktop & Mobile
 
 [![Version](https://img.shields.io/badge/version-9.3.0-38bdf8?style=for-the-badge&logo=electron&logoColor=white)](https://github.com/brnalemusic/Prism)
 [![License](https://img.shields.io/badge/license-PRISM%20LICENSE%201.0-eab308?style=for-the-badge)](./LICENSE)
@@ -37,6 +37,7 @@
   - [7. Modular Skills System](#7-modular-skills-system)
   - [8. Interactive Mini-Apps & Questionnaires](#8-interactive-mini-apps--questionnaires)
 - [Visual Design & Styling](#-visual-design--styling)
+- [Prism Mobile (Native)](#-prism-mobile-native)
 - [Complete System Tools Reference](#-complete-system-tools-reference)
 - [Keyboard Shortcuts Cheat Sheet](#-keyboard-shortcuts-cheat-sheet)
 - [Tech Stack & Architecture](#-tech-stack--architecture)
@@ -222,6 +223,84 @@ Prism features a signature **Prism Marine** visual aesthetic built on **Tailwind
 
 ---
 
+## 📱 Prism Mobile (Native)
+
+Prism Mobile is a **separate native application** for phones — not an Electron port, not a WebView wrapper and not a responsive build of the desktop window. It lives in [`mobile/`](mobile), owns its navigation, state and design tokens, and is built with **React Native + Expo (SDK 58)**.
+
+### What it does
+
+- **Streaming chat** with Google AI Studio (Gemini native), any OpenAI-compatible endpoint (OpenAI, OpenRouter, Groq, NVIDIA NIM, Ollama, LM Studio) and Anthropic — Markdown renders as native views while tokens arrive.
+- **Sessions on the device:** a lightweight session index plus per-session message storage, so opening the app is instant and history survives restarts.
+- **Bring your own key:** keys are written to the iOS Keychain / Android Keystore through `expo-secure-store` and only ever travel from the phone to the provider you configured. No Prism relay, no account, no analytics.
+- **Prompt library:** eight starting points grouped by intent (Think, Write, Build, Study) that open a new session with an editable draft.
+- **Spectral themes:** the eight desktop accent families, retuned for OLED-dark phone surfaces and persisted locally.
+- **In-app auto-updater:** Android builds check GitHub Releases on launch (throttled), surface a banner when a newer APK exists and hand the download to the Android installer in one tap.
+- **Native interaction model:** thumb-reachable composer, floating glass tab bar, spring press feedback, haptics, bottom sheets, native stack transitions and keyboard-safe layouts.
+
+### Deliberate differences from the desktop app
+
+Prism Mobile is intentionally smaller than its desktop sibling. It has no terminal sandbox, harness, filesystem or browser automation — those capabilities belong to the machine running the desktop app. Instead of shrinking the desktop workspace, the mobile app optimises the one thing a phone is good at: a single conversation you can read and answer with one hand.
+
+### Build and run
+
+```bash
+npm run mobile            # Expo dev server (QR code for Expo Go or a dev build)
+npm run mobile:android    # Native Android build (requires Android SDK)
+npm run mobile:ios        # Native iOS build (requires macOS + Xcode)
+npm run mobile:typecheck  # TypeScript for the mobile app
+npm run mobile:test       # Unit tests for the streaming/protocol layer
+npm run mobile:bundle     # Verify the production Metro bundle
+```
+
+### Versioning the two apps separately
+
+| File | App | Example |
+| --- | --- | --- |
+| `version.txt` | Desktop | `9.3.0` |
+| `version_m.txt` | Mobile | `0.0.1` |
+
+`npm run sync` (cross-platform equivalent: `npm run versions`) applies **both** files to `package.json`, `package-lock.json` and, for the mobile app, `app.json` plus the Android `versionCode`. A version that already matches is left untouched, so the script never invents a bump and never rewrites files for nothing.
+
+### Release tags and conditional builds
+
+Push a tag in this format:
+
+```text
+MAJORDSK.MINORDSK-MAJORMBL.MINORMBL/YYYYMMDD
+```
+
+Examples: `9.3-0.0/20261020`, `10.0-0.0/20270710`.
+
+- Git accepts `/` in tag names (`refs/tags/10.0-0.0/20270710`) and GitHub Releases accepts the tag as-is.
+- SemVer does **not** accept `/` in a version string, so the apps themselves stay strict SemVer (`10.0.0`, `0.0.1`); the slash exists only in the tag.
+- The tag carries the major.minor pair of each app plus the release date.
+
+The `prepare` job compares `version.txt` and `version_m.txt` against the previous release tag:
+
+| Situation | Result |
+| --- | --- |
+| Desktop version changed | Desktop build runs; mobile is skipped unless its version changed too |
+| Mobile version changed | Android + iOS builds run; desktop is skipped |
+| Neither changed | The run fails with a clear error instead of publishing an empty release |
+
+### Release artifacts
+
+Both apps publish to the **same GitHub Release**, but only the apps that changed are built:
+
+| Artifact | Platform |
+| --- | --- |
+| `prism-invisible-setup-<desktop-version>.exe` | Windows installer |
+| `prism-mobile-<mobile-version>.apk` | Android — signed with the repository keystore when `ANDROID_KEYSTORE_BASE64` is configured (debug-signed otherwise) |
+| `prism-mobile-<mobile-version>-unsigned.ipa` | iOS — best-effort macOS build for users who re-sign it |
+
+### In-app auto-updater
+
+Android builds ask GitHub Releases for the newest mobile build on launch (throttled to once every six hours, plus a manual check in Settings → App updates). When a newer `prism-mobile-<version>.apk` exists, Prism shows a banner, downloads the package and opens the Android installer in one tap. Android still asks for confirmation and verifies the APK signature — the app cannot install silently. iOS cannot self-install a sideloaded IPA, so the same flow opens the release page.
+
+Mobile sources are excluded from the desktop installer and from the desktop TypeScript project, so neither build can regress the other.
+
+---
+
 ## 🛠️ Complete System Tools Reference
 
 Prism equips connected AI models with a comprehensive manifest of native system tools:
@@ -386,6 +465,11 @@ npm run format
 
 # Run ESLint validation
 npm run lint
+
+# Mobile app (React Native + Expo) checks
+npm run mobile:typecheck
+npm run mobile:test
+npm run test:release-meta
 ```
 
 > **Note:** Never run production build commands (`npm run build` or `npm run build:win`) during normal development routines unless packaging an official release.

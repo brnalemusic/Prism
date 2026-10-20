@@ -28,7 +28,15 @@
         "build:win": "npm run build && electron-builder --win",
         "build:mac": "electron-vite build && electron-builder --mac",
         "build:linux": "electron-vite build && electron-builder --linux",
-        "sync": "powershell -ExecutionPolicy Bypass -File scripts/sync-version.ps1"
+        "sync": "powershell -ExecutionPolicy Bypass -File scripts/sync-version.ps1",
+        "mobile": "npm --prefix mobile start",
+        "mobile:android": "npm --prefix mobile run android",
+        "mobile:ios": "npm --prefix mobile run ios",
+        "mobile:typecheck": "npm --prefix mobile run typecheck",
+        "mobile:test": "npm --prefix mobile test",
+        "mobile:bundle": "npm --prefix mobile run bundle",
+        "versions": "node scripts/sync-versions.mjs",
+        "test:release-meta": "node --test scripts/release-meta-validation.mjs"
     },
     "dependencies": {
         "@discordjs/voice": "^0.19.2",

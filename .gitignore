@@ -45,3 +45,16 @@ scripts/license-keys/
 *.pe
 *.key
 scripts/generate-license.mjs
+
+# Prism Mobile
+dist-check/
+.expo/
+android/
+ios/
+*.jks
+*.keystore
+mobile-builds/
+
+# The mobile test suite ships with the app; the broad *test* rule above is for scratch files.
+!mobile/tests/
+!mobile/tests/**
