@@ -86,7 +86,11 @@ animated in other modes for frame-budget safety). `Settings > Appearance >
 Rendering Performance` offers `Medium` (default, full visuals with a temporary
 imperceptible step-down under load), `Performance` (lightweight look:
 no backdrop blur or glassmorphism, fade-only streaming for maximum fluidity),
-and `Maximum` (cinematic streaming with fade, tint, and unblur).
+and `Maximum` (cinematic streaming with fade, tint, and unblur). The reveal
+clears the inherited Motion presence context on every animated streaming node,
+because the workspace shell lives inside `AnimatePresence initial={false}` and
+that flag would otherwise make spans mount directly at their final frame. Chat,
+Harness, the Quick Launcher, and the demo therefore share the exact same reveal.
 
 ### 4.5. Boot & Welcome Stage Architecture
 - **Boot Loading Screen (`LoadingScreen.tsx`)**: Replaces simple indeterminate spinners with a staged diagnostic pipeline. Features a double-bezel glass container, the vector `PrismMark` seven-beam spectral dispersion fan that progressively illuminates with boot stages (Network Core → Provider Credentials → Model Diagnostic → System Ready), a shimmering progress bar, and frosted error recovery surfaces.

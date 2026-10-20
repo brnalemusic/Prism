@@ -8,7 +8,7 @@ import React, {
   useState
 } from 'react'
 import { Components } from 'react-markdown'
-import { motion } from 'motion/react'
+import { motion, PresenceContext } from 'motion/react'
 import { getStreamingCharMotion } from './streamingMotion'
 import Prism from 'prismjs'
 import 'prismjs/components/prism-javascript'
@@ -833,6 +833,22 @@ interface StreamingSpanProps extends React.ComponentPropsWithoutRef<'span'> {
   'data-stream-delay'?: string
 }
 
+// The app shell mounts every workspace inside `AnimatePresence initial={false}`
+// (App.tsx). Motion propagates that flag to every nested element through
+// PresenceContext, so any Motion node mounted later — including streaming
+// spans — snaps straight to its animate target instead of playing its initial
+// frame. The Quick Launcher has no such wrapper, which is why its reveal used
+// to be the only one that worked. Clear the inherited presence context for the
+// streaming nodes so fade, tint, and unblur always start from their initial
+// state in every window, regardless of enclosing presence animations.
+function StreamingPresenceBoundary({
+  children
+}: {
+  children: React.ReactNode
+}): React.JSX.Element {
+  return <PresenceContext.Provider value={null}>{children}</PresenceContext.Provider>
+}
+
 // Motion-driven reveal. Non-animated spans (syntax tokens, KaTeX output,
 // static text) render as plain spans with zero Motion cost.
 const StreamingSpan = memo(function StreamingSpan({
@@ -876,17 +892,19 @@ const StreamingSpan = memo(function StreamingSpan({
   }
 
   return (
-    <motion.span
-      {...props}
-      className={stripStreamingFadeClasses(className)}
-      data-stream-token={streamToken}
-      data-stream-engine="motion"
-      initial={motionProps.initial}
-      animate={motionProps.animate}
-      transition={motionProps.transition}
-    >
-      {children}
-    </motion.span>
+    <StreamingPresenceBoundary>
+      <motion.span
+        {...props}
+        className={stripStreamingFadeClasses(className)}
+        data-stream-token={streamToken}
+        data-stream-engine="motion"
+        initial={motionProps.initial}
+        animate={motionProps.animate}
+        transition={motionProps.transition}
+      >
+        {children}
+      </motion.span>
+    </StreamingPresenceBoundary>
   )
 })
 
@@ -938,17 +956,19 @@ const StreamingDiv = memo(function StreamingDiv({
   }
 
   return (
-    <motion.div
-      {...props}
-      className={stripStreamingFadeClasses(className)}
-      data-stream-token={streamToken}
-      data-stream-engine="motion"
-      initial={motionProps.initial}
-      animate={motionProps.animate}
-      transition={motionProps.transition}
-    >
-      {children}
-    </motion.div>
+    <StreamingPresenceBoundary>
+      <motion.div
+        {...props}
+        className={stripStreamingFadeClasses(className)}
+        data-stream-token={streamToken}
+        data-stream-engine="motion"
+        initial={motionProps.initial}
+        animate={motionProps.animate}
+        transition={motionProps.transition}
+      >
+        {children}
+      </motion.div>
+    </StreamingPresenceBoundary>
   )
 })
 
@@ -1114,18 +1134,20 @@ export const CodeBlock = ({
       )
     }
     return (
-      <motion.code
-        {...props}
-        className={`${stripStreamingFadeClasses(className) || ''} text-accent-secondary font-mono text-[13px] font-medium tracking-tight bg-transparent border-none p-0 mx-0.5 inline select-text`}
-        data-stream-token={streamToken}
-        data-stream-engine="motion"
-        style={inlineStyle}
-        initial={elementMotion.initial}
-        animate={elementMotion.animate}
-        transition={elementMotion.transition}
-      >
-        {children}
-      </motion.code>
+      <StreamingPresenceBoundary>
+        <motion.code
+          {...props}
+          className={`${stripStreamingFadeClasses(className) || ''} text-accent-secondary font-mono text-[13px] font-medium tracking-tight bg-transparent border-none p-0 mx-0.5 inline select-text`}
+          data-stream-token={streamToken}
+          data-stream-engine="motion"
+          style={inlineStyle}
+          initial={elementMotion.initial}
+          animate={elementMotion.animate}
+          transition={elementMotion.transition}
+        >
+          {children}
+        </motion.code>
+      </StreamingPresenceBoundary>
     )
   }
 
@@ -1164,33 +1186,35 @@ export const CodeBlock = ({
   }
 
   return (
-    <motion.div
-      className={`not-prose my-4 overflow-hidden rounded-xl bg-[#060709] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04),0_10px_30px_-12px_rgba(0,0,0,0.5)] font-mono text-xs w-full text-text-primary`}
-      data-stream-token={streamToken}
-      data-stream-engine="motion"
-      style={style}
-      initial={elementMotion.initial}
-      animate={elementMotion.animate}
-      transition={elementMotion.transition}
-    >
-      <div className="flex items-center justify-between bg-white/[0.02] px-4 py-2 select-none">
-        <span className="text-[11px] font-semibold text-text-secondary/80 uppercase tracking-[0.14em]">
-          {lang}
-        </span>
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="flex items-center gap-1.5 rounded-lg bg-white/[0.05] px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-white/[0.09] hover:text-text-primary transition-colors duration-200 active:scale-95 cursor-pointer min-w-[75px] justify-center"
-        >
-          <span>{copied ? 'Copied!' : 'Copy Code'}</span>
-        </button>
-      </div>
-      <div className="p-4 overflow-x-auto">
-        <code className={`${codeClassName || ''} block whitespace-pre`} {...props}>
-          {renderedCode}
-        </code>
-      </div>
-    </motion.div>
+    <StreamingPresenceBoundary>
+      <motion.div
+        className={`not-prose my-4 overflow-hidden rounded-xl bg-[#060709] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04),0_10px_30px_-12px_rgba(0,0,0,0.5)] font-mono text-xs w-full text-text-primary`}
+        data-stream-token={streamToken}
+        data-stream-engine="motion"
+        style={style}
+        initial={elementMotion.initial}
+        animate={elementMotion.animate}
+        transition={elementMotion.transition}
+      >
+        <div className="flex items-center justify-between bg-white/[0.02] px-4 py-2 select-none">
+          <span className="text-[11px] font-semibold text-text-secondary/80 uppercase tracking-[0.14em]">
+            {lang}
+          </span>
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="flex items-center gap-1.5 rounded-lg bg-white/[0.05] px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-white/[0.09] hover:text-text-primary transition-colors duration-200 active:scale-95 cursor-pointer min-w-[75px] justify-center"
+          >
+            <span>{copied ? 'Copied!' : 'Copy Code'}</span>
+          </button>
+        </div>
+        <div className="p-4 overflow-x-auto">
+          <code className={`${codeClassName || ''} block whitespace-pre`} {...props}>
+            {renderedCode}
+          </code>
+        </div>
+      </motion.div>
+    </StreamingPresenceBoundary>
   )
 }
 
