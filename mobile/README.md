@@ -12,11 +12,24 @@ npm install
 npm start          # Expo dev server
 ```
 
-To build real native binaries locally:
+To build real native binaries locally, run this from the repository root:
 
 ```bash
-npm run android    # requires Android Studio / SDK
+npm run mobile:android    # requires Android Studio / SDK
 ```
+
+On Windows, the root command resolves a JDK 17+ automatically (preferring
+`JAVA_HOME`, then Android Studio's bundled JBR) and limits Gradle to two
+workers unless `GRADLE_OPTS` is set. The `withAndroidCmakeObjectPathMax` config
+plugin injects `-DCMAKE_OBJECT_PATH_MAX=240`, which keeps React Native codegen
+object paths below Windows' 260-character `MAX_PATH`.
+
+Keep the repository at a short path (for example `C:\Prism`). React Native
+mirrors absolute source paths into the CMake object directory; a deep
+repository path can still exceed `MAX_PATH` and make Ninja fail. `subst` drives
+do not help because Gradle canonicalizes them back to the physical path.
+Running `npm run android` directly from `mobile/` still works when the
+repository path is short enough.
 
 Prism Mobile targets **Android only** — no iOS build is produced or published.
 

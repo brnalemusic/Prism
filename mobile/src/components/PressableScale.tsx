@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import {
   Animated,
@@ -8,6 +8,8 @@ import {
   type ViewStyle
 } from 'react-native'
 import * as Haptics from 'expo-haptics'
+import { useReducedMotion } from '../hooks/useReducedMotion'
+import { DURATION, EASING, SPRING } from '../theme/motion'
 
 type HapticStyle = 'none' | 'light' | 'medium' | 'selection'
 
@@ -17,6 +19,10 @@ interface PressableScaleProps extends Omit<PressableProps, 'style'> {
   scaleTo?: number
   haptic?: HapticStyle
 }
+
+/** Dimming applied on press-in so the glass tones down, not just shrinks. */
+const PRESS_DIM = 0.92
+const DISABLED_DIM = 0.45
 
 function fireHaptic(style: HapticStyle): void {
   if (style === 'none') return
@@ -32,8 +38,10 @@ function fireHaptic(style: HapticStyle): void {
 }
 
 /**
- * The single press surface used across the app: native spring feedback plus
- * a haptic tick, so controls feel physical instead of web-like.
+ * The single press surface used across the app. Feedback lands on press-in
+ * (scale into 0.96 + dim, within 110 ms), release springs back with the
+ * critically damped `press` preset so surfaces settle like glass instead of
+ * bouncing. Reduce motion keeps the dim and drops the scale.
  */
 export function PressableScale({
   children,
@@ -46,14 +54,48 @@ export function PressableScale({
   ...rest
 }: PressableScaleProps): React.JSX.Element {
   const scale = useRef(new Animated.Value(1)).current
+  const dim = useRef(new Animated.Value(1)).current
+  const reduced = useReducedMotion()
 
-  const animate = (to: number): void => {
-    Animated.spring(scale, {
-      toValue: to,
-      useNativeDriver: true,
-      speed: 40,
-      bounciness: 4
-    }).start()
+  useEffect(() => {
+    if (disabled) dim.setValue(DISABLED_DIM)
+  }, [disabled, dim])
+
+  const press = (): void => {
+    const steps: Array<Animated.CompositeAnimation> = [
+      Animated.timing(dim, {
+        toValue: PRESS_DIM,
+        duration: DURATION.press,
+        easing: EASING.pressOut,
+        useNativeDriver: true
+      })
+    ]
+    if (!reduced) {
+      steps.push(
+        Animated.timing(scale, {
+          toValue: scaleTo,
+          duration: DURATION.press,
+          easing: EASING.pressOut,
+          useNativeDriver: true
+        })
+      )
+    }
+    Animated.parallel(steps).start()
+  }
+
+  const release = (): void => {
+    const steps: Array<Animated.CompositeAnimation> = [
+      Animated.timing(dim, {
+        toValue: 1,
+        duration: DURATION.exit,
+        easing: EASING.outExpo,
+        useNativeDriver: true
+      })
+    ]
+    if (!reduced) {
+      steps.push(Animated.spring(scale, { toValue: 1, useNativeDriver: true, ...SPRING.press }))
+    }
+    Animated.parallel(steps).start()
   }
 
   return (
@@ -62,18 +104,22 @@ export function PressableScale({
       disabled={disabled}
       onPressIn={(event) => {
         if (!disabled) {
-          animate(scaleTo)
+          press()
           fireHaptic(haptic)
         }
         onPressIn?.(event)
       }}
       onPressOut={(event) => {
-        animate(1)
+        if (!disabled) release()
         onPressOut?.(event)
       }}
     >
       <Animated.View
-        style={[style, { transform: [{ scale }] }, disabled ? { opacity: 0.45 } : null]}
+        style={[
+          style as StyleProp<ViewStyle>,
+          reduced ? null : { transform: [{ scale }] },
+          { opacity: dim }
+        ]}
       >
         {children}
       </Animated.View>

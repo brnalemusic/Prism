@@ -115,7 +115,7 @@ Local commands (from the repository root):
 
 ```bash
 npm run mobile            # Expo dev server
-npm run mobile:android    # expo run:android (native build)
+npm run mobile:android    # expo run:android (native build; auto-resolves JDK 17+ and handles Windows long paths)
 npm run mobile:typecheck  # tsc --noEmit for the mobile app
 npm run mobile:test       # node:test suites incl. the updater logic
 npm run mobile:bundle     # expo export --platform android (Metro validation)
@@ -123,7 +123,7 @@ npm run versions          # apply version.txt + version_m.txt
 npm run test:release-meta # tag parsing / change detection tests
 ```
 
-The native project (`mobile/android`) is generated on demand by `expo prebuild` and is **not** committed; `app.json` is the single source of truth for identifiers, icons and the mobile version. Prism Mobile ships for **Android only** — there is no iOS build, job or artifact.
+The native project (`mobile/android`) is generated on demand by `expo prebuild` and is **not** committed; `app.json` is the single source of truth for identifiers, icons and the mobile version. The `withAndroidCmakeObjectPathMax` config plugin injects `-DCMAKE_OBJECT_PATH_MAX=240` so React Native codegen object names stay below Windows' `MAX_PATH`. Prism Mobile ships for **Android only** — there is no iOS build, job or artifact.
 
 ### 7.1 Two apps, two version files
 

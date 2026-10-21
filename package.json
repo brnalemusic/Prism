@@ -30,7 +30,7 @@
         "build:linux": "electron-vite build && electron-builder --linux",
         "sync": "powershell -ExecutionPolicy Bypass -File scripts/sync-version.ps1",
         "mobile": "npm --prefix mobile start",
-        "mobile:android": "npm --prefix mobile run android",
+        "mobile:android": "node scripts/mobile-android.mjs",
         "mobile:typecheck": "npm --prefix mobile run typecheck",
         "mobile:test": "npm --prefix mobile test",
         "mobile:bundle": "npm --prefix mobile run bundle",

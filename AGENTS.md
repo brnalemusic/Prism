@@ -66,6 +66,16 @@ Prism is an Electron + React + TypeScript application with Tailwind CSS v4. You 
 - Always use the Supabase CLI via `npx` (e.g., `npx supabase <command>`), as the Supabase CLI is not guaranteed to be installed globally in the environment.
 - The Supabase CLI must also be properly configured when invoked via `npx` (e.g., ensuring appropriate flags, project references, or environment variables are provided so commands execute correctly).
 
+### 3.4 Prism Mobile (Android)
+- The standard command to build and run the mobile app is:
+  ```bash
+  npm run mobile:android
+  ```
+  It runs `expo run:android` inside `mobile/`, generating `mobile/android/` when missing, building the debug APK, installing it on the connected device/emulator and starting Metro. On Windows, keep the repository at a short path (for example `C:\Prism`): CMake/Ninja mirror absolute source paths and fail above the 260-character MAX_PATH limit. `subst` drives do not help because Gradle canonicalizes them back to the physical path. The root command resolves a JDK 17+ automatically (preferring `JAVA_HOME`, then Android Studio's bundled JBR), limits Gradle to two workers unless `GRADLE_OPTS` is set, and the `withAndroidCmakeObjectPathMax` config plugin injects `-DCMAKE_OBJECT_PATH_MAX=240` so codegen object paths stay below MAX_PATH.
+- Prerequisites: JDK 17+ (the root command falls back to Android Studio's bundled JBR on Windows), and the Android SDK through `ANDROID_HOME`, `ANDROID_SDK_ROOT` or `mobile/android/local.properties`. `mobile/android/` is generated output and stays untracked.
+- Use `npm run mobile:typecheck`, `npm run mobile:test` and `npm run mobile:bundle` for validation. Release APKs are built by `.github/workflows/release.yml` via `expo prebuild` + `./gradlew assembleRelease`.
+- Never use `npm run build` or `npm run build:win` for the mobile app.
+
 ---
 
 ## 4. Git & Branch Rules
