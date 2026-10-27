@@ -78,7 +78,7 @@ implement an in-app updater:
 
 ## Where things live
 
-- `app/` — expo-router routes (tabs, chat, settings, onboarding).
+- `app/` — expo-router routes (home, chat, prompts, settings, onboarding).
 - `src/ai/` — provider protocols, SSE parser, request builders, presets, persona.
 - `src/state/` — settings, conversation and update stores.
 - `src/storage/` — AsyncStorage (history) and SecureStore (API keys).

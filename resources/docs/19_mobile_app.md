@@ -13,7 +13,7 @@ The mobile app exists because the desktop workspace does not compress into a pho
 - Provider management with API keys in the OS keychain.
 - Prompt library with editable drafts.
 - The eight Prism spectral themes, retuned for dark OLED surfaces.
-- Native interaction: haptics, spring press feedback, sheets, floating glass tab bar, native stack transitions.
+- Native interaction: haptics, spring press feedback, sheets, a left conversation drawer, native stack transitions.
 
 **Out of scope by design**
 
@@ -27,7 +27,7 @@ Terminal execution, harness projects, file and browser tools, Discord gateway, m
 | --- | --- |
 | Runtime | React Native 0.88 (New Architecture) |
 | App framework | Expo SDK 58 with Continuous Native Generation (`expo prebuild`) |
-| Routing | `expo-router` JS tabs and native stack (file-based routes in `mobile/app`) |
+| Routing | `expo-router` native stack with a custom left drawer (file-based routes in `mobile/app`) |
 | Language | TypeScript 5.9 (`mobile/tsconfig.json`, strict, `noUncheckedIndexedAccess`) |
 | State | React context providers (`settings`, `sessions`) — no external state library |
 | Persistence | `@react-native-async-storage/async-storage` (metadata/messages), `expo-secure-store` (keys) |
@@ -47,10 +47,11 @@ The desktop type stack (Geist/JetBrains Mono) is intentionally replaced by the p
 ```
 mobile/
 ├── app/                      # expo-router routes
-│   ├── _layout.tsx           # providers, splash, native stack
-│   ├── (tabs)/               # Chats, Prompts, Settings + floating tab bar
+│   ├── _layout.tsx           # providers, splash, native stack, global drawer
+│   ├── index.tsx             # new-conversation home + docked composer
+│   ├── prompts.tsx           # prompt library grouped by category
 │   ├── chat/[id].tsx         # conversation, streaming, model sheet, rename/delete
-│   ├── settings/             # providers, provider editor, appearance, about
+│   ├── settings/             # settings, providers, appearance, about
 │   └── onboarding.tsx        # first-run provider setup
 ├── src/
 │   ├── ai/                   # protocols, SSE parser, presets, persona, prompts, validation
@@ -106,6 +107,8 @@ Because the pure modules never import React Native, they are covered by `npm run
 Themes live in `src/theme/themes.ts`: eight accent families matching the desktop themes, each with a dark background pair, glass surfaces, borders and text ramp. `mono` stands in for the desktop's Classic White theme.
 
 All spacing, radius and type tokens come from `src/theme/tokens.ts`. Screens use `ScreenBackground` for the continuous gradient (no pale flash between routes), `GlassSurface` for real iOS blur with an Android solid fallback, and `PressableScale` for press feedback + haptics.
+
+The chat shell follows the conventions of AI chat products rather than a dashboard. Home is a new conversation: a short greeting, four starting points and a docked composer. History, the prompt library and settings live in a left drawer (`ChatDrawer`), which groups conversations by recency and supports search and long-press delete. The conversation screen keeps assistant answers full-width without avatars, renders user messages as neutral right-aligned bubbles, and reveals copy/regenerate actions only after a reply settles. Sending from home creates the session and auto-sends the first message, so the app opens directly into a streaming answer.
 
 ---
 

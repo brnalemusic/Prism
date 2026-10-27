@@ -1,18 +1,17 @@
-import { memo, useEffect, useRef } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { Animated, StyleSheet, Text, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import { Ionicons } from '@expo/vector-icons'
 import type { ChatMessage } from '../domain/types'
 import { useTheme } from '../state/settings'
-import { formatDuration } from '../lib/text'
-import { radius, spacing, type as typography } from '../theme/tokens'
+import { spacing, type as typography } from '../theme/tokens'
 import { MarkdownBody } from './MarkdownBody'
 import { PressableScale } from './PressableScale'
-import { PrismMark } from './PrismMark'
 
 interface MessageBubbleProps {
   message: ChatMessage
   onRetry?: () => void
+  onRegenerate?: () => void
 }
 
 function StreamingCaret({ color }: { color: string }): React.JSX.Element {
@@ -32,16 +31,28 @@ function StreamingCaret({ color }: { color: string }): React.JSX.Element {
 
 export const MessageBubble = memo(function MessageBubble({
   message,
-  onRetry
+  onRetry,
+  onRegenerate
 }: MessageBubbleProps): React.JSX.Element {
   const theme = useTheme()
+  const [copied, setCopied] = useState(false)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const isUser = message.role === 'user'
   const isStreaming = message.status === 'streaming'
   const isError = message.status === 'error'
-  const showPlainText = isStreaming
+
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current)
+    }
+  }, [])
 
   const copy = (): void => {
     void Clipboard.setStringAsync(message.content)
+    setCopied(true)
+    if (copyTimer.current) clearTimeout(copyTimer.current)
+    copyTimer.current = setTimeout(() => setCopied(false), 1600)
   }
 
   if (isUser) {
@@ -50,7 +61,7 @@ export const MessageBubble = memo(function MessageBubble({
         <View
           style={[
             styles.userBubble,
-            { backgroundColor: `${theme.accent}1A`, borderColor: `${theme.accent}40` }
+            { backgroundColor: theme.surfaceRaised, borderColor: theme.border }
           ]}
         >
           <Text style={[styles.userText, { color: theme.text }]} selectable>
@@ -63,83 +74,93 @@ export const MessageBubble = memo(function MessageBubble({
 
   return (
     <View style={styles.assistantRow}>
-      <View style={[styles.avatar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <PrismMark size={20} />
-      </View>
-      <View style={styles.assistantBody}>
-        {isError ? (
-          <View
-            style={[
-              styles.errorCard,
-              { backgroundColor: `${theme.danger}14`, borderColor: `${theme.danger}44` }
-            ]}
-          >
-            <View style={styles.errorHeader}>
-              <Ionicons name="alert-circle-outline" size={16} color={theme.danger} />
-              <Text style={[styles.errorTitle, { color: theme.danger }]}>Request failed</Text>
-            </View>
-            <Text style={[styles.errorText, { color: theme.textSecondary }]}>
-              {message.error ?? 'The model did not answer. Try again.'}
-            </Text>
-            {message.content ? (
-              <Text style={[styles.errorText, { color: theme.textMuted }]} numberOfLines={4}>
-                {message.content}
-              </Text>
-            ) : null}
-            {onRetry ? (
-              <PressableScale
-                onPress={onRetry}
-                haptic="medium"
-                accessibilityRole="button"
-                accessibilityLabel="Retry message"
-                style={[styles.retryButton, { borderColor: `${theme.danger}66` }]}
-              >
-                <Ionicons name="refresh" size={14} color={theme.danger} />
-                <Text style={[styles.retryLabel, { color: theme.danger }]}>Try again</Text>
-              </PressableScale>
-            ) : null}
+      {isError ? (
+        <View
+          style={[
+            styles.errorCard,
+            { backgroundColor: `${theme.danger}14`, borderColor: `${theme.danger}44` }
+          ]}
+        >
+          <View style={styles.errorHeader}>
+            <Ionicons name="alert-circle-outline" size={16} color={theme.danger} />
+            <Text style={[styles.errorTitle, { color: theme.danger }]}>Request failed</Text>
           </View>
-        ) : showPlainText ? (
-          <View style={styles.streamingTextWrap}>
-            <Text
-              style={[
-                styles.streamingText,
-                { color: message.content ? theme.text : theme.textMuted }
-              ]}
-              selectable
+          <Text style={[styles.errorText, { color: theme.textSecondary }]}>
+            {message.error ?? 'The model did not answer. Try again.'}
+          </Text>
+          {message.content ? (
+            <Text style={[styles.errorText, { color: theme.textMuted }]} numberOfLines={4}>
+              {message.content}
+            </Text>
+          ) : null}
+          {onRetry ? (
+            <PressableScale
+              onPress={onRetry}
+              haptic="medium"
+              accessibilityRole="button"
+              accessibilityLabel="Retry message"
+              style={[styles.retryButton, { borderColor: `${theme.danger}66` }]}
             >
-              {message.content || 'Thinking…'}
-            </Text>
-            <StreamingCaret color={theme.accent} />
-          </View>
-        ) : (
-          <MarkdownBody content={message.content} />
-        )}
+              <Ionicons name="refresh" size={14} color={theme.danger} />
+              <Text style={[styles.retryLabel, { color: theme.danger }]}>Try again</Text>
+            </PressableScale>
+          ) : null}
+        </View>
+      ) : isStreaming ? (
+        <View style={styles.streamingTextWrap}>
+          <Text
+            style={[
+              styles.streamingText,
+              { color: message.content ? theme.text : theme.textMuted }
+            ]}
+            selectable
+          >
+            {message.content || 'Thinking…'}
+          </Text>
+          <StreamingCaret color={theme.accent} />
+        </View>
+      ) : (
+        <MarkdownBody content={message.content} />
+      )}
 
-        {!isStreaming && !isError ? (
-          <View style={styles.footer}>
-            <Text style={[styles.meta, { color: theme.textMuted }]}>
-              {message.status === 'stopped'
-                ? 'Stopped'
-                : message.durationMs
-                  ? formatDuration(message.durationMs)
-                  : ''}
-            </Text>
-            {message.content ? (
-              <PressableScale
-                onPress={copy}
-                haptic="light"
-                accessibilityRole="button"
-                accessibilityLabel="Copy message"
-                style={styles.footerAction}
-              >
-                <Ionicons name="copy-outline" size={14} color={theme.textMuted} />
-                <Text style={[styles.meta, { color: theme.textMuted }]}>Copy</Text>
-              </PressableScale>
-            ) : null}
-          </View>
-        ) : null}
-      </View>
+      {!isStreaming && !isError ? (
+        <View style={styles.actions}>
+          {message.status === 'stopped' ? (
+            <Text style={[styles.meta, { color: theme.textMuted }]}>Stopped</Text>
+          ) : null}
+          <View style={styles.actionSpacer} />
+          {message.content ? (
+            <PressableScale
+              onPress={copy}
+              haptic="light"
+              accessibilityRole="button"
+              accessibilityLabel={copied ? 'Copied' : 'Copy message'}
+              hitSlop={4}
+              style={styles.action}
+              scaleTo={0.9}
+            >
+              <Ionicons
+                name={copied ? 'checkmark' : 'copy-outline'}
+                size={15}
+                color={copied ? theme.success : theme.textMuted}
+              />
+            </PressableScale>
+          ) : null}
+          {onRegenerate ? (
+            <PressableScale
+              onPress={onRegenerate}
+              haptic="light"
+              accessibilityRole="button"
+              accessibilityLabel="Regenerate answer"
+              hitSlop={4}
+              style={styles.action}
+              scaleTo={0.9}
+            >
+              <Ionicons name="refresh" size={15} color={theme.textMuted} />
+            </PressableScale>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   )
 })
@@ -151,33 +172,18 @@ const styles = StyleSheet.create({
   },
   userBubble: {
     maxWidth: '100%',
-    borderRadius: radius.lg,
-    borderTopRightRadius: radius.sm,
+    borderRadius: 20,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: spacing.lg,
-    paddingVertical: 11
+    paddingVertical: 10
   },
   userText: {
     ...typography.body,
-    fontSize: 15.5
+    fontSize: 15.5,
+    lineHeight: 22
   },
   assistantRow: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    paddingRight: spacing.md
-  },
-  avatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    marginTop: 2
-  },
-  assistantBody: {
-    flex: 1,
-    paddingTop: 2
+    width: '100%'
   },
   streamingTextWrap: {
     flexDirection: 'row',
@@ -197,24 +203,29 @@ const styles = StyleSheet.create({
     marginLeft: 3,
     marginBottom: 3
   },
-  footer: {
+  actions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: 2,
     marginTop: spacing.sm,
-    minHeight: 20
+    minHeight: 26
   },
-  footerAction: {
-    flexDirection: 'row',
+  actionSpacer: {
+    flex: 1
+  },
+  action: {
+    width: 30,
+    height: 30,
     alignItems: 'center',
-    gap: 4
+    justifyContent: 'center',
+    borderRadius: 15
   },
   meta: {
     ...typography.caption,
     fontSize: 12
   },
   errorCard: {
-    borderRadius: radius.md,
+    borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     padding: spacing.md,
     gap: 6
@@ -239,7 +250,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.pill,
+    borderRadius: 999,
     paddingHorizontal: spacing.md,
     paddingVertical: 6,
     marginTop: 2

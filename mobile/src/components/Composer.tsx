@@ -1,9 +1,9 @@
+import { useEffect, useRef, type ComponentRef } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { useTheme } from '../state/settings'
 import { radius, spacing, type as typography } from '../theme/tokens'
-import { GlassSurface } from './GlassSurface'
 import { PressableScale } from './PressableScale'
 
 interface ComposerProps {
@@ -13,12 +13,18 @@ interface ComposerProps {
   onStop: () => void
   streaming: boolean
   modelLabel: string
-  providerLabel: string
   onOpenModel: () => void
   disabled?: boolean
   autoFocus?: boolean
+  /** Increment to focus the input, e.g. after tapping a suggested prompt. */
+  focusSignal?: number
+  placeholder?: string
 }
 
+/**
+ * The composer is the centre of the app, so it carries no toolbar chrome:
+ * one text field, a quiet model selector and a single send/stop control.
+ */
 export function Composer({
   value,
   onChangeText,
@@ -26,22 +32,34 @@ export function Composer({
   onStop,
   streaming,
   modelLabel,
-  providerLabel,
   onOpenModel,
   disabled = false,
-  autoFocus = false
+  autoFocus = false,
+  focusSignal,
+  placeholder = 'Ask anything…'
 }: ComposerProps): React.JSX.Element {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
+  const inputRef = useRef<ComponentRef<typeof TextInput>>(null)
   const canSend = value.trim().length > 0 && !streaming && !disabled
+
+  useEffect(() => {
+    if (focusSignal && focusSignal > 0) inputRef.current?.focus()
+  }, [focusSignal])
 
   return (
     <View style={[styles.wrapper, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
-      <GlassSurface radiusSize={radius.xl} intensity={46} style={styles.surface}>
+      <View
+        style={[
+          styles.surface,
+          { backgroundColor: theme.surfaceRaised, borderColor: theme.border }
+        ]}
+      >
         <TextInput
+          ref={inputRef}
           value={value}
           onChangeText={onChangeText}
-          placeholder="Ask anything…"
+          placeholder={placeholder}
           placeholderTextColor={theme.textMuted}
           style={[styles.input, { color: theme.text }]}
           multiline
@@ -58,21 +76,15 @@ export function Composer({
             haptic="selection"
             accessibilityRole="button"
             accessibilityLabel="Choose model"
-            style={[
-              styles.modelButton,
-              { backgroundColor: theme.surface, borderColor: theme.border }
-            ]}
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+            style={styles.modelButton}
           >
-            <Ionicons name="sparkles-outline" size={14} color={theme.accent} />
+            <Ionicons name="sparkles" size={13} color={theme.accent} />
             <Text style={[styles.modelLabel, { color: theme.textSecondary }]} numberOfLines={1}>
               {modelLabel}
             </Text>
-            <Ionicons name="chevron-up" size={13} color={theme.textMuted} />
+            <Ionicons name="chevron-down" size={12} color={theme.textMuted} />
           </PressableScale>
-
-          <Text style={[styles.provider, { color: theme.textMuted }]} numberOfLines={1}>
-            {providerLabel}
-          </Text>
 
           {streaming ? (
             <PressableScale
@@ -80,12 +92,13 @@ export function Composer({
               haptic="medium"
               accessibilityRole="button"
               accessibilityLabel="Stop generating"
+              hitSlop={6}
               style={[
                 styles.actionButton,
-                { backgroundColor: theme.surfaceRaised, borderColor: theme.borderStrong }
+                { backgroundColor: theme.surfaceStrong, borderColor: theme.borderStrong }
               ]}
             >
-              <Ionicons name="stop" size={18} color={theme.text} />
+              <Ionicons name="stop" size={15} color={theme.text} />
             </PressableScale>
           ) : (
             <PressableScale
@@ -94,6 +107,7 @@ export function Composer({
               haptic="medium"
               accessibilityRole="button"
               accessibilityLabel="Send message"
+              hitSlop={6}
               style={[
                 styles.actionButton,
                 {
@@ -104,13 +118,13 @@ export function Composer({
             >
               <Ionicons
                 name="arrow-up"
-                size={20}
+                size={18}
                 color={canSend ? theme.background : theme.textMuted}
               />
             </PressableScale>
           )}
         </View>
-      </GlassSurface>
+      </View>
     </View>
   )
 }
@@ -121,49 +135,45 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm
   },
   surface: {
+    borderRadius: radius.container,
+    borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: spacing.md,
-    paddingTop: 10,
-    paddingBottom: 8
+    paddingTop: spacing.sm + 2,
+    paddingBottom: spacing.sm
   },
   input: {
     ...typography.body,
     fontSize: 16,
     lineHeight: 22,
-    minHeight: 40,
+    minHeight: 28,
     maxHeight: 148,
-    paddingTop: 4,
-    paddingBottom: 4
+    paddingTop: 2,
+    paddingBottom: 6
   },
   toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    marginTop: 4
+    justifyContent: 'space-between',
+    gap: spacing.sm
   },
   modelButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    maxWidth: 190
+    gap: 5,
+    paddingVertical: 4,
+    paddingRight: 4,
+    maxWidth: 210
   },
   modelLabel: {
     ...typography.caption,
+    fontSize: 12.5,
     fontWeight: '600',
     flexShrink: 1
   },
-  provider: {
-    ...typography.caption,
-    fontSize: 11.5,
-    flex: 1
-  },
   actionButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center'

@@ -1,6 +1,6 @@
 {
   "name": "prism-mobile",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "description": "Prism Mobile — native pocket AI copilot",
   "main": "expo-router/entry",

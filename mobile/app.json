@@ -2,7 +2,7 @@
   "expo": {
     "name": "Prism",
     "slug": "prism-mobile",
-    "version": "0.0.1",
+    "version": "0.1.0",
     "scheme": "prism",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.prism.mobile",
-      "versionCode": 1,
+      "versionCode": 100,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",

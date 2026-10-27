@@ -1,9 +1,10 @@
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { router } from 'expo-router'
 import Constants from 'expo-constants'
 import { Card, Row, SectionLabel } from '../../src/components/Section'
 import { ScreenBackground } from '../../src/components/ScreenBackground'
+import { ScreenHeader } from '../../src/components/ScreenHeader'
 import { ThemeRow, themeLabel } from '../../src/components/ThemePicker'
 import { modelLabel } from '../../src/lib/models'
 import { useSessions } from '../../src/state/sessions'
@@ -13,6 +14,7 @@ import { spacing, type as typography } from '../../src/theme/tokens'
 
 export default function SettingsScreen(): React.JSX.Element {
   const theme = useTheme()
+  const insets = useSafeAreaInsets()
   const { providers, themeKey, defaultProviderId, defaultModelId } = useSettings()
   const { clearHistory, sessions } = useSessions()
   const { status: updateStatus, release, openSheet } = useUpdates()
@@ -36,19 +38,16 @@ export default function SettingsScreen(): React.JSX.Element {
   return (
     <ScreenBackground>
       <SafeAreaView style={styles.root} edges={['top']}>
-        <View style={styles.header}>
-          <Text style={[styles.title, { color: theme.text }]}>Settings</Text>
-          <Text style={[styles.subtitle, { color: theme.textMuted }]}>
-            Keys, models and the look of your pocket copilot.
-          </Text>
-        </View>
+        <ScreenHeader title="Settings" onBack={() => router.back()} />
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: spacing.xxxl + insets.bottom }]}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.section}>
             <SectionLabel>AI PROVIDERS</SectionLabel>
             <Card>
               <Row
-                icon="key-outline"
                 title="Providers & API keys"
                 subtitle={
                   providers.length === 0
@@ -59,9 +58,8 @@ export default function SettingsScreen(): React.JSX.Element {
                 onPress={() => router.push('/settings/providers')}
               />
               <Row
-                icon="sparkles-outline"
                 title="Default model"
-                subtitle="Used for new sessions"
+                subtitle="Used for new conversations"
                 value={defaultModel}
                 onPress={() => router.push('/settings/providers')}
                 last
@@ -74,7 +72,6 @@ export default function SettingsScreen(): React.JSX.Element {
             <Card style={styles.themeCard}>
               <ThemeRow />
               <Row
-                icon="color-palette-outline"
                 title="All themes"
                 subtitle={`Currently ${themeLabel(themeKey)}`}
                 onPress={() => router.push('/settings/appearance')}
@@ -87,12 +84,10 @@ export default function SettingsScreen(): React.JSX.Element {
             <SectionLabel>PRIVACY & DATA</SectionLabel>
             <Card>
               <Row
-                icon="shield-checkmark-outline"
                 title="Keys stay on this device"
                 subtitle="Stored in the OS keychain. Requests go straight to your provider."
               />
               <Row
-                icon="trash-outline"
                 title="Clear conversation history"
                 subtitle={`${sessions.length} sessions stored locally`}
                 onPress={confirmClear}
@@ -106,7 +101,6 @@ export default function SettingsScreen(): React.JSX.Element {
             <SectionLabel>ABOUT</SectionLabel>
             <Card>
               <Row
-                icon="cloud-download-outline"
                 title="App updates"
                 subtitle={
                   updateStatus === 'available'
@@ -121,7 +115,6 @@ export default function SettingsScreen(): React.JSX.Element {
                 onPress={openSheet}
               />
               <Row
-                icon="information-circle-outline"
                 title="About Prism Mobile"
                 value={`v${version}`}
                 onPress={() => router.push('/settings/about')}
@@ -143,24 +136,10 @@ const styles = StyleSheet.create({
   root: {
     flex: 1
   },
-  header: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
-    gap: spacing.xs
-  },
-  title: {
-    ...typography.display,
-    fontSize: 30,
-    lineHeight: 35
-  },
-  subtitle: {
-    ...typography.callout,
-    fontSize: 14
-  },
   content: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: 132,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xxxl,
     gap: spacing.xl
   },
   section: {

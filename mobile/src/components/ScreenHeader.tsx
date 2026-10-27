@@ -10,6 +10,7 @@ interface ScreenHeaderProps {
   onBack?: () => void
   right?: ReactNode
   centerTitle?: boolean
+  backVariant?: 'surface' | 'ghost'
 }
 
 export function ScreenHeader({
@@ -17,13 +18,16 @@ export function ScreenHeader({
   subtitle,
   onBack,
   right,
-  centerTitle = false
+  centerTitle = false,
+  backVariant = 'surface'
 }: ScreenHeaderProps): React.JSX.Element {
   const theme = useTheme()
   return (
     <View style={styles.root}>
       <View style={styles.side}>
-        {onBack ? <IconButton icon="chevron-back" label="Go back" onPress={onBack} /> : null}
+        {onBack ? (
+          <IconButton icon="chevron-back" label="Go back" onPress={onBack} variant={backVariant} />
+        ) : null}
       </View>
       <View style={[styles.titleBlock, centerTitle ? styles.centered : null]}>
         <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>

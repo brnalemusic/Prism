@@ -9,7 +9,7 @@
 
 ### The Open, Multi-Provider AI Copilot for Desktop & Mobile
 
-[![Version](https://img.shields.io/badge/version-9.3.0-38bdf8?style=for-the-badge&logo=electron&logoColor=white)](https://github.com/brnalemusic/Prism)
+[![Version](https://img.shields.io/badge/version-10.0.0-38bdf8?style=for-the-badge&logo=electron&logoColor=white)](https://github.com/brnalemusic/Prism)
 [![License](https://img.shields.io/badge/license-PRISM%20LICENSE%201.0-eab308?style=for-the-badge)](./LICENSE)
 
 <br />
@@ -235,7 +235,7 @@ Prism Mobile is a **separate native application** for phones — not an Electron
 - **Prompt library:** eight starting points grouped by intent (Think, Write, Build, Study) that open a new session with an editable draft.
 - **Spectral themes:** the eight desktop accent families, retuned for OLED-dark phone surfaces and persisted locally.
 - **In-app auto-updater:** Android builds check GitHub Releases on launch (throttled), surface a banner when a newer APK exists and hand the download to the Android installer in one tap.
-- **Native interaction model:** thumb-reachable composer, floating glass tab bar, spring press feedback, haptics, bottom sheets, native stack transitions and keyboard-safe layouts.
+- **Native interaction model:** a new-conversation home with a docked composer, a left conversation drawer, spring press feedback, haptics, bottom sheets, native stack transitions and keyboard-safe layouts.
 
 ### Deliberate differences from the desktop app
 

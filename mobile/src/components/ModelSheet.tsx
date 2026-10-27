@@ -14,6 +14,8 @@ interface ModelSheetProps {
   modelId: string | null
   onSelect: (providerId: string, modelId: string) => void
   onManage: () => void
+  /** Context-specific explanation shown under the sheet title. */
+  subtitle?: string
 }
 
 export function ModelSheet({
@@ -22,18 +24,14 @@ export function ModelSheet({
   providerId,
   modelId,
   onSelect,
-  onManage
+  onManage,
+  subtitle = 'Switching applies to this conversation and becomes your default for new chats.'
 }: ModelSheetProps): React.JSX.Element {
   const theme = useTheme()
   const { providers, setDefaultModel } = useSettings()
 
   return (
-    <Sheet
-      visible={visible}
-      onClose={onClose}
-      title="Choose a model"
-      subtitle="Switching applies to this conversation and becomes your default for new chats."
-    >
+    <Sheet visible={visible} onClose={onClose} title="Choose a model" subtitle={subtitle}>
       <ScrollView showsVerticalScrollIndicator={false} style={{ marginBottom: spacing.md }}>
         {providers.map((provider) => (
           <View key={provider.id} style={styles.group}>

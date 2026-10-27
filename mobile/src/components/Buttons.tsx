@@ -37,6 +37,8 @@ export function IconButton({
   const backgroundColor =
     variant === 'accent' ? theme.accent : variant === 'surface' ? theme.surface : 'transparent'
   const iconColor = variant === 'accent' ? theme.background : theme.text
+  const borderColor =
+    variant === 'accent' ? 'transparent' : variant === 'ghost' ? 'transparent' : theme.border
 
   return (
     <PressableScale
@@ -45,6 +47,7 @@ export function IconButton({
       haptic="light"
       accessibilityRole="button"
       accessibilityLabel={label}
+      hitSlop={4}
       style={[
         styles.iconButton,
         {
@@ -52,7 +55,7 @@ export function IconButton({
           height: size,
           borderRadius: size / 2,
           backgroundColor,
-          borderColor: variant === 'accent' ? 'transparent' : theme.border
+          borderColor
         },
         style
       ]}
