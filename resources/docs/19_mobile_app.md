@@ -57,6 +57,7 @@ mobile/
 │   ├── ai/                   # protocols, SSE parser, presets, persona, prompts, validation
 │   ├── components/           # design-system primitives, chat surfaces, update UI
 │   ├── domain/types.ts       # mobile domain model
+│   ├── hooks/                # reduced-motion and keyboard-visibility hooks
 │   ├── lib/                  # ids, text formatting, model labels, update logic
 │   ├── services/             # native update download + installer bridge
 │   ├── state/                # settings, sessions and updates providers
@@ -109,6 +110,8 @@ Themes live in `src/theme/themes.ts`: eight accent families matching the desktop
 All spacing, radius and type tokens come from `src/theme/tokens.ts`. Screens use `ScreenBackground` for the continuous gradient (no pale flash between routes), `GlassSurface` for real iOS blur with an Android solid fallback, and `PressableScale` for press feedback + haptics.
 
 The chat shell follows the conventions of AI chat products rather than a dashboard. Home is a new conversation: a short greeting, four starting points and a docked composer. History, the prompt library and settings live in a left drawer (`ChatDrawer`), which groups conversations by recency and supports search and long-press delete. The conversation screen keeps assistant answers full-width without avatars, renders user messages as neutral right-aligned bubbles, and reveals copy/regenerate actions only after a reply settles. Sending from home creates the session and auto-sends the first message, so the app opens directly into a streaming answer.
+
+Keyboard handling is part of the same shell. Prism Mobile draws edge-to-edge on Android, where `adjustResize` is ignored on Android 15+, while older devices still resize the window. `KeyboardAwareView` measures the gap between its bottom edge and the keyboard top and pads only that overlap, so both behaviours produce the same layout. It also seeds itself from `Keyboard.metrics()` when a screen mounts under an already-open keyboard, which happens when sending from home into a new chat. Home, chat, the provider form, the drawer and every sheet use it; the composer, drawer and sheet drop their bottom safe-area inset while the keyboard is visible so nothing floats above it. Sheets dismiss the keyboard when they open unless they focus their own input, and the chat list re-pins to the latest message when the keyboard opens.
 
 ---
 

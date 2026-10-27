@@ -1,10 +1,12 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
-import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Animated, Keyboard, Modal, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useKeyboardVisible } from '../hooks/useKeyboardVisible'
 import { useTheme } from '../state/settings'
 import { radius, spacing, type as typography } from '../theme/tokens'
 import { GlassSurface } from './GlassSurface'
+import { KeyboardAwareView } from './KeyboardAwareView'
 
 interface SheetProps {
   visible: boolean
@@ -13,6 +15,8 @@ interface SheetProps {
   subtitle?: string
   children: ReactNode
   maxHeightRatio?: number
+  /** Keep the keyboard up for sheets that own a focused input. */
+  dismissKeyboardOnOpen?: boolean
 }
 
 /**
@@ -25,35 +29,47 @@ export function Sheet({
   title,
   subtitle,
   children,
-  maxHeightRatio = 0.72
+  maxHeightRatio = 0.72,
+  dismissKeyboardOnOpen = true
 }: SheetProps): React.JSX.Element {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
+  const keyboardVisible = useKeyboardVisible()
   const translate = useRef(new Animated.Value(36)).current
   const opacity = useRef(new Animated.Value(0)).current
 
+  const handleClose = useCallback(() => {
+    Keyboard.dismiss()
+    onClose()
+  }, [onClose])
+
   useEffect(() => {
     if (!visible) return
+    // A sheet opens from the bottom, where the composer keyboard lives. Drop
+    // it first so the sheet is not pushed above a keyboard the user is done
+    // with; sheets that focus their own input opt out and let the measured
+    // container lift them instead.
+    if (dismissKeyboardOnOpen) Keyboard.dismiss()
     translate.setValue(36)
     opacity.setValue(0)
     Animated.parallel([
       Animated.spring(translate, { toValue: 0, useNativeDriver: true, speed: 22, bounciness: 5 }),
       Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: true })
     ]).start()
-  }, [visible, opacity, translate])
+  }, [visible, dismissKeyboardOnOpen, opacity, translate])
 
   return (
     <Modal
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
       statusBarTranslucent
     >
-      <View style={styles.root}>
+      <KeyboardAwareView style={styles.root}>
         <Pressable
           style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0, 0, 0, 0.58)' }]}
-          onPress={onClose}
+          onPress={handleClose}
           accessibilityRole="button"
           accessibilityLabel="Dismiss"
         />
@@ -61,7 +77,7 @@ export function Sheet({
           style={{
             opacity,
             transform: [{ translateY: translate }],
-            paddingBottom: Math.max(insets.bottom, spacing.md),
+            paddingBottom: keyboardVisible ? spacing.md : Math.max(insets.bottom, spacing.md),
             paddingHorizontal: spacing.md
           }}
         >
@@ -85,7 +101,7 @@ export function Sheet({
             {children}
           </GlassSurface>
         </Animated.View>
-      </View>
+      </KeyboardAwareView>
     </Modal>
   )
 }

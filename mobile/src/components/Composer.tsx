@@ -2,6 +2,7 @@ import { useEffect, useRef, type ComponentRef } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
+import { useKeyboardVisible } from '../hooks/useKeyboardVisible'
 import { useTheme } from '../state/settings'
 import { radius, spacing, type as typography } from '../theme/tokens'
 import { PressableScale } from './PressableScale'
@@ -40,6 +41,7 @@ export function Composer({
 }: ComposerProps): React.JSX.Element {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
+  const keyboardVisible = useKeyboardVisible()
   const inputRef = useRef<ComponentRef<typeof TextInput>>(null)
   const canSend = value.trim().length > 0 && !streaming && !disabled
 
@@ -48,7 +50,16 @@ export function Composer({
   }, [focusSignal])
 
   return (
-    <View style={[styles.wrapper, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
+    <View
+      style={[
+        styles.wrapper,
+        {
+          // The keyboard already covers the navigation bar, so keeping the
+          // inset would leave a visible gap above the keyboard.
+          paddingBottom: keyboardVisible ? spacing.sm : Math.max(insets.bottom, spacing.sm)
+        }
+      ]}
+    >
       <View
         style={[
           styles.surface,

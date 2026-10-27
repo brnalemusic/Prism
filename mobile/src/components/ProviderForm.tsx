@@ -1,13 +1,5 @@
 import { useMemo, useState } from 'react'
-import {
-  KeyboardAvoidingView,
-  Linking,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View
-} from 'react-native'
+import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { PROVIDER_PRESETS, PROTOCOL_LABELS, getProviderPreset } from '../ai/presets'
 import {
@@ -18,6 +10,7 @@ import {
 } from '../ai/validation'
 import type { ProviderDraft, ProviderProfile, ProviderProtocol } from '../domain/types'
 import { useTheme } from '../state/settings'
+import { KeyboardAwareView } from './KeyboardAwareView'
 import { radius, spacing, type as typography } from '../theme/tokens'
 import { PrimaryButton } from './Buttons'
 import { Field } from './Field'
@@ -99,10 +92,7 @@ export function ProviderForm({
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <KeyboardAwareView>
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
@@ -299,14 +289,11 @@ export function ProviderForm({
           ) : null}
         </View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardAwareView>
   )
 }
 
 const styles = StyleSheet.create({
-  flex: {
-    flex: 1
-  },
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxxl,

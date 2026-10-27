@@ -86,5 +86,7 @@ implement an in-app updater:
 - `src/components/` — the mobile design system, chat surfaces and update UI.
 - `tests/` — Node tests for the pure streaming, updater and formatting logic.
 
+Keyboard handling uses `KeyboardAwareView`, which measures the overlap between the container and the keyboard top and pads only that amount. It covers both Android 15+ edge-to-edge (where `adjustResize` is ignored) and devices that still resize the window, and seeds itself when a screen mounts with the keyboard already open. Bottom surfaces drop their safe-area inset while the keyboard is visible.
+
 See [`resources/docs/19_mobile_app.md`](../resources/docs/19_mobile_app.md) for
 the architecture, release pipeline, signing setup and updater details.

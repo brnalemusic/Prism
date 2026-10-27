@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Redirect, router } from 'expo-router'
 import { ChatWelcome } from '../src/components/ChatWelcome'
 import { Composer } from '../src/components/Composer'
 import { IconButton } from '../src/components/Buttons'
+import { KeyboardAwareView } from '../src/components/KeyboardAwareView'
 import { ModelSheet } from '../src/components/ModelSheet'
 import { PrismMark } from '../src/components/PrismMark'
 import { ScreenBackground } from '../src/components/ScreenBackground'
@@ -106,10 +107,7 @@ export default function HomeScreen(): React.JSX.Element {
           />
         </View>
 
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
+        <KeyboardAwareView>
           <ScrollView
             style={styles.flex}
             contentContainerStyle={styles.content}
@@ -139,7 +137,7 @@ export default function HomeScreen(): React.JSX.Element {
             focusSignal={focusSignal}
             placeholder="Ask anything…"
           />
-        </KeyboardAvoidingView>
+        </KeyboardAwareView>
       </SafeAreaView>
 
       <ModelSheet

@@ -11,6 +11,7 @@ import {
 import {
   Alert,
   Animated,
+  Keyboard,
   Modal,
   Pressable,
   SectionList,
@@ -24,11 +25,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { router, usePathname } from 'expo-router'
 import type { ChatSession } from '../domain/types'
+import { useKeyboardVisible } from '../hooks/useKeyboardVisible'
 import { useSessions } from '../state/sessions'
 import { useTheme } from '../state/settings'
 import { DURATION, EASING } from '../theme/motion'
 import { spacing, type as typography } from '../theme/tokens'
 import { GlassSurface } from './GlassSurface'
+import { KeyboardAwareView } from './KeyboardAwareView'
 import { PressableScale } from './PressableScale'
 import { PrismMark } from './PrismMark'
 import { SessionRow } from './SessionRow'
@@ -54,9 +57,16 @@ export function useDrawer(): DrawerContextValue {
 export function DrawerProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const [isOpen, setIsOpen] = useState(false)
   const [newChatToken, setNewChatToken] = useState(0)
-  const open = useCallback(() => setIsOpen(true), [])
-  const close = useCallback(() => setIsOpen(false), [])
+  const open = useCallback(() => {
+    Keyboard.dismiss()
+    setIsOpen(true)
+  }, [])
+  const close = useCallback(() => {
+    Keyboard.dismiss()
+    setIsOpen(false)
+  }, [])
   const requestNewChat = useCallback(() => {
+    Keyboard.dismiss()
     setNewChatToken((token) => token + 1)
     setIsOpen(false)
   }, [])
@@ -139,6 +149,7 @@ export function ChatDrawer(): React.JSX.Element {
   const { isOpen, close, requestNewChat } = useDrawer()
   const theme = useTheme()
   const insets = useSafeAreaInsets()
+  const keyboardVisible = useKeyboardVisible()
   const pathname = usePathname()
   const { width } = useWindowDimensions()
   const { sessions, deleteSession } = useSessions()
@@ -246,7 +257,7 @@ export function ChatDrawer(): React.JSX.Element {
       navigationBarTranslucent
       onRequestClose={close}
     >
-      <View style={styles.root}>
+      <KeyboardAwareView style={styles.root}>
         <Animated.View style={[StyleSheet.absoluteFill, { opacity: scrim }]}>
           <Pressable
             style={[StyleSheet.absoluteFill, styles.scrim]}
@@ -269,7 +280,7 @@ export function ChatDrawer(): React.JSX.Element {
               styles.surface,
               {
                 paddingTop: insets.top + spacing.sm,
-                paddingBottom: Math.max(insets.bottom, spacing.sm),
+                paddingBottom: keyboardVisible ? spacing.sm : Math.max(insets.bottom, spacing.sm),
                 borderRightColor: theme.borderStrong
               }
             ]}
@@ -370,7 +381,7 @@ export function ChatDrawer(): React.JSX.Element {
             </View>
           </GlassSurface>
         </Animated.View>
-      </View>
+      </KeyboardAwareView>
     </Modal>
   )
 }
@@ -383,10 +394,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.58)'
   },
   panel: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0
+    flex: 1,
+    alignSelf: 'flex-start'
   },
   surface: {
     flex: 1,

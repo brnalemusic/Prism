@@ -1,20 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  View
-} from 'react-native'
+import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TextInput, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { router, useLocalSearchParams } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { Composer } from '../../src/components/Composer'
 import { IconButton, PrimaryButton } from '../../src/components/Buttons'
+import { KeyboardAwareView } from '../../src/components/KeyboardAwareView'
 import { MessageBubble } from '../../src/components/MessageBubble'
 import { ModelSheet } from '../../src/components/ModelSheet'
 import { PrismMark } from '../../src/components/PrismMark'
@@ -23,6 +14,7 @@ import { ScreenHeader } from '../../src/components/ScreenHeader'
 import { Sheet } from '../../src/components/Sheet'
 import { PressableScale } from '../../src/components/PressableScale'
 import type { ChatMessage } from '../../src/domain/types'
+import { useKeyboardVisible } from '../../src/hooks/useKeyboardVisible'
 import { modelLabel } from '../../src/lib/models'
 import { useSessions } from '../../src/state/sessions'
 import { useSettings, useTheme } from '../../src/state/settings'
@@ -59,6 +51,7 @@ export default function ChatScreen(): React.JSX.Element {
   const [modelSheet, setModelSheet] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [showJump, setShowJump] = useState(false)
+  const keyboardVisible = useKeyboardVisible()
   const listRef = useRef<FlatList<ChatMessage>>(null)
   const stickToBottom = useRef(true)
   const autoSent = useRef<string | null>(null)
@@ -109,6 +102,17 @@ export default function ChatScreen(): React.JSX.Element {
   useEffect(() => {
     if (isStreaming) scrollToEnd(true)
   }, [lastContentLength, isStreaming, scrollToEnd])
+
+  /**
+   * Opening the keyboard shrinks the list without changing its content size,
+   * so a conversation parked at the bottom needs an explicit nudge to stay
+   * pinned to the latest reply.
+   */
+  useEffect(() => {
+    if (!keyboardVisible) return
+    const timer = setTimeout(() => scrollToEnd(true), 80)
+    return () => clearTimeout(timer)
+  }, [keyboardVisible, scrollToEnd])
 
   const lastAssistantId = useMemo(() => {
     if (!messages) return null
@@ -190,11 +194,7 @@ export default function ChatScreen(): React.JSX.Element {
             />
           }
         />
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={0}
-        >
+        <KeyboardAwareView>
           <View style={styles.flex}>
             {!messages ? (
               <View style={styles.loading}>
@@ -281,7 +281,7 @@ export default function ChatScreen(): React.JSX.Element {
               autoFocus={Boolean(initialDraft)}
             />
           </View>
-        </KeyboardAvoidingView>
+        </KeyboardAwareView>
       </SafeAreaView>
 
       <Sheet
@@ -311,6 +311,7 @@ export default function ChatScreen(): React.JSX.Element {
         onClose={() => setSheetMode('none')}
         title="Rename session"
         subtitle="A short label shown in your chats list."
+        dismissKeyboardOnOpen={false}
       >
         <TextInput
           value={renameValue}
