@@ -24,6 +24,15 @@ interface PressableScaleProps extends Omit<PressableProps, 'style'> {
 const PRESS_DIM = 0.92
 const DISABLED_DIM = 0.45
 
+/**
+ * The press bar is a single animated Pressable so the caller's `style` keeps
+ * plain Pressable semantics: layout props (flex, margin, width) resolve
+ * against the parent AND content props (row direction, padding, background)
+ * apply to the direct children. An intermediate wrapper view would swallow
+ * those props and collapse flex children to content width.
+ */
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
+
 function fireHaptic(style: HapticStyle): void {
   if (style === 'none') return
   const promise =
@@ -99,9 +108,10 @@ export function PressableScale({
   }
 
   return (
-    <Pressable
+    <AnimatedPressable
       {...rest}
       disabled={disabled}
+      style={[style, { opacity: dim }, reduced ? null : { transform: [{ scale }] }]}
       onPressIn={(event) => {
         if (!disabled) {
           press()
@@ -114,15 +124,7 @@ export function PressableScale({
         onPressOut?.(event)
       }}
     >
-      <Animated.View
-        style={[
-          style as StyleProp<ViewStyle>,
-          reduced ? null : { transform: [{ scale }] },
-          { opacity: dim }
-        ]}
-      >
-        {children}
-      </Animated.View>
-    </Pressable>
+      {children}
+    </AnimatedPressable>
   )
 }

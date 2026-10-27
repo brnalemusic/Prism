@@ -9,7 +9,6 @@ import { SettingsProvider, useSettings } from '../src/state/settings'
 import { SessionsProvider, useSessions } from '../src/state/sessions'
 import { UpdatesProvider } from '../src/state/updates'
 import { UpdateSheet } from '../src/components/UpdateSheet'
-import { BlurTargetHost } from '../src/components/BlurTarget'
 
 void SplashScreen.preventAutoHideAsync().catch(() => undefined)
 
@@ -58,9 +57,7 @@ export default function RootLayout(): React.JSX.Element {
       <SettingsProvider>
         <SessionsProvider>
           <UpdatesProvider>
-            <BlurTargetHost>
-              <RootNavigator />
-            </BlurTargetHost>
+            <RootNavigator />
           </UpdatesProvider>
         </SessionsProvider>
       </SettingsProvider>

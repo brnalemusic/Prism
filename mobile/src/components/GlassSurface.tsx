@@ -1,11 +1,10 @@
 import { type ReactNode } from 'react'
-import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
 import { BlurView } from 'expo-blur'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useTheme } from '../state/settings'
 import { elevation, radius as radiusScale } from '../theme/tokens'
 import { GlassRim } from './GlassRim'
-import { useGlassBlurTarget } from './BlurTarget'
 
 export type GlassVariant = 'bar' | 'card' | 'sheet' | 'floating' | 'composer'
 
@@ -45,13 +44,18 @@ const VARIANT_INTENSITY: Record<GlassVariant, number> = {
  * Prism's glass language, translated for touch. There is no CSS backdrop
  * filter in React Native, so "liquid glass" is a four-layer composite:
  *
- *   L0  BlurView backdrop — real live blur (Android 12+ RenderEffect)
+ *   L0  BlurView backdrop — live blur on iOS; on Android expo-blur renders
+ *       a translucent surface ("none" method)
  *   L1  tint gradient — the material's thickness, thinnest at the top
  *   L2  spectral rim — chromatic dispersion + specular edge (GlassRim)
  *   L3  content
  *
- * On Android below SDK 31 the blur method degrades to a static tint
- * automatically and the layers above keep the glass reading correctly.
+ * Android's dimezis blur method is intentionally not enabled: when the
+ * blur target subtree contains the glass surfaces themselves, the GPU
+ * render tree preparation recurses without bound and the RenderThread
+ * crashes with a stack overflow (SIGSEGV traced down to
+ * RenderNode::prepareTreeImpl). The tint layers above keep the glass
+ * reading correctly without it.
  */
 export function GlassSurface({
   children,
@@ -66,19 +70,12 @@ export function GlassSurface({
   const theme = useTheme()
   const effectiveRadius = radiusSize ?? VARIANT_RADIUS[variant]
   const effectiveIntensity = intensity ?? VARIANT_INTENSITY[variant]
-  // Dimezis blur only when a blur target exists (expo-blur v58 contract);
-  // without one it renders a warning and silently degrades to "none".
-  const blurTarget = useGlassBlurTarget()
-  const blurMethod =
-    Platform.OS === 'android' ? (blurTarget ? 'dimezisBlurViewSdk31Plus' : 'none') : 'none'
 
   const blur = (
     <BlurView
       style={[StyleSheet.absoluteFill, { borderRadius: effectiveRadius }]}
       intensity={effectiveIntensity}
       tint="dark"
-      blurTarget={blurTarget}
-      blurMethod={blurMethod}
       pointerEvents="none"
     />
   )
