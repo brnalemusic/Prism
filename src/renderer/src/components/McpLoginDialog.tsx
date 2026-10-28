@@ -9,7 +9,6 @@ interface McpLoginDialogProps {
   onResolve: (resolution: { cancelled?: boolean; values?: Record<string, string> }) => void
 }
 
-/** Global native sign-in dialog for MCP gallery integrations. */
 export function McpLoginDialog({
   request,
   onClose,
@@ -23,7 +22,7 @@ export function McpLoginDialog({
   const [submitting, setSubmitting] = useState(false)
   const firstInputRef = useRef<HTMLInputElement>(null)
 
-  const submit = (): void {
+  function handleSubmit(): void {
     if (submitting) return
     setSubmitting(true)
     setError(null)
@@ -44,11 +43,11 @@ export function McpLoginDialog({
     }
   }
 
-  const cancel = (): void => {
+  function handleCancel(): void {
     onResolve({ cancelled: true })
   }
 
-  const toggleSecret = (key: string): void => {
+  function toggleSecret(key: string): void {
     setShowSecrets((prev) => ({ ...prev, [key]: !prev[key] }))
   }
 
@@ -80,7 +79,7 @@ export function McpLoginDialog({
           </div>
           <button
             type="button"
-            onClick={cancel}
+            onClick={handleCancel}
             className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-text-secondary hover:bg-white/[0.07] hover:text-text-primary"
             title="Cancelar"
           >
@@ -101,7 +100,9 @@ export function McpLoginDialog({
                     </span>
                     <input
                       ref={
-                        field.key === request.fields[0]?.key ? firstInputRef : undefined
+                        field.key === request.fields[0]?.key
+                          ? firstInputRef
+                          : undefined
                       }
                       type={secret && !shown ? 'password' : 'text'}
                       autoComplete="off"
@@ -157,14 +158,14 @@ export function McpLoginDialog({
         <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-white/[0.06] px-4 py-3">
           <button
             type="button"
-            onClick={cancel}
+            onClick={handleCancel}
             className="settings-secondary-button cursor-pointer"
           >
             Cancelar
           </button>
           <button
             type="button"
-            onClick={() => void submit()}
+            onClick={() => void handleSubmit()}
             disabled={submitting}
             className="settings-primary-button cursor-pointer disabled:opacity-45"
           >

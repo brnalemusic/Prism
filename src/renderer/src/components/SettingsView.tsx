@@ -373,7 +373,7 @@ export function SettingsView({
     persona: { ...DEFAULT_PERSONA },
     memory: { ...DEFAULT_MEMORY_CONFIG },
     harness: DEFAULT_HARNESS_SETTINGS,
-    agenda: { permissionMode: 'safe', yoloAcknowledged: false, maxConcurrentRuns: 2 }
+    agenda: { permissionMode: 'safe', yoloAcknowledged: false, maxConcurrentRuns: 2, modelKey: null }
   })
 
   const { mode: performanceMode, setMode: setPerformanceMode } = usePerformanceMode()
@@ -990,7 +990,7 @@ export function SettingsView({
         projects: config.harness.projects,
         lastProjectPath: config.harness.lastProjectPath
       },
-      agenda: { permissionMode: 'safe', yoloAcknowledged: false, maxConcurrentRuns: 2 }
+      agenda: { permissionMode: 'safe', yoloAcknowledged: false, maxConcurrentRuns: 2, modelKey: null }
     })
   }
 

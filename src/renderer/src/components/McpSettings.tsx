@@ -497,7 +497,6 @@ function GalleryCard({
   onConnect: (presetId: string) => Promise<void>
 }): React.JSX.Element {
   const connected = Boolean(server?.enabled)
-  const meta = statusLabel(status)
   const busy = connecting === preset.id
   const tools = status?.tools ?? []
 
