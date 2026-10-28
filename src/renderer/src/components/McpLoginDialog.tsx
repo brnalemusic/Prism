@@ -13,9 +13,10 @@ export function McpLoginDialog({
   request,
   onClose,
   onResolve
-}: McpLoginDialogProps): React.JSX.Element {
+}: McpLoginDialogProps): React.JSX.Element | null {
   if (!request) return null
 
+  const preset = request
   const [values, setValues] = useState<Record<string, string>>({})
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
@@ -28,7 +29,7 @@ export function McpLoginDialog({
     setError(null)
     try {
       const next: Record<string, string> = {}
-      for (const field of request.fields) {
+      for (const field of preset.fields) {
         const value = (values[field.key] ?? '').trim()
         if (!value && field.secret) {
           setError(`${field.label} is required.`)
@@ -79,7 +80,7 @@ export function McpLoginDialog({
           </div>
           <button
             type="button"
-            onClick={handleCancel}
+            onClick={onClose}
             className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-text-secondary hover:bg-white/[0.07] hover:text-text-primary"
             title="Cancelar"
           >
@@ -100,7 +101,7 @@ export function McpLoginDialog({
                     </span>
                     <input
                       ref={
-                        field.key === request.fields[0]?.key
+                        field.key === preset.fields[0]?.key
                           ? firstInputRef
                           : undefined
                       }
@@ -121,7 +122,9 @@ export function McpLoginDialog({
                     {field.helpUrl && (
                       <button
                         type="button"
-                        onClick={() => void window.api.openExternalUrl(field.helpUrl)}
+                        onClick={() => {
+                          void window.api.openExternalUrl(field.helpUrl!)
+                        }}
                         className="inline-flex cursor-pointer items-center gap-1 text-[10px] text-accent-primary hover:underline"
                       >
                         <CaretRight size={11} />
