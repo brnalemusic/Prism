@@ -10,7 +10,8 @@ import {
   CaretRight,
   NotePencil,
   SidebarSimple,
-  Code
+  Code,
+  CalendarCheck
 } from '@phosphor-icons/react'
 import React, { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
@@ -357,6 +358,12 @@ export function Sidebar({
             onClick={(): void => onViewChange('harness')}
           />
           <NavItem
+            icon={<CalendarCheck size={15} weight={activeView === 'agenda' ? 'fill' : 'bold'} />}
+            label="Agenda"
+            active={activeView === 'agenda'}
+            onClick={(): void => onViewChange('agenda')}
+          />
+          <NavItem
             icon={<MagnifyingGlass size={15} weight="bold" />}
             label="Search chats"
             onClick={onOpenSearch}
@@ -375,6 +382,17 @@ export function Sidebar({
             onAdd={onAddHarnessExplorerContext || (() => false)}
             onRemove={onRemoveHarnessExplorerContext || (() => {})}
           />
+        ) : activeView === 'agenda' ? (
+          <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] leading-relaxed text-text-muted">
+              <p className="mb-1 flex items-center gap-1.5 font-semibold text-text-secondary">
+                <CalendarCheck size={12} weight="bold" />
+                Runs while Prism is open
+              </p>
+              Agenda pauses when Prism quits, including in the tray. Missed runs catch up once on
+              the next launch.
+            </div>
+          </div>
         ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-3">
           <div className="mb-2 flex shrink-0 items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted/70">

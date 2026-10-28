@@ -84,6 +84,12 @@ import {
 } from '../harnessTools'
 import { getHarnessToolNamesForPhase, isReadOnlyHarnessPlanCommand } from '../harnessPlan'
 import { requestHarnessApproval, cancelHarnessApprovalsForChat } from '../harnessApproval'
+import {
+  createAgendaToolExecutor,
+  getAgendaMcpToolDefinitions,
+  getAgendaSystemToolDefinitions,
+  isAgendaRun
+} from '../agenda/runContext'
 import type { ToolResultEnvelope } from '../toolRuntime'
 import { resolveRequestModelKey, resolveRunWorkspace } from './sessionRuntime'
 import { readHarnessExplorerContext } from '../harnessExplorer'
@@ -350,9 +356,17 @@ export function getNativeToolsForOpenAi(
       definition.function.name !== 'generate_image' ||
       (_target === 'main' && hasConfiguredImageGenerationRoute())
   )
-  if (allowedTools === undefined) return definitions
+  // Agenda runs add the MCP tools attached to their task and the native tools
+  // that let a run extend its own capabilities. Everything else keeps the
+  // native tool surface unchanged.
+  const agendaTools = [
+    ...getAgendaMcpToolDefinitions(chatId),
+    ...getAgendaSystemToolDefinitions(chatId)
+  ]
+  const combined = agendaTools.length > 0 ? [...definitions, ...agendaTools] : definitions
+  if (allowedTools === undefined) return combined
   const allowed = new Set(allowedTools)
-  return definitions.filter((definition) => allowed.has(definition.function.name))
+  return combined.filter((definition) => allowed.has(definition.function.name))
 }
 
 export interface ChatMessagePayload {
@@ -586,7 +600,8 @@ export async function handleChatMessage(
   // Harness selections are scoped to their tab/session. Only Chat may update the
   // legacy global selection used by regular conversations and one-shot commands.
   if (workspace === 'chat' && payloadModelKey && !isLiveOnlyModel(payloadModelKey)) {
-    currentSelectedChatModel = payloadModelKey
+    // Agenda runs keep their own model and must not change the user's selection.
+    if (!isAgendaRun(chatId)) currentSelectedChatModel = payloadModelKey
   }
 
   let { provider, model } = resolveProviderAndModel(requestModelKey)
@@ -642,7 +657,10 @@ export async function handleChatMessage(
     emitChatError(event, chatId, workspace, 'This conversation belongs to the Harness workspace.')
     return
   }
-  if (workspace === 'chat') currentSessionMode = requestMode
+  // Agenda runs share the chat pipeline but must never mutate the runtime state
+  // of the user's active chat (mode, discipline path or working directory).
+  const mutateChatRuntime = workspace === 'chat' && !isAgendaRun(chatId)
+  if (mutateChatRuntime) currentSessionMode = requestMode
 
   if (requestMode === 'discipline' || requestMode === 'harness') {
     const selectedProjectPath =
@@ -653,12 +671,12 @@ export async function handleChatMessage(
       emitChatError(event, chatId, workspace, 'Select or create a Harness project before sending a message.')
       return
     }
-    if (workspace === 'chat') {
+    if (mutateChatRuntime) {
       currentDisciplinePath = selectedProjectPath
       setActiveCwd(selectedProjectPath)
     }
   } else {
-    if (workspace === 'chat') {
+    if (mutateChatRuntime) {
       currentDisciplinePath = ''
       if (requestMode === 'execution') {
         setActiveCwd(os.homedir())
@@ -1635,7 +1653,9 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
             harnessSettings,
             chatSession.harnessPhase === 'plan' ? 'plan' : 'build'
           )
-        : undefined,
+        : isAgendaRun(chatId)
+          ? createAgendaToolExecutor(chatId)
+          : undefined,
       onStreamEvent: (streamEvent, state) => {
         const timing = thinkingTimes.get(state.round) || {}
         if (streamEvent.type === 'reasoning' && !timing.startedAt) timing.startedAt = Date.now()

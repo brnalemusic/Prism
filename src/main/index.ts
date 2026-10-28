@@ -107,6 +107,51 @@ import type { ApplicationInfo } from '../shared/types'
 import type { HarnessExplorerSelection } from '../shared/types'
 import { IS_DEMO } from '../shared/demo'
 import { broadcastIpc, safeSend } from './safeSend'
+import {
+  cancelPendingPermissions,
+  configurePermissionBroker,
+  requestPermission,
+  resolvePermission
+} from './permissions/broker'
+import type { AgendaPermissionMode, AgendaPermissionResolution } from '../shared/agendaTypes'
+import { describeAgendaAnchor } from '../shared/agendaTypes'
+import {
+  createTask,
+  deleteTask,
+  describeCadence,
+  getTask,
+  loadTasks,
+  normalizeIntervalMinutes,
+  setTaskStatus,
+  updateTask
+} from './agenda/tasks'
+import {
+  configureScheduler,
+  deleteRunsForTask,
+  interruptActiveRuns,
+  listRuns,
+  setRunExecutor,
+  startScheduler,
+  tick
+} from './agenda/scheduler'
+import { runAgendaTask } from './agenda/executor'
+import { planAgendaTask } from './agenda/assistant'
+import {
+  deleteServer as deleteMcpServer,
+  loadServers as loadMcpServers,
+  saveServer as saveMcpServer,
+  setServerEnabled as setMcpServerEnabled
+} from './mcp/store'
+import { deleteServerSecrets, loadServerSecrets, saveServerSecrets } from './mcp/secrets'
+import {
+  forgetServer as forgetMcpServer,
+  getStatuses as getMcpStatuses,
+  refreshServer as refreshMcpServer,
+  stopAll as stopAllMcpServers,
+  stopServer as stopMcpServer
+} from './mcp/manager'
+import { getMcpPresets } from './mcp/presets'
+import type { McpServerDraft } from '../shared/mcpTypes'
 import { getTerminalProcessesForChat } from './terminalProcessManager'
 import {
   checkAllHarnessProjects,
@@ -1758,6 +1803,239 @@ if (!gotTheLock) {
       }
     )
 
+    ipcMain.handle('agenda-get-settings', () => ({ ...currentConfig.agenda }))
+
+    ipcMain.handle(
+      'agenda-set-permission-mode',
+      (_event, mode: AgendaPermissionMode, acknowledged: boolean) => {
+        if (mode !== 'safe' && mode !== 'yolo') {
+          return { ok: false, error: 'Unknown permission mode.' }
+        }
+
+        // Leaving YOLO clears the acknowledgement, so returning to it always
+        // requires a fresh explicit confirmation.
+        const yoloAcknowledged = mode === 'yolo' && acknowledged === true
+
+        if (mode === 'yolo' && !yoloAcknowledged) {
+          return { ok: false, error: 'YOLO requires an explicit risk acknowledgement.' }
+        }
+
+        const saved = saveConfig(
+          { agenda: { ...currentConfig.agenda, permissionMode: mode, yoloAcknowledged } },
+          currentConfig
+        )
+
+        if (!saved) {
+          return { ok: false, error: 'Could not save the permission mode.' }
+        }
+
+        currentConfig = loadConfig()
+        broadcastIpc('agenda-settings-changed', { ...currentConfig.agenda })
+        return { ok: true, settings: { ...currentConfig.agenda } }
+      }
+    )
+
+    ipcMain.on('agenda-resolve-permission', (_event, payload: AgendaPermissionResolution) => {
+      if (!payload || typeof payload.requestId !== 'string') return
+      resolvePermission(payload)
+    })
+
+    ipcMain.handle('agenda-list-tasks', () => loadTasks())
+
+    ipcMain.handle('agenda-plan-task', async (_event, request: string) => {
+      try {
+        const draft = await planAgendaTask(String(request ?? ''))
+        return { ok: true, draft }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    })
+
+    ipcMain.handle(
+      'agenda-create-task',
+      async (
+        _event,
+        input: {
+          title: string
+          instructions: string
+          intervalMinutes: number | null
+          anchor: Parameters<typeof createTask>[0]['anchor']
+          mcpServerIds?: string[]
+          modelKey?: string | null
+        }
+      ) => {
+        if (!input || typeof input.title !== 'string' || !input.title.trim()) {
+          return { ok: false, error: 'The task needs a title.' }
+        }
+        const outcome = await requestPermission({
+          kind: 'schedule_create',
+          title: 'Create a scheduled task',
+          summary: `${input.title} — ${describeCadence(input.intervalMinutes)}${
+            input.anchor ? ` ${describeAgendaAnchor(input.anchor)}` : ''
+          }`,
+          detail: input.instructions
+        })
+        if (outcome !== 'allowed') {
+          return {
+            ok: false,
+            error: outcome === 'timeout' ? 'The request timed out.' : 'Denied by the user.'
+          }
+        }
+        const task = createTask(input)
+        broadcastIpc('agenda-tasks-changed')
+        return { ok: true, task }
+      }
+    )
+
+    ipcMain.handle(
+      'agenda-update-task',
+      async (_event, id: string, patch: Parameters<typeof updateTask>[1]) => {
+        const current = getTask(id)
+        if (!current) return { ok: false, error: 'Task not found.' }
+        const intervalChanged =
+          patch.intervalMinutes !== undefined &&
+          normalizeIntervalMinutes(patch.intervalMinutes) !== current.intervalMinutes
+        const anchorChanged =
+          patch.anchor !== undefined &&
+          JSON.stringify(patch.anchor) !== JSON.stringify(current.anchor)
+        if (intervalChanged || anchorChanged) {
+          const nextAnchor = patch.anchor !== undefined ? patch.anchor : current.anchor
+          const outcome = await requestPermission({
+            kind: 'schedule_create',
+            title: 'Change a task schedule',
+            summary: `${current.title} — ${describeCadence(
+              patch.intervalMinutes ?? current.intervalMinutes
+            )}${nextAnchor ? ` ${describeAgendaAnchor(nextAnchor)}` : ''}`
+          })
+          if (outcome !== 'allowed') {
+            return {
+              ok: false,
+              error: outcome === 'timeout' ? 'The request timed out.' : 'Denied by the user.'
+            }
+          }
+        }
+        const task = updateTask(id, patch)
+        if (!task) return { ok: false, error: 'Task not found.' }
+        broadcastIpc('agenda-tasks-changed')
+        return { ok: true, task }
+      }
+    )
+
+    ipcMain.handle('agenda-run-task-now', (_event, id: string) => {
+      // Running a paused task explicitly resumes it; the user asked for this run.
+      const task = updateTask(id, { nextRunAt: Date.now(), status: 'active' })
+      if (!task) return { ok: false, error: 'Task not found.' }
+      tick()
+      broadcastIpc('agenda-tasks-changed')
+      return { ok: true, task }
+    })
+
+    ipcMain.handle('agenda-set-task-status', (_event, id: string, status: 'active' | 'paused') => {
+      if (status !== 'active' && status !== 'paused') {
+        return { ok: false, error: 'Unknown task status.' }
+      }
+      const task = setTaskStatus(id, status)
+      if (!task) return { ok: false, error: 'Task not found.' }
+      broadcastIpc('agenda-tasks-changed')
+      return { ok: true, task }
+    })
+
+    ipcMain.handle('agenda-delete-task', async (_event, id: string, deleteFolder: boolean) => {
+      if (!getTask(id)) return { ok: false }
+      // Stop the active run and clear its records before the task disappears.
+      await deleteRunsForTask(id)
+      const ok = deleteTask(id, deleteFolder)
+      if (ok) broadcastIpc('agenda-tasks-changed')
+      return { ok }
+    })
+
+    ipcMain.handle('agenda-list-runs', (_event, taskId?: string) => listRuns(taskId))
+
+    ipcMain.handle('mcp-list-servers', () => ({
+      servers: loadMcpServers(),
+      statuses: getMcpStatuses()
+    }))
+
+    ipcMain.handle('mcp-list-presets', () => getMcpPresets())
+
+    ipcMain.handle('mcp-save-server', async (_event, draft: McpServerDraft) => {
+      if (!draft || typeof draft.name !== 'string' || !draft.name.trim()) {
+        return { ok: false, error: 'The server needs a name.' }
+      }
+      const target =
+        draft.transport === 'http'
+          ? draft.url.trim()
+          : [draft.command.trim(), ...(draft.args ?? []).map(String)].join(' ')
+      if (!target) {
+        return { ok: false, error: 'The server needs a command or a URL.' }
+      }
+
+      const existingSecrets = draft.id ? loadServerSecrets(draft.id) : {}
+      const mergedEnv: Record<string, string> = { ...existingSecrets }
+      for (const key of draft.removedEnvKeys ?? []) delete mergedEnv[key]
+      for (const [key, value] of Object.entries(draft.env ?? {})) {
+        if (key.trim() && value.trim()) mergedEnv[key] = value
+      }
+
+      const outcome = await requestPermission({
+        kind: 'mcp_install',
+        title: draft.id ? 'Update an MCP server' : 'Install an MCP server',
+        summary: `${draft.name.trim()} — ${target}`,
+        detail:
+          draft.transport === 'http'
+            ? `HTTP endpoint: ${target}`
+            : `Command: ${target}${
+                Object.keys(mergedEnv).length > 0
+                  ? `\nEnvironment: ${Object.keys(mergedEnv).join(', ')}`
+                  : ''
+              }`
+      })
+      if (outcome !== 'allowed') {
+        return {
+          ok: false,
+          error: outcome === 'timeout' ? 'The request timed out.' : 'Denied by the user.'
+        }
+      }
+
+      try {
+        const server = saveMcpServer({ ...draft, env: mergedEnv })
+        saveServerSecrets(server.id, mergedEnv)
+        forgetMcpServer(server.id)
+        const status = await refreshMcpServer(server.id)
+        broadcastIpc('mcp-servers-changed')
+        return { ok: true, server, status }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    })
+
+    ipcMain.handle('mcp-delete-server', (_event, id: string) => {
+      forgetMcpServer(id)
+      const removed = deleteMcpServer(id)
+      deleteServerSecrets(id)
+      broadcastIpc('mcp-servers-changed')
+      return { ok: removed }
+    })
+
+    ipcMain.handle('mcp-set-server-enabled', (_event, id: string, enabled: boolean) => {
+      const server = setMcpServerEnabled(id, enabled)
+      if (!server) return { ok: false, error: 'Server not found.' }
+      if (!enabled) stopMcpServer(id)
+      broadcastIpc('mcp-servers-changed')
+      return { ok: true, server }
+    })
+
+    ipcMain.handle('mcp-refresh-server', async (_event, id: string) => {
+      const status = await refreshMcpServer(id)
+      broadcastIpc('mcp-servers-changed')
+      return { ok: status.state !== 'error', status, error: status.error ?? undefined }
+    })
+
+    ipcMain.handle('mcp-stop-server', (_event, id: string) => {
+      stopMcpServer(id)
+      return { ok: true }
+    })
+
     ipcMain.handle('get-session-mode', () => {
       return {
         mode: currentConfig.sessionMode,
@@ -2041,6 +2319,22 @@ if (!gotTheLock) {
     if (!IS_DEMO) {
       createTray()
     }
+    configurePermissionBroker({
+      getMode: () => currentConfig.agenda.permissionMode,
+      switchToYolo: () => {
+        const saved = saveConfig(
+          { agenda: { ...currentConfig.agenda, permissionMode: 'yolo', yoloAcknowledged: true } },
+          currentConfig
+        )
+        if (saved) {
+          currentConfig = loadConfig()
+          broadcastIpc('agenda-settings-changed', { ...currentConfig.agenda })
+        }
+      }
+    })
+    setRunExecutor(runAgendaTask)
+    configureScheduler({ maxConcurrentRuns: currentConfig.agenda.maxConcurrentRuns })
+    startScheduler()
     updateNativeIcons()
 
     // ── Connectivity monitor ──────────────────────────────────────────────────
@@ -2096,6 +2390,10 @@ if (!gotTheLock) {
 
   app.on('before-quit', () => {
     isQuitting = true
+    // Never leave an Agenda run waiting on a prompt that can no longer be answered.
+    cancelPendingPermissions()
+    interruptActiveRuns()
+    stopAllMcpServers()
   })
 
   app.on('window-all-closed', () => {

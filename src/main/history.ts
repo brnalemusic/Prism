@@ -103,6 +103,11 @@ export function getMessageText(content?: OpenAiMessage, clean = false): string {
   return text
 }
 
+/** Agenda runs reuse chat storage but must stay out of every chat listing. */
+function isAgendaSession(session: ChatSession): boolean {
+  return typeof session.id === 'string' && session.id.startsWith('agenda-')
+}
+
 /**
  * Lists all available chat sessions.
  */
@@ -116,6 +121,8 @@ export function listChatSessions(workspace: WorkspaceKind = 'chat'): Omit<ChatSe
         const filePath = path.join(CHATS_DIR, file)
         const data = fs.readFileSync(filePath, 'utf-8')
         const session: ChatSession = JSON.parse(data)
+        // Agenda run sessions are auditable but never listed as chats.
+        if (isAgendaSession(session)) return null
         const sessionWorkspace = migrateLegacyWorkspace(filePath, session)
         if (sessionWorkspace !== workspace) return null
         const effectiveDisciplinePath =
@@ -856,6 +863,7 @@ export async function searchChatHistory(query: string): Promise<string> {
     try {
       const data = fs.readFileSync(path.join(CHATS_DIR, file), 'utf-8')
       const session: ChatSession = JSON.parse(data)
+      if (isAgendaSession(session)) continue
       let score = 0
 
       // Check title
@@ -976,6 +984,7 @@ export function getSpellingSuggestion(query: string): string | undefined {
     try {
       const data = fs.readFileSync(path.join(CHATS_DIR, file), 'utf-8')
       const session: ChatSession = JSON.parse(data)
+      if (isAgendaSession(session)) continue
       const texts = [session.title]
       for (const msg of session.messages) {
         if (msg.role !== 'system') {
@@ -1108,6 +1117,7 @@ export function searchChatsOffline(query: string, workspace: WorkspaceKind = 'ch
     try {
       const data = fs.readFileSync(path.join(CHATS_DIR, file), 'utf-8')
       const session: ChatSession = JSON.parse(data)
+      if (isAgendaSession(session)) continue
       if (getSessionWorkspace(session) !== workspace) continue
 
       const titleLower = session.title.toLowerCase()
@@ -1211,6 +1221,7 @@ export async function searchChatMemory(query: string): Promise<string> {
     try {
       const data = fs.readFileSync(path.join(CHATS_DIR, file), 'utf-8')
       const session: ChatSession = JSON.parse(data)
+      if (isAgendaSession(session)) continue
       let score = 0
 
       // Check title

@@ -2,6 +2,20 @@ import type { HarnessGitRecovery, HarnessGitPlanBinding } from '../shared/types'
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type { StructuredChatResponse, StreamingToolCall } from '../main/gemini'
 import type { AppConfig } from '../main/config'
+import type {
+  AgendaAnchor,
+  AgendaPermissionChoice,
+  AgendaPermissionRequest,
+  AgendaRunRecord,
+  AgendaSettings,
+  AgendaTask
+} from '../shared/agendaTypes'
+import type {
+  McpInstallPreset,
+  McpServerConfig,
+  McpServerDraft,
+  McpServerStatus
+} from '../shared/mcpTypes'
 import type { ChatSession } from '../main/history'
 import type { Content } from '@google/genai'
 import type {
@@ -199,6 +213,67 @@ export interface PrismAPI {
   onToolUpdate: (callback: (data: ToolUpdate & { chatId: string }) => void) => () => void
   onHarnessApprovalRequest: (callback: (data: HarnessApprovalRequest) => void) => () => void
   resolveHarnessApproval: (requestId: string, approved: boolean, context?: { chatId?: string; projectPath?: string }) => void
+  onAgendaPermissionRequest: (callback: (data: AgendaPermissionRequest) => void) => () => void
+  onAgendaPermissionClosed: (callback: (data: { requestId: string }) => void) => () => void
+  resolveAgendaPermission: (requestId: string, choice: AgendaPermissionChoice) => void
+  getAgendaSettings: () => Promise<AgendaSettings>
+  setAgendaPermissionMode: (
+    mode: 'safe' | 'yolo',
+    acknowledged: boolean
+  ) => Promise<{ ok: boolean; settings?: AgendaSettings; error?: string }>
+  onAgendaSettingsChanged: (callback: (settings: AgendaSettings) => void) => () => void
+  listAgendaTasks: () => Promise<AgendaTask[]>
+  planAgendaTask: (request: string) => Promise<{
+    ok: boolean
+    draft?: {
+      title: string
+      instructions: string
+      intervalMinutes: number | null
+      anchor: AgendaAnchor | null
+    }
+    error?: string
+  }>
+  createAgendaTask: (input: {
+    title: string
+    instructions: string
+    intervalMinutes: number | null
+    anchor: AgendaAnchor | null
+    mcpServerIds?: string[]
+    modelKey?: string | null
+  }) => Promise<{ ok: boolean; task?: AgendaTask; error?: string }>
+  updateAgendaTask: (
+    id: string,
+    patch: Partial<Omit<AgendaTask, 'id' | 'folder' | 'createdAt' | 'updatedAt'>>
+  ) => Promise<{ ok: boolean; task?: AgendaTask; error?: string }>
+  setAgendaTaskStatus: (
+    id: string,
+    status: 'active' | 'paused'
+  ) => Promise<{ ok: boolean; task?: AgendaTask; error?: string }>
+  runAgendaTaskNow: (id: string) => Promise<{ ok: boolean; task?: AgendaTask; error?: string }>
+  deleteAgendaTask: (id: string, deleteFolder: boolean) => Promise<{ ok: boolean }>
+  listAgendaRuns: (taskId?: string) => Promise<AgendaRunRecord[]>
+  onAgendaTasksChanged: (callback: () => void) => () => void
+  onAgendaRunsChanged: (callback: () => void) => () => void
+  listMcpServers: () => Promise<{ servers: McpServerConfig[]; statuses: McpServerStatus[] }>
+  listMcpPresets: () => Promise<McpInstallPreset[]>
+  saveMcpServer: (draft: McpServerDraft) => Promise<{
+    ok: boolean
+    server?: McpServerConfig
+    status?: McpServerStatus
+    error?: string
+  }>
+  deleteMcpServer: (id: string) => Promise<{ ok: boolean }>
+  setMcpServerEnabled: (
+    id: string,
+    enabled: boolean
+  ) => Promise<{ ok: boolean; server?: McpServerConfig; error?: string }>
+  refreshMcpServer: (id: string) => Promise<{
+    ok: boolean
+    status?: McpServerStatus
+    error?: string
+  }>
+  stopMcpServer: (id: string) => Promise<{ ok: boolean }>
+  onMcpServersChanged: (callback: () => void) => () => void
   onHarnessPromptWarning: (
     callback: (data: {
       chatId: string

@@ -14,6 +14,20 @@ ipcRenderer.setMaxListeners(50)
 import type { StructuredChatResponse, StreamingToolCall } from '../main/ai'
 import type { AppConfig } from '../main/config'
 import type {
+  AgendaAnchor,
+  AgendaPermissionChoice,
+  AgendaPermissionRequest,
+  AgendaRunRecord,
+  AgendaSettings,
+  AgendaTask
+} from '../shared/agendaTypes'
+import type {
+  McpInstallPreset,
+  McpServerConfig,
+  McpServerDraft,
+  McpServerStatus
+} from '../shared/mcpTypes'
+import type {
   ToolUpdate,
   DownloadProgress,
   MiniAppData,
@@ -423,6 +437,115 @@ const api = {
   },
   resolveHarnessApproval: (requestId: string, approved: boolean, context?: { chatId?: string; projectPath?: string }): void =>
     ipcRenderer.send('harness-resolve-approval', { requestId, approved, ...context }),
+  onAgendaPermissionRequest: (
+    callback: (data: AgendaPermissionRequest) => void
+  ): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: AgendaPermissionRequest): void =>
+      callback(data)
+    ipcRenderer.on('agenda-permission-request', listener)
+    return () => ipcRenderer.removeListener('agenda-permission-request', listener)
+  },
+  onAgendaPermissionClosed: (callback: (data: { requestId: string }) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: { requestId: string }): void => callback(data)
+    ipcRenderer.on('agenda-permission-closed', listener)
+    return () => ipcRenderer.removeListener('agenda-permission-closed', listener)
+  },
+  resolveAgendaPermission: (requestId: string, choice: AgendaPermissionChoice): void =>
+    ipcRenderer.send('agenda-resolve-permission', { requestId, choice }),
+  getAgendaSettings: (): Promise<AgendaSettings> => ipcRenderer.invoke('agenda-get-settings'),
+  setAgendaPermissionMode: (
+    mode: 'safe' | 'yolo',
+    acknowledged: boolean
+  ): Promise<{ ok: boolean; settings?: AgendaSettings; error?: string }> =>
+    ipcRenderer.invoke('agenda-set-permission-mode', mode, acknowledged),
+  onAgendaSettingsChanged: (callback: (settings: AgendaSettings) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, settings: AgendaSettings): void => callback(settings)
+    ipcRenderer.on('agenda-settings-changed', listener)
+    return () => ipcRenderer.removeListener('agenda-settings-changed', listener)
+  },
+  listAgendaTasks: (): Promise<AgendaTask[]> => ipcRenderer.invoke('agenda-list-tasks'),
+  planAgendaTask: (
+    request: string
+  ): Promise<{
+    ok: boolean
+    draft?: {
+      title: string
+      instructions: string
+      intervalMinutes: number | null
+      anchor: AgendaAnchor | null
+    }
+    error?: string
+  }> => ipcRenderer.invoke('agenda-plan-task', request),
+  createAgendaTask: (input: {
+    title: string
+    instructions: string
+    intervalMinutes: number | null
+    anchor: AgendaAnchor | null
+    mcpServerIds?: string[]
+    modelKey?: string | null
+  }): Promise<{ ok: boolean; task?: AgendaTask; error?: string }> =>
+    ipcRenderer.invoke('agenda-create-task', input),
+  updateAgendaTask: (
+    id: string,
+    patch: Partial<Omit<AgendaTask, 'id' | 'folder' | 'createdAt' | 'updatedAt'>>
+  ): Promise<{ ok: boolean; task?: AgendaTask; error?: string }> =>
+    ipcRenderer.invoke('agenda-update-task', id, patch),
+  setAgendaTaskStatus: (
+    id: string,
+    status: 'active' | 'paused'
+  ): Promise<{ ok: boolean; task?: AgendaTask; error?: string }> =>
+    ipcRenderer.invoke('agenda-set-task-status', id, status),
+  runAgendaTaskNow: (id: string): Promise<{ ok: boolean; task?: AgendaTask; error?: string }> =>
+    ipcRenderer.invoke('agenda-run-task-now', id),
+  deleteAgendaTask: (id: string, deleteFolder: boolean): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('agenda-delete-task', id, deleteFolder),
+  listAgendaRuns: (taskId?: string): Promise<AgendaRunRecord[]> =>
+    ipcRenderer.invoke('agenda-list-runs', taskId),
+  onAgendaTasksChanged: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('agenda-tasks-changed', listener)
+    return () => ipcRenderer.removeListener('agenda-tasks-changed', listener)
+  },
+  onAgendaRunsChanged: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('agenda-runs-changed', listener)
+    return () => ipcRenderer.removeListener('agenda-runs-changed', listener)
+  },
+  listMcpServers: (): Promise<{
+    servers: McpServerConfig[]
+    statuses: McpServerStatus[]
+  }> => ipcRenderer.invoke('mcp-list-servers'),
+  listMcpPresets: (): Promise<McpInstallPreset[]> => ipcRenderer.invoke('mcp-list-presets'),
+  saveMcpServer: (
+    draft: McpServerDraft
+  ): Promise<{
+    ok: boolean
+    server?: McpServerConfig
+    status?: McpServerStatus
+    error?: string
+  }> => ipcRenderer.invoke('mcp-save-server', draft),
+  deleteMcpServer: (id: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('mcp-delete-server', id),
+  setMcpServerEnabled: (
+    id: string,
+    enabled: boolean
+  ): Promise<{ ok: boolean; server?: McpServerConfig; error?: string }> =>
+    ipcRenderer.invoke('mcp-set-server-enabled', id, enabled),
+  refreshMcpServer: (
+    id: string
+  ): Promise<{ ok: boolean; status?: McpServerStatus; error?: string }> =>
+    ipcRenderer.invoke('mcp-refresh-server', id),
+  stopMcpServer: (id: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('mcp-stop-server', id),
+  onMcpServersChanged: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('mcp-servers-changed', listener)
+    ipcRenderer.on('mcp-status-changed', listener)
+    return () => {
+      ipcRenderer.removeListener('mcp-servers-changed', listener)
+      ipcRenderer.removeListener('mcp-status-changed', listener)
+    }
+  },
   onHarnessPromptWarning: (
     callback: (data: {
       chatId: string

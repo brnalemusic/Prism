@@ -20,6 +20,21 @@ import {
   DEFAULT_ARCADIA_MODEL_KEY,
   normalizeArcadiaModelId
 } from '../shared/arcadiaCatalog'
+import type { AgendaPermissionMode, AgendaSettings } from '../shared/agendaTypes'
+
+const VALID_AGENDA_PERMISSION_MODES = new Set<AgendaPermissionMode>(['safe', 'yolo'])
+
+/**
+ * Agenda defaults. `safe` is always the starting mode, including after a reset,
+ * so an unattended executor never gains autonomy without an explicit decision.
+ */
+export function createDefaultAgendaSettings(): AgendaSettings {
+  return {
+    permissionMode: 'safe',
+    yoloAcknowledged: false,
+    maxConcurrentRuns: 2
+  }
+}
 
 export interface SlashWorkflow {
   id: string
@@ -89,6 +104,7 @@ export interface AppConfig {
   harness: HarnessSettings
   persona: PersonaSettings
   memory: MemoryConfig
+  agenda: AgendaSettings
 }
 
 export const DEFAULT_HARNESS_TOOLS: HarnessToolName[] = [
@@ -174,6 +190,7 @@ const DEFAULT_CONFIG: AppConfig = {
   sessionMode: 'execution',
   disciplinePath: '',
   harness: createDefaultHarnessSettings(),
+  agenda: createDefaultAgendaSettings(),
   workflows: [
     {
       id: 'default-search',
@@ -525,6 +542,22 @@ function normalizeConfig(config: AppConfig): AppConfig {
         : undefined,
     projects: normalizedProjects
   }
+  const defaultAgenda = createDefaultAgendaSettings()
+  const rawAgenda = (config.agenda || defaultAgenda) as Partial<AgendaSettings>
+  const requestedAgendaMode: AgendaPermissionMode = VALID_AGENDA_PERMISSION_MODES.has(
+    rawAgenda.permissionMode as AgendaPermissionMode
+  )
+    ? (rawAgenda.permissionMode as AgendaPermissionMode)
+    : 'safe'
+  const agendaYoloAcknowledged = rawAgenda.yoloAcknowledged === true
+  // YOLO is only valid together with an explicit risk acknowledgement. A tampered or
+  // partially written config must never silently grant the executor full autonomy.
+  const normalizedAgenda: AgendaSettings = {
+    permissionMode:
+      requestedAgendaMode === 'yolo' && !agendaYoloAcknowledged ? 'safe' : requestedAgendaMode,
+    yoloAcknowledged: agendaYoloAcknowledged,
+    maxConcurrentRuns: normalizeInteger(rawAgenda.maxConcurrentRuns, 2, 1, 8)
+  }
   const normalizeImageCapabilities = (
     value: ProviderConfig['models'][number]['imageGeneration']
   ): ProviderConfig['models'][number]['imageGeneration'] => {
@@ -642,13 +675,14 @@ function normalizeConfig(config: AppConfig): AppConfig {
         ? config.disciplinePath
         : DEFAULT_CONFIG.disciplinePath,
     harness: normalizedHarness,
+    agenda: normalizedAgenda,
     persona: normalizePersona(config.persona),
     memory: normalizeMemoryConfig(config.memory),
     modelReasoningLevels: normalizeReasoningLevels(config.modelReasoningLevels)
   }
 }
 
-const CONFIG_DIR = path.join(
+export const CONFIG_DIR = path.join(
   process.env.LOCALAPPDATA || path.join(app.getPath('home'), 'AppData', 'Local'),
   'PrismDesktop'
 )

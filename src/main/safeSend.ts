@@ -9,6 +9,10 @@ type SendTarget = BrowserWindow | WebContents | null | undefined
  */
 export function safeSend(target: SendTarget, channel: string, ...args: any[]): void {
   if (!target) return
+  // Agenda runs reuse the chat pipeline with hidden `agenda-*` sessions. Their
+  // streaming events must never reach the chat UI, which would otherwise adopt
+  // the run into the active tab. The run drawer reads the persisted transcript.
+  if (isHiddenAgendaEvent(channel, args)) return
   try {
     const webContents: WebContents | null =
       'webContents' in target ? target.webContents : target
@@ -33,4 +37,13 @@ export function broadcastIpc(channel: string, ...args: any[]): void {
   for (const win of windows) {
     safeSend(win, channel, ...args)
   }
+}
+
+function isHiddenAgendaEvent(channel: string, args: unknown[]): boolean {
+  if (!channel.startsWith('chat-')) return false
+  const payload = args[0]
+  if (!payload || typeof payload !== 'object') return false
+  const record = payload as { chatId?: unknown; id?: unknown }
+  const chatId = typeof record.chatId === 'string' ? record.chatId : record.id
+  return typeof chatId === 'string' && chatId.startsWith('agenda-')
 }

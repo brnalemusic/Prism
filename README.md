@@ -36,6 +36,8 @@
   - [6. Discord Gateway & Real-Time Live Voice](#6-discord-gateway--real-time-live-voice)
   - [7. Modular Skills System](#7-modular-skills-system)
   - [8. Interactive Mini-Apps & Questionnaires](#8-interactive-mini-apps--questionnaires)
+  - [9. Memory & Personality Center](#9-memory--personality-center)
+  - [10. Agenda Mode & MCP Servers](#10-agenda-mode--mcp-servers)
 - [Visual Design & Styling](#-visual-design--styling)
 - [Prism Mobile (Native)](#-prism-mobile-native)
 - [Complete System Tools Reference](#-complete-system-tools-reference)
@@ -208,6 +210,20 @@ Prism keeps a consistent voice and remembers you across conversations through lo
 - **AI-managed memory (the `memory` tool):** The model can add, replace or remove committed memories itself (targeting the pinned Core Profile or general long-term memory), with budgets, duplicate rejection and a credential gate — and is prompted to save proactively, correct stale facts and update instead of duplicating.
 - **Periodic memory review:** By default, every 15 minutes Prism reviews only unprocessed, sanitized deltas from eligible chats, can save multiple profile or general memories, and retries without losing a delta when routing or validation fails. The interval, dedicated model and review status are available in Settings → Memory; model calls count toward normal quota.
 - **Memory center in Settings:** Review and curate everything Prism remembers — search committed facts, pin core-profile entries, edit, archive or delete, and accept or reject suggestions, all updating live from the engine.
+
+---
+
+### 10. Agenda Mode & MCP Servers
+
+Agenda is Prism's desktop-only mode for recurring AI work: describe a task once, pick a cadence from two hours to one month, and Prism runs it while the app is open — including from the tray. Every run starts with a fresh model context, and each task owns a folder with a small `.agenda/state.md` memory carried between runs.
+
+- **Safe by default:** terminal commands, MCP tool calls, MCP installs and schedule changes each pause for an explicit decision, with a Windows notification and a flashing taskbar. Stop denies the action, Continue allows it once, and Switch to YOLO allows it and disables prompts until you switch back. Unanswered prompts are denied after five minutes, and every decision is appended to `agenda/permissions.jsonl`.
+- **Scheduling you can reason about:** the next occurrence is computed from the schedule, not from when the previous run finished. Daily, weekly and monthly cadences accept a clock anchor, missed occurrences collapse into a single catch-up run, and overlapping occurrences are recorded as skipped.
+- **Natural-language creation:** the bottom composer drafts a task from a sentence and only creates it after you confirm. Pause, resume, run now, edit and delete live on every task row.
+- **Reusable MCP system:** install a server once from Settings → MCP Servers (presets, stdio or Streamable HTTP), attach it to any number of tasks, and let an Agenda run install one for itself through `agenda_install_mcp_server` — always gated by the `mcp_install` permission in Safe mode. Servers are declared in `mcp.json`, with secrets encrypted through Electron `safeStorage`.
+- **Auditable runs:** each run has a transcript, duration, status, catch-up marker and permission-prompt count. Runs reuse the chat pipeline under hidden `agenda-<run id>` sessions that never appear in chat history or search.
+
+See [Agenda Mode](resources/docs/20_agenda_mode.md) and [MCP System](resources/docs/21_mcp_system.md) for the full behavior.
 
 ---
 

@@ -16,6 +16,9 @@ import { HarnessActivityBoundary, HarnessSteps } from './components/HarnessSteps
 import { SourcePills, extractMessageSources } from './components/SourcePills'
 import { HarnessContextInjection } from './components/HarnessContextInjection'
 import { HarnessApprovalDialog } from './components/HarnessApprovalDialog'
+import { AgendaPermissionDialog } from './components/AgendaPermissionDialog'
+import { AgendaWorkspace } from './components/AgendaWorkspace'
+import type { AgendaPermissionRequest } from '../../shared/agendaTypes'
 import { HarnessProjectModal } from './components/HarnessProjectModal'
 import { HarnessWorkspace } from './components/HarnessWorkspace'
 import { TitleBar } from './components/TitleBar'
@@ -2241,6 +2244,10 @@ function RealApp(): React.JSX.Element {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false)
   const [harnessApprovalRequest, setHarnessApprovalRequest] =
     useState<HarnessApprovalRequest | null>(null)
+  const [agendaPermissionQueue, setAgendaPermissionQueue] = useState<
+    AgendaPermissionRequest[]
+  >([])
+  const agendaPermissionRequest = agendaPermissionQueue[0] ?? null
   const [harnessPromptWarnings, setHarnessPromptWarnings] = useState<string[]>([])
   const [isHarnessProjectModalOpen, setIsHarnessProjectModalOpen] = useState(false)
   const [harnessProjectTargetTabId, setHarnessProjectTargetTabId] = useState<string | null>(null)
@@ -2264,6 +2271,25 @@ function RealApp(): React.JSX.Element {
     return window.api.onHarnessApprovalRequest((request) => {
       setHarnessApprovalRequest(request)
     })
+  }, [])
+
+  useEffect(() => {
+    const disposeRequest = window.api.onAgendaPermissionRequest((request) => {
+      setAgendaPermissionQueue((current) =>
+        current.some((entry) => entry.requestId === request.requestId)
+          ? current
+          : [...current, request]
+      )
+    })
+    const disposeClosed = window.api.onAgendaPermissionClosed(({ requestId }) => {
+      setAgendaPermissionQueue((current) =>
+        current.filter((entry) => entry.requestId !== requestId)
+      )
+    })
+    return () => {
+      disposeRequest()
+      disposeClosed()
+    }
   }, [])
 
   useEffect(() => {
@@ -5965,6 +5991,17 @@ function RealApp(): React.JSX.Element {
           </div>
         </div>
       )}
+      {agendaPermissionRequest && (
+        <AgendaPermissionDialog
+          request={agendaPermissionRequest}
+          onResolve={(choice) => {
+            window.api.resolveAgendaPermission(agendaPermissionRequest.requestId, choice)
+            setAgendaPermissionQueue((current) =>
+              current.filter((entry) => entry.requestId !== agendaPermissionRequest.requestId)
+            )
+          }}
+        />
+      )}
       {harnessApprovalRequest && (
         <HarnessApprovalDialog
           request={harnessApprovalRequest}
@@ -6242,6 +6279,8 @@ function RealApp(): React.JSX.Element {
                 ))}
             </div>
           )
+        ) : activeView === 'agenda' ? (
+          <AgendaWorkspace config={config} />
         ) : (
           <HarnessWorkspace
             tabs={harnessTabs}

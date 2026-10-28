@@ -53,7 +53,8 @@ import {
   Brain,
   PushPin,
   Archive,
-  Smiley
+  Smiley,
+  Plug
 } from '@phosphor-icons/react'
 import { ShortcutRecorder } from './ShortcutRecorder'
 import { EnterpriseActivationModal } from './EnterpriseActivationModal'
@@ -85,6 +86,7 @@ import type {
   MemoryStats
 } from '../../../shared/memoryCore'
 import { ApiManagerSettings } from './ApiManagerSettings'
+import { McpSettings } from './McpSettings'
 import { ModelSelector } from './ModelSelector'
 import { ArcadeGame } from './ArcadeGame'
 import { usePerformanceMode } from '../hooks/usePerformanceMode'
@@ -188,6 +190,7 @@ type SectionId =
   | 'harness'
   | 'skills'
   | 'workflows'
+  | 'mcp'
   | 'discord'
   | 'license'
   | 'about'
@@ -369,7 +372,8 @@ export function SettingsView({
     disciplinePath: '',
     persona: { ...DEFAULT_PERSONA },
     memory: { ...DEFAULT_MEMORY_CONFIG },
-    harness: DEFAULT_HARNESS_SETTINGS
+    harness: DEFAULT_HARNESS_SETTINGS,
+    agenda: { permissionMode: 'safe', yoloAcknowledged: false, maxConcurrentRuns: 2 }
   })
 
   const { mode: performanceMode, setMode: setPerformanceMode } = usePerformanceMode()
@@ -985,7 +989,8 @@ export function SettingsView({
         projectsRoot: config.harness.projectsRoot,
         projects: config.harness.projects,
         lastProjectPath: config.harness.lastProjectPath
-      }
+      },
+      agenda: { permissionMode: 'safe', yoloAcknowledged: false, maxConcurrentRuns: 2 }
     })
   }
 
@@ -1183,6 +1188,15 @@ export function SettingsView({
       categoryLabel: 'AI & Runtime',
       description: 'Custom prompt profiles triggered by typing slash commands.',
       keywords: ['workflows', 'slash', 'commands', 'gems', 'custom prompt', 'prompts', 'templates']
+    },
+    {
+      id: 'mcp',
+      label: 'MCP Servers',
+      icon: <Plug size={17} weight="duotone" />,
+      category: 'ai',
+      categoryLabel: 'AI & Runtime',
+      description: 'Install Model Context Protocol servers and attach them to Agenda tasks.',
+      keywords: ['mcp', 'model context protocol', 'servers', 'tools', 'agenda', 'integrations']
     },
 
     // Integrations & Info
@@ -4564,6 +4578,8 @@ export function SettingsView({
         return renderSkills()
       case 'workflows':
         return renderWorkflows()
+      case 'mcp':
+        return <McpSettings />
       case 'discord':
         return renderDiscord()
       case 'license':
