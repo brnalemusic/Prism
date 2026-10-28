@@ -14,7 +14,6 @@ import {
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
 import type {
-  McpConnectPresetResult,
   McpGalleryPreset,
   McpInstallPreset,
   McpServerConfig,

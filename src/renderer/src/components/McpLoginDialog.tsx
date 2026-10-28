@@ -1,6 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronRight, Eye, EyeOff, X } from '@phosphor-icons/react'
-import clsx from 'clsx'
+import React, { useEffect, useRef, useState } from 'react'
+import { CaretRight, Eye, X } from '@phosphor-icons/react'
 import type { McpLoginRequest } from '../../../shared/mcpTypes'
 import { McpBrandIcon } from './McpBrandIcon'
 
@@ -15,14 +14,16 @@ export function McpLoginDialog({
   request,
   onClose,
   onResolve
-}: McpLoginDialogProps): JSX.Element {
+}: McpLoginDialogProps): React.JSX.Element {
+  if (!request) return null
+
   const [values, setValues] = useState<Record<string, string>>({})
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const firstInputRef = useRef<HTMLInputElement>(null)
 
-  const submit = async (): Promise<void> => {
+  const submit = (): void {
     if (submitting) return
     setSubmitting(true)
     setError(null)
@@ -31,7 +32,8 @@ export function McpLoginDialog({
       for (const field of request.fields) {
         const value = (values[field.key] ?? '').trim()
         if (!value && field.secret) {
-          setError(`${field.label} é obrigatório.`)
+          setError(`${field.label} is required.`)
+          setSubmitting(false)
           return
         }
         next[field.key] = value
@@ -98,14 +100,16 @@ export function McpLoginDialog({
                       {field.label}
                     </span>
                     <input
-                      ref={field.key === request.fields[0]?.key ? firstInputRef : undefined}
+                      ref={
+                        field.key === request.fields[0]?.key ? firstInputRef : undefined
+                      }
                       type={secret && !shown ? 'password' : 'text'}
                       autoComplete="off"
                       value={values[field.key] ?? ''}
                       onChange={(event) =>
                         setValues((prev) => ({ ...prev, [field.key]: event.target.value }))
                       }
-                      placeholder={field.placeholder}
+                      placeholder={field.placeholder ?? undefined}
                       className="w-full rounded-lg border border-white/[0.09] bg-black/25 px-3 py-2 text-[12px] text-text-primary outline-none placeholder:text-text-muted/60 focus:border-accent-primary/50"
                     />
                     {field.hint && (
@@ -119,7 +123,7 @@ export function McpLoginDialog({
                         onClick={() => void window.api.openExternalUrl(field.helpUrl)}
                         className="inline-flex cursor-pointer items-center gap-1 text-[10px] text-accent-primary hover:underline"
                       >
-                        <ChevronRight size={11} />
+                        <CaretRight size={11} />
                         {field.helpLabel || 'Saiba mais'}
                       </button>
                     )}
@@ -130,7 +134,7 @@ export function McpLoginDialog({
                       onClick={() => toggleSecret(field.key)}
                       className="flex cursor-pointer items-center gap-1 text-[10px] text-text-muted hover:text-text-secondary"
                     >
-                      {shown ? <EyeOff size={12} /> : <Eye size={12} />}
+                      {shown ? <Eye size={12} /> : <Eye size={12} />}
                       {shown ? 'Ocultar' : 'Mostrar'}
                     </button>
                   )}
