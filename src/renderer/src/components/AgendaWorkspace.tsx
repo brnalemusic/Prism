@@ -291,12 +291,14 @@ function TaskDialog({
   initial,
   servers,
   settings,
+  config,
   onClose,
   onSaved
 }: {
   initial?: AgendaTask | null
   servers: McpServerConfig[]
   settings: AgendaSettings
+  config: AppConfig | null
   onClose: () => void
   onSaved: () => void
 }): React.JSX.Element {
@@ -324,7 +326,7 @@ function TaskDialog({
     initial?.mcpServerIds ?? []
   )
   const [modelKey, setModelKey] = useState(
-    initial?.modelKey ?? settings.modelKey ?? ''
+    initial?.modelKey ?? settings.modelKey ?? config?.lastSelectedChatModel ?? ''
   )
   const [anchorEnabled, setAnchorEnabled] = useState(Boolean(initial?.anchor))
   const [anchorHour, setAnchorHour] = useState(initial?.anchor?.hour ?? 9)
@@ -379,7 +381,7 @@ function TaskDialog({
           intervalMinutes: cadence,
           anchor,
           mcpServerIds: selectedServers,
-          modelKey: modelKey.trim() || null
+          modelKey: modelKey.trim() || settings.modelKey || config?.lastSelectedChatModel || null
         })
         if (!result.ok) {
           setError(result.error || 'Could not save the task.')
@@ -392,7 +394,7 @@ function TaskDialog({
           intervalMinutes: cadence,
           anchor,
           mcpServerIds: selectedServers,
-          modelKey: modelKey.trim() || settings.modelKey || null
+          modelKey: modelKey.trim() || settings.modelKey || config?.lastSelectedChatModel || null
         })
         if (!result.ok) {
           setError(result.error || 'Could not create the task.')
@@ -408,21 +410,31 @@ function TaskDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[115] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
       <section
-        className="flex max-h-[88vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-[var(--surface-lowest)] shadow-[0_28px_90px_rgba(0,0,0,0.75)]"
+        className="flex max-h-[88vh] w-full max-w-lg flex-col overflow-visible rounded-2xl border border-white/[0.12] bg-[var(--surface-lowest)] shadow-[0_28px_90px_rgba(0,0,0,0.75)]"
         role="dialog"
         aria-modal="true"
         aria-labelledby="agenda-create-title"
       >
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-white/[0.07] px-5 py-4">
-          <div>
+          <div className="flex flex-col gap-1">
             <h2 id="agenda-create-title" className="text-sm font-semibold text-text-primary">
               {editing ? 'Edit Agenda task' : 'New Agenda task'}
             </h2>
             <p className="mt-0.5 text-[11px] text-text-muted">
               Runs while Prism is open, with a fresh context every time.
             </p>
+            <ModelSelector
+              selectedModel={modelKey || settings.modelKey || config?.lastSelectedChatModel || ''}
+              onModelChange={setModelKey}
+              emptyLabel="Modelo de IA"
+              clearLabel="Usar padrão da Agenda"
+              allowClear
+              disabled={submitting}
+              align="left"
+              menuPlacement="bottom"
+            />
           </div>
           <button
             type="button"
@@ -639,14 +651,9 @@ function TaskDialog({
             <span className="mb-1.5 block text-[11px] font-medium text-text-secondary">
               Modelo de IA
             </span>
-            <ModelSelector
-              selectedModel={modelKey || settings.modelKey || ''}
-              onModelChange={setModelKey}
-              emptyLabel="Escolha o modelo desta tarefa"
-              clearLabel="Usar padrão da Agenda"
-              allowClear
-              disabled={submitting}
-            />
+            <p className="mt-1 text-[10px] text-text-muted">
+              Selecione o modelo no cabeçalho da tarefa.
+            </p>
             {initial && !initial.modelKey && settings.modelKey && (
               <p className="mt-1 text-[10px] text-text-muted">
                 Esta tarefa não tem modelo vinculado. Runs usarão o modelo da Agenda:
@@ -1295,7 +1302,7 @@ export function AgendaWorkspace({ config }: { config: AppConfig | null }): React
         instructions: draft.instructions,
         intervalMinutes: draft.intervalMinutes,
         anchor: draft.anchor,
-        modelKey: draft.modelKey || settings.modelKey || null
+        modelKey: draft.modelKey || settings.modelKey || config?.lastSelectedChatModel || null
       })
       if (!result.ok) {
         setError(result.error || 'Could not create the task.')
@@ -1327,10 +1334,10 @@ export function AgendaWorkspace({ config }: { config: AppConfig | null }): React
             <h1 className="text-[15px] font-semibold tracking-tight text-text-primary">Agenda</h1>
             <ModeChip settings={settings} onSwitch={(mode) => void switchMode(mode)} />
             <ModelSelector
-              selectedModel={settings.modelKey || ''}
+              selectedModel={settings.modelKey || config?.lastSelectedChatModel || ''}
               onModelChange={setAgendaModel}
               emptyLabel="Modelo Agenda"
-              clearLabel="Limpar modelo Agenda"
+              clearLabel="Usar modelo do Chat"
               allowClear
               align="left"
               menuPlacement="bottom"
@@ -1526,6 +1533,7 @@ export function AgendaWorkspace({ config }: { config: AppConfig | null }): React
         <TaskDialog
           servers={servers}
           settings={settings}
+          config={config}
           onClose={() => setIsCreateOpen(false)}
           onSaved={() => {
             setIsCreateOpen(false)
@@ -1538,6 +1546,7 @@ export function AgendaWorkspace({ config }: { config: AppConfig | null }): React
           initial={editTarget}
           servers={servers}
           settings={settings}
+          config={config}
           onClose={() => setEditTarget(null)}
           onSaved={() => {
             setEditTarget(null)

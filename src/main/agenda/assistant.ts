@@ -125,7 +125,7 @@ function normalizeIntegrations(value: unknown): McpGalleryPresetId[] {
  */
 export async function planAgendaTask(request: string): Promise<AgendaTaskDraft> {
   const config = loadConfig()
-  const modelKey = config.agenda.modelKey?.trim() || ''
+  const modelKey = config.agenda.modelKey?.trim() || config.lastSelectedChatModel?.trim() || ''
   // The Agenda model is explicit. Falling back to another provider here would
   // silently bill a model the user did not choose for this schedule.
   const { provider, model } = resolveExactProviderAndModel(modelKey)

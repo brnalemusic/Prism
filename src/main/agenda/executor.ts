@@ -52,15 +52,22 @@ function readState(task: AgendaTask): string {
 }
 
 /**
- * Resolves the model pinned to this run. There is deliberately no fallback to
- * the mutable Chat/Harness selection: a task without a model is a configuration
- * error the user must fix, not something to paper over with another provider.
+ * Resolves the model pinned to this run. The task's own model is the source of
+ * truth; when a task has no model bound, it falls back to the Agenda default
+ * model, and finally to the last Chat model. Changing the Chat/Harness model
+ * never rewrites an existing task's model.
  */
 function resolveRunModel(task: AgendaTask, run: AgendaRunRecord): string {
-  const modelKey = (run.modelKey ?? task.modelKey ?? '').trim()
+  const config = loadConfig()
+  const modelKey =
+    (run.modelKey ??
+      task.modelKey ??
+      config.agenda.modelKey ??
+      config.lastSelectedChatModel ??
+      '').trim()
   if (!modelKey) {
     throw new Error(
-      'This task has no model bound. Edit the task and choose a model before it runs again.'
+      'This task has no model bound. Choose an Agenda model or bind a model to the task before it runs again.'
     )
   }
   if (isLiveOnlyModel(modelKey)) {
