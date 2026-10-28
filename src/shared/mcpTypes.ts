@@ -20,6 +20,10 @@ export interface McpServerConfig {
   envKeys: string[]
   /** Endpoint for HTTP servers. */
   url: string
+  /** Gallery preset this server came from, when it was installed from the gallery. */
+  presetId?: string
+  /** Secret key sent as `Authorization: Bearer <value>` for HTTP servers. */
+  authEnvKey?: string
   enabled: boolean
   createdAt: number
   updatedAt: number
@@ -51,6 +55,10 @@ export interface McpServerDraft {
   removedEnvKeys?: string[]
   url: string
   enabled?: boolean
+  /** Gallery preset this server came from. Preserved when the draft omits it. */
+  presetId?: string
+  /** Secret key used as a bearer token. Preserved when the draft omits it. */
+  authEnvKey?: string
 }
 
 export interface McpInstallPreset {
@@ -63,6 +71,91 @@ export interface McpInstallPreset {
   url: string
   /** Environment variables the preset expects, with a human hint. */
   envHints?: Array<{ key: string; hint: string }>
+}
+
+/** Pre-configured integrations shown in Settings → MCP and available to Agenda. */
+export const MCP_GALLERY_PRESET_IDS = ['github', 'supabase', 'gmail'] as const
+
+export type McpGalleryPresetId = (typeof MCP_GALLERY_PRESET_IDS)[number]
+
+export type McpBrand = McpGalleryPresetId
+
+const MCP_GALLERY_LABELS: Record<McpGalleryPresetId, string> = {
+  github: 'GitHub',
+  supabase: 'Supabase',
+  gmail: 'Gmail'
+}
+
+export function normalizeMcpGalleryPresetId(value: unknown): McpGalleryPresetId | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  return (MCP_GALLERY_PRESET_IDS as readonly string[]).includes(normalized)
+    ? (normalized as McpGalleryPresetId)
+    : null
+}
+
+export function mcpGalleryLabel(presetId: McpGalleryPresetId): string {
+  return MCP_GALLERY_LABELS[presetId]
+}
+
+/** One credential collected by the native Prism sign-in dialog. */
+export interface McpCredentialField {
+  key: string
+  label: string
+  placeholder?: string
+  hint?: string
+  /** Masked in the dialog. Values are always stored encrypted. */
+  secret?: boolean
+  helpUrl?: string
+  helpLabel?: string
+}
+
+export interface McpGalleryPreset {
+  id: McpGalleryPresetId
+  name: string
+  description: string
+  brand: McpBrand
+  transport: McpTransport
+  command: string
+  args: string[]
+  url: string
+  /** Secret key sent as `Authorization: Bearer <value>` for HTTP servers. */
+  authEnvKey?: string
+  /** Credentials the sign-in dialog asks for. */
+  fields: McpCredentialField[]
+}
+
+/** Pending sign-in shown by the global Prism dialog. */
+export interface McpLoginRequest {
+  requestId: string
+  presetId: McpGalleryPresetId
+  presetName: string
+  description: string
+  brand: McpBrand
+  fields: McpCredentialField[]
+  /** Fields that already have a stored value. A blank input keeps the current value. */
+  existingKeys: string[]
+  taskId?: string
+  taskTitle?: string
+  runId?: string
+  createdAt: number
+  expiresAt: number
+}
+
+export interface McpLoginResolution {
+  requestId: string
+  cancelled?: boolean
+  values?: Record<string, string>
+}
+
+export interface McpConnectPresetResult {
+  ok: boolean
+  cancelled?: boolean
+  server?: McpServerConfig
+  status?: McpServerStatus
+  /** Tool names exposed by the server after connecting. */
+  tools?: string[]
+  error?: string
 }
 
 /** Name prefix that keeps MCP tools from colliding with native Prism tools. */

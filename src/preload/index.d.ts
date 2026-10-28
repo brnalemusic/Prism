@@ -14,7 +14,11 @@ import type {
   McpInstallPreset,
   McpServerConfig,
   McpServerDraft,
-  McpServerStatus
+  McpServerStatus,
+  McpConnectPresetResult,
+  McpGalleryPreset,
+  McpLoginRequest,
+  McpLoginResolution
 } from '../shared/mcpTypes'
 import type { ChatSession } from '../main/history'
 import type { Content } from '@google/genai'
@@ -230,6 +234,8 @@ export interface PrismAPI {
       instructions: string
       intervalMinutes: number | null
       anchor: AgendaAnchor | null
+      integrations: string[]
+      modelKey: string
     }
     error?: string
   }>
@@ -274,6 +280,17 @@ export interface PrismAPI {
   }>
   stopMcpServer: (id: string) => Promise<{ ok: boolean }>
   onMcpServersChanged: (callback: () => void) => () => void
+  listMcpGalleryPresets: () => Promise<McpGalleryPreset[]>
+  connectMcpPreset: (
+    presetId: string,
+    options?: { taskId?: string; taskTitle?: string; runId?: string; attachToTask?: boolean }
+  ) => Promise<McpConnectPresetResult>
+  resolveMcpLogin: (resolution: McpLoginResolution) => Promise<{ ok: boolean; error?: string }>
+  onMcpLoginRequest: (callback: (data: McpLoginRequest) => void) => () => void
+  onMcpLoginClosed: (callback: (data: { requestId: string }) => void) => () => void
+  setAgendaModel: (
+    modelKey: string | null
+  ) => Promise<{ ok: boolean; settings?: AgendaSettings; error?: string }>
   onHarnessPromptWarning: (
     callback: (data: {
       chatId: string

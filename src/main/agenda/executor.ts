@@ -3,6 +3,11 @@ import * as path from 'path'
 import type { AgendaRunRecord, AgendaTask } from '../../shared/agendaTypes'
 import { describeAgendaCadence } from '../../shared/agendaTypes'
 import { cancelChatMessage, handleChatMessage } from '../ai/chatHandler'
+import {
+  providerHasCompletionCredential,
+  resolveExactProviderAndModel
+} from '../ai/providerManager'
+import { isLiveOnlyModel } from '../ai/trustedRegistry'
 import { loadConfig } from '../config'
 import { loadChatSession } from '../history'
 import { appendRunLog } from './tasks'
@@ -46,6 +51,32 @@ function readState(task: AgendaTask): string {
   }
 }
 
+/**
+ * Resolves the model pinned to this run. There is deliberately no fallback to
+ * the mutable Chat/Harness selection: a task without a model is a configuration
+ * error the user must fix, not something to paper over with another provider.
+ */
+function resolveRunModel(task: AgendaTask, run: AgendaRunRecord): string {
+  const modelKey = (run.modelKey ?? task.modelKey ?? '').trim()
+  if (!modelKey) {
+    throw new Error(
+      'This task has no model bound. Edit the task and choose a model before it runs again.'
+    )
+  }
+  if (isLiveOnlyModel(modelKey)) {
+    throw new Error(
+      'This task is bound to a live-only model that cannot run unattended. Edit the task and choose a text model.'
+    )
+  }
+  const { provider, model } = resolveExactProviderAndModel(modelKey)
+  if (!provider || !model || !providerHasCompletionCredential(provider)) {
+    throw new Error(
+      `The model bound to this task (${modelKey}) is unavailable. Edit the task and choose another model.`
+    )
+  }
+  return modelKey
+}
+
 function buildPrompt(task: AgendaTask, run: AgendaRunRecord): string {
   const config = loadConfig()
   const mode = config.agenda.permissionMode
@@ -59,6 +90,7 @@ function buildPrompt(task: AgendaTask, run: AgendaRunRecord): string {
     `- Cadence: ${describeAgendaCadence(task.intervalMinutes)}`,
     `- Task folder: ${task.folder}`,
     `- Run ID: ${run.id}`,
+    `- Model: ${run.modelKey ?? task.modelKey ?? 'not bound'}`,
     `- Started at: ${now.toLocaleString()}`,
     `- Permission mode: ${mode === 'yolo' ? 'YOLO (no prompts)' : 'Safe (sensitive actions ask the user)'}`,
     `- MCP servers attached: ${describeAttachedServers(task)}`,
@@ -70,7 +102,7 @@ function buildPrompt(task: AgendaTask, run: AgendaRunRecord): string {
     '## MCP tools',
     '',
     `Installed MCP servers: ${describeInstalledServers(task)}.`,
-    'If this task needs a capability that is missing, call `agenda_install_mcp_server` to install an MCP server and attach it to this task. In Safe mode the user must approve the install; if it is denied, continue without it and report the blocker. Never install a server that the task does not need.',
+    'If this task needs a capability that is missing, call `agenda_install_mcp_server` to install an MCP server and attach it to this task. Prefer `agenda_mcp_login` with preset `github`, `supabase` or `gmail` when one of those integrations is enough: Prism opens a native sign-in dialog, so never ask the user to paste credentials in chat. In Safe mode the user must approve the connection; if it is denied, continue without it and report the blocker. Never install a server that the task does not need.',
     '',
     '## Memory from previous runs',
     '',
@@ -121,8 +153,7 @@ export async function runAgendaTask(
   signal: AbortSignal
 ): Promise<{ summary?: string; permissionPrompts?: number }> {
   const chatId = `agenda-${run.id}`
-  const config = loadConfig()
-  const modelKey = task.modelKey || config.lastSelectedChatModel || undefined
+  const modelKey = resolveRunModel(task, run)
 
   // Start the attached MCP servers before the chat pipeline asks for the tool
   // list; the adapter only exposes tools that are already cached.

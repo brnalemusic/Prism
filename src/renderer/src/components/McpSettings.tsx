@@ -14,11 +14,14 @@ import {
 } from '@phosphor-icons/react'
 import clsx from 'clsx'
 import type {
+  McpConnectPresetResult,
+  McpGalleryPreset,
   McpInstallPreset,
   McpServerConfig,
   McpServerDraft,
   McpServerStatus
 } from '../../../shared/mcpTypes'
+import { McpBrandIcon } from './McpBrandIcon'
 
 function statusLabel(status: McpServerStatus | undefined): {
   label: string
@@ -481,22 +484,108 @@ function ServerDialog({
   )
 }
 
+function GalleryCard({
+  preset,
+  server,
+  status,
+  connecting,
+  onConnect
+}: {
+  preset: McpGalleryPreset
+  server: McpServerConfig | undefined
+  status: McpServerStatus | undefined
+  connecting: string | null
+  onConnect: (presetId: string) => Promise<void>
+}): React.JSX.Element {
+  const connected = Boolean(server?.enabled)
+  const meta = statusLabel(status)
+  const busy = connecting === preset.id
+  const tools = status?.tools ?? []
+
+  return (
+    <article className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3.5">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 shrink-0 flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-accent-primary">
+          <McpBrandIcon brand={preset.brand} size={16} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="truncate text-[12.5px] font-semibold text-text-primary">
+              {preset.name}
+            </h3>
+            <span
+              className={clsx(
+                'inline-flex items-center gap-1 text-[10px] font-medium',
+                connected ? 'text-emerald-300' : 'text-text-muted'
+              )}
+            >
+              {busy ? (
+                <CircleNotch size={10} className="animate-spin" />
+              ) : (
+                <span className="h-1.5 w-1.5 rounded-full bg-current" />
+              )}
+              {connected ? 'Conectado' : 'Precisa de login'}
+            </span>
+            <span className="rounded-full bg-white/[0.05] px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide text-text-muted">
+              {preset.transport}
+            </span>
+            {tools.length > 0 && (
+              <span className="text-[10px] text-text-muted">
+                {tools.length} tool{tools.length === 1 ? '' : 's'}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 truncate font-mono text-[10px] text-text-muted">
+            {preset.transport === 'http' ? preset.url : [preset.command, ...preset.args].join(' ')}
+          </p>
+          <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-secondary">
+            {preset.description}
+          </p>
+          {status?.error && (
+            <p className="mt-1.5 flex items-start gap-1.5 rounded-md bg-rose-400/10 px-2 py-1 text-[10px] leading-relaxed text-rose-200">
+              <XCircle size={11} className="mt-0.5 shrink-0" />
+              <span className="break-words">{status.error}</span>
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => void onConnect(preset.id)}
+          disabled={busy || connected}
+          className={clsx(
+            'shrink-0 cursor-pointer rounded-lg border px-3 py-1.5 text-[11px] transition-colors disabled:opacity-45 disabled:cursor-not-allowed',
+            connected || busy
+              ? 'border-white/[0.08] bg-white/[0.02] text-text-muted'
+              : 'border-accent-primary/45 bg-accent-primary/15 text-accent-primary hover:bg-accent-primary/25'
+          )}
+        >
+          {busy ? 'Conectando…' : connected ? 'Conectado' : 'Conectar'}
+        </button>
+      </div>
+    </article>
+  )
+}
+
 export function McpSettings(): React.JSX.Element {
   const [servers, setServers] = useState<McpServerConfig[]>([])
   const [statuses, setStatuses] = useState<McpServerStatus[]>([])
   const [presets, setPresets] = useState<McpInstallPreset[]>([])
+  const [galleryPresets, setGalleryPresets] = useState<McpGalleryPreset[]>([])
   const [dialogTarget, setDialogTarget] = useState<McpServerConfig | null | 'new'>(null)
   const [error, setError] = useState<string | null>(null)
+  const [connecting, setConnecting] = useState<string | null>(null)
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
-      const [result, presetList] = await Promise.all([
+      const [result, presetList, gallery] = await Promise.all([
         window.api.listMcpServers(),
-        window.api.listMcpPresets()
+        window.api.listMcpPresets(),
+        window.api.listMcpGalleryPresets()
       ])
       setServers(result.servers)
       setStatuses(result.statuses)
       setPresets(presetList)
+      setGalleryPresets(gallery)
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : String(refreshError))
     }
@@ -515,8 +604,56 @@ export function McpSettings(): React.JSX.Element {
     return map
   }, [statuses])
 
+  const connectPreset = async (presetId: string): Promise<void> => {
+    setConnecting(presetId)
+    try {
+      const result = await window.api.connectMcpPreset(presetId)
+      if (!result.ok) {
+        setError(result.error || `Não foi possível conectar ${presetId}.`)
+      }
+      await refresh()
+    } catch (connectError) {
+      setError(connectError instanceof Error ? connectError.message : String(connectError))
+    } finally {
+      setConnecting(null)
+    }
+  }
+
   return (
     <div className="space-y-4">
+      <section className="settings-card">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-text-primary">Galeria de integrações</h2>
+            <p className="mt-0.5 text-xs leading-relaxed text-text-secondary/70">
+              MCPs pré-configurados que precisam apenas de login. As credenciais ficam criptografadas
+              no cofre do sistema; nada é gravado em texto simples.
+            </p>
+          </div>
+        </div>
+
+        {galleryPresets.length === 0 ? (
+          <p className="mt-3 text-[11px] text-text-muted">Nenhuma integração disponível.</p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {galleryPresets.map((preset) => {
+              const server = servers.find((s) => s.presetId === preset.id || s.id === preset.id)
+              const status = statusById.get(server?.id ?? '')
+              return (
+                <GalleryCard
+                  key={preset.id}
+                  preset={preset}
+                  server={server}
+                  status={status}
+                  connecting={connecting}
+                  onConnect={connectPreset}
+                />
+              )
+            })}
+          </div>
+        )}
+      </section>
+
       <section className="settings-card">
         <div className="flex items-start justify-between gap-3">
           <div>

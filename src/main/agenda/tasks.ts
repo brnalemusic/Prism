@@ -114,7 +114,7 @@ export function createTask(input: CreateAgendaTaskInput): AgendaTask {
     intervalMinutes,
     anchor: input.anchor,
     mcpServerIds: input.mcpServerIds ?? [],
-    modelKey: input.modelKey ?? null,
+    modelKey: input.modelKey?.trim() || null,
     nextRunAt: null,
     lastRunAt: null,
     lastRunStatus: null,
@@ -140,10 +140,15 @@ export function updateTask(id: string, patch: Partial<AgendaTask>): AgendaTask |
   if (index < 0) return null
 
   const current = tasks[index]
-  const normalizedPatch: Partial<AgendaTask> =
-    patch.intervalMinutes === undefined
-      ? patch
-      : { ...patch, intervalMinutes: normalizeIntervalMinutes(patch.intervalMinutes) }
+  const normalizedPatch: Partial<AgendaTask> = {
+    ...patch,
+    ...(patch.intervalMinutes === undefined
+      ? {}
+      : { intervalMinutes: normalizeIntervalMinutes(patch.intervalMinutes) }),
+    ...(patch.modelKey === undefined
+      ? {}
+      : { modelKey: patch.modelKey?.trim() || null })
+  }
   const next: AgendaTask = {
     ...current,
     ...normalizedPatch,

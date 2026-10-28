@@ -11,7 +11,27 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+/**
+ * Extrai a versão do Desktop de uma tag composta.
+ *
+ * Nova tag: 10.0.1-0.0.2/20261028  →  versão do Desktop = 10.0.1
+ * Tag simples: 10.0.1              →  versão do Desktop = 10.0.1
+ *
+ * Isso mantém o auto-updater enxergando apenas o número da versão do
+ * instalador Desktop (prism-invisible-setup-<versão>.exe), ignorando
+ * o segmento mobile e a data embutidos na tag.
+ */
+function extractDesktopVersion(tag: string): string | null {
+  const trimmed = String(tag ?? '').trim()
+  // Novo formato composto: MAJOR.MINOR.PATCH-MAJORMB.MINORMB.PATCHMB/YYYYMMDD
+  const composed = /^(\d+\.\d+\.\d+)-/.exec(trimmed)
+  if (composed) return composed[1]
+  // Tag simples (SemVer puro)
+  const simple = /^(\d+\.\d+\.\d+)$/.exec(trimmed)
+  if (simple) return simple[1]
+  return null
+}
+
 const GITHUB_OWNER = 'brnalemusic'
 const GITHUB_REPO = 'Prism'
 
@@ -355,7 +375,9 @@ async function checkForUpdates(mainWindow: BrowserWindow): Promise<void> {
     return
   }
 
-  const latestVersion = (release.tag_name || release.name || '').replace(/^v/, '').trim()
+  const tagVersion = extractDesktopVersion(release.tag_name)
+  const nameVersion = /^(\d+\.\d+\.\d+)$/.exec(release.name || '')?.[1]
+  const latestVersion = nameVersion ?? tagVersion ?? (release.tag_name || release.name || '').replace(/^v/, '').trim()
   console.log(`[Auto-Updater] Latest version on GitHub: ${latestVersion}`)
 
   if (!latestVersion) {

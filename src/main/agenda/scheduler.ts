@@ -107,7 +107,8 @@ async function executeTask(taskId: string, scheduledFor: number): Promise<void> 
     summary: null,
     error: null,
     catchUp: missed,
-    permissionPrompts: 0
+    permissionPrompts: 0,
+    modelKey: task.modelKey
   }
   writeRun(run)
   appendRunLog(task, `run ${run.id} started${missed ? ' (catch-up)' : ''}`)
@@ -192,7 +193,8 @@ export function tick(now = Date.now()): void {
           summary: 'Skipped: the previous run is still active.',
           error: null,
           catchUp: false,
-          permissionPrompts: 0
+          permissionPrompts: 0,
+          modelKey: task.modelKey
         }
         writeRun(skipped)
         appendRunLog(task, `run ${skipped.id} skipped (still running)`)

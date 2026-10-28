@@ -20,11 +20,11 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { REPO_ROOT, assertSemver, readVersionFile } from './sync-versions.mjs'
 
-export const RELEASE_TAG_PATTERN = /^(\d+)\.(\d+)-(\d+)\.(\d+)\/(\d{8})$/
+export const RELEASE_TAG_PATTERN = /^(\d+)\.(\d+)\.(\d+)-(\d+)\.(\d+)\.(\d+)\/(\d{8})$/
 
 /**
- * @returns {{ desktopMajor: number, desktopMinor: number,
- *             mobileMajor: number, mobileMinor: number,
+ * @returns {{ desktopMajor: number, desktopMinor: number, desktopPatch: number,
+ *             mobileMajor: number, mobileMinor: number, mobilePatch: number,
  *             date: string, desktopPrefix: string, mobilePrefix: string }}
  */
 export function parseReleaseTag(tag) {
@@ -32,10 +32,10 @@ export function parseReleaseTag(tag) {
   const match = RELEASE_TAG_PATTERN.exec(trimmed)
   if (!match) {
     throw new Error(
-      `Tag "${trimmed}" is invalid. Expected MAJORDSK.MINORDSK-MAJORMBL.MINORMBL/YYYYMMDD (for example 10.0-0.0/20270710).`
+      `Tag "${trimmed}" is invalid. Expected MAJORDSK.MINORDSK.PATCHDSK-MAJORMBL.MINORMBL.PATCHMBL/YYYYMMDD (for example 10.0.0-0.0.1/20261028).`
     )
   }
-  const [, desktopMajor, desktopMinor, mobileMajor, mobileMinor, date] = match
+  const [, desktopMajor, desktopMinor, desktopPatch, mobileMajor, mobileMinor, mobilePatch, date] = match
   const parsedDate = `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`
   const asDate = new Date(`${parsedDate}T00:00:00Z`)
   if (Number.isNaN(asDate.getTime()) || asDate.toISOString().slice(0, 10) !== parsedDate) {
@@ -44,11 +44,13 @@ export function parseReleaseTag(tag) {
   return {
     desktopMajor: Number(desktopMajor),
     desktopMinor: Number(desktopMinor),
+    desktopPatch: Number(desktopPatch),
     mobileMajor: Number(mobileMajor),
     mobileMinor: Number(mobileMinor),
+    mobilePatch: Number(mobilePatch),
     date: parsedDate,
-    desktopPrefix: `${desktopMajor}.${desktopMinor}`,
-    mobilePrefix: `${mobileMajor}.${mobileMinor}`
+    desktopPrefix: `${Number(desktopMajor)}.${Number(desktopMinor)}.${Number(desktopPatch)}`,
+    mobilePrefix: `${Number(mobileMajor)}.${Number(mobileMinor)}.${Number(mobilePatch)}`
   }
 }
 
@@ -58,17 +60,28 @@ export function semverMajorMinor(version) {
   return `${Number(major)}.${Number(minor)}`
 }
 
+/**
+ * Extrai apenas major.minor.patch de um SemVer, ignorando pré-release e build.
+ * Ex: '0.0.1-alpha.0.1' → '0.0.1'
+ */
+export function semverDigits(version) {
+  const validated = assertSemver(version, 'Version')
+  const core = validated.split(/[-+]/)[0]
+  const [major, minor, patch] = core.split('.')
+  return `${Number(major)}.${Number(minor)}.${Number(patch)}`
+}
+
 export function assertTagMatchesVersions(tagMeta, desktopVersion, mobileVersion) {
-  const desktopPrefix = semverMajorMinor(desktopVersion)
-  const mobilePrefix = semverMajorMinor(mobileVersion)
-  if (tagMeta.desktopPrefix !== desktopPrefix) {
+  const desktopDigits = semverDigits(desktopVersion)
+  const mobileDigits = semverDigits(mobileVersion)
+  if (tagMeta.desktopPrefix !== desktopDigits) {
     throw new Error(
-      `Tag desktop segment "${tagMeta.desktopPrefix}" does not match version.txt (${desktopVersion} → ${desktopPrefix}.x).`
+      `Tag desktop segment "${tagMeta.desktopPrefix}" does not match version.txt (${desktopVersion} → ${desktopDigits}).`
     )
   }
-  if (tagMeta.mobilePrefix !== mobilePrefix) {
+  if (tagMeta.mobilePrefix !== mobileDigits) {
     throw new Error(
-      `Tag mobile segment "${tagMeta.mobilePrefix}" does not match version_m.txt (${mobileVersion} → ${mobilePrefix}.x).`
+      `Tag mobile segment "${tagMeta.mobilePrefix}" does not match version_m.txt (${mobileVersion} → ${mobileDigits}).`
     )
   }
 }

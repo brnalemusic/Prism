@@ -18,7 +18,9 @@ import { HarnessContextInjection } from './components/HarnessContextInjection'
 import { HarnessApprovalDialog } from './components/HarnessApprovalDialog'
 import { AgendaPermissionDialog } from './components/AgendaPermissionDialog'
 import { AgendaWorkspace } from './components/AgendaWorkspace'
+import { McpLoginDialog } from './components/McpLoginDialog'
 import type { AgendaPermissionRequest } from '../../shared/agendaTypes'
+import type { McpLoginRequest } from '../../shared/mcpTypes'
 import { HarnessProjectModal } from './components/HarnessProjectModal'
 import { HarnessWorkspace } from './components/HarnessWorkspace'
 import { TitleBar } from './components/TitleBar'
@@ -2248,6 +2250,7 @@ function RealApp(): React.JSX.Element {
     AgendaPermissionRequest[]
   >([])
   const agendaPermissionRequest = agendaPermissionQueue[0] ?? null
+  const [mcpLoginRequest, setMcpLoginRequest] = useState<McpLoginRequest | null>(null)
   const [harnessPromptWarnings, setHarnessPromptWarnings] = useState<string[]>([])
   const [isHarnessProjectModalOpen, setIsHarnessProjectModalOpen] = useState(false)
   const [harnessProjectTargetTabId, setHarnessProjectTargetTabId] = useState<string | null>(null)
@@ -2272,6 +2275,19 @@ function RealApp(): React.JSX.Element {
       setHarnessApprovalRequest(request)
     })
   }, [])
+
+  useEffect(() => {
+    const disposeRequest = window.api.onMcpLoginRequest((request) => {
+      setMcpLoginRequest(request)
+    })
+    const disposeClosed = window.api.onMcpLoginClosed(({ requestId }) => {
+      if (mcpLoginRequest?.requestId === requestId) setMcpLoginRequest(null)
+    })
+    return () => {
+      disposeRequest()
+      disposeClosed()
+    }
+  }, [mcpLoginRequest?.requestId])
 
   useEffect(() => {
     const disposeRequest = window.api.onAgendaPermissionRequest((request) => {
@@ -5999,6 +6015,22 @@ function RealApp(): React.JSX.Element {
             setAgendaPermissionQueue((current) =>
               current.filter((entry) => entry.requestId !== agendaPermissionRequest.requestId)
             )
+          }}
+        />
+      )}
+      {mcpLoginRequest && (
+        <McpLoginDialog
+          request={mcpLoginRequest}
+          onClose={() => setMcpLoginRequest(null)}
+          onResolve={(resolution) => {
+            window.api
+              .resolveMcpLogin({
+                requestId: mcpLoginRequest.requestId,
+                cancelled: resolution.cancelled,
+                values: resolution.values
+              })
+              .catch(() => undefined)
+            setMcpLoginRequest(null)
           }}
         />
       )}

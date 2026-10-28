@@ -16,6 +16,8 @@ interface PrismServerMeta {
   transport?: McpTransport
   envKeys?: string[]
   enabled?: boolean
+  presetId?: string
+  authEnvKey?: string
   createdAt?: number
   updatedAt?: number
 }
@@ -80,6 +82,8 @@ export function loadServers(): McpServerConfig[] {
       args: Array.isArray(entry.args) ? entry.args.map(String) : [],
       envKeys: Array.isArray(info.envKeys) ? info.envKeys.map(String) : [],
       url: entry.url?.trim() || '',
+      presetId: typeof info.presetId === 'string' ? info.presetId : undefined,
+      authEnvKey: typeof info.authEnvKey === 'string' ? info.authEnvKey : undefined,
       enabled: info.enabled !== false,
       createdAt: info.createdAt ?? 0,
       updatedAt: info.updatedAt ?? 0
@@ -105,6 +109,16 @@ export function saveServer(draft: McpServerDraft): McpServerConfig {
   const command = typeof draft.command === 'string' ? draft.command.trim() : ''
   const url = typeof draft.url === 'string' ? draft.url.trim() : ''
   const envKeys = Object.keys(draft.env ?? {}).filter((key) => key.trim())
+  const presetId =
+    typeof draft.presetId === 'string' && draft.presetId.trim()
+      ? draft.presetId.trim()
+      : previous.presetId
+  const authEnvKey =
+    transport === 'http'
+      ? typeof draft.authEnvKey === 'string' && draft.authEnvKey.trim()
+        ? draft.authEnvKey.trim()
+        : previous.authEnvKey
+      : undefined
 
   file.mcpServers[id] =
     transport === 'http'
@@ -116,6 +130,8 @@ export function saveServer(draft: McpServerDraft): McpServerConfig {
     transport,
     envKeys,
     enabled: draft.enabled ?? previous.enabled ?? true,
+    presetId,
+    authEnvKey,
     createdAt: previous.createdAt ?? now,
     updatedAt: now
   }
@@ -130,6 +146,8 @@ export function saveServer(draft: McpServerDraft): McpServerConfig {
     args: transport === 'stdio' ? args : [],
     envKeys,
     url: transport === 'http' ? url : '',
+    presetId,
+    authEnvKey,
     enabled: file.prism.servers[id].enabled !== false,
     createdAt: file.prism.servers[id].createdAt ?? now,
     updatedAt: now

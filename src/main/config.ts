@@ -32,7 +32,8 @@ export function createDefaultAgendaSettings(): AgendaSettings {
   return {
     permissionMode: 'safe',
     yoloAcknowledged: false,
-    maxConcurrentRuns: 2
+    maxConcurrentRuns: 2,
+    modelKey: null
   }
 }
 
@@ -556,7 +557,11 @@ function normalizeConfig(config: AppConfig): AppConfig {
     permissionMode:
       requestedAgendaMode === 'yolo' && !agendaYoloAcknowledged ? 'safe' : requestedAgendaMode,
     yoloAcknowledged: agendaYoloAcknowledged,
-    maxConcurrentRuns: normalizeInteger(rawAgenda.maxConcurrentRuns, 2, 1, 8)
+    maxConcurrentRuns: normalizeInteger(rawAgenda.maxConcurrentRuns, 2, 1, 8),
+    modelKey:
+      typeof rawAgenda.modelKey === 'string' && rawAgenda.modelKey.trim()
+        ? rawAgenda.modelKey.trim()
+        : null
   }
   const normalizeImageCapabilities = (
     value: ProviderConfig['models'][number]['imageGeneration']

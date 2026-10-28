@@ -150,8 +150,14 @@ import {
   stopAll as stopAllMcpServers,
   stopServer as stopMcpServer
 } from './mcp/manager'
-import { getMcpPresets } from './mcp/presets'
-import type { McpServerDraft } from '../shared/mcpTypes'
+import { getMcpPresets, getMcpGalleryPresets } from './mcp/presets'
+import { connectMcpPreset, resolveMcpLogin } from './mcp/login'
+import type { McpLoginResolution, McpServerDraft } from '../shared/mcpTypes'
+import {
+  providerHasCompletionCredential,
+  resolveExactProviderAndModel
+} from './ai/providerManager'
+import { isLiveOnlyModel } from './ai/trustedRegistry'
 import { getTerminalProcessesForChat } from './terminalProcessManager'
 import {
   checkAllHarnessProjects,
@@ -1835,6 +1841,32 @@ if (!gotTheLock) {
       }
     )
 
+    ipcMain.handle('agenda-set-model', (_event, modelKey: string | null) => {
+      const nextModelKey = typeof modelKey === 'string' && modelKey.trim() ? modelKey.trim() : null
+      if (nextModelKey) {
+        const { provider, model } = resolveExactProviderAndModel(nextModelKey)
+        if (!provider || !model || isLiveOnlyModel(nextModelKey)) {
+          return { ok: false, error: 'Choose an available text model.' }
+        }
+        if (!providerHasCompletionCredential(provider)) {
+          return {
+            ok: false,
+            error: 'That model needs an API key. Configure the provider before selecting it.'
+          }
+        }
+      }
+
+      const saved = saveConfig(
+        { agenda: { ...currentConfig.agenda, modelKey: nextModelKey } },
+        currentConfig
+      )
+      if (!saved) return { ok: false, error: 'Could not save the Agenda model.' }
+
+      currentConfig = loadConfig()
+      broadcastIpc('agenda-settings-changed', { ...currentConfig.agenda })
+      return { ok: true, settings: { ...currentConfig.agenda } }
+    })
+
     ipcMain.on('agenda-resolve-permission', (_event, payload: AgendaPermissionResolution) => {
       if (!payload || typeof payload.requestId !== 'string') return
       resolvePermission(payload)
@@ -1950,6 +1982,27 @@ if (!gotTheLock) {
     })
 
     ipcMain.handle('agenda-list-runs', (_event, taskId?: string) => listRuns(taskId))
+
+    ipcMain.handle('mcp-list-gallery', () => getMcpGalleryPresets())
+
+    ipcMain.handle('mcp-connect-preset', async (_event, presetId: string, options?: {
+      taskId?: string
+      taskTitle?: string
+      runId?: string
+      attachToTask?: boolean
+    }) => {
+      const result = await connectMcpPreset(String(presetId ?? ''), {
+        taskId: options?.taskId,
+        taskTitle: options?.taskTitle,
+        runId: options?.runId,
+        attachToTask: options?.attachToTask ?? true
+      })
+      return result
+    })
+
+    ipcMain.handle('mcp-resolve-login', (_event, resolution: McpLoginResolution) => {
+      return resolveMcpLogin(resolution)
+    })
 
     ipcMain.handle('mcp-list-servers', () => ({
       servers: loadMcpServers(),

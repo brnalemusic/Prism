@@ -1,7 +1,17 @@
 import type { AgendaAnchor } from '../../shared/agendaTypes'
 import { AGENDA_MAX_INTERVAL_MINUTES, AGENDA_MIN_INTERVAL_MINUTES } from '../../shared/agendaTypes'
+import {
+  MCP_GALLERY_PRESET_IDS,
+  mcpGalleryLabel,
+  normalizeMcpGalleryPresetId,
+  type McpGalleryPresetId
+} from '../../shared/mcpTypes'
 import { loadConfig } from '../config'
-import { providerHasCompletionCredential, resolveProviderAndModel } from '../ai/providerManager'
+import {
+  providerHasCompletionCredential,
+  resolveExactProviderAndModel
+} from '../ai/providerManager'
+import { isLiveOnlyModel } from '../ai/trustedRegistry'
 import { streamOpenAiCompletion } from '../ai/openaiClient'
 
 export interface AgendaTaskDraft {
@@ -9,7 +19,15 @@ export interface AgendaTaskDraft {
   instructions: string
   intervalMinutes: number | null
   anchor: AgendaAnchor | null
+  /** Pre-configured integrations the task needs. */
+  integrations: McpGalleryPresetId[]
+  /** Exact model that planned the task. Stored on the created task. */
+  modelKey: string
 }
+
+const INTEGRATIONS_HELP = MCP_GALLERY_PRESET_IDS.map((id) => `${id} (${mcpGalleryLabel(id)})`).join(
+  ', '
+)
 
 const SYSTEM_PROMPT = `You turn a user request into a Prism Agenda task.
 
@@ -18,7 +36,8 @@ Reply with a single JSON object and nothing else:
   "title": "short task title",
   "instructions": "what the agent must do on every run, including where to keep files and what to update in .agenda/state.md",
   "intervalMinutes": 120 | 240 | ... | 44640 | null,
-  "anchor": null | { "kind": "time", "hour": 8, "minute": 0, "weekday": 1, "dayOfMonth": 1 }
+  "anchor": null | { "kind": "time", "hour": 8, "minute": 0, "weekday": 1, "dayOfMonth": 1 },
+  "integrations": []
 }
 
 Rules:
@@ -27,6 +46,7 @@ Rules:
 - Map natural language: "every day" = 1440, "every week" = 10080, "every month" = 43200, "twice a day" = 720.
 - Use anchor when the request names a clock time or calendar day: "every morning at 8" = daily anchor 08:00, "every Monday at 9" = weekly anchor with weekday 1 at 09:00, "on the 1st at 9" = monthly anchor with dayOfMonth 1 at 09:00.
 - anchor.hour is 0-23, anchor.minute is 0-59, anchor.weekday is 0 (Sunday) to 6 (Saturday), anchor.dayOfMonth is 1-31. Never combine weekday and dayOfMonth. Only use an anchor when intervalMinutes is 1440 or longer. Use weekday only when intervalMinutes is a whole number of weeks (10080, 20160, 30240, 40320), and dayOfMonth only for the monthly cadence (43200).
+- integrations is an array of pre-configured services the task needs: ${INTEGRATIONS_HELP}. Include a service only when the request explicitly needs it (repositories or issues = github, Supabase projects or SQL = supabase, email or inbox = gmail). Use [] when no service is needed. Never invent other values.
 - Never invent extra fields. Never wrap the JSON in markdown fences.
 - The instructions must be self-contained: the executor starts with a fresh context on every run.
 - Keep the title under 60 characters.`
@@ -89,16 +109,36 @@ function normalizeAnchor(value: unknown, intervalMinutes: number | null): Agenda
   }
 }
 
+function normalizeIntegrations(value: unknown): McpGalleryPresetId[] {
+  if (!Array.isArray(value)) return []
+  const integrations: McpGalleryPresetId[] = []
+  for (const entry of value) {
+    const presetId = normalizeMcpGalleryPresetId(entry)
+    if (presetId && !integrations.includes(presetId)) integrations.push(presetId)
+  }
+  return integrations
+}
+
 /**
  * Turns a natural-language request into a task draft. It never creates the task:
  * the renderer shows the draft and the user commits it explicitly.
  */
 export async function planAgendaTask(request: string): Promise<AgendaTaskDraft> {
   const config = loadConfig()
-  const modelKey = config.lastSelectedChatModel || ''
-  const { provider, model } = resolveProviderAndModel(modelKey)
-  if (!provider || !model || !providerHasCompletionCredential(provider)) {
-    throw new Error('Select an active chat model and provider before using the Agenda composer.')
+  const modelKey = config.agenda.modelKey?.trim() || ''
+  // The Agenda model is explicit. Falling back to another provider here would
+  // silently bill a model the user did not choose for this schedule.
+  const { provider, model } = resolveExactProviderAndModel(modelKey)
+  if (
+    !modelKey ||
+    !provider ||
+    !model ||
+    isLiveOnlyModel(modelKey) ||
+    !providerHasCompletionCredential(provider)
+  ) {
+    throw new Error(
+      'Choose an Agenda model before planning a task. Open the model selector in the Agenda header and pick one.'
+    )
   }
 
   const controller = new AbortController()
@@ -133,7 +173,9 @@ export async function planAgendaTask(request: string): Promise<AgendaTaskDraft> 
       title,
       instructions,
       intervalMinutes,
-      anchor: normalizeAnchor(parsed.anchor, intervalMinutes)
+      anchor: normalizeAnchor(parsed.anchor, intervalMinutes),
+      integrations: normalizeIntegrations(parsed.integrations),
+      modelKey
     }
   } finally {
     clearTimeout(timeout)

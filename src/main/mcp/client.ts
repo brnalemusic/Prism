@@ -297,12 +297,14 @@ export class McpStdioClient implements McpClientLike {
 export class McpHttpClient implements McpClientLike {
   readonly serverId: string
   private readonly endpoint: string
+  private readonly extraHeaders: Record<string, string>
   private sessionId: string | null = null
   private nextId = 1
 
-  constructor(serverId: string, url: string) {
+  constructor(serverId: string, url: string, headers: Record<string, string> = {}) {
     this.serverId = serverId
     this.endpoint = url
+    this.extraHeaders = headers
   }
 
   async start(): Promise<void> {
@@ -342,6 +344,7 @@ export class McpHttpClient implements McpClientLike {
 
   private headers(): Record<string, string> {
     return {
+      ...this.extraHeaders,
       'content-type': 'application/json',
       accept: 'application/json, text/event-stream',
       'mcp-protocol-version': PROTOCOL_VERSION,
@@ -386,6 +389,11 @@ export class McpHttpClient implements McpClientLike {
       })
       this.captureSession(response)
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          throw new Error(
+            'MCP sign-in was rejected. Reconnect this server in Settings → MCP and try again.'
+          )
+        }
         throw new Error(`MCP server returned HTTP ${response.status}.`)
       }
 

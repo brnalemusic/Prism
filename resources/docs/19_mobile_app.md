@@ -143,14 +143,14 @@ The native project (`mobile/android`) is generated on demand by `expo prebuild` 
 ### 7.2 Release tag format
 
 ```text
-MAJORDSK.MINORDSK-MAJORMBL.MINORMBL/YYYYMMDD
-9.3-0.0/20261020
-example: desktop 10.0.3 + mobile 0.0.1 → 10.0-0.0/20270710
+MAJORDSK.MINORDSK.PATCHDSK-MAJORMBL.MINORMBL.PATCHMBL/YYYYMMDD
+9.3.0-0.0.1/20261028
+example: desktop 10.0.3 + mobile 0.0.1 → 10.0.3-0.0.1/20270710
 ```
 
-The tag holds each app's major.minor plus the release date. Application versions remain strict SemVer (`10.0.3`, `0.0.1`); only the tag uses `/`, which Git allows in refs and GitHub accepts for releases. SemVer itself does not permit `/` in a version string, which is why the tag is never parsed as an app version.
+The tag holds each app's full SemVer (major.minor.patch) plus the release date. Application versions remain strict SemVer (`10.0.3`, `0.0.1`); only the tag uses `/`, which Git allows in refs and GitHub accepts for releases. SemVer itself does not permit `/` in a version string, which is why the tag is never parsed as an app version. Including the patch in the tag lets you release multiple times on the same day without tag name collisions.
 
-`scripts/release-meta.mjs` validates the tag (format + real date + matching major.minor pairs) and compares `version.txt` / `version_m.txt` with the previous release tag.
+`scripts/release-meta.mjs` validates the tag (format + real date + matching full SemVer digits) and compares `version.txt` / `version_m.txt` with the previous release tag.
 
 ### 7.3 Conditional build pipeline
 
@@ -221,6 +221,6 @@ Runtime UI checks require a device or simulator; they are not covered by automat
 - No in-app provider connection test; failures surface on the first message with a status-specific hint.
 - Conversations are device-local and not synced with the desktop app.
 - The updater depends on GitHub’s unauthenticated API (60 requests/hour per IP); results are cached for six hours.
-- Two releases on the same day with unchanged major.minor pairs for both apps would collide on the tag name; bump at least one minor (or the date) for each release.
+- Two releases on the same day must differ in at least one patch number (desktop or mobile) to avoid tag name collisions.
 - The mobile app does not use the Prism account / cloud proxy; it is bring-your-own-key only.
 - Web is not a target platform (`expo-secure-store` is native-only), even though the bundler can emit a web bundle.

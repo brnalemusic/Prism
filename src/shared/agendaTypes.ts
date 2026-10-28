@@ -24,6 +24,11 @@ export interface AgendaSettings {
   yoloAcknowledged: boolean
   /** Maximum number of task runs executing at the same time. */
   maxConcurrentRuns: number
+  /**
+   * Default model for new Agenda tasks and for the planner that drafts them.
+   * Tasks store their own `modelKey`, so changing this never rewrites existing work.
+   */
+  modelKey: string | null
 }
 
 /** A pending permission prompt shown to the user. */
@@ -144,4 +149,6 @@ export interface AgendaRunRecord {
   catchUp: boolean
   /** Number of permission prompts resolved during this run. */
   permissionPrompts: number
+  /** Model snapshot captured when the run was created. */
+  modelKey: string | null
 }

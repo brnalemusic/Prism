@@ -2,7 +2,7 @@ import type { McpServerConfig, McpServerStatus, McpToolInfo } from '../../shared
 import { broadcastIpc } from '../safeSend'
 import { McpHttpClient, McpStdioClient, type McpClientLike } from './client'
 import { getServer, loadServers } from './store'
-import { buildServerEnv } from './secrets'
+import { buildServerEnv, loadServerSecrets } from './secrets'
 
 interface ManagedServer {
   client: McpClientLike | null
@@ -35,7 +35,17 @@ export function getCachedTools(serverIds: string[]): McpToolInfo[] {
 function createClient(config: McpServerConfig): McpClientLike {
   if (config.transport === 'http') {
     if (!config.url) throw new Error('This HTTP MCP server has no URL.')
-    return new McpHttpClient(config.id, config.url)
+    const headers: Record<string, string> = {}
+    if (config.authEnvKey) {
+      const token = loadServerSecrets(config.id)[config.authEnvKey]?.trim()
+      if (!token) {
+        throw new Error(
+          'This MCP server needs a sign-in. Open Settings → MCP, reconnect it and try again.'
+        )
+      }
+      headers.Authorization = `Bearer ${token}`
+    }
+    return new McpHttpClient(config.id, config.url, headers)
   }
   if (!config.command) throw new Error('This MCP server has no command.')
   return new McpStdioClient(config.id, config.command, config.args, buildServerEnv(config.id))

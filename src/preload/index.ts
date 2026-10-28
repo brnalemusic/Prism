@@ -22,7 +22,11 @@ import type {
   AgendaTask
 } from '../shared/agendaTypes'
 import type {
+  McpConnectPresetResult,
+  McpGalleryPreset,
   McpInstallPreset,
+  McpLoginRequest,
+  McpLoginResolution,
   McpServerConfig,
   McpServerDraft,
   McpServerStatus
@@ -473,6 +477,8 @@ const api = {
       instructions: string
       intervalMinutes: number | null
       anchor: AgendaAnchor | null
+      integrations: string[]
+      modelKey: string
     }
     error?: string
   }> => ipcRenderer.invoke('agenda-plan-task', request),
@@ -546,6 +552,32 @@ const api = {
       ipcRenderer.removeListener('mcp-status-changed', listener)
     }
   },
+  listMcpGalleryPresets: (): Promise<McpGalleryPreset[]> =>
+    ipcRenderer.invoke('mcp-list-gallery'),
+  connectMcpPreset: (
+    presetId: string,
+    options?: {
+      taskId?: string
+      taskTitle?: string
+      runId?: string
+      attachToTask?: boolean
+    }
+  ): Promise<McpConnectPresetResult> =>
+    ipcRenderer.invoke('mcp-connect-preset', presetId, options),
+  resolveMcpLogin: (resolution: McpLoginResolution): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('mcp-resolve-login', resolution),
+  onMcpLoginRequest: (callback: (data: McpLoginRequest) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: McpLoginRequest): void => callback(data)
+    ipcRenderer.on('mcp-login-request', listener)
+    return () => ipcRenderer.removeListener('mcp-login-request', listener)
+  },
+  onMcpLoginClosed: (callback: (data: { requestId: string }) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, data: { requestId: string }): void => callback(data)
+    ipcRenderer.on('mcp-login-closed', listener)
+    return () => ipcRenderer.removeListener('mcp-login-closed', listener)
+  },
+  setAgendaModel: (modelKey: string | null): Promise<{ ok: boolean; settings?: AgendaSettings; error?: string }> =>
+    ipcRenderer.invoke('agenda-set-model', modelKey),
   onHarnessPromptWarning: (
     callback: (data: {
       chatId: string

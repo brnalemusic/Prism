@@ -35,7 +35,10 @@ import type {
   AgendaTask
 } from '../../../shared/agendaTypes'
 import { describeAgendaCadence, describeAgendaAnchor } from '../../../shared/agendaTypes'
-import type { McpServerConfig } from '../../../shared/mcpTypes'
+import type {
+  McpServerConfig
+} from '../../../shared/mcpTypes'
+import { ModelSelector } from './ModelSelector'
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
@@ -210,6 +213,14 @@ function TaskRow({
               {lastRun.catchUp ? ' · catch-up' : ''}
             </span>
           )}
+          {task.modelKey && (
+            <span
+              className="rounded-full border border-white/[0.08] bg-white/[0.02] px-2 py-0.5 text-[10px] text-text-secondary"
+              title={`Modelo: ${task.modelKey}`}
+            >
+              {task.modelKey}
+            </span>
+          )}
         </div>
         <p className="mt-1 line-clamp-1 text-[11px] leading-relaxed text-text-muted">
           {task.instructions || 'No instructions yet.'}
@@ -279,11 +290,13 @@ function TaskRow({
 function TaskDialog({
   initial,
   servers,
+  settings,
   onClose,
   onSaved
 }: {
   initial?: AgendaTask | null
   servers: McpServerConfig[]
+  settings: AgendaSettings
   onClose: () => void
   onSaved: () => void
 }): React.JSX.Element {
@@ -309,6 +322,9 @@ function TaskDialog({
   const [customUnit, setCustomUnit] = useState<'hours' | 'days'>(initialCustom.unit)
   const [selectedServers, setSelectedServers] = useState<string[]>(
     initial?.mcpServerIds ?? []
+  )
+  const [modelKey, setModelKey] = useState(
+    initial?.modelKey ?? settings.modelKey ?? ''
   )
   const [anchorEnabled, setAnchorEnabled] = useState(Boolean(initial?.anchor))
   const [anchorHour, setAnchorHour] = useState(initial?.anchor?.hour ?? 9)
@@ -362,7 +378,8 @@ function TaskDialog({
           instructions: instructions.trim(),
           intervalMinutes: cadence,
           anchor,
-          mcpServerIds: selectedServers
+          mcpServerIds: selectedServers,
+          modelKey: modelKey.trim() || null
         })
         if (!result.ok) {
           setError(result.error || 'Could not save the task.')
@@ -374,7 +391,8 @@ function TaskDialog({
           instructions: instructions.trim(),
           intervalMinutes: cadence,
           anchor,
-          mcpServerIds: selectedServers
+          mcpServerIds: selectedServers,
+          modelKey: modelKey.trim() || settings.modelKey || null
         })
         if (!result.ok) {
           setError(result.error || 'Could not create the task.')
@@ -617,6 +635,32 @@ function TaskDialog({
             )}
           </div>
 
+          <div>
+            <span className="mb-1.5 block text-[11px] font-medium text-text-secondary">
+              Modelo de IA
+            </span>
+            <ModelSelector
+              selectedModel={modelKey || settings.modelKey || ''}
+              onModelChange={setModelKey}
+              emptyLabel="Escolha o modelo desta tarefa"
+              clearLabel="Usar padrão da Agenda"
+              allowClear
+              disabled={submitting}
+            />
+            {initial && !initial.modelKey && settings.modelKey && (
+              <p className="mt-1 text-[10px] text-text-muted">
+                Esta tarefa não tem modelo vinculado. Runs usarão o modelo da Agenda:
+                <span className="font-mono text-text-secondary">{settings.modelKey}</span>.
+              </p>
+            )}
+            {!initial && !modelKey && !settings.modelKey && (
+              <p className="mt-1 text-[10px] text-rose-300">
+                Nenhum modelo de Agenda configurado. Escolha um modelo no cabeçalho da Agenda antes
+                de criar tarefas.
+              </p>
+            )}
+          </div>
+
           {error && (
             <div className="flex items-start gap-2 rounded-lg border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-[11px] text-rose-200">
               <XCircle size={13} className="mt-0.5 shrink-0" />
@@ -835,8 +879,11 @@ function RunDrawer({
               {run.catchUp && <span>catch-up</span>}
               <span>{formatDateTime(run.startedAt)}</span>
               <span>{formatDuration(run.startedAt, run.finishedAt)}</span>
-              {run.permissionPrompts > 0 && (
+              <span>{run.permissionPrompts > 0 && (
                 <span>{run.permissionPrompts} permission prompt{run.permissionPrompts === 1 ? '' : 's'}</span>
+              )}</span>
+              {run.modelKey && (
+                <span className="font-mono">model: {run.modelKey}</span>
               )}
             </div>
           </div>
@@ -1014,6 +1061,8 @@ function DraftCard({
     instructions: string
     intervalMinutes: number | null
     anchor: AgendaAnchor | null
+    integrations: string[]
+    modelKey: string
   }
   busy: boolean
   onDiscard: () => void
@@ -1027,6 +1076,23 @@ function DraftCard({
         <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-text-secondary">
           {describeAgendaCadence(draft.intervalMinutes)}
           {draft.anchor ? ` · ${describeAgendaAnchor(draft.anchor)}` : ''}
+        </span>
+        {draft.integrations.length > 0 && (
+          <span className="rounded-full border border-accent-primary/25 bg-accent-primary/[0.08] px-2 py-0.5 text-[10px] text-accent-primary">
+            {draft.integrations
+              .map((id) => {
+                const known: Record<string, string> = {
+                  github: 'GitHub',
+                  supabase: 'Supabase',
+                  gmail: 'Gmail'
+                }
+                return known[id] || id
+              })
+              .join(' · ')}
+          </span>
+        )}
+        <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-text-secondary">
+          Modelo: {draft.modelKey || 'padrão da Agenda'}
         </span>
       </div>
       <p className="mt-1.5 line-clamp-3 text-[11px] leading-relaxed text-text-secondary">
@@ -1058,7 +1124,12 @@ export function AgendaWorkspace({ config }: { config: AppConfig | null }): React
   const [tasks, setTasks] = useState<AgendaTask[]>([])
   const [runs, setRuns] = useState<AgendaRunRecord[]>([])
   const [settings, setSettings] = useState<AgendaSettings>(
-    config?.agenda ?? { permissionMode: 'safe', yoloAcknowledged: false, maxConcurrentRuns: 2 }
+    config?.agenda ?? {
+      permissionMode: 'safe',
+      yoloAcknowledged: false,
+      maxConcurrentRuns: 2,
+      modelKey: null
+    }
   )
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<AgendaTask | null>(null)
@@ -1074,6 +1145,8 @@ export function AgendaWorkspace({ config }: { config: AppConfig | null }): React
     instructions: string
     intervalMinutes: number | null
     anchor: AgendaAnchor | null
+    integrations: string[]
+    modelKey: string
   } | null>(null)
   const [isCreatingDraft, setIsCreatingDraft] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1170,6 +1243,15 @@ export function AgendaWorkspace({ config }: { config: AppConfig | null }): React
     }
   }
 
+  const setAgendaModel = async (modelKey: string): Promise<void> => {
+    const result = await window.api.setAgendaModel(modelKey)
+    if (result.ok && result.settings) {
+      setSettings(result.settings)
+    } else {
+      setError(result.error || 'Could not save the Agenda model.')
+    }
+  }
+
   const deleteTask = async (task: AgendaTask, deleteFolder: boolean): Promise<void> => {
     const result = await window.api.deleteAgendaTask(task.id, deleteFolder)
     if (!result.ok) setError('Could not delete the task.')
@@ -1192,7 +1274,9 @@ export function AgendaWorkspace({ config }: { config: AppConfig | null }): React
         title: result.draft.title,
         instructions: result.draft.instructions,
         intervalMinutes: result.draft.intervalMinutes,
-        anchor: result.draft.anchor
+        anchor: result.draft.anchor,
+        integrations: Array.isArray(result.draft.integrations) ? result.draft.integrations : [],
+        modelKey: result.draft.modelKey
       })
     } catch (planError) {
       setError(errorMessage(planError))
@@ -1210,7 +1294,8 @@ export function AgendaWorkspace({ config }: { config: AppConfig | null }): React
         title: draft.title,
         instructions: draft.instructions,
         intervalMinutes: draft.intervalMinutes,
-        anchor: draft.anchor
+        anchor: draft.anchor,
+        modelKey: draft.modelKey || settings.modelKey || null
       })
       if (!result.ok) {
         setError(result.error || 'Could not create the task.')
@@ -1241,6 +1326,15 @@ export function AgendaWorkspace({ config }: { config: AppConfig | null }): React
           <div className="flex items-center gap-2">
             <h1 className="text-[15px] font-semibold tracking-tight text-text-primary">Agenda</h1>
             <ModeChip settings={settings} onSwitch={(mode) => void switchMode(mode)} />
+            <ModelSelector
+              selectedModel={settings.modelKey || ''}
+              onModelChange={setAgendaModel}
+              emptyLabel="Modelo Agenda"
+              clearLabel="Limpar modelo Agenda"
+              allowClear
+              align="left"
+              menuPlacement="bottom"
+            />
           </div>
           <p className="mt-0.5 text-[11px] text-text-muted">
             {tasks.length === 0
@@ -1431,6 +1525,7 @@ export function AgendaWorkspace({ config }: { config: AppConfig | null }): React
       {isCreateOpen && (
         <TaskDialog
           servers={servers}
+          settings={settings}
           onClose={() => setIsCreateOpen(false)}
           onSaved={() => {
             setIsCreateOpen(false)
@@ -1442,6 +1537,7 @@ export function AgendaWorkspace({ config }: { config: AppConfig | null }): React
         <TaskDialog
           initial={editTarget}
           servers={servers}
+          settings={settings}
           onClose={() => setEditTarget(null)}
           onSaved={() => {
             setEditTarget(null)

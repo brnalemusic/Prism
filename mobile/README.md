@@ -57,8 +57,8 @@ npm run sync       # same, through the PowerShell wrapper
 Release tags combine both apps:
 
 ```text
-MAJORDSK.MINORDSK-MAJORMBL.MINORMBL/YYYYMMDD
-9.3-0.0/20261020
+MAJORDSK.MINORDSK.PATCHDSK-MAJORMBL.MINORMBL.PATCHMBL/YYYYMMDD
+9.3.0-0.0.1/20261028
 ```
 
 The release workflow only builds the Android APK when `version_m.txt` changed

@@ -281,14 +281,14 @@ npm run mobile:bundle     # Verify the production Metro bundle
 Push a tag in this format:
 
 ```text
-MAJORDSK.MINORDSK-MAJORMBL.MINORMBL/YYYYMMDD
+MAJORDSK.MINORDSK.PATCHDSK-MAJORMBL.MINORMBL.PATCHMBL/YYYYMMDD
 ```
 
-Examples: `9.3-0.0/20261020`, `10.0-0.0/20270710`.
+Examples: `10.0.0-0.0.1/20261028`, `10.0.1-0.0.2/20261028`.
 
-- Git accepts `/` in tag names (`refs/tags/10.0-0.0/20270710`) and GitHub Releases accepts the tag as-is.
-- SemVer does **not** accept `/` in a version string, so the apps themselves stay strict SemVer (`10.0.0`, `0.0.1`); the slash exists only in the tag.
-- The tag carries the major.minor pair of each app plus the release date.
+- Git accepts `/` in tag names (`refs/tags/10.0.1-0.0.2/20261028`) and GitHub Releases accepts the tag as-is.
+- SemVer does **not** accept `/` in a version string, so the apps themselves stay strict SemVer (`10.0.1`, `0.0.2`); the slash exists only in the tag.
+- The tag carries the **full** SemVer (major.minor.patch) of each app plus the release date. Including the patch lets you ship multiple releases on the same day without tag name collisions.
 
 The `prepare` job compares `version.txt` and `version_m.txt` against the previous release tag:
 
