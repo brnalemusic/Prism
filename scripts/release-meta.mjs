@@ -2,11 +2,11 @@
 /**
  * Release metadata resolver for tags shaped like:
  *
- *   MAJORDSK.MINORDSK-MAJORMBL.MINORMBL/YYYYMMDD
- *   example: 10.0-0.0/20270710
+ *   MAJORDSK.MINORDSK.PATCHDSK-MAJORMBL.MINORMBL.PATCHMBL/YYYYMMDD[#NUMBER]
+ *   example: 10.0.0-0.0.1/20261103#2
  *
  * The app versions themselves stay valid SemVer (version.txt / version_m.txt);
- * the tag only carries the major.minor pair of each app plus the release date.
+ * the tag carries each app's full major.minor.patch plus the release date.
  *
  * For every tag push this script:
  *   1. validates the tag format,
@@ -20,7 +20,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { REPO_ROOT, assertSemver, readVersionFile } from './sync-versions.mjs'
 
-export const RELEASE_TAG_PATTERN = /^(\d+)\.(\d+)\.(\d+)-(\d+)\.(\d+)\.(\d+)\/(\d{8})$/
+export const RELEASE_TAG_PATTERN = /^(\d+)\.(\d+)\.(\d+)-(\d+)\.(\d+)\.(\d+)\/(\d{8})(?:#\d+)?$/
 
 /**
  * @returns {{ desktopMajor: number, desktopMinor: number, desktopPatch: number,
@@ -32,7 +32,7 @@ export function parseReleaseTag(tag) {
   const match = RELEASE_TAG_PATTERN.exec(trimmed)
   if (!match) {
     throw new Error(
-      `Tag "${trimmed}" is invalid. Expected MAJORDSK.MINORDSK.PATCHDSK-MAJORMBL.MINORMBL.PATCHMBL/YYYYMMDD (for example 10.0.0-0.0.1/20261028).`
+      `Tag "${trimmed}" is invalid. Expected MAJORDSK.MINORDSK.PATCHDSK-MAJORMBL.MINORMBL.PATCHMBL/YYYYMMDD with an optional #NUMBER suffix (for example 10.0.0-0.0.1/20261103#2).`
     )
   }
   const [, desktopMajor, desktopMinor, desktopPatch, mobileMajor, mobileMinor, mobilePatch, date] = match

@@ -57,9 +57,13 @@ npm run sync       # same, through the PowerShell wrapper
 Release tags combine both apps:
 
 ```text
-MAJORDSK.MINORDSK.PATCHDSK-MAJORMBL.MINORMBL.PATCHMBL/YYYYMMDD
-9.3.0-0.0.1/20261028
+MAJORDSK.MINORDSK.PATCHDSK-MAJORMBL.MINORMBL.PATCHMBL/YYYYMMDD[#NUMBER]
+10.0.0-0.0.1/20261103
+10.0.0-0.0.1/20261103#2
 ```
+
+The optional numeric suffix distinguishes another release when the app version
+cores have not changed. The GitHub Release name matches the complete tag.
 
 The release workflow only builds the Android APK when `version_m.txt` changed
 since the previous release tag, and only builds the Windows app when

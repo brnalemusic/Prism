@@ -1,7 +1,7 @@
 name: Build and Release
 
-# Tags look like: MAJORDSK.MINORDSK-MAJORMBL.MINORMBL/YYYYMMDD
-# Example:        10.0-0.0/20270710
+# Tags look like: MAJORDSK.MINORDSK.PATCHDSK-MAJORMBL.MINORMBL.PATCHMBL/YYYYMMDD[#NUMBER]
+# Example:        10.0.0-0.0.1/20261103#2
 # Desktop and mobile versions live in version.txt and version_m.txt. A build
 # only runs for an app whose version file changed since the previous release.
 
@@ -257,7 +257,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ needs.prepare.outputs.desktop_version }}
+          name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           files: |
             release-artifacts/*

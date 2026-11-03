@@ -143,14 +143,14 @@ The native project (`mobile/android`) is generated on demand by `expo prebuild` 
 ### 7.2 Release tag format
 
 ```text
-MAJORDSK.MINORDSK.PATCHDSK-MAJORMBL.MINORMBL.PATCHMBL/YYYYMMDD
-9.3.0-0.0.1/20261028
-example: desktop 10.0.3 + mobile 0.0.1 → 10.0.3-0.0.1/20270710
+MAJORDSK.MINORDSK.PATCHDSK-MAJORMBL.MINORMBL.PATCHMBL/YYYYMMDD[#NUMBER]
+10.0.0-0.0.1/20261103
+10.0.0-0.0.1/20261103#2 (numeric suffix for another release without a SemVer core change)
 ```
 
 The tag holds each app's full SemVer (major.minor.patch) plus the release date. Application versions remain strict SemVer (`10.0.3`, `0.0.1`); only the tag uses `/`, which Git allows in refs and GitHub accepts for releases. SemVer itself does not permit `/` in a version string, which is why the tag is never parsed as an app version. Including the patch in the tag lets you release multiple times on the same day without tag name collisions.
 
-`scripts/release-meta.mjs` validates the tag (format + real date + matching full SemVer digits) and compares `version.txt` / `version_m.txt` with the previous release tag.
+`scripts/release-meta.mjs` validates the tag (format + real date + matching full SemVer digits) and compares `version.txt` / `version_m.txt` with the previous release tag. The optional numeric suffix distinguishes repeated releases, and the GitHub Release name preserves the full tag exactly.
 
 ### 7.3 Conditional build pipeline
 

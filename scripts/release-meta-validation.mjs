@@ -46,10 +46,18 @@ test('parses the slash tag format into both app prefixes', () => {
   assert.equal(meta.date, '2027-07-10')
 })
 
+test('accepts a numeric release suffix after the date', () => {
+  const tag = '10.0.0-0.0.1/20261103#2'
+  const meta = parseReleaseTag(tag)
+  assert.equal(meta.date, '2026-11-03')
+  assert.equal(meta.desktopPrefix, '10.0.0')
+})
+
 test('rejects malformed tags and impossible dates', () => {
   assert.throws(() => parseReleaseTag('9.3.0'), /invalid/)
   assert.throws(() => parseReleaseTag('10.0-0.0-20270710'), /invalid/)
   assert.throws(() => parseReleaseTag('10.0.0-0.0.1/20270231'), /invalid date/)
+  assert.throws(() => parseReleaseTag('10.0.0-0.0.1/20261103#x'), /invalid/)
   assert.throws(() => parseReleaseTag('10.0.0-0.0/20270710'), /invalid/) // missing mobile patch
 })
 
