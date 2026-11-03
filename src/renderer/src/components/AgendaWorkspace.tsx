@@ -950,7 +950,7 @@ export function AgendaWorkspace({
   return (
     <div className="relative h-full w-full overflow-hidden">
       {/* Main content */}
-      <div className="flex h-full w-full flex-col" style={{ paddingRight: sidebarOpen ? '19rem' : undefined }}>
+      <div className="flex h-full w-full flex-col">
         {/* Tab strip */}
         <div className="flex items-center gap-1.5 px-3 py-2 border-b border-white/[0.06] overflow-x-auto">
           {tabs.map((tab) => (
