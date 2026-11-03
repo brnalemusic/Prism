@@ -670,6 +670,10 @@ function createWindow(): void {
     }
   })
 
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    console.log(`[RENDERER:${level}] ${message} (${sourceId}:${line})`)
+  })
+
   let normalBounds = {
     width: windowState.width,
     height: windowState.height,

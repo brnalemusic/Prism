@@ -4650,6 +4650,9 @@ function RealApp(): React.JSX.Element {
 
     const removeChatStartListener = window.api.onChatStart((data) => {
       const { chatId, workspace, userMessage } = data
+      // Agenda creation-agent conversations are rendered by AgendaWorkspace, not
+      // the chat tabs; never adopt them into a "New Chat" tab.
+      if (chatId && chatId.startsWith('agenda-')) return
       setRunningChats((prev) => ({ ...prev, [chatId]: true }))
       const setTargetTabs = setTabsForChat(chatId, workspace)
       const activeWorkspaceTabId =
@@ -4848,10 +4851,12 @@ function RealApp(): React.JSX.Element {
     // During fast streaming, multiple IPC events fire per frame; batching ensures
     // we only pay the React re-render cost once per frame.
     const removeChatChunkListener = window.api.onChatChunk((data) => {
+      if (data?.chatId?.startsWith('agenda-')) return
       chunkBuffer.push(data)
     })
 
     const removeChatEndListener = window.api.onChatEnd((data) => {
+      if (data?.chatId?.startsWith('agenda-')) return
       const {
         chatId,
         thoughts,
@@ -5007,6 +5012,7 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeChatErrorListener = window.api.onChatError((data) => {
+      if (data?.chatId?.startsWith('agenda-')) return
       const { error, chatId, workspace } = data
       const finalPhase = chunkBuffer.finalize(chatId)
       setRunningChats((prev) => {
@@ -5128,6 +5134,7 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeToolCallDeltaListener = window.api.onToolCallDelta((data) => {
+      if (data?.chatId?.startsWith('agenda-')) return
       const { chatId, index, id, name, argsDelta } = data
       // Preserve a provider's textual preface when text and tool deltas arrive
       // in the same animation frame. This keeps the Harness chronology textual.
@@ -5202,6 +5209,7 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeToolStartListener = window.api.onToolStart((data) => {
+      if (data?.chatId?.startsWith('agenda-')) return
       const { chatId } = data
       flushPendingChunk(chatId)
       const setTargetTabs = setTabsForChat(chatId, data.workspace)
@@ -5434,6 +5442,7 @@ function RealApp(): React.JSX.Element {
     }
 
     const removeToolEndListener = window.api.onToolEnd((data) => {
+      if (data?.chatId?.startsWith('agenda-')) return
       const { chatId } = data
       flushPendingChunk(chatId)
       flushToolUpdates(chatId)
@@ -5502,6 +5511,7 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeToolUpdateListener = window.api.onToolUpdate((data) => {
+      if (data?.chatId?.startsWith('agenda-')) return
       const { chatId, toolCallName, update } = data
       const key = `${chatId}::${toolCallName}`
       const existing = pendingToolUpdates.get(key) || {
@@ -5561,6 +5571,7 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeTitleReceivedListener = window.api.onChatTitleReceived(({ id, title }) => {
+      if (id?.startsWith('agenda-')) return
       const setTargetTabs = setTabsForChat(id)
       setTargetTabs((prevTabs) =>
         prevTabs.map((t) => {
@@ -5648,6 +5659,7 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeChatOpenedInBackgroundListener = window.api.onChatOpenedInBackground?.((event) => {
+      if (event?.chatId?.startsWith('agenda-')) return
       setRunningChats((prev) => ({ ...prev, [event.chatId]: true }))
 
       if (event.workspace === 'harness') {
@@ -5725,6 +5737,7 @@ function RealApp(): React.JSX.Element {
     })
 
     const removeChatSteeringAppliedListener = window.api.onChatSteeringApplied?.((data) => {
+      if (data?.chatId?.startsWith('agenda-')) return
       const { chatId, workspace, text, steeringId } = data
       const setTargetTabs = setTabsForChat(chatId, workspace)
       chunkBuffer.finalize(chatId)

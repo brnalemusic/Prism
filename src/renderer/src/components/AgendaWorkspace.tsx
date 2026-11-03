@@ -21,7 +21,6 @@ import type {
   AgendaTaskStatus
 } from '../../../shared/agendaTypes'
 import type { McpServerConfig } from '../../../shared/mcpTypes'
-import { LiquidGlassSurface } from './LiquidGlassSurface'
 import { ModelSelector } from './ModelSelector'
 import ReactMarkdown from 'react-markdown'
 
@@ -747,8 +746,7 @@ export function AgendaWorkspace({
             >
               <CalendarPlus size={16} />
             </button>
-            <div className="flex-1 true-glass glass-menu-host input-bar-host relative rounded-[24px] flex flex-col px-4 py-3">
-              <LiquidGlassSurface refraction={20} blur={2} opacity={0.5} specular={0.1} distortionRadius={24} />
+            <div className="flex-1 true-glass glass-menu-host input-bar-host relative rounded-[24px] flex flex-col px-4 py-3" style={{ isolation: 'isolate' }}>
             <textarea
               value={composerText}
               onChange={(e) => setComposerText(e.target.value)}
@@ -761,6 +759,7 @@ export function AgendaWorkspace({
               placeholder={`Message ${agent?.title ?? 'Agenda agent'}…`}
               rows={2}
               className="w-full bg-transparent resize-none outline-none text-sm text-text-primary placeholder:text-text-muted"
+              style={{ pointerEvents: 'auto', position: 'relative', zIndex: 1 }}
             />
             <div className="flex items-center justify-between mt-2">
               <div className="flex items-center gap-2">
@@ -951,7 +950,7 @@ export function AgendaWorkspace({
   return (
     <div className="relative h-full w-full overflow-hidden">
       {/* Main content */}
-      <div className="flex h-full w-full flex-col">
+      <div className="flex h-full w-full flex-col" style={{ paddingRight: sidebarOpen ? '19rem' : undefined }}>
         {/* Tab strip */}
         <div className="flex items-center gap-1.5 px-3 py-2 border-b border-white/[0.06] overflow-x-auto">
           {tabs.map((tab) => (

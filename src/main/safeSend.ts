@@ -45,5 +45,8 @@ function isHiddenAgendaEvent(channel: string, args: unknown[]): boolean {
   if (!payload || typeof payload !== 'object') return false
   const record = payload as { chatId?: unknown; id?: unknown }
   const chatId = typeof record.chatId === 'string' ? record.chatId : record.id
-  return typeof chatId === 'string' && chatId.startsWith('agenda-')
+  // Only schedule runs (agenda-<runId>) are hidden from the chat UI. Creation
+  // agents (agenda-agent-<id>) keep their streaming events so the Agenda
+  // workspace can render their conversation; the chat UI filters them out.
+  return typeof chatId === 'string' && chatId.startsWith('agenda-') && !chatId.startsWith('agenda-agent-')
 }
