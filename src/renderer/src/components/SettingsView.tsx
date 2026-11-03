@@ -14,7 +14,6 @@ import {
   MagnifyingGlassPlus as ZoomIcon,
   TerminalWindow,
   Check,
-  Lock,
   Warning,
   Lightning,
   Plus,
@@ -88,7 +87,6 @@ import type {
 import { ApiManagerSettings } from './ApiManagerSettings'
 import { McpSettings } from './McpSettings'
 import { ModelSelector } from './ModelSelector'
-import { ArcadeGame } from './ArcadeGame'
 import { usePerformanceMode } from '../hooks/usePerformanceMode'
 import type { PerformanceMode } from '../hooks/usePerformanceMode'
 
@@ -548,14 +546,6 @@ export function SettingsView({
   const [availableTools, setAvailableTools] =
     useState<Array<{ name: string; label: string; desc: string }>>(STATIC_TOOLS)
 
-  // Easter Egg State — Prism Arcade (nine games unlock the Hero theme)
-  const [easterEggClicks, setEasterEggClicks] = useState(0)
-  const [lastClickTimestamp, setLastClickTimestamp] = useState(0)
-  const [isEasterEggOpen, setIsEasterEggOpen] = useState(false)
-  const [unlockedThisSession, setUnlockedThisSession] = useState(false)
-  const [isConfirmingHeroReset, setIsConfirmingHeroReset] = useState(false)
-  const [isResettingHero, setIsResettingHero] = useState(false)
-
   // License State
   const [licenseInfo, setLicenseInfo] = useState<
     import('../../../shared/types').LicenseInfo | null
@@ -784,70 +774,6 @@ export function SettingsView({
     }
   }
 
-  const handleVersionClick = (): void => {
-    const now = Date.now()
-    if (now - lastClickTimestamp > 3000) {
-      setEasterEggClicks(1)
-    } else {
-      const newCount = easterEggClicks + 1
-      if (newCount >= 5) {
-        setEasterEggClicks(0)
-        setIsEasterEggOpen(true)
-      } else {
-        setEasterEggClicks(newCount)
-      }
-    }
-    setLastClickTimestamp(now)
-  }
-
-  const heroUnlocked = config?.heroUnlocked === true
-
-  const arcadeGetHighScore = useCallback(
-    (gameId: string): number => config?.arcadeScores?.[gameId] ?? 0,
-    [config]
-  )
-
-  const arcadeSaveHighScore = useCallback((gameId: string, score: number): void => {
-    setConfig((prev) => {
-      const nextScores = { ...(prev?.arcadeScores || {}), [gameId]: score }
-      window.api.saveConfig({ arcadeScores: nextScores })
-      return prev ? { ...prev, arcadeScores: nextScores } : prev
-    })
-  }, [])
-
-  const arcadeOnHeroUnlocked = useCallback((): void => {
-    setUnlockedThisSession(true)
-    setConfig((prev) => {
-      if (!prev || prev.heroUnlocked) return prev
-      window.api.saveConfig({ heroUnlocked: true })
-      return { ...prev, heroUnlocked: true }
-    })
-  }, [])
-
-  const arcadeOnResetProgress = useCallback(async (): Promise<void> => {
-    setIsResettingHero(true)
-    try {
-      // Scores and unlock vanish; the theme snaps back to the default. A
-      // failed revert is retried once after the main-process config round-trip.
-      window.api.saveConfig({ arcadeScores: {}, heroUnlocked: false, theme: 'marine' })
-      const saved = await window.api.getConfig()
-      const themeReverted = (saved?.theme ?? 'marine') === 'marine' && saved?.heroUnlocked !== true
-      if (!themeReverted) window.api.saveConfig({ theme: 'marine' })
-      setConfig((prev) =>
-        prev ? { ...prev, arcadeScores: {}, heroUnlocked: false, theme: 'marine' } : prev
-      )
-      document.documentElement.setAttribute('data-theme', 'marine')
-      setUnlockedThisSession(false)
-      setIsConfirmingHeroReset(false)
-      setMessage({
-        text: 'Arcade progress reset. The Hero theme is locked again — beat all nine games to re-earn it.',
-        type: 'success'
-      })
-    } finally {
-      setIsResettingHero(false)
-    }
-  }, [])
-
   useEffect(() => {
     async function fetchTools(): Promise<void> {
       try {
@@ -906,8 +832,6 @@ export function SettingsView({
           zoomFactor: savedConfig.zoomFactor ?? 1.0,
           terminalShell: savedConfig.terminalShell || 'powershell.exe',
           workflows: savedConfig.workflows || [],
-          heroUnlocked: savedConfig.heroUnlocked === true,
-          arcadeScores: savedConfig.arcadeScores || {},
           sessionMode: savedConfig.sessionMode || 'execution',
           disciplinePath: savedConfig.disciplinePath || ''
         })
@@ -937,8 +861,6 @@ export function SettingsView({
           zoomFactor: cfg.zoomFactor ?? prev.zoomFactor ?? 1.0,
           terminalShell: cfg.terminalShell ?? prev.terminalShell ?? 'powershell.exe',
           workflows: cfg.workflows || prev.workflows || [],
-          heroUnlocked: cfg.heroUnlocked ?? prev.heroUnlocked ?? false,
-          arcadeScores: cfg.arcadeScores ?? prev.arcadeScores ?? {},
           sessionMode: cfg.sessionMode || prev.sessionMode || 'execution',
           disciplinePath: cfg.disciplinePath ?? prev.disciplinePath ?? ''
         }))
@@ -1225,7 +1147,7 @@ export function SettingsView({
       category: 'integrations',
       categoryLabel: 'Integrations & Info',
       description: 'Application version, runtime engine versions, and credits.',
-      keywords: ['about', 'version', 'electron', 'chromium', 'node', 'credits', 'easter egg']
+      keywords: ['about', 'version', 'electron', 'chromium', 'node', 'credits']
     }
   ]
 
@@ -1383,14 +1305,7 @@ export function SettingsView({
               { id: 'forest', label: 'Forest', accent: '#22c55e', sidebar: '#04120A' },
               { id: 'indigo', label: 'Indigo', accent: '#6366f1', sidebar: '#070918' },
               { id: 'violet', label: 'Violet', accent: '#a855f7', sidebar: '#100718' },
-              { id: 'white', label: 'White', accent: '#ffffff', sidebar: '#080808' },
-              {
-                id: 'hero' as const,
-                label: 'Hero',
-                accent: 'linear-gradient(135deg, #38bdf8, #f472b6, #facc15)',
-                sidebar: '#050505',
-                tag: heroUnlocked ? 'Unlocked' : 'Arcade 9/9'
-              }
+              { id: 'white', label: 'White', accent: '#ffffff', sidebar: '#080808' }
             ] as Array<{
               id:
                 | 'marine'
@@ -1401,7 +1316,6 @@ export function SettingsView({
                 | 'indigo'
                 | 'violet'
                 | 'white'
-                | 'hero'
               label: string
               accent: string
               sidebar: string
@@ -1409,19 +1323,11 @@ export function SettingsView({
             }>
           ).map(({ id, label, accent, sidebar, tag }) => {
             const isActive = (config.theme || 'marine') === id
-            const isHeroLocked = id === 'hero' && !heroUnlocked
             return (
               <button
                 key={id}
                 type="button"
                 onClick={() => {
-                  if (isHeroLocked) {
-                    setMessage({
-                      text: 'Beat all nine Prism Arcade games to unlock the Hero theme.',
-                      type: 'info'
-                    })
-                    return
-                  }
                   setConfig({ ...config, theme: id })
                   document.documentElement.setAttribute('data-theme', id)
                   window.api.saveConfig({ theme: id })
@@ -1439,22 +1345,7 @@ export function SettingsView({
                 >
                   <span
                     className="h-4 w-4 rounded-full shadow-md"
-                    style={id === 'hero' ? { background: accent } : undefined}
-                  >
-                    {id === 'hero' && (
-                      <span
-                        className="block h-4 w-4 rounded-full"
-                        style={{ background: 'linear-gradient(135deg, #38bdf8, #f472b6, #facc15)' }}
-                      />
-                    )}
-                  </span>
-                  {isHeroLocked && (
-                    <Lock
-                      size={11}
-                      weight="bold"
-                      className="absolute right-1 top-1 text-white/50"
-                    />
-                  )}
+                  />
                   {isActive && (
                     <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-accent-primary text-black">
                       <Check size={10} weight="bold" />
@@ -1482,75 +1373,6 @@ export function SettingsView({
           })}
         </div>
       </div>
-
-      {heroUnlocked && (
-        <>
-          <div className="h-px bg-[var(--border-subtle)]" />
-          <div className="space-y-3.5">
-            <SettingsGroupLabel
-              title="Hero Progress"
-              description="Arcade high scores and the Hero theme unlock."
-            />
-            <div className="settings-card">
-              {!isConfirmingHeroReset ? (
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary border border-accent-primary/20">
-                      <RotateCcw size={20} weight="duotone" />
-                    </div>
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-xs font-semibold text-text-primary">
-                        Reset Arcade Progress
-                      </span>
-                      <span className="text-[11px] text-text-muted">
-                        Clears all nine high scores and re-locks the Hero theme.
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsConfirmingHeroReset(true)}
-                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-[11px] font-bold text-red-400 cursor-pointer hover:bg-red-500/20 active:scale-95 transition-all"
-                  >
-                    <RotateCcw size={12} weight="bold" /> Reset
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="flex items-start gap-2.5">
-                    <Warning size={16} weight="fill" className="mt-0.5 shrink-0 text-red-400" />
-                    <p className="text-[11px] leading-relaxed text-text-secondary">
-                      This permanently clears all nine Arcade high scores, revokes the Hero theme
-                      and its custom interface benefits, and switches Prism back to the Marine
-                      theme. You can re-earn everything by beating all nine games again. This
-                      cannot be undone.
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsConfirmingHeroReset(false)}
-                      disabled={isResettingHero}
-                      className="rounded-lg border border-[var(--border-default)] bg-[var(--surface-lowest)] px-3 py-1.5 text-[11px] font-semibold text-text-secondary cursor-pointer hover:text-text-primary hover:border-[var(--border-strong)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void arcadeOnResetProgress()}
-                      disabled={isResettingHero}
-                      className="flex items-center gap-1.5 rounded-lg border border-red-500/40 bg-red-500/15 px-3 py-1.5 text-[11px] font-bold text-red-300 cursor-pointer hover:bg-red-500/25 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all"
-                    >
-                      <Trash size={12} weight="bold" />
-                      {isResettingHero ? 'Resetting…' : 'Reset progress permanently'}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </>
-      )}
 
       <div className="h-px bg-[var(--border-subtle)]" />
 
@@ -4130,14 +3952,11 @@ export function SettingsView({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleVersionClick}
-          className="font-mono text-xs font-bold bg-accent-primary/15 border border-accent-primary/30 text-accent-primary rounded-xl px-3 py-1.5 select-none hover:bg-accent-primary/25 transition-colors cursor-pointer"
-          title="Click 5 times for easter egg"
+        <span
+          className="font-mono text-xs font-bold bg-accent-primary/15 border border-accent-primary/30 text-accent-primary rounded-xl px-3 py-1.5 select-none"
         >
           {config.appVersion ? `v${config.appVersion}` : 'v9.0.0'}
-        </button>
+        </span>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
@@ -4808,16 +4627,6 @@ export function SettingsView({
         </main>
       </div>
 
-      {isEasterEggOpen && (
-        <ArcadeGame
-          onClose={() => setIsEasterEggOpen(false)}
-          heroUnlocked={config?.heroUnlocked === true}
-          unlockedThisSession={unlockedThisSession}
-          onHeroUnlocked={arcadeOnHeroUnlocked}
-          getHighScore={arcadeGetHighScore}
-          saveHighScore={arcadeSaveHighScore}
-        />
-      )}
     </div>
   )
 }

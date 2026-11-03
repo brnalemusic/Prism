@@ -380,7 +380,7 @@ function getEffectiveIconTheme(config?: AppConfig): AppConfig['theme'] {
   // Icon assets only exist for the eight classic themes; the Hero theme keeps
   // the default marine icon.
   const theme = config?.theme || 'marine'
-  return theme === 'hero' ? 'marine' : theme
+  return theme
 }
 
 function getIconResourcePath(iconName: string): string {

@@ -7,7 +7,6 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import ReactMarkdown, { Components } from 'react-markdown'
 import { PrismBackground } from './components/PrismBackground'
-import { HeroAccentDriver } from './components/HeroParticles'
 import { LoadingScreen } from './components/LoadingScreen'
 import { OfflineBanner } from './components/OfflineBanner'
 import { Sidebar } from './components/Sidebar'
@@ -6097,10 +6096,6 @@ function RealApp(): React.JSX.Element {
         </div>
       )}
       <PrismBackground />
-      {/* Hero reward: rotates the shared accent variables app-wide. The
-          particle "9" itself lives inside ChatPane (landing stage + backdrop). */}
-      {config?.heroUnlocked && config.theme === 'hero' && <HeroAccentDriver />}
-
       {!isSidebarOpen && (
         <button
           onClick={() => setIsSidebarOpen(true)}

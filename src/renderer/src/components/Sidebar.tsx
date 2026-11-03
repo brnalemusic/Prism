@@ -105,7 +105,7 @@ export function Sidebar({
   runningChats = {},
   className,
   isOpen = false,
-  config,
+  config: _config,
   onOpenSearch,
   onOpenSettings,
   onClose,
@@ -122,11 +122,6 @@ export function Sidebar({
   const streamingIntervals = useRef<Record<string, NodeJS.Timeout>>({})
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const [viewMoreGroupId, setViewMoreGroupId] = useState<string | null>(null)
-
-  // Hero-theme easter egg: with the Arcade mastered, the Settings gear gets a
-  // permanent celebratory badge instead of the old expiring countdown.
-  const isRgbActive = config?.heroUnlocked === true
-  const countdownText = 'HERO'
 
   const toggleGroup = (groupId: string): void => {
     setCollapsedGroups((prev) => ({
@@ -531,8 +526,6 @@ export function Sidebar({
             label="Settings"
             active={false}
             onClick={onOpenSettings}
-            badge={isRgbActive ? countdownText : undefined}
-            pulse={isRgbActive}
           />
         </div>
       </div>
