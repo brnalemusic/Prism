@@ -135,6 +135,10 @@ Even with massive context windows (1M–2M tokens), context efficiency is critic
 - **Output Truncation:** Large command outputs are truncated at 50,000 characters by `localCommandSandbox.ts`.
 - **Local History Persistence:** Chat sessions are persisted as JSON files on disk for fast search and zero cloud storage dependency.
 
+## 7. Visual Markdown Responses
+
+Chat responses may use GFM tables, KaTeX, and styled inline HTML/CSS for charts, dashboards, cards, and simple UI mockups. Prefer these direct Markdown visuals when sufficient, especially to illustrate proposed screens or UI suggestions; reserve `create_mini_app` for cases that need richer interaction or standalone structure. Keep visuals purposeful and readable.
+
 
 ## Chat Work Timeline
 

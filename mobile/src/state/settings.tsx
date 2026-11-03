@@ -19,7 +19,10 @@ const DEFAULT_SETTINGS: MobileSettings = {
   defaultProviderId: null,
   defaultModelId: null,
   theme: DEFAULT_THEME,
-  onboardingComplete: false
+  onboardingComplete: false,
+  toolPermissionMode: 'ask',
+  yoloAcknowledged: false,
+  storageGrants: []
 }
 
 interface SettingsContextValue {
@@ -30,6 +33,8 @@ interface SettingsContextValue {
   defaultProviderId: string | null
   defaultModelId: string | null
   onboardingComplete: boolean
+  toolPermissionMode: 'ask' | 'yolo'
+  storageGrants: MobileSettings['storageGrants']
   setThemeKey: (key: ThemeKey) => void
   completeOnboarding: () => void
   saveProvider: (draft: ProviderDraft) => Promise<ProviderProfile>
@@ -37,6 +42,9 @@ interface SettingsContextValue {
   setDefaultModel: (providerId: string | null, modelId: string | null) => void
   resolveProvider: (providerId?: string | null) => ProviderProfile | undefined
   loadApiKey: (providerId: string) => Promise<string>
+  setToolPermissionMode: (mode: 'ask' | 'yolo', acknowledged?: boolean) => void
+  removeStorageGrant: (id: string) => void
+  addStorageGrant: (grant: MobileSettings['storageGrants'][number]) => void
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null)
@@ -70,7 +78,20 @@ function sanitizeSettings(value: unknown): MobileSettings {
     defaultProviderId,
     defaultModelId: typeof record.defaultModelId === 'string' ? record.defaultModelId : null,
     theme: isThemeKey(record.theme) ? record.theme : DEFAULT_THEME,
-    onboardingComplete: record.onboardingComplete === true
+    onboardingComplete: record.onboardingComplete === true,
+    toolPermissionMode:
+      record.toolPermissionMode === 'yolo' && record.yoloAcknowledged === true ? 'yolo' : 'ask',
+    yoloAcknowledged: record.yoloAcknowledged === true,
+    storageGrants: Array.isArray(record.storageGrants)
+      ? record.storageGrants.filter((grant): grant is { id: string; label: string; uri: string } =>
+          Boolean(
+            grant &&
+            typeof grant.id === 'string' &&
+            typeof grant.label === 'string' &&
+            typeof grant.uri === 'string'
+          )
+        )
+      : []
   }
 }
 
@@ -183,6 +204,34 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
   )
 
   const loadApiKey = useCallback((providerId: string) => readApiKey(providerId), [])
+  const setToolPermissionMode = useCallback(
+    (mode: 'ask' | 'yolo', acknowledged = false) => {
+      commit((current) => ({
+        ...current,
+        toolPermissionMode: mode === 'yolo' && acknowledged ? 'yolo' : 'ask',
+        yoloAcknowledged: mode === 'yolo' && acknowledged
+      }))
+    },
+    [commit]
+  )
+  const removeStorageGrant = useCallback(
+    (id: string) => {
+      commit((current) => ({
+        ...current,
+        storageGrants: current.storageGrants.filter((grant) => grant.id !== id)
+      }))
+    },
+    [commit]
+  )
+  const addStorageGrant = useCallback(
+    (grant: MobileSettings['storageGrants'][number]) => {
+      commit((current) => ({
+        ...current,
+        storageGrants: [...current.storageGrants.filter((item) => item.uri !== grant.uri), grant]
+      }))
+    },
+    [commit]
+  )
 
   const value = useMemo<SettingsContextValue>(
     () => ({
@@ -193,13 +242,18 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
       defaultProviderId: settings.defaultProviderId,
       defaultModelId: settings.defaultModelId,
       onboardingComplete: settings.onboardingComplete,
+      toolPermissionMode: settings.toolPermissionMode,
+      storageGrants: settings.storageGrants,
       setThemeKey,
       completeOnboarding,
       saveProvider,
       removeProvider,
       setDefaultModel,
       resolveProvider,
-      loadApiKey
+      loadApiKey,
+      setToolPermissionMode,
+      removeStorageGrant,
+      addStorageGrant
     }),
     [
       ready,
@@ -210,7 +264,10 @@ export function SettingsProvider({ children }: { children: ReactNode }): React.J
       removeProvider,
       setDefaultModel,
       resolveProvider,
-      loadApiKey
+      loadApiKey,
+      setToolPermissionMode,
+      removeStorageGrant,
+      addStorageGrant
     ]
   )
 

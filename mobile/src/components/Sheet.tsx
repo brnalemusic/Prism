@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
-import { Animated, Keyboard, Modal, Pressable, StyleSheet, Text, View } from 'react-native'
+import {
+  Animated,
+  Keyboard,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View
+} from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useKeyboardVisible } from '../hooks/useKeyboardVisible'
 import { useTheme } from '../state/settings'
@@ -65,6 +74,7 @@ export function Sheet({
       animationType="fade"
       onRequestClose={handleClose}
       statusBarTranslucent
+      navigationBarTranslucent
     >
       <KeyboardAwareView style={styles.root}>
         <Pressable
@@ -77,6 +87,7 @@ export function Sheet({
           style={{
             opacity,
             transform: [{ translateY: translate }],
+            maxHeight: `${Math.round(maxHeightRatio * 100)}%`,
             paddingBottom: keyboardVisible ? spacing.md : Math.max(insets.bottom, spacing.md),
             paddingHorizontal: spacing.md
           }}
@@ -85,20 +96,26 @@ export function Sheet({
             radiusSize={radius.xl}
             intensity={52}
             style={{
-              padding: spacing.lg,
-              maxHeight: `${Math.round(maxHeightRatio * 100)}%` as const
+              maxHeight: '100%'
             }}
           >
-            <View style={[styles.handle, { backgroundColor: theme.borderStrong }]} />
-            {title ? (
-              <View style={{ gap: 2, marginBottom: spacing.md }}>
-                <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
-                {subtitle ? (
-                  <Text style={[styles.subtitle, { color: theme.textSecondary }]}>{subtitle}</Text>
-                ) : null}
-              </View>
-            ) : null}
-            {children}
+            <ScrollView
+              style={styles.content}
+              contentContainerStyle={styles.contentContainer}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={[styles.handle, { backgroundColor: theme.borderStrong }]} />
+              {title ? (
+                <View style={styles.heading}>
+                  <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
+                  {subtitle ? (
+                    <Text style={[styles.subtitle, { color: theme.textSecondary }]}>{subtitle}</Text>
+                  ) : null}
+                </View>
+              ) : null}
+              {children}
+            </ScrollView>
           </GlassSurface>
         </Animated.View>
       </KeyboardAwareView>
@@ -110,6 +127,16 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     justifyContent: 'flex-end'
+  },
+  content: {
+    flexShrink: 1
+  },
+  contentContainer: {
+    padding: spacing.lg
+  },
+  heading: {
+    gap: 2,
+    marginBottom: spacing.md
   },
   handle: {
     alignSelf: 'center',

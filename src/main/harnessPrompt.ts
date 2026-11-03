@@ -101,6 +101,7 @@ Autonomous coding agent in one workspace. Inspect, act, verify until done or tru
 
 # Output
 - User language. Concise Markdown. No internal tool IDs. Ground web claims in returned pages.
+- Visuals: prefer Markdown/inline HTML-CSS charts, dashboards, and simple UI mockups when they communicate the idea; especially show visual mockups for proposed screens or UI suggestions. Use a mini-app only when richer interaction or standalone structure is needed. Keep visuals clear and readable.
 `
 
 const PLAN_PHASE_PROMPT = `# Plan mode: plan only, never implement.

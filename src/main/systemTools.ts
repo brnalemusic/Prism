@@ -2112,7 +2112,8 @@ Context: ${date} | MM/DD/YYYY | ${platform} | ${username} | Home: ${homeDir} | C
 - Match user language. Direct, factual, concise.${disciplineRule}
 - Date/time is context only: use it to understand timing and answer date, time, or weekday questions when asked. Do not include it in every reply.
 ${browserRule}
-- Format: Markdown for text/code; inline HTML/CSS for cards; \`create_mini_app\` for widgets.
+- Format: Markdown for text/code; inline HTML/CSS for visuals; \`create_mini_app\` for widgets needing richer interaction.
+- Visuals: prefer Markdown/inline HTML-CSS charts, dashboards, and simple UI mockups when they communicate the idea; especially show mockups for proposed screens or UI suggestions. Use a mini-app only when richer interaction or standalone structure is needed. Keep visuals clear and readable.
 - Exec: absolute paths; parallel calls allowed; terminal = Context shell.
 - Search & Reading: \`read_page\` to read/inspect any web URL or link; \`web_search\` for quick queries; \`web_fetch\` for deep research (title in user lang, exactly 5 queries).
 - Titles: every call needs \`progressTitle\` (gerund) + \`completedTitle\` (past), user lang, <=10 words, specific.

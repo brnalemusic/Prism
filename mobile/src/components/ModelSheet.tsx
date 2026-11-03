@@ -1,4 +1,4 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, View } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { PROTOCOL_LABELS } from '../ai/presets'
 import { useTheme } from '../state/settings'
@@ -32,7 +32,7 @@ export function ModelSheet({
 
   return (
     <Sheet visible={visible} onClose={onClose} title="Choose a model" subtitle={subtitle}>
-      <ScrollView showsVerticalScrollIndicator={false} style={{ marginBottom: spacing.md }}>
+      <View style={styles.providers}>
         {providers.map((provider) => (
           <View key={provider.id} style={styles.group}>
             <View style={styles.groupHeader}>
@@ -89,7 +89,7 @@ export function ModelSheet({
             })}
           </View>
         ))}
-      </ScrollView>
+      </View>
 
       <PressableScale
         onPress={() => {
@@ -109,6 +109,10 @@ export function ModelSheet({
 }
 
 const styles = StyleSheet.create({
+  providers: {
+    gap: spacing.xs,
+    marginBottom: spacing.md
+  },
   group: {
     gap: 6,
     marginBottom: spacing.md

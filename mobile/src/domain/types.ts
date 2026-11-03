@@ -33,9 +33,12 @@ export interface MobileSettings {
   defaultModelId: string | null
   theme: ThemeKey
   onboardingComplete: boolean
+  toolPermissionMode: 'ask' | 'yolo'
+  yoloAcknowledged: boolean
+  storageGrants: Array<{ id: string; label: string; uri: string }>
 }
 
-export type MessageRole = 'user' | 'assistant'
+export type MessageRole = 'user' | 'assistant' | 'tool'
 export type MessageStatus = 'streaming' | 'complete' | 'error' | 'stopped'
 
 export interface ChatMessage {
@@ -48,6 +51,18 @@ export interface ChatMessage {
   modelId?: string
   error?: string
   durationMs?: number
+  toolCalls?: ToolCallRecord[]
+  toolCallId?: string
+  toolName?: string
+  toolResult?: string
+}
+
+export interface ToolCallRecord {
+  id: string
+  name: string
+  arguments: string
+  status: 'pending' | 'running' | 'done' | 'error' | 'denied'
+  result?: string
 }
 
 export interface ChatSession {
@@ -63,6 +78,14 @@ export interface ChatSession {
 }
 
 export interface ChatTurn {
-  role: MessageRole
-  content: string
+  role: 'user' | 'assistant' | 'tool'
+  content: string | null
+  tool_calls?: Array<{
+    id: string
+    type: 'function'
+    thought_signature?: string
+    function: { name: string; arguments: string }
+  }>
+  tool_call_id?: string
+  name?: string
 }

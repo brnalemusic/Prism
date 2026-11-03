@@ -337,7 +337,6 @@ export function ChatDrawer(): React.JSX.Element {
                   <Pressable
                     onPress={() => setQuery('')}
                     accessibilityLabel="Clear search"
-                    hitSlop={8}
                     style={styles.searchClear}
                   >
                     <Ionicons name="close-circle" size={15} color={theme.textMuted} />
@@ -456,8 +455,11 @@ const styles = StyleSheet.create({
     fontSize: 14
   },
   searchClear: {
+    width: 40,
+    height: 40,
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    marginRight: -spacing.xs
   },
   list: {
     flex: 1,
@@ -490,7 +492,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
     paddingHorizontal: spacing.sm + 2,
-    paddingVertical: 11,
+    minHeight: 48,
+    paddingVertical: spacing.sm,
     borderRadius: 10
   },
   footerLabel: {

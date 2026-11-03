@@ -46,7 +46,15 @@ function sanitizeMessage(value: unknown): ChatMessage | null {
     providerId: typeof value.providerId === 'string' ? value.providerId : undefined,
     modelId: typeof value.modelId === 'string' ? value.modelId : undefined,
     error: typeof value.error === 'string' ? value.error : undefined,
-    durationMs: typeof value.durationMs === 'number' ? value.durationMs : undefined
+    durationMs: typeof value.durationMs === 'number' ? value.durationMs : undefined,
+    toolCalls: Array.isArray(value.toolCalls)
+      ? value.toolCalls.filter((call): call is NonNullable<ChatMessage['toolCalls']>[number] =>
+          Boolean(call && typeof call.id === 'string' && typeof call.name === 'string' && typeof call.arguments === 'string' &&
+            ['pending', 'running', 'done', 'error', 'denied'].includes(call.status)))
+      : undefined,
+    toolCallId: typeof value.toolCallId === 'string' ? value.toolCallId : undefined,
+    toolName: typeof value.toolName === 'string' ? value.toolName : undefined,
+    toolResult: typeof value.toolResult === 'string' ? value.toolResult : undefined
   }
 }
 

@@ -3,7 +3,15 @@ import type { ReactNode } from 'react'
 import { isAbortError, streamChat } from '../ai/client'
 import { trimTurns } from '../ai/persona'
 import { AiRequestError } from '../ai/request'
-import type { ChatMessage, ChatSession, ChatTurn, ProviderProfile } from '../domain/types'
+import { executeMobileTool } from '../ai/tools'
+import { parseToolArguments, type ToolCall } from '../ai/toolCatalog'
+import type {
+  ChatMessage,
+  ChatSession,
+  ChatTurn,
+  ProviderProfile,
+  ToolCallRecord
+} from '../domain/types'
 import { createId } from '../lib/id'
 import { deriveTitle, previewText } from '../lib/text'
 import { readApiKey } from '../storage/secrets'
@@ -16,6 +24,7 @@ import {
   writeSessionMessages
 } from '../storage/sessions'
 import { useSettings } from './settings'
+import { Alert } from 'react-native'
 
 interface StreamTarget {
   sessionId: string
@@ -48,9 +57,40 @@ const sortSessions = (sessions: ChatSession[]): ChatSession[] =>
   [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)
 
 function toTurns(messages: ChatMessage[]): ChatTurn[] {
-  const usable = messages
-    .filter((message) => message.content.trim().length > 0 && message.status !== 'error')
-    .map((message) => ({ role: message.role, content: message.content }))
+  const usable: ChatTurn[] = []
+  for (const message of messages) {
+    if (message.status === 'error' || message.status === 'stopped') continue
+    if (message.role === 'user') {
+      if (message.content.trim()) usable.push({ role: 'user', content: message.content })
+      continue
+    }
+    if (message.role !== 'assistant') continue
+    const completed =
+      message.toolCalls?.filter(
+        (call) => call.status === 'done' || call.status === 'error' || call.status === 'denied'
+      ) ?? []
+    const allSettled =
+      Boolean(message.toolCalls?.length) && completed.length === message.toolCalls?.length
+    if (allSettled) {
+      usable.push({
+        role: 'assistant',
+        content: message.content || null,
+        tool_calls: completed.map((call) => ({
+          id: call.id,
+          type: 'function',
+          function: { name: call.name, arguments: call.arguments }
+        }))
+      })
+      for (const call of completed) {
+        usable.push({
+          role: 'tool',
+          content: call.result ?? '',
+          tool_call_id: call.id,
+          name: call.name
+        })
+      }
+    } else if (message.content.trim()) usable.push({ role: 'assistant', content: message.content })
+  }
   const trimmed = trimTurns(usable)
   let start = 0
   while (start < trimmed.length && trimmed[start]?.role === 'assistant') start += 1
@@ -63,8 +103,31 @@ function describeError(error: unknown): string {
   return 'Something went wrong while talking to the model.'
 }
 
+function approvalPreview(call: ToolCall): string {
+  let value: unknown
+  try {
+    value = JSON.parse(call.arguments || '{}')
+  } catch {
+    return call.arguments.slice(0, 1400)
+  }
+  const redact = (entry: unknown, key = ''): unknown => {
+    if (/key|secret|token|password|authorization|credential/i.test(key)) return '[redacted]'
+    if (Array.isArray(entry)) return entry.map((item) => redact(item, key))
+    if (entry && typeof entry === 'object') {
+      return Object.fromEntries(
+        Object.entries(entry as Record<string, unknown>).map(([childKey, child]) => [
+          childKey,
+          redact(child, childKey)
+        ])
+      )
+    }
+    return entry
+  }
+  return JSON.stringify(redact(value), null, 2).slice(0, 1400)
+}
+
 export function SessionsProvider({ children }: { children: ReactNode }): React.JSX.Element {
-  const { providers, defaultProviderId, defaultModelId } = useSettings()
+  const { providers, defaultProviderId, defaultModelId, toolPermissionMode } = useSettings()
 
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({})
@@ -307,7 +370,95 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
           apiKey,
           turns,
           signal: abortRef.current.signal,
-          onDelta: queue
+          onDelta: queue,
+          onToolProgress: (call, status, result) => {
+            const current = messagesRef.current[sessionId] ?? []
+            const assistant = current.find((message) => message.id === assistantId)
+            const records = [...(assistant?.toolCalls ?? [])]
+            const existing = records.findIndex((item) => item.id === call.id)
+            const parsedResult = result
+              ? (() => {
+                  try {
+                    return JSON.parse(result).output || JSON.parse(result).error?.message || result
+                  } catch {
+                    return result
+                  }
+                })()
+              : undefined
+            let finalStatus: ToolCallRecord['status'] = status
+            if (result) {
+              try {
+                const envelope = JSON.parse(result)
+                if (envelope?.error?.code === 'PERMISSION_DENIED') finalStatus = 'denied'
+                else if (envelope?.ok === false || envelope?.error) finalStatus = 'error'
+              } catch {}
+            }
+            const nextRecord: ToolCallRecord = {
+              ...call,
+              status: finalStatus,
+              ...(parsedResult ? { result: String(parsedResult) } : {})
+            }
+            if (existing < 0) records.push(nextRecord)
+            else records[existing] = nextRecord
+            patchAssistant(sessionId, assistantId, { toolCalls: records })
+          },
+          onToolCall: async (call: ToolCall) => {
+            if (toolPermissionMode === 'ask') {
+              const approved = await new Promise<boolean>((resolve) => {
+                let settled = false
+                const finish = (value: boolean): void => {
+                  if (!settled) {
+                    settled = true
+                    resolve(value)
+                  }
+                }
+                const args = approvalPreview(call)
+                Alert.alert(
+                  `Allow ${call.name}?`,
+                  `${call.name === 'execute_terminal_command' ? 'Commands run inside Prism’s Android app sandbox. They may change or delete Prism-accessible files.\n\n' : ''}${args.slice(0, 1400)}`,
+                  [
+                    { text: 'Deny', style: 'cancel', onPress: () => finish(false) },
+                    { text: 'Allow', onPress: () => finish(true) }
+                  ],
+                  { cancelable: true, onDismiss: () => finish(false) }
+                )
+              })
+              if (!approved) {
+                const denied = {
+                  ok: false,
+                  error: {
+                    code: 'PERMISSION_DENIED',
+                    message: 'The user declined this tool call.',
+                    retryable: false
+                  }
+                }
+                return JSON.stringify(denied)
+              }
+            }
+            let args: Record<string, unknown>
+            try {
+              args = parseToolArguments(call)
+            } catch (error) {
+              return JSON.stringify({
+                ok: false,
+                error: {
+                  code: 'INVALID_ARGUMENTS',
+                  message: error instanceof Error ? error.message : String(error),
+                  retryable: true
+                }
+              })
+            }
+            const result = await executeMobileTool(
+              call,
+              args,
+              abortRef.current?.signal ?? new AbortController().signal
+            )
+            return JSON.stringify({
+              ok: result.ok,
+              output: result.output,
+              retryable: result.retryable
+            })
+          }
         })
         await finish({ status: 'complete' })
       } catch (error) {
@@ -318,7 +469,14 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
         await finish({ status: 'error', error: describeError(error) })
       }
     },
-    [appendAssistantDelta, applySessions, ensureLoaded, patchAssistant, setMessagesFor]
+    [
+      appendAssistantDelta,
+      applySessions,
+      ensureLoaded,
+      patchAssistant,
+      setMessagesFor,
+      toolPermissionMode
+    ]
   )
 
   const stopStreaming = useCallback(() => {

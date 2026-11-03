@@ -309,6 +309,7 @@ const styles = StyleSheet.create({
   },
   preset: {
     width: 156,
+    minHeight: 72,
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     padding: spacing.md,
@@ -340,6 +341,7 @@ const styles = StyleSheet.create({
   },
   protocol: {
     flex: 1,
+    minHeight: 48,
     alignItems: 'center',
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
@@ -368,7 +370,9 @@ const styles = StyleSheet.create({
   inlineAction: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5
+    gap: 5,
+    minHeight: 44,
+    paddingHorizontal: spacing.xs
   },
   inlineLabel: {
     ...typography.caption,

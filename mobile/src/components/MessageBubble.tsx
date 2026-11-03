@@ -161,6 +161,37 @@ export const MessageBubble = memo(function MessageBubble({
           ) : null}
         </View>
       ) : null}
+      {message.toolCalls?.map((call) => (
+        <View
+          key={call.id}
+          style={[styles.toolCard, { borderColor: theme.border, backgroundColor: theme.surface }]}
+        >
+          <View style={styles.toolHeader}>
+            <Ionicons
+              name={
+                call.status === 'done'
+                  ? 'checkmark-circle-outline'
+                  : call.status === 'error' || call.status === 'denied'
+                    ? 'close-circle-outline'
+                    : 'construct-outline'
+              }
+              size={15}
+              color={
+                call.status === 'error' || call.status === 'denied' ? theme.danger : theme.accent
+              }
+            />
+            <Text style={[styles.toolName, { color: theme.text }]}>
+              {call.name.replaceAll('_', ' ')}
+            </Text>
+            <Text style={[styles.meta, { color: theme.textMuted }]}>{call.status}</Text>
+          </View>
+          {call.result ? (
+            <Text style={[styles.toolResult, { color: theme.textSecondary }]} numberOfLines={5}>
+              {call.result}
+            </Text>
+          ) : null}
+        </View>
+      ))}
     </View>
   )
 })
@@ -258,5 +289,15 @@ const styles = StyleSheet.create({
   retryLabel: {
     ...typography.caption,
     fontWeight: '600'
-  }
+  },
+  toolCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    padding: spacing.sm,
+    marginTop: spacing.sm,
+    gap: 5
+  },
+  toolHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  toolName: { ...typography.caption, textTransform: 'capitalize', fontWeight: '600', flex: 1 },
+  toolResult: { ...typography.caption, fontSize: 12, lineHeight: 17 }
 })

@@ -1,0 +1,10 @@
+{
+  "name": "prism-terminal",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "expo-module": {
+    "platforms": ["android"],
+    "android": { "modules": ["com.prism.terminal.PrismTerminalModule"] }
+  }
+}

@@ -14,6 +14,8 @@ The Harness model publishes a completed plan through the native `plan` tool. Pri
 
 The review surface uses the same Markdown pipeline as completed chat messages, including GFM, raw HTML handling, and KaTeX for inline (`$...$`) and display (`$$...$$`) LaTeX.
 
+Harness responses can use GFM, KaTeX, and inline HTML/CSS to render charts, dashboards, and simple interface mockups directly in Markdown. Prefer a direct visual mockup when proposing a new screen or suggesting UI changes if it communicates the idea; create a mini-app only when richer interaction or standalone structure is needed. Keep visuals clear and readable.
+
 - **Accept & Continue** approves the plan and transitions the current session to Build. Because the approved plan is already part of the session history, Prism sends only a short confirmation for the model to continue in Build — it does not resend the plan text. The confirmation is rendered in the thread as a compact native "Implementation plan approved" note instead of a full user message. The transition is confirmed through a structured binding before Build starts, so the phase is consistent even if the session is reloaded mid-handoff; a failed start keeps the approved plan available for retry.
 - **New Build Chat** prepares complementary context from the entire source conversation, creates a clean Build session in the exact same project, and automatically sends the approved plan plus that context for implementation. The source session remains in Plan, and any linked Git recovery travels with the plan to the new chat.
 - **Request changes** sends a revision request while keeping the session in Plan. The request can also be sent with `Ctrl+Enter` or `Cmd+Enter`.

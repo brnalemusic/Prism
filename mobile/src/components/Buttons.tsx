@@ -28,7 +28,7 @@ export function IconButton({
   icon,
   onPress,
   label,
-  size = 42,
+  size = 44,
   variant = 'surface',
   disabled,
   style

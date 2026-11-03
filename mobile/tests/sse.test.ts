@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import {
   SseDecoder,
   extractAnthropicDelta,
+  extractAnthropicToolDelta,
   extractGeminiDelta,
   extractOpenAiDelta,
   extractStreamDelta
@@ -74,6 +75,13 @@ test('Anthropic deltas only read text_delta events', () => {
     ''
   )
   assert.equal(extractAnthropicDelta({ event: 'message_start', data: '{}' }), '')
+  assert.deepEqual(
+    extractAnthropicToolDelta({
+      event: 'content_block_delta',
+      data: JSON.stringify({ index: 2, delta: { type: 'input_json_delta', partial_json: '{"q"' } })
+    }),
+    [{ index: 2, argumentsDelta: '{"q"' }]
+  )
 })
 
 test('stream delta maps protocol events to text, done and errors', () => {
@@ -87,6 +95,26 @@ test('stream delta maps protocol events to text, done and errors', () => {
       data: JSON.stringify({ choices: [{ delta: { content: 'x' } }] })
     }),
     { delta: 'x' }
+  )
+  assert.deepEqual(
+    extractStreamDelta('openai', {
+      event: null,
+      data: JSON.stringify({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, id: 'call_1', function: { name: 'web_search', arguments: '{"query":' } }
+              ]
+            }
+          }
+        ]
+      })
+    }),
+    {
+      delta: '',
+      toolCallDeltas: [{ index: 0, id: 'call_1', name: 'web_search', argumentsDelta: '{"query":' }]
+    }
   )
   assert.deepEqual(
     extractStreamDelta('gemini', {

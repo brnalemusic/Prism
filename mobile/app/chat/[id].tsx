@@ -301,7 +301,10 @@ export default function ChatScreen(): React.JSX.Element {
             label="Delete conversation"
             icon="trash-outline"
             variant="danger"
-            onPress={handleDelete}
+            onPress={() => {
+              setSheetMode('none')
+              handleDelete()
+            }}
           />
         </View>
       </Sheet>
@@ -312,6 +315,7 @@ export default function ChatScreen(): React.JSX.Element {
         title="Rename session"
         subtitle="A short label shown in your chats list."
         dismissKeyboardOnOpen={false}
+        maxHeightRatio={0.9}
       >
         <TextInput
           value={renameValue}

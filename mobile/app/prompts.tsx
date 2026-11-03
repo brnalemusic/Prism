@@ -172,7 +172,9 @@ const styles = StyleSheet.create({
   },
   filter: {
     paddingHorizontal: spacing.md,
-    paddingVertical: 7,
+    minHeight: 44,
+    paddingVertical: spacing.sm,
+    justifyContent: 'center',
     borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth
   },

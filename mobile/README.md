@@ -90,6 +90,26 @@ implement an in-app updater:
 - `src/components/` — the mobile design system, chat surfaces and update UI.
 - `tests/` — Node tests for the pure streaming, updater and formatting logic.
 
+## Tool calling and Android access
+
+Mobile advertises a limited tool catalog (web search/page reading, bounded text
+file operations, and an Android app-sandbox shell). It does not reuse the
+Electron executor. Ask mode is the default and previews each call. YOLO is an
+explicitly acknowledged opt-in; shell commands can modify or delete files that
+Prism can access and may consume device resources. YOLO never bypasses Android
+scoping, the supported tool allowlist, validation, or output/time limits.
+
+Prism's private app folder needs no storage permission. Shared folders are
+available only after the user explicitly grants each folder through Android's
+Storage Access Framework. Android may hide or disallow selecting some roots;
+Prism does not request `MANAGE_EXTERNAL_STORAGE` or blanket media permissions.
+SAF folder grants remain the boundary in both Ask and YOLO. The terminal runs
+`/system/bin/sh` under Prism's app UID, without root and without access to other
+apps' private data. It is not a general device terminal. Browser automation,
+computer control, Harness and Desktop-only artifact/IPC tools remain unavailable.
+The terminal module is included in native Android builds and is unavailable in
+Expo Go; tools fail closed when its native module is missing.
+
 Keyboard handling uses `KeyboardAwareView`, which measures the overlap between the container and the keyboard top and pads only that amount. It covers both Android 15+ edge-to-edge (where `adjustResize` is ignored) and devices that still resize the window, and seeds itself when a screen mounts with the keyboard already open. Bottom surfaces drop their safe-area inset while the keyboard is visible.
 
 See [`resources/docs/19_mobile_app.md`](../resources/docs/19_mobile_app.md) for

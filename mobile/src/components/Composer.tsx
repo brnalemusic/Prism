@@ -171,7 +171,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    paddingVertical: 4,
+    minHeight: 44,
+    paddingVertical: spacing.xs,
     paddingRight: 4,
     maxWidth: 210
   },
@@ -182,9 +183,9 @@ const styles = StyleSheet.create({
     flexShrink: 1
   },
   actionButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center'

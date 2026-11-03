@@ -1,4 +1,5 @@
 import type { ChatTurn, ProviderProfile } from '../domain/types'
+import { mobileToolDefinitions } from './toolCatalog'
 
 export class AiRequestError extends Error {
   status?: number
@@ -26,6 +27,7 @@ export interface BuildChatRequestInput {
   apiKey: string
   turns: ChatTurn[]
   systemPrompt: string
+  tools?: boolean
 }
 
 const ANTHROPIC_MAX_TOKENS = 4096
@@ -64,10 +66,28 @@ function requireKey(provider: ProviderProfile, apiKey: string): string {
 
 function buildGemini(input: BuildChatRequestInput, apiKey: string): ChatHttpRequest {
   const base = normalizeBaseUrl(input.provider.baseUrl)
-  const contents = input.turns.map((turn) => ({
-    role: turn.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: turn.content }]
-  }))
+  const contents = input.turns.map((turn) => {
+    if (turn.role === 'tool') {
+      return {
+        role: 'user',
+        parts: [{ functionResponse: { name: turn.name, response: { content: turn.content } } }]
+      }
+    }
+    const parts: Array<Record<string, unknown>> = turn.content ? [{ text: turn.content }] : []
+    if (turn.role === 'assistant' && turn.tool_calls) {
+      for (const call of turn.tool_calls) {
+        let args: Record<string, unknown> = {}
+        try {
+          args = JSON.parse(call.function.arguments) as Record<string, unknown>
+        } catch {}
+        parts.push({
+          functionCall: { name: call.function.name, args },
+          ...(call.thought_signature ? { thoughtSignature: call.thought_signature } : {})
+        })
+      }
+    }
+    return { role: turn.role === 'assistant' ? 'model' : 'user', parts }
+  })
   return {
     url: `${base}/models/${encodeURIComponent(input.modelId)}:streamGenerateContent?alt=sse`,
     headers: {
@@ -76,10 +96,23 @@ function buildGemini(input: BuildChatRequestInput, apiKey: string): ChatHttpRequ
     },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: input.systemPrompt }] },
-      contents,
-      generationConfig: { temperature: TEMPERATURE, maxOutputTokens: ANTHROPIC_MAX_TOKENS }
+      contents: coalesceGeminiTurns(contents),
+      generationConfig: { temperature: TEMPERATURE, maxOutputTokens: ANTHROPIC_MAX_TOKENS },
+      ...(input.tools ? { tools: mobileToolDefinitions('gemini') } : {})
     })
   }
+}
+
+function coalesceGeminiTurns(
+  contents: Array<{ role: string; parts: Array<Record<string, unknown>> }>
+): Array<{ role: string; parts: Array<Record<string, unknown>> }> {
+  const output: Array<{ role: string; parts: Array<Record<string, unknown>> }> = []
+  for (const turn of contents) {
+    const previous = output[output.length - 1]
+    if (previous?.role === turn.role) previous.parts.push(...turn.parts)
+    else output.push({ role: turn.role, parts: [...turn.parts] })
+  }
+  return output
 }
 
 function buildOpenAi(input: BuildChatRequestInput, apiKey: string): ChatHttpRequest {
@@ -96,8 +129,23 @@ function buildOpenAi(input: BuildChatRequestInput, apiKey: string): ChatHttpRequ
       temperature: TEMPERATURE,
       messages: [
         { role: 'system', content: input.systemPrompt },
-        ...input.turns.map((turn) => ({ role: turn.role, content: turn.content }))
-      ]
+        ...input.turns.map((turn) =>
+          turn.role === 'tool'
+            ? {
+                role: 'tool',
+                tool_call_id: turn.tool_call_id,
+                name: turn.name,
+                content: turn.content
+              }
+            : {
+                role: turn.role,
+                content: turn.content,
+                ...(turn.tool_calls ? { tool_calls: turn.tool_calls } : {})
+              }
+        )
+      ],
+      ...(input.tools ? { tools: mobileToolDefinitions('openai'), tool_choice: 'auto' } : {}),
+      max_tokens: 4096
     })
   }
 }
@@ -119,9 +167,63 @@ function buildAnthropic(input: BuildChatRequestInput, apiKey: string): ChatHttpR
       temperature: 1,
       system: input.systemPrompt,
       stream: true,
-      messages: input.turns.map((turn) => ({ role: turn.role, content: turn.content }))
+      messages: coalesceAnthropicTurns(
+        input.turns.flatMap((turn): Array<{ role: string; content: unknown }> => {
+          if (turn.role === 'tool')
+            return [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'tool_result',
+                    tool_use_id: turn.tool_call_id,
+                    content: turn.content ?? ''
+                  }
+                ]
+              }
+            ]
+          if (turn.role === 'assistant' && turn.tool_calls) {
+            return [
+              {
+                role: 'assistant',
+                content: [
+                  ...(turn.content ? [{ type: 'text', text: turn.content }] : []),
+                  ...turn.tool_calls.map((call) => {
+                    let input: Record<string, unknown> = {}
+                    try {
+                      input = JSON.parse(call.function.arguments) as Record<string, unknown>
+                    } catch {}
+                    return { type: 'tool_use', id: call.id, name: call.function.name, input }
+                  })
+                ]
+              }
+            ]
+          }
+          return [{ role: turn.role, content: turn.content }]
+        })
+      ),
+      ...(input.tools
+        ? { tools: mobileToolDefinitions('anthropic'), tool_choice: { type: 'auto' } }
+        : {})
     })
   }
+}
+
+function coalesceAnthropicTurns(
+  messages: Array<{ role: string; content: unknown }>
+): Array<{ role: string; content: unknown }> {
+  const output: Array<{ role: string; content: unknown }> = []
+  for (const message of messages) {
+    const previous = output[output.length - 1]
+    if (
+      previous?.role === message.role &&
+      Array.isArray(previous.content) &&
+      Array.isArray(message.content)
+    )
+      previous.content.push(...message.content)
+    else output.push(message)
+  }
+  return output
 }
 
 export function buildChatRequest(input: BuildChatRequestInput): ChatHttpRequest {

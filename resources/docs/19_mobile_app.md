@@ -8,7 +8,7 @@ The mobile app exists because the desktop workspace does not compress into a pho
 
 **Scope of the mobile app**
 
-- Streaming chat with Gemini (native API), any OpenAI-compatible endpoint, and Anthropic Messages.
+- Streaming chat with Gemini (native API), any OpenAI-compatible endpoint, and Anthropic Messages, including bounded tool calling.
 - Local conversation history (session index + per-session messages).
 - Provider management with API keys in the OS keychain.
 - Prompt library with editable drafts.
@@ -17,7 +17,7 @@ The mobile app exists because the desktop workspace does not compress into a pho
 
 **Out of scope by design**
 
-Terminal execution, harness projects, file and browser tools, Discord gateway, mini-apps, PDF/PPTX generation and screen vision all remain desktop-only. The mobile system prompt states this explicitly so the model never pretends to control the user's computer.
+Harness projects, Playwright browser automation, Discord gateway, mini-apps, PDF/PPTX generation and screen vision remain desktop-only. Mobile has a separate limited tool executor for public web search/page reading, SAF-scoped files and a native Android app-sandbox shell; these do not provide Desktop parity or control the user's computer.
 
 ---
 
@@ -60,6 +60,7 @@ mobile/
 │   ├── hooks/                # reduced-motion and keyboard-visibility hooks
 │   ├── lib/                  # ids, text formatting, model labels, update logic
 │   ├── services/             # native update download + installer bridge
+│   ├── tools/                # web, SAF file and Android shell adapters
 │   ├── state/                # settings, sessions and updates providers
 │   ├── storage/              # AsyncStorage and SecureStore adapters
 │   └── theme/                # palettes and tokens
@@ -75,7 +76,7 @@ mobile/
 
 ## 4. State and Persistence
 
-**Settings** (`src/state/settings.tsx`) stores non-secret configuration in AsyncStorage under `prism.mobile.settings.v1`: providers (name, protocol, base URL, models), default provider/model, theme key and onboarding flag. The stored payload is sanitised on read, so a corrupt or partial record cannot crash boot.
+**Settings** (`src/state/settings.tsx`) stores non-secret configuration in AsyncStorage under `prism.mobile.settings.v1`: providers (name, protocol, base URL, models), default provider/model, theme key, tool permission mode, YOLO acknowledgement and selected SAF folder grants. The stored payload is sanitised on read, so a corrupt or partial record cannot crash boot.
 
 **Sessions** (`src/state/sessions.tsx`) splits storage into an index and one record per conversation:
 
@@ -95,11 +96,16 @@ Only the touched session is rewritten when a reply finishes, and the index caps 
 - `sse.ts` — incremental Server-Sent Events decoder (chunk-safe, CRLF-safe, multi-line data, BOM) plus per-protocol delta extraction for Gemini, OpenAI and Anthropic, including provider error events, `[DONE]` and Gemini `blockReason`.
 - `request.ts` — pure request builders. Gemini uses `:streamGenerateContent?alt=sse` with the key in `x-goog-api-key` (never in the URL); OpenAI-compatible endpoints use `/chat/completions` with bearer auth; Anthropic uses `/v1/messages` with `anthropic-version` and `x-api-key`. Loopback and `.local` endpoints may omit a key.
 - `client.ts` — the only module that touches the network. It uses `expo/fetch`, reports friendly messages for 401/403/404/429/5xx, and preserves partial text when a stream breaks.
+- `toolCatalog.ts` / `tools.ts` — explicit Mobile allowlist, strict argument validation, bounded tool rounds and normalized adapters. It does not import Electron's `systemTools.ts`.
 - `persona.ts` — the mobile system prompt (phone-only capabilities, small-screen answer shape) and the 24-turn context window.
 - `presets.ts` — curated providers; every field stays editable.
 - `validation.ts` — draft validation and model-list parsing used by the provider form.
 
-Because the pure modules never import React Native, they are covered by `npm run mobile:test` on Node.
+`toolCatalog.ts`, request builders and SSE parsing remain Node-testable. Native file/terminal behavior needs an Android build/device.
+
+### Tool permissions and device boundary
+
+Ask mode is the default and previews each tool call. YOLO is opt-in after a risk acknowledgement and can be switched off in Settings; it skips per-call confirmation only. Both modes retain the Mobile allowlist, schema/loop limits, Android app sandbox and user-granted SAF roots. No `MANAGE_EXTERNAL_STORAGE` or blanket media permission is requested. Users grant individual folders through the Android Storage Access Framework; root folders may be unavailable and grants are revocable in Settings. The shell is `/system/bin/sh` running as Prism's app UID, with bounded runtime/output, no root, and no access to other apps' private storage. It is unavailable in Expo Go because it requires the native module.
 
 ---
 
@@ -112,6 +118,8 @@ All spacing, radius and type tokens come from `src/theme/tokens.ts`. Screens use
 The chat shell follows the conventions of AI chat products rather than a dashboard. Home is a new conversation: a short greeting, four starting points and a docked composer. History, the prompt library and settings live in a left drawer (`ChatDrawer`), which groups conversations by recency and supports search and long-press delete. The conversation screen keeps assistant answers full-width without avatars, renders user messages as neutral right-aligned bubbles, and reveals copy/regenerate actions only after a reply settles. Sending from home creates the session and auto-sends the first message, so the app opens directly into a streaming answer.
 
 Keyboard handling is part of the same shell. Prism Mobile draws edge-to-edge on Android, where `adjustResize` is ignored on Android 15+, while older devices still resize the window. `KeyboardAwareView` measures the gap between its bottom edge and the keyboard top and pads only that overlap, so both behaviours produce the same layout. It also seeds itself from `Keyboard.metrics()` when a screen mounts under an already-open keyboard, which happens when sending from home into a new chat. Home, chat, the provider form, the drawer and every sheet use it; the composer, drawer and sheet drop their bottom safe-area inset while the keyboard is visible so nothing floats above it. Sheets dismiss the keyboard when they open unless they focus their own input, and the chat list re-pins to the latest message when the keyboard opens.
+
+Sheets constrain the complete panel to the available viewport and keep their content scrollable, rather than clipping the actions at the bottom on short screens or with the keyboard open. The model picker uses the sheet's single vertical scroll surface to avoid competing nested scroll gestures. Primary icon controls, composer actions, prompt filters, provider options and inline key actions use touch targets of at least 44 dp wherever the layout permits.
 
 ---
 

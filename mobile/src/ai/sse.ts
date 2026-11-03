@@ -6,7 +6,9 @@ export interface SseEvent {
 }
 
 export interface StreamDelta {
-  delta: string
+  delta?: string
+  toolCalls?: Array<{ id: string; name: string; arguments: string; thoughtSignature?: string }>
+  toolCallDeltas?: Array<{ index: number; id?: string; name?: string; argumentsDelta?: string }>
   done?: boolean
   error?: string
 }
@@ -111,6 +113,28 @@ export function extractOpenAiDelta(payload: unknown): string {
   return output
 }
 
+function extractOpenAiToolDeltas(payload: unknown): StreamDelta['toolCallDeltas'] {
+  const choices = asRecord(payload)?.choices
+  if (!Array.isArray(choices)) return []
+  const deltas: NonNullable<StreamDelta['toolCallDeltas']> = []
+  for (const choice of choices) {
+    const calls = asRecord(asRecord(choice)?.delta)?.tool_calls
+    if (!Array.isArray(calls)) continue
+    for (const item of calls) {
+      const call = asRecord(item)
+      const fn = asRecord(call?.function)
+      if (!call || typeof call.index !== 'number') continue
+      deltas.push({
+        index: call.index,
+        ...(typeof call.id === 'string' ? { id: call.id } : {}),
+        ...(typeof fn?.name === 'string' ? { name: fn.name } : {}),
+        ...(typeof fn?.arguments === 'string' ? { argumentsDelta: fn.arguments } : {})
+      })
+    }
+  }
+  return deltas
+}
+
 export function extractGeminiDelta(payload: unknown): string {
   const candidates = asRecord(payload)?.candidates
   if (!Array.isArray(candidates)) return ''
@@ -125,6 +149,31 @@ export function extractGeminiDelta(payload: unknown): string {
     }
   }
   return output
+}
+
+function extractGeminiToolCalls(payload: unknown): StreamDelta['toolCalls'] {
+  const candidates = asRecord(payload)?.candidates
+  if (!Array.isArray(candidates)) return []
+  const calls: NonNullable<StreamDelta['toolCalls']> = []
+  for (const candidate of candidates) {
+    if (!asRecord(candidate)?.finishReason) continue
+    const parts = asRecord(asRecord(candidate)?.content)?.parts
+    if (!Array.isArray(parts)) continue
+    for (const part of parts) {
+      const call = asRecord(asRecord(part)?.functionCall)
+      if (call && typeof call.name === 'string') {
+        calls.push({
+          id: `gemini_${calls.length}`,
+          name: call.name,
+          arguments: JSON.stringify(call.args ?? {}),
+          ...(typeof asRecord(part)?.thoughtSignature === 'string'
+            ? { thoughtSignature: asRecord(part)?.thoughtSignature as string }
+            : {})
+        })
+      }
+    }
+  }
+  return calls
 }
 
 export function extractGeminiBlockReason(payload: unknown): string | undefined {
@@ -147,6 +196,26 @@ export function extractAnthropicDelta(event: SseEvent): string {
   return typeof delta.text === 'string' ? delta.text : ''
 }
 
+export function extractAnthropicToolDelta(event: SseEvent): StreamDelta['toolCallDeltas'] {
+  try {
+    const payload = asRecord(JSON.parse(event.data))
+    if (!payload) return []
+    if (event.event === 'content_block_start') {
+      const block = asRecord(payload.content_block)
+      if (block?.type === 'tool_use' && typeof block.name === 'string') {
+        return [{ index: Number(payload.index) || 0, id: String(block.id ?? ''), name: block.name }]
+      }
+    }
+    if (event.event === 'content_block_delta') {
+      const delta = asRecord(payload.delta)
+      if (delta?.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
+        return [{ index: Number(payload.index) || 0, argumentsDelta: delta.partial_json }]
+      }
+    }
+  } catch {}
+  return []
+}
+
 export function extractAnthropicError(event: SseEvent): string | undefined {
   if (event.event !== 'error') return undefined
   try {
@@ -166,7 +235,12 @@ export function extractStreamDelta(protocol: ProviderProtocol, event: SseEvent):
     const error = extractAnthropicError(event)
     if (error) return { delta: '', error }
     if (event.event === 'message_stop') return { delta: '', done: true }
-    return { delta: extractAnthropicDelta(event) }
+    const toolCallDeltas = extractAnthropicToolDelta(event) ?? []
+    const delta = extractAnthropicDelta(event)
+    return {
+      delta,
+      ...(toolCallDeltas.length ? { toolCallDeltas } : {})
+    }
   }
 
   if (event.data.trim() === '[DONE]') return { delta: '', done: true }
@@ -182,7 +256,12 @@ export function extractStreamDelta(protocol: ProviderProtocol, event: SseEvent):
   if (failure) return { delta: '', error: failure }
 
   if (protocol === 'gemini') {
-    return { delta: extractGeminiDelta(payload), error: extractGeminiBlockReason(payload) }
+    const delta = extractGeminiDelta(payload)
+    const toolCalls = extractGeminiToolCalls(payload) ?? []
+    const error = extractGeminiBlockReason(payload)
+    return { delta, ...(toolCalls.length ? { toolCalls } : {}), ...(error ? { error } : {}) }
   }
-  return { delta: extractOpenAiDelta(payload) }
+  const delta = extractOpenAiDelta(payload)
+  const toolCallDeltas = extractOpenAiToolDeltas(payload) ?? []
+  return { delta, ...(toolCallDeltas.length ? { toolCallDeltas } : {}) }
 }

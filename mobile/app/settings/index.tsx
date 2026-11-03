@@ -11,11 +11,23 @@ import { useSessions } from '../../src/state/sessions'
 import { useSettings, useTheme } from '../../src/state/settings'
 import { useUpdates } from '../../src/state/updates'
 import { spacing, type as typography } from '../../src/theme/tokens'
+import { chooseStorageFolder } from '../../src/tools/files'
+import { forgetStorageGrant } from '../../src/tools/files'
 
 export default function SettingsScreen(): React.JSX.Element {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
-  const { providers, themeKey, defaultProviderId, defaultModelId } = useSettings()
+  const {
+    providers,
+    themeKey,
+    defaultProviderId,
+    defaultModelId,
+    toolPermissionMode,
+    storageGrants,
+    setToolPermissionMode,
+    removeStorageGrant,
+    addStorageGrant
+  } = useSettings()
   const { clearHistory, sessions } = useSessions()
   const { status: updateStatus, release, openSheet } = useUpdates()
 
@@ -33,6 +45,39 @@ export default function SettingsScreen(): React.JSX.Element {
         { text: 'Clear everything', style: 'destructive', onPress: () => void clearHistory() }
       ]
     )
+  }
+
+  const enableYolo = (): void => {
+    Alert.alert(
+      'Enable YOLO mode?',
+      'YOLO lets the model run supported tools without asking each time. Shell commands can modify or delete Prism-accessible files and consume resources. Android sandboxing and selected-folder grants still apply. Only enable this if you understand the risk.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Enable YOLO',
+          style: 'destructive',
+          onPress: () => setToolPermissionMode('yolo', true)
+        }
+      ]
+    )
+  }
+
+  const addFolder = (): void => {
+    void chooseStorageFolder()
+      .then((grant) => {
+        if (!grant) return
+        addStorageGrant(grant)
+        Alert.alert(
+          'Folder access added',
+          `${grant.label} is now available to file tools. You can revoke it in Settings.`
+        )
+      })
+      .catch((error) =>
+        Alert.alert(
+          'Could not grant folder access',
+          error instanceof Error ? error.message : String(error)
+        )
+      )
   }
 
   return (
@@ -77,6 +122,57 @@ export default function SettingsScreen(): React.JSX.Element {
                 onPress={() => router.push('/settings/appearance')}
                 last
               />
+            </Card>
+          </View>
+
+          <View style={styles.section}>
+            <SectionLabel>TOOLS & PERMISSIONS</SectionLabel>
+            <Card>
+              <Row
+                title={toolPermissionMode === 'ask' ? 'Ask before tools' : 'YOLO mode is on'}
+                subtitle={
+                  toolPermissionMode === 'ask'
+                    ? 'Review every tool call before it runs'
+                    : 'Tool calls run without per-call approval'
+                }
+                value={toolPermissionMode === 'ask' ? 'Locked' : 'YOLO'}
+                onPress={() =>
+                  toolPermissionMode === 'yolo' ? setToolPermissionMode('ask') : enableYolo()
+                }
+              />
+              <Row
+                title="Grant a storage folder"
+                subtitle="Choose folders such as Downloads or Documents. Android controls the exact scope."
+                value="Add"
+                onPress={addFolder}
+                last={storageGrants.length === 0}
+              />
+              {storageGrants.map((grant, index) => (
+                <Row
+                  key={grant.id}
+                  title={grant.label}
+                  subtitle="Granted folder access"
+                  value="Revoke"
+                  onPress={() =>
+                    Alert.alert(
+                      'Revoke folder access?',
+                      `${grant.label} will no longer be available to Prism tools.`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Revoke',
+                          style: 'destructive',
+                          onPress: () => {
+                            removeStorageGrant(grant.id)
+                            void forgetStorageGrant(grant.id)
+                          }
+                        }
+                      ]
+                    )
+                  }
+                  last={index === storageGrants.length - 1}
+                />
+              ))}
             </Card>
           </View>
 
