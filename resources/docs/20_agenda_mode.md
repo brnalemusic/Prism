@@ -2,6 +2,8 @@
 
 Agenda is Prism's desktop-only mode for AI-driven schedule creation. Each Agenda tab is an independent creation agent with its own conversation and its own schedules.
 
+Agenda is in alpha and remains in development; users will encounter issues. The app displays a persistent notice linking to [Prism GitHub Issues](https://github.com/brnalemusic/Prism/issues) for Agenda bug reports and suggestions. Feedback helps improve Agenda and prioritize future Prism updates.
+
 ## Core pieces
 
 - **Bottom composer:** a Chat-style compact pill with a theme-aware Forest/Medium glass surface plus Liquid Glass Maximum. The Agenda model selector and Safe/YOLO chip live inside it.

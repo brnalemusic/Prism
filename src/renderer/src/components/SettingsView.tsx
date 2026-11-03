@@ -4553,7 +4553,12 @@ export function SettingsView({
                           >
                             {section.icon}
                           </span>
-                          <span className="truncate">{section.label}</span>
+                          <span className="min-w-0 truncate">{section.label}</span>
+                          {section.id === 'mcp' && (
+                            <span className="ml-auto shrink-0 rounded border border-amber-300/20 bg-amber-300/10 px-1 py-0.5 text-[8px] font-semibold tracking-wide text-amber-200">
+                              ALPHA TEST
+                            </span>
+                          )}
                         </button>
                       )
                     })}
@@ -4579,7 +4584,12 @@ export function SettingsView({
           >
             <span className="flex items-center gap-2.5">
               <span className="text-accent-primary">{activeNavSection.icon}</span>
-              {activeNavSection.label}
+              <span>{activeNavSection.label}</span>
+              {activeNavSection.id === 'mcp' && (
+                <span className="ml-auto shrink-0 rounded border border-amber-300/20 bg-amber-300/10 px-1 py-0.5 text-[8px] font-semibold tracking-wide text-amber-200">
+                  ALPHA TEST
+                </span>
+              )}
             </span>
             <CaretDown
               size={14}
@@ -4611,7 +4621,12 @@ export function SettingsView({
                   >
                     {section.icon}
                   </span>
-                  {section.label}
+                  <span className="min-w-0 truncate">{section.label}</span>
+                  {section.id === 'mcp' && (
+                    <span className="ml-auto shrink-0 rounded border border-amber-300/20 bg-amber-300/10 px-1 py-0.5 text-[8px] font-semibold tracking-wide text-amber-200">
+                      ALPHA TEST
+                    </span>
+                  )}
                 </button>
               ))}
             </div>

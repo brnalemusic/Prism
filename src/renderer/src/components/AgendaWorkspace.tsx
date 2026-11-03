@@ -963,6 +963,16 @@ export function AgendaWorkspace({
     <div className="relative h-full w-full overflow-hidden bg-black">
       {/* Main content */}
       <div className="flex h-full w-full flex-col">
+        <div role="note" className="shrink-0 border-b border-amber-300/20 bg-amber-300/[0.07] px-4 py-2.5 text-[11px] leading-relaxed text-text-secondary sm:px-5">
+          <p className="font-semibold text-amber-200">Agenda is in alpha and still in development. YOU WILL ENCOUNTER ISSUES.</p>
+          <p>
+            Please report issues or suggest improvements on{' '}
+            <a href="https://github.com/brnalemusic/Prism/issues" target="_blank" rel="noreferrer" className="font-medium text-text-primary underline underline-offset-2 hover:text-amber-200" aria-label="Prism GitHub Issues (opens in a new tab)">
+              Prism GitHub Issues
+            </a>
+            . Your feedback helps improve Agenda and prioritize future Prism updates.
+          </p>
+        </div>
         {/* Tab strip */}
         <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-white/[0.06] bg-white/[0.012] px-4 py-2.5">
           {tabs.map((tab) => (

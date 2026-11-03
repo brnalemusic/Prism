@@ -627,6 +627,16 @@ export function McpSettings(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
+      <div role="note" className="rounded-xl border border-amber-300/20 bg-amber-300/[0.07] px-4 py-3 text-[11px] leading-relaxed text-text-secondary">
+        <p className="font-semibold text-amber-200">MCP is in alpha and still in development. YOU WILL ENCOUNTER ISSUES.</p>
+        <p className="mt-1">
+          Please report issues or suggest improvements about MCP on{' '}
+          <a href="https://github.com/brnalemusic/Prism/issues" target="_blank" rel="noreferrer" className="font-medium text-text-primary underline underline-offset-2 hover:text-amber-200" aria-label="Prism GitHub Issues (opens in a new tab)">
+            Prism GitHub Issues
+          </a>
+          . Your feedback helps improve MCP and prioritize future Prism updates.
+        </p>
+      </div>
       <section className="settings-card">
         <div className="flex items-start justify-between gap-3">
           <div>

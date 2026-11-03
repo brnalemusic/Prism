@@ -4,6 +4,8 @@ Prism supports the Model Context Protocol (MCP) so Agenda tasks can use external
 
 MCP servers are currently exposed **only to Agenda runs**. Regular chats keep the native Prism tool surface.
 
+MCP settings are in alpha and remain in development; users will encounter issues. The app displays a persistent notice linking to [Prism GitHub Issues](https://github.com/brnalemusic/Prism/issues) for MCP bug reports and suggestions. Feedback helps improve MCP and prioritize future Prism updates.
+
 ## Installing a server
 
 Open **Settings → MCP Servers**. The integration gallery provides account-based OAuth connections for GitHub, Supabase, and Gmail. Custom servers remain available under MCP servers.

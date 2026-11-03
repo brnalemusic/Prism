@@ -355,6 +355,7 @@ export function Sidebar({
           <NavItem
             icon={<CalendarCheck size={15} weight={activeView === 'agenda' ? 'fill' : 'bold'} />}
             label="Agenda"
+            badge="ALPHA TEST"
             active={activeView === 'agenda'}
             onClick={(): void => onViewChange('agenda')}
           />
@@ -580,7 +581,7 @@ function NavItem({
     <button
       onClick={onClick}
       className={clsx(
-        'group relative flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs transition-colors duration-200 cursor-pointer select-none outline-none',
+        'group relative flex w-full min-w-0 items-center gap-2 rounded-xl px-3 py-2 text-xs transition-colors duration-200 cursor-pointer select-none outline-none',
         active
           ? 'text-text-primary font-semibold'
           : 'text-text-secondary/80 hover:bg-white/[0.035] hover:text-text-primary'
@@ -611,13 +612,15 @@ function NavItem({
         {icon}
       </span>
 
-      <span>{label}</span>
+      <span className="min-w-0 truncate">{label}</span>
 
       {badge !== undefined && (
         <span
           className={clsx(
             'ml-auto flex min-w-[18px] items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-medium transition-[transform,background-color,border-color,color,opacity,box-shadow] duration-200',
-            label === 'Settings' && pulse
+            badge === 'ALPHA TEST'
+              ? 'shrink-0 border border-amber-300/20 bg-amber-300/10 text-[8px] font-semibold tracking-wide text-amber-200'
+              : label === 'Settings' && pulse
               ? 'bg-white/[0.07] border border-white/15 text-white font-mono hero-settings-badge'
               : 'bg-white/[0.04] text-text-muted'
           )}
