@@ -6,9 +6,14 @@ MCP servers are currently exposed **only to Agenda runs**. Regular chats keep th
 
 ## Installing a server
 
-Open **Settings → MCP Servers** and choose **Add server**.
+Open **Settings → MCP Servers**. The integration gallery provides account-based OAuth connections for GitHub, Supabase, and Gmail. Custom servers remain available under MCP servers.
 
-- **Presets** fill in a known server in one click: Filesystem, Memory, Sequential Thinking, and the Everything test server. Presets that need credentials show the expected environment variables.
+- **Gallery integrations** use the providers' hosted MCP endpoints and open account consent in the browser. Prism uses authorization code with PKCE and stores OAuth refresh credentials encrypted with Electron `safeStorage`.
+- **Gmail setup:** Google requires an OAuth client created in Google Cloud and configured for an AI-powered agent. Enter its client ID and secret in the Gmail setup panel. Register `http://127.0.0.1:53682/oauth/callback` as the redirect URI. Prism never asks for a Google password or app password.
+- **Supabase** uses the official hosted MCP server and account OAuth. If dynamic client registration is not available for this Prism host, configure a Supabase OAuth App in the gallery using the callback URI below.
+- **GitHub** uses the official hosted MCP server and provider OAuth; register a GitHub OAuth App with redirect URI `http://127.0.0.1:53682/oauth/callback` and enter its client ID and secret. No PAT is required.
+- **Supabase client setup:** if dynamic registration is unavailable, create a Supabase OAuth App and use the same callback URI; enter the client ID and secret in the integration setup panel.
+- **Presets** under custom MCP setup fill in known servers: Filesystem, Memory, Sequential Thinking, and the Everything test server.
 - **Stdio** runs a command as a child process. This is the usual transport for `npx`/`uvx` servers.
 - **HTTP** connects to a remote Streamable HTTP endpoint.
 
@@ -18,14 +23,22 @@ After saving, Prism starts the server, performs the MCP handshake, lists its too
 
 In **Safe** mode, installing or changing a server requires a permission prompt. In **YOLO** it proceeds immediately. Both paths are recorded in the Agenda permission audit log.
 
-## Secrets
+## Gallery accounts and disconnect
+
+OAuth access and refresh tokens and the Gmail OAuth client secret are encrypted in Prism's secure local store. They are never returned to the renderer, written to `mcp.json`, or sent through custom MCP environment variables. Account OAuth uses the provider's consent screen; Prism requests the access described on each gallery card.
+
+Choose **Disconnect** on a connected gallery card to stop the MCP session, delete Prism's encrypted tokens and account metadata, remove the gallery server entry, and detach it from every Agenda task. This removes Prism's local grant material. Remote provider-side grant revocation is not guaranteed unless the provider exposes a supported revocation endpoint; remove Prism from the provider's connected-app settings to revoke the remote grant as well.
+
+Reconnecting performs a fresh provider authorization and replaces the stored account credentials. Each provider supports one account at a time.
+
+## Custom server secrets
 
 Environment variables are stored separately from the server list:
 
 - `mcp.json` keeps the portable `mcpServers` shape plus Prism metadata under `prism`.
 - `mcp-secrets.json` keeps encrypted values through Electron `safeStorage` (the OS keychain).
 
-Secrets are never written to `mcp.json`. Editing a server and leaving a value blank keeps the stored value; removing the row deletes the key. If secure storage is unavailable, Prism refuses to save the secrets instead of writing them in plain text.
+Custom server secrets are never written to `mcp.json`. Editing a server and leaving a value blank keeps the stored value; removing the row deletes the key. If secure storage is unavailable, Prism refuses to save the secrets instead of writing them in plain text.
 
 Both files live in the Prism config directory (`%LOCALAPPDATA%\PrismDesktop` on Windows).
 

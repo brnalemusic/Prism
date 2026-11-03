@@ -26,6 +26,7 @@ import type {
 import type {
   McpConnectPresetResult,
   McpGalleryPreset,
+  McpGalleryConnection,
   McpInstallPreset,
   McpLoginRequest,
   McpLoginResolution,
@@ -596,8 +597,12 @@ const api = {
       ipcRenderer.removeListener('mcp-status-changed', listener)
     }
   },
-  listMcpGalleryPresets: (): Promise<McpGalleryPreset[]> =>
+  listMcpGalleryPresets: (): Promise<{ presets: McpGalleryPreset[]; connections: McpGalleryConnection[] }> =>
     ipcRenderer.invoke('mcp-list-gallery'),
+  saveMcpGalleryOAuthClient: (provider: string, clientId: string, clientSecret: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('mcp-save-gallery-oauth-client', provider, clientId, clientSecret),
+  disconnectMcpGallery: (provider: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('mcp-disconnect-gallery', provider),
   connectMcpPreset: (
     presetId: string,
     options?: {

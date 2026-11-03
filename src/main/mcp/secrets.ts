@@ -72,6 +72,18 @@ export function deleteServerSecrets(serverId: string): void {
   writeSecrets(store)
 }
 
+export function saveGalleryOAuthData(provider: string, data: Record<string, string>): void {
+  saveServerSecrets(`gallery-oauth-${provider}`, data)
+}
+
+export function loadGalleryOAuthData(provider: string): Record<string, string> {
+  return loadServerSecrets(`gallery-oauth-${provider}`)
+}
+
+export function deleteGalleryOAuthData(provider: string): void {
+  deleteServerSecrets(`gallery-oauth-${provider}`)
+}
+
 /** Environment for a spawned server: the user environment plus the stored secrets. */
 export function buildServerEnv(serverId: string): NodeJS.ProcessEnv {
   return { ...process.env, ...loadServerSecrets(serverId) }

@@ -2,89 +2,54 @@ import * as os from 'os'
 import type { McpGalleryPreset, McpInstallPreset } from '../../shared/mcpTypes'
 
 /**
- * Gallery integrations ship pre-configured: the user only supplies credentials
- * through Prism's native sign-in dialog. The server id is the preset id so
+ * Gallery integrations use provider OAuth account sign-in. The server id is the preset id so
  * reconnecting updates the same entry and Agenda tasks keep pointing at it.
  */
 const GALLERY_PRESETS: McpGalleryPreset[] = [
   {
     id: 'github',
     name: 'GitHub',
-    description: 'Issues, pull requests, repositories and code search through the official GitHub MCP server.',
+    description: 'Work with repositories, issues, pull requests and code through GitHub’s hosted MCP server.',
     brand: 'github',
     transport: 'http',
     command: '',
     args: [],
     url: 'https://api.githubcopilot.com/mcp/',
-    authEnvKey: 'GITHUB_TOKEN',
-    fields: [
-      {
-        key: 'GITHUB_TOKEN',
-        label: 'Personal access token',
-        placeholder: 'github_pat_...',
-        hint: 'Use a fine-grained token with access to the repositories this integration should reach.',
-        secret: true,
-        helpUrl: 'https://github.com/settings/tokens?type=beta',
-        helpLabel: 'Create a GitHub token'
-      }
-    ]
+    permissions: ['Repositories', 'Issues and pull requests', 'Profile'],
+    auth: 'oauth',
+    setupHint: 'Requires a GitHub OAuth App client ID and secret registered with the Prism callback URL.'
   },
   {
     id: 'supabase',
     name: 'Supabase',
-    description: 'Query projects, tables and SQL through the official hosted Supabase MCP server.',
+    description: 'Explore projects and manage Supabase resources using your signed-in account.',
     brand: 'supabase',
     transport: 'http',
     command: '',
     args: [],
     url: 'https://mcp.supabase.com/mcp',
-    authEnvKey: 'SUPABASE_ACCESS_TOKEN',
-    fields: [
-      {
-        key: 'SUPABASE_ACCESS_TOKEN',
-        label: 'Personal access token',
-        placeholder: 'sbp_...',
-        hint: 'Create a token under Account → Access tokens in the Supabase dashboard.',
-        secret: true,
-        helpUrl: 'https://supabase.com/dashboard/account/tokens',
-        helpLabel: 'Open Supabase tokens'
-      }
-    ]
+    permissions: ['Organizations', 'Projects', 'Database and platform resources'],
+    auth: 'oauth',
+    setupHint: 'Requires a Supabase OAuth App client ID and secret registered with the Prism callback URL.'
   },
   {
     id: 'gmail',
     name: 'Gmail',
-    description: 'Read, search, label and delete email over Gmail IMAP with an app password.',
+    description: 'Search and manage Gmail using Google account consent and official Gmail MCP.',
     brand: 'gmail',
-    transport: 'stdio',
-    command: 'npx',
-    args: ['-y', '@web4w3/gmail-mcp-server'],
-    url: '',
-    fields: [
-      {
-        key: 'GMAIL_USER',
-        label: 'Gmail address',
-        placeholder: 'you@gmail.com',
-        hint: 'The account the agent should read.',
-        helpUrl: 'https://myaccount.google.com/apppasswords',
-        helpLabel: 'Create an app password'
-      },
-      {
-        key: 'GMAIL_APP_PASSWORD',
-        label: 'App password',
-        placeholder: '16-character app password',
-        hint: 'Requires 2-Step Verification. Use an app password, never your Google password.',
-        secret: true,
-        helpUrl: 'https://myaccount.google.com/apppasswords',
-        helpLabel: 'Open Google app passwords'
-      }
-    ]
+    transport: 'http',
+    command: '',
+    args: [],
+    url: 'https://gmailmcp.googleapis.com/mcp/v1',
+    permissions: ['Gmail data allowed by the configured OAuth consent screen'],
+    auth: 'google-oauth-client',
+    setupHint: 'Requires a Google Cloud OAuth client configured for an AI-powered agent.'
   }
 ]
 
 /** Pre-configured integrations that only need a sign-in. */
 export function getMcpGalleryPresets(): McpGalleryPreset[] {
-  return GALLERY_PRESETS.map((preset) => ({ ...preset, fields: preset.fields.map((field) => ({ ...field })) }))
+  return GALLERY_PRESETS.map((preset) => ({ ...preset, permissions: [...preset.permissions] }))
 }
 
 export function getMcpGalleryPreset(id: string): McpGalleryPreset | null {

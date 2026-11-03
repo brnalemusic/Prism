@@ -165,6 +165,7 @@ import {
 } from './mcp/manager'
 import { getMcpPresets, getMcpGalleryPresets } from './mcp/presets'
 import { connectMcpPreset, resolveMcpLogin } from './mcp/login'
+import { disconnectMcpGallery, getGalleryConnections, handleMcpOAuthCallback, saveGalleryOAuthClient } from './mcp/login'
 import { registerMainWindow } from './mainWindow'
 import type { McpLoginResolution, McpServerDraft } from '../shared/mcpTypes'
 import {
@@ -997,6 +998,15 @@ if (process.defaultApp) {
 
 async function processDeepLinkUrl(urlStr: string): Promise<void> {
   if (!urlStr || !urlStr.startsWith('prism://')) return
+  try {
+    const callbackUrl = new URL(urlStr)
+    if (callbackUrl.hostname === 'mcp-oauth') {
+      const provider = callbackUrl.pathname.replace(/^\//, '')
+      const handled = handleMcpOAuthCallback({ provider: provider as 'github' | 'supabase' | 'gmail', state: callbackUrl.searchParams.get('state') || '', code: callbackUrl.searchParams.get('code') || undefined, error: callbackUrl.searchParams.get('error') || undefined })
+      if (!handled) console.warn('[MCP OAuth] Ignored invalid or expired OAuth callback.')
+      return
+    }
+  } catch { /* Continue with other Prism deep-link handlers. */ }
   console.log('[Auth] Processing OAuth deep link callback')
   safeSend(mainWindow, 'auth-callback-received')
   safeSend(launcherWindow, 'auth-callback-received')
@@ -2107,7 +2117,12 @@ if (!gotTheLock) {
       return { ok: true }
     })
 
-    ipcMain.handle('mcp-list-gallery', () => getMcpGalleryPresets())
+    ipcMain.handle('mcp-list-gallery', () => ({ presets: getMcpGalleryPresets(), connections: getGalleryConnections() }))
+
+    ipcMain.handle('mcp-save-gallery-oauth-client', (_event, provider: string, clientId: string, clientSecret: string) => {
+      try { saveGalleryOAuthClient(provider, clientId, clientSecret); return { ok: true } }
+      catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) } }
+    })
 
     ipcMain.handle('mcp-connect-preset', async (_event, presetId: string, options?: {
       taskId?: string
@@ -2192,6 +2207,19 @@ if (!gotTheLock) {
       deleteServerSecrets(id)
       broadcastIpc('mcp-servers-changed')
       return { ok: removed }
+    })
+
+    ipcMain.handle('mcp-disconnect-gallery', (_event, id: string) => {
+      try {
+        forgetMcpServer(id)
+        disconnectMcpGallery(id)
+        const server = loadMcpServers().find((entry) => entry.id === id)
+        if (server?.presetId === id) deleteMcpServer(id)
+        broadcastIpc('mcp-servers-changed')
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
     })
 
     ipcMain.handle('mcp-set-server-enabled', (_event, id: string, enabled: boolean) => {

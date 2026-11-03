@@ -119,10 +119,17 @@ export interface McpGalleryPreset {
   command: string
   args: string[]
   url: string
-  /** Secret key sent as `Authorization: Bearer <value>` for HTTP servers. */
-  authEnvKey?: string
-  /** Credentials the sign-in dialog asks for. */
-  fields: McpCredentialField[]
+  auth: 'oauth' | 'google-oauth-client'
+  permissions: string[]
+  setupHint?: string
+}
+
+export interface McpGalleryConnection {
+  presetId: McpGalleryPresetId
+  connected: boolean
+  accountLabel?: string
+  connectedAt?: number
+  error?: string
 }
 
 /** Pending sign-in shown by the global Prism dialog. */
@@ -155,6 +162,13 @@ export interface McpConnectPresetResult {
   status?: McpServerStatus
   /** Tool names exposed by the server after connecting. */
   tools?: string[]
+  error?: string
+}
+
+export interface McpOAuthCallback {
+  provider: McpGalleryPresetId
+  state: string
+  code?: string
   error?: string
 }
 

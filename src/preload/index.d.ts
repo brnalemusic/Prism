@@ -19,6 +19,7 @@ import type {
   McpServerStatus,
   McpConnectPresetResult,
   McpGalleryPreset,
+  McpGalleryConnection,
   McpLoginRequest,
   McpLoginResolution
 } from '../shared/mcpTypes'
@@ -307,7 +308,9 @@ export interface PrismAPI {
   }>
   stopMcpServer: (id: string) => Promise<{ ok: boolean }>
   onMcpServersChanged: (callback: () => void) => () => void
-  listMcpGalleryPresets: () => Promise<McpGalleryPreset[]>
+  listMcpGalleryPresets: () => Promise<{ presets: McpGalleryPreset[]; connections: McpGalleryConnection[] }>
+  saveMcpGalleryOAuthClient: (provider: string, clientId: string, clientSecret: string) => Promise<{ ok: boolean; error?: string }>
+  disconnectMcpGallery: (provider: string) => Promise<{ ok: boolean; error?: string }>
   connectMcpPreset: (
     presetId: string,
     options?: { taskId?: string; taskTitle?: string; runId?: string; attachToTask?: boolean }

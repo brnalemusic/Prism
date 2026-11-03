@@ -298,13 +298,20 @@ export class McpHttpClient implements McpClientLike {
   readonly serverId: string
   private readonly endpoint: string
   private readonly extraHeaders: Record<string, string>
+  private readonly onUnauthorized?: () => Promise<string>
   private sessionId: string | null = null
   private nextId = 1
 
-  constructor(serverId: string, url: string, headers: Record<string, string> = {}) {
+  constructor(
+    serverId: string,
+    url: string,
+    headers: Record<string, string> = {},
+    onUnauthorized?: () => Promise<string>
+  ) {
     this.serverId = serverId
     this.endpoint = url
     this.extraHeaders = headers
+    this.onUnauthorized = onUnauthorized
   }
 
   async start(): Promise<void> {
@@ -381,12 +388,23 @@ export class McpHttpClient implements McpClientLike {
     signal?.addEventListener('abort', onAbort, { once: true })
 
     try {
-      const response = await fetch(this.endpoint, {
+      let response = await fetch(this.endpoint, {
         method: 'POST',
         headers: this.headers(),
         body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
         signal: controller.signal
       })
+      if (response.status === 401 && this.onUnauthorized) {
+        const token = await this.onUnauthorized()
+        const headers = this.headers()
+        headers.Authorization = `Bearer ${token}`
+        response = await fetch(this.endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+          signal: controller.signal
+        })
+      }
       this.captureSession(response)
       if (!response.ok) {
         if (response.status === 401 || response.status === 403) {

@@ -283,7 +283,7 @@ async function connectGalleryPresetForRun(
   const attachToTask = record.attachToTask !== false
 
   // Reuse a working connection instead of asking for the token again.
-  if (hasPresetCredentials(presetId) && getServer(preset.id)?.enabled) {
+  if (hasPresetCredentials(presetId) && (presetId === 'supabase' || getServer(preset.id)?.enabled)) {
     try {
       await ensureServer(preset.id)
       const status = getServerStatus(preset.id)
@@ -313,9 +313,7 @@ async function connectGalleryPresetForRun(
       kind: 'mcp_install',
       title: getServer(preset.id) ? `Reconnect ${preset.name}` : `Connect ${preset.name}`,
       summary: `${preset.name} — ${target}`,
-      detail: `Prism opens a native sign-in dialog for: ${preset.fields
-        .map((field) => field.key)
-        .join(', ')}`,
+      detail: `Prism opens the provider's OAuth sign-in in your browser. Requested access: ${preset.permissions.join(', ')}`,
       taskId: agenda?.taskId,
       taskTitle: agenda?.taskTitle,
       runId: agenda?.runId

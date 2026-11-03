@@ -3,6 +3,7 @@ import { broadcastIpc } from '../safeSend'
 import { McpHttpClient, McpStdioClient, type McpClientLike } from './client'
 import { getServer, loadServers } from './store'
 import { buildServerEnv, loadServerSecrets } from './secrets'
+import { getMcpOAuthAccessToken, isMcpGalleryOAuthConnected } from './login'
 
 interface ManagedServer {
   client: McpClientLike | null
@@ -32,10 +33,16 @@ export function getCachedTools(serverIds: string[]): McpToolInfo[] {
   return serverIds.flatMap((id) => managed.get(id)?.status.tools ?? [])
 }
 
-function createClient(config: McpServerConfig): McpClientLike {
+async function createClient(config: McpServerConfig): Promise<McpClientLike> {
   if (config.transport === 'http') {
     if (!config.url) throw new Error('This HTTP MCP server has no URL.')
     const headers: Record<string, string> = {}
+    if (config.presetId) {
+      if (!isMcpGalleryOAuthConnected(config.presetId)) throw new Error('Connect this account from Settings → MCP Servers before using it.')
+      const token = await getMcpOAuthAccessToken(config.presetId, config.url)
+      headers.Authorization = `Bearer ${token}`
+      return new McpHttpClient(config.id, config.url, headers, () => getMcpOAuthAccessToken(config.presetId!, config.url))
+    }
     if (config.authEnvKey) {
       const token = loadServerSecrets(config.id)[config.authEnvKey]?.trim()
       if (!token) {
@@ -64,7 +71,7 @@ export function ensureServer(serverId: string): Promise<McpClientLike> {
   if (inFlight) return inFlight
 
   const promise = (async (): Promise<McpClientLike> => {
-    const client = createClient(config)
+    const client = await createClient(config)
     managed.set(serverId, {
       client: null,
       status: { id: serverId, state: 'starting', error: null, tools: [] }

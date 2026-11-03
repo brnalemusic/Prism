@@ -8,6 +8,8 @@ import {
   Plug,
   Plus,
   Trash,
+  ShieldCheck,
+  ArrowSquareOut,
   Warning,
   X,
   XCircle
@@ -15,6 +17,7 @@ import {
 import clsx from 'clsx'
 import type {
   McpGalleryPreset,
+  McpGalleryConnection,
   McpInstallPreset,
   McpServerConfig,
   McpServerDraft,
@@ -488,77 +491,68 @@ function GalleryCard({
   server,
   status,
   connecting,
-  onConnect
+  connection,
+  onConnect,
+  onDisconnect,
+  onConfigure
 }: {
   preset: McpGalleryPreset
   server: McpServerConfig | undefined
   status: McpServerStatus | undefined
   connecting: string | null
+  connection?: McpGalleryConnection
   onConnect: (presetId: string) => Promise<void>
+  onDisconnect: (presetId: string) => Promise<void>
+  onConfigure: (preset: McpGalleryPreset) => void
 }): React.JSX.Element {
-  const connected = Boolean(server?.enabled)
+  const connected = Boolean(connection?.connected && server?.enabled)
   const busy = connecting === preset.id
   const tools = status?.tools ?? []
 
   return (
-    <article className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3.5">
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 shrink-0 flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-accent-primary">
-          <McpBrandIcon brand={preset.brand} size={16} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="truncate text-[12.5px] font-semibold text-text-primary">
-              {preset.name}
-            </h3>
-            <span
-              className={clsx(
-                'inline-flex items-center gap-1 text-[10px] font-medium',
-                connected ? 'text-emerald-300' : 'text-text-muted'
-              )}
-            >
-              {busy ? (
-                <CircleNotch size={10} className="animate-spin" />
-              ) : (
-                <span className="h-1.5 w-1.5 rounded-full bg-current" />
-              )}
-              {connected ? 'Conectado' : 'Precisa de login'}
+    <article className={clsx('group relative flex min-h-[330px] flex-col overflow-hidden rounded-2xl border bg-[linear-gradient(145deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012))] p-5 transition-colors', connected ? 'border-emerald-300/20' : 'border-white/[0.08] hover:border-white/[0.16]')}>
+      <div className="pointer-events-none absolute -right-12 -top-14 h-44 w-44 rounded-full bg-accent-primary/[0.055] blur-3xl transition-opacity group-hover:opacity-150" />
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/[0.1] bg-black/20 text-accent-primary shadow-inner"><McpBrandIcon brand={preset.brand} size={22} /></span>
+          <div>
+            <h3 className="text-base font-semibold tracking-tight text-text-primary">{preset.name}</h3>
+            <span className={clsx('mt-1 inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em]', connected ? 'text-emerald-300' : status?.error ? 'text-rose-300' : 'text-text-muted')}>
+              {busy ? <CircleNotch size={11} className="animate-spin" /> : <span className={clsx('h-1.5 w-1.5 rounded-full', connected ? 'bg-emerald-300' : status?.error ? 'bg-rose-300' : 'bg-white/25')} />}
+              {busy ? 'Authorizing' : connected ? 'Connected' : status?.error ? 'Action needed' : 'Not connected'}
             </span>
-            <span className="rounded-full bg-white/[0.05] px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide text-text-muted">
-              {preset.transport}
-            </span>
-            {tools.length > 0 && (
-              <span className="text-[10px] text-text-muted">
-                {tools.length} tool{tools.length === 1 ? '' : 's'}
-              </span>
-            )}
           </div>
-          <p className="mt-1 truncate font-mono text-[10px] text-text-muted">
-            {preset.transport === 'http' ? preset.url : [preset.command, ...preset.args].join(' ')}
-          </p>
-          <p className="mt-1.5 text-[10.5px] leading-relaxed text-text-secondary">
-            {preset.description}
-          </p>
-          {status?.error && (
-            <p className="mt-1.5 flex items-start gap-1.5 rounded-md bg-rose-400/10 px-2 py-1 text-[10px] leading-relaxed text-rose-200">
-              <XCircle size={11} className="mt-0.5 shrink-0" />
-              <span className="break-words">{status.error}</span>
-            </p>
-          )}
         </div>
+        <span className="rounded-full border border-white/[0.08] px-2 py-1 text-[9px] uppercase tracking-wider text-text-muted">OAuth</span>
+      </div>
+      <p className="relative mt-5 min-h-[42px] text-[12px] leading-relaxed text-text-secondary">{preset.description}</p>
+      <div className="relative mt-4 rounded-xl border border-white/[0.06] bg-black/15 p-3">
+        <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted"><ShieldCheck size={12} /> Access requested</div>
+        <ul className="space-y-1">
+          {preset.permissions.map((permission) => <li key={permission} className="flex items-center gap-2 text-[11px] text-text-secondary"><span className="h-1 w-1 rounded-full bg-accent-primary" />{permission}</li>)}
+        </ul>
+      </div>
+      {preset.setupHint && <p className="relative mt-3 rounded-lg border border-amber-300/15 bg-amber-300/[0.06] px-3 py-2 text-[10px] leading-relaxed text-amber-100/80">{preset.setupHint} <button type="button" onClick={() => onConfigure(preset)} className="ml-1 cursor-pointer underline decoration-amber-100/30 underline-offset-2 hover:text-white">Configure OAuth client</button></p>}
+      {connected && <p className="relative mt-3 text-[10px] text-emerald-100/70">Connected account{connection?.accountLabel ? ` · ${connection.accountLabel}` : ''}{tools.length ? ` · ${tools.length} tools available` : ''}</p>}
+      {status?.error && (
+        <p className="relative mt-3 flex items-start gap-1.5 rounded-md bg-rose-400/10 px-2 py-1 text-[10px] leading-relaxed text-rose-200">
+          <XCircle size={11} className="mt-0.5 shrink-0" />
+          <span className="break-words">{status.error}</span>
+        </p>
+      )}
+      <div className="relative mt-auto flex gap-2 pt-5">
         <button
           type="button"
           onClick={() => void onConnect(preset.id)}
-          disabled={busy || connected}
+          disabled={busy}
           className={clsx(
-            'shrink-0 cursor-pointer rounded-lg border px-3 py-1.5 text-[11px] transition-colors disabled:opacity-45 disabled:cursor-not-allowed',
-            connected || busy
-              ? 'border-white/[0.08] bg-white/[0.02] text-text-muted'
-              : 'border-accent-primary/45 bg-accent-primary/15 text-accent-primary hover:bg-accent-primary/25'
+            'flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-[11px] font-semibold transition-colors disabled:cursor-wait disabled:opacity-50',
+            'border-accent-primary/40 bg-accent-primary/15 text-accent-primary hover:bg-accent-primary/25'
           )}
         >
-          {busy ? 'Conectando…' : connected ? 'Conectado' : 'Conectar'}
+          {busy ? 'Opening sign-in…' : connected ? 'Reconnect account' : 'Connect account'} <ArrowSquareOut size={12} />
         </button>
+        {connected && <button type="button" disabled={busy} onClick={() => void onDisconnect(preset.id)} className="cursor-pointer rounded-xl border border-rose-300/20 px-3 py-2.5 text-[11px] font-medium text-rose-200/80 transition-colors hover:border-rose-300/40 hover:bg-rose-300/[0.08] disabled:opacity-40">Disconnect</button>}
       </div>
     </article>
   )
@@ -569,6 +563,8 @@ export function McpSettings(): React.JSX.Element {
   const [statuses, setStatuses] = useState<McpServerStatus[]>([])
   const [presets, setPresets] = useState<McpInstallPreset[]>([])
   const [galleryPresets, setGalleryPresets] = useState<McpGalleryPreset[]>([])
+  const [galleryConnections, setGalleryConnections] = useState<McpGalleryConnection[]>([])
+  const [configurePreset, setConfigurePreset] = useState<McpGalleryPreset | null>(null)
   const [dialogTarget, setDialogTarget] = useState<McpServerConfig | null | 'new'>(null)
   const [error, setError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState<string | null>(null)
@@ -583,7 +579,8 @@ export function McpSettings(): React.JSX.Element {
       setServers(result.servers)
       setStatuses(result.statuses)
       setPresets(presetList)
-      setGalleryPresets(gallery)
+      setGalleryPresets(gallery.presets)
+      setGalleryConnections(gallery.connections)
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : String(refreshError))
     }
@@ -607,7 +604,7 @@ export function McpSettings(): React.JSX.Element {
     try {
       const result = await window.api.connectMcpPreset(presetId)
       if (!result.ok) {
-        setError(result.error || `Não foi possível conectar ${presetId}.`)
+        setError(result.error || `Could not connect ${presetId}.`)
       }
       await refresh()
     } catch (connectError) {
@@ -617,23 +614,33 @@ export function McpSettings(): React.JSX.Element {
     }
   }
 
+  const disconnectPreset = async (presetId: string): Promise<void> => {
+    if (!window.confirm(`Disconnect ${presetId}? Prism will delete its saved account credentials and remove it from all Agenda tasks.`)) return
+    setConnecting(presetId)
+    try {
+      const result = await window.api.disconnectMcpGallery(presetId)
+      if (!result.ok) setError(result.error || 'Could not remove this account data.')
+      await refresh()
+    } catch (disconnectError) { setError(disconnectError instanceof Error ? disconnectError.message : String(disconnectError)) }
+    finally { setConnecting(null) }
+  }
+
   return (
     <div className="space-y-4">
       <section className="settings-card">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-text-primary">Galeria de integrações</h2>
+            <h2 className="text-sm font-semibold text-text-primary">Integration gallery</h2>
             <p className="mt-0.5 text-xs leading-relaxed text-text-secondary/70">
-              MCPs pré-configurados que precisam apenas de login. As credenciais ficam criptografadas
-              no cofre do sistema; nada é gravado em texto simples.
+              Official account connections for Agenda. Sign in with the provider in your browser; Prism stores refresh credentials encrypted and never asks for account passwords or personal access tokens.
             </p>
           </div>
         </div>
 
         {galleryPresets.length === 0 ? (
-          <p className="mt-3 text-[11px] text-text-muted">Nenhuma integração disponível.</p>
+          <p className="mt-3 text-[11px] text-text-muted">No integrations are available.</p>
         ) : (
-          <div className="mt-3 space-y-2">
+          <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-3">
             {galleryPresets.map((preset) => {
               const server = servers.find((s) => s.presetId === preset.id || s.id === preset.id)
               const status = statusById.get(server?.id ?? '')
@@ -643,14 +650,24 @@ export function McpSettings(): React.JSX.Element {
                   preset={preset}
                   server={server}
                   status={status}
+                  connection={galleryConnections.find((item) => item.presetId === preset.id)}
                   connecting={connecting}
                   onConnect={connectPreset}
+                  onDisconnect={disconnectPreset}
+                  onConfigure={setConfigurePreset}
                 />
               )
             })}
           </div>
         )}
       </section>
+
+      {configurePreset && <ProviderOAuthSetupDialog preset={configurePreset} onClose={() => setConfigurePreset(null)} onSave={async (clientId, clientSecret) => {
+        const result = await window.api.saveMcpGalleryOAuthClient(configurePreset.id, clientId, clientSecret)
+        if (!result.ok) throw new Error(result.error || 'Could not save OAuth client.')
+        setConfigurePreset(null)
+        await connectPreset(configurePreset.id)
+      }} />}
 
       <section className="settings-card">
         <div className="flex items-start justify-between gap-3">
@@ -757,4 +774,23 @@ export function McpSettings(): React.JSX.Element {
       )}
     </div>
   )
+}
+
+function ProviderOAuthSetupDialog({ preset, onClose, onSave }: { preset: McpGalleryPreset; onClose: () => void; onSave: (clientId: string, clientSecret: string) => Promise<void> }): React.JSX.Element {
+  const [clientId, setClientId] = useState('')
+  const [clientSecret, setClientSecret] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const submit = async (): Promise<void> => {
+    if (busy) return
+    setBusy(true); setError(null)
+    try { await onSave(clientId.trim(), clientSecret.trim()) }
+    catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)) }
+    finally { setBusy(false) }
+  }
+  return <div className="fixed inset-0 z-[125] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"><section role="dialog" aria-modal="true" aria-labelledby="provider-oauth-title" className="w-full max-w-md rounded-2xl border border-white/[0.12] bg-[var(--surface-lowest)] p-5 shadow-[0_28px_90px_rgba(0,0,0,0.75)]">
+    <div className="flex items-start justify-between gap-3"><div><h2 id="provider-oauth-title" className="text-sm font-semibold text-text-primary">Set up {preset.name} OAuth</h2><p className="mt-1 text-[11px] leading-relaxed text-text-secondary">Register an OAuth application with {preset.name} using the callback URI below. The client secret stays encrypted in Prism.</p></div><button type="button" onClick={onClose} className="cursor-pointer text-text-muted hover:text-text-primary" aria-label="Close"><X size={15} /></button></div>
+    <div className="mt-4 space-y-3"><label className="block text-[11px] text-text-secondary">OAuth client ID<input value={clientId} onChange={(event) => setClientId(event.target.value)} autoComplete="off" className="mt-1 w-full rounded-lg border border-white/[0.09] bg-black/25 px-3 py-2 text-[12px] text-text-primary outline-none focus:border-accent-primary/50" /></label><label className="block text-[11px] text-text-secondary">Client secret<input value={clientSecret} onChange={(event) => setClientSecret(event.target.value)} type="password" autoComplete="new-password" className="mt-1 w-full rounded-lg border border-white/[0.09] bg-black/25 px-3 py-2 text-[12px] text-text-primary outline-none focus:border-accent-primary/50" /></label><p className="text-[10px] leading-relaxed text-text-muted">Callback URI <code className="select-all text-text-secondary">http://127.0.0.1:53682/oauth/callback</code>{preset.id === 'gmail' ? '. Enable Gmail API and configure Google OAuth for an AI-powered agent.' : preset.id === 'github' ? '. Register this URI in your GitHub OAuth App.' : '. Register the callback URI in your Supabase OAuth App.'}</p>{error && <p role="alert" className="rounded-lg bg-rose-300/10 px-3 py-2 text-[11px] text-rose-200">{error}</p>}</div>
+    <footer className="mt-5 flex justify-end gap-2"><button type="button" onClick={onClose} className="settings-secondary-button cursor-pointer">Cancel</button><button type="button" disabled={busy || !clientId.trim()} onClick={() => void submit()} className="settings-primary-button cursor-pointer disabled:opacity-45">{busy ? 'Saving…' : 'Save and continue'}</button></footer>
+  </section></div>
 }
