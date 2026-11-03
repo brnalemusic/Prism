@@ -23,6 +23,9 @@ import type {
 import type { McpServerConfig } from '../../../shared/mcpTypes'
 import { ModelSelector } from './ModelSelector'
 import ReactMarkdown from 'react-markdown'
+import { AnimatePresence, MotionConfig, motion } from 'motion/react'
+import { modeSwap } from '../motion/presets'
+import { LiquidGlassSurface } from './LiquidGlassSurface'
 
 const REMARK_PLUGINS: any[] = []
 
@@ -592,40 +595,47 @@ export function AgendaWorkspace({
   }, [selectedRunChatId, transcripts])
 
   const renderTranscript = (msgs: ChatMsg[], processingFlag: boolean) => (
-    <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4 space-y-4">
+    <div className="h-full w-full overflow-y-auto custom-scrollbar">
+      <div className="mx-auto flex w-full max-w-[800px] flex-col gap-6 px-4 pb-36 pt-6 sm:px-8">
       {msgs.length === 0 && !processingFlag && (
-        <div className="text-center text-text-muted text-sm py-10">
-          No messages yet.
+        <div className="flex min-h-[38vh] flex-col items-center justify-center gap-3 text-center animate-fade-in">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.03] text-accent-primary">
+            <ChatTeardropText size={20} />
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-text-primary">Ready when you are</p>
+            <p className="max-w-sm text-xs leading-relaxed text-text-secondary/70">Start a conversation with this Agenda agent to create and manage schedules.</p>
+          </div>
         </div>
       )}
       {msgs.map((msg, index) => {
         if (msg.role === 'separator') {
           return (
-            <div key={index} className="text-xs text-rose-300 bg-rose-300/10 border border-rose-300/20 rounded-lg px-3 py-2">
+            <div key={index} className="animate-soft-pop rounded-xl border border-status-error/20 bg-status-error/[0.06] px-3.5 py-2.5 text-xs text-status-error">
               {msg.content}
             </div>
           )
         }
         if (msg.role === 'user') {
           return (
-            <div key={index} className="flex justify-end">
-              <div className="max-w-[75%] rounded-2xl bg-accent-primary/10 border border-accent-primary/20 px-4 py-2.5 text-sm text-text-primary">
+            <div key={index} className="flex justify-end animate-fade-in">
+              <div className="max-w-[85%] rounded-[22px] border border-white/[0.08] bg-white/[0.055] px-4 py-3 text-sm leading-relaxed text-text-primary shadow-[0_8px_28px_rgba(0,0,0,0.16)]">
                 {msg.content}
               </div>
             </div>
           )
         }
         return (
-          <div key={index} className="space-y-2">
+          <div key={index} className="space-y-3 animate-fade-in">
             {msg.thoughts && (
-              <div className="text-xs text-text-muted italic border-l-2 border-white/10 pl-3">
+              <div className="border-l-2 border-accent-primary/30 pl-3 text-xs italic leading-relaxed text-text-muted">
                 {msg.thoughts}
               </div>
             )}
             {msg.toolCalls && msg.toolCalls.length > 0 && (
               <div className="space-y-1">
                 {msg.toolCalls.map((tc: any, i: number) => (
-                  <div key={i} className="flex items-center gap-2 text-xs text-text-secondary bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-1.5">
+                  <div key={i} className="flex items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-2 text-xs text-text-secondary transition-colors">
                     <span className="font-mono text-accent-primary">{tc.name}</span>
                     <span className="truncate">{JSON.stringify(tc.args ?? {})}</span>
                     {tc.status === 'running' && <span className="ml-auto text-accent-primary animate-pulse">running</span>}
@@ -636,7 +646,7 @@ export function AgendaWorkspace({
               </div>
             )}
             {msg.content && (
-              <div className="prose prose-invert max-w-none text-sm">
+              <div className="prose prose-invert max-w-none text-sm leading-relaxed">
                 <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>
                   {msg.content}
                 </ReactMarkdown>
@@ -646,6 +656,7 @@ export function AgendaWorkspace({
           </div>
         )
       })}
+      </div>
     </div>
   )
 
@@ -736,17 +747,18 @@ export function AgendaWorkspace({
     return (
       <div className="flex flex-col h-full">
         <div className="flex-1 min-h-0">{renderTranscript(activeTabTranscript, isProcessing)}</div>
-        <div className="p-4 border-t border-white/[0.06]">
-          <div className="flex items-end gap-3">
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-20 bg-[linear-gradient(to_top,rgba(0,0,0,0.55)_0%,rgba(0,0,0,0.18)_55%,transparent_100%)] px-4 pb-6 pt-12">
+          <div className="pointer-events-auto mx-auto flex w-full max-w-[800px] items-end gap-3">
             <button
               type="button"
               onClick={() => setManualOpen(true)}
-              className="h-10 w-10 shrink-0 flex items-center justify-center rounded-full bg-white/[0.06] border border-white/[0.1] text-text-secondary hover:text-text-primary hover:bg-white/[0.1] transition-colors"
+              className="h-10 w-10 shrink-0 flex items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.06] text-text-secondary shadow-[var(--glass-shadow-md)] transition-interactive duration-150 hover:bg-white/[0.1] hover:text-text-primary active:scale-95"
               title="Create a schedule manually"
             >
               <CalendarPlus size={16} />
             </button>
-            <div className="flex-1 true-glass glass-menu-host input-bar-host relative rounded-[24px] flex flex-col px-4 py-3" style={{ isolation: 'isolate' }}>
+            <div className="true-glass glass-menu-host input-bar-host relative flex flex-1 flex-col rounded-[26px] border border-white/[0.1] px-4 py-3 shadow-[var(--glass-shadow-md)]" style={{ isolation: 'isolate' }}>
+            <LiquidGlassSurface refraction={20} blur={2} opacity={0.4} specular={0.12} distortionRadius={22} />
             <textarea
               value={composerText}
               onChange={(e) => setComposerText(e.target.value)}
@@ -758,7 +770,7 @@ export function AgendaWorkspace({
               }}
               placeholder={`Message ${agent?.title ?? 'Agenda agent'}…`}
               rows={2}
-              className="w-full bg-transparent resize-none outline-none text-sm text-text-primary placeholder:text-text-muted"
+              className="w-full resize-none bg-transparent text-sm leading-relaxed text-text-primary outline-none placeholder:text-text-muted"
               style={{ pointerEvents: 'auto', position: 'relative', zIndex: 1 }}
             />
             <div className="flex items-center justify-between mt-2">
@@ -812,7 +824,7 @@ export function AgendaWorkspace({
     return (
       <div className="flex flex-col h-full">
         {/* Header */}
-        <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between gap-3">
+          <div className="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between gap-3 bg-white/[0.015]">
           <div className="flex items-center gap-2 text-sm">
             <button
               type="button"
@@ -922,8 +934,8 @@ export function AgendaWorkspace({
           </div>
         </div>
         {/* Collapsed prompt/instructions cards */}
-        <div className="px-4 py-3 space-y-2 border-b border-white/[0.06]">
-          <details className="group rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+        <div className="mx-auto w-full max-w-[800px] space-y-2 border-b border-white/[0.06] px-4 py-3 sm:px-8">
+          <details className="group rounded-xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-2.5 transition-colors open:bg-white/[0.04]">
             <summary className="cursor-pointer text-xs font-medium text-text-secondary flex items-center gap-1.5">
               <CaretRight size={10} className="group-open:rotate-90 transition-transform" />
               Run prompt
@@ -932,7 +944,7 @@ export function AgendaWorkspace({
               {selectedRun?.prompt ?? task.prompt}
             </div>
           </details>
-          <details className="group rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+          <details className="group rounded-xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-2.5 transition-colors open:bg-white/[0.04]">
             <summary className="cursor-pointer text-xs font-medium text-text-secondary flex items-center gap-1.5">
               <CaretRight size={10} className="group-open:rotate-90 transition-transform" />
               Instructions
@@ -948,21 +960,21 @@ export function AgendaWorkspace({
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div className="relative h-full w-full overflow-hidden bg-black">
       {/* Main content */}
       <div className="flex h-full w-full flex-col">
         {/* Tab strip */}
-        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-white/[0.06] overflow-x-auto">
+        <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-white/[0.06] bg-white/[0.012] px-4 py-2.5">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveTabId(tab.id)}
               className={clsx(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs whitespace-nowrap',
+                'flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs whitespace-nowrap transition-interactive duration-150',
                 tab.id === activeTabId
-                  ? 'bg-white/[0.08] text-text-primary'
-                  : 'text-text-secondary hover:bg-white/[0.04]'
+                  ? 'border-white/[0.1] bg-white/[0.07] text-text-primary shadow-[0_4px_14px_rgba(0,0,0,0.16)]'
+                  : 'border-transparent text-text-secondary hover:border-white/[0.06] hover:bg-white/[0.04] hover:text-text-primary'
               )}
             >
               {tab.kind === 'creation' ? <ChatTeardropText size={12} /> : <CalendarPlus size={12} />}
@@ -990,17 +1002,31 @@ export function AgendaWorkspace({
           )}
         </div>
         <div className="flex-1 min-h-0">
-          {activeTab?.kind === 'creation' ? renderCreationTab() : renderScheduleTab()}
+          <MotionConfig reducedMotion="user">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={activeTab?.id ?? 'agenda-empty'}
+                variants={modeSwap}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                className="relative h-full min-h-0"
+              >
+                {activeTab?.kind === 'creation' ? renderCreationTab() : renderScheduleTab()}
+              </motion.div>
+            </AnimatePresence>
+          </MotionConfig>
         </div>
       </div>
 
       {/* Floating sidebar */}
       <div
         className={clsx(
-          'absolute right-3 top-3 bottom-3 z-20 flex flex-col w-72 rounded-2xl border border-white/[0.08] bg-black/40 backdrop-blur-2xl shadow-[0_12px_40px_rgba(0,0,0,0.45)] transition-all duration-300',
+          'true-glass absolute right-3 top-3 bottom-3 z-20 flex w-72 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-black/45 shadow-[var(--glass-shadow-lg)] backdrop-blur-2xl transition-all duration-300',
           sidebarOpen ? 'translate-x-0 opacity-100' : 'translate-x-[calc(100%+1rem)] opacity-0 pointer-events-none'
         )}
       >
+        <LiquidGlassSurface refraction={16} blur={2} opacity={0.38} specular={0.12} distortionRadius={20} />
         <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06]">
           <span className="text-xs font-semibold text-text-primary">Agenda</span>
           <button
