@@ -86,10 +86,15 @@ import { getHarnessToolNamesForPhase, isReadOnlyHarnessPlanCommand } from '../ha
 import { requestHarnessApproval, cancelHarnessApprovalsForChat } from '../harnessApproval'
 import {
   createAgendaToolExecutor,
+  getAgendaAgentChatId,
   getAgendaMcpToolDefinitions,
   getAgendaSystemToolDefinitions,
-  isAgendaRun
+  isAgendaAgentChat,
+  isAgendaChat
 } from '../agenda/runContext'
+import { getAgendaAgentSystemPrompt } from '../agenda/agentPrompt'
+import { getAgendaAgentToolDefinitions } from '../agenda/agentTools'
+import { getAgent } from '../agenda/agents'
 import type { ToolResultEnvelope } from '../toolRuntime'
 import { resolveRequestModelKey, resolveRunWorkspace } from './sessionRuntime'
 import { readHarnessExplorerContext } from '../harnessExplorer'
@@ -351,6 +356,10 @@ export function getNativeToolsForOpenAi(
   chatId?: string,
   disabledSkills?: string[]
 ): OpenAiToolDefinition[] {
+  // Creation agents only receive the Agenda tools. Keeping this surface narrow
+  // is what makes an Agenda conversation a scheduling assistant rather than a
+  // second Chat tab.
+  if (isAgendaAgentChat(chatId)) return getAgendaAgentToolDefinitions()
   const definitions = getOpenAiToolDefinitions(chatId, disabledSkills).filter(
     (definition) =>
       definition.function.name !== 'generate_image' ||
@@ -601,7 +610,7 @@ export async function handleChatMessage(
   // legacy global selection used by regular conversations and one-shot commands.
   if (workspace === 'chat' && payloadModelKey && !isLiveOnlyModel(payloadModelKey)) {
     // Agenda runs keep their own model and must not change the user's selection.
-    if (!isAgendaRun(chatId)) currentSelectedChatModel = payloadModelKey
+    if (!isAgendaChat(chatId)) currentSelectedChatModel = payloadModelKey
   }
 
   let { provider, model } = resolveProviderAndModel(requestModelKey)
@@ -659,7 +668,7 @@ export async function handleChatMessage(
   }
   // Agenda runs share the chat pipeline but must never mutate the runtime state
   // of the user's active chat (mode, discipline path or working directory).
-  const mutateChatRuntime = workspace === 'chat' && !isAgendaRun(chatId)
+  const mutateChatRuntime = workspace === 'chat' && !isAgendaChat(chatId)
   if (mutateChatRuntime) currentSessionMode = requestMode
 
   if (requestMode === 'discipline' || requestMode === 'harness') {
@@ -955,46 +964,54 @@ export async function handleChatMessage(
       }
       harnessSystemPrompt = harnessPrompt.prompt
     }
-    if (isFirstMessage) {
+    if (isFirstMessage && !isAgendaAgentChat(chatId)) {
       // Start title generation only after a Harness context snapshot has been persisted.
       generateTitleInBackground(event, provider, model.id, message, chatId)
     }
+    const agendaAgentId = getAgendaAgentChatId(chatId)
+    const agendaAgent = agendaAgentId ? getAgent(agendaAgentId) : null
+    const agendaAgentPrompt = agendaAgent ? getAgendaAgentSystemPrompt(agendaAgent) : null
     const systemPrompt = harnessSystemPrompt
       ? harnessSystemPrompt
-      : getSystemToolsPrompt(
-          model.id,
-          'main',
-          matchedWorkflow?.toolConstraints,
-          requestSessionMode,
-          requestDisciplinePath,
-          model.name,
-          isPrismCloud,
-          disabledSkills
-        )
+      : agendaAgentPrompt
+        ? agendaAgentPrompt
+        : getSystemToolsPrompt(
+            model.id,
+            'main',
+            matchedWorkflow?.toolConstraints,
+            requestSessionMode,
+            requestDisciplinePath,
+            model.name,
+            isPrismCloud,
+            disabledSkills
+          )
     let fullPrompt = systemPrompt
-    if (requestSessionMode !== 'harness' && !hasConfiguredImageGenerationRoute()) {
+    if (!agendaAgentPrompt && requestSessionMode !== 'harness' && !hasConfiguredImageGenerationRoute()) {
       fullPrompt +=
         '\n\n# No Image Model\nImage generation is unconfigured (Settings > Intelligence Routing). On image requests, explain setup; never fake output.'
     }
-    if (requestSessionMode !== 'harness' && matchedWorkflow) {
+    if (!agendaAgentPrompt && requestSessionMode !== 'harness' && matchedWorkflow) {
       fullPrompt += `\n\n# Active Workflow: ${matchedWorkflow.name}\n${matchedWorkflow.systemInstruction}`
     }
-    if (requestSessionMode !== 'harness' && isForceSearch && !isYoutubeMode) {
+    if (!agendaAgentPrompt && requestSessionMode !== 'harness' && isForceSearch && !isYoutubeMode) {
       fullPrompt += `\n\n# Web Search Required\nWeb Search is on: call 'web_search' first for current info (resultCount 2-4 typical).`
     }
-    if (requestSessionMode !== 'harness' && isYoutubeMode) {
+    if (!agendaAgentPrompt && requestSessionMode !== 'harness' && isYoutubeMode) {
       fullPrompt += `
 
 ${YOUTUBE_SEARCH_PROTOCOL}`
     }
-    if (requestSessionMode !== 'harness' && /https?:\/\/[^\s]+/i.test(userText)) {
+    if (
+      !agendaAgentPrompt &&
+      requestSessionMode !== 'harness' &&
+      /https?:\/\/[^\s]+/i.test(userText)
+    ) {
       fullPrompt += `\n\n# Web URL Directive\nThe user message contains one or more web URLs. You MUST call the 'read_page' tool directly with the URL to fetch and read its content (e.g. read_page({ url: "..." })). DO NOT call 'read_skill' for 'integrated_browser_skill.md', DO NOT open an interactive browser session, and DO NOT call 'open_browser_link'. Use 'read_page' directly.`
     }
 
     // Long-term memory recall (M2): relevant facts ride this turn's prompt.
-    // Never injected into Harness prompts; pinned facts already ride the
-    // static core-profile block, so they are excluded here (no duplication).
-    if (requestSessionMode !== 'harness') {
+    // Never injected into Harness or Agenda-agent prompts.
+    if (!agendaAgentPrompt && requestSessionMode !== 'harness') {
       fullPrompt = appendTurnRecallBlock(fullPrompt, userText)
     }
 
@@ -1653,7 +1670,7 @@ async function wakeUpChatFromPendingTerminalNotifications(chatId: string): Promi
             harnessSettings,
             chatSession.harnessPhase === 'plan' ? 'plan' : 'build'
           )
-        : isAgendaRun(chatId)
+        : isAgendaChat(chatId)
           ? createAgendaToolExecutor(chatId)
           : undefined,
       onStreamEvent: (streamEvent, state) => {

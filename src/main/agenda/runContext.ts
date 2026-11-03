@@ -21,6 +21,7 @@ import { loadServerSecrets, saveServerSecrets } from '../mcp/secrets'
 import { getServer, saveServer } from '../mcp/store'
 import { broadcastIpc } from '../safeSend'
 import { getTask, updateTask } from './tasks'
+import { executeAgendaAgentTool, getAgendaAgentToolDefinitions } from './agentTools'
 import type { OpenAiToolDefinition } from '../ai/types'
 
 /**
@@ -125,12 +126,18 @@ interface AgendaRunContext {
   prompts: number
 }
 
+interface AgendaAgentChatContext {
+  agentId: string
+  prompts: number
+}
+
 /**
  * Agenda runs reuse the regular chat pipeline but must be identifiable from the
  * tool runtime. Keeping this registry in its own module avoids an import cycle
  * between the chat handler and the Agenda executor.
  */
 const activeAgendaRuns = new Map<string, AgendaRunContext>()
+const activeAgendaAgentChats = new Map<string, AgendaAgentChatContext>()
 
 export function registerAgendaRun(
   chatId: string,
@@ -148,6 +155,31 @@ export function unregisterAgendaRun(chatId: string): number {
 
 export function isAgendaRun(chatId?: string): boolean {
   return Boolean(chatId && activeAgendaRuns.has(chatId))
+}
+
+export function registerAgendaAgentChat(chatId: string, agentId: string): void {
+  activeAgendaAgentChats.set(chatId, { agentId, prompts: 0 })
+}
+
+/** Removes the agent conversation context and returns its permission prompt count. */
+export function unregisterAgendaAgentChat(chatId: string): number {
+  const context = activeAgendaAgentChats.get(chatId)
+  activeAgendaAgentChats.delete(chatId)
+  return context?.prompts ?? 0
+}
+
+export function isAgendaAgentChat(chatId?: string): boolean {
+  return Boolean(chatId && activeAgendaAgentChats.has(chatId))
+}
+
+/** True for both schedule runs and creation-agent conversations. */
+export function isAgendaChat(chatId?: string): boolean {
+  return isAgendaRun(chatId) || isAgendaAgentChat(chatId)
+}
+
+export function getAgendaAgentChatId(chatId?: string): string | null {
+  if (!chatId) return null
+  return activeAgendaAgentChats.get(chatId)?.agentId ?? null
 }
 
 /** MCP servers attached to the task currently running in this chat. */
@@ -168,6 +200,7 @@ export function getAgendaMcpToolDefinitions(chatId?: string): OpenAiToolDefiniti
  * regular tool list so a scheduled task can extend its own capabilities.
  */
 export function getAgendaSystemToolDefinitions(chatId?: string): OpenAiToolDefinition[] {
+  if (isAgendaAgentChat(chatId)) return getAgendaAgentToolDefinitions()
   if (!isAgendaRun(chatId)) return []
   return [AGENDA_INSTALL_MCP_DEFINITION, AGENDA_MCP_LOGIN_DEFINITION]
 }
@@ -471,6 +504,19 @@ export function createAgendaToolExecutor(
   loopGuard: ToolLoopGuard
 ) => Promise<ValidatedToolExecution> {
   return async (name, args, context, loopGuard) => {
+    const agentChat = activeAgendaAgentChats.get(chatId)
+    if (agentChat) {
+      const agentResult = await executeAgendaAgentTool(name, args, {
+        chatId,
+        agentId: agentChat.agentId,
+        signal: context.signal,
+        recordPrompt: () => {
+          agentChat.prompts += 1
+        }
+      })
+      if (agentResult) return agentResult
+    }
+
     if (name === AGENDA_MCP_LOGIN_TOOL) {
       return connectGalleryPresetForRun(chatId, args, context.signal)
     }

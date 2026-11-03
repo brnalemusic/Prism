@@ -4,6 +4,8 @@ import type { StructuredChatResponse, StreamingToolCall } from '../main/gemini'
 import type { AppConfig } from '../main/config'
 import type {
   AgendaAnchor,
+  AgendaAgent,
+  AgendaAgentDeletionStepResult,
   AgendaPermissionChoice,
   AgendaPermissionRequest,
   AgendaRunRecord,
@@ -226,6 +228,23 @@ export interface PrismAPI {
     acknowledged: boolean
   ) => Promise<{ ok: boolean; settings?: AgendaSettings; error?: string }>
   onAgendaSettingsChanged: (callback: (settings: AgendaSettings) => void) => () => void
+  listAgendaAgents: () => Promise<AgendaAgent[]>
+  createAgendaAgent: (title?: string) => Promise<{ ok: boolean; agent?: AgendaAgent; error?: string }>
+  renameAgendaAgent: (id: string, title: string) => Promise<{ ok: boolean; agent?: AgendaAgent; error?: string }>
+  startAgendaAgentDeletion: (agentId: string) => Promise<AgendaAgentDeletionStepResult>
+  advanceAgendaAgentDeletion: (input: {
+    challengeId: string
+    acknowledged?: boolean
+    answer?: string
+  }) => Promise<AgendaAgentDeletionStepResult>
+  cancelAgendaAgentDeletion: (challengeId: string) => void
+  deleteAgendaAgent: (input: {
+    agentId: string
+    challengeId: string
+  }) => Promise<{ ok: boolean; error?: string; deletedSchedules?: number }>
+  onAgendaAgentsChanged: (callback: () => void) => () => void
+  sendAgendaAgentMessage: (input: { agentId: string; message: string; modelKey?: string | null }) => void
+  cancelAgendaAgent: (chatId: string) => void
   listAgendaTasks: () => Promise<AgendaTask[]>
   planAgendaTask: (request: string) => Promise<{
     ok: boolean
@@ -240,12 +259,16 @@ export interface PrismAPI {
     error?: string
   }>
   createAgendaTask: (input: {
+    agentId?: string
     title: string
+    prompt?: string
     instructions: string
     intervalMinutes: number | null
     anchor: AgendaAnchor | null
+    status?: 'active' | 'draft'
     mcpServerIds?: string[]
     modelKey?: string | null
+    origin?: 'ai' | 'manual'
   }) => Promise<{ ok: boolean; task?: AgendaTask; error?: string }>
   updateAgendaTask: (
     id: string,
@@ -253,11 +276,15 @@ export interface PrismAPI {
   ) => Promise<{ ok: boolean; task?: AgendaTask; error?: string }>
   setAgendaTaskStatus: (
     id: string,
-    status: 'active' | 'paused'
+    status: AgendaTask['status']
   ) => Promise<{ ok: boolean; task?: AgendaTask; error?: string }>
-  runAgendaTaskNow: (id: string) => Promise<{ ok: boolean; task?: AgendaTask; error?: string }>
+  runAgendaTaskNow: (id: string) => Promise<{ ok: boolean; error?: string }>
+  cancelAgendaTaskRun: (id: string) => Promise<{ ok: boolean; error?: string }>
   deleteAgendaTask: (id: string, deleteFolder: boolean) => Promise<{ ok: boolean }>
   listAgendaRuns: (taskId?: string) => Promise<AgendaRunRecord[]>
+  getAgendaActiveRuns: () => Promise<string[]>
+  loadAgendaSession: (chatId: string) => Promise<any>
+  loadAgendaTranscript: (chatId: string) => Promise<any>
   onAgendaTasksChanged: (callback: () => void) => () => void
   onAgendaRunsChanged: (callback: () => void) => () => void
   listMcpServers: () => Promise<{ servers: McpServerConfig[]; statuses: McpServerStatus[] }>

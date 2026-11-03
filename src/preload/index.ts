@@ -15,6 +15,8 @@ import type { StructuredChatResponse, StreamingToolCall } from '../main/ai'
 import type { AppConfig } from '../main/config'
 import type {
   AgendaAnchor,
+  AgendaAgent,
+  AgendaAgentDeletionStepResult,
   AgendaPermissionChoice,
   AgendaPermissionRequest,
   AgendaRunRecord,
@@ -482,13 +484,50 @@ const api = {
     }
     error?: string
   }> => ipcRenderer.invoke('agenda-plan-task', request),
-  createAgendaTask: (input: {
+  listAgendaAgents: (): Promise<AgendaAgent[]> => ipcRenderer.invoke('agenda-list-agents'),
+  createAgendaAgent: (title?: string): Promise<{ ok: boolean; agent?: AgendaAgent; error?: string }> =>
+    ipcRenderer.invoke('agenda-create-agent', title),
+  renameAgendaAgent: (
+    id: string,
     title: string
+  ): Promise<{ ok: boolean; agent?: AgendaAgent; error?: string }> =>
+    ipcRenderer.invoke('agenda-rename-agent', id, title),
+  startAgendaAgentDeletion: (
+    agentId: string
+  ): Promise<AgendaAgentDeletionStepResult> =>
+    ipcRenderer.invoke('agenda-agent-deletion-start', agentId),
+  advanceAgendaAgentDeletion: (input: {
+    challengeId: string
+    acknowledged?: boolean
+    answer?: string
+  }): Promise<AgendaAgentDeletionStepResult> =>
+    ipcRenderer.invoke('agenda-agent-deletion-step', input),
+  cancelAgendaAgentDeletion: (challengeId: string): void =>
+    ipcRenderer.send('agenda-agent-deletion-cancel', challengeId),
+  deleteAgendaAgent: (input: {
+    agentId: string
+    challengeId: string
+  }): Promise<{ ok: boolean; error?: string; deletedSchedules?: number }> =>
+    ipcRenderer.invoke('agenda-delete-agent', input),
+  onAgendaAgentsChanged: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('agenda-agents-changed', listener)
+    return () => ipcRenderer.removeListener('agenda-agents-changed', listener)
+  },
+  sendAgendaAgentMessage: (input: { agentId: string; message: string; modelKey?: string | null }): void =>
+    ipcRenderer.send('agenda-agent-send', input),
+  cancelAgendaAgent: (chatId: string): void => ipcRenderer.send('agenda-agent-cancel', chatId),
+  createAgendaTask: (input: {
+    agentId?: string
+    title: string
+    prompt?: string
     instructions: string
     intervalMinutes: number | null
     anchor: AgendaAnchor | null
+    status?: 'active' | 'draft'
     mcpServerIds?: string[]
     modelKey?: string | null
+    origin?: 'ai' | 'manual'
   }): Promise<{ ok: boolean; task?: AgendaTask; error?: string }> =>
     ipcRenderer.invoke('agenda-create-task', input),
   updateAgendaTask: (
@@ -498,15 +537,20 @@ const api = {
     ipcRenderer.invoke('agenda-update-task', id, patch),
   setAgendaTaskStatus: (
     id: string,
-    status: 'active' | 'paused'
+    status: AgendaTask['status']
   ): Promise<{ ok: boolean; task?: AgendaTask; error?: string }> =>
     ipcRenderer.invoke('agenda-set-task-status', id, status),
-  runAgendaTaskNow: (id: string): Promise<{ ok: boolean; task?: AgendaTask; error?: string }> =>
+  runAgendaTaskNow: (id: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('agenda-run-task-now', id),
+  cancelAgendaTaskRun: (id: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('agenda-cancel-run', id),
   deleteAgendaTask: (id: string, deleteFolder: boolean): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke('agenda-delete-task', id, deleteFolder),
   listAgendaRuns: (taskId?: string): Promise<AgendaRunRecord[]> =>
     ipcRenderer.invoke('agenda-list-runs', taskId),
+  getAgendaActiveRuns: (): Promise<string[]> => ipcRenderer.invoke('agenda-get-active-runs'),
+  loadAgendaSession: (chatId: string): Promise<any> => ipcRenderer.invoke('agenda-load-agent-session', chatId),
+  loadAgendaTranscript: (chatId: string): Promise<any> => ipcRenderer.invoke('agenda-load-transcript', chatId),
   onAgendaTasksChanged: (callback: () => void): (() => void) => {
     const listener = (): void => callback()
     ipcRenderer.on('agenda-tasks-changed', listener)

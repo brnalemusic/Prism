@@ -1,5 +1,4 @@
 import { randomUUID } from 'crypto'
-import { BrowserWindow } from 'electron'
 import type {
   McpConnectPresetResult,
   McpGalleryPreset,
@@ -12,6 +11,7 @@ import { loadServerSecrets, saveServerSecrets } from './secrets'
 import { refreshServer } from './manager'
 import { broadcastIpc } from '../safeSend'
 import { getTask, updateTask } from '../agenda/tasks'
+import { focusMainWindow } from '../mainWindow'
 
 /** How long the native sign-in dialog waits before it is treated as cancelled. */
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000
@@ -23,14 +23,6 @@ interface PendingLogin {
 }
 
 const pending = new Map<string, PendingLogin>()
-
-function focusPrism(): void {
-  const win = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed())
-  if (!win) return
-  if (win.isMinimized()) win.restore()
-  if (!win.isVisible()) win.show()
-  win.focus()
-}
 
 export function getPendingMcpLoginCount(): number {
   return pending.size
@@ -92,7 +84,7 @@ export function requestMcpLogin(
 
     options.signal?.addEventListener('abort', onAbort, { once: true })
     pending.set(requestId, { request, resolve: settle, timer })
-    focusPrism()
+    focusMainWindow()
     broadcastIpc('mcp-login-request', request)
   })
 }

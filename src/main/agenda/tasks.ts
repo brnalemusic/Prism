@@ -1,10 +1,16 @@
-import { randomUUID } from 'crypto'
+import { randomInt } from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
 import { app } from 'electron'
 import { CONFIG_DIR } from '../config'
 import { describeAgendaCadence } from '../../shared/agendaTypes'
-import type { AgendaAnchor, AgendaTask, AgendaTaskStatus } from '../../shared/agendaTypes'
+import { AGENDA_MAIN_AGENT_ID } from '../../shared/agendaTypes'
+import type {
+  AgendaAnchor,
+  AgendaTask,
+  AgendaTaskOrigin,
+  AgendaTaskStatus
+} from '../../shared/agendaTypes'
 import { computeNextRunAt, normalizeIntervalMinutes } from './cadence'
 
 export {
@@ -15,8 +21,13 @@ export {
 } from './cadence'
 
 export interface CreateAgendaTaskInput {
+  agentId?: string
   title: string
+  prompt: string
   instructions: string
+  origin?: AgendaTaskOrigin
+  /** `draft` creates the record without scheduling it. Defaults to `active`. */
+  status?: Extract<AgendaTaskStatus, 'draft' | 'active'>
   intervalMinutes: number | null
   anchor: AgendaAnchor | null
   mcpServerIds?: string[]
@@ -24,6 +35,14 @@ export interface CreateAgendaTaskInput {
   /** Explicit first run. Defaults to now for one-shot tasks and now + interval otherwise. */
   firstRunAt?: number | null
 }
+
+const TASK_STATUSES = new Set<AgendaTaskStatus>([
+  'draft',
+  'active',
+  'paused',
+  'completed',
+  'cancelled'
+])
 
 function agendaDir(): string {
   return path.join(CONFIG_DIR, 'agenda')
@@ -68,9 +87,66 @@ function writeJsonAtomic(file: string, value: unknown): void {
   fs.renameSync(tmp, file)
 }
 
+function readStatus(value: unknown): AgendaTaskStatus {
+  return typeof value === 'string' && TASK_STATUSES.has(value as AgendaTaskStatus)
+    ? (value as AgendaTaskStatus)
+    : 'paused'
+}
+
+function readOrigin(value: unknown): AgendaTaskOrigin {
+  return value === 'ai' ? 'ai' : 'manual'
+}
+
+/**
+ * Defensive normalization for records written by older builds. Migrations do
+ * the heavy lifting once; this keeps a hand-edited or partially written file
+ * from breaking the whole Agenda surface.
+ */
+function normalizeTask(value: unknown): AgendaTask | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  if (typeof record.id !== 'string' || !record.id) return null
+  const now = Date.now()
+  const title =
+    typeof record.title === 'string' && record.title.trim() ? record.title.trim() : 'Untitled schedule'
+  return {
+    id: record.id,
+    agentId:
+      typeof record.agentId === 'string' && record.agentId.trim()
+        ? record.agentId.trim()
+        : AGENDA_MAIN_AGENT_ID,
+    title,
+    prompt:
+      typeof record.prompt === 'string' && record.prompt.trim() ? record.prompt : title,
+    instructions: typeof record.instructions === 'string' ? record.instructions : '',
+    folder: typeof record.folder === 'string' ? record.folder : '',
+    status: readStatus(record.status),
+    origin: readOrigin(record.origin),
+    intervalMinutes:
+      typeof record.intervalMinutes === 'number' ? record.intervalMinutes : null,
+    anchor:
+      record.anchor && typeof record.anchor === 'object'
+        ? (record.anchor as AgendaAnchor)
+        : null,
+    mcpServerIds: Array.isArray(record.mcpServerIds)
+      ? record.mcpServerIds.filter((entry): entry is string => typeof entry === 'string')
+      : [],
+    modelKey: typeof record.modelKey === 'string' && record.modelKey.trim() ? record.modelKey : null,
+    nextRunAt: typeof record.nextRunAt === 'number' ? record.nextRunAt : null,
+    lastRunAt: typeof record.lastRunAt === 'number' ? record.lastRunAt : null,
+    lastRunStatus:
+      typeof record.lastRunStatus === 'string'
+        ? (record.lastRunStatus as AgendaTask['lastRunStatus'])
+        : null,
+    createdAt: typeof record.createdAt === 'number' ? record.createdAt : now,
+    updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : now
+  }
+}
+
 export function loadTasks(): AgendaTask[] {
-  const tasks = readJsonFile<AgendaTask[]>(tasksFile(), [])
-  return Array.isArray(tasks) ? tasks : []
+  const tasks = readJsonFile<unknown[]>(tasksFile(), [])
+  if (!Array.isArray(tasks)) return []
+  return tasks.map(normalizeTask).filter((task): task is AgendaTask => Boolean(task))
 }
 
 export function saveTasks(tasks: AgendaTask[]): void {
@@ -79,6 +155,24 @@ export function saveTasks(tasks: AgendaTask[]): void {
 
 export function getTask(id: string): AgendaTask | null {
   return loadTasks().find((task) => task.id === id) ?? null
+}
+
+export function listTasksForAgent(agentId: string): AgendaTask[] {
+  return loadTasks().filter((task) => task.agentId === agentId)
+}
+
+export function countTasksForAgent(agentId: string): number {
+  return listTasksForAgent(agentId).length
+}
+
+/** Generates a unique 12-digit schedule id. */
+export function generateScheduleId(existingIds?: Iterable<string>): string {
+  const taken = new Set(existingIds ?? loadTasks().map((task) => task.id))
+  for (let attempt = 0; attempt < 10_000; attempt += 1) {
+    const id = String(randomInt(100_000_000_000, 1_000_000_000_000))
+    if (!taken.has(id)) return id
+  }
+  throw new Error('Could not generate a unique schedule id.')
 }
 
 function ensureTaskFolder(folder: string, title: string, id: string): void {
@@ -99,18 +193,27 @@ function ensureTaskFolder(folder: string, title: string, id: string): void {
 
 export function createTask(input: CreateAgendaTaskInput): AgendaTask {
   const now = Date.now()
-  const id = randomUUID()
-  const title = input.title.trim() || 'Untitled task'
-  const folder = path.join(agendaTasksRoot(), `${slugify(title)}-${id.slice(0, 8)}`)
+  const title = input.title.trim() || 'Untitled schedule'
+  const prompt = input.prompt.trim() || title
+  const instructions = input.instructions.trim()
+  if (!instructions) throw new Error('A schedule needs instructions.')
+
+  const id = generateScheduleId()
+  const folder = path.join(agendaTasksRoot(), `${slugify(title)}-${id}`)
   ensureTaskFolder(folder, title, id)
 
   const intervalMinutes = normalizeIntervalMinutes(input.intervalMinutes)
+  const status: Extract<AgendaTaskStatus, 'draft' | 'active'> =
+    input.status === 'draft' ? 'draft' : 'active'
   const task: AgendaTask = {
     id,
+    agentId: input.agentId?.trim() || AGENDA_MAIN_AGENT_ID,
     title,
-    instructions: input.instructions.trim(),
+    prompt,
+    instructions,
     folder,
-    status: 'active',
+    status,
+    origin: input.origin === 'ai' ? 'ai' : 'manual',
     intervalMinutes,
     anchor: input.anchor,
     mcpServerIds: input.mcpServerIds ?? [],
@@ -122,11 +225,13 @@ export function createTask(input: CreateAgendaTaskInput): AgendaTask {
     updatedAt: now
   }
 
-  task.nextRunAt =
-    input.firstRunAt ??
-    (intervalMinutes === null
-      ? now
-      : computeNextRunAt({ intervalMinutes, anchor: input.anchor, nextRunAt: null }, now))
+  if (status === 'active') {
+    task.nextRunAt =
+      input.firstRunAt ??
+      (intervalMinutes === null
+        ? now
+        : computeNextRunAt({ intervalMinutes, anchor: input.anchor, nextRunAt: null }, now))
+  }
 
   const tasks = loadTasks()
   tasks.push(task)
@@ -147,7 +252,8 @@ export function updateTask(id: string, patch: Partial<AgendaTask>): AgendaTask |
       : { intervalMinutes: normalizeIntervalMinutes(patch.intervalMinutes) }),
     ...(patch.modelKey === undefined
       ? {}
-      : { modelKey: patch.modelKey?.trim() || null })
+      : { modelKey: patch.modelKey?.trim() || null }),
+    ...(patch.status === undefined ? {} : { status: readStatus(patch.status) })
   }
   const next: AgendaTask = {
     ...current,
@@ -158,8 +264,6 @@ export function updateTask(id: string, patch: Partial<AgendaTask>): AgendaTask |
     updatedAt: Date.now()
   }
 
-  // Any real schedule change recomputes the next run from the new definition.
-  // A resume after a pause has no previous anchor, so it starts from now.
   const intervalChanged =
     normalizedPatch.intervalMinutes !== undefined &&
     normalizedPatch.intervalMinutes !== current.intervalMinutes
@@ -167,20 +271,24 @@ export function updateTask(id: string, patch: Partial<AgendaTask>): AgendaTask |
     normalizedPatch.anchor !== undefined &&
     JSON.stringify(normalizedPatch.anchor) !== JSON.stringify(current.anchor)
   const scheduleChanged = intervalChanged || anchorChanged
-  if (scheduleChanged && next.status === 'active') {
-    next.nextRunAt =
-      next.intervalMinutes === null
-        ? Date.now()
-        : computeNextRunAt({ ...next, nextRunAt: null }, Date.now())
-  } else if (
-    normalizedPatch.status === 'active' &&
-    current.status === 'paused' &&
-    next.nextRunAt === null &&
-    normalizedPatch.nextRunAt === undefined
-  ) {
-    next.nextRunAt = next.intervalMinutes === null ? Date.now() : computeNextRunAt(next, Date.now())
+  const statusChanged = normalizedPatch.status !== undefined && normalizedPatch.status !== current.status
+  const becameActive = statusChanged && next.status === 'active'
+  const resumedFromPause = becameActive && current.status === 'paused'
+
+  if (next.status === 'active') {
+    if (scheduleChanged || (statusChanged && !resumedFromPause) || next.nextRunAt === null) {
+      next.nextRunAt =
+        next.intervalMinutes === null
+          ? Date.now()
+          : computeNextRunAt({ ...next, nextRunAt: null }, Date.now())
+    } else if (resumedFromPause && normalizedPatch.nextRunAt === undefined) {
+      next.nextRunAt =
+        next.intervalMinutes === null ? Date.now() : computeNextRunAt(next, Date.now())
+    }
+  } else {
+    // Only an active schedule may have a pending occurrence.
+    next.nextRunAt = null
   }
-  if (next.status === 'paused') next.nextRunAt = null
 
   tasks[index] = next
   saveTasks(tasks)

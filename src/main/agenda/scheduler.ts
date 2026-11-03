@@ -1,10 +1,11 @@
-import { randomUUID } from 'crypto'
-import * as fs from 'fs'
-import * as path from 'path'
-import { CONFIG_DIR } from '../config'
-import type { AgendaRunRecord, AgendaRunStatus, AgendaTask } from '../../shared/agendaTypes'
+import type { AgendaRunRecord, AgendaRunTrigger, AgendaTask } from '../../shared/agendaTypes'
 import { appendRunLog, computeNextRunAt, loadTasks, saveTasks } from './tasks'
-import { broadcastIpc } from '../safeSend'
+import {
+  createRunRecord,
+  deleteRunRecordsForTask,
+  markInterruptedRuns,
+  writeRun
+} from './runs'
 
 /** How often the scheduler looks for due tasks. */
 const TICK_MS = 30 * 1000
@@ -23,47 +24,15 @@ let ticker: NodeJS.Timeout | null = null
 let ticking = false
 let maxConcurrentRuns = 2
 
+interface QueueEntry {
+  taskId: string
+  scheduledFor: number
+  trigger: AgendaRunTrigger
+}
+
 const active = new Map<string, AbortController>()
 const running = new Map<string, Promise<void>>()
-const queue: string[] = []
-
-function runsDir(): string {
-  return path.join(CONFIG_DIR, 'agenda', 'runs')
-}
-
-function writeRun(run: AgendaRunRecord): void {
-  try {
-    fs.mkdirSync(runsDir(), { recursive: true })
-    fs.writeFileSync(path.join(runsDir(), `${run.id}.json`), `${JSON.stringify(run, null, 2)}\n`, 'utf8')
-    broadcastIpc('agenda-runs-changed')
-  } catch (error) {
-    console.warn('[agenda] could not persist the run record:', error)
-  }
-}
-
-export function listRuns(taskId?: string): AgendaRunRecord[] {
-  try {
-    const dir = runsDir()
-    if (!fs.existsSync(dir)) return []
-    const runs = fs
-      .readdirSync(dir)
-      .filter((name) => name.endsWith('.json'))
-      .map((name) => {
-        try {
-          return JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')) as AgendaRunRecord
-        } catch {
-          return null
-        }
-      })
-      .filter((run): run is AgendaRunRecord => Boolean(run))
-    return runs
-      .filter((run) => (taskId ? run.taskId === taskId : true))
-      .sort((a, b) => b.startedAt - a.startedAt)
-  } catch (error) {
-    console.warn('[agenda] could not list runs:', error)
-    return []
-  }
-}
+const queue: QueueEntry[] = []
 
 export function setRunExecutor(next: AgendaRunExecutor | null): void {
   executor = next
@@ -81,6 +50,11 @@ export function getQueuedRunCount(): number {
   return queue.length
 }
 
+/** Task ids that currently have a live run, for the sidebar badges. */
+export function getActiveRunTaskIds(): string[] {
+  return [...active.keys()]
+}
+
 function markTask(taskId: string, patch: Partial<AgendaTask>): void {
   const tasks = loadTasks()
   const index = tasks.findIndex((task) => task.id === taskId)
@@ -89,29 +63,39 @@ function markTask(taskId: string, patch: Partial<AgendaTask>): void {
   saveTasks(tasks)
 }
 
-async function executeTask(taskId: string, scheduledFor: number): Promise<void> {
+function isQueued(taskId: string): boolean {
+  return queue.some((entry) => entry.taskId === taskId)
+}
+
+function removeFromQueue(taskId: string): void {
+  for (let index = queue.length - 1; index >= 0; index -= 1) {
+    if (queue[index].taskId === taskId) queue.splice(index, 1)
+  }
+}
+
+async function executeTask(entry: QueueEntry): Promise<void> {
+  const { taskId, scheduledFor, trigger } = entry
   const tasks = loadTasks()
   const task = tasks.find((candidate) => candidate.id === taskId)
   if (!task) return
 
+  // A scheduled occurrence is only valid while the schedule is still active.
+  // Manual and agent runs are explicit user intent and may target any status.
+  if (trigger === 'scheduled' && task.status !== 'active') {
+    appendRunLog(task, 'scheduled run discarded: the schedule is no longer active')
+    return
+  }
+
   const controller = new AbortController()
   active.set(taskId, controller)
 
-  const missed = Date.now() - scheduledFor > MISSED_THRESHOLD_MS
-  const run: AgendaRunRecord = {
-    id: randomUUID(),
-    taskId,
-    status: 'running',
-    startedAt: Date.now(),
-    finishedAt: null,
-    summary: null,
-    error: null,
-    catchUp: missed,
-    permissionPrompts: 0,
-    modelKey: task.modelKey
-  }
+  const missed = trigger === 'scheduled' && Date.now() - scheduledFor > MISSED_THRESHOLD_MS
+  const run = createRunRecord(task, { trigger, catchUp: missed })
   writeRun(run)
-  appendRunLog(task, `run ${run.id} started${missed ? ' (catch-up)' : ''}`)
+  appendRunLog(
+    task,
+    `run ${run.id} started (${trigger}${missed ? ', catch-up' : ''})`
+  )
   markTask(taskId, { lastRunAt: run.startedAt, lastRunStatus: run.status })
 
   try {
@@ -119,7 +103,7 @@ async function executeTask(taskId: string, scheduledFor: number): Promise<void> 
       run.status = 'failed'
       run.error = 'The Agenda executor is not configured yet.'
     } else {
-      const result = await executor(task, run, controller.signal)
+      const result = await executor({ ...task, title: run.taskTitle, prompt: run.prompt, instructions: run.instructions }, run, controller.signal)
       run.permissionPrompts = result?.permissionPrompts ?? 0
       if (controller.signal.aborted) {
         run.status = 'stopped'
@@ -135,28 +119,38 @@ async function executeTask(taskId: string, scheduledFor: number): Promise<void> 
     run.finishedAt = Date.now()
     writeRun(run)
     appendRunLog(task, `run ${run.id} ${run.status}${run.error ? `: ${run.error}` : ''}`)
-    markTask(taskId, { lastRunStatus: run.status as AgendaRunStatus })
+
+    // A one-shot schedule never fires again. It completes after its run even
+    // when the user or an agent triggered it manually, but a cancelled run must
+    // not silently complete the schedule.
+    const current = loadTasks().find((candidate) => candidate.id === taskId)
+    if (
+      current &&
+      current.intervalMinutes === null &&
+      current.status === 'active' &&
+      run.status !== 'stopped'
+    ) {
+      markTask(taskId, { lastRunStatus: run.status, status: 'completed', nextRunAt: null })
+    } else {
+      markTask(taskId, { lastRunStatus: run.status })
+    }
     active.delete(taskId)
   }
 }
 
 function drainQueue(): void {
   while (active.size < maxConcurrentRuns && queue.length > 0) {
-    const taskId = queue.shift()
-    if (!taskId) break
-    if (active.has(taskId)) continue
-    const scheduledFor = dueTimes.get(taskId) ?? Date.now()
-    dueTimes.delete(taskId)
-    const execution = executeTask(taskId, scheduledFor).finally(() => {
-      running.delete(taskId)
+    const entry = queue.shift()
+    if (!entry) break
+    if (active.has(entry.taskId)) continue
+    const execution = executeTask(entry).finally(() => {
+      running.delete(entry.taskId)
       drainQueue()
     })
-    running.set(taskId, execution)
+    running.set(entry.taskId, execution)
     void execution
   }
 }
-
-const dueTimes = new Map<string, number>()
 
 /**
  * Looks for due tasks, advances their schedule and queues them.
@@ -179,23 +173,21 @@ export function tick(now = Date.now()): void {
       const scheduledFor = task.nextRunAt
       const nextRunAt = computeNextRunAt({ ...task, nextRunAt: scheduledFor }, now)
       task.nextRunAt = nextRunAt
-      // A one-shot task has no next occurrence; pause it so the UI reflects that.
-      if (task.intervalMinutes === null) task.status = 'paused'
+      // A one-shot task has no next occurrence; complete it so the UI reflects
+      // that the schedule is finished.
+      if (task.intervalMinutes === null) {
+        task.status = 'completed'
+        task.nextRunAt = null
+      }
       changed = true
 
-      if (active.has(task.id) || queue.includes(task.id)) {
-        const skipped: AgendaRunRecord = {
-          id: randomUUID(),
-          taskId: task.id,
-          status: 'skipped',
-          startedAt: now,
-          finishedAt: now,
-          summary: 'Skipped: the previous run is still active.',
-          error: null,
-          catchUp: false,
-          permissionPrompts: 0,
-          modelKey: task.modelKey
-        }
+      if (active.has(task.id) || isQueued(task.id)) {
+        const skipped = createRunRecord(task, {
+          trigger: 'scheduled',
+          status: 'skipped'
+        })
+        skipped.finishedAt = now
+        skipped.summary = 'Skipped: the previous run is still active.'
         writeRun(skipped)
         appendRunLog(task, `run ${skipped.id} skipped (still running)`)
         continue
@@ -206,8 +198,7 @@ export function tick(now = Date.now()): void {
         continue
       }
 
-      dueTimes.set(task.id, scheduledFor)
-      queue.push(task.id)
+      queue.push({ taskId: task.id, scheduledFor, trigger: 'scheduled' })
     }
 
     if (changed) saveTasks(tasks)
@@ -217,36 +208,60 @@ export function tick(now = Date.now()): void {
   }
 }
 
+/**
+ * Runs a task immediately. Unlike a scheduled occurrence, this never changes
+ * the task status or its next occurrence.
+ */
+export function runTaskNow(
+  taskId: string,
+  trigger: Extract<AgendaRunTrigger, 'manual' | 'agent'>
+): { ok: boolean; error?: string } {
+  const task = loadTasks().find((candidate) => candidate.id === taskId)
+  if (!task) return { ok: false, error: 'Schedule not found.' }
+  if (task.status === 'cancelled') {
+    return { ok: false, error: 'Cancelled schedules cannot be run.' }
+  }
+  if (task.status === 'draft') {
+    return { ok: false, error: 'Activate the schedule before running it.' }
+  }
+  if (active.has(taskId)) {
+    return { ok: false, error: 'This schedule already has a run in progress.' }
+  }
+  if (isQueued(taskId)) {
+    return { ok: false, error: 'This schedule is already queued to run.' }
+  }
+  if (queue.length >= MAX_QUEUE) {
+    return { ok: false, error: 'The run queue is full. Try again in a moment.' }
+  }
+  queue.push({ taskId, scheduledFor: Date.now(), trigger })
+  drainQueue()
+  return { ok: true }
+}
+
+/** Stops queued and active runs for a task without changing its status. */
+export async function cancelTaskRun(taskId: string): Promise<boolean> {
+  removeFromQueue(taskId)
+  const controller = active.get(taskId)
+  if (!controller) return false
+  controller.abort()
+  const execution = running.get(taskId)
+  if (execution) await execution.catch(() => undefined)
+  return true
+}
+
+/** Clears pending occurrences while keeping an already-running run alive. */
+export function dropQueuedRuns(taskId: string): void {
+  removeFromQueue(taskId)
+}
+
 export function startScheduler(): void {
   if (ticker) return
   markInterruptedRuns()
   tick()
   ticker = setInterval(() => tick(), TICK_MS)
-  if (typeof ticker.unref === 'function') ticker.unref()
-}
-
-/**
- * A run record left as `running` means Prism closed (or crashed) mid-run. Mark
- * it as interrupted on startup so the history never shows a ghost run.
- */
-function markInterruptedRuns(): void {
-  const runs = listRuns().filter((run) => run.status === 'running')
-  if (runs.length === 0) return
-  const tasks = loadTasks()
-  let tasksChanged = false
-  for (const run of runs) {
-    run.status = 'interrupted'
-    run.finishedAt = run.finishedAt ?? Date.now()
-    run.error = run.error ?? 'Prism closed while this run was executing.'
-    writeRun(run)
-    const task = tasks.find((candidate) => candidate.id === run.taskId)
-    if (task) {
-      task.lastRunStatus = 'interrupted'
-      task.updatedAt = Date.now()
-      tasksChanged = true
-    }
-  }
-  if (tasksChanged) saveTasks(tasks)
+  // Keep the scheduler referenced so it keeps running (and keeps the process
+  // alive) while Prism is minimized to the system tray instead of being
+  // collected as an unreferenced timer.
 }
 
 export function stopScheduler(): void {
@@ -257,7 +272,6 @@ export function stopScheduler(): void {
   for (const controller of active.values()) controller.abort()
   active.clear()
   queue.length = 0
-  dueTimes.clear()
 }
 
 /**
@@ -265,20 +279,11 @@ export function stopScheduler(): void {
  * run records. Called before a task is deleted so nothing is left orphaned.
  */
 export async function deleteRunsForTask(taskId: string): Promise<void> {
+  removeFromQueue(taskId)
   active.get(taskId)?.abort()
-  const queued = queue.indexOf(taskId)
-  if (queued >= 0) queue.splice(queued, 1)
-  dueTimes.delete(taskId)
   const execution = running.get(taskId)
   if (execution) await execution.catch(() => undefined)
-  for (const run of listRuns(taskId)) {
-    try {
-      fs.rmSync(path.join(runsDir(), `${run.id}.json`), { force: true })
-    } catch (error) {
-      console.warn('[agenda] could not delete a run record:', error)
-    }
-  }
-  broadcastIpc('agenda-runs-changed')
+  deleteRunRecordsForTask(taskId)
 }
 
 /** Stops every active run. Used when Prism quits; runs end as `stopped`. */
@@ -286,3 +291,5 @@ export function interruptActiveRuns(): void {
   for (const controller of active.values()) controller.abort()
   stopScheduler()
 }
+
+export { listRuns } from './runs'

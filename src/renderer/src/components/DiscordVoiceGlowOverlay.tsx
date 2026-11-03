@@ -14,9 +14,14 @@ interface VoiceOverlayView {
   toolPanel: ToolPanelPhase
 }
 
+// The overlay stays visually inert until a real voice state arrives. The window
+// is pre-created at startup, so mounting directly in the "connecting" phase
+// painted the full-screen glow whenever anything merely showed that window.
+// "exiting" keeps the surface transparent while still letting the first
+// connecting/connected event fade the glow in.
 const INITIAL_VIEW: VoiceOverlayView = {
   mounted: true,
-  connection: 'connecting',
+  connection: 'exiting',
   speaking: false,
   quiet: false,
   tool: null,

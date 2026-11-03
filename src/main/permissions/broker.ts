@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
-import { BrowserWindow, Notification } from 'electron'
+import { Notification } from 'electron'
 import type {
   AgendaPermissionKind,
   AgendaPermissionMode,
@@ -11,6 +11,7 @@ import type {
 } from '../../shared/agendaTypes'
 import { broadcastIpc } from '../safeSend'
 import { CONFIG_DIR } from '../config'
+import { focusMainWindow, getMainWindow } from '../mainWindow'
 
 /** How long a Safe-mode prompt waits before it is denied automatically. */
 const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000
@@ -70,23 +71,8 @@ function writeAudit(entry: Record<string, unknown>): void {
   }
 }
 
-function primaryWindow(): BrowserWindow | null {
-  const windows = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed())
-  return windows[0] ?? null
-}
-
-function focusPrism(): void {
-  const win = primaryWindow()
-  if (!win) return
-  if (win.isMinimized()) win.restore()
-  if (!win.isVisible()) win.show()
-  win.focus()
-  win.flashFrame(true)
-}
-
 function stopFlashing(): void {
-  const win = primaryWindow()
-  if (win) win.flashFrame(false)
+  getMainWindow()?.flashFrame(false)
 }
 
 function showSystemNotification(request: AgendaPermissionRequest): void {
@@ -97,7 +83,7 @@ function showSystemNotification(request: AgendaPermissionRequest): void {
       body: request.summary,
       silent: false
     })
-    notification.on('click', () => focusPrism())
+    notification.on('click', () => focusMainWindow({ flash: true }))
     notification.show()
   } catch (error) {
     console.warn('[agenda] could not show the permission notification:', error)
@@ -182,7 +168,7 @@ export function requestPermission(
     signal?.addEventListener('abort', onAbort, { once: true })
 
     pending.set(requestId, { request, settle })
-    focusPrism()
+    focusMainWindow({ flash: true })
     broadcastIpc('agenda-permission-request', request)
     showSystemNotification(request)
   })

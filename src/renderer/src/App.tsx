@@ -6105,6 +6105,7 @@ function RealApp(): React.JSX.Element {
 
         {/* Cinematic crossfade between workspaces — transform/opacity only.
             mode="wait" lets the outgoing view resolve before the next mounts. */}
+        {activeView !== 'agenda' && (
         <AnimatePresence mode="wait" initial={false}>
         <MotionConfig reducedMotion="user">
         <motion.div
@@ -6311,9 +6312,7 @@ function RealApp(): React.JSX.Element {
                 ))}
             </div>
           )
-        ) : activeView === 'agenda' ? (
-          <AgendaWorkspace config={config} />
-        ) : (
+        ) : activeView === 'agenda' ? null : (
           <HarnessWorkspace
             tabs={harnessTabs}
             activeTabId={activeHarnessTabId}
@@ -6470,6 +6469,16 @@ function RealApp(): React.JSX.Element {
         </motion.div>
         </MotionConfig>
         </AnimatePresence>
+        )}
+        <div
+          className={clsx(
+            'relative flex min-h-0 flex-1 flex-col overflow-hidden',
+            activeView !== 'agenda' && 'hidden'
+          )}
+          aria-hidden={activeView !== 'agenda'}
+        >
+          <AgendaWorkspace config={config} isActive={activeView === 'agenda'} />
+        </div>
 
         <DownloadProgressOverlay
           downloads={visibleDownloads}

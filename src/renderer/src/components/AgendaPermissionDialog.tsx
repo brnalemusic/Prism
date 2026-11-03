@@ -39,6 +39,21 @@ const KIND_META: Record<
     label: 'Scheduled task',
     icon: <CalendarPlus size={14} />,
     accent: 'text-accent-primary'
+  },
+  schedule_update: {
+    label: 'Schedule change',
+    icon: <CalendarPlus size={14} />,
+    accent: 'text-accent-primary'
+  },
+  schedule_run: {
+    label: 'Run schedule',
+    icon: <CalendarPlus size={14} />,
+    accent: 'text-accent-primary'
+  },
+  schedule_delete: {
+    label: 'Delete schedule',
+    icon: <CalendarPlus size={14} />,
+    accent: 'text-rose-300'
   }
 }
 

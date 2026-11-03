@@ -387,9 +387,9 @@ export function Sidebar({
             <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] leading-relaxed text-text-muted">
               <p className="mb-1 flex items-center gap-1.5 font-semibold text-text-secondary">
                 <CalendarCheck size={12} weight="bold" />
-                Runs while Prism is open
+                Runs while Prism is open or in the tray
               </p>
-              Agenda pauses when Prism quits, including in the tray. Missed runs catch up once on
+              Agenda pauses only when Prism fully exits. Missed runs catch up once on
               the next launch.
             </div>
           </div>

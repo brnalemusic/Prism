@@ -113,7 +113,7 @@ import {
   requestPermission,
   resolvePermission
 } from './permissions/broker'
-import type { AgendaPermissionMode, AgendaPermissionResolution } from '../shared/agendaTypes'
+import type { AgendaPermissionMode, AgendaPermissionResolution, AgendaTaskStatus } from '../shared/agendaTypes'
 import { describeAgendaAnchor } from '../shared/agendaTypes'
 import {
   createTask,
@@ -125,17 +125,30 @@ import {
   setTaskStatus,
   updateTask
 } from './agenda/tasks'
+import { ensureAgents, createAgent, renameAgent } from './agenda/agents'
+import { migrateAgendaData } from './agenda/migrate'
 import {
   configureScheduler,
+  cancelTaskRun,
   deleteRunsForTask,
+  dropQueuedRuns,
+  getActiveRunTaskIds,
   interruptActiveRuns,
   listRuns,
+  runTaskNow,
   setRunExecutor,
-  startScheduler,
-  tick
+  startScheduler
 } from './agenda/scheduler'
 import { runAgendaTask } from './agenda/executor'
 import { planAgendaTask } from './agenda/assistant'
+import { sendAgendaAgentMessage, cancelAgendaAgentMessage } from './agenda/agent'
+import {
+  startAgentDeletionChallenge,
+  advanceAgentDeletionChallenge,
+  cancelAgentDeletionChallenge
+} from './agenda/agentChallenge'
+import { deleteAgentWithData } from './agenda/agentDeletion'
+import { runChatId } from './agenda/runs'
 import {
   deleteServer as deleteMcpServer,
   loadServers as loadMcpServers,
@@ -152,6 +165,7 @@ import {
 } from './mcp/manager'
 import { getMcpPresets, getMcpGalleryPresets } from './mcp/presets'
 import { connectMcpPreset, resolveMcpLogin } from './mcp/login'
+import { registerMainWindow } from './mainWindow'
 import type { McpLoginResolution, McpServerDraft } from '../shared/mcpTypes'
 import {
   providerHasCompletionCredential,
@@ -643,6 +657,7 @@ function createWindow(): void {
       spellcheck: false
     }
   })
+  registerMainWindow(mainWindow)
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (
@@ -1874,6 +1889,69 @@ if (!gotTheLock) {
 
     ipcMain.handle('agenda-list-tasks', () => loadTasks())
 
+    ipcMain.handle('agenda-list-agents', () => ensureAgents())
+
+    ipcMain.handle('agenda-create-agent', (_event, title?: string) => {
+      const created = createAgent(title)
+      broadcastIpc('agenda-agents-changed')
+      return { ok: true, agent: created }
+    })
+
+    ipcMain.handle('agenda-rename-agent', (_event, id: string, title: string) => {
+      const agent = renameAgent(id, title)
+      if (!agent) return { ok: false, error: 'The agent could not be renamed.' }
+      broadcastIpc('agenda-agents-changed')
+      return { ok: true, agent }
+    })
+
+    ipcMain.handle('agenda-agent-deletion-start', (_event, agentId: string) => {
+      return startAgentDeletionChallenge(agentId)
+    })
+
+    ipcMain.handle(
+      'agenda-agent-deletion-step',
+      (_event, input: { challengeId: string; acknowledged?: boolean; answer?: string }) => {
+        return advanceAgentDeletionChallenge(input)
+      }
+    )
+
+    ipcMain.on('agenda-agent-deletion-cancel', (_event, challengeId: string) => {
+      cancelAgentDeletionChallenge(challengeId)
+    })
+
+    ipcMain.handle(
+      'agenda-delete-agent',
+      async (_event, input: { agentId: string; challengeId: string }) => {
+        const result = await deleteAgentWithData(input.agentId, input.challengeId)
+        if (result.ok) broadcastIpc('agenda-agents-changed')
+        return result
+      }
+    )
+
+    ipcMain.on('agenda-agent-send', (_event, input: { agentId: string; message: string; modelKey?: string }) => {
+      void sendAgendaAgentMessage(input)
+        .then((result) => {
+          if (!result.ok && result.chatId) {
+            broadcastIpc('chat-reply-error', { error: result.error || 'Agent failed.', chatId: result.chatId, workspace: 'chat' })
+          }
+        })
+        .catch((error) => {
+          console.error('[agenda] agent message failed:', error)
+        })
+    })
+
+    ipcMain.on('agenda-agent-cancel', (_event, chatId: string) => {
+      cancelAgendaAgentMessage(chatId)
+    })
+
+    ipcMain.handle('agenda-load-agent-session', (_event, chatId: string) => {
+      return loadChatSession(chatId, 'chat')
+    })
+
+    ipcMain.handle('agenda-load-transcript', (_event, chatId: string) => {
+      return loadChatSession(chatId, 'chat')
+    })
+
     ipcMain.handle('agenda-plan-task', async (_event, request: string) => {
       try {
         const draft = await planAgendaTask(String(request ?? ''))
@@ -1888,32 +1966,36 @@ if (!gotTheLock) {
       async (
         _event,
         input: {
+          agentId?: string
           title: string
+          prompt?: string
           instructions: string
           intervalMinutes: number | null
           anchor: Parameters<typeof createTask>[0]['anchor']
+          status?: 'active' | 'draft'
           mcpServerIds?: string[]
           modelKey?: string | null
+          origin?: 'ai' | 'manual'
         }
       ) => {
         if (!input || typeof input.title !== 'string' || !input.title.trim()) {
           return { ok: false, error: 'The task needs a title.' }
         }
-        const outcome = await requestPermission({
-          kind: 'schedule_create',
-          title: 'Create a scheduled task',
-          summary: `${input.title} — ${describeCadence(input.intervalMinutes)}${
-            input.anchor ? ` ${describeAgendaAnchor(input.anchor)}` : ''
-          }`,
-          detail: input.instructions
-        })
-        if (outcome !== 'allowed') {
-          return {
-            ok: false,
-            error: outcome === 'timeout' ? 'The request timed out.' : 'Denied by the user.'
-          }
+        if (typeof input.instructions !== 'string' || !input.instructions.trim()) {
+          return { ok: false, error: 'The task needs instructions.' }
         }
-        const task = createTask(input)
+        const task = createTask({
+          agentId: input.agentId,
+          title: input.title,
+          prompt: input.prompt?.trim() || input.title,
+          instructions: input.instructions,
+          status: input.status,
+          intervalMinutes: input.intervalMinutes,
+          anchor: input.anchor,
+          mcpServerIds: input.mcpServerIds,
+          modelKey: input.modelKey,
+          origin: input.origin ?? 'manual'
+        })
         broadcastIpc('agenda-tasks-changed')
         return { ok: true, task }
       }
@@ -1948,40 +2030,78 @@ if (!gotTheLock) {
         }
         const task = updateTask(id, patch)
         if (!task) return { ok: false, error: 'Task not found.' }
+        if (
+          task.status === 'paused' ||
+          task.status === 'draft' ||
+          task.status === 'completed' ||
+          task.status === 'cancelled'
+        ) {
+          dropQueuedRuns(task.id)
+        }
+        if (task.status === 'cancelled' || task.status === 'completed') {
+          await cancelTaskRun(task.id).catch(() => undefined)
+        }
         broadcastIpc('agenda-tasks-changed')
         return { ok: true, task }
       }
     )
 
-    ipcMain.handle('agenda-run-task-now', (_event, id: string) => {
-      // Running a paused task explicitly resumes it; the user asked for this run.
-      const task = updateTask(id, { nextRunAt: Date.now(), status: 'active' })
-      if (!task) return { ok: false, error: 'Task not found.' }
-      tick()
-      broadcastIpc('agenda-tasks-changed')
-      return { ok: true, task }
-    })
-
-    ipcMain.handle('agenda-set-task-status', (_event, id: string, status: 'active' | 'paused') => {
-      if (status !== 'active' && status !== 'paused') {
+    ipcMain.handle('agenda-set-task-status', (_event, id: string, status: AgendaTaskStatus) => {
+      if (!['draft', 'active', 'paused', 'completed', 'cancelled'].includes(status)) {
         return { ok: false, error: 'Unknown task status.' }
       }
       const task = setTaskStatus(id, status)
       if (!task) return { ok: false, error: 'Task not found.' }
+      if (
+        task.status === 'paused' ||
+        task.status === 'draft' ||
+        task.status === 'completed' ||
+        task.status === 'cancelled'
+      ) {
+        dropQueuedRuns(task.id)
+      }
+      if (task.status === 'cancelled' || task.status === 'completed') {
+        void cancelTaskRun(task.id)
+      }
       broadcastIpc('agenda-tasks-changed')
       return { ok: true, task }
     })
 
+    ipcMain.handle('agenda-run-task-now', (_event, id: string) => {
+      // Running a schedule manually never changes its status.
+      const result = runTaskNow(id, 'manual')
+      if (!result.ok) return { ok: false, error: result.error }
+      broadcastIpc('agenda-tasks-changed')
+      return { ok: true }
+    })
+
     ipcMain.handle('agenda-delete-task', async (_event, id: string, deleteFolder: boolean) => {
-      if (!getTask(id)) return { ok: false }
+      const task = getTask(id)
+      if (!task) return { ok: false }
       // Stop the active run and clear its records before the task disappears.
+      const runs = listRuns(id)
       await deleteRunsForTask(id)
+      for (const run of runs) {
+        try {
+          deleteChatSession(runChatId(run.id))
+        } catch {
+          /* ignore */
+        }
+      }
       const ok = deleteTask(id, deleteFolder)
       if (ok) broadcastIpc('agenda-tasks-changed')
       return { ok }
     })
 
     ipcMain.handle('agenda-list-runs', (_event, taskId?: string) => listRuns(taskId))
+
+    ipcMain.handle('agenda-get-active-runs', () => getActiveRunTaskIds())
+
+    ipcMain.handle('agenda-cancel-run', async (_event, taskId: string) => {
+      await cancelTaskRun(taskId)
+      broadcastIpc('agenda-tasks-changed')
+      return { ok: true }
+    })
 
     ipcMain.handle('mcp-list-gallery', () => getMcpGalleryPresets())
 
@@ -2386,6 +2506,8 @@ if (!gotTheLock) {
       }
     })
     setRunExecutor(runAgendaTask)
+    ensureAgents()
+    migrateAgendaData()
     configureScheduler({ maxConcurrentRuns: currentConfig.agenda.maxConcurrentRuns })
     startScheduler()
     updateNativeIcons()
