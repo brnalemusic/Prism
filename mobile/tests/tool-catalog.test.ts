@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { MOBILE_TOOLS, mobileToolDefinitions, parseToolArguments } from '../src/ai/toolCatalog'
+import {
+  MOBILE_TOOLS,
+  mobileToolDefinitions,
+  parseToolArguments,
+  shouldOfferMobileTools
+} from '../src/ai/toolCatalog'
 
 test('Mobile catalog is explicit and provider declarations are mapped', () => {
   assert.deepEqual(
@@ -43,4 +48,13 @@ test('argument validation rejects unknown fields, invalid types and limits', () 
     () => parseToolArguments({ id: '1', name: 'browser_click', arguments: '{}' }),
     /unavailable/
   )
+})
+
+test('casual chat does not advertise tools but explicit actions do', () => {
+  assert.equal(shouldOfferMobileTools('Oi'), false)
+  assert.equal(shouldOfferMobileTools('Obrigado!'), false)
+  assert.equal(shouldOfferMobileTools('What does a terminal do?'), false)
+  assert.equal(shouldOfferMobileTools('Search the web for Android SAF docs'), true)
+  assert.equal(shouldOfferMobileTools('Crie um arquivo notas.txt com este texto'), true)
+  assert.equal(shouldOfferMobileTools('Leia https://example.com'), true)
 })

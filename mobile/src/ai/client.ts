@@ -11,6 +11,7 @@ export interface StreamChatOptions {
   apiKey: string
   turns: ChatTurn[]
   signal?: AbortSignal
+  enableTools?: boolean
   onDelta: (delta: string) => void
   onToolCall?: (call: ToolCall) => Promise<string>
   onToolProgress?: (
@@ -77,7 +78,7 @@ export async function streamChat(options: StreamChatOptions): Promise<string> {
       apiKey: options.apiKey,
       turns,
       systemPrompt: MOBILE_SYSTEM_PROMPT,
-      tools: Boolean(options.onToolCall)
+      tools: Boolean(options.onToolCall && options.enableTools)
     })
 
     let response: Awaited<ReturnType<typeof streamingFetch>>
@@ -182,6 +183,11 @@ export async function streamChat(options: StreamChatOptions): Promise<string> {
       )
     }
     if (!toolCalls.length) return text
+    if (!options.enableTools || !options.onToolCall) {
+      throw new AiRequestError(
+        'The provider returned an unexpected tool call. No tool was executed.'
+      )
+    }
     const assistantTurn: ChatTurn = {
       role: 'assistant' as const,
       content: roundText || null,

@@ -72,7 +72,8 @@ import {
 import {
   STATIC_COMPLETED_REHYPE_PLUGINS,
   STATIC_REMARK_PLUGINS,
-  STREAMING_REMARK_PLUGINS
+  STREAMING_REMARK_PLUGINS,
+  getVisualMarkupRange
 } from './markdownRenderer'
 import clsx from 'clsx'
 import {
@@ -390,6 +391,7 @@ const AiMessage = React.memo(function AiMessage({
   )
   const streamStats = useStreamStats(visibleContent, !!msg.isStreaming)
   const isStreaming = Boolean(msg.isStreaming || streamStats.isStreaming)
+  const visualMarkupRange = msg.isStreaming ? getVisualMarkupRange(visibleContent) : null
   const messageSources = useMemo(
     () => extractMessageSources(msg, { excludeRenderedSubagents: true }),
     [msg]
@@ -1170,23 +1172,44 @@ const AiMessage = React.memo(function AiMessage({
             if (!part || part.trim() === '') return null
             if (collapseProgress && item.partIndex !== lastTextPartIndex) return null
 
+            const localVisualStart = visualMarkupRange ? visualMarkupRange.start - startOffset : -1
+            const localVisualEnd = visualMarkupRange?.end === null || visualMarkupRange?.end === undefined
+              ? part.length
+              : visualMarkupRange.end - startOffset
+            const hasVisualArtifact = localVisualStart >= 0 && localVisualStart < part.length
+            const renderedBefore = hasVisualArtifact ? part.slice(0, localVisualStart) : part
+            const renderedAfter = hasVisualArtifact ? part.slice(localVisualEnd) : ''
+
             return (
-              <div
-                key={`text-${item.partIndex}`}
-                className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base"
-              >
-                <ReactMarkdown
-                  remarkPlugins={isStreaming ? STREAMING_REMARK_PLUGINS : STATIC_REMARK_PLUGINS}
-                  rehypePlugins={
-                    isStreaming
-                      ? [createStreamingFadeRehypePlugin(streamStats, startOffset)]
-                      : STATIC_COMPLETED_REHYPE_PLUGINS
-                  }
-                  components={markdownComponents}
-                >
-                  {part}
-                </ReactMarkdown>
-              </div>
+              <React.Fragment key={`text-${item.partIndex}`}>
+                {renderedBefore.trim() && (
+                  <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base">
+                    <ReactMarkdown
+                      remarkPlugins={isStreaming ? STREAMING_REMARK_PLUGINS : STATIC_REMARK_PLUGINS}
+                      rehypePlugins={isStreaming ? [createStreamingFadeRehypePlugin(streamStats, startOffset)] : STATIC_COMPLETED_REHYPE_PLUGINS}
+                      components={markdownComponents}
+                    >
+                      {renderedBefore}
+                    </ReactMarkdown>
+                  </div>
+                )}
+                {hasVisualArtifact && (
+                  <div className="visual-artifact-indicator" role="status" aria-live="polite">
+                    <span className="tool-shimmer-text">Generating visual artifact...</span>
+                  </div>
+                )}
+                {renderedAfter.trim() && (
+                  <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base">
+                    <ReactMarkdown
+                      remarkPlugins={isStreaming ? STREAMING_REMARK_PLUGINS : STATIC_REMARK_PLUGINS}
+                      rehypePlugins={isStreaming ? [createStreamingFadeRehypePlugin(streamStats, startOffset + localVisualEnd)] : STATIC_COMPLETED_REHYPE_PLUGINS}
+                      components={markdownComponents}
+                    >
+                      {renderedAfter}
+                    </ReactMarkdown>
+                  </div>
+                )}
+              </React.Fragment>
             )
           })}
 

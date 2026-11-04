@@ -4,7 +4,7 @@ import { isAbortError, streamChat } from '../ai/client'
 import { trimTurns } from '../ai/persona'
 import { AiRequestError } from '../ai/request'
 import { executeMobileTool } from '../ai/tools'
-import { parseToolArguments, type ToolCall } from '../ai/toolCatalog'
+import { parseToolArguments, shouldOfferMobileTools, type ToolCall } from '../ai/toolCatalog'
 import type {
   ChatMessage,
   ChatSession,
@@ -370,6 +370,7 @@ export function SessionsProvider({ children }: { children: ReactNode }): React.J
           apiKey,
           turns,
           signal: abortRef.current.signal,
+          enableTools: shouldOfferMobileTools(text),
           onDelta: queue,
           onToolProgress: (call, status, result) => {
             const current = messagesRef.current[sessionId] ?? []

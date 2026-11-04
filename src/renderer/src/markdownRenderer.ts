@@ -118,6 +118,48 @@ function rehypeParseMath(): (tree: HastNode) => void {
 
 export const STREAMING_REMARK_PLUGINS = [remarkGfm]
 
+const STREAMED_VISUAL_TAGS = new Set([
+  'svg',
+  'table',
+  'div',
+  'section',
+  'article',
+  'figure',
+  'style'
+])
+
+export function getVisualMarkupRange(
+  content: string
+): { start: number; end: number | null } | null {
+  const source = content.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, '')
+  const tags = /<\/?([a-z][\w-]*)\b[^>]*>/gi
+  const stack: string[] = []
+  let start: number | null = null
+  let end: number | null = null
+  let match: RegExpExecArray | null
+
+  while ((match = tags.exec(source))) {
+    const tag = match[1].toLowerCase()
+    if (!STREAMED_VISUAL_TAGS.has(tag)) continue
+    const token = match[0]
+    if (token.startsWith('</')) {
+      const index = stack.lastIndexOf(tag)
+      if (index !== -1) {
+        stack.splice(index, 1)
+        if (stack.length === 0 && start !== null) {
+          end = tags.lastIndex
+          break
+        }
+      }
+    } else if (!token.endsWith('/>')) {
+      if (start === null) start = match.index
+      stack.push(tag)
+    }
+  }
+
+  return start === null ? null : { start, end }
+}
+
 export const STATIC_REMARK_PLUGINS = [
   remarkGfm,
   [remarkMath, { singleDollarTextMath: false }] as unknown as import('unified').Pluggable,

@@ -98,6 +98,8 @@ Electron executor. Ask mode is the default and previews each call. YOLO is an
 explicitly acknowledged opt-in; shell commands can modify or delete files that
 Prism can access and may consume device resources. YOLO never bypasses Android
 scoping, the supported tool allowlist, validation, or output/time limits.
+The catalog is only advertised for messages that appear to request a tool
+action; ordinary chat such as "Hi" does not offer tools to the model.
 
 Prism's private app folder needs no storage permission. Shared folders are
 available only after the user explicitly grants each folder through Android's

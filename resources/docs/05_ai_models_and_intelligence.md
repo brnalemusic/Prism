@@ -137,7 +137,9 @@ Even with massive context windows (1M–2M tokens), context efficiency is critic
 
 ## 7. Visual Markdown Responses
 
-Chat responses may use GFM tables, KaTeX, and styled inline HTML/CSS for charts, dashboards, cards, and simple UI mockups. Prefer these direct Markdown visuals when sufficient, especially to illustrate proposed screens or UI suggestions; reserve `create_mini_app` for cases that need richer interaction or standalone structure. Keep visuals purposeful and readable.
+When asked for charts, dashboards, interface demonstrations, or other visual artifacts, Chat responses should render them directly in Markdown using inline SVG or self-contained HTML/CSS compatible with Prism's renderer. Include all required structure and styles in the response; do not rely on separate files, external tools, or descriptions/code alone. Show a functional visual mockup inline for proposed screens and UI suggestions whenever possible. Use `create_mini_app` only when richer interaction cannot reasonably be represented inline. GFM tables and KaTeX remain available for supporting content; keep visuals purposeful and readable.
+
+For questions about Prism, its ecosystem, or derived products/features/projects, the Chat agent must consult internal documentation first and must not use the web. If the docs are unavailable or do not answer the question, it must state that limitation rather than guess.
 
 
 ## Chat Work Timeline

@@ -45,6 +45,30 @@ test('Gemini request uses SSE streamGenerateContent and the key header', () => {
   assert.equal(body.contents.length, 3)
 })
 
+test('Gemini tool declarations omit unsupported JSON Schema fields', () => {
+  const request = buildChatRequest({
+    provider: provider({
+      protocol: 'gemini',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta'
+    }),
+    modelId: 'gemini-3.6-flash',
+    apiKey: 'secret',
+    turns: [{ role: 'user', content: 'Search the web for Android SAF' }],
+    systemPrompt: 'system',
+    tools: true
+  })
+
+  const body = JSON.parse(request.body)
+  const declarations = body.tools[0].functionDeclarations as Array<{
+    parameters: Record<string, unknown>
+  }>
+  assert.equal(declarations.length, 6)
+  assert.ok(declarations.every(({ parameters }) => !('additionalProperties' in parameters)))
+  assert.ok(
+    declarations.every(({ parameters }) => parameters.type === 'object' && parameters.properties)
+  )
+})
+
 test('OpenAI-compatible request streams chat completions with bearer auth', () => {
   const request = buildChatRequest({
     provider: provider({ protocol: 'openai', baseUrl: 'https://api.openai.com/v1' }),

@@ -84,6 +84,7 @@ Autonomous coding agent in one workspace. Inspect, act, verify until done or tru
 - All paths relative to root. Never absolute.
 - Facts first: read/list/find/grep. find = names/patterns; grep = content (paths + line numbers, no snippets). Read ranges to inspect.
 - edit = one unique replacement; delete_lines = one unique removal; apply_patch = multi-file/contextual; write = create/replace full file only.
+- Product questions: for Prism, its ecosystem, or derived products/features/projects, consult available internal docs first; never use the web for these topics. If docs are unavailable or insufficient, state that limitation and do not guess.
 - web_search only for current external info; read_page to read content from a specific web URL.
 - On material ambiguity (scope, behavior, design, data, acceptance), you MUST call to_ask alone (1-3 questions) and wait. Never guess; never ask for readable facts. Else proceed; resume after answers.
 
@@ -101,7 +102,7 @@ Autonomous coding agent in one workspace. Inspect, act, verify until done or tru
 
 # Output
 - User language. Concise Markdown. No internal tool IDs. Ground web claims in returned pages.
-- Visuals: prefer Markdown/inline HTML-CSS charts, dashboards, and simple UI mockups when they communicate the idea; especially show visual mockups for proposed screens or UI suggestions. Use a mini-app only when richer interaction or standalone structure is needed. Keep visuals clear and readable.
+- Visual artifacts: when asked for charts, dashboards, interface demonstrations, or other visuals, render the artifact directly in the response using inline SVG or self-contained HTML/CSS compatible with Prism's Markdown renderer. Include all required structure and styles in the response; never rely on separate files, external tools, or descriptions/code alone. For proposed screens or UI suggestions, show a functional visual mockup inline whenever possible. Use a mini-app only when richer interaction cannot reasonably be represented inline. Keep visuals clear and readable.
 `
 
 const PLAN_PHASE_PROMPT = `# Plan mode: plan only, never implement.

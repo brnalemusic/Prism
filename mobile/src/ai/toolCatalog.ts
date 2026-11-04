@@ -85,11 +85,10 @@ export function mobileToolDefinitions(protocol: 'openai' | 'anthropic' | 'gemini
   if (protocol === 'gemini')
     return [
       {
-        functionDeclarations: MOBILE_TOOLS.map(({ name, description, parameters }) => ({
-          name,
-          description,
-          parameters
-        }))
+        functionDeclarations: MOBILE_TOOLS.map(({ name, description, parameters }) => {
+          const { additionalProperties: _unsupported, ...geminiParameters } = parameters
+          return { name, description, parameters: geminiParameters }
+        })
       }
     ]
   if (protocol === 'anthropic')
@@ -113,6 +112,17 @@ export interface ToolResult {
   ok: boolean
   output: string
   retryable: boolean
+}
+
+export function shouldOfferMobileTools(message: string): boolean {
+  const text = message.trim()
+  if (!text) return false
+  if (/\b(what does|what is|what's|explain|define|o que (e|é)|explique|defina)\b/i.test(text))
+    return false
+  if (/https?:\/\/\S+/i.test(text)) return true
+  return /\b(search|look up|browse|search the web|google|duckduckgo|pesquis[ae]|busc[ae]|procura|na internet|na web|site|link|url|read (this |the )?(page|article|file)|open (this |the )?(page|file)|summari[sz]e (this |the )?(page|article|file)|leia (esta |essa |a )?(p[aá]gina|mat[eé]ria|arquivo)|abra (este |esse |o )?(link|arquivo)|resuma (esta |essa |a )?(p[aá]gina|mat[eé]ria|arquivo)|arquivo|pasta|diret[oó]rio|crie (um |uma )?(arquivo|documento)|salve (em |no |na )?(arquivo|documento)|write (a |the )?(file|document)|create (a |the )?(file|document)|list files|listar arquivos|execute (this |the )?(command|script)|run (this |the )?(command|script|code|test)|terminal|shell command|comando(s)? (no |de )?(terminal|shell)|executar (o |um )?(comando|script|teste)|rodar (o |um )?(comando|script|teste))\b/i.test(
+    text
+  )
 }
 
 export function parseToolArguments(call: ToolCall): Record<string, unknown> {
