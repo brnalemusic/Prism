@@ -146,7 +146,7 @@ The native project (`mobile/android`) is generated on demand by `expo prebuild` 
 | `version.txt` | Desktop | `9.3.0` |
 | `version_m.txt` | Mobile | `0.0.1` |
 
-`scripts/sync-versions.mjs` reads both and writes `package.json`, `package-lock.json`, and for mobile `app.json` with `versionCode = major*10000 + minor*100 + patch`. It is idempotent: a version that already matches is untouched, and the report says which app changed. The PowerShell wrapper (`npm run sync`) and the release workflow call the same script, so local and CI behaviour cannot diverge.
+`scripts/sync-versions.mjs` reads both and writes `package.json`, `package-lock.json`, and for mobile `app.json` with `versionCode = major*10000 + minor*100 + patch`. It is idempotent for app version files: a version that already matches is untouched. The PowerShell wrapper (`npm run sync`) also writes the next release tag to `version_tag.txt`; `npm run versions` invokes the cross-platform version-only script and does not create a tag file.
 
 ### 7.2 Release tag format
 
@@ -158,7 +158,7 @@ MAJORDSK.MINORDSK.PATCHDSK-MAJORMBL.MINORMBL.PATCHMBL/YYYYMMDD[#NUMBER]
 
 The tag holds each app's full SemVer (major.minor.patch) plus the release date. Application versions remain strict SemVer (`10.0.3`, `0.0.1`); only the tag uses `/`, which Git allows in refs and GitHub accepts for releases. SemVer itself does not permit `/` in a version string, which is why the tag is never parsed as an app version. Including the patch in the tag lets you release multiple times on the same day without tag name collisions.
 
-`scripts/release-meta.mjs` validates the tag (format + real date + matching full SemVer digits) and compares `version.txt` / `version_m.txt` with the previous release tag. The optional numeric suffix distinguishes repeated releases, and the GitHub Release name preserves the full tag exactly.
+`npm run sync` constructs the base from both SemVer cores and today's local date. It omits a suffix for a new base and increments `#N` when that exact base already exists in local Git tags. Thus prerelease/build metadata changes with unchanged version cores use the next suffix, while a changed core or date starts a fresh base without one. `scripts/release-meta.mjs` validates the tag (format + real date + matching SemVer digits) and compares `version.txt` / `version_m.txt` with the previous release tag. The GitHub Release name preserves the full tag exactly.
 
 ### 7.3 Conditional build pipeline
 

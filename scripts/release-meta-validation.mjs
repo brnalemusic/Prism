@@ -10,7 +10,7 @@ import {
   resolveReleaseMeta,
   semverDigits
 } from './release-meta.mjs'
-import { androidVersionCode, syncVersions } from './sync-versions.mjs'
+import { androidVersionCode, nextReleaseTag, releaseTagBase, syncReleaseTag, syncVersions } from './sync-versions.mjs'
 
 function makeTempRepo() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-release-'))
@@ -174,4 +174,50 @@ test('Android version codes stay monotonic per SemVer bump', () => {
   assert.equal(androidVersionCode('0.0.1'), 1)
   assert.equal(androidVersionCode('0.2.5'), 205)
   assert.equal(androidVersionCode('10.0.3'), 100003)
+})
+
+test('release tag base uses both SemVer cores and the release date', () => {
+  assert.equal(
+    releaseTagBase('10.0.0', '0.0.1-alpha.0.2', '2026-11-03'),
+    '10.0.0-0.0.1/20261103'
+  )
+  assert.equal(
+    releaseTagBase('10.0.1+build.4', '0.0.2', '20261104'),
+    '10.0.1-0.0.2/20261104'
+  )
+  assert.throws(() => releaseTagBase('10.0.0', '0.0.1', '2026-02-31'), /valid calendar date/)
+})
+
+test('release tag numbering starts without a suffix and increments the same base', () => {
+  const base = '10.0.0-0.0.1/20261103'
+  assert.equal(nextReleaseTag(base, []), base)
+  assert.equal(nextReleaseTag(base, [base]), `${base}#2`)
+  assert.equal(nextReleaseTag(base, [base, `${base}#2`]), `${base}#3`)
+  assert.equal(nextReleaseTag(base, [`${base}#2`, `${base}#7`]), `${base}#8`)
+  assert.equal(nextReleaseTag(`${base.slice(0, -1)}4`, [base]), `${base.slice(0, -1)}4`)
+})
+
+test('syncReleaseTag creates and updates version_tag.txt using local Git tags', () => {
+  const repo = makeTempRepo()
+  repo.write('version.txt', '10.0.0')
+  repo.write('version_m.txt', '0.0.1-alpha.0.1')
+  repo.commit('initial versions')
+
+  const base = '10.0.0-0.0.1/20261103'
+  assert.equal(syncReleaseTag(repo.dir, '20261103'), base)
+  assert.equal(repo.read('version_tag.txt'), base)
+
+  repo.git('tag', base)
+  repo.write('version_m.txt', '0.0.1-alpha.0.2')
+  assert.equal(syncReleaseTag(repo.dir, '20261103'), `${base}#2`)
+  assert.equal(repo.read('version_tag.txt'), `${base}#2`)
+
+  repo.git('tag', `${base}#2`)
+  repo.write('version_m.txt', '0.0.1-alpha.0.3')
+  assert.equal(syncReleaseTag(repo.dir, '20261103'), `${base}#3`)
+  assert.equal(repo.read('version_tag.txt'), `${base}#3`)
+
+  assert.equal(syncReleaseTag(repo.dir, '20261104'), '10.0.0-0.0.1/20261104')
+  repo.write('version_m.txt', '0.0.2')
+  assert.equal(syncReleaseTag(repo.dir, '20261103'), '10.0.0-0.0.2/20261103')
 })

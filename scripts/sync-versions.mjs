@@ -13,6 +13,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 export const SEMVER_PATTERN =
@@ -146,6 +147,64 @@ export function syncVersions(root = REPO_ROOT) {
   return { desktop, mobile }
 }
 
+export function releaseTagBase(desktopVersion, mobileVersion, date) {
+  const formattedDate = String(date ?? '').replaceAll('-', '')
+  const dateMatch = /^(\d{4})(\d{2})(\d{2})$/.exec(formattedDate)
+  if (!dateMatch) {
+    throw new Error(`Release date must be YYYYMMDD (received "${date}").`)
+  }
+  const [, year, month, day] = dateMatch
+  const parsedDate = new Date(`${year}-${month}-${day}T00:00:00Z`)
+  if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== `${year}-${month}-${day}`) {
+    throw new Error(`Release date must be a valid calendar date (received "${date}").`)
+  }
+  return `${semverDigits(desktopVersion)}-${semverDigits(mobileVersion)}/${formattedDate}`
+}
+
+function semverDigits(version) {
+  return assertSemver(version, 'Version').split(/[+-]/)[0]
+}
+
+export function nextReleaseTag(base, tags) {
+  const escapedBase = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = new RegExp(`^${escapedBase}(?:#(\\d+))?$`)
+  let highestSuffix = 0
+  let baseExists = false
+
+  for (const tag of tags) {
+    const match = pattern.exec(tag)
+    if (!match) continue
+    if (match[1] === undefined) baseExists = true
+    else highestSuffix = Math.max(highestSuffix, Number(match[1]))
+  }
+
+  if (!baseExists && highestSuffix === 0) return base
+  return `${base}#${Math.max(baseExists ? 1 : 0, highestSuffix) + 1}`
+}
+
+export function syncReleaseTag(root = REPO_ROOT, date = new Date()) {
+  const desktopVersion = readVersionFile(path.join(root, 'version.txt'), 'Desktop')
+  const mobileVersion = readVersionFile(path.join(root, 'version_m.txt'), 'Mobile')
+  const dateString = date instanceof Date
+    ? `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`
+    : String(date)
+  const base = releaseTagBase(desktopVersion, mobileVersion, dateString)
+  let tags
+  try {
+    tags = execFileSync('git', ['tag', '--list'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe']
+    }).split(/\r?\n/).filter(Boolean)
+  } catch (error) {
+    throw new Error(`Could not list Git tags: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  const tag = nextReleaseTag(base, tags)
+  fs.writeFileSync(path.join(root, 'version_tag.txt'), tag)
+  return tag
+}
+
 export function formatSyncReport({ desktop, mobile }) {
   const line = (label, entry) => {
     const state = entry.changed ? `updated from ${entry.from}` : 'unchanged'
@@ -160,6 +219,9 @@ function runCli() {
     const result = syncVersions()
     console.log('[sync-versions] Version files applied:')
     console.log(formatSyncReport(result))
+    if (process.argv.includes('--write-tag')) {
+      console.log(`[sync-versions] Release tag written to version_tag.txt: ${syncReleaseTag()}`)
+    }
     if (!result.desktop.changed && !result.mobile.changed) {
       console.log('[sync-versions] Both apps were already up to date; nothing was written.')
     }

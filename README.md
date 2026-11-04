@@ -9,7 +9,7 @@
 
 ### The Open, Multi-Provider AI Copilot for Desktop & Mobile
 
-[![Version](https://img.shields.io/badge/version-10.0.0-38bdf8?style=for-the-badge&logo=electron&logoColor=white)](https://github.com/brnalemusic/Prism)
+[![Version](https://img.shields.io/badge/version-10.1.0-38bdf8?style=for-the-badge&logo=electron&logoColor=white)](https://github.com/brnalemusic/Prism)
 [![License](https://img.shields.io/badge/license-PRISM%20LICENSE%201.0-eab308?style=for-the-badge)](./LICENSE)
 
 <br />
@@ -274,7 +274,7 @@ npm run mobile:bundle     # Verify the production Metro bundle
 | `version.txt` | Desktop | `9.3.0` |
 | `version_m.txt` | Mobile | `0.0.1` |
 
-`npm run sync` (cross-platform equivalent: `npm run versions`) applies **both** files to `package.json`, `package-lock.json` and, for the mobile app, `app.json` plus the Android `versionCode`. A version that already matches is left untouched, so the script never invents a bump and never rewrites files for nothing.
+`npm run sync` applies **both** version files to `package.json`, `package-lock.json` and, for the mobile app, `app.json` plus the Android `versionCode`. It also writes the next release tag to `version_tag.txt`. `npm run versions` is the cross-platform version-only command and does not create a tag file. A version that already matches is left untouched.
 
 ### Release tags and conditional builds
 
@@ -289,7 +289,7 @@ Examples: `10.0.0-0.0.1/20261103`, `10.0.0-0.0.1/20261103#2`, `10.0.1-0.0.2/2026
 - Git accepts `/` in tag names (`refs/tags/10.0.1-0.0.2/20261028`) and GitHub Releases accepts the tag as-is.
 - SemVer does **not** accept `/` in a version string, so the apps themselves stay strict SemVer (`10.0.1`, `0.0.2`); the slash exists only in the tag.
 - The tag carries the **full** SemVer (major.minor.patch) of each app plus the release date. Including the patch lets you ship multiple releases on the same day without tag name collisions.
-- When another release is needed without changing either SemVer core (for example, an Android prerelease-only update), append a numeric `#NUMBER` after the date. The release title always exactly matches the complete tag, including this suffix.
+- `npm run sync` creates the tag name from both SemVer cores and today's local date. The first occurrence has no suffix; when the same tag base already exists, it increments `#N` (`#2`, `#3`, etc.). A changed version core or date creates a new base without a suffix. The release title always exactly matches the complete tag, including any suffix.
 
 The `prepare` job compares `version.txt` and `version_m.txt` against the previous release tag:
 

@@ -41,9 +41,9 @@ Write-Separator
 
 # A single Node script owns the rules for both apps: equal versions are left
 # untouched, different versions are written to package files and app.json.
-node scripts/sync-versions.mjs
+node scripts/sync-versions.mjs --write-tag
 if ($LASTEXITCODE -ne 0) {
-    Write-Step "X" "Version sync failed." Red
+    Write-Step "X" "Version and release tag sync failed." Red
     exit 1
 }
 
@@ -61,7 +61,7 @@ if ($gitDiff) {
 $untracked = git ls-files --others --exclude-standard 2>$null
 if ($untracked) {
     foreach ($file in $untracked) {
-        if ($file -eq "version.txt" -or $file -eq "version_m.txt") { $changedFiles += $file }
+        if ($file -eq "version.txt" -or $file -eq "version_m.txt" -or $file -eq "version_tag.txt") { $changedFiles += $file }
     }
 }
 

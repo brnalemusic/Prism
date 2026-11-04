@@ -50,8 +50,8 @@ The mobile version lives in `../version_m.txt` (the desktop version lives in
 `../version.txt`). From the repository root:
 
 ```bash
-npm run versions   # applies both version files (idempotent)
-npm run sync       # same, through the PowerShell wrapper
+npm run versions   # applies both version files (idempotent), no tag file
+npm run sync       # applies versions and writes version_tag.txt
 ```
 
 Release tags combine both apps:
@@ -62,8 +62,10 @@ MAJORDSK.MINORDSK.PATCHDSK-MAJORMBL.MINORMBL.PATCHMBL/YYYYMMDD[#NUMBER]
 10.0.0-0.0.1/20261103#2
 ```
 
-The optional numeric suffix distinguishes another release when the app version
-cores have not changed. The GitHub Release name matches the complete tag.
+`npm run sync` writes the next tag to `version_tag.txt`. The first occurrence
+has no suffix; if the same version-core/date base already exists, sync increments
+the numeric suffix (`#2`, `#3`, etc.). A changed version core or date starts a
+new base without a suffix. The GitHub Release name matches the complete tag.
 
 The release workflow only builds the Android APK when `version_m.txt` changed
 since the previous release tag, and only builds the Windows app when
