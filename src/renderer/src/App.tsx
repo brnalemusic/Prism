@@ -72,9 +72,9 @@ import {
 import {
   STATIC_COMPLETED_REHYPE_PLUGINS,
   STATIC_REMARK_PLUGINS,
-  STREAMING_REMARK_PLUGINS,
-  getVisualMarkupRange
+  STREAMING_REMARK_PLUGINS
 } from './markdownRenderer'
+import { getVisualMarkupRange } from './visualMarkup'
 import clsx from 'clsx'
 import {
   Quotes,
@@ -368,6 +368,55 @@ const PRISM_IMAGE_REFERENCE_PATTERN = /prism-image:\/\/asset\/[a-f0-9-]{36}/gi
 
 function hideInternalImageReferences(content: string): string {
   return content.replace(PRISM_IMAGE_REFERENCE_PATTERN, 'this image')
+}
+
+function renderTimelineText(
+  content: string,
+  textOffset: number,
+  isStreaming: boolean,
+  streamStats: ReturnType<typeof useStreamStats>,
+  markdownComponents: Components
+): React.ReactNode {
+  const range = isStreaming ? getVisualMarkupRange(content) : null
+  if (!range) {
+    return (
+      <ReactMarkdown
+        remarkPlugins={isStreaming ? STREAMING_REMARK_PLUGINS : STATIC_REMARK_PLUGINS}
+        rehypePlugins={isStreaming ? [createStreamingFadeRehypePlugin(streamStats, textOffset)] : STATIC_COMPLETED_REHYPE_PLUGINS}
+        components={markdownComponents}
+      >
+        {hideInternalImageReferences(content)}
+      </ReactMarkdown>
+    )
+  }
+
+  const before = content.slice(0, range.start)
+  const after = range.end === null ? '' : content.slice(range.end)
+  return (
+    <>
+      {before.trim() && (
+        <ReactMarkdown
+          remarkPlugins={STREAMING_REMARK_PLUGINS}
+          rehypePlugins={[createStreamingFadeRehypePlugin(streamStats, textOffset)]}
+          components={markdownComponents}
+        >
+          {hideInternalImageReferences(before)}
+        </ReactMarkdown>
+      )}
+      <div className="visual-artifact-indicator" role="status" aria-live="polite">
+        <span className="tool-shimmer-text">Generating visual artifact...</span>
+      </div>
+      {after.trim() && (
+        <ReactMarkdown
+          remarkPlugins={STREAMING_REMARK_PLUGINS}
+          rehypePlugins={[createStreamingFadeRehypePlugin(streamStats, textOffset + (range.end ?? content.length))]}
+          components={markdownComponents}
+        >
+          {hideInternalImageReferences(after)}
+        </ReactMarkdown>
+      )}
+    </>
+  )
 }
 
 const AiMessage = React.memo(function AiMessage({
@@ -1221,17 +1270,7 @@ const AiMessage = React.memo(function AiMessage({
                 ? renderTimelineTool(entry.tool, entry.key, entry.key)
                 : (
                   <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:my-1 prose-p:first:mt-0 prose-p:last:mb-0 prose-pre:bg-background-secondary prose-pre:border prose-pre:border-surface/50 prose-code:font-mono prose-code:text-[12px] prose-p:font-light prose-p:text-sm md:prose-p:text-base prose-li:text-sm md:prose-li:text-base">
-                    <ReactMarkdown
-                      remarkPlugins={isStreaming ? STREAMING_REMARK_PLUGINS : STATIC_REMARK_PLUGINS}
-                      rehypePlugins={
-                        isStreaming
-                          ? [createStreamingFadeRehypePlugin(streamStats, entry.textOffset)]
-                          : STATIC_COMPLETED_REHYPE_PLUGINS
-                      }
-                      components={markdownComponents}
-                    >
-                      {hideInternalImageReferences(entry.content)}
-                    </ReactMarkdown>
+                    {renderTimelineText(entry.content, entry.textOffset, isStreaming, streamStats, markdownComponents)}
                   </div>
                 )} />
           )}

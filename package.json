@@ -19,6 +19,7 @@
         "test:agenda": "node --experimental-strip-types --test scripts/agenda-validation.mts",
         "test:mcp-gallery": "node --experimental-strip-types --test scripts/mcp-gallery-validation.mts",
         "test:memory": "node --experimental-strip-types --test scripts/memory-validation.mts",
+        "test:visual-markup": "node --experimental-strip-types --test scripts/visual-markup-validation.mts",
         "test:providers": "node --experimental-strip-types --test scripts/provider-validation.mts",
         "start": "electron-vite preview",
         "dev": "electron-vite dev",
